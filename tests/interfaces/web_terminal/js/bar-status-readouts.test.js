@@ -133,5 +133,4 @@ describe('status readouts are live after boot', () => {
       expect(indexHtml, `#${id} is back in index.html`).not.toMatch(new RegExp(`id="${id}"`));
     }
   });
-
 });

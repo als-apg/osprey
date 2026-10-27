@@ -5,11 +5,15 @@
  * Single gallery for all artifacts with type filtering, pin flag,
  * and inline timeseries rendering.
  */
-import { getTheme, initTheme, subscribe } from "/design-system/js/theme-manager.js";
-import { applyEmbedded, isEmbedded, onModeChange } from "/design-system/js/frame-params.js";
-import { contributeHeader, isSimpleMode, onHeaderAction } from "/design-system/js/header-contrib.js";
-import "/design-system/js/components/osprey-display-menu.js";
-import { debounce } from "/design-system/js/dom.js";
+import { getTheme, initTheme, subscribe } from '/design-system/js/theme-manager.js';
+import { applyEmbedded, isEmbedded, onModeChange } from '/design-system/js/frame-params.js';
+import {
+  contributeHeader,
+  isSimpleMode,
+  onHeaderAction,
+} from '/design-system/js/header-contrib.js';
+import '/design-system/js/components/osprey-display-menu.js';
+import { debounce } from '/design-system/js/dom.js';
 import {
   getArtifacts,
   setArtifacts,
@@ -20,31 +24,34 @@ import {
   setCurrentSessionId,
   getShowAllSessions,
   setShowAllSessions,
-  addArtifact, removeArtifact, hasMoreArtifacts, inCurrentScope,
+  addArtifact,
+  removeArtifact,
+  hasMoreArtifacts,
+  inCurrentScope,
   fetchArtifacts as fetchArtifactsData,
   getListSearch,
   fetchMoreArtifacts as fetchMoreArtifactsData,
   fetchFocus,
-} from "./state.js";
-import { initTypeRegistry } from "./types.js";
-import { createSidebarRenderer, isNearListEnd } from "./render.js";
-import { initBrowseLayout } from "./browse-layout.js";
-import { initSidebarMenu } from "./sidebar-menu.js";
-import { createPreviewRenderer } from "./preview.js";
-import { mountPickBar } from "./pick-bar.js";
-import { createSimpleView } from "./simple-view.js";
-import { renderTimeseriesView, restyleMountedCharts } from "./timeseries.js";
+} from './state.js';
+import { initTypeRegistry } from './types.js';
+import { createSidebarRenderer, isNearListEnd } from './render.js';
+import { initBrowseLayout } from './browse-layout.js';
+import { initSidebarMenu } from './sidebar-menu.js';
+import { createPreviewRenderer } from './preview.js';
+import { mountPickBar } from './pick-bar.js';
+import { createSimpleView } from './simple-view.js';
+import { renderTimeseriesView, restyleMountedCharts } from './timeseries.js';
 
 // ---- DOM Refs ----
 
-const healthDot = document.getElementById("health-indicator");
-const refreshBtn = /** @type {HTMLElement} */ (document.getElementById("refresh-btn"));
-const searchInput = /** @type {HTMLInputElement} */ (document.getElementById("search"));
-const sidebarBody = /** @type {HTMLElement} */ (document.getElementById("sidebar-body"));
-const sidebar = document.getElementById("browse-sidebar");
-const resizeHandle = document.getElementById("resize-handle");
-const scopePill = /** @type {HTMLElement|null} */ (document.getElementById("scope-pill"));
-const orientToggleBtn = document.getElementById("orient-toggle-btn");
+const healthDot = document.getElementById('health-indicator');
+const refreshBtn = /** @type {HTMLElement} */ (document.getElementById('refresh-btn'));
+const searchInput = /** @type {HTMLInputElement} */ (document.getElementById('search'));
+const sidebarBody = /** @type {HTMLElement} */ (document.getElementById('sidebar-body'));
+const sidebar = document.getElementById('browse-sidebar');
+const resizeHandle = document.getElementById('resize-handle');
+const scopePill = /** @type {HTMLElement|null} */ (document.getElementById('scope-pill'));
+const orientToggleBtn = document.getElementById('orient-toggle-btn');
 
 // ---- State ----
 // artifacts/selectedArtifact/focusedArtifact/currentSessionId/
@@ -93,7 +100,11 @@ const simpleView = createSimpleView({ onTimeseriesNeeded: renderTimeseriesView }
 // The bar above the list that deletes the picked rows together. Rendering the
 // sidebar re-renders it, so it always follows the picks.
 const pickBar = mountPickBar({
-  onDeleted: () => { sidebarRenderer.renderSidebar(); previewRenderer.renderPreview(); simpleView.render(); },
+  onDeleted: () => {
+    sidebarRenderer.renderSidebar();
+    previewRenderer.renderPreview();
+    simpleView.render();
+  },
   onCleared: () => sidebarRenderer.renderSidebar(),
 });
 
@@ -106,7 +117,7 @@ const pickBar = mountPickBar({
 
 /** @param {boolean} ok */
 function updateHealth(ok) {
-  if (healthDot) healthDot.className = ok ? "health-dot healthy" : "health-dot";
+  if (healthDot) healthDot.className = ok ? 'health-dot healthy' : 'health-dot';
 }
 
 /**
@@ -116,8 +127,8 @@ function updateHealth(ok) {
  */
 function updateScopeUi() {
   const on = getShowAllSessions();
-  const btn = document.getElementById("all-sessions-btn");
-  if (btn) btn.setAttribute("aria-checked", String(on));
+  const btn = document.getElementById('all-sessions-btn');
+  if (btn) btn.setAttribute('aria-checked', String(on));
   if (scopePill) scopePill.hidden = !on;
   publishHeaderContribution();
 }
@@ -158,35 +169,35 @@ function publishHeaderContribution() {
   // the filter with it; it stays a body control there.
   if (!isSimpleMode()) {
     items.push({
-      kind: "search",
-      id: "filter",
+      kind: 'search',
+      id: 'filter',
       priority: 3,
-      placeholder: "Filter...",
-      value: searchInput ? searchInput.value : "",
+      placeholder: 'Filter...',
+      value: searchInput ? searchInput.value : '',
     });
   }
   items.push({
     // The in-body pair is icon-only (its titles carry the long form); a bar
     // strip has room for the words the rest of the UI already uses.
-    kind: "nav",
-    id: "browse-mode",
+    kind: 'nav',
+    id: 'browse-mode',
     priority: 2,
     items: [
-      { id: "tree", label: "Types", active: mode === "tree" },
-      { id: "activity", label: "Activity", active: mode === "activity" },
+      { id: 'tree', label: 'Types', active: mode === 'tree' },
+      { id: 'activity', label: 'Activity', active: mode === 'activity' },
     ],
   });
   items.push({
-    kind: "menu",
-    id: "sidebar-menu",
+    kind: 'menu',
+    id: 'sidebar-menu',
     priority: 1,
-    label: "More options",
+    label: 'More options',
     items: [
-      { id: "all-sessions", label: "All sessions", checked: getShowAllSessions() },
-      { id: "refresh", label: "Refresh" },
+      { id: 'all-sessions', label: 'All sessions', checked: getShowAllSessions() },
+      { id: 'refresh', label: 'Refresh' },
       // browse-layout.js owns this wording and names the layout a click
       // switches TO, so read the live button rather than restate it.
-      { id: "orient", label: orientToggleBtn?.querySelector(".orient-label")?.textContent || "" },
+      { id: 'orient', label: orientToggleBtn?.querySelector('.orient-label')?.textContent || '' },
     ],
   });
   contributeHeader(items);
@@ -221,7 +232,7 @@ const listCallbacks = {
  * @returns {string}
  */
 function listSearch() {
-  if (document.documentElement.dataset.uiMode === "simple" || !searchInput) return "";
+  if (document.documentElement.dataset.uiMode === 'simple' || !searchInput) return '';
   return searchInput.value.trim().toLowerCase();
 }
 
@@ -236,13 +247,16 @@ function loadMoreIfNearEnd() {
 // ---- Events ----
 
 if (searchInput) {
-  const onSearch = () => { sidebarRenderer.renderSidebar(); fetchArtifacts(); };
-  searchInput.addEventListener("input", debounce(onSearch, 200));
+  const onSearch = () => {
+    sidebarRenderer.renderSidebar();
+    fetchArtifacts();
+  };
+  searchInput.addEventListener('input', debounce(onSearch, 200));
 }
 
 // The listener sits on the container, which renderSidebar() never replaces.
 // No throttle: fetchMoreArtifacts() is a no-op while a page is in flight.
-sidebarBody.addEventListener("scroll", loadMoreIfNearEnd);
+sidebarBody.addEventListener('scroll', loadMoreIfNearEnd);
 
 /**
  * Apply a filter string that did not come from typing in #search — today the
@@ -267,56 +281,58 @@ function applyFilter(text) {
 function applyBrowseMode(mode) {
   if (!mode || mode === sidebarRenderer.getBrowseMode()) return;
   sidebarRenderer.setBrowseMode(mode);
-  document.querySelectorAll(".mode-btn").forEach((b) => {
-    b.classList.toggle("active", /** @type {HTMLElement} */ (b).dataset.mode === mode);
+  document.querySelectorAll('.mode-btn').forEach((b) => {
+    b.classList.toggle('active', /** @type {HTMLElement} */ (b).dataset.mode === mode);
   });
   sidebarRenderer.renderSidebar();
   publishHeaderContribution();
 }
 
 // Mode toggle (tree/activity)
-document.querySelectorAll(".mode-btn").forEach((btn) => {
-  btn.addEventListener("click", () => applyBrowseMode(/** @type {HTMLElement} */ (btn).dataset.mode));
+document.querySelectorAll('.mode-btn').forEach((btn) => {
+  btn.addEventListener('click', () =>
+    applyBrowseMode(/** @type {HTMLElement} */ (btn).dataset.mode)
+  );
 });
 
 // Layout toggle (list/gallery)
-document.querySelectorAll(".layout-btn").forEach((btn) => {
-  btn.addEventListener("click", () => {
+document.querySelectorAll('.layout-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
     const layout = /** @type {HTMLElement} */ (btn).dataset.layout;
     if (layout === sidebarRenderer.getSidebarLayout()) return;
     sidebarRenderer.setSidebarLayout(layout);
-    document.querySelectorAll(".layout-btn").forEach((b) => b.classList.remove("active"));
-    btn.classList.add("active");
+    document.querySelectorAll('.layout-btn').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
     sidebarRenderer.renderSidebar();
   });
 });
 
 // Keyboard shortcuts (priority order)
-document.addEventListener("keydown", (e) => {
+document.addEventListener('keydown', (e) => {
   const tag = document.activeElement?.tagName;
-  const isInput = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+  const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
 
   // 1. Escape + fullscreen → exit fullscreen (highest priority)
-  if (e.key === "Escape" && previewRenderer.isFullscreen()) {
+  if (e.key === 'Escape' && previewRenderer.isFullscreen()) {
     e.preventDefault();
     previewRenderer.exitFullscreen();
     return;
   }
 
   // 2. Escape + search focused → clear search
-  if (e.key === "Escape" && document.activeElement === searchInput) {
+  if (e.key === 'Escape' && document.activeElement === searchInput) {
     searchInput.blur();
-    searchInput.value = "";
+    searchInput.value = '';
     sidebarRenderer.renderSidebar();
     fetchArtifacts();
     return;
   }
 
   // 2b. Escape with rows picked (no input focused) → clear the picks
-  if (e.key === "Escape" && !isInput && pickBar.clear()) return;
+  if (e.key === 'Escape' && !isInput && pickBar.clear()) return;
 
   // 3. "/" (no input focused) → exit fullscreen first, then focus search
-  if (e.key === "/" && !isInput) {
+  if (e.key === '/' && !isInput) {
     e.preventDefault();
     if (previewRenderer.isFullscreen()) previewRenderer.exitFullscreen();
     searchInput.focus();
@@ -324,7 +340,7 @@ document.addEventListener("keydown", (e) => {
   }
 
   // 4. "F" (no input focused, no modifiers) → toggle fullscreen
-  if (e.key === "f" && !isInput && !e.ctrlKey && !e.metaKey && !e.altKey) {
+  if (e.key === 'f' && !isInput && !e.ctrlKey && !e.metaKey && !e.altKey) {
     e.preventDefault();
     if (previewRenderer.isFullscreen()) {
       previewRenderer.exitFullscreen();
@@ -358,17 +374,24 @@ function applyFocus(artifact, wantFullscreen) {
 }
 
 function connectSSE() {
-  if (sseSource) { sseSource.close(); sseSource = null; }
-  const source = new EventSource("/api/events");
+  if (sseSource) {
+    sseSource.close();
+    sseSource = null;
+  }
+  const source = new EventSource('/api/events');
   sseSource = source;
   source.onopen = () => updateHealth(true);
   source.onmessage = (event) => {
     updateHealth(true);
     let eventData = null;
-    try { eventData = JSON.parse(event.data); } catch { return; }
+    try {
+      eventData = JSON.parse(event.data);
+    } catch {
+      return;
+    }
     const eventType = eventData && eventData.type;
 
-    if (eventType === "focus") {
+    if (eventType === 'focus') {
       // Agent called artifact_focus — select that artifact in the gallery
       const focusId = eventData.id;
       const wantFullscreen = !!eventData.fullscreen;
@@ -379,7 +402,7 @@ function connectSSE() {
           // Scroll the selected item into view
           requestAnimationFrame(() => {
             const sel = sidebarBody.querySelector(`[data-id="${focusId}"]`);
-            if (sel) sel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            if (sel) sel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
           });
         } else {
           // Not in the loaded pages — fetch that one artifact. An entry outside
@@ -398,16 +421,19 @@ function connectSSE() {
       return;
     }
 
-    if (eventType === "artifact_deleted") {
+    if (eventType === 'artifact_deleted') {
       removeArtifact(eventData.id);
       if (getFocusedArtifact()?.id === eventData.id) setFocusedArtifact(null);
-      if (getSelectedArtifact()?.id === eventData.id) { setSelectedArtifact(null); previewRenderer.renderPreview(); }
+      if (getSelectedArtifact()?.id === eventData.id) {
+        setSelectedArtifact(null);
+        previewRenderer.renderPreview();
+      }
       sidebarRenderer.renderSidebar();
       simpleView.render();
       return;
     }
 
-    if (eventType === "artifact_updated") {
+    if (eventType === 'artifact_updated') {
       // Update the artifact in-place
       const idx = getArtifacts().findIndex((a) => a.id === eventData.id);
       if (idx >= 0) {
@@ -424,7 +450,7 @@ function connectSSE() {
       return;
     }
 
-    if (eventType === "artifact" || !eventType) {
+    if (eventType === 'artifact' || !eventType) {
       if (previewRenderer.isFullscreen()) previewRenderer.noteNewArtifactArrival();
       const entry = { ...eventData };
       delete entry.type;
@@ -434,18 +460,20 @@ function connectSSE() {
         if (previewRenderer.isFullscreen()) previewRenderer.updateNewArtifactBadge();
         return;
       }
-      fetchArtifacts().then(() => {
-        if (previewRenderer.isFullscreen()) previewRenderer.updateNewArtifactBadge();
-      }).catch(() => {});
+      fetchArtifacts()
+        .then(() => {
+          if (previewRenderer.isFullscreen()) previewRenderer.updateNewArtifactBadge();
+        })
+        .catch(() => {});
     }
   };
   source.onerror = () => updateHealth(false);
 }
 
 function doRefresh() {
-  refreshBtn.classList.add("refreshing");
+  refreshBtn.classList.add('refreshing');
   fetchArtifacts().finally(() => {
-    refreshBtn.classList.remove("refreshing");
+    refreshBtn.classList.remove('refreshing');
   });
   connectSSE();
 }
@@ -468,7 +496,7 @@ function doRefresh() {
 // Web Terminal hub it is a follower instead: theme-boot.js already applied
 // data-theme pre-paint, and this attaches the postMessage listener for the
 // hub's live broadcasts.
-initTheme({ role: isEmbedded() ? "follower" : "hub" });
+initTheme({ role: isEmbedded() ? 'follower' : 'hub' });
 
 // Embedded mode (contract-version 1, see frame-params.js): hides the
 // logo (via gallery.css's `body.embedded .logo` rule) and, via the
@@ -484,8 +512,14 @@ applyEmbedded();
  */
 function _sendThemeToFrame(iframe, theme) {
   // Intentional '*' (same-origin contract exception): nested preview iframe may be null/cross-origin.
-  // eslint-disable-next-line no-empty -- intentional empty catch: postMessage to a stale/cross-origin frame is best-effort
-  try { /** @type {any} */ (iframe).contentWindow.postMessage({ type: "osprey-theme-change", theme }, "*"); } catch {}
+  try {
+    /** @type {any} */ (iframe).contentWindow.postMessage(
+      { type: 'osprey-theme-change', theme },
+      '*'
+    );
+  } catch {
+    // PostMessage to a stale/cross-origin frame is best-effort.
+  }
 }
 
 /**
@@ -496,9 +530,9 @@ function _sendThemeToFrame(iframe, theme) {
  * @param {string} theme
  */
 function _refreshThemeLinks(theme) {
-  document.querySelectorAll("a[data-theme-link]").forEach((a) => {
+  document.querySelectorAll('a[data-theme-link]').forEach((a) => {
     const url = new URL(/** @type {HTMLAnchorElement} */ (a).href, window.location.origin);
-    url.searchParams.set("theme", theme);
+    url.searchParams.set('theme', theme);
     /** @type {HTMLAnchorElement} */ (a).href = `${url.pathname}${url.search}${url.hash}`;
   });
 }
@@ -507,7 +541,7 @@ subscribe((theme) => {
   // Every iframe the gallery mounts is a served artifact page (preview pane,
   // browse pane, Simple's result card, each card thumbnail) running the same
   // follower bridge, so there is no selector here to keep in step with the markup.
-  document.querySelectorAll("iframe").forEach((iframe) => _sendThemeToFrame(iframe, theme));
+  document.querySelectorAll('iframe').forEach((iframe) => _sendThemeToFrame(iframe, theme));
   _refreshThemeLinks(theme);
   restyleMountedCharts();
 });
@@ -517,16 +551,20 @@ subscribe((theme) => {
 // card thumbnail scrolled into view) gets the theme in force right away
 // instead of waiting for the next change. `load` doesn't bubble, so it is
 // caught in the capture phase at the document.
-document.addEventListener("load", (e) => {
-  const theme = getTheme();
-  if (theme && e.target instanceof HTMLIFrameElement) _sendThemeToFrame(e.target, theme);
-}, true);
+document.addEventListener(
+  'load',
+  (e) => {
+    const theme = getTheme();
+    if (theme && e.target instanceof HTMLIFrameElement) _sendThemeToFrame(e.target, theme);
+  },
+  true
+);
 
 // Session changes are unrelated to theming and stay a plain message
 // listener (theme-manager owns the 'osprey-theme-change' type now).
-window.addEventListener("message", (e) => {
+window.addEventListener('message', (e) => {
   if (e.origin !== window.location.origin) return;
-  if (e.data && e.data.type === "osprey-session-change" && e.data.session_id) {
+  if (e.data && e.data.type === 'osprey-session-change' && e.data.session_id) {
     setCurrentSessionId(e.data.session_id);
     setShowAllSessions(false);
     updateScopeUi();
@@ -550,31 +588,31 @@ onModeChange(() => {
 
 initBrowseLayout({
   handle: resizeHandle,
-  handleY: document.getElementById("resize-handle-y"),
+  handleY: document.getElementById('resize-handle-y'),
   sidebar,
   toggle: orientToggleBtn,
 });
 initSidebarMenu({
-  button: document.getElementById("sidebar-menu-btn"),
-  menu: document.getElementById("sidebar-menu"),
+  button: document.getElementById('sidebar-menu-btn'),
+  menu: document.getElementById('sidebar-menu'),
 });
-if (refreshBtn) refreshBtn.addEventListener("click", doRefresh);
+if (refreshBtn) refreshBtn.addEventListener('click', doRefresh);
 
-const allSessionsBtn = document.getElementById("all-sessions-btn");
-if (allSessionsBtn) allSessionsBtn.addEventListener("click", toggleAllSessions);
+const allSessionsBtn = document.getElementById('all-sessions-btn');
+if (allSessionsBtn) allSessionsBtn.addEventListener('click', toggleAllSessions);
 
 // Tile bar round-trip: every branch lands in the same handler the matching
 // in-body control does. The first publish comes after initBrowseLayout, so
 // the orientation entry reads the label that call already settled on.
 onHeaderAction((id, value) => {
-  if (id === "filter") {
-    applyFilter(value || "");
-  } else if (id === "browse-mode") {
+  if (id === 'filter') {
+    applyFilter(value || '');
+  } else if (id === 'browse-mode') {
     applyBrowseMode(value);
-  } else if (id === "sidebar-menu") {
-    if (value === "all-sessions") toggleAllSessions();
-    else if (value === "refresh") doRefresh();
-    else if (value === "orient") {
+  } else if (id === 'sidebar-menu') {
+    if (value === 'all-sessions') toggleAllSessions();
+    else if (value === 'refresh') doRefresh();
+    else if (value === 'orient') {
       // browse-layout.js owns the flip and relabels its button synchronously,
       // so driving the button and re-publishing keeps the entry honest.
       orientToggleBtn?.click();
@@ -585,9 +623,9 @@ onHeaderAction((id, value) => {
 publishHeaderContribution();
 
 // Scope pill ✕ — one-click way back to the default this-session scope.
-const scopePillClear = document.getElementById("scope-pill-clear");
+const scopePillClear = document.getElementById('scope-pill-clear');
 if (scopePillClear) {
-  scopePillClear.addEventListener("click", () => {
+  scopePillClear.addEventListener('click', () => {
     setShowAllSessions(false);
     updateScopeUi();
     fetchArtifacts();

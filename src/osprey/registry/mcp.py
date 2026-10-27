@@ -184,7 +184,7 @@ def _post_error(matcher: str) -> HookRule:
 #: owns it: this registry is loaded by the CLI and the build on every render,
 #: and that module drags the whole web stack in behind it. The literal is
 #: pinned against the constant in ``tests/registry/test_mcp.py``.
-PANEL_TOKEN_ENV_NAME = "OSPREY_PANEL_TOKEN"
+PANEL_TOKEN_ENV_NAME = "OSPREY_PANEL_TOKEN"  # noqa: S105 -- names an environment variable, holds no secret
 
 #: The event dispatcher's MCP endpoint, as an agent in a web terminal reaches it.
 #:

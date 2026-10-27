@@ -60,9 +60,15 @@ test('_parseChannelsFromResponse handles strings, objects, and the double-encode
   // JSON string.
   expect(_parseChannelsFromResponse('{"channels":["a"]}')).toEqual(['a']);
   // Double-encoded {result: "<json>"} envelope.
-  expect(_parseChannelsFromResponse(JSON.stringify({ result: JSON.stringify({ channels: ['z'] }) }))).toEqual(['z']);
+  expect(
+    _parseChannelsFromResponse(JSON.stringify({ result: JSON.stringify({ channels: ['z'] }) }))
+  ).toEqual(['z']);
   // Channel entries may be strings or {name|pv} objects.
-  expect(_parseChannelsFromResponse({ channels: [{ name: 'n' }, { pv: 'p' }, 'raw'] })).toEqual(['n', 'p', 'raw']);
+  expect(_parseChannelsFromResponse({ channels: [{ name: 'n' }, { pv: 'p' }, 'raw'] })).toEqual([
+    'n',
+    'p',
+    'raw',
+  ]);
 });
 
 test('_parseChannelsFromResponse returns [] for missing/invalid input', () => {

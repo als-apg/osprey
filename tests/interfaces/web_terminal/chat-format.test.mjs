@@ -24,7 +24,10 @@ import { createApprovalCard } from '../../../src/osprey/interfaces/web_terminal/
 import { createToolGroup } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-tool-cards.js';
 
 /** Text well past the server's 300-character string cut, as the artifact-save result carries. */
-const LONG = 'Analysis of the orbit response for the sector, with the fit residuals and the per-BPM notes. '.repeat(4);
+const LONG =
+  'Analysis of the orbit response for the sector, with the fit residuals and the per-BPM notes. '.repeat(
+    4
+  );
 
 /** The artifact-save result the screenshot showed, whole, as the server's preview carries it once peeled. */
 const ARTIFACT_SAVE = {
@@ -152,7 +155,7 @@ describe('formatToolResult', () => {
       expect(lines).toContain('summary');
       expect(lines.find((line) => /^ {2}status\s+success$/.test(line))).toBeDefined();
       expect(lines.find((line) => line.startsWith('  description'))).toContain(description);
-    },
+    }
   );
 });
 
@@ -191,7 +194,7 @@ describe('inputView', () => {
 
   test('shows a list of plain values on one line', () => {
     expect(qs(inputView({ channels: ['SR:BPM1', 'SR:BPM2'] }), 'dd .op-kv-text').textContent).toBe(
-      'SR:BPM1, SR:BPM2',
+      'SR:BPM1, SR:BPM2'
     );
   });
 
@@ -199,7 +202,9 @@ describe('inputView', () => {
     ['a list that mixes kinds', [1, { a: 2 }]],
     ['a record nested two deep', { inner: { x: 1 } }],
   ])('falls back to indented JSON for %s', (_shape, value) => {
-    expect(qs(inputView({ value }), 'pre.op-kv-json').textContent).toBe(JSON.stringify(value, null, 2));
+    expect(qs(inputView({ value }), 'pre.op-kv-json').textContent).toBe(
+      JSON.stringify(value, null, 2)
+    );
   });
 
   /** The machine kinds the chip holds from GET, keyed by target (C-KIND). */
@@ -219,7 +224,7 @@ describe('inputView', () => {
     // The kind comes from GET, never from the target's name: a `standin` no
     // live server vouched for is the real machine.
     expect(valueOf(inputView({ approved_target: 'standin' }, { standin: 'real' }), 'Target')).toBe(
-      'Real machine',
+      'Real machine'
     );
   });
 
@@ -227,7 +232,7 @@ describe('inputView', () => {
     'with no kind handed in, approved_target %s reads as the id given, never a guessed kind',
     (target) => {
       expect(valueOf(inputView({ approved_target: target }), 'Target')).toBe(target);
-    },
+    }
   );
 
   test('a kind outside the vocabulary is not a word to look up', () => {
@@ -246,7 +251,10 @@ describe('inputDetail', () => {
   });
 
   test('keeps a field the summary cuts short, so no text the call sent is lost', () => {
-    const input = { code: 'x = 1', description: `Sweep the sector ${'with the residuals '.repeat(20)}` };
+    const input = {
+      code: 'x = 1',
+      description: `Sweep the sector ${'with the residuals '.repeat(20)}`,
+    };
     const shown = summarizeInput(input);
     expect(shown.endsWith('…')).toBe(true);
     expect(inputDetail(input, shown)).toEqual(input);
@@ -274,7 +282,7 @@ describe('the approval card', () => {
         description: 'Print two lines',
         approved_target: 'va',
       }),
-      hooks(),
+      hooks()
     );
     expect(qs(card.el, '.op-card-input').textContent).toBe('Print two lines');
     const detail = qs(card.el, '.op-card-detail');
@@ -315,7 +323,11 @@ describe('a tool row', () => {
 
   test('shows the call input and the artifact-save result as key and value lines', () => {
     const chip = createToolGroup().addTool(call({ code: 'print("a")\nprint("b")' }));
-    chip.finish({ is_error: false, preview: JSON.stringify(shortenedArtifactSave()), truncated: false });
+    chip.finish({
+      is_error: false,
+      preview: JSON.stringify(shortenedArtifactSave()),
+      truncated: false,
+    });
     const inputBox = qs(chip.el, '.op-tool-section .op-tool-pre');
     expect(qs(inputBox, 'pre.op-kv-block').textContent).toBe('print("a")\nprint("b")');
     const lines = qs(chip.el, '.op-tool-result .op-tool-pre').textContent.split('\n');
@@ -336,7 +348,7 @@ describe('a tool row', () => {
       },
       (el, text) => {
         el.textContent = text;
-      },
+      }
     );
     agent.finish({ is_error: false, preview: 'Async agent launched successfully.\nagentId: 7' });
     expect(qs(group.el, '.op-agent').dataset.state).toBe('background');

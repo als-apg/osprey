@@ -250,7 +250,7 @@ tier never holds one at all.
 Where it is granted, one approval is the whole gate: approving `queue_start` in
 chat starts the queue. There is no second confirmation step anywhere else.
 
-A deploy refuses to grant this token to a render whose settings permit `Bash`.
+A deploy refuses to grant this token to a render whose settings permit `Bash` or `Monitor`.
 The approval gates the `queue_start` tool, not a shell — an agent with a shell
 could read the token out of its own environment and arm a queue with no approval
 at all.

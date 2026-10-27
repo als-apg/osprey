@@ -26,7 +26,11 @@ import { initHookDebug } from './hook-debug.js';
 import { initSessionSelector, startNewSession } from './sessions.js';
 import { initCommandPalette } from './palette-boot.js';
 import { initRailMoreMenu } from './rail-more-menu.js';
-import { getFamily, initTheme, subscribe as subscribeTheme } from '/design-system/js/theme-manager.js';
+import {
+  getFamily,
+  initTheme,
+  subscribe as subscribeTheme,
+} from '/design-system/js/theme-manager.js';
 import { onModeChange } from '/design-system/js/frame-params.js';
 import '/design-system/js/components/osprey-display-menu.js';
 import { initChat, enterFromExpert, renderChatBootFailure } from './chat.js';
@@ -418,7 +422,9 @@ export function initAgentLinks() {
     prefix: window.__OSPREY_PREFIX__ || '',
     isHostedPanel: (id) => getPanelStandaloneUrl(id) !== null,
     openPanel: navigateAndActivatePanel,
-    openWindow: (url, target, features) => { window.open(url, target, features); },
+    openWindow: (url, target, features) => {
+      window.open(url, target, features);
+    },
   });
 }
 
@@ -458,17 +464,26 @@ export function initIframePasteBridge() {
     // and would execute in the HOST origin, and `//evil.example/x` resolves
     // to a cross-origin document — so a leading-slash test alone is a hole.
     // Every real panel url is root-relative and already server-prefixed.
-    if (e.data && e.data.type === 'osprey:navigate'
-        && typeof e.data.panel === 'string' && typeof e.data.url === 'string'
-        && e.data.url.startsWith('/') && !e.data.url.startsWith('//')) {
+    if (
+      e.data &&
+      e.data.type === 'osprey:navigate' &&
+      typeof e.data.panel === 'string' &&
+      typeof e.data.url === 'string' &&
+      e.data.url.startsWith('/') &&
+      !e.data.url.startsWith('//')
+    ) {
       navigateAndActivatePanel(e.data.panel, e.data.url);
     }
     // ARIEL's "Use in Workspace" control asks only to activate the already
     // registered artifact gallery in THIS browser. Unlike the legacy navigate
     // message it carries no URL; bind it to the live ARIEL iframe identity so
     // another same-origin panel cannot activate arbitrary destinations.
-    if (e.data && e.data.type === 'osprey:activate' && e.data.panel === 'artifacts'
-        && panelIdForMessageSource(e.source) === 'ariel') {
+    if (
+      e.data &&
+      e.data.type === 'osprey:activate' &&
+      e.data.panel === 'artifacts' &&
+      panelIdForMessageSource(e.source) === 'ariel'
+    ) {
       navigateAndActivatePanel('artifacts', '');
     }
   });

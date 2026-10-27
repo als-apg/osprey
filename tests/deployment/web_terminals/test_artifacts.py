@@ -614,6 +614,23 @@ def test_entitled_render_permitting_bash_refuses_the_deploy_and_is_named(tmp_pat
     assert excinfo.value.tiers == ["readwrite"]
 
 
+def test_entitled_render_permitting_monitor_refuses_the_deploy(tmp_path):
+    """Denying `Bash` alone leaves a shell open: `Monitor` runs shell commands in
+    the background, so alice's agent can still read the token from its environment.
+    This is the artifact `claude_code.permissions.remove_deny: ["Monitor"]` builds."""
+    config = _tiered_roster_config(tmp_path)
+    settings = tmp_path / "profiles" / "rw" / ".claude" / "settings.json"
+    deny = [entry for entry in _SHIPPED_DENY if entry != "Monitor"]
+    settings.write_text(
+        json.dumps({"permissions": {"allow": [], "deny": deny, "ask": []}}), encoding="utf-8"
+    )
+
+    with pytest.raises(BashLaunchTokenConflictError) as excinfo:
+        write_web_terminal_artifacts(config, tmp_path)
+
+    assert excinfo.value.tiers == ["readwrite"]
+
+
 def test_refusing_the_deploy_writes_no_artifacts(tmp_path):
     """The guard runs BEFORE the render, so a refusal leaves nothing half-written.
     A build/ directory carrying a compose file from a refused deploy is worse than

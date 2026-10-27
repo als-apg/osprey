@@ -39,16 +39,22 @@ export function messageOf(e) {
 export function renderSchema(container, pipelineType, metadata) {
   if (pipelineType === 'hierarchical' && metadata?.hierarchy_levels) {
     const levels = metadata.hierarchy_levels;
-    const rows = levels.map((/** @type {any} */ lvl, /** @type {number} */ i) => {
-      const arrow = i < levels.length - 1 ? '<span class="schema-arrow">&rarr;</span>' : '';
-      const name = typeof lvl === 'string' ? lvl : (lvl.name || lvl.level || '?');
-      return `<span class="schema-node${i === 0 ? ' active' : ''}">${esc(name)}</span>${arrow}`;
-    }).join('');
+    const rows = levels
+      .map((/** @type {any} */ lvl, /** @type {number} */ i) => {
+        const arrow = i < levels.length - 1 ? '<span class="schema-arrow">&rarr;</span>' : '';
+        const name = typeof lvl === 'string' ? lvl : lvl.name || lvl.level || '?';
+        return `<span class="schema-node${i === 0 ? ' active' : ''}">${esc(name)}</span>${arrow}`;
+      })
+      .join('');
     container.innerHTML = `
       <div class="schema-row">${rows}</div>
-      ${metadata.naming_pattern ? `<div style="margin-top: var(--cf-space-3); color: var(--text-muted); font-size: var(--text-base);">
+      ${
+        metadata.naming_pattern
+          ? `<div style="margin-top: var(--cf-space-3); color: var(--text-muted); font-size: var(--text-base);">
         <strong>Naming pattern:</strong> <code class="pv-name">${esc(metadata.naming_pattern)}</code>
-      </div>` : ''}
+      </div>`
+          : ''
+      }
     `;
   } else if (pipelineType === 'middle_layer') {
     container.innerHTML = `

@@ -110,7 +110,9 @@ function mountSimpleInput({ disabled = false } = {}) {
 describe('capabilitySentence', () => {
   test('names where the values come from, per machine kind', () => {
     const facts = factsOf([], false);
-    expect(fc.capabilitySentence('real', facts)).toBe('Here the agent can read live machine values.');
+    expect(fc.capabilitySentence('real', facts)).toBe(
+      'Here the agent can read live machine values.'
+    );
     expect(fc.capabilitySentence('rehearsal', facts)).toBe(
       'Here the agent can read values from the rehearsal copy.'
     );

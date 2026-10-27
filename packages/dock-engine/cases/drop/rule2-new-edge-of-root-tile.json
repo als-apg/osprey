@@ -1,0 +1,44 @@
+{
+  "name": "rule2-new-edge-of-root-tile",
+  "rule": "rule-2",
+  "before": {
+    "tile": "t1",
+    "tabs": ["a"],
+    "showing": "a"
+  },
+  "op": {
+    "fn": "planDrop",
+    "source": {
+      "new": "b"
+    },
+    "target": {
+      "tile": "t1",
+      "edge": "bottom"
+    },
+    "dock": {
+      "px": {
+        "width": 1000,
+        "height": 600
+      },
+      "minPx": 40
+    }
+  },
+  "after": {
+    "split": "column",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a",
+        "size": 0.5
+      },
+      {
+        "tile": "t2",
+        "tabs": ["b"],
+        "showing": "b",
+        "size": 0.5,
+        "from": "t1"
+      }
+    ]
+  }
+}

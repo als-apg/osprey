@@ -82,12 +82,12 @@ _ADOPTION_PROBE_TIMEOUT = 1.0
 #: :data:`osprey.interfaces.common_middleware.OPERATOR_SECRET_HEADER` rather
 #: than importing it, because infrastructure/ does not import interfaces/; the
 #: two spellings are pinned equal by a test.
-_OPERATOR_SECRET_HEADER = "x-osprey-terminal-secret"
+_OPERATOR_SECRET_HEADER = "x-osprey-terminal-secret"  # noqa: S105 -- names a header, holds no secret
 
 #: The environment carrier for this process's operator secret. Mirrors
 #: :data:`osprey.interfaces.web_auth.OPERATOR_SECRET_ENV`, pinned by the same
 #: test. Only a *carrier*: see :meth:`ServerLauncher._operator_secret`.
-_OPERATOR_SECRET_ENV = "OSPREY_TERMINAL_SECRET"
+_OPERATOR_SECRET_ENV = "OSPREY_TERMINAL_SECRET"  # noqa: S105 -- names an environment variable, holds no secret
 
 #: The multi-user bind-host declaration. Mirrors
 #: :data:`osprey.interfaces.web_auth.BIND_HOST_ENV` rather than importing it,

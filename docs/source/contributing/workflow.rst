@@ -18,7 +18,9 @@ short-lived topic branches that PR back into it. Releases are CalVer tags
 - Branch your work off ``main``, and open your PR against ``main``.
 - ``main`` is always the integration target. CI gates every PR; protected status checks must pass before merge.
 - Releases are cut by maintainers tagging a commit on ``main``; the PyPI publish workflow runs on ``v*.*.*`` tags.
-- The ``osprey-connectors`` workspace package has its **own** CalVer stream, on its own ``osprey-connectors-vYYYY.M.P`` tags (``bN`` / ``rcN`` for pre-releases), cut when the package changes. Each release must stay backward-compatible with every supported framework release, so the framework declares only a floor on it, never a pin. (The ``osprey-connectors-v0.1.0`` tag predates the scheme and is retired; the describe glob skips it.) A fork or mirror must sync the ``osprey-connectors-v*`` tags as well as the ``v*`` ones: without them the package builds as ``0.0.postN`` and ``osprey up --dev`` refuses it.
+- The ``osprey-connectors`` workspace package has its **own** CalVer stream, on its own ``osprey-connectors-vYYYY.M.P`` tags (``bN`` / ``rcN`` for pre-releases), cut when the package changes. Each release must stay backward-compatible with every supported framework release, so the framework declares only a floor on it, never a pin. (The ``osprey-connectors-v0.1.0`` tag predates the scheme and is retired; the describe glob skips it.) A fork or mirror must sync the ``osprey-connectors-v*`` tags as well as the ``v*`` ones: without them the package builds as ``0.0.postN`` and ``osprey up --dev`` refuses it. Connectors releases are stable by default: a beta framework installs with pre-releases admitted and would absorb a connectors beta. A connectors tag runs its own publish workflow, ``release-connectors.yml``, and nothing else: the framework's ``v*.*.*`` release never builds the package, and resolves its ``osprey-connectors>=`` floor from PyPI, so a floor bump lands only after the connectors release it names is published.
+- A change to what ships in the connectors wheel carries its changelog fragment in ``packages/osprey-connectors/changelog.d/``, which feeds that package's own ``CHANGELOG.md``; every other shipped change carries one in the root ``changelog.d/``. The README in each of those directories says which files need a fragment, and the changelog check names them in every verdict.
+- ``packages/dock-engine`` is not a workspace member and publishes nowhere: the framework wheel ships its Python module ``dock_engine``, CANOPY installs the directory from git, and ``@als-apg/dock-engine`` is a git dependency. ``package.json`` stays at ``0.0.0-dev``. See :doc:`/reference/contracts/dock-engine`.
 - Hotfixes follow the same path: branch from the tag (or ``main``), PR back, tag again as ``vYYYY.M.P+1``. No special hotfix branches.
 - Documentation publishes on the same tags: the site root is always the newest release; every push to ``main`` rebuilds ``/latest/``, shown with a development banner.
 
@@ -42,20 +44,34 @@ Making Changes
 
 **2. Make changes** -- follow the code standards below, add tests, update docs.
 
-**3. Test locally.** ``scripts/gate.sh`` is the one local spelling of the merge gate. Run
-``./scripts/gate.sh full`` before you open a PR, and ``./scripts/gate.sh fast <test paths>``
-over the tests you touched while you work. The helper scripts serve the loops around it:
+**3. Test locally** with the check command, ``scripts/check.py``, the one
+declaration of the merge gate:
 
 .. code-block:: bash
 
-   # Tier 1: Quick check (< 30s) -- before every commit
-   ./scripts/quick_check.sh
+   # The quick tier -- before every commit (--fix lets ruff and prettier rewrite
+   # files first)
+   uv run python scripts/check.py quick
 
-   # Tier 2: Full CI check (2-3 min) -- before pushing
-   ./scripts/ci_check.sh
+   # The full tier -- before pushing or opening a PR
+   uv run python scripts/check.py full
 
-   # Tier 3: Pre-merge check -- before creating a PR (compare against your PR target)
-   ./scripts/premerge_check.sh main
+   # The quick tier scoped to your diff (name your PR target; add --worktree
+   # to judge uncommitted changes too)
+   uv run python scripts/check.py quick --changed origin/main
+
+``uv run python scripts/check.py list`` prints what each tier runs. The scoped
+run also names the CI lanes your diff touches. ``--base BASE`` arms the checks
+that judge a range without scoping the tier, so ``full --base origin/main``
+judges the whole tree and the range in one verdict.
+
+JavaScript (``*.js`` and ``*.mjs``) is formatted by Prettier, exact-pinned in
+``package.json`` and configured by ``.prettierrc.json``: ``npm run format``
+rewrites the tree, and the ``prettier`` check (``npm run format:check``) fails
+any file it would rewrite. Markdown, YAML, JSON, CSS and HTML are not formatted.
+Type a value at its declaration, as a typed local or a typed constant, never
+with a cast mid-expression: the formatter moves the parentheses such a cast
+depends on, and the cast then types a different expression.
 
 **4. Commit changes** using conventional commit format:
 
@@ -77,10 +93,12 @@ Commit Message Format
 - ``test:`` -- Tests
 - ``chore:`` -- Dependencies, build
 
-Every pull request that touches ``src/`` or ``packages/`` needs a changelog
-fragment: a small file in ``changelog.d/`` named ``<name>.<type>.md`` (use the
-issue number as the name when there is one). The ``lint`` CI job checks for one,
-and ``./scripts/premerge_check.sh main`` checks the same thing locally. Fragments
+Every pull request that touches a directory the changelog gate covers needs a
+changelog fragment: a small file in ``changelog.d/`` named ``<name>.<type>.md``
+(use the issue number as the name when there is one).
+``uv run python scripts/changelog_fragments.py check --base origin/main`` names the
+directories the gate covers in every verdict. The ``lint`` CI job checks for a fragment,
+and ``uv run python scripts/check.py quick --changed origin/main`` checks the same thing locally. Fragments
 are folded into ``CHANGELOG.md`` when a release is cut — never add entries to
 ``CHANGELOG.md`` by hand. See ``changelog.d/README.md`` for the type list.
 
@@ -89,7 +107,7 @@ Pull Request Process
 
 1. Push your branch: ``git push origin feature/your-feature-name``
 2. Open a PR on GitHub with a description, related issues, and testing performed.
-3. PR requirements: pass all required CI checks, include a changelog fragment in ``changelog.d/`` for any change under ``src/`` or ``packages/``, and add appropriate tests. Internal-mode contributors with push access self-merge after CI is green (branch protection requires zero approving reviews); fork-mode contributions wait for a maintainer to merge.
+3. PR requirements: pass all required CI checks, include a changelog fragment in ``changelog.d/`` when the changelog gate asks for one, and add appropriate tests. Internal-mode contributors with push access self-merge after CI is green (branch protection requires zero approving reviews); fork-mode contributions wait for a maintainer to merge.
 4. During review: respond to feedback promptly, make requested changes, ask questions if unclear.
 
 Branch Protection on ``main``

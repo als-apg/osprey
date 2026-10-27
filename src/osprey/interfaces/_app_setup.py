@@ -17,9 +17,9 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from starlette.responses import Response
-from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from osprey.interfaces._media_types import PinnedTypeStaticFiles
 from osprey.interfaces.common_middleware import (
     ASSET_CORS_HEADERS,
     ExceptionLoggingMiddleware,
@@ -30,8 +30,12 @@ from osprey.interfaces.common_middleware import (
 from osprey.interfaces.web_auth import close_env_carriers, get_web_credentials
 
 
-class AssetStaticFiles(StaticFiles):
+class AssetStaticFiles(PinnedTypeStaticFiles):
     """A static mount whose answers are C-ASSETS: readable from any origin.
+
+    Built on :class:`~osprey.interfaces._media_types.PinnedTypeStaticFiles`,
+    so every suffix that class maps is served with its pinned content type
+    whatever the host's ``mimetypes`` table says.
 
     Adds :data:`~osprey.interfaces.common_middleware.ASSET_CORS_HEADERS`
     (``Access-Control-Allow-Origin: *``, never credentials) to every response
@@ -43,7 +47,7 @@ class AssetStaticFiles(StaticFiles):
     """
 
     async def get_response(self, path: str, scope: Scope) -> Response:
-        """Serve *path* as :class:`StaticFiles` does, plus the C-ASSETS header."""
+        """Serve *path* with its pinned content type, plus the C-ASSETS header."""
         response = await super().get_response(path, scope)
         response.headers.update(ASSET_CORS_HEADERS)
         return response

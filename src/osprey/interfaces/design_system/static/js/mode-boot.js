@@ -41,12 +41,12 @@
  * step.
  */
 (function () {
-  "use strict";
+  'use strict';
 
-  const STORAGE_KEY_BASE = "osprey-ui-mode";
-  const SCOPE_ATTRIBUTE = "data-osprey-storage-scope";
-  const VALID_MODES = ["expert", "simple"];
-  const DEFAULT_MODE = "expert";
+  const STORAGE_KEY_BASE = 'osprey-ui-mode';
+  const SCOPE_ATTRIBUTE = 'data-osprey-storage-scope';
+  const VALID_MODES = ['expert', 'simple'];
+  const DEFAULT_MODE = 'expert';
 
   /** @param {string|null} value @returns {value is string} */
   function isValidMode(value) {
@@ -55,7 +55,7 @@
 
   function readQueryMode() {
     try {
-      return new URLSearchParams(window.location.search).get("mode");
+      return new URLSearchParams(window.location.search).get('mode');
     } catch {
       return null;
     }
@@ -68,7 +68,7 @@
   function storageKey() {
     try {
       const scope = document.documentElement.getAttribute(SCOPE_ATTRIBUTE);
-      return scope ? STORAGE_KEY_BASE + "--" + scope : STORAGE_KEY_BASE;
+      return scope ? STORAGE_KEY_BASE + '--' + scope : STORAGE_KEY_BASE;
     } catch {
       return STORAGE_KEY_BASE;
     }
@@ -88,7 +88,7 @@
   // no-clobber check at the end use the exact same value.
   function readServerMode() {
     try {
-      return document.documentElement.getAttribute("data-ui-mode");
+      return document.documentElement.getAttribute('data-ui-mode');
     } catch {
       return null;
     }
@@ -111,6 +111,6 @@
   // from what's already there, so a correct server-rendered attribute
   // causes neither a flash nor a redundant write.
   if (resolved !== serverMode) {
-    document.documentElement.setAttribute("data-ui-mode", resolved);
+    document.documentElement.setAttribute('data-ui-mode', resolved);
   }
 })();

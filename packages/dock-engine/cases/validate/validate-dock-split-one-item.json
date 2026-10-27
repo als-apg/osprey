@@ -1,0 +1,16 @@
+{
+  "name": "validate-dock-split-one-item",
+  "rule": "C-LAYOUT",
+  "input": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a"
+      }
+    ]
+  },
+  "reason": "split_too_few_items",
+  "where": "layout.items"
+}

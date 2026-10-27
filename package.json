@@ -4,10 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "node node_modules/typescript/bin/tsc --noEmit && node node_modules/typescript/bin/tsc --noEmit -p packages/dock-engine",
     "test:js": "vitest run",
     "test:js:watch": "vitest",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "format": "prettier --write \"**/*.{js,mjs}\"",
+    "format:check": "prettier --check \"**/*.{js,mjs}\"",
+    "build:dock-engine": "node packages/dock-engine/scripts/build.mjs",
+    "check:dock-engine": "node packages/dock-engine/scripts/build.mjs --check",
+    "test:dock-engine": "vitest run -c packages/dock-engine/vitest.config.ts"
   },
   "devDependencies": {
     "typescript": "^7.0.2",
@@ -18,6 +23,10 @@
     "globals": "^17",
     "marked": "12.0.2",
     "dompurify": "3.4.16",
-    "jsdom": "^30.1.2"
+    "jsdom": "^30.1.2",
+    "vite": "8.3.2",
+    "typescript-6": "npm:typescript@6.0.3",
+    "@types/node": "26.1.0",
+    "prettier": "3.9.9"
   }
 }

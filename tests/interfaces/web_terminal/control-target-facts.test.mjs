@@ -131,7 +131,9 @@ describe('statePhrase', () => {
 
 /** @param {import('../../../src/osprey/interfaces/web_terminal/static/js/control-target-facts.js').ConfirmRun[][]} body */
 const textOf = (body) =>
-  body.map((line) => line.map((run) => (typeof run === 'string' ? run : run.em)).join('')).join('\n');
+  body
+    .map((line) => line.map((run) => (typeof run === 'string' ? run : run.em)).join(''))
+    .join('\n');
 
 describe('turnOnConfirm', () => {
   test('is scoped to the login and carries the turn-on sentence', () => {
@@ -194,7 +196,10 @@ describe('confirmSkippable', () => {
   });
 
   test('a turn-on waiver is remembered per kind, so a demoted stand-in asks again', () => {
-    const rehearsal = confirmSkipKeyBase('writes-on', { target: 'standin', machine_kind: 'rehearsal' });
+    const rehearsal = confirmSkipKeyBase('writes-on', {
+      target: 'standin',
+      machine_kind: 'rehearsal',
+    });
     const real = confirmSkipKeyBase('writes-on', { target: 'standin', machine_kind: 'real' });
     expect(rehearsal).not.toBe(real);
     expect(confirmSkipKeyBase('switch', { target: 'standin', machine_kind: 'real' })).toBe(
@@ -229,7 +234,10 @@ describe('lockReason', () => {
   test('an off switch and an on switch that writes are not locked', () => {
     expect(lockReason(rowOf(), stateOf())).toBeNull();
     expect(
-      lockReason(rowOf({ switch: 'on', write_allowed: true, write_reason: null, write_phrase: null }), stateOf())
+      lockReason(
+        rowOf({ switch: 'on', write_allowed: true, write_reason: null, write_phrase: null }),
+        stateOf()
+      )
     ).toBeNull();
   });
 
@@ -241,23 +249,33 @@ describe('lockReason', () => {
     ]) {
       const state = stateOf({ owner });
       expect(lockReason(rowOf(), state)).toBeNull();
-      expect(lockReason(rowOf({ switch: 'on', write_allowed: true, write_reason: null }), state)).toBeNull();
+      expect(
+        lockReason(rowOf({ switch: 'on', write_allowed: true, write_reason: null }), state)
+      ).toBeNull();
       // ...while target switching stays the holder's.
       expect(contextWritable(state)).toBe(false);
     }
   });
 
   test('an on switch the verdict refuses shows the verdict’s phrase', () => {
-    const phrase = "Writes are refused because this login's write tier does not allow them; ask the deployment admin.";
+    const phrase =
+      "Writes are refused because this login's write tier does not allow them; ask the deployment admin.";
     expect(
-      lockReason(rowOf({ switch: 'on', write_reason: 'tier_never', write_phrase: phrase }), stateOf())
+      lockReason(
+        rowOf({ switch: 'on', write_reason: 'tier_never', write_phrase: phrase }),
+        stateOf()
+      )
     ).toBe(phrase);
   });
 
   test('an unreadable switch is locked, never read as off', () => {
-    const phrase = 'Writes are refused because the write switch cannot be read; retry, then ask the deployment admin.';
+    const phrase =
+      'Writes are refused because the write switch cannot be read; retry, then ask the deployment admin.';
     expect(
-      lockReason(rowOf({ switch: null, write_reason: 'record_unavailable', write_phrase: phrase }), stateOf())
+      lockReason(
+        rowOf({ switch: null, write_reason: 'record_unavailable', write_phrase: phrase }),
+        stateOf()
+      )
     ).toBe(phrase);
     expect(lockReason(rowOf({ switch: null, write_phrase: null }), stateOf())).toBe(
       'the write switch cannot be read'
@@ -282,7 +300,10 @@ describe('lockReason', () => {
   test('reads no narrowing or ceiling field', () => {
     // The retired columns change nothing: a row is locked by C-GET alone.
     expect(
-      lockReason(rowOf({ ceiling_writes: false, narrowing_refusal: 'selected_role_missing' }), stateOf())
+      lockReason(
+        rowOf({ ceiling_writes: false, narrowing_refusal: 'selected_role_missing' }),
+        stateOf()
+      )
     ).toBeNull();
   });
 });

@@ -49,15 +49,14 @@ import { FACILITY_ZONE, stampFacilityZone } from '../_support/facility-zone.mjs'
 // engine in dock-iframe.js / dock-sync.js. `dockState.api` stays null by
 // default, which is exactly what the real getDockApi returns with no dockview
 // shell — every test that does not opt in keeps running in fallback mode.
-const {
-  getDockApi, openTerminalPanel, closeTerminalPanel, resetDockLayout, dockState,
-} = vi.hoisted(() => ({
-  dockState: { api: /** @type {any} */ (null) },
-  getDockApi: vi.fn(() => /** @type {any} */ (null)),
-  openTerminalPanel: vi.fn(),
-  closeTerminalPanel: vi.fn(),
-  resetDockLayout: vi.fn(),
-}));
+const { getDockApi, openTerminalPanel, closeTerminalPanel, resetDockLayout, dockState } =
+  vi.hoisted(() => ({
+    dockState: { api: /** @type {any} */ (null) },
+    getDockApi: vi.fn(() => /** @type {any} */ (null)),
+    openTerminalPanel: vi.fn(),
+    closeTerminalPanel: vi.fn(),
+    resetDockLayout: vi.fn(),
+  }));
 getDockApi.mockImplementation(() => dockState.api);
 
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js', () => ({
@@ -131,9 +130,7 @@ async function dockIframeWithGlowSpy(importOriginal) {
 // chip-row helpers too. Keep this list in step with what the graph imports;
 // the helpers return the shapes their callers destructure, not real copy.
 const FIRST_CONTACT_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/first-contact.js';
-const {
-  setFacts, starterPrompts, capabilitySentence, chipRow,
-} = vi.hoisted(() => ({
+const { setFacts, starterPrompts, capabilitySentence, chipRow } = vi.hoisted(() => ({
   setFacts: vi.fn(),
   starterPrompts: vi.fn(() => []),
   capabilitySentence: vi.fn(() => ''),
@@ -253,7 +250,7 @@ async function phase(name, run) {
   // runner is about to kill can still say what it was doing.
   const watchdog = setTimeout(
     () => reportStall(`${name}: still running after ${STALL_BUDGET_MS}ms`),
-    STALL_BUDGET_MS,
+    STALL_BUDGET_MS
   );
   try {
     return await run();
@@ -271,10 +268,15 @@ async function freshImport() {
   vi.doMock(TERMINAL_PATH, terminalWithVerbSpies);
   vi.doMock(SESSIONS_PATH, sessionsWithVerbSpies);
   vi.doMock(FIRST_CONTACT_PATH, () => ({
-    setFacts, starterPrompts, capabilitySentence, chipRow,
+    setFacts,
+    starterPrompts,
+    capabilitySentence,
+    chipRow,
   }));
-  return phase('module graph', () =>
-    import('../../../src/osprey/interfaces/web_terminal/static/js/panel-manager.js'));
+  return phase(
+    'module graph',
+    () => import('../../../src/osprey/interfaces/web_terminal/static/js/panel-manager.js')
+  );
 }
 
 /** The whole-test watchdog's timer, armed per test and disarmed with it. */
@@ -296,7 +298,7 @@ beforeEach(() => {
   const name = expect.getState().currentTestName ?? '(unnamed)';
   testWatchdog = setTimeout(
     () => reportStall(`${name}: still running after ${STALL_BUDGET_MS}ms`),
-    STALL_BUDGET_MS,
+    STALL_BUDGET_MS
   );
 });
 
@@ -305,7 +307,9 @@ afterEach(() => {
   testWatchdog = null;
   const elapsed = performance.now() - testStarted;
   if (elapsed > STALL_BUDGET_MS) {
-    reportStall(`${expect.getState().currentTestName ?? '(unnamed)'}: finished after ${Math.round(elapsed)}ms`);
+    reportStall(
+      `${expect.getState().currentTestName ?? '(unnamed)'}: finished after ${Math.round(elapsed)}ms`
+    );
   }
 
   vi.unstubAllGlobals();
@@ -319,16 +323,26 @@ describe('config fetches: /api/panels and PANELS[].configEndpoint (via fetchJSON
     renderContainer();
     /** @type {string[]} */
     const calls = [];
-    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-      calls.push(url);
-      if (url === '/u/alice/api/panels') {
-        return jsonOk({ enabled: ['artifacts'], custom: [], default: null, visible: ['artifacts'], active: null, labels: {} });
-      }
-      if (url === '/u/alice/api/artifact-server') {
-        return jsonOk({ url: '/u/alice/panel/artifacts', available: true });
-      }
-      return jsonOk({});
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url) => {
+        calls.push(url);
+        if (url === '/u/alice/api/panels') {
+          return jsonOk({
+            enabled: ['artifacts'],
+            custom: [],
+            default: null,
+            visible: ['artifacts'],
+            active: null,
+            labels: {},
+          });
+        }
+        if (url === '/u/alice/api/artifact-server') {
+          return jsonOk({ url: '/u/alice/panel/artifacts', available: true });
+        }
+        return jsonOk({});
+      })
+    );
     stubEventSource();
 
     const { initPanelManager } = await freshImport();
@@ -343,16 +357,26 @@ describe('config fetches: /api/panels and PANELS[].configEndpoint (via fetchJSON
     renderContainer();
     /** @type {string[]} */
     const calls = [];
-    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-      calls.push(url);
-      if (url === '/api/panels') {
-        return jsonOk({ enabled: ['artifacts'], custom: [], default: null, visible: ['artifacts'], active: null, labels: {} });
-      }
-      if (url === '/api/artifact-server') {
-        return jsonOk({ url: '/panel/artifacts', available: true });
-      }
-      return jsonOk({});
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url) => {
+        calls.push(url);
+        if (url === '/api/panels') {
+          return jsonOk({
+            enabled: ['artifacts'],
+            custom: [],
+            default: null,
+            visible: ['artifacts'],
+            active: null,
+            labels: {},
+          });
+        }
+        if (url === '/api/artifact-server') {
+          return jsonOk({ url: '/panel/artifacts', available: true });
+        }
+        return jsonOk({});
+      })
+    );
     stubEventSource();
 
     const { initPanelManager } = await freshImport();
@@ -365,15 +389,23 @@ describe('config fetches: /api/panels and PANELS[].configEndpoint (via fetchJSON
   test("hands first contact the payload's tour object", async () => {
     renderContainer();
     const tour = { capabilities: ['run a scan'], logbook: true };
-    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-      if (url === '/api/panels') {
-        return jsonOk({
-          enabled: ['artifacts'], custom: [], default: null,
-          visible: ['artifacts'], active: null, labels: {}, tour,
-        });
-      }
-      return jsonOk({});
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url) => {
+        if (url === '/api/panels') {
+          return jsonOk({
+            enabled: ['artifacts'],
+            custom: [],
+            default: null,
+            visible: ['artifacts'],
+            active: null,
+            labels: {},
+            tour,
+          });
+        }
+        return jsonOk({});
+      })
+    );
     stubEventSource();
 
     const { initPanelManager } = await freshImport();
@@ -386,12 +418,15 @@ describe('config fetches: /api/panels and PANELS[].configEndpoint (via fetchJSON
   // path must SAY so rather than leave it waiting on a payload that never came.
   test('a failed /api/panels still settles first contact with null', async () => {
     renderContainer();
-    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-      if (url === '/api/panels') {
-        return { ok: false, status: 500, statusText: 'Server Error', json: async () => ({}) };
-      }
-      return jsonOk({});
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url) => {
+        if (url === '/api/panels') {
+          return { ok: false, status: 500, statusText: 'Server Error', json: async () => ({}) };
+        }
+        return jsonOk({});
+      })
+    );
     stubEventSource();
 
     const { initPanelManager } = await freshImport();
@@ -409,9 +444,12 @@ describe('/api/files/events EventSource (via createEventSource)', () => {
   async function assertEventSourceUrl(prefix, expectedUrl) {
     if (prefix !== undefined) window.__OSPREY_PREFIX__ = prefix;
     renderContainer();
-    vi.stubGlobal('fetch', vi.fn(async () =>
-      jsonOk({ enabled: [], custom: [], default: null, visible: [], active: null, labels: {} })
-    ));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonOk({ enabled: [], custom: [], default: null, visible: [], active: null, labels: {} })
+      )
+    );
     const { urls } = stubEventSource();
 
     const { initPanelManager } = await freshImport();
@@ -440,16 +478,26 @@ describe('/api/panel-focus POST on a user-initiated rail switch', () => {
     const artifactsUrl = `${prefix || ''}/panel/artifacts`;
     /** @type {{url: string, opts: any}[]} */
     const calls = [];
-    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url, /** @type {any} */ opts) => {
-      calls.push({ url, opts });
-      if (url.endsWith('/api/panels')) {
-        return jsonOk({ enabled: ['artifacts'], custom: [], default: null, visible: ['artifacts'], active: null, labels: {} });
-      }
-      if (url.endsWith('/api/artifact-server')) {
-        return jsonOk({ url: artifactsUrl, available: true });
-      }
-      return jsonOk({ status: 'ok' });
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url, /** @type {any} */ opts) => {
+        calls.push({ url, opts });
+        if (url.endsWith('/api/panels')) {
+          return jsonOk({
+            enabled: ['artifacts'],
+            custom: [],
+            default: null,
+            visible: ['artifacts'],
+            active: null,
+            labels: {},
+          });
+        }
+        if (url.endsWith('/api/artifact-server')) {
+          return jsonOk({ url: artifactsUrl, available: true });
+        }
+        return jsonOk({ status: 'ok' });
+      })
+    );
     stubEventSource();
 
     const { initPanelManager } = await freshImport();
@@ -469,8 +517,8 @@ describe('/api/panel-focus POST on a user-initiated rail switch', () => {
     calls.length = 0;
     tab.click();
 
-    await settled(() => expect(calls.some(c => c.url === expectedUrl)).toBe(true));
-    const focusCall = calls.find(c => c.url === expectedUrl);
+    await settled(() => expect(calls.some((c) => c.url === expectedUrl)).toBe(true));
+    const focusCall = calls.find((c) => c.url === expectedUrl);
     if (!focusCall) throw new Error('expected a panel-focus fetch call');
     expect(focusCall.opts).toMatchObject({ method: 'POST' });
     expect(JSON.parse(focusCall.opts.body)).toEqual({ panel: 'artifacts' });
@@ -488,14 +536,25 @@ describe('/api/panel-focus POST on a user-initiated rail switch', () => {
     renderContainer();
     /** @type {{url: string, opts: any}[]} */
     const calls = [];
-    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url, /** @type {any} */ opts) => {
-      calls.push({ url, opts });
-      if (url.endsWith('/api/panels')) {
-        return jsonOk({ enabled: ['artifacts'], custom: [], default: null, visible: ['artifacts'], active: null, labels: {} });
-      }
-      if (url.endsWith('/api/artifact-server')) return jsonOk({ url: '/panel/artifacts', available: true });
-      return jsonOk({ status: 'ok' });
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url, /** @type {any} */ opts) => {
+        calls.push({ url, opts });
+        if (url.endsWith('/api/panels')) {
+          return jsonOk({
+            enabled: ['artifacts'],
+            custom: [],
+            default: null,
+            visible: ['artifacts'],
+            active: null,
+            labels: {},
+          });
+        }
+        if (url.endsWith('/api/artifact-server'))
+          return jsonOk({ url: '/panel/artifacts', available: true });
+        return jsonOk({ status: 'ok' });
+      })
+    );
     stubEventSource();
 
     const { initPanelManager } = await freshImport();
@@ -524,15 +583,25 @@ describe('iframe src: state.url arrives already server-prefixed (2.2) and must n
     if (prefix !== undefined) window.__OSPREY_PREFIX__ = prefix;
     renderContainer();
     const serverUrl = `${prefix || ''}/panel/artifacts`;
-    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-      if (url.endsWith('/api/panels')) {
-        return jsonOk({ enabled: ['artifacts'], custom: [], default: null, visible: ['artifacts'], active: null, labels: {} });
-      }
-      if (url.endsWith('/api/artifact-server')) {
-        return jsonOk({ url: serverUrl, available: true });
-      }
-      return jsonOk({});
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url) => {
+        if (url.endsWith('/api/panels')) {
+          return jsonOk({
+            enabled: ['artifacts'],
+            custom: [],
+            default: null,
+            visible: ['artifacts'],
+            active: null,
+            labels: {},
+          });
+        }
+        if (url.endsWith('/api/artifact-server')) {
+          return jsonOk({ url: serverUrl, available: true });
+        }
+        return jsonOk({});
+      })
+    );
     stubEventSource();
 
     const { initPanelManager } = await freshImport();
@@ -561,21 +630,30 @@ describe('rail state for custom panels without a health endpoint', () => {
   test('a null-healthEndpoint panel is enabled, not left inert at the disabled default', async () => {
     window.__OSPREY_PREFIX__ = '';
     renderContainer();
-    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-      if (url === '/api/panels') {
-        return jsonOk({
-          enabled: [],
-          custom: [
-            { id: 'results', label: 'RESULTS', url: '/panel/results', healthEndpoint: null, path: '/results/' },
-          ],
-          default: null,
-          visible: ['results'],
-          active: null,
-          labels: {},
-        });
-      }
-      return jsonOk({});
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url) => {
+        if (url === '/api/panels') {
+          return jsonOk({
+            enabled: [],
+            custom: [
+              {
+                id: 'results',
+                label: 'RESULTS',
+                url: '/panel/results',
+                healthEndpoint: null,
+                path: '/results/',
+              },
+            ],
+            default: null,
+            visible: ['results'],
+            active: null,
+            labels: {},
+          });
+        }
+        return jsonOk({});
+      })
+    );
     stubEventSource();
 
     const { initPanelManager } = await freshImport();
@@ -615,30 +693,45 @@ describe('rail reachability — a panel that stops answering dims, stays clickab
    * is a 10 s advance.
    */
   async function bootPolled() {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+    });
     vi.setSystemTime(new Date(2026, 0, 5, 9, 0, 0));
     window.__OSPREY_PREFIX__ = '';
     renderContainer();
     /** @type {Set<string>} */
     const down = new Set();
-    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-      if (url === '/api/panels') {
-        return jsonOk({
-          enabled: ['system-health', 'jupyter'], custom: [], default: null,
-          visible: ['system-health', 'jupyter'], active: null, labels: {},
-        });
-      }
-      if (url === '/api/system-health-server') return jsonOk({ url: '/panel/system-health', available: true });
-      if (url === '/api/jupyter-server') return jsonOk({ url: '/panel/jupyter', available: true });
-      if (url === '/panel/system-health/health' && !down.has('system-health')) return jsonOk({ status: 'ok' });
-      if (url.startsWith('/panel/')) return { ok: false, status: 503, statusText: 'Down', json: async () => ({}) };
-      return jsonOk({ status: 'ok' });
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url) => {
+        if (url === '/api/panels') {
+          return jsonOk({
+            enabled: ['system-health', 'jupyter'],
+            custom: [],
+            default: null,
+            visible: ['system-health', 'jupyter'],
+            active: null,
+            labels: {},
+          });
+        }
+        if (url === '/api/system-health-server')
+          return jsonOk({ url: '/panel/system-health', available: true });
+        if (url === '/api/jupyter-server')
+          return jsonOk({ url: '/panel/jupyter', available: true });
+        if (url === '/panel/system-health/health' && !down.has('system-health'))
+          return jsonOk({ status: 'ok' });
+        if (url.startsWith('/panel/'))
+          return { ok: false, status: 503, statusText: 'Down', json: async () => ({}) };
+        return jsonOk({ status: 'ok' });
+      })
+    );
     stubEventSource();
 
     const mod = await freshImport();
     await mod.initPanelManager('panel-manager');
-    const entry = /** @type {HTMLElement} */ (document.querySelector('[data-panel-id="system-health"]'));
+    const entry = /** @type {HTMLElement} */ (
+      document.querySelector('[data-panel-id="system-health"]')
+    );
     await settled(() => expect(entry.classList.contains('disabled')).toBe(false));
     // Past the fast startup retry: the panel is on the 10 s maintenance cadence.
     await vi.advanceTimersByTimeAsync(1000);
@@ -670,7 +763,9 @@ describe('rail reachability — a panel that stops answering dims, stays clickab
 
   test('a panel that never answered stays disabled and is never marked unreachable', async () => {
     await bootPolled();
-    const jupyter = /** @type {HTMLElement} */ (document.querySelector('[data-panel-id="jupyter"]'));
+    const jupyter = /** @type {HTMLElement} */ (
+      document.querySelector('[data-panel-id="jupyter"]')
+    );
 
     await vi.advanceTimersByTimeAsync(60_000);
 
@@ -689,22 +784,34 @@ describe('agent activity: rail badge/glow + the activity-strip seam', () => {
   async function bootWithSSE() {
     window.__OSPREY_PREFIX__ = '';
     renderContainer();
-    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-      if (url === '/api/panels') {
-        return jsonOk({ enabled: ['artifacts', 'ariel'], custom: [], default: null, visible: ['artifacts', 'ariel'], active: null, labels: {} });
-      }
-      if (url === '/api/artifact-server') {
-        return jsonOk({ url: '/panel/artifacts', available: true });
-      }
-      // /api/ariel-server (and any POST): no url ⇒ ariel stays unhealthy
-      return jsonOk({});
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url) => {
+        if (url === '/api/panels') {
+          return jsonOk({
+            enabled: ['artifacts', 'ariel'],
+            custom: [],
+            default: null,
+            visible: ['artifacts', 'ariel'],
+            active: null,
+            labels: {},
+          });
+        }
+        if (url === '/api/artifact-server') {
+          return jsonOk({ url: '/panel/artifacts', available: true });
+        }
+        // /api/ariel-server (and any POST): no url ⇒ ariel stays unhealthy
+        return jsonOk({});
+      })
+    );
     const { emit } = stubEventSource();
 
     const mod = await freshImport();
     await mod.initPanelManager('panel-manager');
 
-    const artifacts = /** @type {HTMLElement} */ (document.querySelector('[data-panel-id="artifacts"]'));
+    const artifacts = /** @type {HTMLElement} */ (
+      document.querySelector('[data-panel-id="artifacts"]')
+    );
     await settled(() => expect(artifacts.classList.contains('disabled')).toBe(false));
     return { emit, mod, artifacts };
   }
@@ -714,7 +821,12 @@ describe('agent activity: rail badge/glow + the activity-strip seam', () => {
     const strip = vi.fn();
     mod.setActivityStripHandler(strip);
 
-    emit({ type: 'agent_activity', tool: 'read_file', target: { kind: 'panel', panel: 'artifacts' }, ts: 1 });
+    emit({
+      type: 'agent_activity',
+      tool: 'read_file',
+      target: { kind: 'panel', panel: 'artifacts' },
+      ts: 1,
+    });
 
     expect(artifacts.classList.contains('agent-attention')).toBe(true);
     expect(artifacts.classList.contains('agent-flash')).toBe(true);
@@ -726,7 +838,12 @@ describe('agent activity: rail badge/glow + the activity-strip seam', () => {
     const strip = vi.fn();
     mod.setActivityStripHandler(strip);
 
-    const frame = { type: 'agent_activity', tool: 'read_file', target: { kind: 'panel', panel: 'no-such-panel' }, ts: 2 };
+    const frame = {
+      type: 'agent_activity',
+      tool: 'read_file',
+      target: { kind: 'panel', panel: 'no-such-panel' },
+      ts: 2,
+    };
     emit(frame);
 
     expect(strip).toHaveBeenCalledTimes(1);
@@ -738,7 +855,12 @@ describe('agent activity: rail badge/glow + the activity-strip seam', () => {
     const strip = vi.fn();
     mod.setActivityStripHandler(strip);
 
-    const frame = { type: 'agent_activity', tool: 'read_channel', target: { kind: 'channel', detail: 'SR01C:BPM1:X' }, ts: 3 };
+    const frame = {
+      type: 'agent_activity',
+      tool: 'read_channel',
+      target: { kind: 'channel', detail: 'SR01C:BPM1:X' },
+      ts: 3,
+    };
     emit(frame);
 
     expect(strip).toHaveBeenCalledTimes(1);
@@ -764,7 +886,12 @@ describe('agent activity: rail badge/glow + the activity-strip seam', () => {
   test('activateTab clears the badge when the panel surfaces (agent-driven focus)', async () => {
     const { emit, artifacts } = await bootWithSSE();
 
-    emit({ type: 'agent_activity', tool: 'read_file', target: { kind: 'panel', panel: 'artifacts' }, ts: 4 });
+    emit({
+      type: 'agent_activity',
+      tool: 'read_file',
+      target: { kind: 'panel', panel: 'artifacts' },
+      ts: 4,
+    });
     expect(artifacts.classList.contains('agent-attention')).toBe(true);
 
     emit({ type: 'panel_focus', panel: 'artifacts', source: 'agent' });
@@ -776,7 +903,12 @@ describe('agent activity: rail badge/glow + the activity-strip seam', () => {
     const ariel = /** @type {HTMLElement} */ (document.querySelector('[data-panel-id="ariel"]'));
     expect(ariel.classList.contains('disabled')).toBe(true); // never became healthy
 
-    emit({ type: 'agent_activity', tool: 'search_logbook', target: { kind: 'panel', panel: 'ariel' }, ts: 5 });
+    emit({
+      type: 'agent_activity',
+      tool: 'search_logbook',
+      target: { kind: 'panel', panel: 'ariel' },
+      ts: 5,
+    });
     expect(ariel.classList.contains('agent-attention')).toBe(true);
 
     emit({ type: 'panel_focus', panel: 'ariel' }); // activateTab bails on !healthy
@@ -805,29 +937,34 @@ describe('simple-UX chat-only first boot (workspace suppression)', () => {
     document.documentElement.setAttribute('data-ui-mode', mode);
     window.__OSPREY_PREFIX__ = '';
     renderContainer();
-    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-      if (url === '/api/panels') {
-        return jsonOk({
-          enabled: ['artifacts'],
-          custom: [],
-          default: null,
-          visible: ['artifacts'],
-          active: null,
-          labels: {},
-          workspace_has_artifacts: hasArtifacts,
-        });
-      }
-      if (url === '/api/artifact-server') {
-        return jsonOk({ url: '/panel/artifacts', available: true });
-      }
-      return jsonOk({ status: 'ok' });
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url) => {
+        if (url === '/api/panels') {
+          return jsonOk({
+            enabled: ['artifacts'],
+            custom: [],
+            default: null,
+            visible: ['artifacts'],
+            active: null,
+            labels: {},
+            workspace_has_artifacts: hasArtifacts,
+          });
+        }
+        if (url === '/api/artifact-server') {
+          return jsonOk({ url: '/panel/artifacts', available: true });
+        }
+        return jsonOk({ status: 'ok' });
+      })
+    );
     const { emit } = stubEventSource();
 
     const mod = await freshImport();
     await mod.initPanelManager('panel-manager');
 
-    const entry = /** @type {HTMLElement} */ (document.querySelector('[data-panel-id="artifacts"]'));
+    const entry = /** @type {HTMLElement} */ (
+      document.querySelector('[data-panel-id="artifacts"]')
+    );
     await settled(() => expect(entry.classList.contains('disabled')).toBe(false));
     return { emit, mod };
   }
@@ -860,7 +997,7 @@ describe('simple-UX chat-only first boot (workspace suppression)', () => {
     expect(workspaceOpen().active).toBe('artifacts');
   });
 
-  test("agent add_panel_to_rail (panel_visibility) reveals the workspace on that panel", async () => {
+  test('agent add_panel_to_rail (panel_visibility) reveals the workspace on that panel', async () => {
     const { emit } = await boot({ mode: 'simple', hasArtifacts: false });
     expect(workspaceOpen().iframe).toBeNull();
 
@@ -905,15 +1042,25 @@ describe('getPanelStandaloneUrl — the "Open in a new window" target (context m
   test('is null before config resolves a url, then the resolved url once it has', async () => {
     window.__OSPREY_PREFIX__ = '';
     renderContainer();
-    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-      if (url === '/api/panels') {
-        return jsonOk({ enabled: ['ariel'], custom: [], default: null, visible: ['ariel'], active: null, labels: {} });
-      }
-      if (url === '/api/ariel-server') {
-        return jsonOk({ url: '/panel/ariel', available: true });
-      }
-      return jsonOk({});
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url) => {
+        if (url === '/api/panels') {
+          return jsonOk({
+            enabled: ['ariel'],
+            custom: [],
+            default: null,
+            visible: ['ariel'],
+            active: null,
+            labels: {},
+          });
+        }
+        if (url === '/api/ariel-server') {
+          return jsonOk({ url: '/panel/ariel', available: true });
+        }
+        return jsonOk({});
+      })
+    );
     stubEventSource();
 
     const mod = await freshImport();
@@ -932,9 +1079,12 @@ describe('getPanelStandaloneUrl — the "Open in a new window" target (context m
   test('unknown panel id resolves to null', async () => {
     window.__OSPREY_PREFIX__ = '';
     renderContainer();
-    vi.stubGlobal('fetch', vi.fn(async () =>
-      jsonOk({ enabled: [], custom: [], default: null, visible: [], active: null, labels: {} })
-    ));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonOk({ enabled: [], custom: [], default: null, visible: [], active: null, labels: {} })
+      )
+    );
     stubEventSource();
 
     const mod = await freshImport();
@@ -943,24 +1093,33 @@ describe('getPanelStandaloneUrl — the "Open in a new window" target (context m
     expect(mod.getPanelStandaloneUrl('no-such-panel')).toBeNull();
   });
 
-  test('suffixes a custom panel\'s catalog path onto its resolved url', async () => {
+  test("suffixes a custom panel's catalog path onto its resolved url", async () => {
     window.__OSPREY_PREFIX__ = '';
     renderContainer();
-    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-      if (url === '/api/panels') {
-        return jsonOk({
-          enabled: [],
-          custom: [
-            { id: 'results', label: 'RESULTS', url: '/panel/results', healthEndpoint: null, path: '/results/' },
-          ],
-          default: null,
-          visible: ['results'],
-          active: null,
-          labels: {},
-        });
-      }
-      return jsonOk({});
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url) => {
+        if (url === '/api/panels') {
+          return jsonOk({
+            enabled: [],
+            custom: [
+              {
+                id: 'results',
+                label: 'RESULTS',
+                url: '/panel/results',
+                healthEndpoint: null,
+                path: '/results/',
+              },
+            ],
+            default: null,
+            visible: ['results'],
+            active: null,
+            labels: {},
+          });
+        }
+        return jsonOk({});
+      })
+    );
     stubEventSource();
 
     const mod = await freshImport();
@@ -978,25 +1137,28 @@ describe('rail membership (launcher model: entry ⇔ member, never dimmed)', () 
   async function bootMembership() {
     window.__OSPREY_PREFIX__ = '';
     renderContainer();
-    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-      if (url === '/api/panels') {
-        return jsonOk({
-          enabled: ['artifacts', 'ariel'],
-          custom: [],
-          default: null,
-          visible: ['artifacts'],
-          active: null,
-          labels: {},
-        });
-      }
-      if (url === '/api/artifact-server') {
-        return jsonOk({ url: '/panel/artifacts', available: true });
-      }
-      if (url === '/api/ariel-server') {
-        return jsonOk({ url: '/panel/ariel', available: true });
-      }
-      return jsonOk({ status: 'ok' });
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url) => {
+        if (url === '/api/panels') {
+          return jsonOk({
+            enabled: ['artifacts', 'ariel'],
+            custom: [],
+            default: null,
+            visible: ['artifacts'],
+            active: null,
+            labels: {},
+          });
+        }
+        if (url === '/api/artifact-server') {
+          return jsonOk({ url: '/panel/artifacts', available: true });
+        }
+        if (url === '/api/ariel-server') {
+          return jsonOk({ url: '/panel/ariel', available: true });
+        }
+        return jsonOk({ status: 'ok' });
+      })
+    );
     const { emit } = stubEventSource();
     const mod = await freshImport();
     await mod.initPanelManager('panel-manager');
@@ -1018,8 +1180,7 @@ describe('rail membership (launcher model: entry ⇔ member, never dimmed)', () 
     const { emit } = await bootMembership();
     // ariel's config resolved at init; its no-endpoint health settle may still
     // be pending — wait for artifacts' enable as the settle barrier.
-    await settled(() =>
-      expect(entry('artifacts')?.classList.contains('disabled')).toBe(false));
+    await settled(() => expect(entry('artifacts')?.classList.contains('disabled')).toBe(false));
 
     emit({ type: 'panel_visibility', panel: 'ariel', visible: true });
 
@@ -1046,7 +1207,7 @@ describe('rail membership (launcher model: entry ⇔ member, never dimmed)', () 
     expect(strip).not.toHaveBeenCalled();
   });
 
-  test("an agent hide reports itself on the strip; the entry is still removed", async () => {
+  test('an agent hide reports itself on the strip; the entry is still removed', async () => {
     const { emit, mod } = await bootMembership();
     const strip = vi.fn();
     mod.setActivityStripHandler(strip);
@@ -1148,9 +1309,10 @@ function makeDockApi() {
       api.panels.find((/** @type {any} */ p) => p.id === id) ?? null,
     addPanel: (/** @type {any} */ opts) => {
       api._added.push(opts);
-      const group = opts.position?.referenceGroup && opts.position.direction === 'within'
-        ? opts.position.referenceGroup
-        : makeGroup();
+      const group =
+        opts.position?.referenceGroup && opts.position.direction === 'within'
+          ? opts.position.referenceGroup
+          : makeGroup();
       /** @type {any} */
       const panel = { id: opts.id, title: opts.title, group };
       panel.api = { setActive: () => activate(panel) };
@@ -1269,7 +1431,10 @@ const menuRow = (label) =>
  */
 function rightClick(el) {
   const ev = new MouseEvent('contextmenu', {
-    bubbles: true, cancelable: true, clientX: 40, clientY: 60,
+    bubbles: true,
+    cancelable: true,
+    clientX: 40,
+    clientY: 60,
   });
   el.dispatchEvent(ev);
   return ev;
@@ -1303,7 +1468,12 @@ function menuKey(el) {
  *           mode?: 'simple'|'expert', down?: Set<string>, restored?: string[] }} [opts]
  */
 async function bootWorkspace({
-  panels = ['artifacts', 'ariel'], visible, unhealthy = [], mode, down = new Set(), restored = [],
+  panels = ['artifacts', 'ariel'],
+  visible,
+  unhealthy = [],
+  mode,
+  down = new Set(),
+  restored = [],
 } = {}) {
   if (mode) document.documentElement.setAttribute('data-ui-mode', mode);
   window.__OSPREY_PREFIX__ = '';
@@ -1322,29 +1492,32 @@ async function bootWorkspace({
   const members = visible ?? panels;
   /** @type {{url: string, opts: any}[]} */
   const calls = [];
-  vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url, /** @type {any} */ o) => {
-    calls.push({ url, opts: o });
-    if (url === '/api/panels') {
-      return jsonOk({
-        enabled: panels,
-        custom: [],
-        default: null,
-        visible: members,
-        active: null,
-        labels: {},
-        // Simple mode boots chat-only while the workspace is empty; these
-        // suites are about placement, so start past that onboarding state.
-        workspace_has_artifacts: true,
-      });
-    }
-    const id = panels.find((p) => CONFIG_ENDPOINT[p] === url);
-    if (id) return jsonOk(unhealthy.includes(id) ? {} : { url: `/panel/${id}`, available: true });
-    const polled = /^\/panel\/([^/]+)\/health$/.exec(url)?.[1];
-    if (polled && down.has(polled)) {
-      return { ok: false, status: 503, statusText: 'Down', json: async () => ({}) };
-    }
-    return jsonOk({ status: 'ok' });
-  }));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (/** @type {string} */ url, /** @type {any} */ o) => {
+      calls.push({ url, opts: o });
+      if (url === '/api/panels') {
+        return jsonOk({
+          enabled: panels,
+          custom: [],
+          default: null,
+          visible: members,
+          active: null,
+          labels: {},
+          // Simple mode boots chat-only while the workspace is empty; these
+          // suites are about placement, so start past that onboarding state.
+          workspace_has_artifacts: true,
+        });
+      }
+      const id = panels.find((p) => CONFIG_ENDPOINT[p] === url);
+      if (id) return jsonOk(unhealthy.includes(id) ? {} : { url: `/panel/${id}`, available: true });
+      const polled = /^\/panel\/([^/]+)\/health$/.exec(url)?.[1];
+      if (polled && down.has(polled)) {
+        return { ok: false, status: 503, statusText: 'Down', json: async () => ({}) };
+      }
+      return jsonOk({ status: 'ok' });
+    })
+  );
   const { emit } = stubEventSource();
 
   const api = makeDockApi();
@@ -1369,7 +1542,8 @@ async function bootWorkspace({
     }
   });
   await phase('first tile', () =>
-    settled(() => expect(api.getPanel(`iframe:${panels[0]}`)).not.toBeNull()));
+    settled(() => expect(api.getPanel(`iframe:${panels[0]}`)).not.toBeNull())
+  );
   calls.length = 0;
   return { api, emit, mod, calls };
 }
@@ -1551,18 +1725,26 @@ describe("agent open_panel (panel_focus source:'agent') — focus or open BESIDE
     renderContainer();
     /** @type {{url: string, opts: any}[]} */
     const calls = [];
-    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url, /** @type {any} */ o) => {
-      calls.push({ url, opts: o });
-      if (url === '/api/panels') {
-        return jsonOk({
-          enabled: ['artifacts', 'ariel'], custom: [], default: null,
-          visible: ['artifacts'], active: null, labels: {},
-        });
-      }
-      if (url === '/api/artifact-server') return jsonOk({ url: '/panel/artifacts', available: true });
-      if (url === '/api/ariel-server') return jsonOk({ url: '/panel/ariel', available: true });
-      return jsonOk({ status: 'ok' });
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url, /** @type {any} */ o) => {
+        calls.push({ url, opts: o });
+        if (url === '/api/panels') {
+          return jsonOk({
+            enabled: ['artifacts', 'ariel'],
+            custom: [],
+            default: null,
+            visible: ['artifacts'],
+            active: null,
+            labels: {},
+          });
+        }
+        if (url === '/api/artifact-server')
+          return jsonOk({ url: '/panel/artifacts', available: true });
+        if (url === '/api/ariel-server') return jsonOk({ url: '/panel/ariel', available: true });
+        return jsonOk({ status: 'ok' });
+      })
+    );
     const { emit } = stubEventSource();
 
     const mod = await freshImport();
@@ -1674,7 +1856,9 @@ describe('panel_arrange — the declarative whole-workspace rebuild', () => {
     // A tile it could never fill would sit empty for as long as anything else
     // holds focus, and nothing comes back for it.
     expect(api.getPanel('iframe:channel-finder')).toBeNull();
-    expect(api._added.filter((/** @type {any} */ o) => o.id === 'iframe:channel-finder')).toHaveLength(0);
+    expect(
+      api._added.filter((/** @type {any} */ o) => o.id === 'iframe:channel-finder')
+    ).toHaveLength(0);
     expect(dockedTiles(api)).toEqual(['ariel']);
     // Membership still applied, so it stays one rail click away.
     expect(entry('channel-finder')).not.toBeNull();
@@ -1695,7 +1879,9 @@ describe('panel_arrange — the declarative whole-workspace rebuild', () => {
   test('a tile still on screen is never painted over as an empty workspace', async () => {
     // The production route to "docked but UNHEALTHY": a panel healthy long
     // enough to be docked, which then stops answering its health poll.
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+    });
     try {
       const down = new Set();
       const { api, emit } = await bootWorkspace({ panels: ['artifacts', 'system-health'], down });
@@ -1745,14 +1931,24 @@ describe('panel_arrange — the declarative whole-workspace rebuild', () => {
     expect(entry('ariel')).not.toBeNull();
     expect(entry('artifacts')).toBeNull();
     expect(entry('channel-finder')).toBeNull();
-    expect(mod.getHiddenPanels().map((p) => p.id).sort()).toEqual(['artifacts', 'channel-finder']);
+    expect(
+      mod
+        .getHiddenPanels()
+        .map((p) => p.id)
+        .sort()
+    ).toEqual(['artifacts', 'channel-finder']);
     expect(dockedTiles(api)).toEqual(['ariel']);
   });
 
   test('applying an arrangement reports nothing back to the server', async () => {
     const { emit, calls } = await bootWorkspace({ panels: THREE });
 
-    emit({ type: 'panel_arrange', tiles: ['channel-finder', 'ariel'], focus: 'ariel', source: 'agent' });
+    emit({
+      type: 'panel_arrange',
+      tiles: ['channel-finder', 'ariel'],
+      focus: 'ariel',
+      source: 'agent',
+    });
 
     expect(posts(calls)).toEqual([]);
   });
@@ -1795,18 +1991,26 @@ describe('panel_arrange — the declarative whole-workspace rebuild', () => {
     renderContainer();
     /** @type {{url: string, opts: any}[]} */
     const calls = [];
-    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url, /** @type {any} */ o) => {
-      calls.push({ url, opts: o });
-      if (url === '/api/panels') {
-        return jsonOk({
-          enabled: ['artifacts', 'ariel'], custom: [], default: null,
-          visible: ['artifacts'], active: null, labels: {},
-        });
-      }
-      if (url === '/api/artifact-server') return jsonOk({ url: '/panel/artifacts', available: true });
-      if (url === '/api/ariel-server') return jsonOk({ url: '/panel/ariel', available: true });
-      return jsonOk({ status: 'ok' });
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url, /** @type {any} */ o) => {
+        calls.push({ url, opts: o });
+        if (url === '/api/panels') {
+          return jsonOk({
+            enabled: ['artifacts', 'ariel'],
+            custom: [],
+            default: null,
+            visible: ['artifacts'],
+            active: null,
+            labels: {},
+          });
+        }
+        if (url === '/api/artifact-server')
+          return jsonOk({ url: '/panel/artifacts', available: true });
+        if (url === '/api/ariel-server') return jsonOk({ url: '/panel/ariel', available: true });
+        return jsonOk({ status: 'ok' });
+      })
+    );
     const { emit } = stubEventSource();
 
     const mod = await freshImport();
@@ -1817,7 +2021,7 @@ describe('panel_arrange — the declarative whole-workspace rebuild', () => {
     emit({ type: 'panel_arrange', tiles: ['ariel'], focus: 'ariel', prune_rail: true });
 
     expect(entry('ariel')).not.toBeNull();
-    expect(entry('artifacts')).toBeNull();  // prune_rail holds without a dock
+    expect(entry('artifacts')).toBeNull(); // prune_rail holds without a dock
     expect(activeStamp()).toBe('ariel');
     expect(posts(calls)).toEqual([]);
   });
@@ -1846,7 +2050,9 @@ describe('tile notice — a docked panel that stops answering says so over its o
    * @param {Set<string>} down
    */
   async function bootBothDocked(down) {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+    });
     const booted = await bootWorkspace({ panels: ['artifacts', 'system-health'], down });
     await vi.advanceTimersByTimeAsync(1000); // onto the 10 s maintenance cadence
     rightClick(/** @type {Element} */ (entry('system-health')));
@@ -1896,9 +2102,14 @@ describe('tile notice — a docked panel that stops answering says so over its o
   });
 
   test('a panel that never answered gets no notice', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+    });
     // Its config resolves a url, but its /health never answers.
-    await bootWorkspace({ panels: ['artifacts', 'system-health'], down: new Set(['system-health']) });
+    await bootWorkspace({
+      panels: ['artifacts', 'system-health'],
+      down: new Set(['system-health']),
+    });
 
     await vi.advanceTimersByTimeAsync(60_000);
 
@@ -1913,7 +2124,12 @@ describe('tile notice — a docked panel that stops answering says so over its o
 
     down.add('system-health');
     await vi.advanceTimersByTimeAsync(10_000);
-    emit({ type: 'panel_focus', panel: 'system-health', url: '/panel/system-health/x', source: 'agent' });
+    emit({
+      type: 'panel_focus',
+      panel: 'system-health',
+      url: '/panel/system-health/x',
+      source: 'agent',
+    });
     // The last good page stays: no error page under the notice.
     expect(frame('system-health').src).toBe(src);
 
@@ -1935,25 +2151,28 @@ describe('SSE reconnect resync — membership re-converges from /api/panels', ()
     window.__OSPREY_PREFIX__ = '';
     renderContainer();
     const server = { visible: ['artifacts', 'ariel'] };
-    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-      if (url === '/api/panels') {
-        return jsonOk({
-          enabled: ['artifacts', 'ariel'],
-          custom: [],
-          default: null,
-          visible: [...server.visible],
-          active: null,
-          labels: {},
-        });
-      }
-      if (url === '/api/artifact-server') {
-        return jsonOk({ url: '/panel/artifacts', available: true });
-      }
-      if (url === '/api/ariel-server') {
-        return jsonOk({ url: '/panel/ariel', available: true });
-      }
-      return jsonOk({ status: 'ok' });
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url) => {
+        if (url === '/api/panels') {
+          return jsonOk({
+            enabled: ['artifacts', 'ariel'],
+            custom: [],
+            default: null,
+            visible: [...server.visible],
+            active: null,
+            labels: {},
+          });
+        }
+        if (url === '/api/artifact-server') {
+          return jsonOk({ url: '/panel/artifacts', available: true });
+        }
+        if (url === '/api/ariel-server') {
+          return jsonOk({ url: '/panel/ariel', available: true });
+        }
+        return jsonOk({ status: 'ok' });
+      })
+    );
 
     /** @type {{ onopen?: (() => void) | null }[]} */
     const sources = [];
@@ -1969,7 +2188,13 @@ describe('SSE reconnect resync — membership re-converges from /api/panels', ()
 
     const mod = await freshImport();
     await mod.initPanelManager('panel-manager');
-    return { mod, server, open: () => { for (const s of sources) s.onopen?.(); } };
+    return {
+      mod,
+      server,
+      open: () => {
+        for (const s of sources) s.onopen?.();
+      },
+    };
   }
 
   /** @param {string} id */
@@ -2002,15 +2227,15 @@ describe('SSE reconnect resync — membership re-converges from /api/panels', ()
 
   test('an in-sync reconnect changes nothing', async () => {
     const { open } = await bootResync();
-    const before = [...document.querySelectorAll('.panel-rail-button')].map(
-      (b) => b.getAttribute('data-panel-id'),
+    const before = [...document.querySelectorAll('.panel-rail-button')].map((b) =>
+      b.getAttribute('data-panel-id')
     );
 
     open();
     await new Promise((r) => setTimeout(r, 0));
 
-    const after = [...document.querySelectorAll('.panel-rail-button')].map(
-      (b) => b.getAttribute('data-panel-id'),
+    const after = [...document.querySelectorAll('.panel-rail-button')].map((b) =>
+      b.getAttribute('data-panel-id')
     );
     expect(after).toEqual(before);
   });
@@ -2066,7 +2291,7 @@ describe('tile-body glow — fired only where a tile visibly changed', () => {
     expect(glowPanelSpy).not.toHaveBeenCalled();
   });
 
-  test("an agent HIDE glows nothing — the tile is on its way out", async () => {
+  test('an agent HIDE glows nothing — the tile is on its way out', async () => {
     const { emit, mod } = await bootWorkspace();
     const strip = vi.fn();
     mod.setActivityStripHandler(strip);
@@ -2081,8 +2306,13 @@ describe('tile-body glow — fired only where a tile visibly changed', () => {
     const { emit } = await bootWorkspace();
 
     emit({
-      type: 'panel_register', id: 'bluesky', label: 'BLUESKY', url: '/panel/bluesky',
-      healthEndpoint: null, path: '/', source: 'agent',
+      type: 'panel_register',
+      id: 'bluesky',
+      label: 'BLUESKY',
+      url: '/panel/bluesky',
+      healthEndpoint: null,
+      path: '/',
+      source: 'agent',
     });
 
     expect(entry('bluesky')?.classList.contains('agent-flash')).toBe(true);
@@ -2103,24 +2333,46 @@ describe('agent-attention badges survive a reload — acknowledged by server ts'
    * entry, and a MUTABLE history buffer behind /api/agent-activity/recent. Both
    * SSE seams are exposed: `emit` for frames, and `open` for the hook that
    * re-reads the buffer (a reload's first open and every reconnect run it).
-   * @param {{events?: any[]}} [opts]
+   * With `holdLanding`, the artifacts config answer waits on `releaseLanding()`,
+   * so the boot landing runs only after whatever the case does first.
+   * @param {{events?: any[], holdLanding?: boolean}} [opts]
    */
-  async function bootAck({ events = [] } = {}) {
+  async function bootAck({ events = [], holdLanding = false } = {}) {
     window.__OSPREY_PREFIX__ = '';
     renderContainer();
     const buffer = { events };
     const reads = { recent: 0 };
-    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-      if (url === '/api/panels') {
-        return jsonOk({ enabled: ['artifacts', 'ariel'], custom: [], default: null, visible: ['artifacts', 'ariel'], active: null, labels: {} });
-      }
-      if (url === '/api/artifact-server') return jsonOk({ url: '/panel/artifacts', available: true });
-      if (url === '/api/agent-activity/recent') {
-        reads.recent += 1;
-        return jsonOk({ events: [...buffer.events] });
-      }
-      return jsonOk({ status: 'ok' });  // ariel: no url ⇒ entry present, disabled
-    }));
+    /** @type {() => void} */
+    let releaseLanding = () => {};
+    const landingHeld = holdLanding
+      ? new Promise((r) => {
+          releaseLanding = () => r(undefined);
+        })
+      : Promise.resolve();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url) => {
+        if (url === '/api/panels') {
+          return jsonOk({
+            enabled: ['artifacts', 'ariel'],
+            custom: [],
+            default: null,
+            visible: ['artifacts', 'ariel'],
+            active: null,
+            labels: {},
+          });
+        }
+        if (url === '/api/artifact-server') {
+          await landingHeld;
+          return jsonOk({ url: '/panel/artifacts', available: true });
+        }
+        if (url === '/api/agent-activity/recent') {
+          reads.recent += 1;
+          return jsonOk({ events: [...buffer.events] });
+        }
+        return jsonOk({ status: 'ok' }); // ariel: no url ⇒ entry present, disabled
+      })
+    );
 
     /** @type {{ onmessage?: ((e: {data: string}) => void) | null, onopen?: (() => void) | null }[]} */
     const sources = [];
@@ -2138,13 +2390,24 @@ describe('agent-attention badges survive a reload — acknowledged by server ts'
 
     const mod = await freshImport();
     await mod.initPanelManager('panel-manager');
-    const artifacts = /** @type {HTMLElement} */ (document.querySelector('[data-panel-id="artifacts"]'));
-    await settled(() => expect(artifacts.classList.contains('disabled')).toBe(false));
+    const artifacts = /** @type {HTMLElement} */ (
+      document.querySelector('[data-panel-id="artifacts"]')
+    );
+    if (!holdLanding) {
+      await settled(() => expect(artifacts.classList.contains('disabled')).toBe(false));
+    }
     return {
-      mod, buffer, artifacts,
+      mod,
+      buffer,
+      artifacts,
+      releaseLanding,
       /** @param {object} frame */
-      emit: (frame) => { for (const s of sources) s.onmessage?.({ data: JSON.stringify(frame) }); },
-      open: () => { for (const s of sources) s.onopen?.(); },
+      emit: (frame) => {
+        for (const s of sources) s.onmessage?.({ data: JSON.stringify(frame) });
+      },
+      open: () => {
+        for (const s of sources) s.onopen?.();
+      },
       // Wait until the open() hook has actually READ the buffer, then flush the
       // handler that consumes it. A "no badge appeared" assertion is only
       // evidence once the restore has genuinely run.
@@ -2162,7 +2425,12 @@ describe('agent-attention badges survive a reload — acknowledged by server ts'
   test("surfacing a badged panel persists that badge's SERVER ts as the ack", async () => {
     const { emit } = await bootAck();
 
-    emit({ type: 'agent_activity', tool: 'read_file', target: { kind: 'panel', panel: 'artifacts' }, ts: 1000.5 });
+    emit({
+      type: 'agent_activity',
+      tool: 'read_file',
+      target: { kind: 'panel', panel: 'artifacts' },
+      ts: 1000.5,
+    });
     expect(badged('artifacts')).toBe(true);
 
     emit({ type: 'panel_focus', panel: 'artifacts' });
@@ -2173,7 +2441,14 @@ describe('agent-attention badges survive a reload — acknowledged by server ts'
 
   test('no ack ⇒ an unseen buffer event restores the badge on SSE open', async () => {
     const { open } = await bootAck({
-      events: [{ type: 'agent_activity', tool: 'search_logbook', target: { kind: 'panel', panel: 'ariel' }, ts: 1000 }],
+      events: [
+        {
+          type: 'agent_activity',
+          tool: 'search_logbook',
+          target: { kind: 'panel', panel: 'ariel' },
+          ts: 1000,
+        },
+      ],
     });
     expect(badged('ariel')).toBe(false);
 
@@ -2186,8 +2461,18 @@ describe('agent-attention badges survive a reload — acknowledged by server ts'
     localStorage.setItem(`${ACK}ariel`, '1000');
     const { open, settle } = await bootAck({
       events: [
-        { type: 'agent_activity', tool: 'search_logbook', target: { kind: 'panel', panel: 'ariel' }, ts: 1000 },
-        { type: 'agent_activity', tool: 'search_logbook', target: { kind: 'panel', panel: 'ariel' }, ts: 999 },
+        {
+          type: 'agent_activity',
+          tool: 'search_logbook',
+          target: { kind: 'panel', panel: 'ariel' },
+          ts: 1000,
+        },
+        {
+          type: 'agent_activity',
+          tool: 'search_logbook',
+          target: { kind: 'panel', panel: 'ariel' },
+          ts: 999,
+        },
       ],
     });
 
@@ -2200,7 +2485,14 @@ describe('agent-attention badges survive a reload — acknowledged by server ts'
   test('a buffer event after the ack restores the badge', async () => {
     localStorage.setItem(`${ACK}ariel`, '1000');
     const { open } = await bootAck({
-      events: [{ type: 'agent_activity', tool: 'search_logbook', target: { kind: 'panel', panel: 'ariel' }, ts: 1000.5 }],
+      events: [
+        {
+          type: 'agent_activity',
+          tool: 'search_logbook',
+          target: { kind: 'panel', panel: 'ariel' },
+          ts: 1000.5,
+        },
+      ],
     });
 
     open();
@@ -2211,10 +2503,25 @@ describe('agent-attention badges survive a reload — acknowledged by server ts'
   test('non-panel-kind buffer rows never badge the rail', async () => {
     const { open, settle } = await bootAck({
       events: [
-        { type: 'agent_activity', tool: 'read_channel', target: { kind: 'channel', detail: 'SR01C:BPM1:X' }, ts: 2000 },
-        { type: 'agent_activity', tool: 'run_plan', target: { kind: 'run', detail: 'orm-3' }, ts: 1999 },
+        {
+          type: 'agent_activity',
+          tool: 'read_channel',
+          target: { kind: 'channel', detail: 'SR01C:BPM1:X' },
+          ts: 2000,
+        },
+        {
+          type: 'agent_activity',
+          tool: 'run_plan',
+          target: { kind: 'run', detail: 'orm-3' },
+          ts: 1999,
+        },
         // A panel-kind row with no rail entry has nothing to badge either.
-        { type: 'agent_activity', tool: 'open_panel', target: { kind: 'panel', panel: 'no-such-panel' }, ts: 1998 },
+        {
+          type: 'agent_activity',
+          tool: 'open_panel',
+          target: { kind: 'panel', panel: 'no-such-panel' },
+          ts: 1998,
+        },
       ],
     });
 
@@ -2226,9 +2533,20 @@ describe('agent-attention badges survive a reload — acknowledged by server ts'
 
   test('the newest of several rows for one panel becomes the ack', async () => {
     const { open, emit } = await bootAck({
-      events: [  // newest first, as the endpoint serves them
-        { type: 'agent_activity', tool: 'read_file', target: { kind: 'panel', panel: 'artifacts' }, ts: 30 },
-        { type: 'agent_activity', tool: 'read_file', target: { kind: 'panel', panel: 'artifacts' }, ts: 10 },
+      events: [
+        // newest first, as the endpoint serves them
+        {
+          type: 'agent_activity',
+          tool: 'read_file',
+          target: { kind: 'panel', panel: 'artifacts' },
+          ts: 30,
+        },
+        {
+          type: 'agent_activity',
+          tool: 'read_file',
+          target: { kind: 'panel', panel: 'artifacts' },
+          ts: 10,
+        },
       ],
     });
 
@@ -2241,11 +2559,86 @@ describe('agent-attention badges survive a reload — acknowledged by server ts'
 
   test('a clear with no badge ts on record leaves the stored ack untouched', async () => {
     localStorage.setItem(`${ACK}artifacts`, '1000');
-    const { emit } = await bootAck();  // boot surfaces artifacts — an unbadged clear
+    const { emit } = await bootAck(); // boot surfaces artifacts — an unbadged clear
 
     emit({ type: 'panel_focus', panel: 'artifacts' });
 
     expect(localStorage.getItem(`${ACK}artifacts`)).toBe('1000');
+  });
+
+  /** @param {string} id */
+  const surfaced = (id) =>
+    !!document.querySelector(`[data-panel-id="${id}"]`)?.classList.contains('active');
+
+  test('a landing after the restore surfaces the panel and keeps its badge and ack', async () => {
+    localStorage.setItem(`${ACK}artifacts`, '1000');
+    const { open, settle, releaseLanding } = await bootAck({
+      holdLanding: true,
+      events: [
+        {
+          type: 'agent_activity',
+          tool: 'read_file',
+          target: { kind: 'panel', panel: 'artifacts' },
+          ts: 1000.5,
+        },
+      ],
+    });
+
+    open();
+    await settle();
+    await settled(() => expect(badged('artifacts')).toBe(true));
+
+    releaseLanding();
+
+    await settled(() => expect(surfaced('artifacts')).toBe(true));
+    expect(badged('artifacts')).toBe(true);
+    expect(localStorage.getItem(`${ACK}artifacts`)).toBe('1000');
+  });
+
+  test('a replayed open_panel badges its panel and never surfaces it', async () => {
+    const { open, settle } = await bootAck({
+      events: [
+        {
+          type: 'agent_activity',
+          tool: 'open_panel',
+          target: { kind: 'panel', panel: 'ariel' },
+          ts: 1000,
+        },
+      ],
+    });
+    expect(surfaced('artifacts')).toBe(true);
+
+    open();
+    await settle();
+
+    await settled(() => expect(badged('ariel')).toBe(true));
+    expect(surfaced('ariel')).toBe(false);
+    expect(surfaced('artifacts')).toBe(true);
+  });
+
+  test('a badge restored on the landed panel stays until a requested surfacing serves it', async () => {
+    localStorage.setItem(`${ACK}artifacts`, '1000');
+    const { open, emit } = await bootAck({
+      events: [
+        {
+          type: 'agent_activity',
+          tool: 'read_file',
+          target: { kind: 'panel', panel: 'artifacts' },
+          ts: 1000.5,
+        },
+      ],
+    });
+    expect(surfaced('artifacts')).toBe(true);
+
+    open();
+
+    await settled(() => expect(badged('artifacts')).toBe(true));
+    expect(localStorage.getItem(`${ACK}artifacts`)).toBe('1000');
+
+    emit({ type: 'panel_focus', panel: 'artifacts' });
+
+    expect(badged('artifacts')).toBe(false);
+    expect(localStorage.getItem(`${ACK}artifacts`)).toBe('1000.5');
   });
 
   test('the ack is the server ts even when the browser clock is far ahead', async () => {
@@ -2254,22 +2647,35 @@ describe('agent-attention badges survive a reload — acknowledged by server ts'
     vi.spyOn(Date, 'now').mockReturnValue(2_000_000_000_000);
     const { emit, buffer, open } = await bootAck();
 
-    emit({ type: 'agent_activity', tool: 'read_file', target: { kind: 'panel', panel: 'artifacts' }, ts: 5 });
+    emit({
+      type: 'agent_activity',
+      tool: 'read_file',
+      target: { kind: 'panel', panel: 'artifacts' },
+      ts: 5,
+    });
     emit({ type: 'panel_focus', panel: 'artifacts' });
     expect(localStorage.getItem(`${ACK}artifacts`)).toBe('5');
 
     // Reconnect with a newer server event: still strictly greater than the ack.
-    buffer.events = [{ type: 'agent_activity', tool: 'read_file', target: { kind: 'panel', panel: 'artifacts' }, ts: 6 }];
+    buffer.events = [
+      {
+        type: 'agent_activity',
+        tool: 'read_file',
+        target: { kind: 'panel', panel: 'artifacts' },
+        ts: 6,
+      },
+    ];
     open();
 
     await settled(() => expect(badged('artifacts')).toBe(true));
   });
 });
 
-
 describe('rail context menu — the entry’s verbs in words (railOptions onContextMenu)', () => {
   const entry = (/** @type {string} */ id) =>
-    /** @type {HTMLElement} */ (document.querySelector(`.panel-rail-button[data-panel-id="${id}"]`));
+    /** @type {HTMLElement} */ (
+      document.querySelector(`.panel-rail-button[data-panel-id="${id}"]`)
+    );
   const activeStamp = () => document.getElementById('panel-manager')?.dataset.activePanel ?? null;
 
   afterEach(() => {
@@ -2286,7 +2692,10 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
 
     expect(ev.defaultPrevented).toBe(true);
     expect(menuLabels()).toEqual([
-      'Focus ARIEL', 'Open in a new tile', 'Open in a new window', 'Remove from rail',
+      'Focus ARIEL',
+      'Open in a new tile',
+      'Open in a new window',
+      'Remove from rail',
     ]);
     expect(contextMenu()?.getAttribute('aria-label')).toBe('ARIEL actions');
   });
@@ -2423,7 +2832,10 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
 
     expect(ev.defaultPrevented).toBe(true);
     expect(menuLabels()).toEqual([
-      'Restart terminal', 'New session', 'Reset layout', 'Close terminal tile',
+      'Restart terminal',
+      'New session',
+      'Reset layout',
+      'Close terminal tile',
     ]);
     expect(contextMenu()?.getAttribute('aria-label')).toBe('SESSION actions');
 
@@ -2432,8 +2844,9 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     // restartTerminal tears the PTY down without reconnecting — unpaired it
     // would leave the card stranded.
     expect(restartTerminal).toHaveBeenCalled();
-    expect(restartTerminal.mock.invocationCallOrder[0])
-      .toBeLessThan(startTerminal.mock.invocationCallOrder[0]);
+    expect(restartTerminal.mock.invocationCallOrder[0]).toBeLessThan(
+      startTerminal.mock.invocationCallOrder[0]
+    );
   });
 
   test('the terminal entry’s other verbs reach the session list and the dock', async () => {
@@ -2473,11 +2886,16 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
 
 describe('Undo after a one-click removal — the rail entry comes back where it was', () => {
   const entry = (/** @type {string} */ id) =>
-    /** @type {HTMLElement} */ (document.querySelector(`.panel-rail-button[data-panel-id="${id}"]`));
+    /** @type {HTMLElement} */ (
+      document.querySelector(`.panel-rail-button[data-panel-id="${id}"]`)
+    );
   const railIds = () =>
-    [...document.querySelectorAll('.panel-rail-button')].map((el) => el.getAttribute('data-panel-id'));
+    [...document.querySelectorAll('.panel-rail-button')].map((el) =>
+      el.getAttribute('data-panel-id')
+    );
   const notice = () => document.getElementById('undo-notice');
-  const undoButton = () => /** @type {HTMLElement | null} */ (document.querySelector('.undo-notice-btn'));
+  const undoButton = () =>
+    /** @type {HTMLElement | null} */ (document.querySelector('.undo-notice-btn'));
   const visibilityBodies = (/** @type {{url: string, opts: any}[]} */ calls) =>
     calls.filter((c) => c.url === '/api/panel-visibility').map((c) => JSON.parse(c.opts.body));
   const PANELS3 = ['artifacts', 'ariel', 'lattice'];
@@ -2499,7 +2917,8 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
     /** @type {HTMLElement} */ (undoButton()).click();
     // The position counts panel entries only — SESSION is not one of them.
     await settled(() =>
-      expect(visibilityBodies(calls).at(-1)).toEqual({ panel: 'ariel', visible: true, index: 1 }));
+      expect(visibilityBodies(calls).at(-1)).toEqual({ panel: 'ariel', visible: true, index: 1 })
+    );
     expect(notice()).toBeNull();
     emit({ type: 'panel_visibility', panel: 'ariel', visible: true, index: 1 });
     expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'lattice']);
@@ -2512,24 +2931,34 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
     await settled(() => expect(notice()?.textContent).toContain('WORKSPACE removed from the rail'));
     /** @type {HTMLElement} */ (undoButton()).click();
     await settled(() =>
-      expect(visibilityBodies(calls).at(-1)).toEqual({ panel: 'artifacts', visible: true, index: 0 }));
+      expect(visibilityBodies(calls).at(-1)).toEqual({
+        panel: 'artifacts',
+        visible: true,
+        index: 0,
+      })
+    );
   });
 
   test('a refused removal says so, with no Undo to offer', async () => {
     const { calls } = await bootWorkspace({ panels: PANELS3 });
     const ok = /** @type {any} */ (globalThis.fetch).getMockImplementation();
-    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url, /** @type {any} */ o) => {
-      if (url === '/api/panel-visibility') {
-        calls.push({ url, opts: o });
-        return { ok: false, status: 422, statusText: 'Unprocessable', json: async () => ({}) };
-      }
-      return ok(url, o);
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url, /** @type {any} */ o) => {
+        if (url === '/api/panel-visibility') {
+          calls.push({ url, opts: o });
+          return { ok: false, status: 422, statusText: 'Unprocessable', json: async () => ({}) };
+        }
+        return ok(url, o);
+      })
+    );
 
     rightClick(entry('ariel'));
     /** @type {HTMLElement} */ (menuRow('Remove from rail')).click();
 
-    await settled(() => expect(notice()?.textContent).toContain('Could not remove ARIEL from the rail'));
+    await settled(() =>
+      expect(notice()?.textContent).toContain('Could not remove ARIEL from the rail')
+    );
     expect(undoButton()).toBeNull();
   });
 
@@ -2578,7 +3007,8 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
     emit({ type: 'panel_visibility', panel: 'lattice', visible: false });
     /** @type {HTMLElement} */ (undoButton()).click();
     await settled(() =>
-      expect(visibilityBodies(calls).at(-1)).toEqual({ panel: 'lattice', visible: true, index: 2 }));
+      expect(visibilityBodies(calls).at(-1)).toEqual({ panel: 'lattice', visible: true, index: 2 })
+    );
     emit({ type: 'panel_visibility', panel: 'lattice', visible: true, index: 2 });
     await new Promise((resolve) => setTimeout(resolve, 0)); // the Undo's tail has run
     expect(railIds()).toContain('lattice');
@@ -2612,7 +3042,9 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
 describe('openPanelOffRail — a tile that opens and leaves the rail unchanged', () => {
   const POLICY = '../../../src/osprey/interfaces/web_terminal/static/js/panel-menu-policy.js';
   const railIds = () =>
-    [...document.querySelectorAll('.panel-rail-button')].map((el) => el.getAttribute('data-panel-id'));
+    [...document.querySelectorAll('.panel-rail-button')].map((el) =>
+      el.getAttribute('data-panel-id')
+    );
   const PANELS3 = ['artifacts', 'ariel', 'system-health'];
   const OFF_RAIL = { panels: PANELS3, visible: ['artifacts', 'ariel'] };
 
@@ -2654,7 +3086,10 @@ describe('openPanelOffRail — a tile that opens and leaves the rail unchanged',
 
     expect(await openTileMenu('system-health')).toBe(true);
     expect(menuLabels()).toEqual([
-      'Focus SYSTEM', 'Open in a new tile', 'Open in a new window', 'Pin to rail',
+      'Focus SYSTEM',
+      'Open in a new tile',
+      'Open in a new window',
+      'Pin to rail',
     ]);
     /** @type {HTMLElement} */ (menuRow('Pin to rail')).click();
 
@@ -2664,8 +3099,11 @@ describe('openPanelOffRail — a tile that opens and leaves the rail unchanged',
     // it already had carries the active accent onto it.
     emit({ type: 'panel_visibility', panel: 'system-health', visible: true });
     expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'system-health']);
-    expect(document.querySelector('.panel-rail-button[data-panel-id="system-health"]')
-      ?.classList.contains('active')).toBe(true);
+    expect(
+      document
+        .querySelector('.panel-rail-button[data-panel-id="system-health"]')
+        ?.classList.contains('active')
+    ).toBe(true);
 
     expect(await openTileMenu('system-health')).toBe(true);
     expect(menuLabels().at(-1)).toBe('Remove from rail');
@@ -2707,7 +3145,12 @@ describe('sidecar start failure and retry', () => {
   const FAILED = 'JUPYTER failed to start: boom';
   /** A config or start answer; its fields change between the steps of a test. @typedef {any} Answer */
   /** @type {Answer} */
-  const STARTING = { url: null, available: false, state: 'starting', message: 'JUPYTER is starting' };
+  const STARTING = {
+    url: null,
+    available: false,
+    state: 'starting',
+    message: 'JUPYTER is starting',
+  };
   /** @type {Answer} */
   const RUNNING = { url: '/panel/jupyter', available: true, state: 'running', message: null };
   /** @param {string} message @returns {Answer} */
@@ -2731,29 +3174,39 @@ describe('sidecar start failure and retry', () => {
     renderContainer();
     /** @type {{url: string, opts: any}[]} */
     const calls = [];
-    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url, /** @type {any} */ o) => {
-      calls.push({ url, opts: o });
-      if (url === '/api/panels') {
-        return jsonOk({
-          enabled: ['artifacts', 'jupyter'], custom: [], default: null,
-          visible: ['artifacts', 'jupyter'], active: null, labels: {},
-        });
-      }
-      if (url === '/api/artifact-server') return jsonOk({ url: '/panel/artifacts', available: true });
-      if (url === '/api/jupyter-server') return jsonOk(server.config);
-      if (url === '/api/panels/jupyter/start') return jsonOk(server.start);
-      if (url === '/panel/jupyter/api/status') {
-        return server.healthy === false
-          ? { ok: false, status: 502, statusText: 'Bad Gateway', json: async () => ({}) }
-          : jsonOk({});
-      }
-      return jsonOk({ status: 'ok' });
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url, /** @type {any} */ o) => {
+        calls.push({ url, opts: o });
+        if (url === '/api/panels') {
+          return jsonOk({
+            enabled: ['artifacts', 'jupyter'],
+            custom: [],
+            default: null,
+            visible: ['artifacts', 'jupyter'],
+            active: null,
+            labels: {},
+          });
+        }
+        if (url === '/api/artifact-server')
+          return jsonOk({ url: '/panel/artifacts', available: true });
+        if (url === '/api/jupyter-server') return jsonOk(server.config);
+        if (url === '/api/panels/jupyter/start') return jsonOk(server.start);
+        if (url === '/panel/jupyter/api/status') {
+          return server.healthy === false
+            ? { ok: false, status: 502, statusText: 'Bad Gateway', json: async () => ({}) }
+            : jsonOk({});
+        }
+        return jsonOk({ status: 'ok' });
+      })
+    );
     stubEventSource();
     const mod = await freshImport();
     await mod.initPanelManager('panel-manager');
     await settled(() => expect(calls.some((c) => c.url === '/api/jupyter-server')).toBe(true));
-    const jupyter = /** @type {HTMLElement} */ (document.querySelector('[data-panel-id="jupyter"]'));
+    const jupyter = /** @type {HTMLElement} */ (
+      document.querySelector('[data-panel-id="jupyter"]')
+    );
     const starts = () => calls.filter((c) => c.url === '/api/panels/jupyter/start');
     return { mod, calls, jupyter, starts };
   }
@@ -2855,7 +3308,8 @@ describe('sidecar start failure and retry', () => {
 });
 
 describe('panel frames — agent-writable panels are opaque, first-party panels keep their attributes', () => {
-  const FACTORY_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/panel-iframe-factory.js';
+  const FACTORY_PATH =
+    '../../../src/osprey/interfaces/web_terminal/static/js/panel-iframe-factory.js';
   const FIRST_PARTY = 'allow-scripts allow-same-origin allow-popups allow-forms allow-modals';
   const OPAQUE = 'allow-scripts allow-popups allow-modals';
 
@@ -2874,21 +3328,25 @@ describe('panel frames — agent-writable panels are opaque, first-party panels 
     renderContainer();
     /** @type {string[]} */
     const capCalls = [];
-    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-      if (url === `${prefix}/api/panels`) {
-        return jsonOk({ enabled, custom, default: null, visible, active: null, labels: {} });
-      }
-      const m = url.match(/\/api\/panels\/([^/]+)\/cap$/);
-      if (m) {
-        capCalls.push(url);
-        if (!cap) return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) };
-        return cap(decodeURIComponent(m[1]));
-      }
-      if (url.endsWith('/api/artifact-server')) {
-        return jsonOk({ url: `${prefix}/panel/artifacts`, available: true });
-      }
-      return jsonOk({});
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url) => {
+        if (url === `${prefix}/api/panels`) {
+          return jsonOk({ enabled, custom, default: null, visible, active: null, labels: {} });
+        }
+        const m = url.match(/\/api\/panels\/([^/]+)\/cap$/);
+        if (m) {
+          capCalls.push(url);
+          if (!cap)
+            return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) };
+          return cap(decodeURIComponent(m[1]));
+        }
+        if (url.endsWith('/api/artifact-server')) {
+          return jsonOk({ url: `${prefix}/panel/artifacts`, available: true });
+        }
+        return jsonOk({});
+      })
+    );
     const sse = stubEventSource();
     const mod = await freshImport();
     await mod.initPanelManager('panel-manager');
@@ -2899,11 +3357,15 @@ describe('panel frames — agent-writable panels are opaque, first-party panels 
   }
 
   const discovered = {
-    id: 'agent-bundle', label: 'BUNDLE', url: '/panel-static/agent-bundle/',
-    healthEndpoint: null, path: '/', discovered: true,
+    id: 'agent-bundle',
+    label: 'BUNDLE',
+    url: '/panel-static/agent-bundle/',
+    healthEndpoint: null,
+    path: '/',
+    discovered: true,
   };
 
-  test('an OSPREY catalog panel is framed at once with today\'s attributes and asks for no cap', async () => {
+  test("an OSPREY catalog panel is framed at once with today's attributes and asks for no cap", async () => {
     const { capCalls } = await bootOne({ enabled: ['artifacts'], visible: ['artifacts'] });
     await settled(() => expect(frame('artifacts')).not.toBeNull());
     const el = /** @type {HTMLIFrameElement} */ (frame('artifacts'));
@@ -2915,7 +3377,8 @@ describe('panel frames — agent-writable panels are opaque, first-party panels 
   test('a discovered bundle is framed at its cap URL with no same-origin and no forms', async () => {
     const capUrl = '/panel-static/agent-bundle/~c/CAPTOKEN/';
     const { capCalls } = await bootOne({
-      custom: [discovered], visible: ['agent-bundle'],
+      custom: [discovered],
+      visible: ['agent-bundle'],
       cap: (id) => jsonOk({ id, cap_url: capUrl }),
     });
     await settled(() => expect(frame('agent-bundle')?.dataset.panelFrame).toBe('opaque'));
@@ -2938,14 +3401,24 @@ describe('panel frames — agent-writable panels are opaque, first-party panels 
       cap: (id) => jsonOk({ id, cap_url: capUrl }),
     });
     await settled(() => expect(frame('agent-bundle')?.dataset.panelFrame).toBe('opaque'));
-    expect(new URL(/** @type {HTMLIFrameElement} */ (frame('agent-bundle')).src).pathname).toBe(capUrl);
+    expect(new URL(/** @type {HTMLIFrameElement} */ (frame('agent-bundle')).src).pathname).toBe(
+      capUrl
+    );
     expect(capCalls).toEqual(['/u/alice/api/panels/agent-bundle/cap']);
   });
 
-  test('a runtime panel\'s subpath lands under its cap with no doubled slash', async () => {
+  test("a runtime panel's subpath lands under its cap with no doubled slash", async () => {
     const capUrl = '/panel/agent-dash/~c/CAPTOKEN/';
     await bootOne({
-      custom: [{ id: 'agent-dash', label: 'DASH', url: '/panel/agent-dash', healthEndpoint: null, path: '/ui/' }],
+      custom: [
+        {
+          id: 'agent-dash',
+          label: 'DASH',
+          url: '/panel/agent-dash',
+          healthEndpoint: null,
+          path: '/ui/',
+        },
+      ],
       visible: ['agent-dash'],
       cap: (id) => jsonOk({ id, cap_url: capUrl }),
     });
@@ -2958,11 +3431,21 @@ describe('panel frames — agent-writable panels are opaque, first-party panels 
   test('a panel registered at runtime over SSE is framed opaque at its cap', async () => {
     const capUrl = '/panel/live-dash/~c/CAPTOKEN/';
     const { mod, sse } = await bootOne({
-      enabled: ['artifacts'], visible: ['artifacts'],
+      enabled: ['artifacts'],
+      visible: ['artifacts'],
       cap: (id) => jsonOk({ id, cap_url: capUrl }),
     });
-    sse.emit({ type: 'panel_register', id: 'live-dash', label: 'LIVE', url: '/panel/live-dash', healthEndpoint: null, path: '/' });
-    await settled(() => expect(document.querySelector('.panel-rail-button[data-panel-id="live-dash"]')).not.toBeNull());
+    sse.emit({
+      type: 'panel_register',
+      id: 'live-dash',
+      label: 'LIVE',
+      url: '/panel/live-dash',
+      healthEndpoint: null,
+      path: '/',
+    });
+    await settled(() =>
+      expect(document.querySelector('.panel-rail-button[data-panel-id="live-dash"]')).not.toBeNull()
+    );
     mod.navigateAndActivatePanel('live-dash', '');
     await settled(() => expect(frame('live-dash')?.dataset.panelFrame).toBe('opaque'));
     const el = /** @type {HTMLIFrameElement} */ (frame('live-dash'));
@@ -2970,9 +3453,18 @@ describe('panel frames — agent-writable panels are opaque, first-party panels 
     expect(new URL(el.src).pathname).toBe(capUrl);
   });
 
-  test('a config-defined custom panel (the hub mints no cap: 404) keeps today\'s attributes', async () => {
+  test("a config-defined custom panel (the hub mints no cap: 404) keeps today's attributes", async () => {
     await bootOne({
-      custom: [{ id: 'results', label: 'RESULTS', url: '/panel/results', healthEndpoint: null, path: '/', configDefined: true }],
+      custom: [
+        {
+          id: 'results',
+          label: 'RESULTS',
+          url: '/panel/results',
+          healthEndpoint: null,
+          path: '/',
+          configDefined: true,
+        },
+      ],
       visible: ['results'],
     });
     await settled(() => expect(frame('results')?.dataset.panelFrame).toBe('first-party'));
@@ -2982,25 +3474,45 @@ describe('panel frames — agent-writable panels are opaque, first-party panels 
   });
 
   test.each([
-    ['a 500', () => ({ ok: false, status: 500, statusText: 'Server Error', json: async () => ({}) })],
-    ['a 401', () => ({ ok: false, status: 401, statusText: 'Unauthorized', json: async () => ({}) })],
+    [
+      'a 500',
+      () => ({ ok: false, status: 500, statusText: 'Server Error', json: async () => ({}) }),
+    ],
+    [
+      'a 401',
+      () => ({ ok: false, status: 401, statusText: 'Unauthorized', json: async () => ({}) }),
+    ],
     ['a body with no cap_url', () => jsonOk({})],
-    ['a network failure', () => { throw new TypeError('Failed to fetch'); }],
-  ])('%s from the cap mint fails closed: opaque sandbox, never same-origin', async (_name, answer) => {
-    await bootOne({ custom: [discovered], visible: ['agent-bundle'], cap: answer });
-    await settled(() => expect(frame('agent-bundle')?.dataset.panelFrame).toBe('opaque'));
-    const el = /** @type {HTMLIFrameElement} */ (frame('agent-bundle'));
-    expect(el.getAttribute('sandbox')).toBe(OPAQUE);
-    expect(new URL(el.src).pathname).toBe('/panel-static/agent-bundle/');
-  });
+    [
+      'a network failure',
+      () => {
+        throw new TypeError('Failed to fetch');
+      },
+    ],
+  ])(
+    '%s from the cap mint fails closed: opaque sandbox, never same-origin',
+    async (_name, answer) => {
+      await bootOne({ custom: [discovered], visible: ['agent-bundle'], cap: answer });
+      await settled(() => expect(frame('agent-bundle')?.dataset.panelFrame).toBe('opaque'));
+      const el = /** @type {HTMLIFrameElement} */ (frame('agent-bundle'));
+      expect(el.getAttribute('sandbox')).toBe(OPAQUE);
+      expect(new URL(el.src).pathname).toBe('/panel-static/agent-bundle/');
+    }
+  );
 
   test('the sandbox is restrictive before the hub answers, and no src is set yet', async () => {
     /** @type {(v: any) => void} */
     let release = () => {};
-    const gate = new Promise((resolve) => { release = resolve; });
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
     await bootOne({
-      custom: [discovered], visible: ['agent-bundle'],
-      cap: async (id) => { await gate; return jsonOk({ id, cap_url: '/panel-static/agent-bundle/~c/T/' }); },
+      custom: [discovered],
+      visible: ['agent-bundle'],
+      cap: async (id) => {
+        await gate;
+        return jsonOk({ id, cap_url: '/panel-static/agent-bundle/~c/T/' });
+      },
     });
     await settled(() => expect(frame('agent-bundle')).not.toBeNull());
     const el = /** @type {HTMLIFrameElement} */ (frame('agent-bundle'));
@@ -3013,7 +3525,8 @@ describe('panel frames — agent-writable panels are opaque, first-party panels 
 
   test('an opaque panel receives the theme (target "*") and never the session or mode', async () => {
     await bootOne({
-      custom: [discovered], visible: ['agent-bundle'],
+      custom: [discovered],
+      visible: ['agent-bundle'],
       cap: (id) => jsonOk({ id, cap_url: '/panel-static/agent-bundle/~c/T/' }),
     });
     await settled(() => expect(frame('agent-bundle')?.dataset.panelFrame).toBe('opaque'));
@@ -3022,7 +3535,10 @@ describe('panel frames — agent-writable panels are opaque, first-party panels 
     const post = vi.spyOn(win, 'postMessage').mockImplementation(() => {});
     el.dispatchEvent(new Event('load'));
 
-    const calls = post.mock.calls.map(([msg, target]) => ({ type: /** @type {any} */ (msg).type, target }));
+    const calls = post.mock.calls.map(([msg, target]) => ({
+      type: /** @type {any} */ (msg).type,
+      target,
+    }));
     expect(calls).toContainEqual({ type: 'osprey-theme-change', target: '*' });
     // Everything else is addressed to the hub's own origin, which an opaque
     // document (origin "null") never matches, so the browser drops it.
@@ -3032,14 +3548,21 @@ describe('panel frames — agent-writable panels are opaque, first-party panels 
   });
 
   test('capTarget rebases under the cap and leaves foreign targets alone', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonOk({})));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonOk({}))
+    );
     await freshImport();
     const { capTarget } = await import(FACTORY_PATH);
     const cap = '/panel/p/~c/T/';
     expect(capTarget('/panel/p', '/panel/p', cap)).toBe(cap);
     expect(capTarget('/panel/p/', '/panel/p', cap)).toBe(cap);
-    expect(capTarget('/panel/p/ui/x.html?a=1', '/panel/p', cap)).toBe('/panel/p/~c/T/ui/x.html?a=1');
-    expect(capTarget('/panel-static/b/sub/', '/panel-static/b/', '/panel-static/b/~c/T/')).toBe('/panel-static/b/~c/T/sub/');
+    expect(capTarget('/panel/p/ui/x.html?a=1', '/panel/p', cap)).toBe(
+      '/panel/p/~c/T/ui/x.html?a=1'
+    );
+    expect(capTarget('/panel-static/b/sub/', '/panel-static/b/', '/panel-static/b/~c/T/')).toBe(
+      '/panel-static/b/~c/T/sub/'
+    );
     // A sibling id sharing a prefix is not under the base.
     expect(capTarget('/panel/pp/x', '/panel/p', cap)).toBe('/panel/pp/x');
   });

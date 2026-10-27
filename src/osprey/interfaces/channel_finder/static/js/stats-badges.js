@@ -49,9 +49,12 @@ export async function refreshStatsBadges() {
       badges.push({ value: value.toLocaleString(), label });
     }
 
-    container.innerHTML = badges.map(b =>
-      `<span class="stats-badge"><span class="badge-value">${esc(b.value)}</span> <span class="badge-label">${b.label}</span></span>`
-    ).join('');
+    container.innerHTML = badges
+      .map(
+        (b) =>
+          `<span class="stats-badge"><span class="badge-value">${esc(b.value)}</span> <span class="badge-label">${b.label}</span></span>`
+      )
+      .join('');
   } catch {
     container.innerHTML = '';
   }
@@ -71,19 +74,19 @@ export function renderProvenance() {
   const store = state.graphStore;
   const uri = store && store.uri ? store.uri : '';
   const file = store && store.ttl_filename ? store.ttl_filename : '';
-  const label = file && uri ? `${file} @ ${uri}` : (file || uri);
+  const label = file && uri ? `${file} @ ${uri}` : file || uri;
   if (state.pipelineType !== 'graph' || !label) {
     slot.innerHTML = '';
     return;
   }
   const tools = state.tools || [];
   const tip = tools.length
-    ? ` · ${tools.length} assistant ${tools.length === 1 ? 'tool' : 'tools'}`
-      + '<button type="button" class="osprey-info" data-place="above"'
-      + ' aria-label="Tools the assistant queries this store with">?'
-      + '<span class="osprey-tip" role="tooltip"><span>The assistant reads this same store with</span>'
-      + `<span>${tools.map((tool) => `<b class="graph-tool-chip">${esc(tool)}</b>`).join(', ')}</span>`
-      + '</span></button>'
+    ? ` · ${tools.length} assistant ${tools.length === 1 ? 'tool' : 'tools'}` +
+      '<button type="button" class="osprey-info" data-place="above"' +
+      ' aria-label="Tools the assistant queries this store with">?' +
+      '<span class="osprey-tip" role="tooltip"><span>The assistant reads this same store with</span>' +
+      `<span>${tools.map((tool) => `<b class="graph-tool-chip">${esc(tool)}</b>`).join(', ')}</span>` +
+      '</span></button>'
     : '';
   slot.innerHTML = `<span class="graph-store-badge" title="Graph store">store <code>${esc(label)}</code></span>${tip}`;
 }

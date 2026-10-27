@@ -173,7 +173,11 @@ function keyValueList(record, kinds) {
  * @returns {HTMLElement}
  */
 export function inputView(input, kinds = {}) {
-  if (input === undefined || input === null || (isRecord(input) && Object.keys(input).length === 0)) {
+  if (
+    input === undefined ||
+    input === null ||
+    (isRecord(input) && Object.keys(input).length === 0)
+  ) {
     return elem('span', 'op-kv-empty', '(no input)');
   }
   const known = isRecord(kinds) ? /** @type {TargetKinds} */ (kinds) : {};
@@ -208,7 +212,7 @@ function statesInFull(value, summary) {
 export function inputDetail(input, summary) {
   if (!isRecord(input)) return input === undefined || input === null ? null : input;
   const rest = Object.fromEntries(
-    Object.entries(input).filter(([, value]) => !statesInFull(value, summary)),
+    Object.entries(input).filter(([, value]) => !statesInFull(value, summary))
   );
   return Object.keys(rest).length > 0 ? rest : null;
 }
@@ -224,8 +228,9 @@ export function inputDetail(input, summary) {
 function recordLines(record, indent) {
   const entries = Object.entries(record);
   const width = entries.reduce(
-    (widest, [key, value]) => (shapeOf(key, value) === 'text' ? Math.max(widest, key.length) : widest),
-    0,
+    (widest, [key, value]) =>
+      shapeOf(key, value) === 'text' ? Math.max(widest, key.length) : widest,
+    0
   );
   /** @type {string[]} */
   const lines = [];

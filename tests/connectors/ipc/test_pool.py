@@ -771,10 +771,11 @@ def _ca_gateways(address: str, read_port, write_port=None) -> dict:
     [
         ("live", "epics", {}),
         ("live", "epics", {"gateways": {}}),
-        # A write-only table is not here: it reads through its write gateway
-        # (test_a_write_gateway_only_machine_is_derived_reading_through_it),
-        # and a readonly run on one is refused as readonly
-        # (test_a_readonly_child_on_a_write_gateway_only_machine_is_never_spawned).
+        # A write-only table is not here: it reads through its write gateway,
+        # and a readonly run on one is refused as readonly. The two tests named
+        # test_a_write_gateway_only_machine_is_derived_reading_through_it and
+        # test_a_readonly_child_on_a_write_gateway_only_machine_is_never_spawned
+        # cover those cases.
         ("standin", "live_standin", {}),
         ("va", "virtual_accelerator", {}),
     ],
@@ -1252,7 +1253,7 @@ async def test_served_va_without_gateway_still_refused(pools, spawns):
     assert spawns == []
 
 
-# ------------------------------------------------------------ lifetime, continued
+# ----------------------------------------------------- the lifetime tests, continued
 
 
 async def test_leaving_an_async_with_block_stops_every_child_and_closes_the_pool():

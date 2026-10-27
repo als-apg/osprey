@@ -2623,7 +2623,7 @@ def test_header_search_survives_re_contribution_and_menu_round_trips(tmp_path, c
 # path parents its ghost to document.body too).
 #
 # So a tile's drag image is styled by whatever still matches once the bar is out
-# of #dock-root. Two things keep that honest, and this test guards both:
+# of #dock-root. Two things keep that honest, and this test guards both.
 #
 #   * The tile-bar rules in dockview-overrides.css anchor on `.tile-tab` — a
 #     class the clone carries — not on `.dock-root`. Anchoring on the dock root

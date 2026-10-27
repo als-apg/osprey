@@ -41,7 +41,7 @@ test.each([
 ])('a %s write names its machine and kind', (kind, key, words) => {
   const card = createApprovalCard(
     ask({ target: { key, machine_kind: kind, kind_words: words } }),
-    hooks(),
+    hooks()
   );
   const line = targetLine(card.el);
   expect(line).not.toBeNull();
@@ -64,7 +64,7 @@ test('a request without a target field carries no target line', () => {
 test('an unknown kind reads as the real machine, words and all', () => {
   const card = createApprovalCard(
     ask({ target: { key: 'odd', machine_kind: 'bogus', kind_words: 'Rehearsal — nothing moves' } }),
-    hooks(),
+    hooks()
   );
   const line = targetLine(card.el);
   expect(line?.dataset.targetKind).toBe('real');
@@ -76,9 +76,13 @@ test('the target line sits after the reason, before the summary', () => {
   const card = createApprovalCard(
     ask({
       reason: 'Needs a write',
-      target: { key: 'standin', machine_kind: 'rehearsal', kind_words: 'Rehearsal — nothing moves' },
+      target: {
+        key: 'standin',
+        machine_kind: 'rehearsal',
+        kind_words: 'Rehearsal — nothing moves',
+      },
     }),
-    hooks(),
+    hooks()
   );
   const body = /** @type {HTMLElement} */ (card.el.querySelector('.op-card-body'));
   const order = [...body.children].map((c) => c.className.split(' ')[0]);
@@ -91,15 +95,23 @@ test('a plan card carries no target line', () => {
     ask({
       kind: 'plan',
       input: { plan: 'do it' },
-      target: { key: 'live', machine_kind: 'real', kind_words: 'Real machine — writes move hardware' },
+      target: {
+        key: 'live',
+        machine_kind: 'real',
+        kind_words: 'Real machine — writes move hardware',
+      },
     }),
-    hooks(),
+    hooks()
   );
   expect(targetLine(card.el)).toBeNull();
 });
 
 test('the allow-for-session control is unchanged by a target', () => {
-  const target = { key: 'standin', machine_kind: 'rehearsal', kind_words: 'Rehearsal — nothing moves' };
+  const target = {
+    key: 'standin',
+    machine_kind: 'rehearsal',
+    kind_words: 'Rehearsal — nothing moves',
+  };
   const labels = (/** @type {HTMLElement} */ el) =>
     [...el.querySelectorAll('.op-card-actions button')].map((b) => b.textContent);
   expect(labels(createApprovalCard(ask({ target, can_allow_session: true }), hooks()).el)).toEqual([
@@ -113,8 +125,14 @@ test('the allow-for-session control is unchanged by a target', () => {
 test('allowing a rehearsal write posts the plain answer', async () => {
   const h = hooks();
   const card = createApprovalCard(
-    ask({ target: { key: 'standin', machine_kind: 'rehearsal', kind_words: 'Rehearsal — nothing moves' } }),
-    h,
+    ask({
+      target: {
+        key: 'standin',
+        machine_kind: 'rehearsal',
+        kind_words: 'Rehearsal — nothing moves',
+      },
+    }),
+    h
   );
   /** @type {HTMLButtonElement} */ (card.el.querySelector('.op-btn-primary')).click();
   await vi.waitFor(() => expect(h.onSettled).toHaveBeenCalled());

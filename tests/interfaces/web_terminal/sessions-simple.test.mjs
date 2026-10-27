@@ -62,7 +62,12 @@ const SECOND = 'bbbbbbbb-5555-6666-7777-888888888888';
 const NOW_ISO = new Date().toISOString();
 const RECORDS = [
   { session_id: FIRST, last_modified: NOW_ISO, message_count: 7, first_message: 'Vacuum pressure' },
-  { session_id: SECOND, last_modified: NOW_ISO, message_count: 2, first_message: 'Corrector limits' },
+  {
+    session_id: SECOND,
+    last_modified: NOW_ISO,
+    message_count: 2,
+    first_message: 'Corrector limits',
+  },
 ];
 
 /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/sessions.js')} */
@@ -79,7 +84,7 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 function stubSessions(body) {
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () => ({ ok: true, status: 200, statusText: 'OK', json: async () => body })),
+    vi.fn(async () => ({ ok: true, status: 200, statusText: 'OK', json: async () => body }))
   );
 }
 

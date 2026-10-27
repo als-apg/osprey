@@ -113,7 +113,13 @@ const TIER_NEVER_PHRASE =
  * `posture` would fail here.
  */
 const STATES = {
-  on: { switch: 'on', write_allowed: true, write_reason: null, write_phrase: null, posture: 'sandbox' },
+  on: {
+    switch: 'on',
+    write_allowed: true,
+    write_reason: null,
+    write_phrase: null,
+    posture: 'sandbox',
+  },
   off: {
     switch: 'off',
     write_allowed: false,
@@ -142,7 +148,8 @@ const STATES = {
     switch: null,
     write_allowed: false,
     write_reason: 'record_unavailable',
-    write_phrase: 'Writes are refused because the switch record cannot be read; ask the deployment admin.',
+    write_phrase:
+      'Writes are refused because the switch record cannot be read; ask the deployment admin.',
     posture: 'writes',
   },
 };
@@ -189,7 +196,12 @@ const viewOf = (o = {}) => ({
   last_posture_realign: null,
   targets: [
     rowOf(KINDS.live, { ...STATES.off }),
-    rowOf(KINDS.standin, { active: true, is_baseline: true, available_now: false, reason: 'already_active' }),
+    rowOf(KINDS.standin, {
+      active: true,
+      is_baseline: true,
+      available_now: false,
+      reason: 'already_active',
+    }),
     rowOf(KINDS.va),
   ],
   ...o,
@@ -334,8 +346,7 @@ const confirmBtn = () =>
     confirmEl()?.querySelector('.posture-modal-confirm') ?? null
   );
 
-const pressEscape = () =>
-  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+const pressEscape = () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
 
 beforeEach(async () => {
   vi.resetModules();
@@ -347,7 +358,7 @@ beforeEach(async () => {
   // another's.
   localStorage.clear();
   document.documentElement.removeAttribute('data-ui-mode');
-  delete (/** @type {any} */ (window)).__OSPREY_PREFIX__;
+  delete (/** @type {any} */ (window).__OSPREY_PREFIX__);
   chipModule = await import(CHIP);
   popoverModule = await import(POPOVER);
 });
@@ -616,7 +627,9 @@ describe('the banner', () => {
     // The write routes answer 409 here, so the banner says so before a click
     // does — and names where the change can actually be made.
     await bootOpen(viewOf({ owner: { kind: 'web_terminal', pid: 77, port: 8123, self: false } }));
-    expect(bannerEl()?.textContent).toBe('Another terminal on port 8123 holds the control context.');
+    expect(bannerEl()?.textContent).toBe(
+      'Another terminal on port 8123 holds the control context.'
+    );
     expect(bannerEl()?.dataset.tone).toBe('warn');
   });
 
@@ -895,14 +908,24 @@ describe('turning writes off and on', () => {
     served = viewOf({
       targets: [
         rowOf(KINDS.live),
-        rowOf(KINDS.standin, { active: true, is_baseline: true, available_now: false, reason: 'already_active' }),
+        rowOf(KINDS.standin, {
+          active: true,
+          is_baseline: true,
+          available_now: false,
+          reason: 'already_active',
+        }),
         rowOf(KINDS.va),
       ],
     });
     confirmBtn()?.click();
     await flush();
 
-    expect(posts()[0].body).toEqual({ session_id: null, target: 'live', state: 'on', epoch: EPOCH });
+    expect(posts()[0].body).toEqual({
+      session_id: null,
+      target: 'live',
+      state: 'on',
+      epoch: EPOCH,
+    });
     expect(confirmEl()).toBeNull();
     expect(isOpen()).toBe(true);
     expect(rowEl('live')?.dataset.state).toBe('on');
@@ -965,7 +988,8 @@ describe('turning writes off and on', () => {
     await bootOpen();
     toggleEl('live')?.click();
     await flush();
-    const phrase = 'Writes are refused because the switch record cannot be read; ask the deployment admin.';
+    const phrase =
+      'Writes are refused because the switch record cannot be read; ask the deployment admin.';
     postAnswers.push({
       ok: false,
       status: 503,
@@ -983,14 +1007,23 @@ describe('a stop that lands while a turn-on is asked', () => {
     toggleEl('live')?.click();
     await flush();
     postAnswers.push(
-      { ok: false, status: 409, body: { detail: { reason: 'stopped_since', epoch: 12, stamped: true } } },
+      {
+        ok: false,
+        status: 409,
+        body: { detail: { reason: 'stopped_since', epoch: 12, stamped: true } },
+      },
       { ok: true, body: { target: 'live', state: 'on', switch_epoch: 12 } }
     );
     confirmBtn()?.click();
     await flush();
 
     expect(posts()).toHaveLength(2);
-    expect(posts()[0].body).toEqual({ session_id: null, target: 'live', state: 'on', epoch: EPOCH });
+    expect(posts()[0].body).toEqual({
+      session_id: null,
+      target: 'live',
+      state: 'on',
+      epoch: EPOCH,
+    });
     expect(posts()[1].body).toEqual({ session_id: null, target: 'live', state: 'on', epoch: 12 });
     expect(confirmEl()).toBeNull();
     expect(outcomes('live')).toHaveLength(0);
@@ -1003,7 +1036,11 @@ describe('a stop that lands while a turn-on is asked', () => {
     const stamped = { detail: { reason: 'stopped_since', epoch: 12, stamped: true } };
     postAnswers.push(
       { ok: false, status: 409, body: stamped },
-      { ok: false, status: 409, body: { detail: { reason: 'stopped_since', epoch: 13, stamped: true } } },
+      {
+        ok: false,
+        status: 409,
+        body: { detail: { reason: 'stopped_since', epoch: 13, stamped: true } },
+      },
       { ok: true, body: {} }
     );
     confirmBtn()?.click();
@@ -1077,7 +1114,12 @@ describe('Turn all writes off', () => {
     allOffEl().click();
     await flush();
 
-    expect(posts()[0].body).toEqual({ session_id: null, target: 'all', state: 'off', epoch: EPOCH });
+    expect(posts()[0].body).toEqual({
+      session_id: null,
+      target: 'all',
+      state: 'off',
+      epoch: EPOCH,
+    });
     expect(confirmEl()).toBeNull();
   });
 
@@ -1118,7 +1160,9 @@ describe('Turn all writes off', () => {
     });
     allOffEl().click();
     await flush();
-    const notes = [...document.querySelectorAll('.ctc-popover > .ctc-outcome')].map((n) => n.textContent);
+    const notes = [...document.querySelectorAll('.ctc-popover > .ctc-outcome')].map(
+      (n) => n.textContent
+    );
     expect(notes).toContain(`✗ ${STOP_NOT_TAKEN}`);
     expect(switchWord('va')?.textContent).toBe('on');
   });
@@ -1126,7 +1170,9 @@ describe('Turn all writes off', () => {
   test('the foot states the popover’s scope, once', async () => {
     await bootOpen();
     expect(allOffEl().textContent).toBe('Turn all writes off');
-    expect(document.querySelector('.ctc-foot-note')?.textContent).toBe('Applies to every session of this login');
+    expect(document.querySelector('.ctc-foot-note')?.textContent).toBe(
+      'Applies to every session of this login'
+    );
   });
 });
 
@@ -1178,7 +1224,13 @@ describe('switching', () => {
     const recordAccepted = (applied) =>
       viewOf({
         generation: 4,
-        last_switch: { request_id: 'req-1', target: 'va', status: 'applied', generation: 4, age_s: 0 },
+        last_switch: {
+          request_id: 'req-1',
+          target: 'va',
+          status: 'applied',
+          generation: 4,
+          age_s: 0,
+        },
         servers: [{ pid: 4242, applied_generation: applied, last_switch: null }],
       });
     // The record accepted it, the server is still on 3: still switching.
@@ -1217,9 +1269,7 @@ describe('switching', () => {
     switchEl('live')?.click();
     await flush();
     const body = inConfirm('.posture-modal-body').textContent ?? '';
-    expect(body).toContain(
-      'Writes are off there — nothing moves until you turn them on.'
-    );
+    expect(body).toContain('Writes are off there — nothing moves until you turn them on.');
     // Off means off: no hardware notice until writes are actually on there.
     expect(confirmEl()?.querySelector('.posture-modal-live')).toBeNull();
   });
@@ -1486,7 +1536,9 @@ describe("don't ask again", () => {
     );
   /** Click with Shift held — the waived dialog's re-show gesture. */
   const shiftClick = (/** @type {HTMLElement|null|undefined} */ node) =>
-    node?.dispatchEvent(new MouseEvent('click', { shiftKey: true, bubbles: true, cancelable: true }));
+    node?.dispatchEvent(
+      new MouseEvent('click', { shiftKey: true, bubbles: true, cancelable: true })
+    );
 
   test('ticking it on a switch confirm mutes the NEXT switch to that machine only', async () => {
     await bootOpen();
@@ -1689,7 +1741,12 @@ describe('rows the route refuses', () => {
     postAnswers.push({ ok: true, body: { target: 'live', state: 'off', switch_epoch: EPOCH } });
     toggleEl('live')?.click();
     await flush();
-    expect(posts()[0].body).toEqual({ session_id: null, target: 'live', state: 'off', epoch: EPOCH });
+    expect(posts()[0].body).toEqual({
+      session_id: null,
+      target: 'live',
+      state: 'off',
+      epoch: EPOCH,
+    });
   });
 });
 

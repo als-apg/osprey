@@ -788,7 +788,7 @@ def _read_tree(pid: int, alive: Callable[[], bool]) -> _AgentTree:
     """Read the groups *pid*'s descendants are in and its descendants in the server's group.
 
     Both come from one process table, read while *alive* says *pid* runs and
-    retried when the read fails. Blocking (it runs ``ps``).
+    retried when the read fails. Blocking (it reads the process table).
     """
     rows = process_tree.read_while_alive(alive)
     if rows is None:
@@ -1781,7 +1781,7 @@ class OperatorSession:
         What ending this session would also end, beyond the agent itself and
         its helpers in the server's group. Empty once the child has exited;
         ``None`` when the process table could not be read while it was alive,
-        so what it started is unknown. Blocking (it runs ``ps``): call it off
+        so what it started is unknown. Blocking (it reads the process table): call it off
         the loop.
         """
         pid = self.pid

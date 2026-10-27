@@ -231,7 +231,7 @@ def test_workspace_state_reads_reported_tiles():
 
 
 # ---------------------------------------------------------------------------
-# _build_delta_line (pure)
+# Tests of _build_delta_line, pure
 # ---------------------------------------------------------------------------
 
 

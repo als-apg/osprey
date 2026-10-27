@@ -61,7 +61,9 @@ export function setRailPosition(position) {
   document.documentElement.setAttribute('data-rail-position', position);
   try {
     localStorage.setItem(scopedStorageKey(STORAGE_KEY_BASE), position);
-  } catch { /* storage blocked — the flip still applies for this session */ }
+  } catch {
+    /* storage blocked — the flip still applies for this session */
+  }
   stripQueryRail();
   window.dispatchEvent(new Event('resize'));
 }
@@ -76,7 +78,9 @@ export function setRailPosition(position) {
 export function initRailThemeCoupling(payload) {
   const defaults = payload?.family_rail_defaults;
   _familyDefaults =
-    defaults && typeof defaults === 'object' ? /** @type {Record<string, string>} */ (defaults) : {};
+    defaults && typeof defaults === 'object'
+      ? /** @type {Record<string, string>} */ (defaults)
+      : {};
   _configPinned = payload?.rail_position_configured === true;
 }
 
@@ -87,7 +91,9 @@ export function initRailThemeCoupling(payload) {
  */
 function hasUserPin() {
   try {
-    return VALID_POSITIONS.includes(String(localStorage.getItem(scopedStorageKey(STORAGE_KEY_BASE))));
+    return VALID_POSITIONS.includes(
+      String(localStorage.getItem(scopedStorageKey(STORAGE_KEY_BASE)))
+    );
   } catch {
     return false; // storage blocked — treat as unpinned
   }
@@ -122,5 +128,7 @@ function stripQueryRail() {
     const query = params.toString();
     const url = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
     window.history.replaceState(window.history.state, '', url);
-  } catch { /* non-browser environment or a blocked history API — non-fatal */ }
+  } catch {
+    /* non-browser environment or a blocked history API — non-fatal */
+  }
 }

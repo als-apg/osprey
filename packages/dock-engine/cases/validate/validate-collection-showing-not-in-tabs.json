@@ -1,0 +1,14 @@
+{
+  "name": "validate-collection-showing-not-in-tabs",
+  "rule": "C-LAYOUT",
+  "input": {
+    "tabs": [0],
+    "showing": 1
+  },
+  "options": {
+    "form": "collection",
+    "members": 2
+  },
+  "reason": "showing_not_in_tabs",
+  "where": "layout.showing"
+}

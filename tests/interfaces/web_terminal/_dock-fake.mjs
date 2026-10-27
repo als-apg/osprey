@@ -34,12 +34,14 @@ export function makeDockApi() {
       api._activeCbs.push(cb);
       return { dispose() {} };
     }),
-    getPanel: (/** @type {string} */ id) => api.panels.find((/** @type {any} */ p) => p.id === id) ?? null,
+    getPanel: (/** @type {string} */ id) =>
+      api.panels.find((/** @type {any} */ p) => p.id === id) ?? null,
     addPanel: (/** @type {any} */ opts) => {
       api._added.push(opts);
-      const group = opts.position?.referenceGroup && opts.position.direction === 'within'
-        ? opts.position.referenceGroup
-        : makeGroup();
+      const group =
+        opts.position?.referenceGroup && opts.position.direction === 'within'
+          ? opts.position.referenceGroup
+          : makeGroup();
       const panel = { id: opts.id, title: opts.title, group, api: { setActive: vi.fn() } };
       group.panels.push(panel);
       group.activePanel = panel;

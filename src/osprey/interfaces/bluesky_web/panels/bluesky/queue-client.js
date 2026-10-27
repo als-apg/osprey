@@ -362,12 +362,30 @@ export function describeQueueStatus(status) {
   }
   switch (raw) {
     case 'starting_queue':
-      return { label: 'starting', tone: 'info', note: null, raw, hint: hint('A plan is about to run.') };
+      return {
+        label: 'starting',
+        tone: 'info',
+        note: null,
+        raw,
+        hint: hint('A plan is about to run.'),
+      };
     case 'executing_queue':
     case 'executing_task':
-      return { label: 'running', tone: 'info', note: null, raw, hint: hint('A plan is running now.') };
+      return {
+        label: 'running',
+        tone: 'info',
+        note: null,
+        raw,
+        hint: hint('A plan is running now.'),
+      };
     case 'paused':
-      return { label: 'paused', tone: 'warn', note: null, raw, hint: hint('The running plan is paused.') };
+      return {
+        label: 'paused',
+        tone: 'warn',
+        note: null,
+        raw,
+        hint: hint('The running plan is paused.'),
+      };
     case 'idle':
       if (!queueArmed(status)) {
         return {
@@ -666,7 +684,10 @@ export function enqueuePresentation(status) {
   const active = managerState !== null && QUEUE_ACTIVE_MANAGER_STATES.includes(managerState);
   if (active) return { label: 'Add to queue', note: 'Runs after the current plan.' };
   if (!managerStateKnown(status))
-    return { label: 'Add to queue', note: 'The queue state is unfamiliar; the item waits its turn.' };
+    return {
+      label: 'Add to queue',
+      note: 'The queue state is unfamiliar; the item waits its turn.',
+    };
   if (queueArmed(status)) return { label: 'Run', note: 'Runs now.' };
   return { label: 'Add to queue', note: 'The queue is stopped. Start it from the Queue tab.' };
 }

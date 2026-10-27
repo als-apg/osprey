@@ -58,7 +58,6 @@ const HOST_LABEL = /** @type {Readonly<Record<BarHost, string>>} */ (
  */
 const DISPLAY_MENU_TAG = 'osprey-display-menu';
 
-
 /** The sheet is a singleton per page; the controller arrives with it. */
 /** @type {SheetController | null} */
 let controller = null;

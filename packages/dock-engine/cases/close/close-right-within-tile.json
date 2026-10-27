@@ -1,0 +1,73 @@
+{
+  "name": "close-right-within-tile",
+  "rule": "rule-15",
+  "before": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a",
+        "size": 0.5
+      },
+      {
+        "tile": "t2",
+        "tabs": ["b", "e", "f", "g"],
+        "showing": "g",
+        "size": 0.3
+      },
+      {
+        "tile": "t3",
+        "tabs": ["c"],
+        "showing": "c",
+        "size": 0.2
+      }
+    ]
+  },
+  "op": {
+    "fn": "closeRight",
+    "key": "e"
+  },
+  "after": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a",
+        "size": 0.5
+      },
+      {
+        "tile": "t2",
+        "tabs": ["b", "e"],
+        "showing": "e",
+        "size": 0.3
+      },
+      {
+        "tile": "t3",
+        "tabs": ["c"],
+        "showing": "c",
+        "size": 0.2
+      }
+    ]
+  },
+  "record": {
+    "kind": "tabs",
+    "records": [
+      {
+        "kind": "tab",
+        "key": "f",
+        "tile": "t2",
+        "index": 2,
+        "showing": false
+      },
+      {
+        "kind": "tab",
+        "key": "g",
+        "tile": "t2",
+        "index": 3,
+        "showing": true
+      }
+    ]
+  }
+}

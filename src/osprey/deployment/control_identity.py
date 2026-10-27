@@ -234,7 +234,7 @@ def append_group_members(text: str, canonical: str, name: str) -> str:
     return result
 
 
-SYSTEM_PASSWD = "/etc/passwd"
+SYSTEM_PASSWD = "/etc/passwd"  # noqa: S105 -- names a system file path, holds no secret
 """The passwd file NSS reads; only a write to it is checked through ``getpwuid``."""
 
 SYSTEM_GROUP = "/etc/group"

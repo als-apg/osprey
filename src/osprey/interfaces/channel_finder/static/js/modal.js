@@ -30,34 +30,39 @@ let _activeModal = null;
  * @returns {Promise<Record<string, string>|null>} Field values keyed by name, or null on cancel.
  */
 export function formModal({ title, fields, submitLabel = 'Save' }) {
-  return new Promise(resolve => {
-    const fieldHTML = fields.map(f => {
-      const id = `modal-field-${f.name}`;
-      const req = f.required ? 'required' : '';
-      const val = f.value !== null && f.value !== undefined ? esc(f.value) : '';
-      if (f.type === 'textarea') {
-        return `<div class="form-group">
+  return new Promise((resolve) => {
+    const fieldHTML = fields
+      .map((f) => {
+        const id = `modal-field-${f.name}`;
+        const req = f.required ? 'required' : '';
+        const val = f.value !== null && f.value !== undefined ? esc(f.value) : '';
+        if (f.type === 'textarea') {
+          return `<div class="form-group">
           <label class="form-label" for="${id}">${esc(f.label)}</label>
           <textarea class="form-input modal-field" id="${id}" data-name="${esc(f.name)}"
                     ${req} rows="3">${val}</textarea>
         </div>`;
-      }
-      if (f.type === 'select') {
-        const options = (f.options || []).map(o =>
-          `<option value="${esc(o.value)}"${o.value === f.value ? ' selected' : ''}>${esc(o.label)}</option>`
-        ).join('');
-        return `<div class="form-group">
+        }
+        if (f.type === 'select') {
+          const options = (f.options || [])
+            .map(
+              (o) =>
+                `<option value="${esc(o.value)}"${o.value === f.value ? ' selected' : ''}>${esc(o.label)}</option>`
+            )
+            .join('');
+          return `<div class="form-group">
           <label class="form-label" for="${id}">${esc(f.label)}</label>
           <select class="form-input modal-field" id="${id}" data-name="${esc(f.name)}" ${req}>${options}</select>
         </div>`;
-      }
-      return `<div class="form-group">
+        }
+        return `<div class="form-group">
         <label class="form-label" for="${id}">${esc(f.label)}</label>
         <input class="form-input modal-field" id="${id}" data-name="${esc(f.name)}"
                type="${f.type || 'text'}" ${req} value="${val}"
                ${f.placeholder ? `placeholder="${esc(f.placeholder)}"` : ''}>
       </div>`;
-    }).join('');
+      })
+      .join('');
 
     const actions = `
       <button class="btn btn-secondary modal-cancel">Cancel</button>
@@ -68,25 +73,27 @@ export function formModal({ title, fields, submitLabel = 'Save' }) {
 
     const submitBtn = /** @type {HTMLButtonElement} */ (el.querySelector('.modal-submit'));
     const cancelBtn = /** @type {HTMLButtonElement} */ (el.querySelector('.modal-cancel'));
-    const inputs = /** @type {NodeListOf<HTMLInputElement>} */ (el.querySelectorAll('.modal-field'));
+    const inputs = /** @type {NodeListOf<HTMLInputElement>} */ (
+      el.querySelectorAll('.modal-field')
+    );
 
     // Focus first input
     inputs[0]?.focus();
 
     // Required-field validation
     const checkValidity = () => {
-      const allValid = [...inputs].every(inp =>
-        !inp.hasAttribute('required') || inp.value.trim()
+      const allValid = [...inputs].every(
+        (inp) => !inp.hasAttribute('required') || inp.value.trim()
       );
       submitBtn.disabled = !allValid;
     };
-    inputs.forEach(inp => inp.addEventListener('input', checkValidity));
+    inputs.forEach((inp) => inp.addEventListener('input', checkValidity));
     checkValidity();
 
     const submit = () => {
       /** @type {Record<string, string>} */
       const result = {};
-      inputs.forEach(inp => {
+      inputs.forEach((inp) => {
         const name = inp.dataset.name;
         if (name) result[name] = inp.value.trim();
       });
@@ -94,15 +101,18 @@ export function formModal({ title, fields, submitLabel = 'Save' }) {
       resolve(result);
     };
 
-    const cancel = () => { close(); resolve(null); };
+    const cancel = () => {
+      close();
+      resolve(null);
+    };
 
     submitBtn.addEventListener('click', submit);
     cancelBtn.addEventListener('click', cancel);
 
     // Enter key submits (on non-textarea inputs)
-    inputs.forEach(inp => {
+    inputs.forEach((inp) => {
       if (inp.tagName !== 'TEXTAREA') {
-        inp.addEventListener('keydown', e => {
+        inp.addEventListener('keydown', (e) => {
           if (e.key === 'Enter' && !submitBtn.disabled) submit();
         });
       }
@@ -121,7 +131,7 @@ export function formModal({ title, fields, submitLabel = 'Save' }) {
  * @returns {Promise<boolean>} True if confirmed.
  */
 export function confirmModal({ title, message, impact, confirmLabel = 'Delete', danger = false }) {
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     const body = `
       <p style="color: var(--text-secondary); margin: 0 0 var(--cf-space-3);">${esc(message)}</p>
       ${impact ? `<div class="modal-impact">${esc(impact)}</div>` : ''}
@@ -135,8 +145,14 @@ export function confirmModal({ title, message, impact, confirmLabel = 'Delete', 
 
     const confirmBtn = /** @type {HTMLElement} */ (el.querySelector('.modal-confirm'));
     const cancelBtn = /** @type {HTMLElement} */ (el.querySelector('.modal-cancel'));
-    confirmBtn.addEventListener('click', () => { close(); resolve(true); });
-    cancelBtn.addEventListener('click', () => { close(); resolve(false); });
+    confirmBtn.addEventListener('click', () => {
+      close();
+      resolve(true);
+    });
+    cancelBtn.addEventListener('click', () => {
+      close();
+      resolve(false);
+    });
     confirmBtn.focus();
   });
 }
@@ -177,10 +193,17 @@ export function showModal({ title, body, actions, size = 'md' }) {
   };
 
   // Close on backdrop click (not panel)
-  backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
+  backdrop.addEventListener('click', (e) => {
+    if (e.target === backdrop) close();
+  });
   // Close on ESC
   /** @param {KeyboardEvent} e */
-  const onKey = e => { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); } };
+  const onKey = (e) => {
+    if (e.key === 'Escape') {
+      close();
+      document.removeEventListener('keydown', onKey);
+    }
+  };
   document.addEventListener('keydown', onKey);
   // Close button
   backdrop.querySelector('.modal-close')?.addEventListener('click', close);

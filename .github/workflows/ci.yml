@@ -373,7 +373,7 @@ jobs:
       # budget in qmd-sidecar-e2e's "Run the wall-clock budgets serially".
       run: |
         if [ "${{ matrix.python-version }}" = "3.12" ] && [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-          COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov=packages/pyaml-cs-osprey/src/pyaml_cs_osprey --cov-report=xml --cov-report=term"
+          COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov=packages/pyaml-cs-osprey/src/pyaml_cs_osprey --cov=packages/dock-engine/src/dock_engine --cov-report=xml --cov-report=term"
         else
           COV_ARGS=""
         fi
@@ -446,30 +446,26 @@ jobs:
         # which is after tee has to open its file.
         mkdir -p ci-diag
         set -o pipefail
-        # The shard: SHARD_PATH completes the first path, SHARD_ARGS names the
-        # shard's further directories or, for rest-b, ignores every directory
-        # another shard names, so rest-b is everything else by construction.
-        # rest-b also takes the connectors package's own suite: an explicit path
-        # replaces testpaths, so a suite outside tests/ runs only where named.
-        # Spelled as two variables on the one pytest line so the invocation
-        # test_ci_workflow_wiring.py pins stays one line; the same file holds
-        # that the shards cover tests/ exactly once.
-        case "${{ matrix.shard }}" in
-          cli)    SHARD_PATH="cli";      SHARD_ARGS="" ;;
-          rest-a) SHARD_PATH="facility"; SHARD_ARGS="tests/mcp_server tests/deployment" ;;
-          rest-b) SHARD_PATH="";         SHARD_ARGS="--ignore=tests/cli --ignore=tests/facility --ignore=tests/mcp_server --ignore=tests/deployment packages/osprey-connectors/tests" ;;
-        esac
-        # Three integration modules are dropped by name rather than by marker. Each
-        # renders and builds a real project, and each is run by name in a job that
-        # carries no `if:` — one by the boot smoke over its preset matrix, two by
-        # the Tier 0 static job — so collecting them here buys a second reading of
-        # the same tests at the price of real builds in every cell of this matrix.
-        # The drop is safe only while those jobs stay unconditional: put an `if:`
-        # on either one, or on the step that names the file, and the module is
-        # read on fewer events than it is here.
-        # tests/deployment/test_ci_workflow_wiring.py holds that rule over every
-        # file this line ignores by name, and lists the exemptions to it.
-        uv run pytest tests/$SHARD_PATH $SHARD_ARGS --ignore=tests/e2e --ignore=tests/va/test_apply_fault.py --ignore=tests/va/test_lume_pva_seam.py --ignore=tests/services/channel_finder/graph_index/test_scale.py --ignore=tests/integration/test_build_boot.py --ignore=tests/integration/test_preset_static.py --ignore=tests/integration/test_preset_build.py -m "not pty and not wallclock" -v --tb=short --durations=50 --timeout=600 --timeout-method=signal -n 4 --dist loadgroup $COV_ARGS 2>&1 | tee ci-diag/pytest.log
+        # The shard is named by the matrix and defined by the check: `cli` is
+        # tests/cli alone, `rest-a` is tests/facility, tests/mcp_server and
+        # tests/deployment, and `rest-b` is everything else, the connectors
+        # package's own suite included; tests/deployment/test_ci_workflow_wiring.py
+        # holds that the three cover tests/ exactly once.
+        #
+        # The check leaves three integration modules out of the sweep by name.
+        # Each renders and builds a real project, and each is run by name in a
+        # job that carries no `if:` — one by the boot smoke over its preset
+        # matrix, two by the Tier 0 static job — so collecting them here buys a
+        # second reading of the same tests at the price of real builds in every
+        # cell of this matrix. The drop is safe only while those jobs stay
+        # unconditional: put an `if:` on either one, or on the step that names
+        # the file, and the module is read on fewer events than it is here.
+        # tests/deployment/test_ci_workflow_wiring.py holds that rule over
+        # every file the check ignores by name, and lists the exemptions to it.
+        # Verbosity and traceback style come from addopts.
+        # $COV_ARGS splits into its flags on purpose: it is empty or several words.
+        # shellcheck disable=SC2086
+        uv run python scripts/check.py run pytest --shard "${{ matrix.shard }}" -- --durations=50 --timeout=600 --timeout-method=signal -n 4 $COV_ARGS 2>&1 | tee ci-diag/pytest.log
 
     # The two steps below are the reason the step above has its own timeout.
     # They run on success too: on a green lane the summary is the slow-test
@@ -538,7 +534,7 @@ jobs:
       # short in that case. On a healthy lane this step costs well under a
       # minute, so the tail margin the job cap comment argues for is untouched.
       timeout-minutes: 10
-      run: uv run pytest tests/pty/ -m pty -v --tb=short
+      run: uv run python scripts/check.py run pytest-pty
 
     - name: Run live Channel Access suites in isolation
       # One pytest process per module via the live-CA gate — the same venue
@@ -551,7 +547,7 @@ jobs:
       # shard per cell, rest-b, the one whose directories hold tests/va, as for
       # the pty suite above.
       if: matrix.os == 'ubuntu-latest' && matrix.shard == 'rest-b'
-      run: uv run python scripts/va/live_ca/gate.py --pva
+      run: uv run python scripts/check.py run live-ca
 
     - name: Upload coverage reports to Codecov
       # Every shard of the coverage cell uploads under its own name; Codecov
@@ -694,18 +690,16 @@ jobs:
       # runner and goes green — so a split pair (e.g. a floor bump without a
       # re-lock) is invisible everywhere except here. Ordering is
       # load-bearing: this must run BEFORE `uv sync` rewrites the lock.
-      run: uv lock --check
+      run: python3 scripts/check.py run lockfile
 
     - name: Install dependencies
       run: uv sync --extra dev
 
     - name: Run ruff (linting)
-      run: |
-        uv run ruff check . --output-format=github
+      run: uv run python scripts/check.py run ruff
 
     - name: Run ruff (formatting)
-      run: |
-        uv run ruff format --check .
+      run: uv run python scripts/check.py run ruff-format
 
     - name: Run lint-imports (import boundaries)
       # The contracts live in [tool.importlinter] in pyproject.toml: the
@@ -714,7 +708,7 @@ jobs:
       # package's own layers hold. `!cancelled()` so a ruff failure above does
       # not hide a boundary break and buy a second CI cycle to discover it.
       if: ${{ !cancelled() }}
-      run: uv run lint-imports
+      run: uv run python scripts/check.py run import-contracts
 
     - name: Run ruff import-private-name on the framework
       # PLC2701 flags a `_`-name imported from another package, which is how a
@@ -724,7 +718,7 @@ jobs:
       # rather than by turning preview on for every rule, and a per-file
       # ignore in pyproject.toml scopes it to src/osprey.
       if: ${{ !cancelled() }}
-      run: uv run ruff check --preview --select=PLC2701 . --output-format=github
+      run: uv run python scripts/check.py run private-imports
 
     - name: Run config-key resurrection guard (with back-test)
       # `!cancelled()` so folding this in never costs a signal: a ruff
@@ -746,13 +740,14 @@ jobs:
       # marker-deselection change over there would drop the proof with no red
       # signal to say so. Pinning it to this lane, whose full history is its
       # stated purpose, is what makes the coverage non-revocable.
-      run: uv run python scripts/check_config_keys.py --back-test
+      run: uv run python scripts/check.py run config-keys
 
     - name: Run changelog-fragment guard
-      # A PR that touches src/ or packages/ must carry a fragment in
-      # changelog.d/, and nobody may hand-edit CHANGELOG.md's [Unreleased]
-      # block — the release fold owns it. scripts/premerge_check.sh runs the
-      # same command locally.
+      # A PR that touches a directory the gate covers (GATED_PREFIXES in the
+      # script) must carry a fragment in changelog.d/, and nobody may
+      # hand-edit CHANGELOG.md's [Unreleased] block — the release fold owns
+      # it. `scripts/check.py quick --changed origin/main` runs the same
+      # command locally.
       #
       # `python3`, not `uv run`: the script is stdlib-only and standalone by
       # design, the same reason scripts/ci/diag_summary.py runs bare above
@@ -774,7 +769,7 @@ jobs:
       if: ${{ !cancelled() && github.event_name == 'pull_request' }}
       env:
         BASE_REF: ${{ github.event.pull_request.base.ref }}
-      run: python3 scripts/changelog_fragments.py check --base "origin/$BASE_REF"
+      run: python3 scripts/check.py run changelog --base "origin/$BASE_REF"
 
     - name: Run plugin version-bump gate
       # A PR that edits the plugin tree must also bump the plugin version.
@@ -800,21 +795,15 @@ jobs:
       if: ${{ !cancelled() && github.event_name == 'pull_request' }}
       env:
         BASE_REF: ${{ github.event.pull_request.base.ref }}
-      run: python3 scripts/plugin_version.py check --base "origin/$BASE_REF"
+      run: python3 scripts/check.py run plugin-version --base "origin/$BASE_REF"
 
     - name: No tracked file is gitignored
       # A tracked file an ignore rule matches is one a fresh `git add` would silently drop.
       if: ${{ !cancelled() }}
-      run: |
-        ignored=$(git ls-files -ci --exclude-standard)
-        if [ -n "$ignored" ]; then
-          echo "::error::tracked files matched by .gitignore (narrow the rule or untrack the file):"
-          echo "$ignored"
-          exit 1
-        fi
+      run: python3 scripts/check.py run tracked-ignored
 
     - name: Run mypy (type checking)
-      run: uv run python scripts/mypy_gate.py
+      run: uv run python scripts/check.py run mypy
 
   docs:
     name: Documentation Build (Check Only)
@@ -847,9 +836,7 @@ jobs:
     # :file: include, or a broken :doc:/:ref: target fails this job. So does a
     # redirect key with no stub page: docs/source/conf.py fails the build.
     - name: Build documentation
-      run: |
-        cd docs
-        uv run make html SPHINXOPTS="-W --keep-going"
+      run: python3 scripts/check.py run docs
 
     - name: Check for broken links
       run: |
@@ -885,85 +872,23 @@ jobs:
     - name: Set up Python
       run: uv python install 3.11
 
-    - name: Build package
-      run: uv build
+    # One step: the check builds the framework, twine-checks dist/ while it
+    # holds only the framework's own artifacts, builds the lean connectors
+    # wheel and import-walks it on a bare venv, asserts the framework wheel
+    # carries dock_engine and its package data, and builds pyaml-cs-osprey and
+    # import-walks it beside the other two wheels. The order is declared once,
+    # in PACKAGE_STEPS of scripts/check.py.
+    - name: Build and check the packages
+      run: python3 scripts/check.py run package
 
-    - name: Check package
-      run: uvx twine check dist/*
-
+    # The framework's own artifacts only, as when they were uploaded before
+    # the connectors and pyaml-cs-osprey wheels were built.
     - name: Upload package artifacts
       uses: actions/upload-artifact@v7
       with:
         name: package
-        path: dist/
+        path: dist/osprey_framework-*
         retention-days: 7
-
-    # Folded in from the former `lean-wheel` job, which shared this job's whole
-    # setup -- checkout, uv, Python 3.11 -- and then ran for ~12 seconds. As a
-    # job of its own it spent a runner slot re-paying for setup already done
-    # here, and slots, not seconds, are what PR wall-clock is made of.
-    #
-    # Position is load-bearing. `uv build` above must reach `twine check` and
-    # the uploaded `package` artifact with only the framework's own artifacts in
-    # dist/, exactly as it did when these were two jobs; building the connectors
-    # wheel earlier would quietly widen both.
-    - name: Build osprey-connectors wheel
-      run: uv build --package osprey-connectors
-
-    - name: Verify wheel is self-contained on a bare venv
-      run: |
-        uv venv /tmp/lean-check --python 3.11
-        uv pip install --python /tmp/lean-check/bin/python dist/osprey_connectors-*.whl
-        /tmp/lean-check/bin/python -c "
-        import importlib, pkgutil, sys
-        import osprey_connectors.control_system._epics_connector
-        import osprey_connectors.control_system
-        import osprey_connectors.errors, osprey_connectors.config, osprey_connectors.logger
-        import osprey_connectors.simulation
-        bad = sorted({m.split('.')[0] for m in sys.modules} & {'litellm','openai','anthropic','fastapi','playwright','osprey'})
-        assert not bad, f'lean wheel loaded: {bad}'
-        # Every module in the wheel must import on the bare venv — a missed
-        # osprey.* rewrite in a leaf nothing imports transitively (honesty,
-        # procedural, the mock/doocs/mongodb connectors) would otherwise ship.
-        # walk_packages swallows package import errors unless onerror raises.
-        import osprey_connectors
-        def _raise(name):
-            raise ImportError(f'failed to walk {name}')
-        modules = [m.name for m in pkgutil.walk_packages(osprey_connectors.__path__, 'osprey_connectors.', onerror=_raise)]
-        for name in modules:
-            importlib.import_module(name)
-        assert 'osprey' not in sys.modules, 'a lean-wheel module imported the osprey framework'
-        # The PEP 561 marker: without it a type checker treats the installed
-        # package as untyped and every name imported from it as Any.
-        import importlib.resources
-        assert (importlib.resources.files('osprey_connectors') / 'py.typed').is_file(), 'py.typed missing from the wheel'
-        print(f'LEAN WHEEL OK ({len(modules)} modules)')
-        "
-
-    # A step of its own, after the lean check rather than inside it: the pyAML
-    # control-system wheel imports the framework (osprey.runtime)
-    # by design, so the no-framework assertion above must keep reading a venv
-    # that holds the connectors wheel alone. This venv holds all three wheels
-    # from dist/ -- the framework declares a dependency on this one, and this
-    # one needs the framework at import -- so a wheel that omits a module, or a
-    # module that imports something no wheel ships, fails here and not on a
-    # user's install.
-    - name: Build pyaml-cs-osprey wheel and import-walk it with the framework
-      run: |
-        uv build --package pyaml-cs-osprey
-        uv venv /tmp/pyaml-check --python 3.11
-        uv pip install --python /tmp/pyaml-check/bin/python \
-          dist/osprey_framework-*.whl dist/osprey_connectors-*.whl dist/pyaml_cs_osprey-*.whl
-        /tmp/pyaml-check/bin/python -c "
-        import importlib, pkgutil
-        import pyaml_cs_osprey
-        def _raise(name):
-            raise ImportError(f'failed to walk {name}')
-        modules = [m.name for m in pkgutil.walk_packages(pyaml_cs_osprey.__path__, 'pyaml_cs_osprey.', onerror=_raise)]
-        for name in modules:
-            importlib.import_module(name)
-        print(f'PYAML WHEEL OK ({len(modules)} modules)')
-        "
 
   static-checks:
     name: Tier 0 — Static (preset YAML + builds, skill ↔ MCP-tool consistency, podman-compose parse)
@@ -1195,11 +1120,84 @@ jobs:
     - name: Install dependencies
       run: uv sync --extra dev
 
+    # `--with-deps` apt-installs ~140 MB of system debs (WebKit's gstreamer and
+    # codec stack is most of it), and the runner's default mirror,
+    # azure.archive.ubuntu.com, some days serves them at 30-100 kB/s: the
+    # installs then take 20-40 minutes and the lane hits its timeout without
+    # running a test. The browsers come from Playwright's CDN and are always
+    # fast. So the debs and the browsers are cached across runs, apt prefers
+    # archive.ubuntu.com, and each install step has its own short timeout.
+    - name: Resolve Playwright browser cache key
+      id: playwright-key
+      run: |
+        version=$(uv run python -c 'import importlib.metadata as m; print(m.version("playwright"))')
+        : "${ImageOS:?runner image name missing}" "${ImageVersion:?runner image version missing}"
+        echo "prefix=playwright-${version}-${ImageOS}-" >> "$GITHUB_OUTPUT"
+        echo "key=playwright-${version}-${ImageOS}-${ImageVersion}" >> "$GITHUB_OUTPUT"
+
+    - name: Configure apt for the Playwright system deps
+      # The runner's sources read `mirror+file:/etc/apt/apt-mirrors.txt`, one
+      # `URL<TAB>priority:N` per line, lowest tried first. Swapping azure's 1
+      # with archive.ubuntu.com's 2 keeps azure as the fallback; a file in any
+      # other shape is left as it is. Downloaded debs are kept in a
+      # runner-owned directory the cache steps can reach. The snippet's name
+      # sorts after the image's own `zz-retries`, which would otherwise
+      # override its retry count.
+      run: |
+        sudo sed -i -E \
+          -e 's#^(http://azure\.archive\.ubuntu\.com/ubuntu/\t)priority:1$#\1priority:2#' \
+          -e 's#^(https?://archive\.ubuntu\.com/ubuntu/\t)priority:2$#\1priority:1#' \
+          /etc/apt/apt-mirrors.txt
+        cat /etc/apt/apt-mirrors.txt
+        grep -Eq '^https?://archive\.ubuntu\.com/ubuntu/[[:space:]]+priority:1$' /etc/apt/apt-mirrors.txt \
+          || echo "::warning::apt-mirrors.txt not in the expected shape; apt keeps the image's mirror order"
+        mkdir -p "$HOME/apt-archives/partial"
+        sudo tee /etc/apt/apt.conf.d/zzz-playwright-deps-cache >/dev/null <<EOF
+        Dir::Cache::Archives "$HOME/apt-archives";
+        APT::Keep-Downloaded-Packages "true";
+        Acquire::http::Timeout "15";
+        Acquire::Retries "3";
+        EOF
+
+    - name: Restore Playwright browsers and apt debs
+      id: playwright-cache
+      uses: actions/cache/restore@v6
+      with:
+        path: |
+          ~/.cache/ms-playwright
+          ~/apt-archives
+        key: ${{ steps.playwright-key.outputs.key }}
+        restore-keys: |
+          ${{ steps.playwright-key.outputs.prefix }}
+
     - name: Install Playwright chromium
+      timeout-minutes: 10
       run: uv run playwright install chromium --with-deps
 
     - name: Install Playwright webkit
+      timeout-minutes: 10
       run: uv run playwright install webkit --with-deps
+
+    - name: Hand the apt debs to the runner user
+      # apt wrote them as root, along with its lock file; the save cannot
+      # archive what it cannot read. autoclean first drops debs the current
+      # indexes no longer list, so a cache carried across image bumps by the
+      # prefix restore-key does not keep every superseded version.
+      run: |
+        sudo apt-get autoclean
+        sudo chown -R "$USER" ~/apt-archives
+        rm -f ~/apt-archives/lock
+
+    - name: Save Playwright browsers and apt debs
+      # Saved here rather than in a post step, so a later test failure still
+      # leaves the next run a warm cache. An exact hit has nothing new to save.
+      if: steps.playwright-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: |
+          ~/.cache/ms-playwright
+          ~/apt-archives
+        key: ${{ steps.playwright-key.outputs.key }}
 
     - name: Run behavioral theming suite
       run: |
@@ -1311,13 +1309,25 @@ jobs:
       run: npm ci
 
     - name: Typecheck (tsc --noEmit)
-      run: npm run typecheck
+      run: python3 scripts/check.py run tsc
 
     - name: Lint (eslint)
-      run: npm run lint
+      run: python3 scripts/check.py run eslint
+
+    - name: Format (prettier)
+      run: python3 scripts/check.py run prettier
 
     - name: Run JS tests (vitest)
-      run: npm run test:js
+      run: python3 scripts/check.py run vitest
+
+    # The dock engine's committed bundle, declarations and manifest are build
+    # outputs of its TypeScript; --check rebuilds them in memory and fails when
+    # a committed file differs, so a source edit cannot land without its build.
+    - name: Check the dock-engine bundle is current
+      run: python3 scripts/check.py run dock-engine-bundle
+
+    - name: Run dock-engine tests (vitest)
+      run: python3 scripts/check.py run dock-engine-tests
 
   plugin-smoke:
     name: Plugin marketplace smoke (install the osprey plugin)
@@ -4685,9 +4695,52 @@ jobs:
     - name: Install osprey
       run: uv sync --extra dev
 
+    # `--with-deps` apt-installs chromium's system debs from the runner's
+    # default mirror, azure.archive.ubuntu.com, which some days serves them at
+    # 30-100 kB/s. The same treatment as the visual-theming lane: apt prefers
+    # archive.ubuntu.com, and the install has its own cap. That lane writes the
+    # Playwright cache (both browsers and their debs); this one only reads it,
+    # so the two never store a second copy under a second key.
+    - name: Resolve Playwright browser cache key
+      id: playwright-key
+      run: |
+        version=$(uv run python -c 'import importlib.metadata as m; print(m.version("playwright"))')
+        : "${ImageOS:?runner image name missing}" "${ImageVersion:?runner image version missing}"
+        echo "prefix=playwright-${version}-${ImageOS}-" >> "$GITHUB_OUTPUT"
+        echo "key=playwright-${version}-${ImageOS}-${ImageVersion}" >> "$GITHUB_OUTPUT"
+
+    - name: Configure apt for the Playwright system deps
+      # See the visual-theming lane's step of the same name.
+      run: |
+        sudo sed -i -E \
+          -e 's#^(http://azure\.archive\.ubuntu\.com/ubuntu/\t)priority:1$#\1priority:2#' \
+          -e 's#^(https?://archive\.ubuntu\.com/ubuntu/\t)priority:2$#\1priority:1#' \
+          /etc/apt/apt-mirrors.txt
+        cat /etc/apt/apt-mirrors.txt
+        grep -Eq '^https?://archive\.ubuntu\.com/ubuntu/[[:space:]]+priority:1$' /etc/apt/apt-mirrors.txt \
+          || echo "::warning::apt-mirrors.txt not in the expected shape; apt keeps the image's mirror order"
+        mkdir -p "$HOME/apt-archives/partial"
+        sudo tee /etc/apt/apt.conf.d/zzz-playwright-deps-cache >/dev/null <<EOF
+        Dir::Cache::Archives "$HOME/apt-archives";
+        APT::Keep-Downloaded-Packages "true";
+        Acquire::http::Timeout "15";
+        Acquire::Retries "3";
+        EOF
+
+    - name: Restore Playwright browsers and apt debs
+      uses: actions/cache/restore@v6
+      with:
+        path: |
+          ~/.cache/ms-playwright
+          ~/apt-archives
+        key: ${{ steps.playwright-key.outputs.key }}
+        restore-keys: |
+          ${{ steps.playwright-key.outputs.prefix }}
+
     # The reader origin's `/play` page and the history page are proved in a
     # real browser against this lane's stack.
     - name: Install Playwright chromium
+      timeout-minutes: 10
       run: uv run playwright install chromium --with-deps
 
     # The fixture drives `osprey init`/`osprey build`/`osprey up --dev` itself;

@@ -1,5 +1,7 @@
 """Tests for chat completion module."""
 
+import warnings
+
 import pytest
 from pydantic import BaseModel
 from typing_extensions import TypedDict
@@ -389,6 +391,52 @@ class TestGetChatCompletionAcceptsAProviderDefault:
         assert seen["base_url"] == "http://127.0.0.1:4000/v1"
         assert seen["model_id"] == "amsc/gpt-oss-120b-safeguard"
         assert seen["extra_body"] == {"api_key": "upstream-amsc-key"}
+
+
+class _PlainSiteChat:
+    """A registered chat class that does not subclass BaseProvider and declares no flag."""
+
+    name = "plain-site-chat"
+
+    @classmethod
+    def effective_base_url(cls, base_url):
+        return base_url
+
+    def execute_completion(self, **kwargs):
+        return kwargs
+
+
+class TestAClassThatIsNotABaseProviderDeclaresNoFlag:
+    """A plain registered class is read as requiring neither a key nor an endpoint."""
+
+    @pytest.fixture
+    def a_registered_plain_site_chat(self, monkeypatch):
+        from osprey.models import completion as completion_module
+        from osprey.models.provider_registry import _ProviderEntry, get_provider_registry
+
+        registry = get_provider_registry()
+        monkeypatch.setitem(
+            registry._entries, "plain-site-chat", _ProviderEntry(__name__, "_PlainSiteChat")
+        )
+        monkeypatch.setitem(registry._providers, "plain-site-chat", _PlainSiteChat)
+        monkeypatch.setattr(
+            completion_module,
+            "get_provider_config",
+            lambda provider: {"default_model_id": "a-model"},
+        )
+
+    @pytest.mark.usefixtures("a_registered_plain_site_chat")
+    def test_no_key_and_no_base_url_are_not_refused(self):
+        from osprey.models import completion as completion_module
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            seen = completion_module.get_chat_completion(
+                message="ping", provider="plain-site-chat", max_tokens=4
+            )
+
+        assert seen["base_url"] is None
+        assert seen["model_id"] == "a-model"
 
 
 class TestCompletionNamesItsProviderAndModel:

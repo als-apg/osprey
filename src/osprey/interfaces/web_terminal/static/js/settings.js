@@ -3,10 +3,9 @@
 import { fetchJSON, apiRequest } from './api.js';
 import { restartTerminal, startTerminal } from './terminal.js';
 import { showSettingsNotice } from './settings-notice.js';
-import { mountOverlay, fadeOutOverlay } from './modal-overlay.js';
 import { hideApplyConfirm, initApplyConfirmGate } from './settings-apply-confirm.js';
 import { isSectionProtected, markProtected, protectedNote } from './settings-protected.js';
-import { scopedStorageKey } from '/design-system/js/storage-scope.js';
+import { initSettingsWarningGate, runWarningGate } from './settings-warning-gate.js';
 
 /**
  * The config document returned by GET /api/config.
@@ -34,28 +33,17 @@ let currentConfig = null;
 /** @type {Set<string>} */
 let protectedKeys = new Set();
 let isDirty = false;
-let currentMode = 'form';  // 'form' | 'raw'
+let currentMode = 'form'; // 'form' | 'raw'
 
 // The agent tab panel — all DOM queries are scoped to this element
 /** @type {HTMLElement|null} */
 let agentPanel = null;
 
-// The settings drawer element — resolved once in initSettings(), reused by
-// applySettings() to close it and by the warning gate below to open it.
+// The settings drawer element — resolved once in initSettings(), handed to the
+// warning gate, and reused by applySettings() to close it and by
+// openDrawerTab() to open it.
 /** @type {DrawerElement|null} */
 let settingsDrawer = null;
-
-// Per-session warning for the settings drawer (resets on server restart), and
-// per RENDER: localStorage is origin-scoped, so on a multi-user mount a bare
-// key would let whoever acknowledged the safety warning first wave it away for
-// everyone else on the box. Resolved through scopedStorageKey() at each use —
-// see storage-scope.js.
-const SETTINGS_WARNING_KEY_BASE = 'osprey-settings-warning-ack';
-
-// True from the moment a trigger click starts the gate (health check in
-// flight, or the warning dialog itself is up) until it resolves one way or
-// another. Guards against a rapid second click spawning a second dialog.
-let warningGatePending = false;
 
 // The policy vocabulary a per-tool approval entry offers. The approval hook
 // resolves a policy for ANY tool it gates, by short name, so which tools a
@@ -106,7 +94,7 @@ export function initSettings() {
   // the drawer (fail-closed) — install it as soon as the drawer itself is
   // resolved, before the unrelated `#tab-config` guard clause below, so a
   // missing/renamed config tab can never silently leave the drawer ungated.
-  if (settingsDrawer) initSettingsWarningGate();
+  if (settingsDrawer) initSettingsWarningGate(settingsDrawer);
 
   agentPanel = document.getElementById('tab-config');
   if (!settingsDrawer || !agentPanel) return;
@@ -115,7 +103,9 @@ export function initSettings() {
   agentPanel.addEventListener('drawer:tab-activate', () => loadConfig());
 
   // Mode toggle buttons (scoped to agent panel)
-  /** @type {NodeListOf<HTMLElement>} */ (agentPanel.querySelectorAll('.settings-mode-btn')).forEach((btn) => {
+  /** @type {NodeListOf<HTMLElement>} */ (
+    agentPanel.querySelectorAll('.settings-mode-btn')
+  ).forEach((btn) => {
     btn.addEventListener('click', () => switchMode(/** @type {string} */ (btn.dataset.mode)));
   });
 
@@ -126,165 +116,6 @@ export function initSettings() {
   // Raw editor dirty tracking
   const rawEditor = document.getElementById('settings-raw-editor');
   if (rawEditor) rawEditor.addEventListener('input', markDirty);
-}
-
-/**
- * Gate opening the settings drawer behind a first-time-per-session warning
- * (these settings control agent behavior, safety hooks, and security
- * policies). The trigger is the display menu's System Settings row (hub
- * chrome's only route into the drawer, expert mode only). It intentionally
- * carries `data-drawer-trigger` rather than osprey-drawer's own
- * `[data-drawer]` marker, so the component's
- * delegated handler never matches it and never toggles the drawer directly —
- * this gate is the sole open path, and the click reaches every other
- * document-level listener (e.g. sessions.js's outside-click dropdown close)
- * completely unmodified, with no propagation tampering.
- */
-function initSettingsWarningGate() {
-  const trigger = document.querySelector('[data-drawer-trigger="settings-drawer"]');
-  if (!trigger) return;
-
-  trigger.addEventListener('click', async () => {
-    // Toggle-close stays FIRST, ahead of the gate: an already-open drawer
-    // closes without re-running the warning. The gate never owns the toggle.
-    if (settingsDrawer?.hasAttribute('open')) {
-      settingsDrawer.close();
-      return;
-    }
-    if (await runWarningGate()) settingsDrawer?.open();
-  });
-}
-
-// Bounds how long a trigger click can leave `warningGatePending` true while
-// waiting on /health -- a stalled backend or a dropped connection with no
-// RST would otherwise never settle the fetch and permanently brick the
-// trigger (every later click a no-op, only a reload recovering).
-const HEALTH_CHECK_TIMEOUT_MS = 4000;
-
-/**
- * Encapsulate ONLY the gate decision — the re-entrancy guard, the /health
- * check, and the first-per-session warning dialog. It never opens or closes
- * the drawer; callers do that on a true result. This is the sole gate path;
- * every gated seam (the menu trigger, openDrawerTab, revealSetting) routes
- * through it.
- *
- * Resolves true when the user may proceed: acknowledgment for this server
- * session is already stored, OR the user clicks Proceed. Resolves false on
- * Cancel, Escape, dialog-build failure, or a re-entrant call made while a
- * gate is already pending (the second caller does not spawn a second dialog).
- * @returns {Promise<boolean>}
- */
-async function runWarningGate() {
-  if (warningGatePending) return false; // a check or the dialog is already in flight
-  warningGatePending = true;
-  /** @type {string|null} */
-  let serverSession = null;
-  let timeoutId;
-  try {
-    const timeout = new Promise((_, reject) => {
-      timeoutId = setTimeout(() => reject(new Error('health check timed out')), HEALTH_CHECK_TIMEOUT_MS);
-    });
-    const healthCheck = fetchJSON('/health');
-    // If the timeout wins the race, the still-pending fetch may reject later;
-    // swallow that late rejection so it doesn't surface as an unhandled one.
-    healthCheck.catch(() => {});
-    const health = await Promise.race([healthCheck, timeout]);
-    clearTimeout(timeoutId);
-    serverSession = health.session_id ?? null;
-    // Already acknowledged this server session — proceed without the dialog.
-    if (serverSession && localStorage.getItem(scopedStorageKey(SETTINGS_WARNING_KEY_BASE)) === serverSession) {
-      warningGatePending = false;
-      return true;
-    }
-  } catch {
-    // Health endpoint unreachable, or slow enough to hit the timeout above —
-    // show the warning to be safe (fail-safe-to-warning; the flag clears via
-    // the dialog's own cleanup() once dismissed).
-    clearTimeout(timeoutId);
-    serverSession = null;
-  }
-  // Show the warning; its dismissal resolves the gate. Defense-in-depth: if
-  // building/showing the dialog throws, reset the gate and decline rather
-  // than leaving it permanently pending.
-  try {
-    return await showSettingsWarning(serverSession);
-  } catch (error) {
-    warningGatePending = false;
-    console.error('osprey web_terminal: failed to show the settings warning dialog; gate reset', error);
-    return false;
-  }
-}
-
-/**
- * Build the first-time warning dialog. Persists acknowledgment per server
- * session so it reappears on restart. Resolves true if the user clicks
- * Proceed, false on Cancel or Escape. The DOM/animation/Escape-cleanup are
- * unchanged from the pre-Promise gate; only the terminal action differs —
- * each dismissal path settles this promise instead of opening the drawer.
- * @param {string|null} serverSession
- * @returns {Promise<boolean>}
- */
-function showSettingsWarning(serverSession) {
-  return new Promise((resolve) => {
-    const overlay = document.createElement('div');
-    overlay.className = 'settings-warning-overlay';
-
-    const dialog = document.createElement('div');
-    dialog.className = 'settings-warning-dialog';
-
-    dialog.innerHTML = `
-      <div class="settings-warning-icon">⚠</div>
-      <div class="settings-warning-title">Expert Configuration Area</div>
-      <div class="settings-warning-body">
-        <p>These settings directly control <strong>agent behavior</strong>,
-        <strong>safety hooks</strong>, and <strong>security policies</strong>.</p>
-        <p>Incorrect changes can <strong>disable safety checks</strong>,
-        bypass human approval requirements, or allow unvalidated writes
-        to control system hardware.</p>
-        <p>Only modify these settings if you understand the safety
-        implications of each option.</p>
-      </div>
-      <div class="settings-warning-actions">
-        <button class="settings-warning-cancel">Cancel</button>
-        <button class="settings-warning-proceed">I Understand, Proceed</button>
-      </div>
-    `;
-
-    overlay.appendChild(dialog);
-    mountOverlay(overlay);
-
-    // Unconditional on every dismissal path (Cancel, Proceed, Escape) — leaves
-    // no stale `keydown` listener behind and always clears the pending gate.
-    const cleanup = () => {
-      document.removeEventListener('keydown', onKey);
-      warningGatePending = false;
-      fadeOutOverlay(overlay);
-    };
-
-    // Cancel/Escape decline the gate; Proceed acknowledges + accepts. The gate
-    // decision is all this resolves — the caller owns opening the drawer.
-    const cancel = () => {
-      cleanup();
-      resolve(false);
-    };
-
-    /** @type {HTMLElement} */ (dialog.querySelector('.settings-warning-cancel')).addEventListener('click', cancel);
-
-    /** @type {HTMLElement} */ (dialog.querySelector('.settings-warning-proceed')).addEventListener('click', () => {
-      if (serverSession) {
-        localStorage.setItem(scopedStorageKey(SETTINGS_WARNING_KEY_BASE), serverSession);
-      }
-      cleanup();
-      resolve(true);
-    });
-
-    // Escape key cancels
-    /** @param {KeyboardEvent} e */
-    const onKey = (e) => {
-      if (e.key === 'Escape') cancel();
-    };
-    document.addEventListener('keydown', onKey);
-  });
 }
 
 /**
@@ -380,7 +211,9 @@ function waitForConfigField(dotKey) {
 
 async function loadConfig() {
   const formContainer = document.getElementById('settings-form');
-  const rawTextarea = /** @type {HTMLTextAreaElement|null} */ (document.getElementById('settings-raw-editor'));
+  const rawTextarea = /** @type {HTMLTextAreaElement|null} */ (
+    document.getElementById('settings-raw-editor')
+  );
   const loading = document.getElementById('settings-loading');
   const error = document.getElementById('settings-error');
 
@@ -416,7 +249,9 @@ function switchMode(mode) {
   currentMode = mode;
   if (!agentPanel) return;
 
-  /** @type {NodeListOf<HTMLElement>} */ (agentPanel.querySelectorAll('.settings-mode-btn')).forEach((btn) => {
+  /** @type {NodeListOf<HTMLElement>} */ (
+    agentPanel.querySelectorAll('.settings-mode-btn')
+  ).forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.mode === mode);
   });
 
@@ -615,7 +450,10 @@ function collectFormUpdates() {
     } else if (input.type === 'number') {
       newValue = Number(input.value);
     } else if (input.dataset.type === 'array') {
-      newValue = input.value.split(',').map((s) => s.trim()).filter(Boolean);
+      newValue = input.value
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
     } else {
       newValue = input.value;
     }
@@ -671,7 +509,9 @@ async function applySettings() {
   if (agentPanel) hideApplyConfirm(agentPanel);
 
   const status = agentPanel ? agentPanel.querySelector('.settings-status') : null;
-  const applyBtn = /** @type {HTMLButtonElement|null} */ (agentPanel ? agentPanel.querySelector('.settings-apply-btn') : null);
+  const applyBtn = /** @type {HTMLButtonElement|null} */ (
+    agentPanel ? agentPanel.querySelector('.settings-apply-btn') : null
+  );
   if (applyBtn) applyBtn.disabled = true;
   if (status) status.textContent = 'Saving...';
 
@@ -681,7 +521,9 @@ async function applySettings() {
   try {
     if (currentMode === 'raw') {
       // Raw mode: send the full YAML text as-is (user is responsible for content)
-      const textarea = /** @type {HTMLTextAreaElement|null} */ (document.getElementById('settings-raw-editor'));
+      const textarea = /** @type {HTMLTextAreaElement|null} */ (
+        document.getElementById('settings-raw-editor')
+      );
       const yamlContent = textarea ? textarea.value : '';
       result = await apiRequest('/api/config', {
         method: 'PUT',
@@ -710,7 +552,8 @@ async function applySettings() {
     // where config.yml took the edit but the artifacts derived from it wait for
     // the container restart. Shown, not awaited: it acknowledges what already
     // happened, and the terminal restart below must not queue behind a dialog.
-    if (result && typeof result.detail === 'string' && result.detail) showSettingsNotice(result.detail);
+    if (result && typeof result.detail === 'string' && result.detail)
+      showSettingsNotice(result.detail);
 
     isDirty = false;
     updateSaveBar();

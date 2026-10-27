@@ -200,10 +200,13 @@ def get_chat_completion(
     # override was removed.
     base_url = provider_class.effective_base_url(base_url)
 
-    # Validate requirements using provider metadata
-    if provider_class.requires_api_key and not api_key:
+    # Validate requirements using provider metadata. Lazy import: importing this
+    # module loads no provider module.
+    from osprey.models.providers.base import declares
+
+    if declares(provider_class, "requires_api_key") and not api_key:
         raise ValueError(f"API key required for {provider}")
-    if provider_class.requires_base_url and not base_url:
+    if declares(provider_class, "requires_base_url") and not base_url:
         raise ValueError(f"Base URL required for {provider}")
     if not model_id:
         raise ValueError(f"Model ID required for {provider}")

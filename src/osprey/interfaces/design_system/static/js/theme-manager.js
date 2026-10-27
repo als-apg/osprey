@@ -424,10 +424,7 @@ function _readStoredPreference() {
  */
 function _persistPreference(family, mode) {
   try {
-    window.localStorage.setItem(
-      scopedStorageKey(STORAGE_KEY),
-      JSON.stringify({ family, mode })
-    );
+    window.localStorage.setItem(scopedStorageKey(STORAGE_KEY), JSON.stringify({ family, mode }));
   } catch {
     // Storage unavailable (private browsing, quota) -- non-fatal; the
     // preference just won't survive a reload this session.
@@ -639,10 +636,11 @@ export function initTheme({ role = 'follower' } = {}) {
     // paint correctly and then be discarded one frame later by 'auto'
     // re-resolving the mode from the OS. A stored preference still outranks
     // it: config sets the DEFAULT, not a lock.
-    const preference = queryPreference || storedPreference || {
-      family: _isKnownId(attrTheme) ? _familyOf(attrTheme) : DEFAULT_FAMILY,
-      mode: _readServerMode(),
-    };
+    const preference = queryPreference ||
+      storedPreference || {
+        family: _isKnownId(attrTheme) ? _familyOf(attrTheme) : DEFAULT_FAMILY,
+        mode: _readServerMode(),
+      };
     _preferenceFamily = preference.family;
     _preferenceMode = preference.mode;
     _applyTheme(_resolvePreference(_preferenceFamily, _preferenceMode));

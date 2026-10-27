@@ -420,12 +420,12 @@ def test_a_served_tier_the_projection_lacks_counts_as_denying_nothing(tmp_path: 
     """A served name with no projection entry has no artifact to prove a deny,
     so the Bash guard counts it unsafe rather than skipping it."""
     # Arrange
-    from osprey.deployment.web_terminals.roster import renders_not_denying_bash
+    from osprey.deployment.web_terminals.roster import renders_with_open_shell
 
     web_terminals = {"default_tier": "ghost", "renders": _projection("viewer")}
 
     # Act
-    unsafe = renders_not_denying_bash(_rendered(web_terminals, dispatch=None), tmp_path)
+    unsafe = renders_with_open_shell(_rendered(web_terminals, dispatch=None), tmp_path)
 
     # Assert
     assert "ghost" in unsafe

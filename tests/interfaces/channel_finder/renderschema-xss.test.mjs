@@ -25,8 +25,8 @@ function assertNoLiveInjection(container) {
   expect(container.querySelector('svg'), 'no live <svg> node').toBeNull();
   expect(container.querySelector('script'), 'no live <script> node').toBeNull();
   // No on* event-handler attribute anywhere in the parsed subtree.
-  const hasOnAttr = [...container.querySelectorAll('*')].some(el =>
-    [...el.attributes].some(attr => attr.name.startsWith('on'))
+  const hasOnAttr = [...container.querySelectorAll('*')].some((el) =>
+    [...el.attributes].some((attr) => attr.name.startsWith('on'))
   );
   expect(hasOnAttr, 'no on* event-handler attribute').toBe(false);
 }

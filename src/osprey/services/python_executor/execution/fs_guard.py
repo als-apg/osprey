@@ -222,7 +222,7 @@ DEFAULT_DENYLIST_PREFIX = "Protected path:"
 _WRITE_DETAIL_ALLOWLIST = "Writes are only allowed in permitted directories."
 _ACCESS_DETAIL_ALLOWLIST = "Only permitted and read-only directories are allowed."
 _WRITE_DETAIL_DENYLIST = "This location is protected and cannot be modified by executed code."
-_SECRET_DETAIL = "Secret files and process environments cannot be opened by executed code."
+_SECRET_DETAIL = "Secret files and process environments cannot be opened by executed code."  # noqa: S105 -- names a refusal message, holds no secret
 
 
 def _root_tuple(roots: Iterable[str | Path]) -> tuple[str, ...]:

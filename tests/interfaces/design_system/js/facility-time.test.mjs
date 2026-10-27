@@ -37,7 +37,7 @@ function stamp(zone) {
  */
 function intl(zone, options) {
   return new Intl.DateTimeFormat(undefined, { ...options, timeZone: zone }).format(
-    new Date(INSTANT),
+    new Date(INSTANT)
   );
 }
 
@@ -85,9 +85,7 @@ describe('facility-time.js', () => {
     });
 
     test("the fallback names the viewer's zone on a time", () => {
-      expect(formatFacilityTime(INSTANT, HM)).toBe(
-        intl(VIEWER, { ...HM, timeZoneName: 'short' }),
-      );
+      expect(formatFacilityTime(INSTANT, HM)).toBe(intl(VIEWER, { ...HM, timeZoneName: 'short' }));
     });
 
     test('a date-only fallback carries no zone name', () => {
@@ -168,7 +166,7 @@ describe('facility-time.js', () => {
       expect(viewerSharesFacilityClock(Date.parse(INSTANT))).toBe(false);
     });
 
-    test('true when the stamp is the viewer\'s zone and when absent', () => {
+    test("true when the stamp is the viewer's zone and when absent", () => {
       expect(viewerSharesFacilityClock(Date.parse(INSTANT))).toBe(true);
       stamp(VIEWER);
       expect(viewerSharesFacilityClock(Date.parse(INSTANT))).toBe(true);

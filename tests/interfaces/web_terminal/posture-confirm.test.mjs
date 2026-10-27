@@ -69,7 +69,9 @@ test('the dialog carries the machine kind it is about as data-target-kind', () =
 
   const dialog = /** @type {HTMLElement} */ (document.querySelector('.posture-modal'));
   expect(dialog.dataset.targetKind).toBe('rehearsal');
-  expect(document.querySelector('.posture-modal-live')?.textContent).toBe('Rehearsal — nothing moves');
+  expect(document.querySelector('.posture-modal-live')?.textContent).toBe(
+    'Rehearsal — nothing moves'
+  );
 });
 
 test('a dialog about no machine has no data-target-kind', () => {
@@ -80,8 +82,12 @@ test('a dialog about no machine has no data-target-kind', () => {
 });
 
 test('a real-machine turn-on offers no waiver when the raiser passes none', () => {
-  showConfirm(spec({ live: 'Real machine — writes move hardware', targetKind: 'real', skipKeyBase: null }));
+  showConfirm(
+    spec({ live: 'Real machine — writes move hardware', targetKind: 'real', skipKeyBase: null })
+  );
 
   expect(document.querySelector('.posture-modal-skip')).toBeNull();
-  expect(/** @type {HTMLElement} */ (document.querySelector('.posture-modal')).dataset.targetKind).toBe('real');
+  expect(
+    /** @type {HTMLElement} */ (document.querySelector('.posture-modal')).dataset.targetKind
+  ).toBe('real');
 });

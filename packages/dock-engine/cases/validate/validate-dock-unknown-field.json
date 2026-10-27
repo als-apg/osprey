@@ -1,0 +1,12 @@
+{
+  "name": "validate-dock-unknown-field",
+  "rule": "C-LAYOUT",
+  "input": {
+    "tile": "t1",
+    "tabs": ["a"],
+    "showing": "a",
+    "colour": "red"
+  },
+  "reason": "unknown_field",
+  "where": "layout.colour"
+}

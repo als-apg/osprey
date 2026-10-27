@@ -44,10 +44,7 @@ describe('initTheme() first visit (hub)', () => {
 
   test('a stored preference still outranks the boot-applied family', () => {
     document.documentElement.setAttribute('data-theme', 'high-contrast-dark');
-    window.localStorage.setItem(
-      'osprey-theme',
-      JSON.stringify({ family: 'main', mode: 'light' })
-    );
+    window.localStorage.setItem('osprey-theme', JSON.stringify({ family: 'main', mode: 'light' }));
 
     ThemeManager.initTheme({ role: 'hub' });
 

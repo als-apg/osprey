@@ -86,7 +86,6 @@ const RECENT_LIMIT = 5;
 /** Namespace prefix keeping a Recent row's nav key distinct from its original. */
 const RECENT_KEY_PREFIX = 'recent\x1f';
 
-
 /** @type {HTMLElement | null} */
 let overlayEl = null;
 /** @type {HTMLInputElement | null} */
@@ -155,7 +154,9 @@ function recordRecent(key) {
   const next = [key, ...readRecent().filter((k) => k !== key)].slice(0, RECENT_LIMIT);
   try {
     localStorage.setItem(scopedStorageKey(RECENT_STORAGE_KEY_BASE), JSON.stringify(next));
-  } catch { /* storage blocked — Recent stays empty, execution is unaffected */ }
+  } catch {
+    /* storage blocked — Recent stays empty, execution is unaffected */
+  }
 }
 
 /**
@@ -498,7 +499,8 @@ function startConfigFetch() {
     .then(() => fetchJSON('/api/config'))
     .then((payload) => {
       if (token !== fetchSeq || !opened) return;
-      const sections = payload && typeof payload === 'object' && payload.sections ? payload.sections : {};
+      const sections =
+        payload && typeof payload === 'object' && payload.sections ? payload.sections : {};
       configState = { state: 'ok', sections };
       rebuildRegistry();
       render();

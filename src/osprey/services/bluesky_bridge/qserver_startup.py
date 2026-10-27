@@ -92,7 +92,7 @@ ZMQ_PUBLISH_ADDR_ENV = "BLUESKY_ZMQ_PUBLISH_ADDR"
 ``Publisher`` connects to. Absent means no document publishing — the bridge
 then has no live rows for a run, and falls back to Tiled."""
 
-ZMQ_CURVE_SECRET_KEY_ENV = "BLUESKY_ZMQ_CURVE_SECRET_KEY"
+ZMQ_CURVE_SECRET_KEY_ENV = "BLUESKY_ZMQ_CURVE_SECRET_KEY"  # noqa: S105 -- names an environment variable, holds no secret
 """Path to *this* process's CURVE secret certificate (the ``ClientCurve``
 client half). Set together with :data:`ZMQ_CURVE_SERVER_PUBLIC_KEY_ENV`."""
 

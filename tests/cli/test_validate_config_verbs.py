@@ -83,7 +83,7 @@ def _write_profile(root: Path, body: dict[str, Any]) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# validate: discovery
+# Tests of validate discovery
 # ---------------------------------------------------------------------------
 
 

@@ -659,7 +659,7 @@ def test_summary_says_no_env_was_written_when_nothing_was_exported(
 
 
 # ---------------------------------------------------------------------------
-# Provenance (FR-6)
+# Tests of provenance, FR-6
 # ---------------------------------------------------------------------------
 
 

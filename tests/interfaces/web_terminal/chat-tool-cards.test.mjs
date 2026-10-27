@@ -124,7 +124,7 @@ describe('the tool group', () => {
       },
       (el, text) => {
         el.textContent = text;
-      },
+      }
     );
     agent.addTool(write('w1')).finish(refused('w1', 'tier_never', TIER_NEVER));
 

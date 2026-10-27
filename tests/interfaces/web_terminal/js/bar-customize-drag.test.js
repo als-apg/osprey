@@ -146,9 +146,8 @@ describe('the drop index is the layout position, not the DOM position', () => {
     // before every folded item — a routine drag on a crowded bar writing an
     // arrangement nobody made.
     await editing(doc(['logo', 'clock', 'docs', 'stopwatch'], []));
-    const host = await import(
-      '../../../../src/osprey/interfaces/web_terminal/static/js/bar-host.js'
-    );
+    const host =
+      await import('../../../../src/osprey/interfaces/web_terminal/static/js/bar-host.js');
     host.parkShell(shell('docs'), document);
     withRect(shell('logo'), { left: 0, right: 40 });
     withRect(shell('clock'), { left: 40, right: 80 });
@@ -167,9 +166,8 @@ describe('the drop index is the layout position, not the DOM position', () => {
 
   test('a drop past everything visible lands after it', async () => {
     await editing(doc(['logo', 'clock', 'docs'], []));
-    const host = await import(
-      '../../../../src/osprey/interfaces/web_terminal/static/js/bar-host.js'
-    );
+    const host =
+      await import('../../../../src/osprey/interfaces/web_terminal/static/js/bar-host.js');
     host.parkShell(shell('docs'), document);
     withRect(shell('logo'), { left: 0, right: 40 });
     withRect(shell('clock'), { left: 40, right: 80 });
@@ -275,7 +273,9 @@ describe('dragging in from the sheet', () => {
 describe('resizing a space', () => {
   /** One of the first space shell's two grips. @param {'start' | 'end'} [edge] */
   function grip(edge = 'end') {
-    return /** @type {any} */ (shell('space').querySelector(`.bar-space-grip[data-edge="${edge}"]`));
+    return /** @type {any} */ (
+      shell('space').querySelector(`.bar-space-grip[data-edge="${edge}"]`)
+    );
   }
 
   test('the start grip widens the space as the pointer moves LEFT', async () => {
@@ -445,9 +445,8 @@ describe('the gesture itself', () => {
 
   test('an open popover is closed before its item moves', async () => {
     await editing(doc(['logo', 'clock'], []));
-    const host = await import(
-      '../../../../src/osprey/interfaces/web_terminal/static/js/bar-host.js'
-    );
+    const host =
+      await import('../../../../src/osprey/interfaces/web_terminal/static/js/bar-host.js');
     /** @type {string[]} */
     const closed = [];
     host.registerBarPopover(shell('clock'), () => closed.push('clock'));

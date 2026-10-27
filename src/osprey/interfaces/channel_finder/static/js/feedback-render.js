@@ -95,11 +95,15 @@ export function _parseChannelsFromResponse(toolResponse) {
     let parsed = typeof toolResponse === 'string' ? JSON.parse(toolResponse) : toolResponse;
     // Double-encoded: {result: "..."} envelope
     if (parsed.result && typeof parsed.result === 'string') {
-      try { parsed = JSON.parse(parsed.result); } catch { /* use as-is */ }
+      try {
+        parsed = JSON.parse(parsed.result);
+      } catch {
+        /* use as-is */
+      }
     }
     const channels = parsed.channels;
     if (!Array.isArray(channels)) return [];
-    return channels.map(ch => {
+    return channels.map((ch) => {
       if (typeof ch === 'string') return ch;
       if (ch && typeof ch === 'object') return ch.name || ch.pv || JSON.stringify(ch);
       return String(ch);
@@ -122,10 +126,10 @@ export function _renderChannelList(channels, visibleCount = 3) {
   let html = '<div class="fb-pending-channels">';
   html += '<div class="fb-pending-channels-label">Channels</div>';
   html += '<div class="fb-pending-channels-list">';
-  html += visible.map(ch => `<span class="fb-pending-pv">${esc(ch)}</span>`).join('');
+  html += visible.map((ch) => `<span class="fb-pending-pv">${esc(ch)}</span>`).join('');
   if (overflow.length > 0) {
     html += '<div class="fb-pending-channels-overflow" style="display:none">';
-    html += overflow.map(ch => `<span class="fb-pending-pv">${esc(ch)}</span>`).join('');
+    html += overflow.map((ch) => `<span class="fb-pending-pv">${esc(ch)}</span>`).join('');
     html += '</div>';
     html += `<button type="button" class="fb-pending-channels-toggle" data-full="${overflow.length}">+${overflow.length} more</button>`;
   }
@@ -142,10 +146,12 @@ export function _renderSelections(selections) {
   if (!selections || Object.keys(selections).length === 0) {
     return '<span style="color: var(--text-muted); font-size: var(--text-sm);">(empty)</span>';
   }
-  return Object.entries(selections).map(([k, v]) => {
-    const val = Array.isArray(v) ? v.join(', ') : String(v);
-    return `<span class="fb-sel-pair"><span class="fb-sel-key">${esc(k)}</span><span class="fb-sel-value">${esc(val)}</span></span>`;
-  }).join('');
+  return Object.entries(selections)
+    .map(([k, v]) => {
+      const val = Array.isArray(v) ? v.join(', ') : String(v);
+      return `<span class="fb-sel-pair"><span class="fb-sel-key">${esc(k)}</span><span class="fb-sel-value">${esc(val)}</span></span>`;
+    })
+    .join('');
 }
 
 /**
@@ -180,8 +186,12 @@ export function _parseSelections(text) {
 export function _formatTime(isoStr) {
   if (!isoStr) return '';
   return (
-    formatFacilityTime(isoStr, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) ||
-    esc(isoStr)
+    formatFacilityTime(isoStr, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }) || esc(isoStr)
   );
 }
 
@@ -223,20 +233,28 @@ export function _renderPendingSection(items, options = {}) {
         <span>Pending Reviews <span class="fb-pending-badge">${pendingItems.length}</span></span>
         <span class="fb-pending-subtitle">Agent-captured searches awaiting review</span>
       </div>
-      ${pendingItems.map((/** @type {any} */ item) => {
-        const summary = _buildCardSummary(item);
-        const label = _toolLabel(item.tool_name);
-        const channels = _parseChannelsFromResponse(item.tool_response);
-        const selHtml = item.selections && Object.keys(item.selections).length > 0
-          ? `<div class="fb-selections">${_renderSelections(item.selections)}</div>` : '';
-        const chHtml = _renderChannelList(channels);
-        const taskHtml = item.agent_task && item.agent_task !== summary
-          ? `<div class="fb-pending-agent-task">${esc(item.agent_task)}</div>` : '';
-        const artifactHtml = item.artifact && item.artifact.filename
-          ? `<a class="fb-pending-artifact-link" href="/api/artifacts/${esc(item.artifact.filename)}" target="_blank">View Result</a>` : '';
-        const approveHtml = canPromote
-          ? `<button class="btn btn-sm btn-primary fb-pending-approve" data-id="${esc(item.id)}">Approve &amp; Update Prompt</button>` : '';
-        return `
+      ${pendingItems
+        .map((/** @type {any} */ item) => {
+          const summary = _buildCardSummary(item);
+          const label = _toolLabel(item.tool_name);
+          const channels = _parseChannelsFromResponse(item.tool_response);
+          const selHtml =
+            item.selections && Object.keys(item.selections).length > 0
+              ? `<div class="fb-selections">${_renderSelections(item.selections)}</div>`
+              : '';
+          const chHtml = _renderChannelList(channels);
+          const taskHtml =
+            item.agent_task && item.agent_task !== summary
+              ? `<div class="fb-pending-agent-task">${esc(item.agent_task)}</div>`
+              : '';
+          const artifactHtml =
+            item.artifact && item.artifact.filename
+              ? `<a class="fb-pending-artifact-link" href="/api/artifacts/${esc(item.artifact.filename)}" target="_blank">View Result</a>`
+              : '';
+          const approveHtml = canPromote
+            ? `<button class="btn btn-sm btn-primary fb-pending-approve" data-id="${esc(item.id)}">Approve &amp; Update Prompt</button>`
+            : '';
+          return `
         <div class="fb-pending-card" data-id="${esc(item.id)}">
           ${taskHtml}
           <div class="fb-pending-header">
@@ -257,7 +275,8 @@ export function _renderPendingSection(items, options = {}) {
             </div>
           </div>
         </div>`;
-      }).join('')}
+        })
+        .join('')}
     </div>
   `;
 }

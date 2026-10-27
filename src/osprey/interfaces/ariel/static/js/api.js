@@ -57,7 +57,7 @@ async function errorFromResponse(response) {
     response.status,
     body.detail || `HTTP ${response.status}`,
     body.code,
-    body.field,
+    body.field
   );
 }
 

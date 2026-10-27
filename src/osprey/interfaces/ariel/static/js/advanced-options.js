@@ -93,9 +93,7 @@ const FALLBACK_CAPABILITIES = {
   categories: {
     direct: {
       label: 'Direct',
-      modes: [
-        { name: 'keyword', label: 'Keyword', description: 'Text search', parameters: [] },
-      ],
+      modes: [{ name: 'keyword', label: 'Keyword', description: 'Text search', parameters: [] }],
     },
   },
   shared_parameters: [],
@@ -131,8 +129,8 @@ export function initAdvancedOptions(caps) {
   selectMode(currentMode);
 
   // Wire up toggle button (try both IDs for backward compat)
-  const toggleBtn = document.getElementById('advanced-toggle-btn')
-    || document.getElementById('advanced-toggle');
+  const toggleBtn =
+    document.getElementById('advanced-toggle-btn') || document.getElementById('advanced-toggle');
   toggleBtn?.addEventListener('click', () => {
     isPanelOpen = !isPanelOpen;
     const panel = document.getElementById('advanced-panel');
@@ -180,8 +178,8 @@ export function getAdvancedParams() {
   const modeParams = getModeParameters(currentMode);
   const sharedParams = capabilities?.shared_parameters || [];
   const allParamNames = new Set([
-    ...modeParams.map(p => p.name),
-    ...sharedParams.map(p => p.name),
+    ...modeParams.map((p) => p.name),
+    ...sharedParams.map((p) => p.name),
   ]);
 
   /** @type {Object<string, *>} */
@@ -212,7 +210,7 @@ export function getAdvancedOptions() {
  * @returns {*} Effective value, or undefined if the current mode has no such parameter
  */
 export function getEffectiveParam(name) {
-  const descriptor = getModeParameters(currentMode).find(p => p.name === name);
+  const descriptor = getModeParameters(currentMode).find((p) => p.name === name);
   if (!descriptor) return undefined;
   return paramValues[name] ?? descriptor.default;
 }
@@ -232,8 +230,8 @@ export function closeAdvancedPanel() {
   if (!isPanelOpen) return;
   isPanelOpen = false;
   document.getElementById('advanced-panel')?.classList.add('hidden');
-  const btn = document.getElementById('advanced-toggle-btn')
-    || document.getElementById('advanced-toggle');
+  const btn =
+    document.getElementById('advanced-toggle-btn') || document.getElementById('advanced-toggle');
   btn?.classList.remove('active');
 }
 
@@ -269,7 +267,7 @@ function renderModeTabs() {
 
   // Attach click handlers
   const tabs = /** @type {NodeListOf<HTMLElement>} */ (container.querySelectorAll('.mode-tab'));
-  tabs.forEach(btn => {
+  tabs.forEach((btn) => {
     btn.addEventListener('click', () => {
       if (btn.dataset.mode) selectMode(btn.dataset.mode);
     });
@@ -285,7 +283,7 @@ function selectMode(mode) {
 
   // Update active class on tabs
   const tabs = /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('.mode-tab'));
-  tabs.forEach(btn => {
+  tabs.forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.mode === mode);
   });
 
@@ -303,7 +301,7 @@ function selectMode(mode) {
 function _modeExists(modeName) {
   const categories = capabilities?.categories || {};
   for (const cat of Object.values(categories)) {
-    for (const mode of (cat.modes || [])) {
+    for (const mode of cat.modes || []) {
       if (mode.name === modeName) {
         return true;
       }
@@ -320,7 +318,7 @@ function _modeExists(modeName) {
 function getModeParameters(modeName) {
   const categories = capabilities?.categories || {};
   for (const cat of Object.values(categories)) {
-    for (const mode of (cat.modes || [])) {
+    for (const mode of cat.modes || []) {
       if (mode.name === modeName) {
         return mode.parameters || [];
       }
@@ -492,7 +490,7 @@ function renderToggle(param, value) {
  */
 function renderSelect(param, value) {
   let optionsHtml = '';
-  for (const opt of (param.options || [])) {
+  for (const opt of param.options || []) {
     const selected = opt.value === value ? 'selected' : '';
     optionsHtml += `<option value="${escapeHtml(opt.value)}" ${selected}>${escapeHtml(opt.label)}</option>`;
   }
@@ -611,7 +609,7 @@ function attachParamListeners(container) {
   const sliders = /** @type {NodeListOf<HTMLInputElement>} */ (
     container.querySelectorAll('input[type="range"][data-param]')
   );
-  sliders.forEach(slider => {
+  sliders.forEach((slider) => {
     slider.addEventListener('input', () => {
       const name = slider.dataset.param;
       if (!name) return;
@@ -632,7 +630,7 @@ function attachParamListeners(container) {
   const toggles = /** @type {NodeListOf<HTMLInputElement>} */ (
     container.querySelectorAll('input[type="checkbox"][data-param]')
   );
-  toggles.forEach(toggle => {
+  toggles.forEach((toggle) => {
     toggle.addEventListener('change', () => {
       const name = toggle.dataset.param;
       if (!name) return;
@@ -645,7 +643,7 @@ function attachParamListeners(container) {
   const selects = /** @type {NodeListOf<HTMLSelectElement>} */ (
     container.querySelectorAll('select[data-param]')
   );
-  selects.forEach(select => {
+  selects.forEach((select) => {
     select.addEventListener('change', () => {
       const name = select.dataset.param;
       if (!name) return;
@@ -658,7 +656,7 @@ function attachParamListeners(container) {
   const dateInputs = /** @type {NodeListOf<HTMLInputElement>} */ (
     container.querySelectorAll('input[type="date"][data-param]')
   );
-  dateInputs.forEach(input => {
+  dateInputs.forEach((input) => {
     input.addEventListener('change', () => {
       const name = input.dataset.param;
       if (!name) return;
@@ -671,7 +669,7 @@ function attachParamListeners(container) {
   const textInputs = /** @type {NodeListOf<HTMLInputElement>} */ (
     container.querySelectorAll('input[type="text"][data-param]')
   );
-  textInputs.forEach(input => {
+  textInputs.forEach((input) => {
     input.addEventListener('input', () => {
       const name = input.dataset.param;
       if (!name) return;
@@ -691,8 +689,8 @@ function resetToDefaults() {
 
   // Collect defaults from all modes
   for (const cat of Object.values(categories)) {
-    for (const mode of (cat.modes || [])) {
-      for (const param of (mode.parameters || [])) {
+    for (const mode of cat.modes || []) {
+      for (const param of mode.parameters || []) {
         if (param.default !== null && param.default !== undefined) {
           paramValues[param.name] = param.default;
         }
@@ -701,7 +699,7 @@ function resetToDefaults() {
   }
 
   // Collect defaults from shared params
-  for (const param of (capabilities?.shared_parameters || [])) {
+  for (const param of capabilities?.shared_parameters || []) {
     if (param.default !== null && param.default !== undefined) {
       paramValues[param.name] = param.default;
     }

@@ -77,19 +77,18 @@ export async function loadArtifacts(state, opts = {}) {
   ]);
 
   const allArtifacts = data.artifacts || [];
-  const artifacts = allArtifacts
-    .filter(state.categoryFilter)
-    .map(/** @param {any} a */ (a) => ({
+  const artifacts = allArtifacts.filter(state.categoryFilter).map(
+    /** @param {any} a */ (a) => ({
       ...a,
       displayCategory:
-        state.categoryOverrides[a.output_path] ||
-        state.categoryRemaps[a.category] ||
-        a.category,
-    }));
+        state.categoryOverrides[a.output_path] || state.categoryRemaps[a.category] || a.category,
+    })
+  );
 
   const allUntracked = untrackedData.untracked || [];
   const untrackedFiles = allUntracked.filter(
-    /** @param {any} u */ (u) => state.categoryFilter({ category: u.category, name: u.canonical_name })
+    /** @param {any} u */ (u) =>
+      state.categoryFilter({ category: u.category, name: u.canonical_name })
   );
 
   const framework = artifacts.filter(/** @param {any} a */ (a) => a.status === 'framework').length;

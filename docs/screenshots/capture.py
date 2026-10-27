@@ -628,7 +628,7 @@ def assert_hero_structural(png_bytes: bytes, viewport: tuple[int, int]) -> None:
 
 # The header a scripted client carries the operator secret in; the artifact
 # server sits behind the same gate as the web terminal.
-OPERATOR_SECRET_HEADER = "X-Osprey-Terminal-Secret"
+OPERATOR_SECRET_HEADER = "X-Osprey-Terminal-Secret"  # noqa: S105 -- names a header, holds no secret
 
 
 def artifact_request(artifact_port: int, path: str, secret: str | None) -> urllib.request.Request:

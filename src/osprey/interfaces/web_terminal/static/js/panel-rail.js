@@ -190,7 +190,13 @@ function buildRailButton(panel, options = {}) {
   // layout gesture, not a membership one.)
   if (options.onClose) {
     btn.appendChild(
-      buildCornerAffordance('panel-rail-close', '×', `Close ${panel.label}`, panel.id, options.onClose)
+      buildCornerAffordance(
+        'panel-rail-close',
+        '×',
+        `Close ${panel.label}`,
+        panel.id,
+        options.onClose
+      )
     );
   }
 
@@ -348,7 +354,9 @@ export function removeEntry(railEl, panelId) {
  * @returns {string[]}
  */
 export function entryIds(railEl) {
-  return [...railEl.querySelectorAll(BUTTON_SELECTOR)].map((el) => el.getAttribute('data-panel-id') ?? '');
+  return [...railEl.querySelectorAll(BUTTON_SELECTOR)].map(
+    (el) => el.getAttribute('data-panel-id') ?? ''
+  );
 }
 
 /**

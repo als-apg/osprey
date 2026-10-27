@@ -6,16 +6,7 @@
 
 import { test, expect, describe } from 'vitest';
 
-import {
-  STATUS_RANK,
-  esc,
-  el,
-  worstStatus,
-  fmtName,
-  fmtMs,
-  msCls,
-  byCategory,
-} from './helpers.js';
+import { STATUS_RANK, esc, el, worstStatus, fmtName, fmtMs, msCls, byCategory } from './helpers.js';
 import { fmtName as sharedFmtName } from '/design-system/js/check-name.js';
 import {
   STATUS_RANK as sharedStatusRank,
@@ -24,9 +15,7 @@ import {
 
 describe('esc', () => {
   test('escapes HTML metacharacters so server data cannot inject markup', () => {
-    expect(esc('<img src=x onerror=alert(1)>')).toBe(
-      '&lt;img src=x onerror=alert(1)&gt;',
-    );
+    expect(esc('<img src=x onerror=alert(1)>')).toBe('&lt;img src=x onerror=alert(1)&gt;');
     expect(esc('a & b')).toBe('a &amp; b');
   });
 
@@ -86,7 +75,9 @@ describe('el', () => {
 
 describe('worstStatus', () => {
   test('reduces to the single most-severe status present', () => {
-    expect(worstStatus([{ status: 'ok' }, { status: 'warning' }, { status: 'ok' }])).toBe('warning');
+    expect(worstStatus([{ status: 'ok' }, { status: 'warning' }, { status: 'ok' }])).toBe(
+      'warning'
+    );
     expect(worstStatus([{ status: 'warning' }, { status: 'error' }])).toBe('error');
     expect(worstStatus([{ status: 'ok' }, { status: 'skip' }])).toBe('skip');
   });
@@ -101,10 +92,10 @@ describe('worstStatus', () => {
     expect(STATUS_RANK.skip).toBeGreaterThan(STATUS_RANK.ok);
     // error must win regardless of position in the list.
     expect(worstStatus([{ status: 'error' }, { status: 'warning' }, { status: 'skip' }])).toBe(
-      'error',
+      'error'
     );
     expect(worstStatus([{ status: 'skip' }, { status: 'warning' }, { status: 'error' }])).toBe(
-      'error',
+      'error'
     );
   });
 
@@ -118,7 +109,7 @@ describe('worstStatus', () => {
   // and this module re-exports them. Asserting identity — not behaviour — is
   // what makes a future second copy a failure here rather than a quiet
   // divergence on two surfaces.
-  test('are the design system\'s own, not copies of them', () => {
+  test("are the design system's own, not copies of them", () => {
     expect(worstStatus).toBe(sharedWorstStatus);
     expect(STATUS_RANK).toBe(sharedStatusRank);
   });
@@ -149,7 +140,7 @@ describe('fmtName', () => {
   // import this bundle, so the rule lives in the design system and this module
   // re-exports it. Asserting identity — not behaviour — is what makes a future
   // second copy a failure here rather than a quiet divergence on two surfaces.
-  test('is the design system\'s function itself, not a copy of it', () => {
+  test("is the design system's function itself, not a copy of it", () => {
     expect(fmtName).toBe(sharedFmtName);
   });
 });

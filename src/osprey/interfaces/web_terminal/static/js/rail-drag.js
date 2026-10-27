@@ -77,8 +77,11 @@ const DIRECTION_BY_POSITION = {
  * @returns {boolean}
  */
 function isStackingTarget(e) {
-  return e.target === 'tab' || e.target === 'header_space'
-    || (e.target === 'content' && e.position === 'center');
+  return (
+    e.target === 'tab' ||
+    e.target === 'header_space' ||
+    (e.target === 'content' && e.position === 'center')
+  );
 }
 
 /**
@@ -99,14 +102,14 @@ function wire() {
   if (api) {
     api.onUnhandledDragOver((/** @type {any} */ e) => {
       if (!isRailDrag(e.nativeEvent)) return; // not ours (file drag, text, …)
-      if (isStackingTarget(e)) return;        // one panel per tile — never stack
+      if (isStackingTarget(e)) return; // one panel per tile — never stack
       e.accept();
     });
     api.onDidDrop((/** @type {any} */ e) => {
       const id = e?.nativeEvent?.dataTransfer?.getData?.(RAIL_DRAG_MIME);
-      if (!id) return;                 // a dockview-internal or foreign drop
+      if (!id) return; // a dockview-internal or foreign drop
       const direction = DIRECTION_BY_POSITION[e.position];
-      if (!direction) return;          // 'center' (stacking backstop) or unknown
+      if (!direction) return; // 'center' (stacking backstop) or unknown
       const position = e.group ? { referenceGroup: e.group, direction } : { direction };
       dropHandler?.(id, position);
     });

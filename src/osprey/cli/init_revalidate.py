@@ -782,7 +782,8 @@ def _rewrite_write_keys(document: Any, rel: str, steps: list[str]) -> bool:
         old_text = str(old).lower() if isinstance(old, bool) else str(old)
         container[renamed] = answer
         # The end-of-line comment keeps the gap the author left after the value.
-        entry = container.ca.items.get(renamed)
+        commented_map: Any = container  # a CommentedMap: the document is round-trip loaded
+        entry = commented_map.ca.items.get(renamed)
         token = entry[2] if entry and len(entry) > 2 else None
         if isinstance(token, CommentToken) and not token.value.startswith("\n"):
             column = max(0, token.column + len(answer) - len(old_text))

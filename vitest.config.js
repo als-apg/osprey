@@ -20,8 +20,8 @@ const HANG_BOUND_MS = 600_000;
 export default {
   resolve: {
     alias: {
-      '/design-system/js': designSystemJsDir
-    }
+      '/design-system/js': designSystemJsDir,
+    },
   },
   test: {
     environment: 'happy-dom',
@@ -40,6 +40,6 @@ export default {
     // Works around Node >= 26 shadowing happy-dom's localStorage with its own
     // undefined experimental global (see the comment in the setup file).
     setupFiles: ['./tests/vitest.setup.mjs'],
-    include: ['tests/**/*.test.{js,mjs}', 'src/osprey/interfaces/**/*.test.{js,mjs}']
-  }
+    include: ['tests/**/*.test.{js,mjs}', 'src/osprey/interfaces/**/*.test.{js,mjs}'],
+  },
 };

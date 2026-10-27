@@ -22,24 +22,30 @@ import { test, expect, vi, afterEach } from 'vitest';
 // this file has not declared, and fails loudly. Each test re-stubs `fetch` for
 // the endpoints it drives (see `stubFeedbackApi`).
 vi.hoisted(() => {
-  vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-    if (url !== '/api/info') throw new Error(`unstubbed fetch: ${url}`);
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({
-        pipeline_type: 'hierarchical',
-        metadata: {},
-        available_pipelines: ['hierarchical'],
-        db_path: null,
-        tools: [],
-        graph_store: null,
-      }),
-    };
-  }));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (/** @type {string} */ url) => {
+      if (url !== '/api/info') throw new Error(`unstubbed fetch: ${url}`);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          pipeline_type: 'hierarchical',
+          metadata: {},
+          available_pipelines: ['hierarchical'],
+          db_path: null,
+          tools: [],
+          graph_store: null,
+        }),
+      };
+    })
+  );
 });
 
-import { mountFeedback, unmountFeedback } from '../../../src/osprey/interfaces/channel_finder/static/js/feedback.js';
+import {
+  mountFeedback,
+  unmountFeedback,
+} from '../../../src/osprey/interfaces/channel_finder/static/js/feedback.js';
 
 afterEach(() => {
   unmountFeedback();
@@ -58,11 +64,14 @@ function stubFeedbackApi(entries) {
     '/api/feedback': { entries },
     '/api/pending-reviews/status': { available: false },
   };
-  vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-    const payload = routes[url];
-    if (payload === undefined) throw new Error(`unstubbed fetch: ${url}`);
-    return { ok: true, json: async () => payload };
-  }));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (/** @type {string} */ url) => {
+      const payload = routes[url];
+      if (payload === undefined) throw new Error(`unstubbed fetch: ${url}`);
+      return { ok: true, json: async () => payload };
+    })
+  );
 }
 
 /** @param {HTMLElement} container */
@@ -78,7 +87,14 @@ test('with entries, Clear All renders BEFORE the persistent Add/Export pair', as
   const container = /** @type {HTMLElement} */ (document.getElementById('fb-root'));
 
   stubFeedbackApi([
-    { key: 'k1', query: 'q', facility: 'als', success_count: 1, failure_count: 0, last_activity: '2026-01-01T00:00:00Z' },
+    {
+      key: 'k1',
+      query: 'q',
+      facility: 'als',
+      success_count: 1,
+      failure_count: 0,
+      last_activity: '2026-01-01T00:00:00Z',
+    },
   ]);
   await mountAndSettle(container);
 

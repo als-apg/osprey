@@ -1,0 +1,46 @@
+{
+  "name": "open-hidden-tab-leaves-terminal-tile",
+  "rule": "rule-7",
+  "before": {
+    "tile": "t1",
+    "tabs": ["terminal", "p1"],
+    "showing": "terminal"
+  },
+  "op": {
+    "fn": "openItem",
+    "key": "p1",
+    "context": {
+      "focusedTile": "t1",
+      "dock": {
+        "px": {
+          "width": 1000,
+          "height": 600
+        },
+        "minPx": 40
+      },
+      "pickTarget": {
+        "tile": "t1",
+        "edge": "right"
+      }
+    }
+  },
+  "after": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["terminal"],
+        "showing": "terminal",
+        "size": 0.5
+      },
+      {
+        "tile": "t2",
+        "tabs": ["p1"],
+        "showing": "p1",
+        "size": 0.5,
+        "from": "t1"
+      }
+    ]
+  },
+  "focus": "t2"
+}

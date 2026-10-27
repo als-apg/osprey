@@ -27,7 +27,13 @@ import { startHealthPolling as startPolling, stopHealthPolling } from './panel-h
 import { buildEmbedSrc } from './panel-iframe-sync.js';
 import { railOptions, RAIL_MENU_HINT } from './panel-menu-policy.js';
 import {
-  clockTime, createRail, addEntry, placeEntry, setActive, setEntryEnabled, setEntryReachable,
+  clockTime,
+  createRail,
+  addEntry,
+  placeEntry,
+  setActive,
+  setEntryEnabled,
+  setEntryReachable,
   setEntryStatus,
 } from './panel-rail.js';
 
@@ -76,8 +82,14 @@ function ctx() {
  *  @returns {PanelState} */
 export function freshPanelState() {
   return {
-    url: null, healthy: false, iframe: null, pollTimer: null, polling: false, configLoaded: false,
-    misses: 0, missSince: null,
+    url: null,
+    healthy: false,
+    iframe: null,
+    pollTimer: null,
+    polling: false,
+    configLoaded: false,
+    misses: 0,
+    missSince: null,
   };
 }
 
@@ -98,7 +110,7 @@ export function renderRail() {
         .filter((p) => p !== undefined)
         .map((p) => ({ id: p.id, label: p.label, hint: RAIL_MENU_HINT })),
     ],
-    railOptions(),
+    railOptions()
   );
   setEntryEnabled(railEl, TERMINAL_RAIL_ID, true);
 }
@@ -136,7 +148,8 @@ function applyEntryState(panelId) {
   if (ps.misses >= MISSES_BEFORE_UNREACHABLE) {
     setEntryReachable(c.getRailEl(), panelId, false, ps.missSince ?? undefined);
   }
-  if (ps.failedMessage) setEntryStatus(c.getRailEl(), panelId, { failed: true, message: ps.failedMessage });
+  if (ps.failedMessage)
+    setEntryStatus(c.getRailEl(), panelId, { failed: true, message: ps.failedMessage });
   if (c.getActive() === panelId) setActive(c.getRailEl(), panelId);
 }
 
@@ -190,7 +203,11 @@ export function addPanel(spec) {
   // Append exactly one entry. addEntry is non-destructive — never a full
   // re-render — so every live entry keeps its active/disabled/LED state, and it
   // is idempotent by id, which also guards the re-register path.
-  addEntry(ctx().getRailEl(), { id: normalized.id, label: normalized.label, hint: RAIL_MENU_HINT }, railOptions());
+  addEntry(
+    ctx().getRailEl(),
+    { id: normalized.id, label: normalized.label, hint: RAIL_MENU_HINT },
+    railOptions()
+  );
 
   // Seed url and health, mirroring the custom-panel block in initPanelManager
   if (spec.url) {
@@ -245,7 +262,10 @@ export async function initPanel(panel) {
   const state = c.panelState[panel.id];
   // Custom/runtime panels carry no config endpoint; their url arrives via
   // /api/panels. Skip the fetch and leave the panel disabled until then.
-  if (!panel.configEndpoint) { state.configLoaded = true; return; }
+  if (!panel.configEndpoint) {
+    state.configLoaded = true;
+    return;
+  }
 
   let delay = CONFIG_RETRY_MS;
   let config = await readConfig(panel.configEndpoint);
@@ -275,7 +295,8 @@ export async function initPanel(panel) {
   else if (state.url) {
     // External panels (healthEndpoint === null) skip health polling —
     // mark healthy immediately so the tab is enabled.
-    if (panel.healthEndpoint == null) {  // null or undefined → skip polling
+    if (panel.healthEndpoint == null) {
+      // null or undefined → skip polling
       assumeHealthy(panel);
     } else {
       startHealthPolling(panel);
@@ -340,13 +361,15 @@ function onHealthSettled(panel, wasHealthy) {
   if (wasHealthy && panel.startEndpoint && panel.configEndpoint) {
     // A sidecar that stopped answering may have died: ask the terminal once,
     // so a live page shows the failed entry without a reload.
-    fetchJSON(panel.configEndpoint).then((config) => {
-      if (config?.state !== 'failed') return;
-      stopHealthPolling(state);
-      state.url = null;
-      state.healthy = false;
-      showFailed(panel, config.message);
-    }).catch(() => {});
+    fetchJSON(panel.configEndpoint)
+      .then((config) => {
+        if (config?.state !== 'failed') return;
+        stopHealthPolling(state);
+        state.url = null;
+        state.healthy = false;
+        showFailed(panel, config.message);
+      })
+      .catch(() => {});
   }
   if (!wasHealthy && state.misses === 0) return; // never answered: stays .disabled
   state.misses += 1;
@@ -433,14 +456,20 @@ function settleStart(panel, answer, lastMessage) {
       if (!panel.configEndpoint) return;
       fetchJSON(panel.configEndpoint).then(
         (next) => settleStart(panel, next, lastMessage),
-        () => showFailed(panel, lastMessage),
+        () => showFailed(panel, lastMessage)
       );
     }, 1000);
     return;
   }
-  if (answer?.state === 'failed') { showFailed(panel, answer.message ?? lastMessage); return; }
+  if (answer?.state === 'failed') {
+    showFailed(panel, answer.message ?? lastMessage);
+    return;
+  }
   setEntryStatus(c.getRailEl(), panel.id, { failed: false, message: null });
-  if (!answer?.url || !answer.available) { showFailed(panel, lastMessage); return; }
+  if (!answer?.url || !answer.available) {
+    showFailed(panel, lastMessage);
+    return;
+  }
   state.url = answer.url;
   if (state.iframe) state.iframe.src = buildEmbedSrc(answer.url);
   stopHealthPolling(state);

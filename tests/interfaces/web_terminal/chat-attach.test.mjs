@@ -171,7 +171,9 @@ const callsWith = (method) => fetchMock.mock.calls.filter(([, init]) => init.met
  * @param {HTMLElement} target
  */
 const enter = (target) =>
-  target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  target.dispatchEvent(
+    new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+  );
 
 /** A bubble's typed text and the names drawn under it. @param {HTMLElement} entry */
 const bubbleOf = (entry) => ({
@@ -205,7 +207,7 @@ describe('getting a file into the tray', () => {
     expect(init.headers['X-Osprey-Attachment-Name']).toBe('shot.png');
     expect(init.headers['X-Osprey-Attachment-Batch']).toMatch(/^[0-9a-f-]{36}$/);
     expect(fetchMock.mock.calls[1][1].headers['X-Osprey-Attachment-Batch']).toBe(
-      init.headers['X-Osprey-Attachment-Batch'],
+      init.headers['X-Osprey-Attachment-Batch']
     );
     expect(chipsIn(m).map(chipMeta)).toEqual(['2 KB', '300 B']);
   });
@@ -309,7 +311,9 @@ describe('the tray', () => {
   });
 
   test('a refused file shows the refusal on its own chip', async () => {
-    fetchMock.mockResolvedValue(json(415, { detail: { error: 'unsupported_type', message: 'no' } }));
+    fetchMock.mockResolvedValue(
+      json(415, { detail: { error: 'unsupported_type', message: 'no' } })
+    );
     const m = await mount();
     choose(m, [file('page.html', 10, 'text/html')]);
     await flush();
@@ -321,11 +325,15 @@ describe('the tray', () => {
   });
 
   test.each([
-    ['a file over the size cap', 'file_too_large', () => {
-      const big = file('huge.bin', 10, 'application/octet-stream');
-      Object.defineProperty(big, 'size', { value: attach.MAX_FILE_BYTES + 1 });
-      return big;
-    }],
+    [
+      'a file over the size cap',
+      'file_too_large',
+      () => {
+        const big = file('huge.bin', 10, 'application/octet-stream');
+        Object.defineProperty(big, 'size', { value: attach.MAX_FILE_BYTES + 1 });
+        return big;
+      },
+    ],
     ['an empty file', 'empty_file', () => file('empty.txt', 0, TEXT_TYPE)],
   ])('%s is refused before any byte is sent', async (_name, slug, make) => {
     const m = await mount();
@@ -343,7 +351,7 @@ describe('the tray', () => {
 
     choose(
       m,
-      Array.from({ length: 11 }, (_, i) => file(`f${i}.txt`, 10, TEXT_TYPE)),
+      Array.from({ length: 11 }, (_, i) => file(`f${i}.txt`, 10, TEXT_TYPE))
     );
     await flush();
 
@@ -366,7 +374,7 @@ describe('sending', () => {
     expect(sent).toBe(
       'What is tripping?\n\nAttached files (read them with the Read tool):\n' +
         `- ${STORE}/${STORED_PREFIX}shot.png (image/png, 2 KB)\n` +
-        `- ${STORE}/${STORED_PREFIX}log.txt (text/plain, 300 B)`,
+        `- ${STORE}/${STORED_PREFIX}log.txt (text/plain, 300 B)`
     );
     expect(chipsIn(m)).toHaveLength(0);
   });
@@ -400,7 +408,7 @@ describe('sending', () => {
       (_url, init) =>
         new Promise((resolve) => {
           finish = () => resolve(json(201, storedReply(init)));
-        }),
+        })
     );
     const m = await mount();
     m.textarea.value = 'look at this';
@@ -474,8 +482,16 @@ describe('sending', () => {
 
   test.each([
     ['no frame: the send was refused, so its files go back to the tray', null, true],
-    ['a replayed frame does not count as the agent taking the message', { event: { type: 'text' }, replay: true }, true],
-    ['a live frame: the agent took the message, which releases its files', { event: { type: 'text', content: 'On it.' }, replay: false }, false],
+    [
+      'a replayed frame does not count as the agent taking the message',
+      { event: { type: 'text' }, replay: true },
+      true,
+    ],
+    [
+      'a live frame: the agent took the message, which releases its files',
+      { event: { type: 'text', content: 'On it.' }, replay: false },
+      false,
+    ],
   ])('a turn that ends after %s', async (_name, frame, back) => {
     answerUploads();
     const m = await mount();
@@ -525,7 +541,10 @@ describe('replay', () => {
 
   test.each([
     ['without a block', 'just a question'],
-    ['with a block-like tail that does not parse', 'hi\n\nAttached files (read them with the Read tool):\nnot a block line'],
+    [
+      'with a block-like tail that does not parse',
+      'hi\n\nAttached files (read them with the Read tool):\nnot a block line',
+    ],
   ])('a replayed message %s is drawn as it was typed', async (_name, content) => {
     const m = await mount();
     const entry = createUserEntry(content);
@@ -593,10 +612,11 @@ describe('the block and its helpers', () => {
 describe('the transport', () => {
   test('an upload sends the bytes and its headers, and a refusal carries its slug', async () => {
     /** @type {ClientModule} */
-    const client = await import('../../../src/osprey/interfaces/web_terminal/static/js/chat-client.js');
+    const client =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/chat-client.js');
     const sent = file('a.png', 3);
     fetchMock.mockResolvedValueOnce(
-      json(201, storedReply({ headers: { 'X-Osprey-Attachment-Name': 'a.png' }, body: sent })),
+      json(201, storedReply({ headers: { 'X-Osprey-Attachment-Name': 'a.png' }, body: sent }))
     );
 
     const stored = await client.uploadChatAttachment(KEY, sent, { name: 'a.png', batch: BATCH });
@@ -606,15 +626,18 @@ describe('the transport', () => {
     expect(init.method).toBe('POST');
     expect(init.headers['X-Osprey-Attachment-Batch']).toBe(BATCH);
 
-    fetchMock.mockResolvedValueOnce(json(415, { detail: { error: 'unsupported_type', message: 'no' } }));
+    fetchMock.mockResolvedValueOnce(
+      json(415, { detail: { error: 'unsupported_type', message: 'no' } })
+    );
     await expect(
-      client.uploadChatAttachment(KEY, file('a.exe'), { name: 'a.exe', batch: BATCH }),
+      client.uploadChatAttachment(KEY, file('a.exe'), { name: 'a.exe', batch: BATCH })
     ).rejects.toMatchObject({ status: 415, slug: 'unsupported_type' });
   });
 
   test('a removal names the message only when it has one', async () => {
     /** @type {ClientModule} */
-    const client = await import('../../../src/osprey/interfaces/web_terminal/static/js/chat-client.js');
+    const client =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/chat-client.js');
     fetchMock.mockResolvedValue(json(204));
 
     await client.removeChatAttachment(KEY, 'x-y.png', { batch: BATCH });

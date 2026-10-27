@@ -38,10 +38,7 @@ import { dirname, join, resolve } from 'node:path';
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
-const JS_DIR = join(
-  import.meta.dirname,
-  '../../../src/osprey/interfaces/web_terminal/static/js'
-);
+const JS_DIR = join(import.meta.dirname, '../../../src/osprey/interfaces/web_terminal/static/js');
 const ENTRY = 'control-target-lab-bar.js';
 const MODULE = `../../../src/osprey/interfaces/web_terminal/static/js/${ENTRY}`;
 
@@ -60,9 +57,7 @@ let barModule;
  * read prose as an edge would report a closure the browser never fetches.
  */
 function relativeImports(/** @type {string} */ source) {
-  const code = source
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
   const found = new Set();
   const pattern = /\bfrom\s+'(\.[^']+)'|(?:^|\n)\s*import\s+'(\.[^']+)'/g;
   for (const match of code.matchAll(pattern)) {
@@ -266,7 +261,7 @@ beforeEach(async () => {
   localStorage.clear();
   vi.stubGlobal('EventSource', FakeEventSource);
   mountLabFixture();
-  delete (/** @type {any} */ (window)).__OSPREY_PREFIX__;
+  Reflect.deleteProperty(window, '__OSPREY_PREFIX__');
   // Importing the module is how the page runs it: there is no app shell on a
   // Lab page to call init, so the module boots itself on import.
   barModule = await import(MODULE);
@@ -531,7 +526,9 @@ describe("the chip's words and gestures", () => {
   });
 
   test('a machine the stop reached reads writes off', async () => {
-    await rebootOn(viewOf({ any_on: false, targets: [rowOf({ ...STANDIN, ...OFF }), rowOf(LIVE)] }));
+    await rebootOn(
+      viewOf({ any_on: false, targets: [rowOf({ ...STANDIN, ...OFF }), rowOf(LIVE)] })
+    );
     expect(document.querySelector('.ctc-state')?.textContent).toBe('writes off');
     expect(chipBtn().dataset.state).toBe('off');
   });
@@ -574,7 +571,12 @@ describe("the chip's words and gestures", () => {
     confirmBtn().click();
     await flush();
 
-    expect(posts()[0].body).toEqual({ session_id: null, target: 'live', state: 'on', epoch: EPOCH });
+    expect(posts()[0].body).toEqual({
+      session_id: null,
+      target: 'live',
+      state: 'on',
+      epoch: EPOCH,
+    });
     expect(confirmEl()).toBeNull();
   });
 
@@ -583,8 +585,16 @@ describe("the chip's words and gestures", () => {
     toggleEl('live').click();
     await flush();
     postAnswers.push(
-      { ok: false, status: 409, body: { detail: { reason: 'stopped_since', epoch: 12, stamped: true } } },
-      { ok: false, status: 409, body: { detail: { reason: 'stopped_since', epoch: 13, stamped: true } } },
+      {
+        ok: false,
+        status: 409,
+        body: { detail: { reason: 'stopped_since', epoch: 12, stamped: true } },
+      },
+      {
+        ok: false,
+        status: 409,
+        body: { detail: { reason: 'stopped_since', epoch: 13, stamped: true } },
+      },
       { ok: true, body: {} }
     );
     confirmBtn().click();

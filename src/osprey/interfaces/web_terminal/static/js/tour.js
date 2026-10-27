@@ -280,7 +280,13 @@ const STEPS = [
       ];
       const c = chipFacts();
       if (c) {
-        parts.push(' This deployment is currently on ', strong(c.name), ' — ', strong(c.state), '.');
+        parts.push(
+          ' This deployment is currently on ',
+          strong(c.name),
+          ' — ',
+          strong(c.state),
+          '.'
+        );
       }
       parts.push(' Click the chip to see the details, turn writes on or off, or switch targets.');
       return parts;
@@ -372,9 +378,7 @@ const STEPS = [
   {
     anchor: () => document.querySelector('.terminal-card'),
     title: 'Try it',
-    body: () => [
-      'Pick a question to start.',
-    ],
+    body: () => ['Pick a question to start.'],
     chips: starterPrompts,
     foot: 'Retake this tour any time from ⋯ More in the rail.',
   },
@@ -687,8 +691,7 @@ export function applyTourConfig(panelsPayload) {
     labels: labels && typeof labels === 'object' ? labels : {},
   };
 
-  const invite =
-    facts.policy === 'always' || (facts.policy === 'once' && !isDismissed());
+  const invite = facts.policy === 'always' || (facts.policy === 'once' && !isDismissed());
   if (!invite || document.body.classList.contains('embedded')) return;
   setTimeout(() => {
     if (!tour.open) tour.start();

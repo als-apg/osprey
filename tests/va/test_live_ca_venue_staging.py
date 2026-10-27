@@ -14,8 +14,9 @@ can be read from the repo:
 
 * every workspace member is a directory directly under ``packages/`` with a
   ``pyproject.toml`` and a ``src/`` layout, and every directory there is a
-  member -- the staging, the image-tag digest and the ``.pth`` file all glob
-  ``packages/*`` and rely on exactly that;
+  member or one of the few deliberate non-members below -- the staging, the
+  image-tag digest and the ``.pth`` file all glob ``packages/*`` and rely on
+  exactly that layout;
 * the sync skips the whole workspace, not only the root project;
 * the staging, digest and path wiring are globbed rather than naming members,
   so adding one needs no edit to either file.
@@ -39,9 +40,22 @@ RUN_SCRIPT = VENUE_DIR / "run_live_ca.sh"
 PACKAGES_DIR = REPO_ROOT / "packages"
 
 
+#: Directories under ``packages/`` that are not uv workspace members but that the
+#: venue stages and puts on the path like one. ``dock-engine`` ships inside the
+#: framework wheel (the root pyproject's wheel target) and is installed from git
+#: by CANOPY; on the bind mount its ``src/`` must still reach the path, which the
+#: ``packages/*`` glob does for it. Each entry needs the same layout as a member.
+STAGED_NON_MEMBERS = frozenset({"packages/dock-engine"})
+
+
 def _workspace_members() -> list[str]:
     pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
     return list(pyproject["tool"]["uv"]["workspace"]["members"])
+
+
+def _staged_directories() -> list[str]:
+    """Everything the venue's ``packages/*`` glob stages: members and the few non-members."""
+    return [*_workspace_members(), *sorted(STAGED_NON_MEMBERS)]
 
 
 def _sync_lines() -> list[str]:
@@ -59,7 +73,12 @@ class TestWorkspaceLayoutMatchesTheGlob:
         """An empty member list would make every check below vacuous."""
         assert _workspace_members()
 
-    @pytest.mark.parametrize("member", _workspace_members())
+    def test_no_staged_non_member_is_a_member(self) -> None:
+        """An entry that becomes a member leaves the non-member list, or the two
+        checks below count it twice."""
+        assert not STAGED_NON_MEMBERS & set(_workspace_members())
+
+    @pytest.mark.parametrize("member", _staged_directories())
     def test_member_lives_directly_under_packages(self, member: str) -> None:
         path = Path(member)
         assert path.parent == Path("packages") and "*" not in member, (
@@ -68,18 +87,18 @@ class TestWorkspaceLayoutMatchesTheGlob:
             f"be missing from the live-CA image"
         )
 
-    @pytest.mark.parametrize("member", _workspace_members())
+    @pytest.mark.parametrize("member", _staged_directories())
     def test_member_has_the_files_the_image_relies_on(self, member: str) -> None:
         assert (REPO_ROOT / member / "pyproject.toml").is_file()
         assert (REPO_ROOT / member / "src").is_dir(), (
             f"{member} has no src/ layout; the image puts /work/{member}/src on the path"
         )
 
-    def test_every_directory_under_packages_is_a_member(self) -> None:
-        """The glob would stage a non-member too, and fail on one without a
-        ``pyproject.toml``."""
+    def test_every_directory_under_packages_is_staged_on_purpose(self) -> None:
+        """The glob stages every directory it finds and fails on one without a
+        ``pyproject.toml``, so each must be a member or a listed non-member."""
         on_disk = {f"packages/{p.name}" for p in PACKAGES_DIR.iterdir() if p.is_dir()}
-        assert on_disk == set(_workspace_members())
+        assert on_disk == set(_staged_directories())
 
 
 class TestTheImageSkipsTheWholeWorkspace:

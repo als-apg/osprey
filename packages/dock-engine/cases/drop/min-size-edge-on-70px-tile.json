@@ -1,0 +1,62 @@
+{
+  "name": "min-size-edge-on-70px-tile",
+  "rule": "min-size",
+  "before": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a",
+        "size": 0.93
+      },
+      {
+        "tile": "t2",
+        "tabs": ["b"],
+        "showing": "b",
+        "size": 0.07
+      }
+    ]
+  },
+  "op": {
+    "fn": "planDrop",
+    "source": {
+      "new": "d"
+    },
+    "target": {
+      "tile": "t2",
+      "edge": "right"
+    },
+    "dock": {
+      "px": {
+        "width": 1000,
+        "height": 600
+      },
+      "minPx": 40
+    }
+  },
+  "after": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a",
+        "size": 0.92
+      },
+      {
+        "tile": "t2",
+        "tabs": ["b"],
+        "showing": "b",
+        "size": 0.04
+      },
+      {
+        "tile": "t3",
+        "tabs": ["d"],
+        "showing": "d",
+        "size": 0.04,
+        "from": "t2"
+      }
+    ]
+  }
+}

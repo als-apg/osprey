@@ -40,8 +40,10 @@ describe('renderSettingsForm', () => {
 
   test('renders one group header per SETTINGS_FIELDS entry, in schema order', () => {
     renderSettingsForm({});
-    const headers = [...document.querySelectorAll('.settings-group-header')].map(h => h.textContent);
-    expect(headers).toEqual(Object.values(SETTINGS_FIELDS).map(g => g.label));
+    const headers = [...document.querySelectorAll('.settings-group-header')].map(
+      (h) => h.textContent
+    );
+    expect(headers).toEqual(Object.values(SETTINGS_FIELDS).map((g) => g.label));
   });
 
   test('each input carries the correct type/min/max/step/dataset from its schema field', () => {
@@ -124,7 +126,8 @@ describe('collectSettingsFromForm', () => {
     for (const [group, meta] of Object.entries(SETTINGS_FIELDS)) {
       for (const field of meta.fields) {
         const expected = seeded[group][field.key];
-        if (expected === null) throw new Error(`seeded value for ${group}.${field.key} must be a number`);
+        if (expected === null)
+          throw new Error(`seeded value for ${group}.${field.key} must be a number`);
         const actual = collected[group][field.key];
         if (field.type === 'float') {
           expect(actual, `${group}.${field.key}`).toBeCloseTo(expected, 5);
@@ -172,16 +175,22 @@ describe('loadSettings', () => {
   beforeEach(mountFixture);
 
   test('fetches /api/settings and renders the returned form', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ da: { nturns: 256 } }),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ da: { nturns: 256 } }),
+      })
+    );
 
     await loadSettings();
 
-    expect(fetch).toHaveBeenCalledWith('/api/settings', expect.objectContaining({
-      headers: { 'Content-Type': 'application/json' },
-    }));
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/settings',
+      expect.objectContaining({
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
     expect(byId('setting-da-nturns', HTMLInputElement).value).toBe('256');
   });
 

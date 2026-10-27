@@ -109,7 +109,8 @@ function applyHealthEnvelope(raw) {
   const results = Array.isArray(frame.results)
     ? frame.results.filter(
         /** @param {unknown} r @returns {r is HealthCheck} */
-        (r) => Boolean(r) && typeof r === 'object' && typeof (/** @type {any} */ (r).status) === 'string'
+        (r) =>
+          Boolean(r) && typeof r === 'object' && typeof (/** @type {any} */ (r).status) === 'string'
       )
     : [];
   const interval = Number(frame.interval_s);
@@ -386,7 +387,9 @@ function buildSystemHealth(ctx) {
               toneOf(check.status),
               fmtName(String(check.name ?? ''), String(check.category ?? '')),
               '',
-              typeof check.value === 'string' && check.value ? check.value : String(check.message ?? '')
+              typeof check.value === 'string' && check.value
+                ? check.value
+                : String(check.message ?? '')
             )
           );
         }
@@ -429,7 +432,9 @@ function buildSystemHealth(ctx) {
       close();
       // Opens the tile and leaves the rail alone: reading the dashboard is not
       // a request to keep SYSTEM on the rail.
-      void import('./panel-manager.js').then((manager) => manager.openPanelOffRail(HEALTH_PANEL_ID));
+      void import('./panel-manager.js').then((manager) =>
+        manager.openPanelOffRail(HEALTH_PANEL_ID)
+      );
     });
     foot.appendChild(openPanel);
     pop.appendChild(foot);

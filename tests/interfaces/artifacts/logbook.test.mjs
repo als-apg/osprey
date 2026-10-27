@@ -52,7 +52,9 @@ describe('makeBtn', () => {
 
   test('wires the click handler so a click invokes it exactly once', () => {
     let calls = 0;
-    const btn = makeBtn('Submit', 'primary', () => { calls += 1; });
+    const btn = makeBtn('Submit', 'primary', () => {
+      calls += 1;
+    });
     document.body.appendChild(btn);
 
     btn.click();

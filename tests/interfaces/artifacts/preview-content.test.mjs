@@ -68,7 +68,10 @@ describe('renderJsonHtml (recursive JSON viewer)', () => {
     const small = renderJsonHtml([1, 2], 0);
     expect((small.match(/json-item/g) || []).length).toBe(2);
 
-    const big = renderJsonHtml(Array.from({ length: 25 }, (_, i) => i), 0);
+    const big = renderJsonHtml(
+      Array.from({ length: 25 }, (_, i) => i),
+      0
+    );
     expect(big).toContain('... 5 more');
   });
 
@@ -103,10 +106,13 @@ describe('renderJsonHtml (recursive JSON viewer)', () => {
 
 describe('renderJsonView', () => {
   test('fetches the artifact file, parses JSON, and renders via renderJsonHtml', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ a: 1 }),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ a: 1 }),
+      })
+    );
     const container = document.createElement('div');
 
     await renderJsonView(container, makeArtifact({ artifact_type: 'json', filename: 'x.json' }));
@@ -146,14 +152,22 @@ describe('renderMathInMarkdown', () => {
 
   test('renders display ($$...$$) and inline ($...$) math via katex, then runs marked on the rest', () => {
     stubSanitizer();
-    const renderToString = vi.fn((expr, opts) => `<math data-display="${opts.displayMode}">${expr}</math>`);
+    const renderToString = vi.fn(
+      (expr, opts) => `<math data-display="${opts.displayMode}">${expr}</math>`
+    );
     vi.stubGlobal('katex', { renderToString });
     vi.stubGlobal('marked', { parse: (/** @type {string} */ t) => `<p>${t}</p>` });
 
     const html = renderMathInMarkdown('Inline $x^2$ and display $$y = mx + b$$ done.');
 
-    expect(renderToString).toHaveBeenCalledWith('x^2', expect.objectContaining({ displayMode: false }));
-    expect(renderToString).toHaveBeenCalledWith('y = mx + b', expect.objectContaining({ displayMode: true }));
+    expect(renderToString).toHaveBeenCalledWith(
+      'x^2',
+      expect.objectContaining({ displayMode: false })
+    );
+    expect(renderToString).toHaveBeenCalledWith(
+      'y = mx + b',
+      expect.objectContaining({ displayMode: true })
+    );
     expect(html).toContain('<math data-display="false">x^2</math>');
     expect(html).toContain('<math data-display="true">y = mx + b</math>');
     expect(html).not.toContain('\x00MATH');
@@ -172,7 +186,11 @@ describe('renderMathInMarkdown', () => {
 
   test('falls back to an escaped error span when katex.renderToString throws', () => {
     stubSanitizer();
-    vi.stubGlobal('katex', { renderToString: vi.fn(() => { throw new Error('bad expr'); }) });
+    vi.stubGlobal('katex', {
+      renderToString: vi.fn(() => {
+        throw new Error('bad expr');
+      }),
+    });
     vi.stubGlobal('marked', { parse: (/** @type {string} */ t) => t });
 
     const html = renderMathInMarkdown('$broken$');
@@ -197,7 +215,11 @@ describe('renderMathInMarkdown', () => {
   });
 
   test('a throwing sanitizer degrades to escaped text', () => {
-    vi.stubGlobal('DOMPurify', { sanitize: () => { throw new Error('boom'); } });
+    vi.stubGlobal('DOMPurify', {
+      sanitize: () => {
+        throw new Error('boom');
+      },
+    });
     vi.stubGlobal('marked', { parse: (/** @type {string} */ t) => t });
     const html = renderMathInMarkdown('<img src=x onerror=alert(1)>');
     expect(html).not.toContain('<img');
@@ -217,7 +239,10 @@ describe('renderMarkdownView', () => {
       use: vi.fn(),
       parse: vi.fn((t) => `<p>${t}</p>`),
     });
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, text: () => Promise.resolve('# Hi') }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, text: () => Promise.resolve('# Hi') })
+    );
     const container = document.createElement('div');
 
     await renderMarkdownView(container, makeArtifact({ artifact_type: 'markdown' }));
@@ -231,7 +256,10 @@ describe('renderMarkdownView', () => {
 
   test('falls back to plain textContent when marked is unavailable', async () => {
     stubSanitizer();
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, text: () => Promise.resolve('raw text') }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, text: () => Promise.resolve('raw text') })
+    );
     const container = document.createElement('div');
 
     await renderMarkdownView(container, makeArtifact());
@@ -242,9 +270,13 @@ describe('renderMarkdownView', () => {
   test('falls back to plain textContent when DOMPurify is unavailable', async () => {
     const parse = vi.fn((t) => t);
     vi.stubGlobal('marked', { use: vi.fn(), parse });
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true, text: () => Promise.resolve('<img src=x onerror=alert(1)>'),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        text: () => Promise.resolve('<img src=x onerror=alert(1)>'),
+      })
+    );
     const container = document.createElement('div');
 
     await renderMarkdownView(container, makeArtifact());

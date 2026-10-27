@@ -12,7 +12,10 @@ contract of every such process:
 * From ``pytest_unconfigure``, the last hook before that teardown begins, it
   names each non-daemon thread other than the main thread, with its name and
   Python stack, and each non-daemon ``multiprocessing.active_children()``
-  entry, with its name and pid.
+  entry, with its name and pid. An idle ``ThreadPoolExecutor`` worker, parked
+  on its empty work queue, is not one the interpreter waits for: its own
+  atexit hook releases it before that join. Such workers are left out of the
+  count and named on one trailing line instead.
 * It runs the final garbage collection itself, timed, and names it when it
   takes longer than ``SLOW_CLEANUP_SECONDS``. It collects only what is already
   garbage and leaves the heap as interpreter teardown expects it, so every
@@ -49,6 +52,7 @@ never raises, and never kills a thread or process or exits the interpreter.
 from __future__ import annotations
 
 import atexit
+import concurrent.futures.thread
 import gc
 import multiprocessing
 import os
@@ -57,6 +61,7 @@ import threading
 import time
 import traceback
 from collections.abc import Callable, Generator
+from types import FrameType
 from typing import Any, TextIO
 
 import pytest
@@ -128,16 +133,41 @@ def registered_exit_callbacks() -> list[str]:
     return names
 
 
-def _lingering_threads(grace: float) -> list[threading.Thread]:
+#: The loop every ``ThreadPoolExecutor`` worker thread runs.
+_EXECUTOR_WORKER_CODE = concurrent.futures.thread._worker.__code__
+
+
+def _idle_executor_worker(thread: threading.Thread, frames: dict[int, FrameType]) -> bool:
+    """Whether *thread* is an executor worker parked on an empty work queue."""
+    frame = frames.get(thread.ident) if thread.ident is not None else None
+    if frame is None or frame.f_code is not _EXECUTOR_WORKER_CODE:
+        return False
+    try:
+        return bool(frame.f_locals["work_queue"].empty())
+    except (KeyError, AttributeError):
+        return False
+
+
+def _lingering_threads(grace: float) -> tuple[list[threading.Thread], list[threading.Thread]]:
+    """The threads the interpreter will wait for, and the idle executor workers.
+
+    Idle workers are set aside before the grace join: they never finish on
+    their own, so joining them only spends the grace.
+    """
     main = threading.main_thread()
-    threads = [t for t in threading.enumerate() if t is not main and not t.daemon and t.is_alive()]
+    candidates = [
+        t for t in threading.enumerate() if t is not main and not t.daemon and t.is_alive()
+    ]
+    frames = sys._current_frames()
+    idle = [t for t in candidates if _idle_executor_worker(t, frames)]
+    threads = [t for t in candidates if t not in idle]
     deadline = time.monotonic() + grace
     for thread in threads:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
         thread.join(remaining)
-    return [t for t in threads if t.is_alive()]
+    return [t for t in threads if t.is_alive()], idle
 
 
 def _write(stream: TextIO, text: str) -> None:
@@ -162,31 +192,40 @@ def report_live_threads(stream: TextIO, grace: float = GRACE_SECONDS) -> int:
             already finishing before they count.
 
     Returns:
-        The number of threads and processes reported. A report that fails
-        writes one line saying so and returns 0; it never raises, because a
-        diagnostic must never replace the outcome it observes.
+        The number of threads and processes reported; idle executor workers
+        are not counted. A report that fails writes one line saying so and
+        returns 0; it never raises, because a diagnostic must never replace
+        the outcome it observes.
     """
     worker = worker_id()
     try:
-        threads = _lingering_threads(grace)
+        threads, idle = _lingering_threads(grace)
         children = [p for p in multiprocessing.active_children() if not p.daemon]
         count = len(threads) + len(children)
-        if count == 0:
+        lines: list[str] = []
+        if count:
+            frames = sys._current_frames()
+            lines.append(
+                f"[{worker}] pytest has finished, but {count} non-daemon thread(s)/process(es) "
+                "are still running; the interpreter waits for them before it exits:\n"
+            )
+            for thread in threads:
+                lines.append(f"--- thread '{thread.name}' (ident {thread.ident}) ---\n")
+                frame = frames.get(thread.ident) if thread.ident is not None else None
+                if frame is None:
+                    lines.append("(finished while this report was written)\n")
+                else:
+                    lines.append("".join(traceback.format_stack(frame)))
+            for child in children:
+                lines.append(f"--- child process '{child.name}' (pid {child.pid}) ---\n")
+        if idle:
+            names = ", ".join(t.name for t in idle)
+            lines.append(
+                f"[{worker}] {len(idle)} idle executor worker(s) not counted; "
+                f"the interpreter releases them at exit: {names}\n"
+            )
+        if not lines:
             return 0
-        frames = sys._current_frames()
-        lines = [
-            f"[{worker}] pytest has finished, but {count} non-daemon thread(s)/process(es) "
-            "are still running; the interpreter waits for them before it exits:\n"
-        ]
-        for thread in threads:
-            lines.append(f"--- thread '{thread.name}' (ident {thread.ident}) ---\n")
-            frame = frames.get(thread.ident) if thread.ident is not None else None
-            if frame is None:
-                lines.append("(finished while this report was written)\n")
-            else:
-                lines.append("".join(traceback.format_stack(frame)))
-        for child in children:
-            lines.append(f"--- child process '{child.name}' (pid {child.pid}) ---\n")
         stream.write("".join(lines))
         stream.flush()
         return count

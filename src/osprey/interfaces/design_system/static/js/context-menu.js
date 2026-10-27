@@ -123,9 +123,10 @@ function onDocKeydown(e) {
     const rows = /** @type {HTMLElement[]} */ ([...menuEl.querySelectorAll(enabledRows())]);
     if (!rows.length) return;
     const idx = rows.indexOf(/** @type {HTMLElement} */ (document.activeElement));
-    const next = e.key === 'ArrowDown'
-      ? rows[(idx + 1 + rows.length) % rows.length]
-      : rows[(idx - 1 + rows.length) % rows.length];
+    const next =
+      e.key === 'ArrowDown'
+        ? rows[(idx + 1 + rows.length) % rows.length]
+        : rows[(idx - 1 + rows.length) % rows.length];
     next.focus();
   }
 }
@@ -197,9 +198,8 @@ function buildRow(item) {
   const toggle = item.checked !== undefined;
   const btn = document.createElement('button');
   btn.type = 'button';
-  btn.className = `${prefix}-item`
-    + (item.danger ? ' danger' : '')
-    + (item.checked ? ' checked' : '');
+  btn.className =
+    `${prefix}-item` + (item.danger ? ' danger' : '') + (item.checked ? ' checked' : '');
   btn.setAttribute('role', toggle ? 'menuitemcheckbox' : 'menuitem');
   if (toggle) btn.setAttribute('aria-checked', String(Boolean(item.checked)));
 

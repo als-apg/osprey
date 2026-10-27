@@ -120,10 +120,7 @@ describe('theme-manager.js storage scoping', () => {
     });
 
     test('a scoped hub ignores a polluted bare key and takes the server default', () => {
-      window.localStorage.setItem(
-        LEGACY_KEY,
-        JSON.stringify({ family: 'retro', mode: 'dark' })
-      );
+      window.localStorage.setItem(LEGACY_KEY, JSON.stringify({ family: 'retro', mode: 'dark' }));
       document.documentElement.setAttribute(SCOPE_ATTR, 'bob');
       document.documentElement.setAttribute('data-theme', 'light');
 
@@ -146,10 +143,7 @@ describe('theme-manager.js storage scoping', () => {
     });
 
     test('an unscoped hub still reads the bare legacy key', () => {
-      window.localStorage.setItem(
-        LEGACY_KEY,
-        JSON.stringify({ family: 'retro', mode: 'dark' })
-      );
+      window.localStorage.setItem(LEGACY_KEY, JSON.stringify({ family: 'retro', mode: 'dark' }));
       document.documentElement.setAttribute('data-theme', 'light');
 
       ThemeManager.initTheme({ role: 'hub' });
@@ -238,7 +232,10 @@ describe('theme-manager.js under an opaque origin', () => {
     document.documentElement.setAttribute('data-theme', 'light');
     ThemeManager.initTheme({ role: 'follower' });
 
-    deliver({ postMessage() {} }, 'https://evil.example', { type: 'osprey-theme-change', theme: 'retro-dark' });
+    deliver({ postMessage() {} }, 'https://evil.example', {
+      type: 'osprey-theme-change',
+      theme: 'retro-dark',
+    });
     deliver(null, 'null', { type: 'osprey-theme-change', theme: 'retro-dark' });
 
     expect(ThemeManager.getTheme()).toBe('light');
@@ -267,7 +264,9 @@ describe('theme-manager.js under an opaque origin', () => {
   test('the hub posts the theme message to every frame with target "*"', () => {
     document.body.innerHTML = '<iframe></iframe><iframe sandbox="allow-scripts"></iframe>';
     const frames = [...document.querySelectorAll('iframe')];
-    const spies = frames.map((f) => vi.spyOn(/** @type {Window} */ (f.contentWindow), 'postMessage'));
+    const spies = frames.map((f) =>
+      vi.spyOn(/** @type {Window} */ (f.contentWindow), 'postMessage')
+    );
     ThemeManager.initTheme({ role: 'hub' });
 
     ThemeManager.setTheme('retro-dark');

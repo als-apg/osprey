@@ -131,8 +131,7 @@ function sanitizeItems(raw) {
       const entries = it.items
         .slice(0, MAX_ITEMS)
         .filter(
-          (/** @type {any} */ n) =>
-            n && typeof n.id === 'string' && typeof n.label === 'string'
+          (/** @type {any} */ n) => n && typeof n.id === 'string' && typeof n.label === 'string'
         )
         .map((/** @type {any} */ n) => ({
           id: n.id,
@@ -163,8 +162,7 @@ function sanitizeItems(raw) {
       const entries = it.items
         .slice(0, MAX_ITEMS)
         .filter(
-          (/** @type {any} */ n) =>
-            n && typeof n.id === 'string' && typeof n.label === 'string'
+          (/** @type {any} */ n) => n && typeof n.id === 'string' && typeof n.label === 'string'
         )
         .map((/** @type {any} */ n) => ({
           id: n.id,

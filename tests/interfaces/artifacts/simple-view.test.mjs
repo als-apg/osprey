@@ -23,7 +23,10 @@ import {
   setFocusedArtifact,
   fileUrl,
 } from '../../../src/osprey/interfaces/artifacts/static/js/state.js';
-import { formatFullTime, formatTime } from '../../../src/osprey/interfaces/artifacts/static/js/types.js';
+import {
+  formatFullTime,
+  formatTime,
+} from '../../../src/osprey/interfaces/artifacts/static/js/types.js';
 import { createSimpleView } from '../../../src/osprey/interfaces/artifacts/static/js/simple-view.js';
 import { qs, byId } from '../_support/dom.mjs';
 
@@ -53,8 +56,14 @@ const FRESH = new Date(Date.now() + 3_600_000).toISOString();
 /** @returns {any} */
 function makeArtifact(overrides = {}) {
   return {
-    id: 'a1', title: 'Beam Profile', filename: 'beam_profile.png', artifact_type: 'plot_png',
-    category: 'visualization', pinned: false, timestamp: '2026-07-01T10:00:00Z', size_bytes: 2048,
+    id: 'a1',
+    title: 'Beam Profile',
+    filename: 'beam_profile.png',
+    artifact_type: 'plot_png',
+    category: 'visualization',
+    pinned: false,
+    timestamp: '2026-07-01T10:00:00Z',
+    size_bytes: 2048,
     ...overrides,
   };
 }
@@ -66,7 +75,11 @@ function makeArtifact(overrides = {}) {
  */
 function makeMany(n) {
   return Array.from({ length: n }, (_, i) =>
-    makeArtifact({ id: `p${i + 1}`, title: `Plot ${i + 1}`, timestamp: `2026-07-0${1 + Math.floor(i / 9)}T${String(10 + (i % 9)).padStart(2, '0')}:00:00Z` })
+    makeArtifact({
+      id: `p${i + 1}`,
+      title: `Plot ${i + 1}`,
+      timestamp: `2026-07-0${1 + Math.floor(i / 9)}T${String(10 + (i % 9)).padStart(2, '0')}:00:00Z`,
+    })
   );
 }
 
@@ -77,10 +90,13 @@ function makeMany(n) {
  * @param {number} [total]
  */
 async function seed(artifacts, total = artifacts.length) {
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-    ok: true,
-    json: () => Promise.resolve({ artifacts, total, next_cursor: null }),
-  }));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ artifacts, total, next_cursor: null }),
+    })
+  );
   await fetchArtifacts();
 }
 
@@ -147,7 +163,12 @@ describe('the result card', () => {
   test('shows the newest artifact when nothing is selected or focused, skipping the shipped example', async () => {
     await seed([
       makeArtifact({ id: 'old', title: 'Old', timestamp: '2026-07-01T10:00:00Z' }),
-      makeArtifact({ id: 'demo', title: 'Demo', origin: 'demo', timestamp: '2026-07-03T10:00:00Z' }),
+      makeArtifact({
+        id: 'demo',
+        title: 'Demo',
+        origin: 'demo',
+        timestamp: '2026-07-03T10:00:00Z',
+      }),
       makeArtifact({ id: 'new', title: 'New', timestamp: '2026-07-02T10:00:00Z' }),
     ]);
     view().render();
@@ -200,7 +221,10 @@ describe('the result card', () => {
 
   test('opens a markdown artifact through its rendered page', async () => {
     await seed([makeArtifact({ id: 'md', artifact_type: 'markdown', filename: 'notes.md' })]);
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, text: () => Promise.resolve('# hi') }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, text: () => Promise.resolve('# hi') })
+    );
     view().render();
 
     expect(byId('simple-open-full').getAttribute('href')).toBe('/api/markdown/md/rendered');
@@ -215,7 +239,9 @@ describe('the result card', () => {
     const bare = makeArtifact({ id: 'b', title: 'Bare', description: '' });
     await seed([bare]);
     simple.render();
-    expect(byId('simple-result-caption').textContent).toBe(`Bare · ${formatFullTime(bare.timestamp)}`);
+    expect(byId('simple-result-caption').textContent).toBe(
+      `Bare · ${formatFullTime(bare.timestamp)}`
+    );
   });
 
   test('marks an artifact created since page load NEW, and nothing older or shipped', async () => {
@@ -244,8 +270,12 @@ describe('the result card', () => {
 
   test('hands a timeseries artifact to onTimeseriesNeeded with its mounted container', async () => {
     const ts = makeArtifact({
-      id: 'ts', title: 'Orbit history', filename: 'orbit.json', artifact_type: 'json',
-      category: 'archiver_data', metadata: { data_type: 'timeseries', data_file: 'orbit.jsonl' },
+      id: 'ts',
+      title: 'Orbit history',
+      filename: 'orbit.json',
+      artifact_type: 'json',
+      category: 'archiver_data',
+      metadata: { data_type: 'timeseries', data_file: 'orbit.jsonl' },
     });
     await seed([ts]);
     view().render();
@@ -269,7 +299,9 @@ describe('the session list', () => {
     expect(rows().map((r) => r.getAttribute('data-id'))).toEqual(['c', 'b', 'a']);
     expect(selectedFlags()).toEqual([true, false, false]);
     expect(qs(rows()[1], '.simple-list-item-name').textContent).toBe('Second');
-    expect(qs(rows()[1], '.simple-list-item-time').textContent).toBe(formatTime('2026-07-02T10:00:00Z'));
+    expect(qs(rows()[1], '.simple-list-item-time').textContent).toBe(
+      formatTime('2026-07-02T10:00:00Z')
+    );
     expect(byId('simple-list-count').textContent).toBe('3');
     expect(byId('simple-show-all').hidden).toBe(true);
   });
@@ -296,7 +328,14 @@ describe('the session list', () => {
     await seed(makeMany(8));
     view().render();
 
-    expect(rows().map((r) => r.getAttribute('data-id'))).toEqual(['p8', 'p7', 'p6', 'p5', 'p4', 'p3']);
+    expect(rows().map((r) => r.getAttribute('data-id'))).toEqual([
+      'p8',
+      'p7',
+      'p6',
+      'p5',
+      'p4',
+      'p3',
+    ]);
     expect(byId('simple-list-count').textContent).toBe('8');
     expect(byId('simple-show-all').hidden).toBe(false);
   });

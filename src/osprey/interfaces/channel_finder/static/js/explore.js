@@ -9,9 +9,17 @@
 
 import { state } from './state.js';
 import { esc, renderSchema } from './utils.js';
-import { mountHierarchical, unmountHierarchical, setShowDescriptions as setHierDescriptions } from './explore-hierarchical.js';
+import {
+  mountHierarchical,
+  unmountHierarchical,
+  setShowDescriptions as setHierDescriptions,
+} from './explore-hierarchical.js';
 import { mountInContext, unmountInContext } from './explore-in-context.js';
-import { mountMiddleLayer, unmountMiddleLayer, setShowDescriptions as setMLDescriptions } from './explore-middle-layer.js';
+import {
+  mountMiddleLayer,
+  unmountMiddleLayer,
+  setShowDescriptions as setMLDescriptions,
+} from './explore-middle-layer.js';
 import { mountGraph, unmountGraph } from './explore-graph.js';
 
 /** @type {string|null} */
@@ -59,7 +67,7 @@ function clearStaticPane() {
 export function mountExplore(container) {
   const pt = state.pipelineType;
 
-  const hasSchema = (pt === 'hierarchical' || pt === 'middle_layer');
+  const hasSchema = pt === 'hierarchical' || pt === 'middle_layer';
 
   const subtitle = 'Browse the channel database structure';
 
@@ -89,9 +97,13 @@ export function mountExplore(container) {
         ${descToggle}
       </div>
     </div>
-    ${hasSchema ? `<div class="db-schema-section">
+    ${
+      hasSchema
+        ? `<div class="db-schema-section">
       <div class="schema-diagram" id="explore-schema"></div>
-    </div>` : ''}
+    </div>`
+        : ''
+    }
     <div id="explore-content"></div>
   `;
 

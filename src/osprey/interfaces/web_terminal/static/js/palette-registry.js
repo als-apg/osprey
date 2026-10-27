@@ -136,11 +136,7 @@ function flattenSections(sections) {
    * @param {unknown} value
    */
   const walk = (prefix, value) => {
-    if (
-      value !== null &&
-      typeof value === 'object' &&
-      !Array.isArray(value)
-    ) {
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
       for (const [k, v] of Object.entries(value)) {
         walk(prefix ? `${prefix}.${k}` : k, v);
       }
@@ -348,10 +344,5 @@ function buildActions(deps) {
  */
 export function buildRegistry(deps) {
   const d = deps || {};
-  return [
-    ...buildSettings(d),
-    ...buildPanels(d),
-    ...buildLayouts(d),
-    ...buildActions(d),
-  ];
+  return [...buildSettings(d), ...buildPanels(d), ...buildLayouts(d), ...buildActions(d)];
 }

@@ -1,7 +1,15 @@
 /* OSPREY Web Terminal — Session Picker */
 
 import { fetchJSON } from './api.js';
-import { stopTerminal, startTerminal, restartTerminal, getCurrentSessionId, notifySessionChange, switchSession, setSessionLabel } from './terminal.js';
+import {
+  stopTerminal,
+  startTerminal,
+  restartTerminal,
+  getCurrentSessionId,
+  notifySessionChange,
+  switchSession,
+  setSessionLabel,
+} from './terminal.js';
 import { escapeHtml } from '/design-system/js/dom.js';
 import { onModeChange } from '/design-system/js/frame-params.js';
 import { formatFacilityTime } from '/design-system/js/facility-time.js';
@@ -219,15 +227,16 @@ function renderSessionList() {
 
   const currentId = getCurrentSessionId();
 
-  list.innerHTML = sessionsData.map(s => {
-    const isActive = s.session_id === currentId;
-    // Every server-supplied value is escaped, the id included: it lands in two
-    // attributes and the markup, and an unescaped quote would end the attribute.
-    const id = escapeHtml(s.session_id);
-    const shortId = escapeHtml(s.session_id.slice(0, 8));
-    const timeAgo = relativeTime(s.last_modified);
-    const preview = escapeHtml(s.first_message || '(no message)');
-    return `
+  list.innerHTML = sessionsData
+    .map((s) => {
+      const isActive = s.session_id === currentId;
+      // Every server-supplied value is escaped, the id included: it lands in two
+      // attributes and the markup, and an unescaped quote would end the attribute.
+      const id = escapeHtml(s.session_id);
+      const shortId = escapeHtml(s.session_id.slice(0, 8));
+      const timeAgo = relativeTime(s.last_modified);
+      const preview = escapeHtml(s.first_message || '(no message)');
+      return `
       <button class="session-item${isActive ? ' active' : ''}"
               data-session-id="${id}"
               title="${id}">
@@ -239,13 +248,14 @@ function renderSessionList() {
         <div class="session-item-meta">${s.message_count} messages</div>
       </button>
     `;
-  }).join('');
+    })
+    .join('');
 
   // Attach click handlers
   const items = /** @type {NodeListOf<HTMLElement>} */ (
     list.querySelectorAll('.session-item[data-session-id]')
   );
-  items.forEach(el => {
+  items.forEach((el) => {
     el.addEventListener('click', () => {
       const id = /** @type {string} */ (el.dataset.sessionId);
       closeDropdown();
@@ -279,7 +289,7 @@ async function resumeSession(sessionId) {
   // Cold fallback — no WS open, do full reconnect
   stopTerminal();
   setSessionLabel(sessionId);
-  await new Promise(r => setTimeout(r, 100));
+  await new Promise((r) => setTimeout(r, 100));
   startTerminal(sessionId, 'resume');
   notifySessionChange(sessionId);
 }

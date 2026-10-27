@@ -1,0 +1,21 @@
+{
+  "name": "validate-collection-old-slot-shape",
+  "rule": "C-LAYOUT",
+  "input": {
+    "split": "row",
+    "items": [
+      {
+        "slot": 0
+      },
+      {
+        "tabs": [1]
+      }
+    ]
+  },
+  "options": {
+    "form": "collection",
+    "members": 2
+  },
+  "reason": "old_slot_shape",
+  "where": "layout.items[0]"
+}

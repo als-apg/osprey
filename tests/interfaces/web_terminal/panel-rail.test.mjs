@@ -114,7 +114,6 @@ describe('createRail', () => {
     createRail(rail, [{ id: 'okf', label: 'KNOWLEDGE' }]);
     expect(entryIds(rail)).toEqual(['okf']);
   });
-
 });
 
 describe('entry interactions', () => {
@@ -184,7 +183,6 @@ describe('entry interactions', () => {
 
     expect(ev.defaultPrevented).toBe(false);
   });
-
 });
 
 /**
@@ -291,7 +289,6 @@ describe('keyboard route to the context menu', () => {
     }
     expect(calls).toEqual([]);
   });
-
 });
 
 describe('drag from the rail (onDragStart / onDragEnd)', () => {
@@ -308,7 +305,9 @@ describe('drag from the rail (onDragStart / onDragEnd)', () => {
     /** @type {any} */ (ev).dataTransfer = {
       data: /** @type {Record<string, string>} */ ({}),
       effectAllowed: '',
-      setData(/** @type {string} */ k, /** @type {string} */ v) { this.data[k] = v; },
+      setData(/** @type {string} */ k, /** @type {string} */ v) {
+        this.data[k] = v;
+      },
     };
     return ev;
   }
@@ -322,7 +321,10 @@ describe('drag from the rail (onDragStart / onDragEnd)', () => {
     /** @type {any[]} */
     const calls = [];
     createRail(rail, PANELS, {
-      onDragStart: (id, dt) => { calls.push([id, dt]); return true; },
+      onDragStart: (id, dt) => {
+        calls.push([id, dt]);
+        return true;
+      },
     });
     const entry = /** @type {HTMLElement} */ (getEntry(rail, 'ariel'));
     const ev = dragEvent('dragstart');
@@ -733,7 +735,6 @@ describe('setEntryAttention scrolls a badged entry into view', () => {
     setEntryAttention(rail, 'ariel', false);
     expect(scrollSpy).not.toHaveBeenCalled();
   });
-
 });
 
 /**

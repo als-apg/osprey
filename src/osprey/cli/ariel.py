@@ -136,7 +136,11 @@ def _report_attachments(attachments: dict | None) -> bool:
 
     output.report("")
     output.report("Attachments:")
-    output.note(f"render: {attachments.get('render')}")
+    render_reason = attachments.get("render_unavailable")
+    if render_reason:
+        output.note(f"render: unavailable: {render_reason}")
+    else:
+        output.note(f"render: {attachments.get('render')}")
     size = attachments.get("bytes")
     output.note(f"stored bytes: {size if size is not None else 'unknown'}")
     if attachments.get("pending") is None or attachments.get("skipped") is None:

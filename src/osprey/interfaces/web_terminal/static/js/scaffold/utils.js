@@ -35,19 +35,26 @@
  * @type {Record<string, string>}
  */
 export const CATEGORY_HELP = {
-  'project instructions': "The project's CLAUDE.md. Read at the start of every session and injected as a message after the system prompt, so it is context the agent reads rather than a rule the system enforces. It stays for the whole session and is re-read after a context compaction.",
-  instructions: 'Markdown files in .claude/rules/. Each one loads at the start of every session, at the same priority as CLAUDE.md, and stays in context throughout. A file with a paths: header loads only when the agent opens a matching file. Like CLAUDE.md, these are read as context, not enforced.',
-  agents: "Subagent definitions in .claude/agents/. Each runs in its own context window with its own instructions, model, and tool list. The agent delegates when a task matches a subagent's description and gets back only that subagent's final answer — the subagent's own work never enters this session.",
-  skills: 'Folders under .claude/skills/, each with a SKILL.md. Only the name and description load at session start; the body loads when the skill runs — invoked by you with /name, or by the agent when the description matches the task. Companion files in the folder are read on demand.',
-  'output-styles': 'Markdown files in .claude/output-styles/. An output style is appended to the system prompt itself. Exactly one is active at a time, selected by the outputStyle setting, and a change takes effect in the next session. Unless the file sets keep-coding-instructions: true, it replaces the built-in software-engineering instructions. Output styles do not reach subagents.',
-  hooks: "Programs wired to session lifecycle events in settings.json. The runtime runs them itself, not the agent, so a PreToolUse hook can block a tool call before it executes, independent of the agent's decision. This is the only layer in this drawer that enforces rather than advises.",
-  config: ".mcp.json declares which MCP servers start with the session; their tools become the agent's tools. settings.json holds the permission lists, the hook wiring, and the model and output-style selection. Both are read at session start; edits apply on the next session.",
+  'project instructions':
+    "The project's CLAUDE.md. Read at the start of every session and injected as a message after the system prompt, so it is context the agent reads rather than a rule the system enforces. It stays for the whole session and is re-read after a context compaction.",
+  instructions:
+    'Markdown files in .claude/rules/. Each one loads at the start of every session, at the same priority as CLAUDE.md, and stays in context throughout. A file with a paths: header loads only when the agent opens a matching file. Like CLAUDE.md, these are read as context, not enforced.',
+  agents:
+    "Subagent definitions in .claude/agents/. Each runs in its own context window with its own instructions, model, and tool list. The agent delegates when a task matches a subagent's description and gets back only that subagent's final answer — the subagent's own work never enters this session.",
+  skills:
+    'Folders under .claude/skills/, each with a SKILL.md. Only the name and description load at session start; the body loads when the skill runs — invoked by you with /name, or by the agent when the description matches the task. Companion files in the folder are read on demand.',
+  'output-styles':
+    'Markdown files in .claude/output-styles/. An output style is appended to the system prompt itself. Exactly one is active at a time, selected by the outputStyle setting, and a change takes effect in the next session. Unless the file sets keep-coding-instructions: true, it replaces the built-in software-engineering instructions. Output styles do not reach subagents.',
+  hooks:
+    "Programs wired to session lifecycle events in settings.json. The runtime runs them itself, not the agent, so a PreToolUse hook can block a tool call before it executes, independent of the agent's decision. This is the only layer in this drawer that enforces rather than advises.",
+  config:
+    ".mcp.json declares which MCP servers start with the session; their tools become the agent's tools. settings.json holds the permission lists, the hook wiring, and the model and output-style selection. Both are read at session start; edits apply on the next session.",
 };
 
 // ---- Category Routing ---- //
 
 export const BEHAVIOR_CATEGORIES = new Set(['agents', 'skills', 'rules', 'output-styles']);
-export const BEHAVIOR_OUTPUTS = new Set(['CLAUDE.md']);      // whichever render builds it, behavior tab
+export const BEHAVIOR_OUTPUTS = new Set(['CLAUDE.md']); // whichever render builds it, behavior tab
 export const SAFETY_CATEGORIES = new Set(['hooks']);
 export const CONFIG_NAMES = new Set(['mcp-json', 'settings-json']); // config category, config tab
 
@@ -81,14 +88,22 @@ export const BEHAVIOR_PINNED_CATEGORIES = ['project instructions', 'instructions
  */
 export function iconForCategory(cat) {
   switch ((cat || '').toLowerCase()) {
-    case 'project instructions': return '📜'; // scroll
-    case 'instructions':   return '📋';  // clipboard
-    case 'agents':         return '🤖';  // robot
-    case 'hooks':          return '⚡';  // lightning
-    case 'output-styles':  return '🎨';  // palette
-    case 'config':         return '⚙';   // gear
-    case 'skills':         return '📦';  // package
-    default:               return '📄';  // document
+    case 'project instructions':
+      return '📜'; // scroll
+    case 'instructions':
+      return '📋'; // clipboard
+    case 'agents':
+      return '🤖'; // robot
+    case 'hooks':
+      return '⚡'; // lightning
+    case 'output-styles':
+      return '🎨'; // palette
+    case 'config':
+      return '⚙'; // gear
+    case 'skills':
+      return '📦'; // package
+    default:
+      return '📄'; // document
   }
 }
 
@@ -111,8 +126,10 @@ export function parseFrontMatter(content) {
     const kv = line.match(/^(\w[\w\-]*):\s*(.*)$/);
     if (kv) {
       let value = kv[2].trim();
-      if ((value.startsWith('"') && value.endsWith('"')) ||
-          (value.startsWith("'") && value.endsWith("'"))) {
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
         value = value.slice(1, -1);
       }
       fields[kv[1]] = value;
@@ -249,7 +266,10 @@ export function renderFrontMatterTable(fields) {
     valEl.className = 'prompts-fm-value';
 
     if (key === 'disallowedTools' || key === 'tools') {
-      const tools = value.split(',').map((t) => t.trim()).filter(Boolean);
+      const tools = value
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean);
       for (const tool of tools) {
         const pill = document.createElement('span');
         pill.className = 'prompts-fm-pill';
@@ -295,10 +315,10 @@ export function renderFrontMatterTable(fields) {
  * looking at, so it says what to do rather than which files are affected.
  */
 export const READ_ONLY_REASON =
-  'Rendered by the build profile. Edit it in the profile and rebuild the '
-  + 'project — a save aimed at it here is refused, because a profile that no '
-  + 'longer describes the project it built is worse than an edit that did not '
-  + 'happen.';
+  'Rendered by the build profile. Edit it in the profile and rebuild the ' +
+  'project — a save aimed at it here is refused, because a profile that no ' +
+  'longer describes the project it built is worse than an edit that did not ' +
+  'happen.';
 
 /**
  * Build the READ-ONLY badge shown on a reserved artifact's card and in its

@@ -100,7 +100,13 @@ const KINDS = {
  * that still read `posture` would fail here.
  */
 const STATES = {
-  on: { switch: 'on', write_allowed: true, write_reason: null, write_phrase: null, posture: 'sandbox' },
+  on: {
+    switch: 'on',
+    write_allowed: true,
+    write_reason: null,
+    write_phrase: null,
+    posture: 'sandbox',
+  },
   off: {
     switch: 'off',
     write_allowed: false,
@@ -113,7 +119,8 @@ const STATES = {
     switch: 'on',
     write_allowed: false,
     write_reason: 'readonly_run',
-    write_phrase: 'Writes are refused because the deployment is running read-only; the chip cannot lift this — ask the deployment admin.',
+    write_phrase:
+      'Writes are refused because the deployment is running read-only; the chip cannot lift this — ask the deployment admin.',
     posture: 'writes',
     effective: true,
   },
@@ -318,7 +325,7 @@ beforeEach(async () => {
   served = viewOf();
   stubFetch();
   mountFixture();
-  delete (/** @type {any} */ (window)).__OSPREY_PREFIX__;
+  Reflect.deleteProperty(window, '__OSPREY_PREFIX__');
   chipModule = await import(MODULE);
 });
 
@@ -514,13 +521,28 @@ describe('state matrix', () => {
   test('the state reads switch and write_allowed, never posture or effective', async () => {
     await boot(
       viewOf({
-        targets: [rowOf({ switch: 'on', write_allowed: false, posture: 'writes', effective: true, active: true })],
+        targets: [
+          rowOf({
+            switch: 'on',
+            write_allowed: false,
+            posture: 'writes',
+            effective: true,
+            active: true,
+          }),
+        ],
       })
     );
     expect(chipEl()?.dataset.state).toBe('locked');
     // An unreadable switch is locked, never off.
     served = viewOf({
-      targets: [rowOf({ switch: null, write_allowed: false, write_reason: 'record_unavailable', active: true })],
+      targets: [
+        rowOf({
+          switch: null,
+          write_allowed: false,
+          write_reason: 'record_unavailable',
+          active: true,
+        }),
+      ],
     });
     await chipModule.refetch();
     expect(chipEl()?.dataset.state).toBe('locked');
@@ -547,9 +569,7 @@ describe('state matrix', () => {
   test("the deployment's configured display_name wins over the kind default", async () => {
     await boot(
       viewOf({
-        targets: [
-          rowOf({ ...KINDS.live, display_name: 'Example storage ring', active: true }),
-        ],
+        targets: [rowOf({ ...KINDS.live, display_name: 'Example storage ring', active: true })],
       })
     );
     expect(shortText()).toBe('Example storage ring');
@@ -658,9 +678,7 @@ describe('refetch hints', () => {
   });
 
   test('renders the ROUTE, never the frame text', async () => {
-    await boot(
-      viewOf({ targets: [rowOf({ ...KINDS.standin, active: true, is_baseline: true })] })
-    );
+    await boot(viewOf({ targets: [rowOf({ ...KINDS.standin, active: true, is_baseline: true })] }));
     expect(shortText()).toBe('Rehearsal');
     // The frame narrates a switch to the facility's own machine, and the route
     // — the only truth — still says stand-in. A chip that read the prose would
@@ -1037,7 +1055,7 @@ describe('read ordering', () => {
 
 describe('withPrefix', () => {
   test('every read goes through the per-user mount', async () => {
-    (/** @type {any} */ (window)).__OSPREY_PREFIX__ = '/u/alice';
+    Object.assign(window, { __OSPREY_PREFIX__: '/u/alice' });
     await boot();
     const gets = fetchCalls.filter((c) => c.method === 'GET');
     expect(gets.length).toBeGreaterThan(0);
@@ -1067,7 +1085,9 @@ describe('popover API', () => {
     await boot();
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const seen = /** @type {any[]} */ ([]);
-    chipModule.subscribe(() => { throw new Error('boom'); });
+    chipModule.subscribe(() => {
+      throw new Error('boom');
+    });
     chipModule.subscribe((s) => seen.push(s));
     await chipModule.refetch();
     expect(seen).toHaveLength(1);
@@ -1097,7 +1117,10 @@ describe('popover API', () => {
   test('a refused request carries the sentence from all three refusal body shapes', async () => {
     /** @param {number} status @param {() => Promise<any>} json */
     const refuse = (status, json) =>
-      vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status, json })));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({ ok: false, status, json }))
+      );
 
     refuse(409, async () => ({ detail: { error: 'x', message: 'dict detail' } }));
     await expect(chipModule.targetRequest('/api/terminal/posture')).rejects.toThrow('dict detail');
@@ -1183,7 +1206,13 @@ describe('popover API', () => {
   test('a body with no detail carries a null one', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => ({ ok: false, status: 500, json: async () => { throw new SyntaxError('x'); } }))
+      vi.fn(async () => ({
+        ok: false,
+        status: 500,
+        json: async () => {
+          throw new SyntaxError('x');
+        },
+      }))
     );
     const err = await chipModule.targetRequest('/api/terminal/posture').catch((e) => e);
     expect(err.status).toBe(500);

@@ -197,7 +197,6 @@ describe('the options popover', () => {
 
     expect(pop.textContent).toContain('0 fills the remaining room');
   });
-
 });
 
 describe('moving and removing from the popover', () => {
@@ -349,9 +348,8 @@ describe('the popover keeps out of its own way', () => {
   test('the host closes it before the item moves', async () => {
     await editing(doc(['logo', 'clock'], []));
     await openOptions('clock');
-    const host = await import(
-      '../../../../src/osprey/interfaces/web_terminal/static/js/bar-host.js'
-    );
+    const host =
+      await import('../../../../src/osprey/interfaces/web_terminal/static/js/bar-host.js');
 
     host.closeBarPopovers();
 

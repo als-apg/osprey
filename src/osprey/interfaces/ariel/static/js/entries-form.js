@@ -8,7 +8,11 @@
 import { entriesApi, draftsApi, ApiError } from './api.js';
 import { escapeHtml } from './components.js';
 import { showEntry } from './entries-detail.js';
-import { collectEntryFieldValues, entryFieldsRendered, markEntryFieldError } from './entry-fields.js';
+import {
+  collectEntryFieldValues,
+  entryFieldsRendered,
+  markEntryFieldError,
+} from './entry-fields.js';
 import { formatFileSize } from './entries-helpers.js';
 import { messageOf } from './utils.js';
 
@@ -53,7 +57,7 @@ export async function handleCreateEntry(e) {
     const tagEls = /** @type {NodeListOf<HTMLElement>} */ (
       document.querySelectorAll('#entry-tags .tag')
     );
-    const tags = Array.from(tagEls).map(t => t.dataset.value);
+    const tags = Array.from(tagEls).map((t) => t.dataset.value);
 
     const entryData = {
       subject: formData.get('subject'),
@@ -67,9 +71,7 @@ export async function handleCreateEntry(e) {
       auth_password: formData.get('auth_password') || null,
     };
 
-    const fileInput = /** @type {HTMLInputElement|null} */ (
-      document.getElementById('entry-files')
-    );
+    const fileInput = /** @type {HTMLInputElement|null} */ (document.getElementById('entry-files'));
     const files = Array.from(fileInput?.files || []);
 
     // Check for draft attachments (staged by the agent via artifact_ids)
@@ -116,7 +118,6 @@ export async function handleCreateEntry(e) {
 
     // Navigate to entry
     showEntry(result.entry_id);
-
   } catch (error) {
     console.error('Failed to create entry:', error);
     if (error instanceof ApiError && error.code === 'auth_required') {
@@ -126,10 +127,10 @@ export async function handleCreateEntry(e) {
       alert('Logbook credentials required to publish. Please enter your username and password.');
       document.getElementById('entry-auth-user')?.focus();
     } else if (
-      error instanceof ApiError
-      && ENTRY_FIELD_ERROR_CODES.includes(error.code ?? '')
-      && error.field
-      && markEntryFieldError(error.field, error.message)
+      error instanceof ApiError &&
+      ENTRY_FIELD_ERROR_CODES.includes(error.code ?? '') &&
+      error.field &&
+      markEntryFieldError(error.field, error.message)
     ) {
       // The named entry field was rejected: it is marked and focused, and the
       // form stays populated so the operator can correct it and resubmit.
@@ -258,7 +259,8 @@ export function handleFilePreview(e) {
     let media;
     if (file.type.startsWith('image/')) {
       const img = document.createElement('img');
-      img.style.cssText = 'width: 100px; height: 80px; object-fit: cover; border-radius: var(--radius-md);';
+      img.style.cssText =
+        'width: 100px; height: 80px; object-fit: cover; border-radius: var(--radius-md);';
       img.src = URL.createObjectURL(file);
       img.onload = () => URL.revokeObjectURL(img.src);
       media = img;
@@ -294,9 +296,12 @@ function renderSessionInfoPanel(meta) {
   panel.innerHTML = `
     <div class="session-info-header">Session Context</div>
     <div class="session-info-fields">
-      ${fields.map(([label, value]) =>
-        `<span><span class="session-info-label">${escapeHtml(label)}:</span>${escapeHtml(String(value))}</span>`
-      ).join('')}
+      ${fields
+        .map(
+          ([label, value]) =>
+            `<span><span class="session-info-label">${escapeHtml(label)}:</span>${escapeHtml(String(value))}</span>`
+        )
+        .join('')}
     </div>
   `;
 
@@ -406,7 +411,8 @@ export async function loadDraft(draftId) {
           const isImage = /\.(png|jpe?g|gif|webp|svg)$/i.test(filename);
           if (isImage) {
             const img = document.createElement('img');
-            img.style.cssText = 'width: 100px; height: 80px; object-fit: cover; border-radius: var(--radius-md);';
+            img.style.cssText =
+              'width: 100px; height: 80px; object-fit: cover; border-radius: var(--radius-md);';
             img.src = url;
             img.alt = filename;
             media = img;

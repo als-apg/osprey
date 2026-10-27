@@ -123,9 +123,8 @@ async function loadPage(mode) {
   document.documentElement.setAttribute('data-ui-mode', mode);
   terminal = await import('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js');
   chat = await import('../../../src/osprey/interfaces/web_terminal/static/js/chat.js');
-  pointer = await import(
-    '../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js'
-  );
+  pointer =
+    await import('../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js');
   writes = [];
   pointer.subscribe((key) => writes.push(key));
 }
@@ -144,10 +143,13 @@ beforeEach(() => {
   vi.stubGlobal('WebLinksAddon', { WebLinksAddon: class {} });
   vi.stubGlobal('ClipboardAddon', { ClipboardAddon: class {}, Base64: class {} });
   vi.stubGlobal('WebSocket', FakeWebSocket);
-  vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-    if (url !== '/api/session') throw new Error(`unstubbed fetch: ${url}`);
-    return { ok: true, status: 200, json: async () => ({}) };
-  }));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (/** @type {string} */ url) => {
+      if (url !== '/api/session') throw new Error(`unstubbed fetch: ${url}`);
+      return { ok: true, status: 200, json: async () => ({}) };
+    })
+  );
   vi.spyOn(console, 'error').mockImplementation(() => {});
 
   FakeWebSocket.last = null;

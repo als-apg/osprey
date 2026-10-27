@@ -192,7 +192,7 @@ E_DELTA_ORBIT = 5.0e-6
 _SPEED_OF_LIGHT = 299792458.0
 
 #: The solve whose model has no design simulator.
-_SINGLE_PASS = "single_pass"
+_SINGLE_PASS = "single_pass"  # noqa: S105 -- names a lattice mode, holds no secret
 
 #: Wide enough that no generated string or reference is folded across lines.
 _YAML_WIDTH = 4096

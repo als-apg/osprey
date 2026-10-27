@@ -17,8 +17,8 @@
  * importers.
  */
 
-export { fmtName } from "/design-system/js/check-name.js";
-export { STATUS_RANK, worstStatus } from "/design-system/js/check-status.js";
+export { fmtName } from '/design-system/js/check-name.js';
+export { STATUS_RANK, worstStatus } from '/design-system/js/check-status.js';
 
 /** @type {HTMLDivElement | null} */
 let escDiv = null;
@@ -32,8 +32,8 @@ let escDiv = null;
  * @returns {string}
  */
 export function esc(value) {
-  if (value == null) return "";
-  if (!escDiv) escDiv = document.createElement("div");
+  if (value == null) return '';
+  if (!escDiv) escDiv = document.createElement('div');
   escDiv.textContent = String(value);
   return escDiv.innerHTML;
 }
@@ -53,8 +53,8 @@ export function el(tag, attrs, children) {
   const node = document.createElement(tag);
   if (attrs) {
     for (const k in attrs) {
-      if (k === "class") node.className = attrs[k];
-      else if (k === "text") node.textContent = attrs[k];
+      if (k === 'class') node.className = attrs[k];
+      else if (k === 'text') node.textContent = attrs[k];
       else node.setAttribute(k, attrs[k]);
     }
   }
@@ -75,8 +75,8 @@ export function el(tag, attrs, children) {
  * @returns {string}
  */
 export function fmtMs(ms) {
-  if (!ms || ms <= 0) return "";
-  return ms < 1000 ? Math.round(ms) + "ms" : (ms / 1000).toFixed(1) + "s";
+  if (!ms || ms <= 0) return '';
+  return ms < 1000 ? Math.round(ms) + 'ms' : (ms / 1000).toFixed(1) + 's';
 }
 
 /**
@@ -87,10 +87,10 @@ export function fmtMs(ms) {
  * @returns {string}
  */
 export function msCls(ms) {
-  if (!ms || ms <= 0) return "";
-  if (ms < 100) return "ms-f";
-  if (ms < 500) return "ms-m";
-  return "ms-s";
+  if (!ms || ms <= 0) return '';
+  if (ms < 100) return 'ms-f';
+  if (ms < 500) return 'ms-m';
+  return 'ms-s';
 }
 
 /**

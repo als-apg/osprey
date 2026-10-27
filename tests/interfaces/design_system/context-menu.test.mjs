@@ -39,7 +39,12 @@ afterEach(() => {
 
 describe('default class names', () => {
   test('renders under the osprey-context stem', () => {
-    openContextMenu({ x: 0, y: 0, ariaLabel: 'Row actions', items: [{ label: 'Copy', glyph: '⎘' }, { divider: true }] });
+    openContextMenu({
+      x: 0,
+      y: 0,
+      ariaLabel: 'Row actions',
+      items: [{ label: 'Copy', glyph: '⎘' }, { divider: true }],
+    });
     const el = menu();
     expect(el?.getAttribute('role')).toBe('menu');
     expect(el?.getAttribute('aria-label')).toBe('Row actions');
@@ -49,13 +54,27 @@ describe('default class names', () => {
   });
 
   test('a caller-supplied prefix renames every part', () => {
-    openContextMenu({ x: 0, y: 0, ariaLabel: 'a', classPrefix: 'rail-context', items: [{ label: 'Focus' }] });
+    openContextMenu({
+      x: 0,
+      y: 0,
+      ariaLabel: 'a',
+      classPrefix: 'rail-context',
+      items: [{ label: 'Focus' }],
+    });
     expect(menu()).toBeNull();
-    expect(document.querySelector('.rail-context-menu .rail-context-item .rail-context-label')).not.toBeNull();
+    expect(
+      document.querySelector('.rail-context-menu .rail-context-item .rail-context-label')
+    ).not.toBeNull();
   });
 
   test('the next open without a prefix goes back to the default', () => {
-    openContextMenu({ x: 0, y: 0, ariaLabel: 'a', classPrefix: 'rail-context', items: [{ label: 'A' }] });
+    openContextMenu({
+      x: 0,
+      y: 0,
+      ariaLabel: 'a',
+      classPrefix: 'rail-context',
+      items: [{ label: 'A' }],
+    });
     openContextMenu({ x: 0, y: 0, ariaLabel: 'b', items: [{ label: 'B' }] });
     expect(document.querySelector('.rail-context-menu')).toBeNull();
     expect(menu()).not.toBeNull();
@@ -64,7 +83,12 @@ describe('default class names', () => {
 
 describe('row kinds', () => {
   test('a heading is an inert caption, not a focusable row', () => {
-    openContextMenu({ x: 0, y: 0, ariaLabel: 'Columns', items: [{ heading: 'Columns' }, { label: 'Device', checked: true }] });
+    openContextMenu({
+      x: 0,
+      y: 0,
+      ariaLabel: 'Columns',
+      items: [{ heading: 'Columns' }, { label: 'Device', checked: true }],
+    });
     const heading = menu()?.querySelector('.osprey-context-heading');
     expect(heading?.textContent).toBe('Columns');
     expect(heading?.tagName).toBe('DIV');
@@ -77,7 +101,11 @@ describe('row kinds', () => {
       x: 0,
       y: 0,
       ariaLabel: 'Columns',
-      items: [{ label: 'Device', checked: true }, { label: 'System', checked: false }, { label: 'Reset' }],
+      items: [
+        { label: 'Device', checked: true },
+        { label: 'System', checked: false },
+        { label: 'Reset' },
+      ],
     });
     const [on, off, plain] = rows();
     expect(on.getAttribute('role')).toBe('menuitemcheckbox');
@@ -91,7 +119,12 @@ describe('row kinds', () => {
   });
 
   test('the value segment is a <code> element holding text, never markup', () => {
-    openContextMenu({ x: 0, y: 0, ariaLabel: 'a', items: [{ label: 'Only section', code: '<b>SR01C</b>' }] });
+    openContextMenu({
+      x: 0,
+      y: 0,
+      ariaLabel: 'a',
+      items: [{ label: 'Only section', code: '<b>SR01C</b>' }],
+    });
     const label = rows()[0].querySelector('.osprey-context-label');
     expect(label?.querySelector('b')).toBeNull();
     expect(label?.querySelector('code')?.textContent).toBe('<b>SR01C</b>');
@@ -104,7 +137,14 @@ describe('row kinds', () => {
       x: 0,
       y: 0,
       ariaLabel: 'a',
-      items: [{ label: 'Go', run: () => { openWhenRun = menu() !== null; } }],
+      items: [
+        {
+          label: 'Go',
+          run: () => {
+            openWhenRun = menu() !== null;
+          },
+        },
+      ],
     });
     rows()[0].click();
     expect(openWhenRun).toBe(false);
@@ -116,7 +156,16 @@ describe('keyboard opener', () => {
     document.body.innerHTML = '<div id="row" tabindex="0">row</div>';
     const row = /** @type {HTMLElement} */ (document.getElementById('row'));
     vi.spyOn(row, 'getBoundingClientRect').mockReturnValue(
-      /** @type {DOMRect} */ ({ left: 100, top: 40, right: 300, bottom: 60, width: 200, height: 20, x: 100, y: 40 }),
+      /** @type {DOMRect} */ ({
+        left: 100,
+        top: 40,
+        right: 300,
+        bottom: 60,
+        width: 200,
+        height: 20,
+        x: 100,
+        y: 40,
+      })
     );
     openContextMenuAt(row, { ariaLabel: 'Row actions', items: [{ label: 'Copy' }] });
     expect(menu()?.style.left).toBe('108px');
@@ -125,7 +174,9 @@ describe('keyboard opener', () => {
 
   test('Shift+F10 and the ContextMenu key are requests; plain F10 is not', () => {
     expect(isContextMenuKey(new KeyboardEvent('keydown', { key: 'ContextMenu' }))).toBe(true);
-    expect(isContextMenuKey(new KeyboardEvent('keydown', { key: 'F10', shiftKey: true }))).toBe(true);
+    expect(isContextMenuKey(new KeyboardEvent('keydown', { key: 'F10', shiftKey: true }))).toBe(
+      true
+    );
     expect(isContextMenuKey(new KeyboardEvent('keydown', { key: 'F10' }))).toBe(false);
     expect(isContextMenuKey(new KeyboardEvent('keydown', { key: 'Enter' }))).toBe(false);
   });

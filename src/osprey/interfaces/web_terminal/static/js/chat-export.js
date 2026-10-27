@@ -22,6 +22,7 @@
 import { facilityDayKey } from '/design-system/js/facility-time.js';
 
 import { fetchHistory } from './chat-client.js';
+import { endsTurn } from './chat-frames.js';
 import { emitChat, onChat } from './chat-events.js';
 import { button, elem } from './chat-dom.js';
 import { chatIcon } from './chat-icons.js';
@@ -58,14 +59,16 @@ function toolEndsText(event) {
 }
 
 /**
- * Whether a frame ends a reply: its result, a session reset that drops the
- * turn, or an error that ends the turn.
- * @param {Record<string, any>} event
+ * Whether a frame ends a reply: one that ends the turn, or a session reset
+ * that drops it.
+ * @param {Record<string, any>} event  a history record, shaped as a ChatEvent
  * @returns {boolean}
  */
 function endsReply(event) {
-  if (event.type === 'result' || event.type === 'session_reset') return true;
-  return event.type === 'error' && event.error_type !== 'AssistantMessageError';
+  return (
+    event.type === 'session_reset' ||
+    endsTurn(/** @type {import('./chat-client.js').ChatEvent} */ (event))
+  );
 }
 
 /**
@@ -105,7 +108,11 @@ export function initChatExport(ctx) {
    */
   function lastAgentEntry() {
     for (let node = ctx.messages.lastElementChild; node; node = node.previousElementSibling) {
-      if (node instanceof HTMLElement && node.classList.contains('op-entry') && node.classList.contains('assistant')) {
+      if (
+        node instanceof HTMLElement &&
+        node.classList.contains('op-entry') &&
+        node.classList.contains('assistant')
+      ) {
         return node;
       }
     }

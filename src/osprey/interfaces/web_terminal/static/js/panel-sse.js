@@ -26,7 +26,10 @@ import { fetchJSON, createEventSource } from './api.js';
 import { hidePanel } from './dock-iframe.js';
 import { withEchoSuppressed } from './dock-sync.js';
 import {
-  flashAgentGlow, flashAgentTile, badgePanelActivity, restoreAgentBadges,
+  flashAgentGlow,
+  flashAgentTile,
+  badgePanelActivity,
+  restoreAgentBadges,
 } from './panel-agent-attention.js';
 import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
 import { PANELS, TERMINAL_RAIL_ID } from './panel-catalog.js';
@@ -127,7 +130,8 @@ export function subscribePanelEvents(sseDeps) {
   // The first three may carry source:'agent' (agent-originated command): that
   // adds a transient glow on the rail entry — never a persistent badge, the
   // action itself already happened. Untagged frames behave exactly as before.
-  createEventSource('/api/files/events', { // prefixed via createEventSource (api.js)
+  createEventSource('/api/files/events', {
+    // prefixed via createEventSource (api.js)
     // SSE has no replay: anything broadcast while this client was
     // disconnected (or dropped by the server's bounded per-client queue) is
     // gone for good, and every panel command's DOM effect IS its SSE echo —
@@ -136,7 +140,9 @@ export function subscribePanelEvents(sseDeps) {
     // fetch is a no-op delta.
     // Badges are restored from the history buffer after the membership delta, so
     // an entry the resync just re-added can carry one (restoreAgentBadges).
-    onOpen: () => { void resyncPanelState().then(restoreAgentBadges); },
+    onOpen: () => {
+      void resyncPanelState().then(restoreAgentBadges);
+    },
     onMessage: (raw) => {
       try {
         const data = /** @type {PanelSSEEvent} */ (raw);
@@ -163,16 +169,12 @@ export function subscribePanelEvents(sseDeps) {
           } else {
             c.activate(data.panel);
           }
-
         } else if (data.type === 'panel_close' && data.panel) {
           applyPanelClose(data.panel, data.source);
-
         } else if (data.type === 'panel_visibility' && data.panel) {
           applyPanelVisibility(data.panel, data.visible, data.source, data.index);
-
         } else if (data.type === 'rail_order' && Array.isArray(data.order)) {
           applyRailOrder(data.order);
-
         } else if (data.type === 'panel_arrange' && Array.isArray(data.tiles)) {
           // A whole-workspace arrangement (agent arrange_workspace, or a human
           // "Layouts" click — one server operation, one apply path). Precedence
@@ -182,7 +184,6 @@ export function subscribePanelEvents(sseDeps) {
           // reproduces today's membership-exclusive semantics. See
           // panel-placement.js's header for the full split.
           applyArrange(data);
-
         } else if (data.type === 'panel_register' && data.id) {
           // Seed membership before addPanel so the appended entry is a member
           c.memberSet.add(data.id);
@@ -190,7 +191,6 @@ export function subscribePanelEvents(sseDeps) {
           // CC-3: do NOT call activateTab — the new panel's URL may not be ready yet;
           // the user activates when they want it.
           if (data.source === 'agent') flashAgentGlow(data.id);
-
         } else if (data.type === AGENT_ACTIVITY_FRAME && data.target) {
           // kind 'panel' with a live rail entry → persistent badge + glow via
           // badgePanelActivity; everything the rail cannot anchor falls through
@@ -200,7 +200,6 @@ export function subscribePanelEvents(sseDeps) {
             c.reportActivity(data);
           }
         }
-
       } catch (err) {
         // A throw mid-dispatch can leave rail membership, the dock layout and
         // the overlay's managed set describing different workspaces — never
@@ -256,9 +255,13 @@ function applyPanelVisibility(panel, visible, source, index) {
   // agent_activity branch's rail-anchor routing, so the two halves of the
   // agent's rail vocabulary read the same way on the strip.
   if (visible && source === 'agent') flashAgentGlow(panel);
-  if (source === 'agent') c.reportActivity({ type: AGENT_ACTIVITY_FRAME, ts: Date.now(),
-    tool: visible ? 'add_panel_to_rail' : 'remove_panel_from_rail',
-    target: { kind: 'panel', panel } });
+  if (source === 'agent')
+    c.reportActivity({
+      type: AGENT_ACTIVITY_FRAME,
+      ts: Date.now(),
+      tool: visible ? 'add_panel_to_rail' : 'remove_panel_from_rail',
+      target: { kind: 'panel', panel },
+    });
 
   if (visible && c.isWorkspaceSuppressed()) {
     c.endWorkspaceSuppression();
@@ -287,9 +290,7 @@ function closeTile(panel) {
   const c = ctx();
   withEchoSuppressed(() => hidePanel(panel));
   if (panel !== c.getActive()) return;
-  const fallback = PANELS.find(
-    p => p.id !== panel && c.memberSet.has(p.id) && c.isHealthy(p.id)
-  );
+  const fallback = PANELS.find((p) => p.id !== panel && c.memberSet.has(p.id) && c.isHealthy(p.id));
   if (fallback) {
     c.activate(fallback.id);
   } else {
@@ -313,8 +314,12 @@ function applyPanelClose(panel, source) {
   // is an entry left to glow — the operator can see which panel just went away.
   if (source === 'agent') {
     flashAgentGlow(panel);
-    ctx().reportActivity({ type: AGENT_ACTIVITY_FRAME, ts: Date.now(),
-      tool: 'close_panel', target: { kind: 'panel', panel } });
+    ctx().reportActivity({
+      type: AGENT_ACTIVITY_FRAME,
+      ts: Date.now(),
+      tool: 'close_panel',
+      target: { kind: 'panel', panel },
+    });
   }
 }
 

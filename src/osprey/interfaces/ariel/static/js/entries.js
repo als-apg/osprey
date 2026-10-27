@@ -12,8 +12,21 @@ import {
   renderEmptyState,
   renderErrorState,
 } from './components.js';
-import { showEntry, openEntry, closeEntryModal, showImageLightbox, getCurrentEntry, initEntryDetail } from './entries-detail.js';
-import { handleCreateEntry, handleTagInput, handleFilePreview, loadDraft, initEntryTags } from './entries-form.js';
+import {
+  showEntry,
+  openEntry,
+  closeEntryModal,
+  showImageLightbox,
+  getCurrentEntry,
+  initEntryDetail,
+} from './entries-detail.js';
+import {
+  handleCreateEntry,
+  handleTagInput,
+  handleFilePreview,
+  loadDraft,
+  initEntryTags,
+} from './entries-form.js';
 import { renderEntryFields } from './entry-fields.js';
 
 // Re-export the detail-view and form public surface — app.js and window.app

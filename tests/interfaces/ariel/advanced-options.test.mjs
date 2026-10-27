@@ -185,9 +185,7 @@ describe('advanced options: touched parameters and effective values', () => {
   });
 
   test('a select set and then cleared sends nothing', () => {
-    const select = /** @type {HTMLSelectElement} */ (
-      /** @type {unknown} */ (control('sort'))
-    );
+    const select = /** @type {HTMLSelectElement} */ (/** @type {unknown} */ (control('sort')));
     select.value = 'newest';
     select.dispatchEvent(new Event('change'));
     expect(mod.getAdvancedParams()).toEqual({ sort: 'newest' });
@@ -282,9 +280,8 @@ describe('advanced options: visible parameter hints', () => {
 
   /** @returns {string[]} Text of every rendered hint, in document order. */
   function hintTexts() {
-    return Array.from(
-      el('advanced-sections').querySelectorAll('.param-hint'),
-      (node) => (node.textContent || '').trim()
+    return Array.from(el('advanced-sections').querySelectorAll('.param-hint'), (node) =>
+      (node.textContent || '').trim()
     );
   }
 

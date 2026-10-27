@@ -19,6 +19,18 @@ repos:
         name: ruff (import-private-name)
         args: [--preview, --select=PLC2701]
 
+  # Prettier - JavaScript formatter, scoped to .js and .mjs. The version is the
+  # package.json pin; tests/scripts/test_check.py fails while the two disagree.
+  # Prettier honours .prettierignore for the paths pre-commit passes it.
+  - repo: local
+    hooks:
+      - id: prettier
+        name: prettier
+        language: node
+        additional_dependencies: ["prettier@3.9.9"]
+        entry: prettier --write --ignore-unknown
+        files: \.(js|mjs)$
+
   # General file quality checks
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
@@ -38,9 +50,15 @@ repos:
         # The clickhouseexporter insert templates are verbatim copies of the
         # upstream release they are named for, whose last line need not end
         # in a newline; a byte normalized here is a byte upstream never shipped.
+        # The dock engine's built dist/ and its C-CASES fixtures are checked
+        # byte for byte (dist/ by its manifest hashes and `build.mjs --check`,
+        # each case by checkCase in cases.test.ts); a byte rewritten here is a
+        # file those gates refuse. A formatter added later must skip them too.
         exclude: |
           (?x)^(
             .*\.min\.(js|css)|
+            packages/dock-engine/dist/.*|
+            packages/dock-engine/cases/.*|
             scripts/facility_demo/injector_elements\.tsv|
             tests/deployment/web_terminals/golden/.*|
             tests/deployment/fixtures/.*\.log|
@@ -53,6 +71,8 @@ repos:
         exclude: |
           (?x)^(
             .*\.min\.(js|css)|
+            packages/dock-engine/dist/.*|
+            packages/dock-engine/cases/.*|
             tests/deployment/web_terminals/golden/.*|
             tests/deployment/fixtures/.*\.log|
             tests/deployment/telemetry_store/fixtures/clickhouseexporter-[^/]+/.*\.sql|

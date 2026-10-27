@@ -18,11 +18,7 @@
 
 import { describe, it, expect } from 'vitest';
 
-import {
-  matchChannels,
-  MIN_POOL,
-  RENDER_CAP,
-} from '/design-system/js/channel-matcher.js';
+import { matchChannels, MIN_POOL, RENDER_CAP } from '/design-system/js/channel-matcher.js';
 import { fuzzyMatch } from '/design-system/js/fuzzy.js';
 
 /**

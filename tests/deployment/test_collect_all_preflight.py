@@ -132,7 +132,7 @@ def _render_project(root: Path, name: str, *, writes: bool, denies_bash: bool) -
         ),
         encoding="utf-8",
     )
-    deny = ["Bash", "Edit"] if denies_bash else ["Edit"]
+    deny = ["Bash", "Monitor", "Edit"] if denies_bash else ["Edit"]
     (project_dir / ".claude" / "settings.json").write_text(
         json.dumps({"permissions": {"deny": deny}}), encoding="utf-8"
     )

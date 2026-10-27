@@ -37,13 +37,16 @@ import { KIND_BANNERS, KIND_WORDS, machineKind } from './control-target-facts.js
 function targetLine(target) {
   if (!target || typeof target !== 'object') return null;
   const kind = machineKind(target);
-  const published = String(target.machine_kind || '').trim().toLowerCase();
+  const published = String(target.machine_kind || '')
+    .trim()
+    .toLowerCase();
   const sent = typeof target.kind_words === 'string' ? target.kind_words.trim() : '';
-  const words = published === kind && sent ? sent : KIND_BANNERS[kind] ?? KIND_WORDS[kind];
+  const words = published === kind && sent ? sent : (KIND_BANNERS[kind] ?? KIND_WORDS[kind]);
   const line = elem('p', 'op-card-target');
   line.dataset.targetKind = kind;
   const key = String(target.key || '').trim();
-  if (key) line.append(elem('span', 'op-card-target-key', key), elem('span', 'op-card-target-sep', '·'));
+  if (key)
+    line.append(elem('span', 'op-card-target-key', key), elem('span', 'op-card-target-sep', '·'));
   line.append(elem('span', 'op-card-target-words', words));
   return line;
 }
@@ -73,7 +76,7 @@ export function createApprovalCard(request, hooks) {
 
   const head = elem('div', 'op-card-head');
   const toolIcon = chatIcon(
-    isPlan ? 'read' : CATEGORY_ICON[toolCategory(request.tool_name_raw ?? request.tool_name)],
+    isPlan ? 'read' : CATEGORY_ICON[toolCategory(request.tool_name_raw ?? request.tool_name)]
   );
   toolIcon.classList.add('op-card-icon');
   const titleText = isPlan ? 'Ready to start on this plan?' : `Allow ${toolName}?`;
@@ -121,7 +124,8 @@ export function createApprovalCard(request, hooks) {
   error.hidden = true;
   const deny = button('op-btn', isPlan ? 'Keep planning' : 'Deny');
   const allow = button('op-btn op-btn-primary', isPlan ? 'Approve plan' : 'Allow');
-  const session = request.can_allow_session && !isPlan ? button('op-btn', 'Allow for this session') : null;
+  const session =
+    request.can_allow_session && !isPlan ? button('op-btn', 'Allow for this session') : null;
   const actions = elem('div', 'op-card-actions');
   actions.append(deny, ...(session ? [session] : []), allow);
   body.append(error, actions);
@@ -172,7 +176,11 @@ export function createApprovalCard(request, hooks) {
       if (allowed) fold('allowed', 'check', 'Plan approved');
       else fold('denied', 'x', 'Kept planning');
     } else if (allowed) {
-      fold('allowed', 'check', `${forSession ? 'Allowed for this session' : 'Allowed'} · ${toolName}`);
+      fold(
+        'allowed',
+        'check',
+        `${forSession ? 'Allowed for this session' : 'Allowed'} · ${toolName}`
+      );
     } else {
       fold('denied', 'x', `Denied · ${toolName}`);
     }
@@ -200,7 +208,10 @@ export function createApprovalCard(request, hooks) {
     for (const control of [allow, deny, session]) if (control) control.disabled = true;
     error.hidden = true;
 
-    const outcome = await deliver(hooks, { allow: allowed, ...(forSession ? { for_session: true } : {}) });
+    const outcome = await deliver(hooks, {
+      allow: allowed,
+      ...(forSession ? { for_session: true } : {}),
+    });
     if (state !== 'sending') return; // the turn ended while the answer was in flight
     if (outcome === 'answered') {
       foldOutcome(allowed, forSession);

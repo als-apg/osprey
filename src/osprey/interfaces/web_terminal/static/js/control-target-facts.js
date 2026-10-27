@@ -88,7 +88,9 @@ export const KIND_SIMULATOR = 'simulator';
  * @returns {string}
  */
 export function machineKind(row) {
-  const published = String(row?.machine_kind || '').trim().toLowerCase();
+  const published = String(row?.machine_kind || '')
+    .trim()
+    .toLowerCase();
   return published === KIND_REHEARSAL || published === KIND_SIMULATOR ? published : KIND_REAL;
 }
 
@@ -317,9 +319,7 @@ export function contextWritable(state) {
  */
 export function contextRefusalCode(state) {
   if (contextWritable(state)) return '';
-  return state?.owner?.self === false
-    ? REASON_CONTEXT_OWNED_ELSEWHERE
-    : REASON_STORE_UNAVAILABLE;
+  return state?.owner?.self === false ? REASON_CONTEXT_OWNED_ELSEWHERE : REASON_STORE_UNAVAILABLE;
 }
 
 /**
@@ -430,7 +430,10 @@ export function bannerNote(state) {
     return { text: contextHolderWords(state.owner).long, tone: 'warn' };
   }
   if (!contextWritable(state)) {
-    return { text: 'Changes cannot be recorded right now — the posture store is unavailable.', tone: 'error' };
+    return {
+      text: 'Changes cannot be recorded right now — the posture store is unavailable.',
+      tone: 'error',
+    };
   }
   // The run alone decides this line, never the rows: it is the widest fact on
   // the page whatever each row's verdict names first.

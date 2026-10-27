@@ -473,7 +473,8 @@ describe('plan-queue item: one shared stream through the Bluesky panel proxy', (
   test('a frame paints the state word, the running plan and the count', () => {
     seedDom({});
     host.hydrate();
-    const count = () => /** @type {HTMLElement | null} */ (chip().querySelector('.bar-queue-count'));
+    const count = () =>
+      /** @type {HTMLElement | null} */ (chip().querySelector('.bar-queue-count'));
 
     pushFrame(queueFrame({ items: ['rel_scan', 'count'] }));
     expect(chipWord()).toBe('idle');
@@ -545,7 +546,11 @@ describe('plan-queue item: the popover and its controls', () => {
     seedDom({});
     host.hydrate();
     pushFrame(
-      queueFrame({ state: 'executing_queue', items: ['count', 'grid'], running: { name: 'rel_scan' } })
+      queueFrame({
+        state: 'executing_queue',
+        items: ['count', 'grid'],
+        running: { name: 'rel_scan' },
+      })
     );
     expect(pop().hidden).toBe(true);
 

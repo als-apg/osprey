@@ -28,16 +28,27 @@ vi.mock('../../../../src/osprey/interfaces/web_terminal/static/js/terminal.js', 
   restartTerminal: vi.fn(),
   startTerminal: vi.fn(),
 }));
-vi.mock('../../../../src/osprey/interfaces/web_terminal/static/js/sessions.js', () => ({ startNewSession: vi.fn() }));
+vi.mock('../../../../src/osprey/interfaces/web_terminal/static/js/sessions.js', () => ({
+  startNewSession: vi.fn(),
+}));
 vi.mock('../../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js', () => ({
   openTerminalPanel: vi.fn(),
   closeTerminalPanel: vi.fn(),
   resetDockLayout: vi.fn(),
 }));
-vi.mock('../../../../src/osprey/interfaces/web_terminal/static/js/panel-placement.js', () => ({ openPanelBeside: vi.fn() }));
-vi.mock('../../../../src/osprey/interfaces/web_terminal/static/js/panel-commands.js', () => ({ setPanelVisibility: vi.fn() }));
-vi.mock('../../../../src/osprey/interfaces/web_terminal/static/js/rail-drag.js', () => ({ railDragStart: vi.fn(), railDragEnd: vi.fn() }));
-vi.mock('../../../../src/osprey/interfaces/web_terminal/static/js/panel-rail.js', () => ({ getEntry: () => null }));
+vi.mock('../../../../src/osprey/interfaces/web_terminal/static/js/panel-placement.js', () => ({
+  openPanelBeside: vi.fn(),
+}));
+vi.mock('../../../../src/osprey/interfaces/web_terminal/static/js/panel-commands.js', () => ({
+  setPanelVisibility: vi.fn(),
+}));
+vi.mock('../../../../src/osprey/interfaces/web_terminal/static/js/rail-drag.js', () => ({
+  railDragStart: vi.fn(),
+  railDragEnd: vi.fn(),
+}));
+vi.mock('../../../../src/osprey/interfaces/web_terminal/static/js/panel-rail.js', () => ({
+  getEntry: () => null,
+}));
 
 /** @type {any} */
 let modules;
@@ -134,7 +145,12 @@ describe('the Show rows on a panel surface', () => {
     await settle();
 
     openTileMenu('terminal');
-    expect(labels()).toEqual(['Restart terminal', 'New session', 'Reset layout', 'Close terminal tile']);
+    expect(labels()).toEqual([
+      'Restart terminal',
+      'New session',
+      'Reset layout',
+      'Close terminal tile',
+    ]);
   });
 
   test('the simple-mode terminal keeps its layout rows, and a hidden bar adds its Show row', async () => {

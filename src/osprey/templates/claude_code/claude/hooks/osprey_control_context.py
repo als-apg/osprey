@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: T201 -- stdout is this hook's reply to Claude Code
 """
 ---
 name: Control Context

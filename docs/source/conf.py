@@ -57,7 +57,7 @@ extensions = [
     "myst_parser",  # Markdown support
     "sphinx_copybutton",  # Copy button for code blocks
     "sphinx.ext.graphviz",  # Graph visualization
-    "sphinx.ext.todo",  # TODO notes
+    "sphinx.ext.todo",  # the todo directive
     "sphinx_design",  # Design components (cards, tabs, etc.)
     "sphinx_reredirects",  # Old-URL redirects for moved pages
     "workflow_autodoc",  # Custom: Auto-document workflow files
@@ -97,7 +97,7 @@ redirects: dict[str, str] = {
     "how-to/chat-bridges/google-chat": "../agent-interfaces/chat-bridges/google-chat.html",
     "how-to/chat-bridges/add-a-channel": "../../contributing/extending-osprey.html",
     "how-to/agent-interfaces/chat-bridges/add-a-channel": "../../../contributing/extending-osprey.html",
-    # Operate: health and monitoring
+    # The Operate pages on health and monitoring
     "how-to/configure-health-checks": "health-and-monitoring/configure-health-checks.html",
     "how-to/monitor-agent": "health-and-monitoring/monitor-agent.html",
     "how-to/health-json-contract": "../reference/contracts/health-json.html",
@@ -115,7 +115,7 @@ redirects: dict[str, str] = {
     "how-to/ariel/osprey-integration": "../../reference/contracts/ariel.html",
     # Developer material
     "how-to/use-python-executor": "../architecture/python-executor.html",
-    # Reference: contracts
+    # Contract reference pages
     "reference/contracts/simulation-bundle": "../../how-to/run-scenarios.html",
 }
 
@@ -189,7 +189,6 @@ html_context = {
 }
 
 # HTML settings - Clean original theme style (no conflicting logo settings)
-# html_logo = "_static/logo.svg"  # Commented out to avoid conflict with logo.text
 html_favicon = "_static/logo.svg"
 html_sourcelink_suffix = ""
 html_last_updated_fmt = ""
@@ -319,12 +318,6 @@ autodoc_warningiserror = False  # Set to True to fail on autodoc warnings
 # -- Intersphinx configuration ----------------------------------------------
 
 # Disabled due to firewall/proxy restrictions
-# intersphinx_mapping = {
-#     'python': ('https://docs.python.org/3/', None),
-#     'pandas': ('https://pandas.pydata.org/docs/', None),
-#     'numpy': ('https://numpy.org/doc/stable/', None),
-#     'ray': ('https://docs.ray.io/en/latest/', None),
-# }
 intersphinx_mapping = {}
 
 # -- MyST configuration -----------------------------------------------------

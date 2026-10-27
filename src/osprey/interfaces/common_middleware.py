@@ -155,7 +155,7 @@ class ExceptionLoggingMiddleware(BaseHTTPMiddleware):
 #: the multi-user shape nginx forwards the deployment's value under this name;
 #: in the single-user shape it is what a script or a probe uses instead of a
 #: cookie. Lower-cased, because ASGI header names arrive lower-cased.
-OPERATOR_SECRET_HEADER = "x-osprey-terminal-secret"
+OPERATOR_SECRET_HEADER = "x-osprey-terminal-secret"  # noqa: S105 -- names a header, holds no secret
 
 #: The stem of the browser session cookie's name. The settled port is appended
 #: (see :func:`session_cookie_name`) so two OSPREY servers on the same host —

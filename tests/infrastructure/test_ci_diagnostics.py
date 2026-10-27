@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey_connectors_tests._harness import ci_diagnostics
 from osprey_connectors_tests._harness.ci_diagnostics import (
     CONTAINER_SNAPSHOT_PLUGIN,
     CONTAINER_SNAPSHOT_SUBDIR,
@@ -36,6 +37,7 @@ from osprey_connectors_tests._harness.ci_diagnostics import (
     worker_index,
 )
 from osprey_connectors_tests._paths import TESTS_ROOT as _HARNESS_ROOT
+from tests._nested_pytest import run_nested_pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SUMMARY = _REPO_ROOT / "scripts" / "ci" / "diag_summary.py"
@@ -376,7 +378,7 @@ case "$1" in
     fi
     ;;
   logs)
-    echo "2026-01-01T00:00:00Z log line from $3"
+    {logs}
     ;;
   inspect)
     case "$3" in
@@ -391,6 +393,17 @@ esac
 """
 
 
+#: The fake engine's ``logs`` answer: one line naming the container.
+_FAKE_LOGS = 'echo "2026-01-01T00:00:00Z log line from $3"'
+
+#: A ``logs`` call that outlives any per-call bound the tests set.
+_SLOW_LOGS = "exec sleep 60"
+
+#: The per-call bound the in-process timeout tests set: well past what a fast
+#: engine call costs on a loaded host, well short of the slow call.
+_CALL_BOUND = 5.0
+
+
 def _write_engine(bin_dir: Path, name: str, body: str) -> Path:
     """Write an executable ``sh`` script standing in for a container engine."""
     bin_dir.mkdir(parents=True, exist_ok=True)
@@ -400,20 +413,31 @@ def _write_engine(bin_dir: Path, name: str, body: str) -> Path:
     return script
 
 
+def _install_engine(tmp_path: Path, monkeypatch, name: str, logs: str) -> Path:
+    body = _FAKE_ENGINE_SCRIPT.format(
+        calls=shlex.quote(str(tmp_path / "calls.log")),
+        flag=shlex.quote(str(tmp_path / "up")),
+        logs=logs,
+    )
+    script = _write_engine(tmp_path / "bin", name, body)
+    monkeypatch.setenv("PATH", f"{script.parent}{os.pathsep}{os.environ.get('PATH', '')}")
+    (tmp_path / "up").touch()
+    return script
+
+
 @pytest.fixture
 def fake_engine(tmp_path, monkeypatch) -> Path:
     """A ``fake-engine`` on ``PATH`` whose containers exist while ``tmp_path/up`` does.
 
     Every call's argv is appended to ``tmp_path/calls.log``.
     """
-    body = _FAKE_ENGINE_SCRIPT.format(
-        calls=shlex.quote(str(tmp_path / "calls.log")),
-        flag=shlex.quote(str(tmp_path / "up")),
-    )
-    script = _write_engine(tmp_path / "bin", "fake-engine", body)
-    monkeypatch.setenv("PATH", f"{script.parent}{os.pathsep}{os.environ.get('PATH', '')}")
-    (tmp_path / "up").touch()
-    return script
+    return _install_engine(tmp_path, monkeypatch, "fake-engine", _FAKE_LOGS)
+
+
+@pytest.fixture
+def slow_engine(tmp_path, monkeypatch) -> Path:
+    """The ``fake_engine`` stand-in, except that ``logs`` never answers in time."""
+    return _install_engine(tmp_path, monkeypatch, "slow-engine", _SLOW_LOGS)
 
 
 def _engine_calls(tmp_path: Path) -> list[str]:
@@ -637,6 +661,114 @@ def test_snapshot_is_taken_before_the_module_fixture_tears_down(fake_engine, tmp
     assert state.exists(), done.stdout + done.stderr
     assert "fake-c1" in state.read_text()
     assert "fake-c2" in state.read_text()
+
+
+def test_a_capture_that_times_out_is_marked_incomplete(slow_engine, tmp_path, monkeypatch):
+    """A wedged engine costs one bounded call, and the snapshot says it stopped short."""
+    monkeypatch.setattr(ci_diagnostics, "SNAPSHOT_CALL_TIMEOUT", _CALL_BOUND)
+    snapshots = ContainerSnapshots(tmp_path / "diag", "gw0", slow_engine.name)
+
+    written = snapshots.capture("tests/test_a.py::test_one", "call")
+
+    assert written is not None
+    state = (written / "state.txt").read_text().splitlines()
+    assert state[-1].startswith("capture incomplete: ")
+    assert f"slow-engine logs c1 exceeded {_CALL_BOUND:g} s" in state[-1]
+    calls = _engine_calls(tmp_path)
+    assert calls[-1].startswith("logs "), calls
+
+
+def test_a_capture_whose_first_call_times_out_is_marked_incomplete(tmp_path, monkeypatch):
+    """An engine that never answers the container listing still leaves a marked snapshot."""
+    monkeypatch.setattr(ci_diagnostics, "SNAPSHOT_CALL_TIMEOUT", _CALL_BOUND)
+    calls = shlex.quote(str(tmp_path / "calls.log"))
+    script = _write_engine(
+        tmp_path / "bin",
+        "mute-engine",
+        f"#!/bin/sh\nprintf '%s\\n' \"$*\" >> {calls}\nexec sleep 60\n",
+    )
+    monkeypatch.setenv("PATH", f"{script.parent}{os.pathsep}{os.environ.get('PATH', '')}")
+    snapshots = ContainerSnapshots(tmp_path / "diag", "gw0", script.name)
+
+    written = snapshots.capture("tests/test_a.py::test_one", "call")
+
+    assert written is not None
+    state = (written / "state.txt").read_text().splitlines()
+    assert state[-1] == f"capture incomplete: mute-engine ps -aq exceeded {_CALL_BOUND:g} s"
+    assert _engine_calls(tmp_path) == ["ps -aq"]
+
+
+_TIMED_CONFTEST = """\
+from osprey_connectors_tests._harness import ci_diagnostics
+
+ci_diagnostics.SNAPSHOT_CALL_TIMEOUT = 2.0
+
+
+def pytest_configure(config):
+    ci_diagnostics.register_container_snapshots(config.pluginmanager)
+"""
+
+_TIMED_TEST = """\
+def test_fails():
+    assert False, "the stack is still up here"
+"""
+
+
+def test_a_capture_past_an_armed_timeout_leaves_the_worker_alive(slow_engine, tmp_path):
+    """A capture that outlasts the per-test timeout runs outside it.
+
+    The 1 s alarm would otherwise fire inside the 2 s capture, and its
+    ``pytest.fail`` would escape the hook and take the xdist worker down.
+    """
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "conftest.py").write_text(_TIMED_CONFTEST)
+    (run_dir / "test_timed.py").write_text(_TIMED_TEST)
+    diag = tmp_path / "diag"
+
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if not k.startswith(("PYTEST_XDIST_", "PYTEST_ADDOPTS", ENV_DIR))
+    }
+    env.update(
+        PYTEST_DISABLE_PLUGIN_AUTOLOAD="1",
+        PYTHONPATH=str(_HARNESS_ROOT),
+        OSPREY_CI_DIAG_DIR=str(diag),
+        OSPREY_E2E_RUNTIME=slow_engine.name,
+    )
+    done = run_nested_pytest(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-p",
+            "timeout",
+            "-p",
+            "xdist.plugin",
+            "-p",
+            "no:cacheprovider",
+            "-c",
+            os.devnull,
+            "--rootdir",
+            str(run_dir),
+            "-q",
+            "-n",
+            "1",
+            "--timeout=1",
+            "--timeout-method=signal",
+            "test_timed.py",
+        ],
+        cwd=run_dir,
+        env=env,
+    )
+
+    output = done.stdout + done.stderr
+    assert "1 failed" in done.stdout, output
+    for crash in ("node down", "Not properly terminated", "Timeout"):
+        assert crash not in output, output
+    state = diag / CONTAINER_SNAPSHOT_SUBDIR / "gw0--test_timed.py" / "state.txt"
+    assert "capture incomplete" in state.read_text(), output
 
 
 # ===================================================================

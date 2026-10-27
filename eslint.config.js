@@ -4,7 +4,16 @@ import noTsNocheck from './tools/eslint/no-ts-nocheck.js';
 
 export default [
   // (1) Leading SOLE-KEY global ignore — must be the ONLY key in this object so it applies globally.
-  { ignores: ['**/vendor/**', '**/*.min.js', 'docs/**', '**/.venv/**', '.claude/**'] },
+  {
+    ignores: [
+      '**/vendor/**',
+      '**/*.min.js',
+      'docs/**',
+      '**/.venv/**',
+      '.claude/**',
+      'packages/dock-engine/dist/**',
+    ],
+  },
 
   // (2) Base recommended rules.
   js.configs.recommended,
@@ -66,6 +75,14 @@ export default [
   // (5) Root config files: node globals.
   {
     files: ['vitest.config.js', 'eslint.config.js'],
+    languageOptions: {
+      globals: { ...globals.node },
+    },
+  },
+
+  // (5a) The dock-engine build script runs under node.
+  {
+    files: ['packages/dock-engine/scripts/**/*.mjs'],
     languageOptions: {
       globals: { ...globals.node },
     },

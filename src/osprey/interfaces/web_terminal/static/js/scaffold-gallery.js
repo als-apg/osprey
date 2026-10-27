@@ -28,10 +28,7 @@ import {
   SAFETY_CATEGORIES,
   CONFIG_NAMES,
 } from './scaffold/utils.js';
-import {
-  resetFetchCache,
-  createScaffoldDataActions,
-} from './scaffold/data.js';
+import { resetFetchCache, createScaffoldDataActions } from './scaffold/data.js';
 import { createScaffoldGalleryView } from './scaffold/view.js';
 import { createScaffoldGalleryDetail } from './scaffold/detail.js';
 import { createScaffoldGalleryEditForm } from './scaffold/edit-form.js';
@@ -447,7 +444,8 @@ export function initScaffoldGallery() {
     document.getElementById('behavior-gallery-section') || behaviorPanel;
   const behaviorGallery = new ArtifactGallery({
     container: behaviorGalleryContainer,
-    categoryFilter: (a) => BEHAVIOR_CATEGORIES.has(a.category) || BEHAVIOR_OUTPUTS.has(a.output_path),
+    categoryFilter: (a) =>
+      BEHAVIOR_CATEGORIES.has(a.category) || BEHAVIOR_OUTPUTS.has(a.output_path),
     options: {
       categoryOverrides: BEHAVIOR_CATEGORY_OVERRIDES,
       categoryRemaps: BEHAVIOR_CATEGORY_REMAPS,
@@ -463,22 +461,22 @@ export function initScaffoldGallery() {
 
   const configGallery = configGallerySection
     ? new ArtifactGallery({
-      container: configGallerySection,
-      categoryFilter: (a) => CONFIG_NAMES.has(a.name),
-      options: {
-        showSearch: false,
-        showSummary: false,
-        showFilterChips: false,
-        onDetailOpen: () => {
-          if (configFormSection) configFormSection.style.display = 'none';
-          configGallerySection.style.flex = '1';
+        container: configGallerySection,
+        categoryFilter: (a) => CONFIG_NAMES.has(a.name),
+        options: {
+          showSearch: false,
+          showSummary: false,
+          showFilterChips: false,
+          onDetailOpen: () => {
+            if (configFormSection) configFormSection.style.display = 'none';
+            configGallerySection.style.flex = '1';
+          },
+          onDetailClose: () => {
+            if (configFormSection) configFormSection.style.display = '';
+            configGallerySection.style.flex = '';
+          },
         },
-        onDetailClose: () => {
-          if (configFormSection) configFormSection.style.display = '';
-          configGallerySection.style.flex = '';
-        },
-      },
-    })
+      })
     : null;
 
   // Load galleries when their tab becomes active

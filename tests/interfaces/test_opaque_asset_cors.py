@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
+import starlette.responses as starlette_responses
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.routing import Route
@@ -167,6 +168,43 @@ def test_an_api_route_gets_no_cors_header(interface_client):
     _assert_no_cors(resp)
 
 
+def _host_table_says_application_javascript(monkeypatch) -> None:
+    """Stand in for a host whose ``mimetypes`` table maps ``.js`` the RHEL way."""
+
+    def rhel_guess_type(url, *_args):
+        if str(url).endswith((".js", ".mjs")):
+            return "application/javascript", None
+        return None, None
+
+    monkeypatch.setattr(starlette_responses, "guess_type", rhel_guess_type)
+
+
+@pytest.mark.parametrize(
+    ("path", "media_type"),
+    [
+        ("/static/js/module.js", "text/javascript"),
+        ("/design-system/js/theme-manager.js", "text/javascript"),
+        ("/design-system/css/tokens.css", "text/css"),
+        ("/static/fonts/inter-400.ttf", "font/ttf"),
+    ],
+)
+def test_the_static_mounts_pin_the_content_type(interface_client, monkeypatch, path, media_type):
+    """Every mount serves a mapped suffix with its pinned type, whatever the host table says."""
+    _host_table_says_application_javascript(monkeypatch)
+    resp = interface_client.get(path)
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].split(";")[0] == media_type
+
+
+@pytest.mark.no_auth_seam
+def test_a_pinned_type_answer_still_carries_the_asset_header(interface_client, monkeypatch):
+    """The pinned type and ``ACAO: *`` arrive together on one opaque-origin answer."""
+    _host_table_says_application_javascript(monkeypatch)
+    resp = interface_client.get("/static/js/module.js", headers=NULL_ORIGIN)
+    _assert_asset_cors(resp)
+    assert resp.headers["content-type"].split(";")[0] == "text/javascript"
+
+
 # ---------------------------------------------------------------------------
 # The hub: panel-scoped asset routes
 # ---------------------------------------------------------------------------
@@ -307,8 +345,11 @@ def test_a_first_party_module_is_rewritten_into_the_panel_namespace(hub):
     resp = client.get("/panel/artifacts/static/js/gallery.js")
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/javascript")
-    assert '"/panel/artifacts/design-system/js/theme-manager.js"' in resp.text
-    assert '"/design-system/js/theme-manager.js"' not in resp.text
+    # Quote-agnostic: Prettier writes the imports with either delimiter.
+    assert any(
+        f"{q}/panel/artifacts/design-system/js/theme-manager.js" in resp.text for q in "\"'`"
+    )
+    assert not any(f"{q}/design-system/js/theme-manager.js" in resp.text for q in "\"'`")
 
 
 def test_a_first_party_static_path_cannot_leave_its_tree(hub):

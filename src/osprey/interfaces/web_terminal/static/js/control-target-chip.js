@@ -390,9 +390,7 @@ function onChipClick() {
   if (!chip) return;
   const expanded = chip.getAttribute('aria-expanded') !== 'true';
   chip.setAttribute('aria-expanded', String(expanded));
-  chip.dispatchEvent(
-    new CustomEvent(CHIP_TOGGLE_EVENT, { bubbles: true, detail: { expanded } })
-  );
+  chip.dispatchEvent(new CustomEvent(CHIP_TOGGLE_EVENT, { bubbles: true, detail: { expanded } }));
 }
 
 /* ---- the read ---- */
@@ -510,7 +508,8 @@ export async function postSwitch(sessionId, target, state, epoch) {
  */
 export function switchRefusal(err, to) {
   const e = err instanceof TargetRequestError ? err : null;
-  const detail = e?.detail && typeof e.detail === 'object' && !Array.isArray(e.detail) ? e.detail : {};
+  const detail =
+    e?.detail && typeof e.detail === 'object' && !Array.isArray(e.detail) ? e.detail : {};
   if (e?.status === 409) return { message: STOPPED_SINCE_SENTENCE, close: true };
   /** @param {string} message */
   const say = (message) => ({ message, close: false });

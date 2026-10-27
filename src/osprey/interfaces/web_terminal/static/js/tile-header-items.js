@@ -241,9 +241,7 @@ function patchButton(item, btn) {
  * @param {HTMLElement} nav
  */
 function patchNav(item, nav) {
-  const entries = /** @type {{id: string, label: string, active?: boolean}[]} */ (
-    item.items ?? []
-  );
+  const entries = /** @type {{id: string, label: string, active?: boolean}[]} */ (item.items ?? []);
   const links = /** @type {HTMLElement[]} */ ([...nav.children]);
   const sameShape =
     links.length === entries.length &&
@@ -365,14 +363,16 @@ export function toggleOverflowMenu(btn, rows) {
     return;
   }
   const pop = openPopover(btn);
-  pop.replaceChildren(...rows.map((row) => {
-    const el = rowElement(row.label, row.checked, row.disabled === true);
-    el.addEventListener('click', () => {
-      closeMenu();
-      row.pick();
-    });
-    return el;
-  }));
+  pop.replaceChildren(
+    ...rows.map((row) => {
+      const el = rowElement(row.label, row.checked, row.disabled === true);
+      el.addEventListener('click', () => {
+        closeMenu();
+        row.pick();
+      });
+      return el;
+    })
+  );
   place(pop, btn);
 }
 
@@ -383,9 +383,10 @@ export function toggleOverflowMenu(btn, rows) {
 function renderMenuRows(btn) {
   if (!openMenu || openMenu.btn !== btn) return;
   const item = /** @type {HeaderItem} */ (itemState.get(btn));
-  const entries = /** @type {{id: string, label: string, checked?: boolean, disabled?: boolean}[]} */ (
-    item?.items ?? []
-  );
+  const entries =
+    /** @type {{id: string, label: string, checked?: boolean, disabled?: boolean}[]} */ (
+      item?.items ?? []
+    );
   openMenu.pop.replaceChildren(
     ...entries.map((entry) => {
       const row = rowElement(entry.label, entry.checked, entry.disabled === true);

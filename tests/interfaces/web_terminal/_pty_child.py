@@ -15,11 +15,12 @@ import contextlib
 import os
 import select
 import signal
-import subprocess
 import time
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+import psutil
 
 if TYPE_CHECKING:
     from osprey.interfaces.web_terminal.pty_manager import PtySession
@@ -234,10 +235,10 @@ def pid_gone(pid: int, within: float = 5.0) -> bool:
             return True
         except PermissionError:
             pass
-        state = subprocess.run(
-            ["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True
-        ).stdout.strip()
-        if not state or state.startswith("Z"):
+        try:
+            if psutil.Process(pid).status() == psutil.STATUS_ZOMBIE:
+                return True
+        except psutil.NoSuchProcess:
             return True
         if time.monotonic() > deadline:
             return False
@@ -245,9 +246,9 @@ def pid_gone(pid: int, within: float = 5.0) -> bool:
 
 
 def _running_state(pid: int) -> str | None:
-    """Return the ``ps`` state of *pid* while it runs, ``None`` once it is gone or a zombie.
+    """Return the psutil status of *pid* while it runs, ``None`` once it is gone or a zombie.
 
-    ``ps`` is forked only for a pid the kernel still answers for: that is the
+    The status is read only for a pid the kernel still answers for: that is the
     one case a signal probe cannot tell a running process from an exited one
     nobody has reaped.
     """
@@ -257,20 +258,21 @@ def _running_state(pid: int) -> str | None:
         return None
     except PermissionError:
         pass
-    state = subprocess.run(
-        ["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True
-    ).stdout.strip()
-    return None if not state or state.startswith("Z") else state
+    try:
+        state = psutil.Process(pid).status()
+    except psutil.NoSuchProcess:
+        return None
+    return None if state == psutil.STATUS_ZOMBIE else state
 
 
 async def wait_gone(pids: Iterable[int], within: float = 5.0) -> None:
     """Wait until every one of *pids* is gone, or a zombie nobody has reaped yet.
 
-    The wait of an async test: it yields to the loop between looks and runs
-    ``ps`` off it, so whatever the loop still has to finish is not held up by
+    The wait of an async test: it yields to the loop between looks and reads
+    the process table off it, so whatever the loop still has to finish is not held up by
     the waiting. All of *pids* share one deadline of *within* seconds. A pid
     still running at the deadline fails the wait by name, with the state
-    ``ps`` last reported for it.
+    the process table last reported for it.
     """
     started = time.monotonic()
     running = list(pids)

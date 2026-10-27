@@ -249,7 +249,7 @@ not for a mapping or a rule this deployment got wrong. A login-time gate on the
 same terms as :data:`REASON_HOSTED_DOMAIN_MISMATCH`.
 """
 
-REASON_UNVALIDATED_TOKEN = "unvalidated_token"
+REASON_UNVALIDATED_TOKEN = "unvalidated_token"  # noqa: S105 -- names an audit reason, holds no secret
 """The token response could not be validated as an OIDC one.
 
 Reached when the provider's answer carried no ID token where one was required:
@@ -327,7 +327,7 @@ A password login carrying a provider subject, or an OIDC login carrying none:
 either way two flows have been confused, and the matrix has no row that says
 what such a login is worth."""
 
-REASON_PASSWORD_LOGIN = "password_login"
+REASON_PASSWORD_LOGIN = "password_login"  # noqa: S105 -- names an audit reason, holds no secret
 """A password login succeeded — how the subject proved who they were."""
 
 REASON_OIDC_LOGIN = "oidc_login"

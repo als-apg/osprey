@@ -202,7 +202,7 @@ class VAArchiverConfig:
     """Database that user authenticates against — ``admin`` for the root user a
     deployed store mints. Rendered as the connector's ``auth.source`` key."""
 
-    password_env: str = "MONGO_ROOT_PASSWORD"
+    password_env: str = "MONGO_ROOT_PASSWORD"  # noqa: S105 -- names an environment variable, holds no secret
     """Name of the variable holding that user's password. The value is minted
     into the deployment's ``.env`` and read at connect time; it is never a
     profile field, and naming a different variable here does not create one."""

@@ -1,0 +1,12 @@
+{
+  "name": "validate-collection-root-tile",
+  "rule": "C-LAYOUT",
+  "input": {
+    "tabs": [0, 1]
+  },
+  "options": {
+    "form": "collection",
+    "members": 2
+  },
+  "valid": true
+}

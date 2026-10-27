@@ -37,9 +37,8 @@ vi.mock('../../../../src/osprey/interfaces/web_terminal/static/js/api.js', () =>
   withPrefix: vi.fn((path) => path),
 }));
 
-const { openDrawerTab } = await import(
-  '../../../../src/osprey/interfaces/web_terminal/static/js/settings.js'
-);
+const { openDrawerTab } =
+  await import('../../../../src/osprey/interfaces/web_terminal/static/js/settings.js');
 
 const SCOPE_ATTR = 'data-osprey-storage-scope';
 const BASE = 'osprey-settings-warning-ack';
@@ -99,7 +98,7 @@ describe('settings warning acknowledgement', () => {
     await gate;
   });
 
-  test('this user\'s own acknowledgement is honoured', async () => {
+  test("this user's own acknowledgement is honoured", async () => {
     localStorage.setItem(`${BASE}--bob`, 'server-session-1');
     serveAs('bob');
 
@@ -110,7 +109,7 @@ describe('settings warning acknowledgement', () => {
     await gate;
   });
 
-  test('Proceed records the acknowledgement under this user\'s key', async () => {
+  test("Proceed records the acknowledgement under this user's key", async () => {
     serveAs('bob');
 
     const gate = openDrawerTab('config');

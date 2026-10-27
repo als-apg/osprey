@@ -10,13 +10,13 @@
  * @module types
  */
 
-import { fileUrl } from "./state.js";
-import { escapeHtml } from "/design-system/js/dom.js";
+import { fileUrl } from './state.js';
+import { escapeHtml } from '/design-system/js/dom.js';
 import {
   facilityDayKey,
   formatFacilityTime,
   viewerSharesFacilityClock,
-} from "/design-system/js/facility-time.js";
+} from '/design-system/js/facility-time.js';
 
 // ---- Type Registry ---- //
 
@@ -24,7 +24,9 @@ import {
 let typeRegistry = {};
 
 /** @returns {any} */
-export function getTypeRegistry() { return typeRegistry; }
+export function getTypeRegistry() {
+  return typeRegistry;
+}
 
 /**
  * Fetch the type registry from the API. Silent on failure (matches the
@@ -33,10 +35,10 @@ export function getTypeRegistry() { return typeRegistry; }
  */
 export async function initTypeRegistry() {
   try {
-    const resp = await fetch("/api/type-registry");
+    const resp = await fetch('/api/type-registry');
     typeRegistry = await resp.json();
   } catch (err) {
-    console.error("Failed to load type registry:", err);
+    console.error('Failed to load type registry:', err);
   }
 }
 
@@ -57,8 +59,9 @@ export async function initTypeRegistry() {
 export function typeBadge(type) {
   const info =
     (typeRegistry.categories && typeRegistry.categories[type]) ||
-    (typeRegistry.artifact_types && typeRegistry.artifact_types[type]) || {};
-  return escapeHtml(info.label || type.replace(/_/g, " "));
+    (typeRegistry.artifact_types && typeRegistry.artifact_types[type]) ||
+    {};
+  return escapeHtml(info.label || type.replace(/_/g, ' '));
 }
 
 // SVG icon markup keyed by artifact/category type. Module-level constant
@@ -68,39 +71,65 @@ export function typeBadge(type) {
 /** @type {Record<string, string>} */
 const TYPE_ICONS = {
   // Artifact types
-  plot_html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
-  plot_png: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>',
-  table_html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>',
+  plot_html:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
+  plot_png:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>',
+  table_html:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>',
   html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
-  markdown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>',
+  markdown:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>',
   text: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>',
   json: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>',
-  image: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>',
-  notebook: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>',
-  dashboard_html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
+  image:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>',
+  notebook:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>',
+  dashboard_html:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
   // Category types
-  archiver_data: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 5v14c0 1.66-4.03 3-9 3s-9-1.34-9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>',
-  channel_values: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>',
-  write_results: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>',
-  code_output: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
-  visualization: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><polyline points="7 14 11 10 15 14 19 8"/></svg>',
-  dashboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
-  document: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>',
-  screenshot: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>',
-  channel_finder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
-  search_results: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
-  logbook_research: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>',
-  literature_research: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>',
-  wiki_research: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>',
-  mml_research: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
-  agent_response: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>',
+  archiver_data:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 5v14c0 1.66-4.03 3-9 3s-9-1.34-9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>',
+  channel_values:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>',
+  write_results:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>',
+  code_output:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
+  visualization:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><polyline points="7 14 11 10 15 14 19 8"/></svg>',
+  dashboard:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
+  document:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>',
+  screenshot:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>',
+  channel_finder:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+  search_results:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+  logbook_research:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>',
+  literature_research:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>',
+  wiki_research:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>',
+  mml_research:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+  agent_response:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>',
   // Facility knowledge — a small node graph, shared by the document-bundle and
   // knowledge-graph agents that both file here.
-  facility_knowledge: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v3M11 11l-4.5 6M13 11l4.5 6"/></svg>',
+  facility_knowledge:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v3M11 11l-4.5 6M13 11l4.5 6"/></svg>',
   // Lattice analysis — a beam envelope, for computed optics results.
-  lattice_analysis: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 12c2.5-7 5-7 7.5 0s5 7 7.5 0"/><path d="M2 12c2.5 7 5 7 7.5 0s5-7 7.5 0"/></svg>',
-  user_artifact: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
-  diagnostic_report: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 14l2 2 4-4"/></svg>',
+  lattice_analysis:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 12c2.5-7 5-7 7.5 0s5 7 7.5 0"/><path d="M2 12c2.5 7 5 7 7.5 0s5-7 7.5 0"/></svg>',
+  user_artifact:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+  diagnostic_report:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 14l2 2 4-4"/></svg>',
 };
 
 /**
@@ -121,8 +150,9 @@ export function typeIcon(type) {
 export function typeColor(type) {
   const info =
     (typeRegistry.categories && typeRegistry.categories[type]) ||
-    (typeRegistry.artifact_types && typeRegistry.artifact_types[type]) || {};
-  return info.color || "#64748b"; // hygiene-allow-color: matches --text-muted exactly, theme-invariant fallback
+    (typeRegistry.artifact_types && typeRegistry.artifact_types[type]) ||
+    {};
+  return info.color || '#64748b'; // hygiene-allow-color: matches --text-muted exactly, theme-invariant fallback
 }
 
 /**
@@ -134,24 +164,24 @@ export function typeColor(type) {
 export function thumbnailHtml(a) {
   const url = fileUrl(a);
   switch (a.artifact_type) {
-    case "plot_png":
-    case "image":
+    case 'plot_png':
+    case 'image':
       return `<img src="${url}" alt="" loading="lazy"
                onerror="this.parentElement.classList.add('img-error')" />`;
-    case "plot_html":
-    case "table_html":
-    case "dashboard_html":
-    case "html":
+    case 'plot_html':
+    case 'table_html':
+    case 'dashboard_html':
+    case 'html':
       return `<iframe src="${url}"${sandboxAttr(a)}
                loading="lazy" tabindex="-1"></iframe>`;
-    case "notebook":
+    case 'notebook':
       return `<iframe src="/api/notebooks/${encodeURIComponent(a.id)}/rendered"${sandboxAttr(a)}
                loading="lazy" tabindex="-1"></iframe>`;
     default:
       if (a.summary && Object.keys(a.summary).length > 0) {
         const text = Object.entries(a.summary)
           .map(([k, v]) => `${k}: ${v}`)
-          .join("\n");
+          .join('\n');
         return `<div class="thumb-summary">${escapeHtml(text)}</div>`;
       }
       return `<div class="thumb-placeholder">${typeIcon(a.artifact_type)}<span>${typeBadge(a.artifact_type)}</span></div>`;
@@ -163,7 +193,7 @@ export function thumbnailHtml(a) {
 // HTML-escaping now lives in the design-system's canonical helper — this
 // module re-exports it so existing importers (render.js, preview.js,
 // preview-content.js) keep working unchanged.
-export { escapeHtml } from "/design-system/js/dom.js";
+export { escapeHtml } from '/design-system/js/dom.js';
 
 /**
  * Parse an artifact timestamp string to a Date, or null if it isn't a
@@ -180,7 +210,7 @@ export { escapeHtml } from "/design-system/js/dom.js";
  */
 export function isoToDate(iso) {
   if (iso === null || iso === undefined) return null;
-  if (typeof iso !== "string" || !/^\d{4}-\d{2}-\d{2}/.test(iso)) return null;
+  if (typeof iso !== 'string' || !/^\d{4}-\d{2}-\d{2}/.test(iso)) return null;
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? null : d;
 }
@@ -191,11 +221,14 @@ export function isoToDate(iso) {
  * @returns {string}
  */
 export function formatSize(bytes) {
-  if (!bytes) return "0 B";
-  const units = ["B", "KB", "MB", "GB"];
+  if (!bytes) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
   let i = 0;
   let size = bytes;
-  while (size >= 1024 && i < units.length - 1) { size /= 1024; i++; }
+  while (size >= 1024 && i < units.length - 1) {
+    size /= 1024;
+    i++;
+  }
   return `${size.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
@@ -207,8 +240,8 @@ export function formatSize(bytes) {
  */
 export function formatTime(iso) {
   const d = isoToDate(iso);
-  if (!d) return "";
-  return formatFacilityTime(d, { hour: "2-digit", minute: "2-digit" });
+  if (!d) return '';
+  return formatFacilityTime(d, { hour: '2-digit', minute: '2-digit' });
 }
 
 /**
@@ -220,11 +253,14 @@ export function formatTime(iso) {
  */
 export function formatFullTime(iso) {
   const d = isoToDate(iso);
-  if (!d) return "";
+  if (!d) return '';
   return formatFacilityTime(d, {
-    year: "numeric", month: "short", day: "numeric",
-    hour: "2-digit", minute: "2-digit",
-    ...(viewerSharesFacilityClock(d) ? {} : { timeZoneName: "short" }),
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    ...(viewerSharesFacilityClock(d) ? {} : { timeZoneName: 'short' }),
   });
 }
 
@@ -236,16 +272,16 @@ export function formatFullTime(iso) {
  */
 export function formatDate(iso) {
   const d = isoToDate(iso);
-  if (!d) return "Unknown";
+  if (!d) return 'Unknown';
   const day = facilityDayKey(d);
   const today = facilityDayKey(new Date());
-  if (day === today) return "Today";
+  if (day === today) return 'Today';
   // The civil day before, by calendar arithmetic: counting back 24 hours
   // lands two days back on the morning after a 23-hour spring-forward day.
-  const [y, m, dd] = today.split("-").map(Number);
+  const [y, m, dd] = today.split('-').map(Number);
   const yesterday = new Date(Date.UTC(y, m - 1, dd - 1)).toISOString().slice(0, 10);
-  if (day === yesterday) return "Yesterday";
-  return formatFacilityTime(d, { month: "short", day: "numeric" });
+  if (day === yesterday) return 'Yesterday';
+  return formatFacilityTime(d, { month: 'short', day: 'numeric' });
 }
 
 /**
@@ -259,10 +295,7 @@ export function formatDate(iso) {
  * @returns {boolean}
  */
 export function isTimeseries(a) {
-  return (
-    (!!a.metadata && a.metadata.data_type === "timeseries") ||
-    a.category === "archiver_data"
-  );
+  return (!!a.metadata && a.metadata.data_type === 'timeseries') || a.category === 'archiver_data';
 }
 
 /**
@@ -292,9 +325,12 @@ export function hasTimeseriesData(a) {
  */
 export function openUrl(a, theme) {
   switch (a.artifact_type) {
-    case "markdown": return withTheme(`/api/markdown/${encodeURIComponent(a.id)}/rendered`, theme);
-    case "notebook": return withTheme(`/api/notebooks/${encodeURIComponent(a.id)}/rendered`, theme);
-    default:         return withTheme(fileUrl(a), theme);
+    case 'markdown':
+      return withTheme(`/api/markdown/${encodeURIComponent(a.id)}/rendered`, theme);
+    case 'notebook':
+      return withTheme(`/api/notebooks/${encodeURIComponent(a.id)}/rendered`, theme);
+    default:
+      return withTheme(fileUrl(a), theme);
   }
 }
 
@@ -312,7 +348,7 @@ export function openUrl(a, theme) {
  */
 export function withTheme(url, theme) {
   if (!theme) return url;
-  const sep = url.includes("?") ? "&" : "?";
+  const sep = url.includes('?') ? '&' : '?';
   return `${url}${sep}theme=${encodeURIComponent(theme)}`;
 }
 
@@ -324,18 +360,18 @@ export function withTheme(url, theme) {
 // same way the server serves it.
 
 /** The sandbox tokens of an opaque document — never `allow-same-origin`. */
-export const OPAQUE_SANDBOX = "allow-scripts allow-modals allow-popups allow-downloads";
+export const OPAQUE_SANDBOX = 'allow-scripts allow-modals allow-popups allow-downloads';
 
 /** The closed inert list; a type not named here is opaque. */
 const INERT_TYPES = new Set([
-  "application/pdf",
-  "text/plain",
-  "application/json",
-  "text/csv",
-  "image/png",
-  "image/jpeg",
-  "image/gif",
-  "image/webp",
+  'application/pdf',
+  'text/plain',
+  'application/json',
+  'text/csv',
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
 ]);
 
 /**
@@ -346,7 +382,7 @@ const INERT_TYPES = new Set([
  */
 export function isInert(mime) {
   if (!mime) return false;
-  return INERT_TYPES.has(mime.split(";", 1)[0].trim().toLowerCase());
+  return INERT_TYPES.has(mime.split(';', 1)[0].trim().toLowerCase());
 }
 
 /**
@@ -358,10 +394,13 @@ export function isInert(mime) {
  */
 export function servedMime(a) {
   switch (a.artifact_type) {
-    case "text": return "text/plain";
-    case "markdown":
-    case "notebook": return "text/html";
-    default: return a.mime_type || "";
+    case 'text':
+      return 'text/plain';
+    case 'markdown':
+    case 'notebook':
+      return 'text/html';
+    default:
+      return a.mime_type || '';
   }
 }
 
@@ -383,14 +422,14 @@ export function isOpaque(a) {
  * @returns {string}
  */
 export function sandboxAttr(a) {
-  return isOpaque(a) ? ` sandbox="${OPAQUE_SANDBOX}"` : "";
+  return isOpaque(a) ? ` sandbox="${OPAQUE_SANDBOX}"` : '';
 }
 
 /**
  * The shipped default layout's artifact directory, used only when the page
  * carries no `osprey-artifact-dir` meta.
  */
-const DEFAULT_ARTIFACTS_DIR = "var/agent_data/artifacts";
+const DEFAULT_ARTIFACTS_DIR = 'var/agent_data/artifacts';
 
 /**
  * The directory the server stamped into index.html as the
@@ -400,7 +439,7 @@ const DEFAULT_ARTIFACTS_DIR = "var/agent_data/artifacts";
  */
 function artifactsDir() {
   return (
-    document.querySelector('meta[name="osprey-artifact-dir"]')?.getAttribute("content") ||
+    document.querySelector('meta[name="osprey-artifact-dir"]')?.getAttribute('content') ||
     DEFAULT_ARTIFACTS_DIR
   );
 }
@@ -427,7 +466,7 @@ export function artifactPath(a) {
 export function isNewThisSession(a, sessionStart) {
   // A shipped example is written when the gallery first starts, which is
   // "this session" for whoever opened it; it is never news.
-  if (a.origin === "demo") return false;
+  if (a.origin === 'demo') return false;
   return !!(a.timestamp && a.timestamp >= sessionStart);
 }
 
@@ -438,9 +477,9 @@ export function isNewThisSession(a, sessionStart) {
  * @param {string} color
  */
 function _setTypeColorVars(el, color) {
-  el.style.setProperty("--type-color", color);
-  el.style.setProperty("--type-bg", color + "14");
-  el.style.setProperty("--type-border", color + "40");
+  el.style.setProperty('--type-color', color);
+  el.style.setProperty('--type-bg', color + '14');
+  el.style.setProperty('--type-border', color + '40');
 }
 
 /**
@@ -451,23 +490,23 @@ function _setTypeColorVars(el, color) {
 export function requestColorPass() {
   requestAnimationFrame(() => {
     document.querySelectorAll("[class*='badge-']").forEach((el) => {
-      const cls = [...el.classList].find((c) => c.startsWith("badge-"));
+      const cls = [...el.classList].find((c) => c.startsWith('badge-'));
       if (cls) {
-        const type = cls.replace("badge-", "");
+        const type = cls.replace('badge-', '');
         const color = typeColor(type);
         /** @type {HTMLElement} */ (el).style.color = color;
         /** @type {HTMLElement} */ (el).style.borderColor = color;
       }
     });
-    document.querySelectorAll(".tree-section[data-type]").forEach((el) => {
+    document.querySelectorAll('.tree-section[data-type]').forEach((el) => {
       const type = /** @type {HTMLElement} */ (el).dataset.type;
       if (type) _setTypeColorVars(/** @type {HTMLElement} */ (el), typeColor(type));
     });
-    document.querySelectorAll(".gallery-card[data-type]").forEach((el) => {
+    document.querySelectorAll('.gallery-card[data-type]').forEach((el) => {
       const type = /** @type {HTMLElement} */ (el).dataset.type;
       if (type) _setTypeColorVars(/** @type {HTMLElement} */ (el), typeColor(type));
     });
-    document.querySelectorAll(".timeline-item[data-type]").forEach((el) => {
+    document.querySelectorAll('.timeline-item[data-type]').forEach((el) => {
       const type = /** @type {HTMLElement} */ (el).dataset.type;
       if (type) _setTypeColorVars(/** @type {HTMLElement} */ (el), typeColor(type));
     });

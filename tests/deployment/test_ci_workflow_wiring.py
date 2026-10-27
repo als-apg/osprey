@@ -28,7 +28,15 @@ lane's ``--dist loadgroup`` flag is only safe because ``tests/conftest.py``
 overrides ``pytest_xdist_make_scheduler``, and that override lives in
 Python, not in YAML. Its *behaviour* is covered by
 ``tests/infrastructure/test_xdist_scheduler.py``; what is pinned here is the
-pairing — the flag in ci.yml must never outlive the scheduler behind it.
+pairing — the flag the unit lane runs with must never outlive the scheduler
+behind it.
+
+The steps of the caller jobs (``test``, ``lint``, ``docs``, ``package``,
+``frontend-js``) run ``scripts/check.py run <id>`` and spell no check. The
+workflow every pin reads has each such call expanded into the commands it
+resolves to, through the script's own ``resolve``, so a pin on what a step
+runs reads what CI runs; the section "One check set" reads the workflow as
+written and holds that its callers spell no check themselves.
 """
 
 from __future__ import annotations
@@ -47,7 +55,9 @@ import tomllib
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
 from pathlib import Path
+from types import ModuleType
 from typing import Any
+from unittest import mock
 
 import pytest
 import yaml
@@ -56,7 +66,26 @@ from packaging.utils import canonicalize_name
 
 from osprey_connectors_tests._paths import TESTS_ROOT as CONNECTORS_TESTS_ROOT
 
-CI_YML = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ci.yml"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+CI_YML = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+CHECK_SCRIPT = "scripts/check.py"
+
+
+def _load_by_path(relative: str, name: str) -> ModuleType:
+    # import-time required because scripts/ is not a package: the module is
+    # loaded by path, under a name no import uses, and registered in
+    # sys.modules before exec so @dataclass can resolve annotations through
+    # cls.__module__.
+    spec = importlib.util.spec_from_file_location(name, REPO_ROOT / relative)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+#: The one declaration of the repository's checks, which the caller jobs run.
+check_set = _load_by_path(CHECK_SCRIPT, "_check_set_by_path")
 
 TILED_JOB = "tiled-roundtrip-e2e"
 VA_JOB = "va-substrate-equivalence-e2e"
@@ -298,34 +327,111 @@ assert UNIT_LANE_DESELECT == '-m "not pty and not wallclock"', UNIT_LANE_DESELEC
 #: The row the terminal-only cases read (Linux gate, files that open a pty).
 TERMINAL_ROW = _row("pty")
 TERMINAL_HOST = TERMINAL_ROW.hosts[0]
-#: The merge gate's one tracked entrypoint, held to the lane's exact expression.
-GATE_SCRIPT = "scripts/gate.sh"
-#: The local scripts that run a parallel sweep over the suite the way the CI
-#: lane does, and therefore inherit the same problem. Every wholesale
-#: `pytest tests/` sweep a script holds is checked, so a script with a second,
-#: narrower sweep is held on the one that covers the suite. Matched per term
-#: rather than on the CI lane's exact spelling because quick_check.sh combines
-#: the terms with another one (`not slow`).
-LANE_SCRIPTS = (
-    "scripts/quick_check.sh",
-    "scripts/premerge_check.sh",
-    "scripts/ci_check.sh",
-    GATE_SCRIPT,
+#: One call of the check command in a step's script, up to the shell operator
+#: that ends it. ``2>&1`` is a redirection of the call, not an operator.
+_CHECK_CALL_RE = re.compile(
+    r"(?:uv run python|python3) " + re.escape(CHECK_SCRIPT) + r"(?P<args>(?:2>&1|[^|&;\n#])*)"
 )
-#: The one that claims to mirror the lane, and so must also run what it drops.
-CI_CHECK_SCRIPT = "scripts/ci_check.sh"
-#: The scripts that run what they deselect: each marker the sweep hands away
-#: has a serial run of its own in the same script.
-SERIAL_MIRROR_SCRIPTS = (CI_CHECK_SCRIPT, GATE_SCRIPT)
+
+
+def _uncommented_lines(run: object) -> list[str]:
+    """The lines of a ``run:`` script, each without its shell comment.
+
+    Everything from a ``#`` onward is dropped, so a flag parked in a trailing
+    comment, as in ``... $COV_ARGS  # restore -n 4``, is not read as part
+    of the command. Truncating at a ``#`` inside a quoted argument would only
+    ever make a pin stricter, so the naive split is the safe direction to be
+    wrong in.
+    """
+    return [line.split("#", 1)[0].rstrip() for line in str(run).splitlines()]
+
+
+def _check_calls(step: dict[str, Any]) -> list[list[str]]:
+    """The arguments of each ``scripts/check.py`` call in *step*, as shell words."""
+    return [
+        [word for word in shlex.split(match["args"]) if word != "2>&1"]
+        for line in _uncommented_lines(step.get("run", ""))
+        for match in _CHECK_CALL_RE.finditer(line)
+    ]
+
+
+def _resolved(call: list[str]) -> list[list[str]]:
+    """The command lines *call* resolves to on a GitHub runner, without running them.
+
+    A shard named by a matrix expression is dropped, so the unit sweep resolves
+    to the selection all three shards add up to; ``$COV_ARGS`` is the empty
+    string every cell but one sets.
+    """
+    words: list[str] = []
+    skip = False
+    for index, word in enumerate(call):
+        if skip:
+            skip = False
+            continue
+        if word == "--shard" and "${{" in call[index + 1]:
+            skip = True
+            continue
+        if word != "$COV_ARGS":
+            words.append(word)
+    with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}):
+        return check_set.resolve(words)
+
+
+def _render(argv: list[str]) -> str:
+    """*argv* as one shell line; a word with a space and no quote is double-quoted,
+    as ci.yml spells such a word."""
+    words = []
+    for word in argv:
+        if shlex.quote(word) == word:
+            words.append(word)
+        elif not set(word) & set('"`\\\n'):
+            words.append(f'"{word}"')
+        else:
+            words.append(shlex.quote(word))
+    return " ".join(words)
+
+
+def _expand_run(run: str) -> str:
+    """*run* with each check.py call replaced by the commands it resolves to."""
+    lines = []
+    for line in run.splitlines():
+        code = line.split("#", 1)[0]
+        match = _CHECK_CALL_RE.search(code)
+        if match is None:
+            lines.append(line)
+            continue
+        call = [word for word in shlex.split(match["args"]) if word != "2>&1"]
+        rendered = "\n".join(_render(argv) for argv in _resolved(call))
+        tail = code[match.end() :]
+        if "2>&1" in match["args"]:
+            tail = " 2>&1" + tail
+        lines.append(code[: match.start()] + rendered + tail)
+    return "\n".join(lines) + ("\n" if run.endswith("\n") else "")
 
 
 @functools.cache
-def _parsed_workflow() -> dict[str, Any]:
-    """ci.yml parsed once per process; read only through ``_load_workflow``."""
+def _raw_workflow() -> dict[str, Any]:
+    """ci.yml as written, parsed once per process; read only through ``_load_raw_workflow``."""
     with CI_YML.open() as f:
         loaded = yaml.safe_load(f)
     assert loaded is not None, f"{CI_YML} parsed to None"
     return loaded
+
+
+def _load_raw_workflow() -> dict[str, Any]:
+    """A private deep copy of ci.yml as written: its caller steps call check.py."""
+    return copy.deepcopy(_raw_workflow())
+
+
+@functools.cache
+def _parsed_workflow() -> dict[str, Any]:
+    """ci.yml with every check.py call expanded; read only through ``_load_workflow``."""
+    expanded = copy.deepcopy(_raw_workflow())
+    for body in expanded["jobs"].values():
+        for step in body.get("steps", []):
+            if isinstance(step.get("run"), str) and CHECK_SCRIPT in step["run"]:
+                step["run"] = _expand_run(step["run"])
+    return expanded
 
 
 def _load_workflow() -> dict[str, Any]:
@@ -911,9 +1017,8 @@ def test_unit_test_job_runs_xdist_parallel__mutation_flags_only_in_trailing_comm
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
     original = step["run"]
-    step["run"] = original.replace(
-        " -n 4 --dist loadgroup $COV_ARGS",
-        " $COV_ARGS  # TODO restore -n 4 --dist loadgroup",
+    step["run"] = original.replace(" -n 4 --dist loadgroup", "").replace(
+        "| tee ci-diag/pytest.log", "| tee ci-diag/pytest.log  # TODO restore -n 4 --dist loadgroup"
     )
     assert step["run"] != original, "parallel invocation not found — mutation is stale"
     assert _missing_parallel_flags(_unit_test_pytest_line(mutated)) == list(PARALLEL_FLAGS)
@@ -1606,13 +1711,11 @@ def _invocation_reaches(command: str, test_file: str) -> bool:
     """Whether *command* collects *test_file*.
 
     A path argument covers the file when the file is it or lies under it; a
-    ``--ignore=`` argument takes it back out. A path argument holding a shell
-    variable (``tests/$SHARD_PATH``) is read as its literal prefix, so the
-    sharded unit lane counts as the whole-tree sweep it is. An invocation
-    whose only path is a bare variable (``$E2E_FILTER``) is an operator-chosen
-    debug path on a manual dispatch, not a lane, and reaches nothing here; an
-    invocation with no path at all collects ``testpaths``, which is ``tests``
-    and the packages' own suites (:data:`PACKAGE_TEST_ROOTS`).
+    ``--ignore=`` argument takes it back out. An invocation whose only path is
+    a bare variable (``$E2E_FILTER``) is an operator-chosen debug path on a
+    manual dispatch, not a lane, and reaches nothing here; an invocation with
+    no path at all collects ``testpaths``, which is ``tests`` and the
+    packages' own suites (:data:`PACKAGE_TEST_ROOTS`).
     """
     try:
         tokens = shlex.split(command)
@@ -1626,10 +1729,7 @@ def _invocation_reaches(command: str, test_file: str) -> bool:
         paths = ["tests", *PACKAGE_TEST_ROOTS]
 
     def _covers(path: str) -> bool:
-        path = path.split("::", 1)[0]
-        if "$" in path:
-            return test_file.startswith(path.split("$", 1)[0])
-        path = path.rstrip("/")
+        path = path.split("::", 1)[0].rstrip("/")
         return test_file == path or test_file.startswith(f"{path}/")
 
     return any(_covers(p) for p in paths) and not any(_covers(i) for i in ignores)
@@ -1868,8 +1968,8 @@ def test_marker_runs_in_its_own_serial_step__mutation_adds_xdist_workers(host: S
     mutated = _load_workflow()
     step = _find_named_step(mutated, host.job, host.step)
     original = step["run"]
-    step["run"] = original.replace("--tb=short", "--tb=short -n 2")
-    assert step["run"] != original, "no --tb=short on the host step; mutation is stale"
+    step["run"] = original.replace(f" {host.select}", f" {host.select} -n 2", 1)
+    assert step["run"] != original, "no marker select on the host step; mutation is stale"
     with pytest.raises(AssertionError, match="xdist workers"):
         _check_host(mutated, host)
 
@@ -2060,22 +2160,35 @@ def test_every_file_that_opens_a_terminal_carries_the_marker__mutation_marked_is
     assert _unmarked_terminal_files(sources) == []
 
 
-# The same premise applied to the local check scripts. They run the identical
-# wholesale sweep, so without the deselection a developer's pre-commit check is
-# where these tests flake, and the report is unreadable there: no artifacts, no
-# diagnostics, just a red that does not reproduce.
+# The same premise applied to the local check command. Its tiers run the
+# identical wholesale sweep, so without the deselection a developer's
+# pre-commit check is where these tests flake, and the report is unreadable
+# there: no artifacts, no diagnostics, just a red that does not reproduce.
+
+#: The tiers of the check command; each runs a parallel sweep over the suite
+#: the way the CI lane does, and therefore inherits the same problem.
+LOCAL_TIERS = check_set.TIERS
+#: The tier that is the merge gate, and so must also run what the sweep drops.
+SERIAL_MIRROR_TIERS = ("full",)
 
 
 def _script_pytest_lines(source: str) -> list[str]:
     return [line for line in source.splitlines() if "uv run pytest " in line]
 
 
-def _script_source(name: str) -> str:
-    return (CI_YML.parents[2] / name).read_text(encoding="utf-8")
+def _repo_source(path: str) -> str:
+    return (REPO_ROOT / path).read_text(encoding="utf-8")
+
+
+def _tier_source(tier: str, base: str | None = None) -> str:
+    """The commands *tier* runs over the whole tree, one shell line each; with
+    *base*, the checks that judge a range are armed against it."""
+    argv = [tier, "--base", base] if base else [tier]
+    return "\n".join(_render(line).replace("\n", " ") for line in check_set.resolve(argv))
 
 
 def _lane_invocations(source: str) -> list[str]:
-    """The script's wholesale ``pytest tests/`` sweeps, ignoring narrower runs."""
+    """The tier's wholesale ``pytest tests/`` sweeps, ignoring narrower runs."""
     return [line for line in _script_pytest_lines(source) if "--ignore=tests/e2e" in line]
 
 
@@ -2087,7 +2200,7 @@ def _sweeps_missing_the_deselection(source: str, row: LaneLeavingMarker) -> list
 
 def _drop_the_term(source: str, row: LaneLeavingMarker) -> str:
     """*source* with the row's term removed from every ``-m "..."`` expression,
-    whatever it is combined with (quick_check.sh adds ``not slow``); an
+    whatever it is combined with (the quick tier adds ``not slow``); an
     expression left empty is removed whole."""
 
     def _without(match: re.Match[str]) -> str:
@@ -2098,33 +2211,33 @@ def _drop_the_term(source: str, row: LaneLeavingMarker) -> str:
 
 
 @pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
-@pytest.mark.parametrize("script", LANE_SCRIPTS)
-def test_local_check_scripts_deselect_every_lane_leaving_marker(
-    script: str, row: LaneLeavingMarker
+@pytest.mark.parametrize("tier", LOCAL_TIERS)
+def test_every_check_tier_deselects_every_lane_leaving_marker(
+    tier: str, row: LaneLeavingMarker
 ) -> None:
-    """Every local script that sweeps ``tests/`` must hand the marker away too.
+    """Every tier of the check command sweeps ``tests/`` and must hand the marker away too.
     The premise of the handover is that these tests cannot share a machine
     with four workers, and that is as true on a laptop as on a runner. It is
     worse on a laptop, in fact: there are no artifacts and no per-worker
     diagnostics there, so the flake arrives as a red that does not reproduce."""
-    source = _script_source(script)
+    source = _tier_source(tier)
     assert _lane_invocations(source), (
-        f"{script} no longer runs a wholesale `pytest tests/` sweep; this pin is stale"
+        f"{tier} no longer runs a wholesale `pytest tests/` sweep; this pin is stale"
     )
     assert _sweeps_missing_the_deselection(source, row) == [], (
-        f"{script} sweeps tests/ without deselecting the {row.marker!r} marker: "
+        f"{tier} sweeps tests/ without deselecting the {row.marker!r} marker: "
         f"{_sweeps_missing_the_deselection(source, row)}"
     )
 
 
 @pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
-@pytest.mark.parametrize("script", LANE_SCRIPTS)
-def test_local_check_scripts_deselect_every_lane_leaving_marker__mutation_drops_it(
-    script: str, row: LaneLeavingMarker
+@pytest.mark.parametrize("tier", LOCAL_TIERS)
+def test_every_check_tier_deselects_every_lane_leaving_marker__mutation_drops_it(
+    tier: str, row: LaneLeavingMarker
 ) -> None:
-    source = _script_source(script)
+    source = _tier_source(tier)
     mutated = _drop_the_term(source, row)
-    assert mutated != source, f"no {row.marker!r} deselection in {script}; mutation is stale"
+    assert mutated != source, f"no {row.marker!r} deselection in {tier}; mutation is stale"
     assert _sweeps_missing_the_deselection(mutated, row) != []
 
 
@@ -2134,7 +2247,7 @@ _ANY_XDIST_WORKERS_RE = re.compile(r"(?<!\S)-n\s+(auto|\d)")
 
 
 def _missing_serial_run(source: str, row: LaneLeavingMarker) -> list[str]:
-    """What a mirror script's serial follow-up for *row* is missing (empty = wired)."""
+    """What the full tier's serial follow-up for *row* is missing (empty = wired)."""
     serial = [line for line in _script_pytest_lines(source) if row.select() in line]
     if not serial:
         return [f"a serial {row.marker} invocation"]
@@ -2146,7 +2259,7 @@ def _missing_serial_run(source: str, row: LaneLeavingMarker) -> list[str]:
 
 
 def _unreached_by_serial_runs(source: str, row: LaneLeavingMarker, files: list[str]) -> list[str]:
-    """The *files* that none of the script's serial runs for *row* collects
+    """The *files* that none of the tier's serial runs for *row* collects
     (empty = every one is reached).
 
     Each line carrying the row's selection is read from ``uv run pytest`` up to
@@ -2164,45 +2277,45 @@ def _unreached_by_serial_runs(source: str, row: LaneLeavingMarker, files: list[s
 
 
 @pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
-@pytest.mark.parametrize("script", SERIAL_MIRROR_SCRIPTS)
-def test_serial_mirror_scripts_run_what_they_deselect(
-    script: str, row: LaneLeavingMarker, workflow: dict[str, Any]
+@pytest.mark.parametrize("tier", SERIAL_MIRROR_TIERS)
+def test_the_full_tier_runs_what_the_sweep_deselects(
+    tier: str, row: LaneLeavingMarker, workflow: dict[str, Any]
 ) -> None:
-    """``ci_check.sh`` mirrors the CI lane and ``gate.sh`` is the merge gate, so
-    each owes the same serial follow-up the lane has. The other two scripts are
-    documented fast sweeps and legitimately stop at the deselection; these would
-    otherwise quietly cover less than they did before the marker existed."""
-    missing = _missing_serial_run(_script_source(script), row)
+    """The full tier is the merge gate, so it owes the same serial follow-up the
+    lane has. The quick tier is a documented fast sweep and legitimately stops
+    at the deselection; the full tier would otherwise quietly cover less than
+    CI does."""
+    missing = _missing_serial_run(_tier_source(tier), row)
     assert missing == [], (
-        f"{script} deselects the {row.marker!r} marker in its sweep but does not "
+        f"{tier} deselects the {row.marker!r} marker in its sweep but does not "
         f"run it serially afterwards ({missing}): add `uv run pytest "
         f"{' '.join(host.path for host in _per_pr_hosts(workflow, row))} {row.select()}`"
     )
 
 
 @pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
-@pytest.mark.parametrize("script", SERIAL_MIRROR_SCRIPTS)
-def test_serial_mirror_scripts_run_what_they_deselect__mutation_drops_the_serial_run(
-    script: str, row: LaneLeavingMarker
+@pytest.mark.parametrize("tier", SERIAL_MIRROR_TIERS)
+def test_the_full_tier_runs_what_the_sweep_deselects__mutation_drops_the_serial_run(
+    tier: str, row: LaneLeavingMarker
 ) -> None:
-    """Dropping the follow-up from ``ci_check.sh`` or ``gate.sh`` leaves a
-    script that covers strictly less than it used to while reporting the same
+    """Dropping the follow-up from the full tier leaves a
+    gate that covers strictly less than it used to while reporting the same
     green."""
-    source = _script_source(script)
+    source = _tier_source(tier)
     mutated = "\n".join(line for line in source.splitlines() if row.select() not in line)
-    assert mutated != source, f"no serial {row.marker} run in {script}; mutation is stale"
+    assert mutated != source, f"no serial {row.marker} run in {tier}; mutation is stale"
     assert _missing_serial_run(mutated, row) == [f"a serial {row.marker} invocation"]
 
 
 @pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
-@pytest.mark.parametrize("script", SERIAL_MIRROR_SCRIPTS)
-def test_serial_mirror_scripts_run_what_they_deselect__mutation_parallelizes_it(
-    script: str, row: LaneLeavingMarker
+@pytest.mark.parametrize("tier", SERIAL_MIRROR_TIERS)
+def test_the_full_tier_runs_what_the_sweep_deselects__mutation_parallelizes_it(
+    tier: str, row: LaneLeavingMarker
 ) -> None:
-    """And speeding the follow-up in ``ci_check.sh`` or ``gate.sh`` up with
+    """And speeding the follow-up in the full tier up with
     workers must be reported: it would put the tests back on a contended
     machine, which is what the sweep dropped them to avoid."""
-    source = _script_source(script)
+    source = _tier_source(tier)
     mutated = re.sub(rf"({re.escape(row.select())})(?=\s)", r"\1 -n 4", source)
     assert mutated != source, f"serial {row.marker} run not found; mutation is stale"
     assert _missing_serial_run(mutated, row) != []
@@ -2241,7 +2354,7 @@ def _per_pr_carriers(
 
 
 def _check_serial_reach(
-    script: str,
+    tier: str,
     source: str,
     row: LaneLeavingMarker,
     wf: dict[str, Any],
@@ -2256,44 +2369,44 @@ def _check_serial_reach(
         )
     unreached = _unreached_by_serial_runs(source, row, files)
     assert unreached == [], (
-        f"{script}'s serial {row.marker} runs reach none of {unreached}, which CI "
-        f"times on every pull request under {paths}: widen the script's serial path "
+        f"{tier}'s serial {row.marker} runs reach none of {unreached}, which CI "
+        f"times on every pull request under {paths}: widen the check's serial path "
         f"or move the file"
     )
 
 
 @pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
-@pytest.mark.parametrize("script", SERIAL_MIRROR_SCRIPTS)
+@pytest.mark.parametrize("tier", SERIAL_MIRROR_TIERS)
 def test_serial_runs_reach_every_per_pr_marked_file(
-    script: str, row: LaneLeavingMarker, workflow: dict[str, Any]
+    tier: str, row: LaneLeavingMarker, workflow: dict[str, Any]
 ) -> None:
     """A serial run that exists but collects a narrower path than CI's host
     drops the files in between: the sweep deselected them and the follow-up
-    never looks there, so the script reports green over tests it never ran."""
-    _check_serial_reach(script, _script_source(script), row, workflow, _test_module_sources())
+    never looks there, so the tier reports green over tests it never ran."""
+    _check_serial_reach(tier, _tier_source(tier), row, workflow, _test_module_sources())
 
 
 @pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
-@pytest.mark.parametrize("script", SERIAL_MIRROR_SCRIPTS)
+@pytest.mark.parametrize("tier", SERIAL_MIRROR_TIERS)
 def test_serial_runs_reach_every_per_pr_marked_file__mutation_narrows_the_path(
-    script: str, row: LaneLeavingMarker, workflow: dict[str, Any]
+    tier: str, row: LaneLeavingMarker, workflow: dict[str, Any]
 ) -> None:
-    source = _script_source(script)
+    source = _tier_source(tier)
     hosts = [host.path.rstrip("/") for host in _per_pr_hosts(workflow, row)]
     host_re = re.compile(rf"(?<!\S)(?:{'|'.join(map(re.escape, hosts))})/?(?=\s)")
     mutated = "\n".join(
         host_re.sub("tests/_nowhere/test_x.py", line) if row.select() in line else line
         for line in source.splitlines()
     )
-    assert mutated != source, f"no serial {row.marker} run over {hosts} in {script}; stale"
+    assert mutated != source, f"no serial {row.marker} run over {hosts} in {tier}; stale"
     files = _per_pr_carriers(workflow, row, _test_module_sources())
     assert _unreached_by_serial_runs(mutated, row, files) == files
 
 
 @pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
-@pytest.mark.parametrize("script", SERIAL_MIRROR_SCRIPTS)
+@pytest.mark.parametrize("tier", SERIAL_MIRROR_TIERS)
 def test_serial_runs_reach_every_per_pr_marked_file__mutation_adds_a_per_pr_directory(
-    script: str, row: LaneLeavingMarker, workflow: dict[str, Any]
+    tier: str, row: LaneLeavingMarker, workflow: dict[str, Any]
 ) -> None:
     """A second per-PR host directory is owed too, not only the first."""
     widened = replace(
@@ -2305,13 +2418,13 @@ def test_serial_runs_reach_every_per_pr_marked_file__mutation_adds_a_per_pr_dire
     sources[phantom] = f"pytestmark = [pytest.mark.{row.marker}]\n"
     assert phantom in _per_pr_carriers(workflow, widened, sources)
     assert _unreached_by_serial_runs(
-        _script_source(script), widened, _per_pr_carriers(workflow, widened, sources)
+        _tier_source(tier), widened, _per_pr_carriers(workflow, widened, sources)
     ) == [phantom]
 
 
-@pytest.mark.parametrize("script", SERIAL_MIRROR_SCRIPTS)
+@pytest.mark.parametrize("tier", SERIAL_MIRROR_TIERS)
 def test_serial_runs_reach_every_per_pr_marked_file__mutation_gates_the_on_demand_host(
-    script: str,
+    tier: str,
 ) -> None:
     """The scale guard is exempt only because its job is outside the merge
     gate; the day it gates the merge, a mirror owes it as well."""
@@ -2322,20 +2435,20 @@ def test_serial_runs_reach_every_per_pr_marked_file__mutation_gates_the_on_deman
     needs.append(BENCHMARKS_JOB)
     files = _per_pr_carriers(mutated, row, _test_module_sources())
     scale = "tests/services/channel_finder/graph_index/test_scale.py"
-    assert scale in _unreached_by_serial_runs(_script_source(script), row, files)
+    assert scale in _unreached_by_serial_runs(_tier_source(tier), row, files)
 
 
-# The gate is held tighter than the other scripts: every pytest line it runs is
-# either the lane's sweep, with exactly the lane's marker expression, or one
-# table row's serial run, with no workers. A line that is neither (a hand-added
-# term, a dropped expression, a parallelized serial run) is drift.
+# The full tier is held tighter than the quick one: every pytest line it runs
+# is either the lane's sweep, with exactly the lane's marker expression, or one
+# table row's serial run, with no workers. A line that is neither (a
+# hand-added term, a dropped expression, a parallelized serial run) is drift.
 
-#: A ``-m`` expression on a script line, double-quoted or a bare word.
+#: A ``-m`` expression on a command line, double-quoted or a bare word.
 _MARKER_EXPR_RE = re.compile(r'(?<!\S)-m\s+("[^"]*"|\S+)')
 
 
 def _gate_lines_off_the_table(source: str) -> list[str]:
-    """The script's pytest lines that are neither the lane's sweep nor one
+    """The tier's pytest lines that are neither the lane's sweep nor one
     row's serial run (empty = every line is on the table)."""
     selects = {row.select() for row in LANE_LEAVING_MARKERS}
     off = []
@@ -2355,80 +2468,70 @@ def _gate_sweeps(source: str) -> list[str]:
     return [line for line in _script_pytest_lines(source) if UNIT_LANE_DESELECT in line]
 
 
-def _gate_modes_missing(source: str, row: LaneLeavingMarker) -> list[str]:
-    """The modes in which the gate has no serial run for *row*, and the modes in
-    which it has no sweep (empty = both modes are wired)."""
+def _gate_runs_missing(source: str, row: LaneLeavingMarker) -> list[str]:
+    """What the tier lacks: a serial run for *row* over a tests directory, and
+    the sweep over the whole suite (empty = both are wired)."""
     missing = []
     serial = [line for line in _script_pytest_lines(source) if row.select() in line]
     if not any(re.search(r"(?<!\S)tests/", line) for line in serial):
-        missing.append("full serial")
-    if not any('"$@"' in line for line in serial):
-        missing.append("fast serial")
-    sweeps = _gate_sweeps(source)
-    if not any("--ignore=tests/e2e" in line for line in sweeps):
-        missing.append("full sweep")
-    if not any('"$@"' in line for line in sweeps):
-        missing.append("fast sweep")
+        missing.append("serial run")
+    if not any("--ignore=tests/e2e" in line for line in _gate_sweeps(source)):
+        missing.append("sweep")
     return missing
 
 
 def test_the_gate_runs_exactly_the_lane_expression() -> None:
-    """The gate is the one local spelling of the merge gate, so it runs exactly
-    what the lane runs: a caller that gates a branch adds nothing to it, and a
-    term the lane does not carry is a test the gate skips and CI runs."""
-    source = _script_source(GATE_SCRIPT)
-    assert _script_pytest_lines(source), f"{GATE_SCRIPT} runs no pytest line; this pin is stale"
+    """The full tier is the one local spelling of the merge gate, so it runs
+    exactly what the lane runs: a term the lane does not carry is a test the
+    gate skips and CI runs."""
+    source = _tier_source("full")
+    assert _script_pytest_lines(source), "the full tier runs no pytest line; this pin is stale"
     assert _gate_lines_off_the_table(source) == [], (
-        f"{GATE_SCRIPT} runs pytest lines that are neither the lane's sweep "
+        f"the full tier runs pytest lines that are neither the lane's sweep "
         f"({UNIT_LANE_DESELECT}, with workers) nor one row's serial run (no workers): "
         f"{_gate_lines_off_the_table(source)}"
     )
 
 
 @pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
-def test_the_gate_has_both_modes_for_every_row(row: LaneLeavingMarker) -> None:
-    """Both modes deselect every row, so both run every row serially: in fast
-    mode a marked test inside a named file would otherwise run nowhere."""
-    missing = _gate_modes_missing(_script_source(GATE_SCRIPT), row)
-    assert missing == [], f"{GATE_SCRIPT} lacks, for {row.marker!r}: {missing}"
+def test_the_gate_runs_every_row_serially(row: LaneLeavingMarker) -> None:
+    """The sweep deselects every row, so the full tier runs every row serially."""
+    missing = _gate_runs_missing(_tier_source("full"), row)
+    assert missing == [], f"the full tier lacks, for {row.marker!r}: {missing}"
 
 
 def test_the_gate_runs_exactly_the_lane_expression__mutation_adds_a_term() -> None:
-    source = _script_source(GATE_SCRIPT)
+    source = _tier_source("full")
     expr = UNIT_LANE_DESELECT[:-1]
     mutated = source.replace(UNIT_LANE_DESELECT, f'{expr} and not browser"', 1)
-    assert mutated != source, f"no lane sweep in {GATE_SCRIPT}; mutation is stale"
+    assert mutated != source, "no lane sweep in the full tier; mutation is stale"
     assert _gate_lines_off_the_table(mutated) != []
 
 
-def test_the_gate_runs_exactly_the_lane_expression__mutation_drops_the_fast_expression() -> None:
-    source = _script_source(GATE_SCRIPT)
-    lines = source.splitlines()
-    fast = [i for i, line in enumerate(lines) if line in _gate_sweeps(source) and '"$@"' in line]
-    assert fast, f"no fast sweep in {GATE_SCRIPT}; mutation is stale"
-    lines[fast[0]] = lines[fast[0]].replace(f" {UNIT_LANE_DESELECT}", "")
-    mutated = "\n".join(lines)
-    assert mutated != source
+def test_the_gate_runs_exactly_the_lane_expression__mutation_drops_the_expression() -> None:
+    source = _tier_source("full")
+    mutated = source.replace(f" {UNIT_LANE_DESELECT}", "", 1)
+    assert mutated != source, "no lane sweep in the full tier; mutation is stale"
     assert _gate_lines_off_the_table(mutated) != []
 
 
 @pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
-def test_the_gate_has_both_modes_for_every_row__mutation_drops_the_fast_serial(
+def test_the_gate_runs_every_row_serially__mutation_drops_the_serial_run(
     row: LaneLeavingMarker,
 ) -> None:
-    source = _script_source(GATE_SCRIPT)
-    mutated = "\n".join(line for line in source.splitlines() if f'"$@" {row.select()}' not in line)
-    assert mutated != source, f"no fast serial {row.marker} run in {GATE_SCRIPT}; mutation is stale"
-    assert "fast serial" in _gate_modes_missing(mutated, row)
+    source = _tier_source("full")
+    mutated = "\n".join(line for line in source.splitlines() if row.select() not in line)
+    assert mutated != source, f"no serial {row.marker} run in the full tier; mutation is stale"
+    assert "serial run" in _gate_runs_missing(mutated, row)
 
 
 @pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
 def test_the_gate_runs_exactly_the_lane_expression__mutation_parallelizes_a_serial_run(
     row: LaneLeavingMarker,
 ) -> None:
-    source = _script_source(GATE_SCRIPT)
+    source = _tier_source("full")
     mutated = re.sub(rf"({re.escape(row.select())})(?=\s)", r"\1 -n 4", source, count=1)
-    assert mutated != source, f"no serial {row.marker} run in {GATE_SCRIPT}; mutation is stale"
+    assert mutated != source, f"no serial {row.marker} run in the full tier; mutation is stale"
     assert _gate_lines_off_the_table(mutated) != []
 
 
@@ -2470,7 +2573,7 @@ def _documented_sweeps_missing_terms(source: str, row: LaneLeavingMarker) -> lis
 def test_documented_sweeps_carry_the_lane_expression(path: str, row: LaneLeavingMarker) -> None:
     """A documented parallel sweep is the command a reader copies, so it hands
     away every marker the CI lane hands away."""
-    source = _script_source(path)
+    source = _repo_source(path)
     assert _documented_sweep_lines(source), (
         f"{path} no longer documents a parallel sweep; this pin is stale"
     )
@@ -2485,7 +2588,7 @@ def test_documented_sweeps_carry_the_lane_expression(path: str, row: LaneLeaving
 def test_documented_sweeps_carry_the_lane_expression__mutation_drops_a_term(
     path: str, row: LaneLeavingMarker
 ) -> None:
-    source = _script_source(path)
+    source = _repo_source(path)
     mutated = _drop_the_term(source, row)
     assert mutated != source, f"no {row.marker!r} deselection in {path}; mutation is stale"
     assert _documented_sweeps_missing_terms(mutated, row) != []
@@ -4100,6 +4203,20 @@ def _browser_lane_files(wf: dict[str, Any]) -> str:
 #: proven nothing.
 _STEP_OUTPUT_CONDITION = re.compile(r"steps\.[A-Za-z0-9_-]+\.outputs")
 
+#: The one step a step output may switch off: saving the Playwright cache. It
+#: proves nothing and installs nothing, and skipping it on an exact cache hit
+#: only spares re-uploading what the cache already holds.
+_CACHE_SAVE_ACTION = "actions/cache/save@"
+
+
+def _browser_steps_gated_on_outputs(wf: dict[str, Any]) -> list[str | None]:
+    return [
+        step.get("name")
+        for step in _jobs(wf)[BROWSER_JOB]["steps"]
+        if _STEP_OUTPUT_CONDITION.search(str(step.get("if", "")))
+        and not str(step.get("uses", "")).startswith(_CACHE_SAVE_ACTION)
+    ]
+
 
 def test_the_browser_lane_runs_unconditionally(workflow: dict[str, Any]) -> None:
     """Three ways this lane could stop running, all of them silent.
@@ -4118,11 +4235,7 @@ def test_the_browser_lane_runs_unconditionally(workflow: dict[str, Any]) -> None
         if str(step.get("uses", "")).startswith("dorny/paths-filter")
     ]
     assert filters == [], f"the '{BROWSER_JOB}' lane computes a paths filter: {filters}"
-    gated = [
-        step.get("name")
-        for step in job["steps"]
-        if _STEP_OUTPUT_CONDITION.search(str(step.get("if", "")))
-    ]
+    gated = _browser_steps_gated_on_outputs(workflow)
     assert gated == [], (
         f"steps of the '{BROWSER_JOB}' lane gated on another step's output, which would "
         f"report the lane green having run nothing: {gated}"
@@ -4156,12 +4269,19 @@ def test_the_browser_lane_runs_unconditionally__mutation_gates_the_run_step() ->
     _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)["if"] = (
         "steps.changes.outputs.theming == 'true'"
     )
-    gated = [
-        step.get("name")
-        for step in _jobs(mutated)[BROWSER_JOB]["steps"]
-        if _STEP_OUTPUT_CONDITION.search(str(step.get("if", "")))
-    ]
-    assert gated == [BROWSER_RUN_STEP]
+    assert _browser_steps_gated_on_outputs(mutated) == [BROWSER_RUN_STEP]
+
+
+def test_the_browser_lane_runs_unconditionally__mutation_gates_an_install_on_the_cache_hit() -> (
+    None
+):
+    """The cache-save exemption is by action, not by condition: an install
+    skipped on a cache hit must still be reported."""
+    mutated = copy.deepcopy(_load_workflow())
+    _find_named_step(mutated, BROWSER_JOB, "Install Playwright webkit")["if"] = (
+        "steps.playwright-cache.outputs.cache-hit != 'true'"
+    )
+    assert _browser_steps_gated_on_outputs(mutated) == ["Install Playwright webkit"]
 
 
 def test_login_flow_browser_test_runs_in_the_browser_lane(workflow: dict[str, Any]) -> None:
@@ -4475,6 +4595,113 @@ def test_every_engine_is_installed__mutation_drops_the_webkit_install() -> None:
     job = _jobs(mutated)[BROWSER_JOB]
     job["steps"] = [s for s in job["steps"] if s.get("name") != "Install Playwright webkit"]
     assert set(_browser_engines()) - _engines_the_lane_installs(mutated) == {"webkit"}
+
+
+# ---------------------------------------------------------------------------
+# (h4) the browser lane's installs are cached and capped: their `--with-deps`
+# debs come from an Ubuntu mirror that some days crawls, and an uncapped,
+# uncached install then eats the whole job timeout before a test runs
+# ---------------------------------------------------------------------------
+
+_PLAYWRIGHT_INSTALL_STEPS = ("Install Playwright chromium", "Install Playwright webkit")
+_PLAYWRIGHT_INSTALL_CAP_MINUTES = 10
+_APT_ARCHIVES_SETTING = re.compile(r'Dir::Cache::Archives\s+"\$HOME/([^"]+)"')
+
+
+def _browser_cache_problems(wf: dict[str, Any]) -> list[str]:
+    """Every way the Playwright cache fails to cover the installs.
+
+    The restore has to come before both installs and the save after them but
+    before any suite, so a failing suite still leaves the next run a warm
+    cache; both have to name the same key and paths; and the paths have to
+    hold the browsers and the directory apt is told to keep its debs in.
+    Between the installs and the save, that directory has to be handed back
+    to the runner user: apt leaves it root-owned, and a save that cannot read
+    it only warns, so the cache would silently never be written.
+    """
+    steps = _jobs(wf)[BROWSER_JOB]["steps"]
+
+    def where(pred: Callable[[dict[str, Any]], bool]) -> list[int]:
+        return [i for i, s in enumerate(steps) if pred(s)]
+
+    restores = where(lambda s: str(s.get("uses", "")).startswith("actions/cache/restore@"))
+    saves = where(lambda s: str(s.get("uses", "")).startswith(_CACHE_SAVE_ACTION))
+    installs = where(lambda s: s.get("name") in _PLAYWRIGHT_INSTALL_STEPS)
+    suites = where(lambda s: _BROWSER_PYTEST_INVOCATION in s.get("run", ""))
+    archives = [
+        m.group(1) for s in steps for m in _APT_ARCHIVES_SETTING.finditer(str(s.get("run", "")))
+    ]
+    if len(restores) != 1 or len(saves) != 1 or len(archives) != 1:
+        return [f"restores={restores} saves={saves} apt archive dirs={archives}"]
+    restore, save = steps[restores[0]], steps[saves[0]]
+    problems = []
+    if not restores[0] < min(installs) or not max(installs) < saves[0] < min(suites):
+        problems.append("order")
+    if restore["with"]["key"] != save["with"]["key"]:
+        problems.append("key")
+    paths = set(restore["with"]["path"].split())
+    if paths != set(save["with"]["path"].split()):
+        problems.append("paths")
+    if not {"~/.cache/ms-playwright", f"~/{archives[0]}"} <= paths:
+        problems.append("coverage")
+    handbacks = where(
+        lambda s: "chown" in s.get("run", "") and f"~/{archives[0]}" in s.get("run", "")
+    )
+    if not any(max(installs) < i < saves[0] for i in handbacks):
+        problems.append("ownership")
+    return problems
+
+
+def test_the_playwright_cache_brackets_the_installs(workflow: dict[str, Any]) -> None:
+    assert _browser_cache_problems(workflow) == []
+
+
+def test_the_playwright_cache_brackets_the_installs__mutation_saves_after_the_suites() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[BROWSER_JOB]["steps"]
+    save = next(s for s in steps if str(s.get("uses", "")).startswith(_CACHE_SAVE_ACTION))
+    steps.remove(save)
+    steps.append(save)
+    assert _browser_cache_problems(mutated) == ["order"]
+
+
+def test_the_playwright_cache_brackets_the_installs__mutation_drops_the_apt_archive() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    for step in _jobs(mutated)[BROWSER_JOB]["steps"]:
+        if str(step.get("uses", "")).startswith("actions/cache/"):
+            step["with"]["path"] = "~/.cache/ms-playwright\n"
+    assert _browser_cache_problems(mutated) == ["coverage"]
+
+
+def test_the_playwright_cache_brackets_the_installs__mutation_drops_the_handback() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[BROWSER_JOB]
+    job["steps"] = [s for s in job["steps"] if "chown" not in s.get("run", "")]
+    assert _browser_cache_problems(mutated) == ["ownership"]
+
+
+def test_the_playwright_installs_carry_their_own_cap(workflow: dict[str, Any]) -> None:
+    """A stalled mirror has to fail the install in minutes, not after the job's
+    whole timeout, so the log points at the install rather than the job."""
+    job = _jobs(workflow)[BROWSER_JOB]
+    caps = {
+        name: _find_named_step(workflow, BROWSER_JOB, name).get("timeout-minutes")
+        for name in _PLAYWRIGHT_INSTALL_STEPS
+    }
+    assert all(
+        isinstance(cap, int) and cap <= _PLAYWRIGHT_INSTALL_CAP_MINUTES for cap in caps.values()
+    ), caps
+    assert sum(c for c in caps.values() if isinstance(c, int)) < job["timeout-minutes"], (
+        caps,
+        job["timeout-minutes"],
+    )
+
+
+def test_the_playwright_installs_carry_their_own_cap__mutation_drops_one() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _find_named_step(mutated, BROWSER_JOB, "Install Playwright webkit")["timeout-minutes"]
+    with pytest.raises(AssertionError):
+        test_the_playwright_installs_carry_their_own_cap(mutated)
 
 
 def test_every_browser_engine_has_its_fixture() -> None:
@@ -5469,10 +5696,11 @@ def test_capped_container_lanes_cap_their_heavy_step__mutation_raises_it_to_the_
 def test_unit_lane_does_not_set_faulthandler_timeout__mutation_restores_the_ini_option() -> None:
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
-    step["run"] = step["run"].replace(
-        " --dist loadgroup $COV_ARGS",
-        " --dist loadgroup $COV_ARGS -o faulthandler_timeout=300",
+    original = step["run"]
+    step["run"] = original.replace(
+        " --dist loadgroup", " --dist loadgroup -o faulthandler_timeout=300"
     )
+    assert step["run"] != original, "the unit line moved; mutation is stale"
     with pytest.raises(AssertionError):
         test_unit_lane_does_not_set_faulthandler_timeout(mutated)
 
@@ -8258,18 +8486,19 @@ def test_lint_checks_the_lockfile__mutation_moves_it_after_sync() -> None:
 
 
 # ---------------------------------------------------------------------------
-# the changelog-fragment gate runs in lint, and premerge_check.sh runs the same
+# the changelog-fragment gate runs in lint, and the quick tier runs the same
 # ---------------------------------------------------------------------------
 #
 # One rule, two callers: `scripts/changelog_fragments.py check` decides whether
-# a PR that touches src/ or packages/ carries a fragment in changelog.d/ and
-# whether anyone hand-edited CHANGELOG.md's [Unreleased] block. The local script
+# a PR that touches a gated directory carries a fragment in changelog.d/ and
+# whether anyone hand-edited CHANGELOG.md's [Unreleased] block. The local check
 # has to run the *same command* as the lane, or the pre-PR sweep goes green on
 # work CI then rejects.
 
 CHANGELOG_STEP = "Run changelog-fragment guard"
 CHANGELOG_SCRIPT = "scripts/changelog_fragments.py"
-PREMERGE_SCRIPT = "scripts/premerge_check.sh"
+#: How a local run names its base; the quick tier is the pre-commit check.
+LOCAL_BASE = "$BASE"
 #: What the CRITICAL block used to be: proof that CHANGELOG.md was *touched*,
 #: which the fragment workflow makes both unsatisfiable (fragments are the
 #: entry) and meaningless (touching the file proves nothing about content).
@@ -8277,8 +8506,8 @@ _CHANGELOG_TOUCH_GREP = "grep -q CHANGELOG.md"
 
 
 @pytest.fixture()
-def premerge_source() -> str:
-    return _script_source(PREMERGE_SCRIPT)
+def quick_source() -> str:
+    return _tier_source("quick", LOCAL_BASE)
 
 
 def test_lint_runs_the_changelog_fragment_guard(workflow: dict[str, Any]) -> None:
@@ -8323,25 +8552,25 @@ def test_lint_runs_the_changelog_fragment_guard__mutation_interpolates_the_base_
         test_lint_runs_the_changelog_fragment_guard(mutated)
 
 
-def test_premerge_check_runs_the_same_gate(premerge_source: str) -> None:
+def test_the_quick_tier_runs_the_same_gate(quick_source: str) -> None:
     """The local sweep must run the gate itself, not a proxy for it. Its old
     CRITICAL check grepped the diff for CHANGELOG.md, which under the fragment
     workflow is red on every ordinary PR and green on a PR that hand-edited
     [Unreleased] — wrong in both directions."""
-    assert CHANGELOG_SCRIPT in premerge_source
-    assert "check --base" in premerge_source
-    assert _CHANGELOG_TOUCH_GREP not in premerge_source
+    assert CHANGELOG_SCRIPT in quick_source
+    assert "check --base" in quick_source
+    assert _CHANGELOG_TOUCH_GREP not in quick_source
 
 
-def test_premerge_check_runs_the_same_gate__mutation_restores_the_grep() -> None:
-    source = _script_source(PREMERGE_SCRIPT)
+def test_the_quick_tier_runs_the_same_gate__mutation_restores_the_grep() -> None:
+    source = _tier_source("quick", LOCAL_BASE)
     mutated = source.replace(
-        f'uv run python {CHANGELOG_SCRIPT} check --base "$BASE"',
+        f'python3 {CHANGELOG_SCRIPT} check --base "$BASE"',
         f"git diff $BASE...HEAD --name-only | {_CHANGELOG_TOUCH_GREP}",
     )
     assert mutated != source, "the gate invocation moved; this mutation is stale"
     with pytest.raises(AssertionError):
-        test_premerge_check_runs_the_same_gate(mutated)
+        test_the_quick_tier_runs_the_same_gate(mutated)
 
 
 # ---------------------------------------------------------------------------
@@ -8414,167 +8643,131 @@ def test_lint_runs_the_plugin_version_check__mutation_hardcodes_main() -> None:
         test_lint_runs_the_plugin_version_check(mutated)
 
 
-def test_premerge_check_runs_the_plugin_version_check(premerge_source: str) -> None:
-    """The local sweep runs the same check as the lane, against its own base,
+def test_the_quick_tier_runs_the_plugin_version_check(quick_source: str) -> None:
+    """The local check runs the same check as the lane, against its own base,
     or it goes green on a branch the lint job then refuses."""
-    assert PLUGIN_VERSION_SCRIPT + ' check --base "$BASE"' in premerge_source
+    assert PLUGIN_VERSION_SCRIPT + ' check --base "$BASE"' in quick_source
 
 
-def test_premerge_check_runs_the_plugin_version_check__mutation_drops_the_line() -> None:
-    source = _script_source(PREMERGE_SCRIPT)
+def test_the_quick_tier_runs_the_plugin_version_check__mutation_drops_the_line() -> None:
+    source = _tier_source("quick", LOCAL_BASE)
     mutated = "\n".join(
         line for line in source.splitlines() if PLUGIN_VERSION_SCRIPT + " check" not in line
     )
     assert mutated != source, "the check invocation moved; this mutation is stale"
     with pytest.raises(AssertionError):
-        test_premerge_check_runs_the_plugin_version_check(mutated)
+        test_the_quick_tier_runs_the_plugin_version_check(mutated)
 
 
 # ---------------------------------------------------------------------------
-# the merge gate runs every CI step that needs no secret or Docker
+# the merge gate: each CI step that needs no secret or Docker calls one check
 # ---------------------------------------------------------------------------
 #
-# scripts/gate.sh is the one local spelling of the merge gate, so each check CI
-# runs without a secret or a container is a line of the gate too, spelled the
-# way the CI step spells it. The table below holds those steps; a new
-# no-secret CI step is one row here plus its line in gate.sh, and a step that
-# drifts on either side is red.
+# scripts/check.py is the one declaration of the merge gate, and each check CI
+# runs without a secret or a container is one step that calls it by id. The
+# table below holds those steps as main's ci.yml spells them; the full tier
+# runs each one's command too, so a contributor's `check.py full` is the
+# command CI runs.
 
 FRONTEND_JS_JOB = "frontend-js"
 DOCS_JOB = "docs"
-#: How each side spells the comparison base of the two diff checks: CI reads
-#: the pull request's base ref, the gate its ``--base`` argument.
-CI_BASE = '"origin/$BASE_REF"'
-GATE_BASE = '"$base"'
-#: CI installs the docs extra in a step of its own; the gate installs it on the
-#: build line, so the build runs in the venv every other gate step uses.
-GATE_DOCS_EXTRA = " --extra docs"
-#: The directory the docs build runs in, on both sides.
-_DOCS_CD = "cd docs"
+#: How a caller step names the comparison base of the two diff checks: the
+#: pull request's base ref, read from ``env:``.
+CI_BASE = "origin/$BASE_REF"
 
 
 @dataclass(frozen=True)
-class GateCiStep:
-    """One CI step the gate runs too. ``template`` is the command, with
-    ``{base}`` where the side's comparison base goes and ``{extra}`` where the
-    gate installs the docs extra; ``ci_only`` is a suffix only the CI line
-    carries, for the reason in ``reason``."""
+class CallerStep:
+    """One CI step that calls one check; ``based`` when it passes the base."""
 
     job: str
     step: str
-    template: str
-    ci_only: str = ""
-    reason: str = ""
+    check: str
+    based: bool = False
 
-    def ci_line(self) -> str:
-        return self.template.format(base=CI_BASE, extra="") + self.ci_only
-
-    def gate_line(self) -> str:
-        return self.template.format(base=GATE_BASE, extra=GATE_DOCS_EXTRA)
+    def call(self) -> list[str]:
+        return ["run", self.check, *(["--base", CI_BASE] if self.based else [])]
 
 
-GATE_CI_STEPS = (
-    GateCiStep(LINT_JOB, LOCK_CHECK_STEP, "uv lock --check"),
-    GateCiStep(
-        LINT_JOB,
-        "Run ruff (linting)",
-        "uv run ruff check .",
-        ci_only=" --output-format=github",
-        reason="the hosted log's annotation format",
-    ),
-    GateCiStep(LINT_JOB, "Run ruff (formatting)", "uv run ruff format --check ."),
-    GateCiStep(
-        LINT_JOB,
-        "Run config-key resurrection guard (with back-test)",
-        "uv run python scripts/check_config_keys.py --back-test",
-    ),
-    GateCiStep(
-        LINT_JOB, CHANGELOG_STEP, "python3 scripts/changelog_fragments.py check --base {base}"
-    ),
-    GateCiStep(
-        LINT_JOB, PLUGIN_VERSION_STEP, "python3 scripts/plugin_version.py check --base {base}"
-    ),
-    GateCiStep(LINT_JOB, "Run mypy (type checking)", "uv run python scripts/mypy_gate.py"),
-    GateCiStep(FRONTEND_JS_JOB, "Typecheck (tsc --noEmit)", "npm run typecheck"),
-    GateCiStep(FRONTEND_JS_JOB, "Lint (eslint)", "npm run lint"),
-    GateCiStep(
-        DOCS_JOB,
-        "Build documentation",
-        'uv run{extra} make html SPHINXOPTS="-W --keep-going"',
-        reason="CI installs the docs extra in its own step",
-    ),
+CALLER_STEPS = (
+    CallerStep(LINT_JOB, LOCK_CHECK_STEP, "lockfile"),
+    CallerStep(LINT_JOB, "Run ruff (linting)", "ruff"),
+    CallerStep(LINT_JOB, "Run ruff (formatting)", "ruff-format"),
+    CallerStep(LINT_JOB, "Run lint-imports (import boundaries)", "import-contracts"),
+    CallerStep(LINT_JOB, "Run ruff import-private-name on the framework", "private-imports"),
+    CallerStep(LINT_JOB, "Run config-key resurrection guard (with back-test)", "config-keys"),
+    CallerStep(LINT_JOB, CHANGELOG_STEP, "changelog", based=True),
+    CallerStep(LINT_JOB, PLUGIN_VERSION_STEP, "plugin-version", based=True),
+    CallerStep(LINT_JOB, "No tracked file is gitignored", "tracked-ignored"),
+    CallerStep(LINT_JOB, "Run mypy (type checking)", "mypy"),
+    CallerStep(FRONTEND_JS_JOB, "Typecheck (tsc --noEmit)", "tsc"),
+    CallerStep(FRONTEND_JS_JOB, "Lint (eslint)", "eslint"),
+    CallerStep(FRONTEND_JS_JOB, "Run JS tests (vitest)", "vitest"),
+    CallerStep(FRONTEND_JS_JOB, "Check the dock-engine bundle is current", "dock-engine-bundle"),
+    CallerStep(FRONTEND_JS_JOB, "Run dock-engine tests (vitest)", "dock-engine-tests"),
+    CallerStep(DOCS_JOB, "Build documentation", "docs"),
+    CallerStep("package", "Build and check the packages", "package"),
 )
-#: The rows whose CI side the lint-job sections above already pin, step and
-#: command; the cases here pin only their gate side.
-_CI_SIDE_PINNED_ABOVE = frozenset({LOCK_CHECK_STEP, CHANGELOG_STEP, PLUGIN_VERSION_STEP})
-_CI_SIDE_ROWS = tuple(row for row in GATE_CI_STEPS if row.step not in _CI_SIDE_PINNED_ABOVE)
-assert len({row.step for row in GATE_CI_STEPS}) == len(GATE_CI_STEPS)
+assert len({row.step for row in CALLER_STEPS}) == len(CALLER_STEPS)
 
 
-def _ci_run_command(run: str) -> str:
-    """A step's ``run`` as one command: stripped, minus a leading ``cd docs``."""
-    lines = run.strip().splitlines()
-    if len(lines) > 1 and lines[0].strip() == _DOCS_CD:
-        lines = lines[1:]
-    return "\n".join(line.strip() for line in lines)
+@pytest.mark.parametrize("row", CALLER_STEPS, ids=lambda row: row.step)
+def test_each_caller_step_calls_its_check(
+    row: CallerStep, raw_workflow: dict[str, Any] | None = None
+) -> None:
+    """The CI step exists in its job and calls exactly the row's check, so the
+    command it runs is the one the declaration holds."""
+    wf = _load_raw_workflow() if raw_workflow is None else raw_workflow
+    calls = _check_calls(_find_named_step(wf, row.job, row.step))
+    assert calls == [row.call()], f"{row.job}/{row.step} calls {calls}, the table says {row.call()}"
 
 
-def _gate_commands(source: str) -> list[str]:
-    """Every command line of the gate, stripped; a ``(cd docs && <cmd>)`` line
-    counts as ``<cmd>``. Comments and blank lines are not commands."""
-    commands = []
-    for line in source.splitlines():
-        text = line.strip()
-        if not text or text.startswith("#"):
-            continue
-        prefix = f"({_DOCS_CD} && "
-        if text.startswith(prefix) and text.endswith(")"):
-            text = text[len(prefix) : -1]
-        commands.append(text)
-    return commands
-
-
-@pytest.mark.parametrize("row", _CI_SIDE_ROWS, ids=lambda row: row.step)
-def test_each_gate_step_is_its_ci_line(row: GateCiStep, workflow: dict[str, Any]) -> None:
-    """The CI step exists in its job and runs exactly the row's command, so the
-    gate line rendered from the same row is the command CI runs."""
-    step = _find_named_step(workflow, row.job, row.step)
-    assert _ci_run_command(step["run"]) == row.ci_line(), (
-        f"{row.job}/{row.step} runs {step['run']!r}, the table says {row.ci_line()!r}"
-    )
-
-
-@pytest.mark.parametrize("row", _CI_SIDE_ROWS, ids=lambda row: row.step)
-def test_each_gate_step_is_its_ci_line__mutation_edits_the_ci_line(row: GateCiStep) -> None:
-    mutated = copy.deepcopy(_load_workflow())
+@pytest.mark.parametrize("row", CALLER_STEPS, ids=lambda row: row.step)
+def test_each_caller_step_calls_its_check__mutation_calls_another(row: CallerStep) -> None:
+    mutated = _load_raw_workflow()
     step = _find_named_step(mutated, row.job, row.step)
-    step["run"] = step["run"].rstrip() + " --edited\n"
+    step["run"] = step["run"].replace(f" run {row.check}", " run lockfile ruff", 1)
     with pytest.raises(AssertionError):
-        test_each_gate_step_is_its_ci_line(row, mutated)
+        test_each_caller_step_calls_its_check(row, mutated)
 
 
-@pytest.mark.parametrize("row", GATE_CI_STEPS, ids=lambda row: row.step)
-def test_the_gate_runs_each_ci_step_once(row: GateCiStep, gate_source: str | None = None) -> None:
-    """The gate holds the row's command, spelled its way, exactly once."""
-    source = _script_source(GATE_SCRIPT) if gate_source is None else gate_source
-    count = _gate_commands(source).count(row.gate_line())
-    assert count == 1, f"{GATE_SCRIPT} runs {row.gate_line()!r} {count} times, not once"
+def _ci_commands(row: CallerStep) -> list[str]:
+    """The command lines *row*'s call resolves to, one shell line each."""
+    return [_render(argv).replace("\n", " ") for argv in check_set.resolve(row.call())]
 
 
-@pytest.mark.parametrize("row", GATE_CI_STEPS, ids=lambda row: row.step)
-def test_the_gate_runs_each_ci_step_once__mutation_drops_the_line(row: GateCiStep) -> None:
-    source = _script_source(GATE_SCRIPT)
-    mutated = "\n".join(line for line in source.splitlines() if row.gate_line() not in line)
-    assert mutated != source, f"{GATE_SCRIPT} has no {row.gate_line()!r}; mutation is stale"
+@pytest.mark.parametrize("row", CALLER_STEPS, ids=lambda row: row.step)
+def test_the_gate_runs_each_ci_step_once(row: CallerStep, gate_source: str | None = None) -> None:
+    """The full tier runs the row's check, and each of its commands exactly once.
+    A check implemented in check.py itself runs no command of its own."""
+    assert row.check in {check.id for check in check_set.tier_checks("full")}
+    source = _tier_source("full", CI_BASE) if gate_source is None else gate_source
+    lines = source.splitlines()
+    for command in _ci_commands(row):
+        count = lines.count(command)
+        assert count == 1, f"the full tier runs {command!r} {count} times, not once"
+
+
+#: The rows whose check runs at least one command.
+_COMMAND_ROWS = tuple(row for row in CALLER_STEPS if check_set.resolve(row.call()))
+
+
+@pytest.mark.parametrize("row", _COMMAND_ROWS, ids=lambda row: row.step)
+def test_the_gate_runs_each_ci_step_once__mutation_drops_the_line(row: CallerStep) -> None:
+    source = _tier_source("full", CI_BASE)
+    first = _ci_commands(row)[0]
+    mutated = "\n".join(line for line in source.splitlines() if line != first)
+    assert mutated != source, f"the full tier has no {first!r}; mutation is stale"
     with pytest.raises(AssertionError):
         test_the_gate_runs_each_ci_step_once(row, mutated)
 
 
 def test_the_gate_runs_each_ci_step_once__mutation_hardcodes_a_second_base() -> None:
-    (row,) = [row for row in GATE_CI_STEPS if row.step == CHANGELOG_STEP]
-    source = _script_source(GATE_SCRIPT)
-    mutated = source.replace(row.gate_line(), row.gate_line() + " --base origin/main", 1)
-    assert mutated != source, f"{GATE_SCRIPT} has no {row.gate_line()!r}; mutation is stale"
+    (row,) = [row for row in CALLER_STEPS if row.step == CHANGELOG_STEP]
+    source = _tier_source("full", CI_BASE)
+    (command,) = _ci_commands(row)
+    mutated = source.replace(command, command + " --base origin/main", 1)
+    assert mutated != source, f"the full tier has no {command!r}; mutation is stale"
     with pytest.raises(AssertionError):
         test_the_gate_runs_each_ci_step_once(row, mutated)
 
@@ -8587,16 +8780,16 @@ def test_the_gate_checks_the_lockfile_before_any_uv_run(gate_source: str | None 
     """Any ``uv run`` re-locks a stale lockfile, so the check that the lockfile
     is current comes before the first of them, as it comes before the install
     step in CI."""
-    commands = _gate_commands(_script_source(GATE_SCRIPT) if gate_source is None else gate_source)
+    source = _tier_source("full", CI_BASE) if gate_source is None else gate_source
+    commands = source.splitlines()
     lock = _first_index(commands, lambda command: command == "uv lock --check")
     first_run = _first_index(commands, lambda command: "uv run " in command)
-    assert lock < len(commands), f"{GATE_SCRIPT} never checks the lockfile"
-    assert lock < first_run, f"{GATE_SCRIPT} runs `uv run` before `uv lock --check`"
+    assert lock < len(commands), "the full tier never checks the lockfile"
+    assert lock < first_run, "the full tier runs `uv run` before `uv lock --check`"
 
 
 def test_the_gate_checks_the_lockfile_before_any_uv_run__mutation_moves_it_after_ruff() -> None:
-    source = _script_source(GATE_SCRIPT)
-    lines = source.splitlines()
+    lines = _tier_source("full", CI_BASE).splitlines()
     lines.remove("uv lock --check")
     ruff = max(i for i, line in enumerate(lines) if line.startswith("uv run ruff "))
     lines.insert(ruff + 1, "uv lock --check")
@@ -8606,9 +8799,11 @@ def test_the_gate_checks_the_lockfile_before_any_uv_run__mutation_moves_it_after
 
 #: A vitest ``include`` glob's test-file extension set: ``*.test.{js,mjs}``.
 _VITEST_INCLUDE_EXT_RE = re.compile(r"\.test\.(?:\{([^}]*)\}|(\w+))['\"]")
-#: One arm of the gate's runner split that sends a file to vitest.
-_GATE_JS_ARM_RE = re.compile(r"\*\.test\.(\w+)")
 VITEST_CONFIG = CI_YML.parents[2] / "vitest.config.js"
+#: Extensions a named test file could plausibly carry.
+_CANDIDATE_EXTENSIONS = ("js", "mjs", "cjs", "ts", "jsx")
+
+Router = Callable[[list[str]], dict[str, list[str]]]
 
 
 def _vitest_include_extensions() -> set[str]:
@@ -8619,72 +8814,71 @@ def _vitest_include_extensions() -> set[str]:
     return extensions
 
 
-def _gate_js_extensions(source: str) -> set[str]:
-    """The extensions the gate's ``case`` arm sends to vitest."""
-    arms = [
-        line.strip()
-        for line in source.splitlines()
-        if line.strip().startswith("*.test.") and ")" in line
-    ]
-    assert len(arms) == 1, f"{GATE_SCRIPT} has {len(arms)} vitest arms in its split, not one"
-    return set(_GATE_JS_ARM_RE.findall(arms[0].split(")", 1)[0]))
+def _routed_js_extensions(route: Router) -> set[str]:
+    """The extensions the check command sends a named test file to vitest by."""
+    routed = set()
+    for ext in _CANDIDATE_EXTENSIONS:
+        try:
+            if route([f"tests/x.test.{ext}"])["vitest"]:
+                routed.add(ext)
+        except check_set.Refused:
+            continue
+    return routed
 
 
 def test_the_gate_sends_vitest_exactly_the_files_vitest_includes(
-    gate_source: str | None = None,
+    route: Router | None = None,
 ) -> None:
     """A JS test is sent to vitest by the extensions vitest's own ``include``
     lists: an extension the split lacks is a named test refused, one vitest
     lacks is a named test vitest never finds."""
-    source = _script_source(GATE_SCRIPT) if gate_source is None else gate_source
     assert _vitest_include_extensions(), "vitest.config.js lists no test extension"
-    assert _gate_js_extensions(source) == _vitest_include_extensions()
+    routed = _routed_js_extensions(route or check_set._route_named)
+    assert routed == _vitest_include_extensions()
 
 
 def test_the_gate_sends_vitest_exactly_the_files_vitest_includes__mutation_drops_mjs() -> None:
-    source = _script_source(GATE_SCRIPT)
-    mutated = source.replace(" | *.test.mjs", "", 1)
-    assert mutated != source, f"{GATE_SCRIPT} has no .mjs arm; mutation is stale"
+    def narrowed(named: list[str]) -> dict[str, list[str]]:
+        if any(path.endswith(".mjs") for path in named):
+            raise check_set.Refused("no runner")
+        return check_set._route_named(named)
+
     with pytest.raises(AssertionError):
-        test_the_gate_sends_vitest_exactly_the_files_vitest_includes(mutated)
+        test_the_gate_sends_vitest_exactly_the_files_vitest_includes(narrowed)
 
 
-_GATE_FAST_JS = 'npm run test:js -- "${js[@]}"'
+def test_the_gate_hands_vitest_only_the_js_tests(route: Router | None = None) -> None:
+    """Named tests reach vitest as the JS list, never every argument: a Python
+    path handed to vitest is a filter that matches no file."""
+    routed = (route or check_set._route_named)(["tests/a/test_b.py", "tests/c.test.js"])
+    assert routed["vitest"] == ["tests/c.test.js"]
+    assert routed["pytest"] == ["tests/a/test_b.py"]
 
 
-def test_the_fast_gate_hands_vitest_only_the_js_tests(gate_source: str | None = None) -> None:
-    """In fast mode vitest gets the JS list, never every argument: a Python path
-    handed to vitest is a filter that matches no file."""
-    source = _script_source(GATE_SCRIPT) if gate_source is None else gate_source
-    forwarded = [command for command in _gate_commands(source) if "npm run test:js --" in command]
-    assert forwarded == [_GATE_FAST_JS], (
-        f"{GATE_SCRIPT} hands vitest {forwarded}, not {[_GATE_FAST_JS]}"
-    )
+def test_the_gate_hands_vitest_only_the_js_tests__mutation_hands_every_argument() -> None:
+    def everything(named: list[str]) -> dict[str, list[str]]:
+        return {"pytest": list(named), "vitest": list(named)}
 
-
-def test_the_fast_gate_hands_vitest_only_the_js_tests__mutation_hands_every_argument() -> None:
-    source = _script_source(GATE_SCRIPT)
-    mutated = source.replace('"${js[@]}"', '"$@"', 1)
-    assert mutated != source, f"{GATE_SCRIPT} hands vitest no JS list; mutation is stale"
     with pytest.raises(AssertionError):
-        test_the_fast_gate_hands_vitest_only_the_js_tests(mutated)
+        test_the_gate_hands_vitest_only_the_js_tests(everything)
 
 
-def _run_gate_with_tool_tripwires(
+def _run_check_with_tool_tripwires(
     tmp_path: Path, *args: str
 ) -> tuple[subprocess.CompletedProcess[str], Path]:
-    """Run the gate with ``uv``, ``npm`` and ``npx`` replaced by stand-ins that
-    leave a mark, so a stop can be proven to come before any of them."""
+    """Run the check command with ``uv``, ``npm``, ``npx`` and ``node`` replaced
+    by stand-ins that leave a mark, so a stop can be proven to come before any
+    of them."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     mark = tmp_path / "a tool ran"
-    for tool in ("uv", "npm", "npx"):
+    for tool in ("uv", "npm", "npx", "node"):
         stand_in = bin_dir / tool
         stand_in.write_text(f'#!/bin/sh\necho "$0" >> "{mark}"\nexit 99\n', encoding="utf-8")
         stand_in.chmod(0o755)
     env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}
     result = subprocess.run(
-        ["bash", str(CI_YML.parents[2] / GATE_SCRIPT), *args],
+        [sys.executable, str(REPO_ROOT / CHECK_SCRIPT), *args],
         capture_output=True,
         text=True,
         env=env,
@@ -8694,53 +8888,60 @@ def _run_gate_with_tool_tripwires(
 
 
 def test_the_gate_refuses_a_test_no_runner_takes(tmp_path: Path) -> None:
-    result, mark = _run_gate_with_tool_tripwires(tmp_path, "fast", "--base", "HEAD", "tests/x.txt")
+    result, mark = _run_check_with_tool_tripwires(tmp_path, "full", "--", "tests/x.txt")
     assert result.returncode == 2, result.stdout + result.stderr
-    assert "gate: tests/x.txt belongs to no test runner" in result.stderr
+    assert "check: refused: tests/x.txt: not a test file" in result.stderr
     assert not mark.exists(), f"a tool ran before the stop: {mark.read_text()}"
 
 
 def test_the_gate_refuses_a_base_that_does_not_resolve(tmp_path: Path) -> None:
-    result, mark = _run_gate_with_tool_tripwires(tmp_path, "full", "--base", "no/such/ref")
+    result, mark = _run_check_with_tool_tripwires(tmp_path, "full", "--base", "no/such/ref")
     assert result.returncode == 2, result.stdout + result.stderr
-    assert "gate: base no/such/ref does not resolve; fetch it or pass --base" in result.stderr
+    assert "check: refused: no/such/ref does not resolve to a commit" in result.stderr
     assert not mark.exists(), f"a tool ran before the stop: {mark.read_text()}"
 
 
-#: The written-down copies of a gate step a contributor or a skill runs by hand,
-#: each held to its row's CI line.
-DOCUMENTED_GATE_STEPS = (("plugins/osprey/skills/doc-sync/SKILL.md", "Build documentation"),)
+#: The written-down copies of a check a contributor or a skill runs by hand,
+#: each held to the check's declared command.
+DOCUMENTED_GATE_STEPS = (("plugins/osprey/skills/doc-sync/SKILL.md", "docs"),)
 
 
-def _documented_commands(source: str) -> list[str]:
-    """The doc's shell lines, each split at ``&&`` into commands."""
-    return [part.strip() for line in source.splitlines() for part in line.split("&&")]
+def _documented_commands(source: str) -> list[list[str]]:
+    """The doc's shell lines, each split at ``&&`` into commands, as shell words."""
+    commands = []
+    for line in source.splitlines():
+        for part in line.split("&&"):
+            try:
+                commands.append(shlex.split(part))
+            except ValueError:
+                continue
+    return commands
 
 
 @pytest.mark.parametrize(
-    ("path", "step"), DOCUMENTED_GATE_STEPS, ids=[p for p, _ in DOCUMENTED_GATE_STEPS]
+    ("path", "check"), DOCUMENTED_GATE_STEPS, ids=[p for p, _ in DOCUMENTED_GATE_STEPS]
 )
 def test_documented_gate_steps_are_the_ci_line(
-    path: str, step: str, doc_source: str | None = None
+    path: str, check: str, doc_source: str | None = None
 ) -> None:
-    """A documented copy of a gate step is the command a reader runs, so it is
-    the CI line, not a variant of it."""
-    (row,) = [row for row in GATE_CI_STEPS if row.step == step]
-    source = _script_source(path) if doc_source is None else doc_source
-    assert row.ci_line() in _documented_commands(source), (
-        f"{path} no longer documents {row.ci_line()!r}"
-    )
+    """A documented copy of a check is the command a reader runs, so it is the
+    declared command, not a variant of it."""
+    declared = list(next(c for c in check_set.CHECKS if c.id == check).argv)
+    source = (REPO_ROOT / path).read_text(encoding="utf-8") if doc_source is None else doc_source
+    assert declared in _documented_commands(source), f"{path} no longer documents {declared!r}"
 
 
 @pytest.mark.parametrize(
-    ("path", "step"), DOCUMENTED_GATE_STEPS, ids=[p for p, _ in DOCUMENTED_GATE_STEPS]
+    ("path", "check"), DOCUMENTED_GATE_STEPS, ids=[p for p, _ in DOCUMENTED_GATE_STEPS]
 )
-def test_documented_gate_steps_are_the_ci_line__mutation_drops_a_flag(path: str, step: str) -> None:
-    source = _script_source(path)
+def test_documented_gate_steps_are_the_ci_line__mutation_drops_a_flag(
+    path: str, check: str
+) -> None:
+    source = (REPO_ROOT / path).read_text(encoding="utf-8")
     mutated = source.replace(' SPHINXOPTS="-W --keep-going"', "", 1)
     assert mutated != source, f"{path} documents no docs build; mutation is stale"
     with pytest.raises(AssertionError):
-        test_documented_gate_steps_are_the_ci_line(path, step, mutated)
+        test_documented_gate_steps_are_the_ci_line(path, check, mutated)
 
 
 # ---------------------------------------------------------------------------
@@ -9117,6 +9318,42 @@ def test_full_chain_auth_lane_installs_chromium_before_its_module__mutation_drop
         test_full_chain_auth_lane_installs_chromium_before_its_module(mutated)
 
 
+def test_full_chain_auth_lane_caps_and_reads_the_playwright_install(
+    workflow: dict[str, Any],
+) -> None:
+    """A trickling apt mirror has to fail the install in minutes, not after the
+    lane's 85; the Playwright cache is restored before it and never saved here,
+    so this lane cannot write a second copy of what the browser lane stores."""
+    steps = _jobs(workflow)[FULL_CHAIN_JOB]["steps"]
+    names = [step.get("name") for step in steps]
+    install = names.index(FULL_CHAIN_PLAYWRIGHT_STEP)
+    cap = steps[install].get("timeout-minutes")
+    assert isinstance(cap, int) and cap <= 10, f"'{FULL_CHAIN_JOB}' install cap is {cap!r}"
+    uses = [str(step.get("uses", "")) for step in steps]
+    restores = [i for i, u in enumerate(uses) if u.startswith("actions/cache/restore@")]
+    assert len(restores) == 1 and restores[0] < install, (
+        f"'{FULL_CHAIN_JOB}' restores the Playwright cache at {restores}, install at {install}"
+    )
+    assert not any(u.startswith(("actions/cache/save@", "actions/cache@")) for u in uses), (
+        f"'{FULL_CHAIN_JOB}' saves a cache of its own"
+    )
+
+
+def test_full_chain_auth_lane_caps_and_reads_the_playwright_install__mutation_uncapped() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _find_named_step(mutated, FULL_CHAIN_JOB, FULL_CHAIN_PLAYWRIGHT_STEP)["timeout-minutes"]
+    with pytest.raises(AssertionError, match="install cap"):
+        test_full_chain_auth_lane_caps_and_reads_the_playwright_install(mutated)
+
+
+def test_full_chain_auth_lane_caps_and_reads_the_playwright_install__mutation_saves() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[FULL_CHAIN_JOB]["steps"]
+    steps.append({"uses": "actions/cache/save@v6", "with": {"path": "~/apt-archives"}})
+    with pytest.raises(AssertionError, match="saves a cache"):
+        test_full_chain_auth_lane_caps_and_reads_the_playwright_install(mutated)
+
+
 def test_full_chain_auth_lane_outbudgets_the_single_build_lanes(workflow: dict[str, Any]) -> None:
     """The lane builds BOTH real framework images — the deployed sidecar
     Dockerfile and the production project image — where each sibling below
@@ -9444,21 +9681,41 @@ def test_gate_summary_tells_an_unlabeled_pr_what_did_not_run__mutation_drops_the
 
 RELEASE_YML = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "release.yml"
 RELEASE_GATE_JOB = "verify-full-ci"
+#: The gate both release workflows run, and the env var each one lists its lanes in.
+GREEN_LANES_SCRIPT = "scripts/ci/require_green_lanes.py"
+GREEN_LANES_ENV = "REQUIRED_LANES"
 
 
-def _release_gate_source() -> str:
-    """The inline Python the tag gate runs, lifted out of its heredoc."""
-    release = yaml.safe_load(RELEASE_YML.read_text())
-    steps = release["jobs"][RELEASE_GATE_JOB]["steps"]
-    step = next(s for s in steps if "python3 - <<'PY'" in s.get("run", ""))
-    return step["run"].split("python3 - <<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+@functools.cache
+def _green_lanes_module() -> Any:
+    """``scripts/ci/require_green_lanes.py``, loaded by path (``scripts/`` is no package)."""
+    path = Path(__file__).resolve().parents[2] / GREEN_LANES_SCRIPT
+    spec = importlib.util.spec_from_file_location("require_green_lanes", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _gate_step(release: dict[str, Any], job: str) -> dict[str, Any]:
+    """The one step of *job* that runs the shared lane gate."""
+    steps = [s for s in release["jobs"][job]["steps"] if GREEN_LANES_SCRIPT in s.get("run", "")]
+    assert len(steps) == 1, f"{job} must run {GREEN_LANES_SCRIPT} in exactly one step"
+    return steps[0]
+
+
+def _gate_lanes(release: dict[str, Any], job: str) -> dict[str, str]:
+    """``{ci.yml job id: rendered-name prefix}`` the gate in *job* requires, read by
+    the gate script's own parser so the test and the gate cannot read it apart."""
+    step = _gate_step(release, job)
+    assert f'--lanes "${GREEN_LANES_ENV}"' in step["run"], (
+        f"{job} does not pass ${GREEN_LANES_ENV} to the gate"
+    )
+    return _green_lanes_module().parse_lanes(step["env"][GREEN_LANES_ENV])
 
 
 def _required_lane_prefixes() -> dict[str, str]:
-    for node in ast.walk(ast.parse(_release_gate_source())):
-        if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") == "REQUIRED":
-            return ast.literal_eval(node.value)
-    raise AssertionError(f"{RELEASE_GATE_JOB} no longer defines REQUIRED")
+    return _gate_lanes(yaml.safe_load(RELEASE_YML.read_text()), RELEASE_GATE_JOB)
 
 
 def test_the_tag_gate_covers_every_spending_lane() -> None:
@@ -9467,16 +9724,22 @@ def test_the_tag_gate_covers_every_spending_lane() -> None:
     assert set(_required_lane_prefixes()) == set(SPENDING_LANES)
 
 
-def test_the_tag_gate_names_match_the_rendered_job_names(workflow: dict[str, Any]) -> None:
-    """Each prefix identifies its own lane and nothing else. The matrix lane
-    renders one job per preset, so a prefix is the only stable handle."""
+def _assert_lane_prefixes_match(
+    workflow: dict[str, Any], lanes: dict[str, str], source: str = "release.yml"
+) -> None:
     jobs = _jobs(workflow)
-    for lane, prefix in _required_lane_prefixes().items():
+    for lane, prefix in lanes.items():
         assert jobs[lane]["name"].startswith(prefix), (
-            f"{lane}: release.yml looks for {prefix!r}, ci.yml renders {jobs[lane]['name']!r}"
+            f"{lane}: {source} looks for {prefix!r}, ci.yml renders {jobs[lane]['name']!r}"
         )
         others = [n for n, j in jobs.items() if n != lane and j.get("name", "").startswith(prefix)]
         assert others == [], f"{prefix!r} also matches {others}"
+
+
+def test_the_tag_gate_names_match_the_rendered_job_names(workflow: dict[str, Any]) -> None:
+    """Each prefix identifies its own lane and nothing else. The matrix lane
+    renders one job per preset, so a prefix is the only stable handle."""
+    _assert_lane_prefixes_match(workflow, _required_lane_prefixes())
 
 
 def test_the_tag_gate_names_match__mutation_renames_a_lane() -> None:
@@ -9588,6 +9851,578 @@ def test_the_publish_order__mutation_drops_skip_existing() -> None:
     del _publish_steps(mutated)[0]["with"]["skip-existing"]
     with pytest.raises(AssertionError, match="skip-existing"):
         test_every_publish_step_skips_existing_files(mutated)
+
+
+# Only the upstream repository publishes. A version tag is both the version
+# source and the publish trigger, so any copy of the repository that receives
+# one would otherwise run the whole release chain. Every job carries the
+# repository guard as a top-level conjunct of its `if:`, so the guard fails
+# closed: a later edit that rewires `needs` cannot un-gate a publish.
+
+UPSTREAM_REPOSITORY = "als-apg/osprey"
+_REPOSITORY_GUARD = f"github.repository == '{UPSTREAM_REPOSITORY}'"
+
+
+def _top_level_conjuncts(expression: str) -> list[str] | None:
+    """Split an Actions expression on `&&` outside parentheses and quotes.
+
+    Returns None when the expression has a top-level `||`: an OR'd guard
+    does not fail closed, so it never counts as a guard.
+    """
+    text = expression.strip()
+    if text.startswith("${{") and text.endswith("}}"):
+        text = text[3:-2]
+    parts: list[str] = []
+    depth = 0
+    quoted = False
+    start = 0
+    i = 0
+    while i < len(text):
+        char = text[i]
+        if char == "'":
+            quoted = not quoted
+        elif not quoted and char == "(":
+            depth += 1
+        elif not quoted and char == ")":
+            depth -= 1
+        elif not quoted and depth == 0 and text.startswith("||", i):
+            return None
+        elif not quoted and depth == 0 and text.startswith("&&", i):
+            parts.append(text[start:i])
+            start = i + 2
+            i += 1
+        i += 1
+    parts.append(text[start:])
+    return [" ".join(part.split()) for part in parts]
+
+
+# The same invariant over every workflow: whatever a job is called and
+# whichever file holds it, a job that publishes (to PyPI, a release, gh-pages or
+# a container registry) runs only upstream. Publishers are found by the shape
+# of their steps, never by a list of file names, so a new workflow is covered
+# the moment it exists. The guard is product behaviour on every copy of the
+# repository, not scaffolding for one copy: a mirror or fork builds and tests
+# but publishes nothing.
+
+WORKFLOWS_DIR = RELEASE_YML.parent
+
+_PUBLISHING_ACTIONS = (
+    "pypa/gh-action-pypi-publish@",
+    "peaceiris/actions-gh-pages@",
+    "softprops/action-gh-release@",
+)
+
+
+def _all_workflows() -> dict[str, dict[str, Any]]:
+    """Every workflow under `.github/workflows/`, keyed by file name."""
+    paths = sorted([*WORKFLOWS_DIR.glob("*.yml"), *WORKFLOWS_DIR.glob("*.yaml")])
+    return {path.name: yaml.safe_load(path.read_text()) for path in paths}
+
+
+def _run_publishes(script: str) -> bool:
+    """Whether a `run:` script pushes an artifact somewhere public."""
+    if "docker push" in script or "buildx imagetools create" in script:
+        return True
+    if "docker buildx build" in script and "--push" in script:
+        return True
+    if "gh release create" in script or "twine upload" in script:
+        return True
+    return "git push" in script and "gh-pages" in script
+
+
+def _step_publishes(step: dict[str, Any]) -> bool:
+    uses = step.get("uses")
+    run = step.get("run")
+    return (isinstance(uses, str) and uses.startswith(_PUBLISHING_ACTIONS)) or (
+        isinstance(run, str) and _run_publishes(run)
+    )
+
+
+def _step_name(step: dict[str, Any], index: int) -> str:
+    return str(step.get("name") or f"step {index}")
+
+
+def _publishing_steps(job: dict[str, Any]) -> list[str]:
+    """Names of the steps in `job` that publish, judged by declared step shape."""
+    return [
+        _step_name(step, index)
+        for index, step in enumerate(job.get("steps") or [])
+        if _step_publishes(step)
+    ]
+
+
+def _has_repository_guard(condition: object) -> bool:
+    conjuncts = _top_level_conjuncts(condition) if isinstance(condition, str) else None
+    return conjuncts is not None and _REPOSITORY_GUARD in conjuncts
+
+
+def _calls_a_publisher(job: dict[str, Any], workflows: dict[str, dict[str, Any]]) -> bool:
+    """Whether a job-level `uses:` calls a local workflow that has a publishing job."""
+    uses = job.get("uses")
+    if not isinstance(uses, str) or not uses.startswith("./.github/workflows/"):
+        return False
+    called = workflows.get(uses.removeprefix("./.github/workflows/"))
+    if called is None:
+        return False
+    return any(
+        _publishing_steps(inner) or _calls_a_publisher(inner, workflows)
+        for inner in (called.get("jobs") or {}).values()
+    )
+
+
+def _unguarded_publishers(workflows: dict[str, dict[str, Any]]) -> list[str]:
+    """Publishing jobs and steps whose `if:` does not require the upstream repository.
+
+    A job is named `<file>:<job>`, a step `<file>:<job>/<step name>`. A guard on
+    the job covers its steps; otherwise each publishing step needs its own.
+    """
+    unguarded = []
+    for file_name, workflow in workflows.items():
+        for job_name, job in (workflow.get("jobs") or {}).items():
+            if _has_repository_guard(job.get("if")):
+                continue
+            if _calls_a_publisher(job, workflows):
+                unguarded.append(f"{file_name}:{job_name}")
+            for index, step in enumerate(job.get("steps") or []):
+                if _step_publishes(step) and not _has_repository_guard(step.get("if")):
+                    unguarded.append(f"{file_name}:{job_name}/{_step_name(step, index)}")
+    return unguarded
+
+
+def _publishing_jobs(workflows: dict[str, dict[str, Any]]) -> list[str]:
+    return [
+        f"{file_name}:{job_name}"
+        for file_name, workflow in workflows.items()
+        for job_name, job in (workflow.get("jobs") or {}).items()
+        if _publishing_steps(job) or _calls_a_publisher(job, workflows)
+    ]
+
+
+def test_every_publishing_job_runs_only_upstream() -> None:
+    """A mirror or fork publishes nothing, from any workflow, on any trigger."""
+    workflows = _all_workflows()
+    assert _publishing_jobs(workflows), "the publisher detector matches no job at all"
+    assert _unguarded_publishers(workflows) == []
+
+
+def test_every_publishing_job_runs_only_upstream__mutation_unguards_the_docs_deploy() -> None:
+    workflows = _all_workflows()
+    for step in workflows["docs.yml"]["jobs"]["build"]["steps"]:
+        if step.get("name") == "Deploy to GitHub Pages":
+            step["if"] = "steps.plan.outputs.deploy == 'true'"
+    assert _unguarded_publishers(workflows) == ["docs.yml:build/Deploy to GitHub Pages"]
+
+
+def test_every_publishing_job_runs_only_upstream__mutation_ors_the_guard() -> None:
+    workflows = _all_workflows()
+    for step in workflows["docs.yml"]["jobs"]["build"]["steps"]:
+        if step.get("name") == "Deploy to GitHub Pages":
+            step["if"] = f"{_REPOSITORY_GUARD} || steps.plan.outputs.deploy == 'true'"
+    assert _unguarded_publishers(workflows) == ["docs.yml:build/Deploy to GitHub Pages"]
+
+
+def test_every_publishing_job_runs_only_upstream__mutation_unguards_the_nextcloud_fixture() -> None:
+    workflows = _all_workflows()
+    del workflows["build-nextcloud-fixture.yml"]["jobs"]["build"]["if"]
+    assert _unguarded_publishers(workflows) == [
+        "build-nextcloud-fixture.yml:build/Build and push the fixture"
+    ]
+
+
+def test_every_publishing_job_runs_only_upstream__mutation_unguards_the_pypi_publish() -> None:
+    workflows = _all_workflows()
+    workflows["release.yml"]["jobs"]["publish-to-pypi"]["if"] = "startsWith(github.ref_name, 'v')"
+    assert _unguarded_publishers(workflows) == [
+        "release.yml:publish-to-pypi/Publish workspace members to PyPI",
+        "release.yml:publish-to-pypi/Publish framework to PyPI",
+    ]
+
+
+def test_every_publishing_job_runs_only_upstream__mutation_adds_a_pushing_job_to_ci() -> None:
+    workflows = _all_workflows()
+    workflows["ci.yml"]["jobs"]["push-image"] = {
+        "runs-on": "ubuntu-latest",
+        "steps": [{"name": "Push", "run": "docker push x"}],
+    }
+    assert _unguarded_publishers(workflows) == ["ci.yml:push-image/Push"]
+
+
+# ---------------------------------------------------------------------------
+# osprey-connectors releases from its own tags, through its own workflow
+# ---------------------------------------------------------------------------
+#
+# The connectors package has its own calendar stream on osprey-connectors-v2*
+# tags, so it publishes from release-connectors.yml and release.yml stops
+# building it. What is pinned: the connectors workflow fires on those tags and
+# nothing else (no dispatch); its publish waits on the CI gate, the build and
+# the install check, under its own PyPI environment, with the OIDC scope on
+# that job alone; its version check refuses a build that is not the tag; and
+# the framework release builds exactly its lockstep members.
+
+CONNECTORS_RELEASE_YML = RELEASE_YML.with_name("release-connectors.yml")
+CONNECTORS_GATE_JOB = "verify-ci"
+CONNECTORS_BUILD_JOB = "build"
+CONNECTORS_INSTALL_JOB = "verify-install"
+CONNECTORS_TAG_GUARD = (
+    f"{_REPOSITORY_GUARD} && startsWith(github.ref, 'refs/tags/osprey-connectors-v2')"
+)
+CONNECTORS_ENVIRONMENT = "pypi-connectors"
+CONNECTORS_VERSION_STEP = "Verify built versions match tag"
+LEAN_WALK_SCRIPT = "scripts/ci/connectors_lean_import_walk.py"
+#: The always-on lanes that prove the package. The backward-compatibility lanes
+#: join the gate the day ci.yml grows them; the test below fails until they do.
+CONNECTORS_LANES = frozenset({"test", "lint", "package", "connectors-standalone"})
+CONNECTORS_COMPAT_LANES = frozenset({"connectors-compat", "framework-at-connectors-floor"})
+
+
+def _load_connectors_release() -> dict[str, Any]:
+    return yaml.safe_load(CONNECTORS_RELEASE_YML.read_text())
+
+
+def _github_tag_glob_matches(pattern: str, tag: str) -> bool:
+    """A GitHub tag filter: ``*`` matches any run of characters but ``/``."""
+    regex = "".join("[^/]*" if c == "*" else re.escape(c) for c in pattern)
+    return re.fullmatch(regex, tag) is not None
+
+
+def _tag_filters(release: dict[str, Any]) -> list[str]:
+    # YAML 1.1 reads the bare `on:` key as True.
+    return release[True]["push"]["tags"]
+
+
+@pytest.mark.parametrize(
+    ("tag", "connectors", "framework"),
+    [
+        ("osprey-connectors-v2026.10.0", True, False),
+        ("osprey-connectors-v2026.10.0b1", True, False),
+        ("osprey-connectors-v2027.1.3rc2", True, False),
+        ("osprey-connectors-v0.1.0", False, False),  # retired; PyPI carries 0.1.0
+        ("v2026.10.0", False, True),
+        ("v2026.9.0b3", False, True),
+        ("checkpoint-2026-10-01", False, False),
+    ],
+)
+def test_each_release_workflow_fires_only_on_its_own_tags(
+    tag: str, connectors: bool, framework: bool
+) -> None:
+    fires = {
+        "connectors": any(
+            _github_tag_glob_matches(p, tag) for p in _tag_filters(_load_connectors_release())
+        ),
+        "framework": any(_github_tag_glob_matches(p, tag) for p in _tag_filters(_load_release())),
+    }
+    assert fires == {"connectors": connectors, "framework": framework}, tag
+
+
+def test_the_connectors_release_has_no_other_trigger() -> None:
+    """No dispatch: nothing publishes a commit nobody tagged."""
+    triggers = _load_connectors_release()[True]
+    assert triggers == {"push": {"tags": ["osprey-connectors-v2*"]}}
+
+
+def test_every_connectors_job_runs_only_on_a_connectors_tag(
+    release: dict[str, Any] | None = None,
+) -> None:
+    release = release if release is not None else _load_connectors_release()
+    for name, job in release["jobs"].items():
+        assert job.get("if") == CONNECTORS_TAG_GUARD, (
+            f"{name} is not guarded on the repository and the tag ref"
+        )
+
+
+def test_every_connectors_job_runs_only_on_a_connectors_tag__mutation_drops_a_guard() -> None:
+    mutated = _load_connectors_release()
+    del mutated["jobs"]["publish-to-pypi"]["if"]
+    with pytest.raises(AssertionError, match="publish-to-pypi is not guarded"):
+        test_every_connectors_job_runs_only_on_a_connectors_tag(mutated)
+
+
+def test_the_connectors_publish_is_gated_and_scoped(release: dict[str, Any] | None = None) -> None:
+    """The upload waits on the CI gate, the build and the install check; it
+    runs in the package's own environment, which the PyPI trusted publisher
+    names; and it alone holds the OIDC scope."""
+    release = release if release is not None else _load_connectors_release()
+    publish = release["jobs"]["publish-to-pypi"]
+    assert {CONNECTORS_GATE_JOB, CONNECTORS_BUILD_JOB, CONNECTORS_INSTALL_JOB} <= set(
+        publish["needs"]
+    ), f"the publish needs {publish['needs']}"
+    assert publish["environment"]["name"] == CONNECTORS_ENVIRONMENT, (
+        f"the publish runs in environment {publish['environment']['name']!r}"
+    )
+    assert publish.get("permissions") == {"id-token": "write"}, "publish must hold id-token"
+    assert "id-token" not in release.get("permissions", {}), (
+        "id-token is granted at workflow level, so every job can mint a PyPI token"
+    )
+    holders = [n for n, j in release["jobs"].items() if "id-token" in j.get("permissions", {})]
+    assert holders == ["publish-to-pypi"], f"id-token held by {holders}"
+    test_every_publish_step_skips_existing_files({"jobs": {PUBLISH_JOB: publish}})
+
+
+def test_the_connectors_publish__mutation_workflow_level_id_token() -> None:
+    mutated = _load_connectors_release()
+    mutated["permissions"]["id-token"] = "write"
+    with pytest.raises(AssertionError, match="workflow level"):
+        test_the_connectors_publish_is_gated_and_scoped(mutated)
+
+
+def test_the_connectors_publish__mutation_ungated() -> None:
+    mutated = _load_connectors_release()
+    mutated["jobs"]["publish-to-pypi"]["needs"] = [CONNECTORS_BUILD_JOB]
+    with pytest.raises(AssertionError, match="the publish needs"):
+        test_the_connectors_publish_is_gated_and_scoped(mutated)
+
+
+def test_the_connectors_publish__mutation_framework_environment() -> None:
+    mutated = _load_connectors_release()
+    mutated["jobs"]["publish-to-pypi"]["environment"]["name"] = "pypi"
+    with pytest.raises(AssertionError, match="runs in environment 'pypi'"):
+        test_the_connectors_publish_is_gated_and_scoped(mutated)
+
+
+def test_the_connectors_gate_requires_the_connectors_lanes(
+    workflow: dict[str, Any], release: dict[str, Any] | None = None
+) -> None:
+    """The four always-on lanes, plus every compatibility lane ci.yml has."""
+    release = release if release is not None else _load_connectors_release()
+    lanes = _gate_lanes(release, CONNECTORS_GATE_JOB)
+    expected = CONNECTORS_LANES | (CONNECTORS_COMPAT_LANES & set(_jobs(workflow)))
+    assert set(lanes) == expected, f"the connectors gate requires {sorted(lanes)}"
+    _assert_lane_prefixes_match(workflow, lanes, CONNECTORS_RELEASE_YML.name)
+
+
+def test_the_connectors_gate__mutation_a_compat_lane_lands_ungated() -> None:
+    workflow = _load_workflow()
+    _jobs(workflow)["connectors-compat"] = {"name": "Connectors against older frameworks"}
+    with pytest.raises(AssertionError, match="the connectors gate requires"):
+        test_the_connectors_gate_requires_the_connectors_lanes(workflow)
+
+
+def test_the_connectors_gate__mutation_renames_a_lane() -> None:
+    workflow = _load_workflow()
+    _jobs(workflow)["connectors-standalone"]["name"] = "Standalone connectors suite"
+    with pytest.raises(AssertionError, match="release-connectors.yml looks for"):
+        test_the_connectors_gate_requires_the_connectors_lanes(workflow)
+
+
+def test_the_connectors_gate_blocks_the_build() -> None:
+    release = _load_connectors_release()
+    assert release["jobs"][CONNECTORS_BUILD_JOB]["needs"] == [CONNECTORS_GATE_JOB]
+    assert release["jobs"][CONNECTORS_GATE_JOB]["permissions"]["actions"] == "read"
+
+
+def test_both_release_workflows_run_the_shared_lane_gate() -> None:
+    for release, job in (
+        (_load_release(), RELEASE_GATE_JOB),
+        (_load_connectors_release(), CONNECTORS_GATE_JOB),
+    ):
+        step = _gate_step(release, job)
+        assert "python3 - <<" not in step["run"], f"{job} still carries an inline gate"
+
+
+def _run_version_check(tmp_path: Path, version: str, files: list[str]) -> int:
+    step = next(
+        s
+        for s in _load_connectors_release()["jobs"][CONNECTORS_BUILD_JOB]["steps"]
+        if s.get("name") == CONNECTORS_VERSION_STEP
+    )
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    for name in files:
+        (dist / name).write_text("")
+    env = {**os.environ, "VERSION": version}
+    return subprocess.run(
+        ["bash", "-c", step["run"]], cwd=tmp_path, env=env, capture_output=True, text=True
+    ).returncode
+
+
+@pytest.mark.parametrize(
+    ("files", "ok"),
+    [
+        (
+            ["osprey_connectors-2026.10.0-py3-none-any.whl", "osprey_connectors-2026.10.0.tar.gz"],
+            True,
+        ),
+        (
+            [
+                "osprey_connectors-2026.9.0b3.post4-py3-none-any.whl",
+                "osprey_connectors-2026.9.0b3.post4.tar.gz",
+            ],
+            False,
+        ),
+        (["osprey_connectors-2026.10.0-py3-none-any.whl"], False),  # no sdist
+        (
+            [
+                "osprey_connectors-2026.10.0-py3-none-any.whl",
+                "osprey_connectors-2026.10.0.tar.gz",
+                "osprey_framework-2026.10.0-py3-none-any.whl",
+            ],
+            False,
+        ),
+    ],
+)
+def test_the_connectors_version_check_refuses_anything_but_the_tag(
+    tmp_path: Path, files: list[str], ok: bool
+) -> None:
+    assert (_run_version_check(tmp_path, "2026.10.0", files) == 0) is ok
+
+
+def test_the_connectors_build_builds_the_package_alone() -> None:
+    steps = _load_connectors_release()["jobs"][CONNECTORS_BUILD_JOB]["steps"]
+    runs = [s.get("run", "") for s in steps]
+    assert "uv build --package osprey-connectors" in runs
+    assert not any("--all-packages" in r for r in runs)
+    assert any("${TAG_NAME#osprey-connectors-v}" in r for r in runs), (
+        "the version is not derived from the tag minus its prefix"
+    )
+
+
+def _lean_walk_invocations(steps: list[dict[str, Any]]) -> list[str]:
+    return [s["run"] for s in steps if LEAN_WALK_SCRIPT in s.get("run", "")]
+
+
+def test_both_lean_wheel_checks_run_the_shared_walk(
+    package_steps: tuple[tuple[str, ...], ...] | None = None,
+) -> None:
+    """The wheel a tag publishes passes the check every PR runs, isolated from the
+    checkout. Every PR runs it through the package check, whose steps are
+    declared once, in ``PACKAGE_STEPS`` of scripts/check.py."""
+    steps = check_set.PACKAGE_STEPS if package_steps is None else package_steps
+    walks = [step for step in steps if LEAN_WALK_SCRIPT in step]
+    assert walks == [("{scratch}/lean/bin/python", "-I", LEAN_WALK_SCRIPT)], (
+        f"the package check must run {LEAN_WALK_SCRIPT} once, in isolated mode from the "
+        f"bare venv; it runs {walks}"
+    )
+    assert (
+        "uv",
+        "pip",
+        "install",
+        "--python",
+        "{scratch}/lean/bin/python",
+        "dist/osprey_connectors-*.whl",
+    ) in steps
+    runs = _lean_walk_invocations(
+        _load_connectors_release()["jobs"][CONNECTORS_INSTALL_JOB]["steps"]
+    )
+    where = "release-connectors.yml verify-install"
+    assert len(runs) == 1, f"{where} does not run {LEAN_WALK_SCRIPT}"
+    assert f"/tmp/lean-check/bin/python -I {LEAN_WALK_SCRIPT}" in runs[0], (
+        f"{where} must run the walk in isolated mode from the bare venv"
+    )
+    assert (
+        "uv pip install --python /tmp/lean-check/bin/python dist/osprey_connectors-*.whl" in runs[0]
+    )
+
+
+def test_both_lean_wheel_checks_run_the_shared_walk__mutation_inline_probe() -> None:
+    """The regression: the package check walks the wheel with a copy of its own."""
+    steps = tuple(
+        ("{scratch}/lean/bin/python", "-c", "import osprey_connectors")
+        if LEAN_WALK_SCRIPT in step
+        else step
+        for step in check_set.PACKAGE_STEPS
+    )
+    with pytest.raises(AssertionError, match="must run scripts/ci/connectors_lean_import_walk"):
+        test_both_lean_wheel_checks_run_the_shared_walk(steps)
+
+
+def test_the_connectors_jobs_that_read_tags_fetch_them(
+    release: dict[str, Any] | None = None,
+) -> None:
+    """The gate walks the tag's parents and the build describes the package's
+    tags; a shallow checkout has neither and builds a wrong version silently."""
+    release = release if release is not None else _load_connectors_release()
+    for job in (CONNECTORS_GATE_JOB, CONNECTORS_BUILD_JOB):
+        checkout = next(
+            s
+            for s in release["jobs"][job]["steps"]
+            if str(s.get("uses", "")).startswith("actions/checkout@")
+        )
+        assert checkout.get("with", {}).get("fetch-depth") == 0, f"{job} checks out shallow"
+
+
+def test_the_connectors_jobs_that_read_tags_fetch_them__mutation_shallow_build() -> None:
+    mutated = _load_connectors_release()
+    for step in mutated["jobs"][CONNECTORS_BUILD_JOB]["steps"]:
+        if str(step.get("uses", "")).startswith("actions/checkout@"):
+            step.pop("with")
+    with pytest.raises(AssertionError, match="build checks out shallow"):
+        test_the_connectors_jobs_that_read_tags_fetch_them(mutated)
+
+
+def test_both_release_workflows_extract_notes_with_the_shared_script() -> None:
+    for release, changelog in (
+        (_load_release(), "CHANGELOG.md"),
+        (_load_connectors_release(), "packages/osprey-connectors/CHANGELOG.md"),
+    ):
+        runs = " ".join(s.get("run", "") for s in release["jobs"]["create-github-release"]["steps"])
+        assert f'python3 scripts/ci/release_notes.py {changelog} "$VERSION"' in runs
+        assert "sed -n" not in runs, "an inline sed extractor drops a last section's last line"
+
+
+def test_the_connectors_release_notes_come_from_its_own_changelog() -> None:
+    job = _load_connectors_release()["jobs"]["create-github-release"]
+    runs = " ".join(s.get("run", "") for s in job["steps"])
+    assert "packages/osprey-connectors/CHANGELOG.md" in runs
+    create = next(s for s in job["steps"] if str(s.get("uses", "")).startswith("softprops/"))
+    assert create["with"]["make_latest"] is False, "a connectors release must not become Latest"
+    assert create["with"]["name"].startswith("osprey-connectors v")
+    assert job["permissions"] == {"contents": "write"}
+
+
+def _framework_build_commands(release: dict[str, Any]) -> list[str]:
+    step = next(s for s in release["jobs"]["build"]["steps"] if s.get("name") == "Build packages")
+    return [line.strip() for line in step["run"].splitlines() if line.strip()]
+
+
+def test_the_framework_release_builds_its_lockstep_members_only(
+    release: dict[str, Any] | None = None,
+) -> None:
+    """Every workspace member but osprey-connectors rides the v-tag; a member
+    added later fails here until the release builds it."""
+    release = release if release is not None else _load_release()
+    members = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())["tool"]["uv"]["workspace"][
+        "members"
+    ]
+    lockstep = sorted(Path(m).name for m in members if Path(m).name != "osprey-connectors")
+    expected = ["uv build", *(f"uv build --package {m}" for m in lockstep)]
+    assert _framework_build_commands(release) == expected, (
+        f"the framework release builds {_framework_build_commands(release)}"
+    )
+    text = yaml.safe_dump(release)
+    assert "--all-packages" not in text, "release.yml builds every package again"
+
+
+def test_the_framework_release_builds__mutation_all_packages() -> None:
+    mutated = _load_release()
+    step = next(s for s in mutated["jobs"]["build"]["steps"] if s.get("name") == "Build packages")
+    step["run"] = "uv build --all-packages\n"
+    with pytest.raises(AssertionError, match="the framework release builds"):
+        test_the_framework_release_builds_its_lockstep_members_only(mutated)
+
+
+def test_the_framework_version_check_refuses_a_connectors_artifact(tmp_path: Path) -> None:
+    step = next(
+        s
+        for s in _load_release()["jobs"]["build"]["steps"]
+        if s.get("name") == CONNECTORS_VERSION_STEP
+    )
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    env = {**os.environ, "GITHUB_REF": "refs/tags/v2026.10.0"}
+
+    def run() -> int:
+        return subprocess.run(
+            ["bash", "-c", step["run"]], cwd=tmp_path, env=env, capture_output=True, text=True
+        ).returncode
+
+    for name in (
+        "osprey_framework-2026.10.0-py3-none-any.whl",
+        "pyaml_cs_osprey-2026.10.0-py3-none-any.whl",
+    ):
+        (dist / name).write_text("")
+    assert run() == 0
+    (dist / "osprey_connectors-2026.10.0-py3-none-any.whl").write_text("")
+    assert run() != 0
 
 
 # ---------------------------------------------------------------------------
@@ -9891,157 +10726,147 @@ def test_the_gate_reads_its_targets_from_the_declared_files__mutation_drops_a_tr
 
 
 # ---------------------------------------------------------------------------
-# the local package step judges this tree's artifacts, by twine's own verdict
+# the local package check judges this tree's artifacts, by twine's own verdict
 # ---------------------------------------------------------------------------
 #
 # ci.yml's `package` job gets both properties from the runner for nothing: a
 # fresh checkout hands it an empty dist/, and a `run:` step fails its job on a
-# non-zero exit. The local mirror is handed neither. dist/ is gitignored, so it
-# outlives a branch switch and holds the artifacts of other commits; and a
-# shell pipeline reports the status of its LAST command, so a verdict read
-# through a grep is the grep's verdict rather than the checker's.
+# non-zero exit. A local run of the check is handed neither. dist/ is
+# gitignored, so it outlives a branch switch and holds the artifacts of other
+# commits; and a shell pipeline reports the status of its LAST command, so a
+# verdict read through a grep is the grep's verdict rather than the checker's.
 
-DIST_CLEAN_COMMAND = "rm -rf dist"
-PACKAGE_BUILD_COMMAND = "uv build"
-TWINE_CHECK_COMMAND = "uvx twine check dist/*"
-
-
-def _command_lines(source: str) -> list[str]:
-    """*source*'s lines with comments and blanks dropped.
-
-    The rules below are about what the script RUNS, so a comment beside a step
-    stays free to quote the command it explains without standing in for it.
-    """
-    return [
-        line for line in source.splitlines() if line.strip() and not line.lstrip().startswith("#")
-    ]
+PACKAGE_BUILD_STEP = ("uv", "build")
+TWINE_CHECK_STEP = ("uvx", "twine", "check", "dist/*")
+DIST_CLEAN = "clean dist"
 
 
-def _dist_clean_missing(source: str) -> list[str]:
-    """What the package step's clean is missing (empty = it precedes the build)."""
-    lines = _command_lines(source)
-    build = next((i for i, line in enumerate(lines) if PACKAGE_BUILD_COMMAND in line), None)
-    if build is None:
+def _package_events(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """What ``_check_package`` does, in order: the dist/ clean and each command."""
+    events: list[str] = []
+
+    class _Shutil:
+        @staticmethod
+        def rmtree(path: object, ignore_errors: bool = False) -> None:
+            if Path(str(path)) == check_set.ROOT / "dist":
+                events.append(DIST_CLEAN)
+
+    def _run(argv: list[str], *_: object) -> int:
+        events.append(" ".join(argv))
+        return 0
+
+    monkeypatch.setattr(check_set, "shutil", _Shutil)
+    monkeypatch.setattr(check_set, "_run", _run)
+    assert check_set._check_package(check_set.Context()) == 0
+    return events
+
+
+def _dist_clean_missing(events: list[str]) -> list[str]:
+    """What the package check's clean is missing (empty = it precedes the build)."""
+    build = " ".join(PACKAGE_BUILD_STEP)
+    first = next((i for i, event in enumerate(events) if event == build), None)
+    if first is None:
         return ["a package build"]
-    if not any(DIST_CLEAN_COMMAND in line for line in lines[:build]):
+    if DIST_CLEAN not in events[:first]:
         return ["a dist/ clean before the build"]
     return []
 
 
-def test_ci_check_builds_into_an_empty_dist() -> None:
-    """The step checks what this tree built, not what the directory happens to
+def test_the_package_check_builds_into_an_empty_dist(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The check judges what this tree built, not what the directory happens to
     hold. `uv build` writes into dist/ without clearing it and dist/ is
-    gitignored, so without the clean the twine check below can be answered by a
+    gitignored, so without the clean the twine check can be answered by a
     wheel from another commit — and answered green."""
-    assert _dist_clean_missing(_script_source(CI_CHECK_SCRIPT)) == [], (
-        f"{CI_CHECK_SCRIPT} builds the package without emptying dist/ first: "
-        f"add `{DIST_CLEAN_COMMAND}` above `{PACKAGE_BUILD_COMMAND}`"
-    )
+    assert _dist_clean_missing(_package_events(monkeypatch)) == []
 
 
-def test_ci_check_builds_into_an_empty_dist__mutation_drops_the_clean() -> None:
-    source = _script_source(CI_CHECK_SCRIPT)
-    mutated = "\n".join(line for line in source.splitlines() if DIST_CLEAN_COMMAND not in line)
-    assert mutated != source, f"no dist/ clean in {CI_CHECK_SCRIPT}; this mutation is stale"
+def test_the_package_check_builds_into_an_empty_dist__mutation_drops_the_clean(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events = _package_events(monkeypatch)
+    mutated = [event for event in events if event != DIST_CLEAN]
+    assert mutated != events, "no dist/ clean in the package check; this mutation is stale"
     assert _dist_clean_missing(mutated) == ["a dist/ clean before the build"]
 
 
-def test_ci_check_builds_into_an_empty_dist__mutation_moves_it_after_the_build() -> None:
+def test_the_package_check_builds_into_an_empty_dist__mutation_moves_it_after_the_build(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Order is the whole rule: a clean that runs after the build deletes the
     artifacts the next step was going to check."""
-    lines = _command_lines(_script_source(CI_CHECK_SCRIPT))
-    clean = next(i for i, line in enumerate(lines) if DIST_CLEAN_COMMAND in line)
-    build = next(i for i, line in enumerate(lines) if PACKAGE_BUILD_COMMAND in line)
-    assert clean < build, "the clean no longer precedes the build; this mutation is stale"
-    lines.insert(build, lines.pop(clean))
-    assert _dist_clean_missing("\n".join(lines)) == ["a dist/ clean before the build"]
+    events = _package_events(monkeypatch)
+    events.insert(2, events.pop(events.index(DIST_CLEAN)))
+    assert _dist_clean_missing(events) == ["a dist/ clean before the build"]
 
 
-def _twine_verdict_missing(source: str) -> list[str]:
+def _twine_verdict_missing(steps: tuple[tuple[str, ...], ...]) -> list[str]:
     """What the twine check is missing (empty = its own status decides)."""
-    checks = [line for line in _command_lines(source) if TWINE_CHECK_COMMAND in line]
-    if not checks:
+    if TWINE_CHECK_STEP not in steps:
         return ["a twine check"]
-    return [f"twine's own status on {line.strip()!r}" for line in checks if "|" in line]
+    return [
+        f"twine's own status on {step!r}"
+        for step in steps
+        if any("twine" in part for part in step) and step != TWINE_CHECK_STEP
+    ]
 
 
-def test_ci_check_reports_twines_own_verdict() -> None:
+def test_the_package_check_reports_twines_own_verdict() -> None:
     """The checker decides, and says why. A pipeline reports its last command's
     status, so anything downstream of twine answers for it — and twine reports
     per artifact, so a downstream match on a passing line is satisfied by one
     good artifact beside a broken one."""
-    assert _twine_verdict_missing(_script_source(CI_CHECK_SCRIPT)) == [], (
-        f"{CI_CHECK_SCRIPT} decides the twine check with something other than twine: "
-        f"{_twine_verdict_missing(_script_source(CI_CHECK_SCRIPT))}"
-    )
+    assert _twine_verdict_missing(check_set.PACKAGE_STEPS) == []
 
 
-def test_ci_check_reports_twines_own_verdict__mutation_restores_the_grep() -> None:
-    source = _script_source(CI_CHECK_SCRIPT)
-    mutated = source.replace(
-        f"{TWINE_CHECK_COMMAND};", f'{TWINE_CHECK_COMMAND} 2>&1 | grep -q "PASSED";'
-    )
-    assert mutated != source, "the twine invocation moved; this mutation is stale"
+def test_the_package_check_reports_twines_own_verdict__mutation_restores_the_grep() -> None:
+    steps = check_set.PACKAGE_STEPS
+    piped = ("sh", "-c", 'uvx twine check dist/* 2>&1 | grep -q "PASSED"')
+    mutated = tuple(piped if step == TWINE_CHECK_STEP else step for step in steps)
+    assert mutated != steps, "the twine step moved; this mutation is stale"
     assert _twine_verdict_missing(mutated) != []
 
 
 # ---------------------------------------------------------------------------
-# a broken documentation link fails the local run, and names itself
+# the link check is advisory: a CI step that cannot fail, and no check
 # ---------------------------------------------------------------------------
 #
-# The same rule the package step above it follows, for the other checker in
-# this script whose verdict was read through a grep. Two clauses, because a
-# check can fail open in two independent ways: the status a pipeline reports
-# is its LAST command's, and a step that records nothing in FAILED_CHECKS
-# cannot reach the summary that decides the script's exit code.
+# External links break for reasons no change controls, so the docs job reports
+# them without failing, and the check command declares no link check whose
+# verdict a local run would then treat as binding.
 
-LINKCHECK_COMMAND = "uv run make linkcheck"
-LINKCHECK_FAILURE_RECORD = 'FAILED_CHECKS+=("docs-linkcheck")'
+LINKCHECK_STEP = "Check for broken links"
 
 
-def _linkcheck_verdict_missing(source: str) -> list[str]:
-    """What the link check is missing (empty = sphinx's own status blocks a push)."""
-    lines = _command_lines(source)
-    checks = [i for i, line in enumerate(lines) if LINKCHECK_COMMAND in line]
-    if not checks:
-        return ["a link check"]
-    missing = [
-        f"the checker's own status on {lines[i].strip()!r}" for i in checks if "|" in lines[i]
+def _linkcheck_problems(wf: dict[str, Any], checks: tuple[Any, ...]) -> list[str]:
+    step = _find_named_step(wf, DOCS_JOB, LINKCHECK_STEP)
+    problems = []
+    if step.get("continue-on-error") is not True:
+        problems.append("the link-check step can fail the docs job")
+    problems += [
+        f"{check.id}: a check runs the link check" for check in checks if "linkcheck" in check.argv
     ]
-    branch = lines[checks[0] + 1 :]
-    end = next((j for j, line in enumerate(branch) if line.strip() in {"else", "fi"}), len(branch))
-    if not any(LINKCHECK_FAILURE_RECORD in line for line in branch[:end]):
-        missing.append("a recorded failure")
-    return missing
+    return problems
 
 
-def test_ci_check_blocks_on_a_broken_documentation_link() -> None:
-    """The documentation step's two checks answer to the same rule. A build failure
-    is recorded and fails the run; a link the docs publish and no reader can follow
-    must be too, by the checker's own status and in words that name the link."""
-    assert _linkcheck_verdict_missing(_script_source(CI_CHECK_SCRIPT)) == [], (
-        f"{CI_CHECK_SCRIPT}'s link check cannot fail the run: "
-        f"{_linkcheck_verdict_missing(_script_source(CI_CHECK_SCRIPT))}"
+def test_the_link_check_is_advisory(workflow: dict[str, Any]) -> None:
+    assert _linkcheck_problems(workflow, check_set.CHECKS) == []
+
+
+def test_the_link_check_is_advisory__mutation_declares_a_check() -> None:
+    extra = check_set.Check(
+        "linkcheck", "build", check_set.FULL, ("uv", "run", "make", "linkcheck")
     )
+    assert _linkcheck_problems(_load_workflow(), (*check_set.CHECKS, extra)) == [
+        "linkcheck: a check runs the link check"
+    ]
 
 
-def test_ci_check_blocks_on_a_broken_documentation_link__mutation_restores_the_grep() -> None:
-    source = _script_source(CI_CHECK_SCRIPT)
-    mutated = source.replace(
-        f"{LINKCHECK_COMMAND};", f'{LINKCHECK_COMMAND} 2>&1 | grep -q "build succeeded";'
-    )
-    assert mutated != source, "the linkcheck invocation moved; this mutation is stale"
-    assert _linkcheck_verdict_missing(mutated) != []
-
-
-def test_ci_check_blocks_on_a_broken_documentation_link__mutation_drops_the_record() -> None:
-    """A step that only prints its verdict is advisory, whatever the verdict says."""
-    source = _script_source(CI_CHECK_SCRIPT)
-    mutated = "\n".join(
-        line for line in source.splitlines() if LINKCHECK_FAILURE_RECORD not in line
-    )
-    assert mutated != source, f"no linkcheck failure record in {CI_CHECK_SCRIPT}; mutation is stale"
-    assert _linkcheck_verdict_missing(mutated) == ["a recorded failure"]
+def test_the_link_check_is_advisory__mutation_lets_it_fail() -> None:
+    mutated = _load_workflow()
+    del _find_named_step(mutated, DOCS_JOB, LINKCHECK_STEP)["continue-on-error"]
+    assert _linkcheck_problems(mutated, check_set.CHECKS) == [
+        "the link-check step can fail the docs job"
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -10563,12 +11388,19 @@ def test_all_checks_passed_needs_graph_reseed__mutation_drops_check_pr_lane_line
 
 PYAML_COVERAGE_FLAG = "--cov=packages/pyaml-cs-osprey/src/pyaml_cs_osprey"
 PACKAGE_JOB = "package"
-LEAN_WHEEL_STEP = "Verify wheel is self-contained on a bare venv"
-PYAML_WHEEL_STEP = "Build pyaml-cs-osprey wheel and import-walk it with the framework"
 PYAML_WHEEL_GLOBS = (
     "dist/osprey_framework-*.whl",
     "dist/osprey_connectors-*.whl",
     "dist/pyaml_cs_osprey-*.whl",
+)
+DOCK_ENGINE_COVERAGE_FLAG = "--cov=packages/dock-engine/src/dock_engine"
+#: What the framework wheel must carry for ``dock_engine``: the module itself
+#: (bundled from packages/dock-engine, not a wheel of its own) and the package
+#: data ``dock_engine._data`` reads through ``importlib.resources``.
+DOCK_ENGINE_WHEEL_DATA = (
+    "dock_engine/__init__.py",
+    "dock_engine/cases/validate/",
+    "dock_engine/manifest.json",
 )
 RELEASE_VERIFY_JOB = "verify-pypi-resolvable"
 RELEASE_SIBLING_DIR = "/tmp/sibling"
@@ -10601,74 +11433,177 @@ def test_the_coverage_cell_measures_the_pyaml_member__mutation_drops_the_flag() 
         test_the_coverage_cell_measures_the_pyaml_member(mutated)
 
 
-def _package_step_index(wf: dict[str, Any], step_name: str) -> int:
-    steps = _jobs(wf)[PACKAGE_JOB]["steps"]
+def test_the_coverage_cell_measures_the_dock_engine_member(workflow: dict[str, Any]) -> None:
+    """The dock-engine member's tests run in the unit lane, so its tree is on
+    the coverage command line beside the other members'."""
+    flags = _coverage_cell_flags(workflow)
+    assert DOCK_ENGINE_COVERAGE_FLAG in flags, (
+        f"the coverage cell does not measure the dock-engine member; COV_ARGS names {flags}"
+    )
+
+
+def test_the_coverage_cell_measures_the_dock_engine_member__mutation_drops_the_flag() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
+    assert DOCK_ENGINE_COVERAGE_FLAG in step["run"], "the flag moved; this mutation is stale"
+    step["run"] = step["run"].replace(f" {DOCK_ENGINE_COVERAGE_FLAG}", "")
+    with pytest.raises(AssertionError, match="does not measure the dock-engine member"):
+        test_the_coverage_cell_measures_the_dock_engine_member(mutated)
+
+
+PackageSteps = tuple[tuple[str, ...], ...]
+PYAML_BUILD_STEP = ("uv", "build", "--package", "pyaml-cs-osprey")
+LEAN_PYTHON = "{scratch}/lean/bin/python"
+PYAML_PYTHON = "{scratch}/pyaml/bin/python"
+PACKAGE_UPLOAD_STEP = "Upload package artifacts"
+#: What the uploaded ``package`` artifact holds: the framework's own artifacts.
+FRAMEWORK_ARTIFACTS = "dist/osprey_framework-*"
+
+
+def _step_index(
+    steps: PackageSteps, predicate: Callable[[tuple[str, ...]], bool], what: str
+) -> int:
     for i, step in enumerate(steps):
-        if step.get("name") == step_name:
+        if predicate(step):
             return i
-    raise AssertionError(f"job '{PACKAGE_JOB}' has no step named '{step_name}'")
+    raise AssertionError(f"the package check has no step that {what}")
 
 
-def test_the_package_job_import_walks_the_pyaml_wheel(workflow: dict[str, Any]) -> None:
+def _installs_into(python: str) -> Callable[[tuple[str, ...]], bool]:
+    return lambda step: step[:3] == ("uv", "pip", "install") and python in step
+
+
+def test_the_package_job_import_walks_the_pyaml_wheel(
+    workflow: dict[str, Any], steps: PackageSteps | None = None
+) -> None:
     """The pyAML wheel is built and every module in it imported, in a venv that
     holds the framework and connectors wheels too -- it imports the framework
-    by design -- while the lean check keeps the connectors wheel alone."""
-    steps = _jobs(workflow)[PACKAGE_JOB]["steps"]
-    walk = _package_step_index(workflow, PYAML_WHEEL_STEP)
-    lean = _package_step_index(workflow, LEAN_WHEEL_STEP)
-    upload = _package_step_index(workflow, "Upload package artifacts")
-    assert walk > lean > upload, (
-        "the pyAML wheel must be built after the framework-only dist/ reaches the upload, "
-        "and its import-walk must not precede the lean check"
+    by design -- while the lean check keeps the connectors wheel alone. The
+    package check runs it after twine has judged the framework-only dist/, and
+    the job uploads the framework's artifacts alone."""
+    steps = check_set.PACKAGE_STEPS if steps is None else steps
+    twine = _step_index(steps, lambda step: step == TWINE_CHECK_STEP, "runs twine")
+    build = _step_index(steps, lambda step: step == PYAML_BUILD_STEP, "builds the pyAML wheel")
+    lean = _step_index(steps, lambda step: step[0] == LEAN_PYTHON, "runs the lean probe")
+    walk = _step_index(steps, lambda step: step[0] == PYAML_PYTHON, "import-walks the pyAML wheel")
+    install = _step_index(steps, _installs_into(PYAML_PYTHON), "fills the pyAML venv")
+    lean_install = _step_index(steps, _installs_into(LEAN_PYTHON), "fills the lean venv")
+    upload = _find_named_step(workflow, PACKAGE_JOB, PACKAGE_UPLOAD_STEP)
+    assert twine < build and walk > lean and upload["with"]["path"] == FRAMEWORK_ARTIFACTS, (
+        "the pyAML wheel must be built after twine judges the framework-only dist/, the "
+        "upload must carry the framework-only dist/, and its import-walk must not precede "
+        "the lean check"
     )
-    script = steps[walk]["run"]
-    assert "uv build --package pyaml-cs-osprey" in script
     for glob in PYAML_WHEEL_GLOBS:
-        assert glob in script, f"the pyAML import-walk venv does not install {glob}"
+        assert glob in steps[install], f"the pyAML import-walk venv does not install {glob}"
+    script = steps[walk][-1]
     assert "pkgutil.walk_packages(pyaml_cs_osprey.__path__" in script
     assert "onerror=_raise" in script, (
         "walk_packages swallows a package import error unless onerror raises"
     )
-    lean_script = steps[lean]["run"]
-    assert "osprey_framework" not in lean_script and "pyaml_cs_osprey" not in lean_script, (
+    lean_words = " ".join(steps[lean_install])
+    assert "osprey_framework" not in lean_words and "pyaml_cs_osprey" not in lean_words, (
         "the lean check must install the connectors wheel alone; a framework in its venv "
         "satisfies every osprey.* import it exists to refuse"
     )
 
 
+def _replace_step(steps: PackageSteps, index: int, new: tuple[str, ...]) -> PackageSteps:
+    return (*steps[:index], new, *steps[index + 1 :])
+
+
 def test_the_package_job_import_walks_the_pyaml_wheel__mutation_drops_the_step() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    steps = _jobs(mutated)[PACKAGE_JOB]["steps"]
-    steps.pop(_package_step_index(mutated, PYAML_WHEEL_STEP))
-    with pytest.raises(AssertionError, match="no step named"):
-        test_the_package_job_import_walks_the_pyaml_wheel(mutated)
+    steps = tuple(s for s in check_set.PACKAGE_STEPS if s[0] != PYAML_PYTHON)
+    with pytest.raises(AssertionError, match="no step that"):
+        test_the_package_job_import_walks_the_pyaml_wheel(_load_workflow(), steps)
 
 
 def test_the_package_job_import_walks_the_pyaml_wheel__mutation_walks_without_framework() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _jobs(mutated)[PACKAGE_JOB]["steps"][_package_step_index(mutated, PYAML_WHEEL_STEP)]
-    step["run"] = step["run"].replace("dist/osprey_framework-*.whl ", "")
+    steps = check_set.PACKAGE_STEPS
+    index = _step_index(steps, _installs_into(PYAML_PYTHON), "fills the pyAML venv")
+    narrowed = tuple(word for word in steps[index] if word != "dist/osprey_framework-*.whl")
     with pytest.raises(AssertionError, match="does not install dist/osprey_framework"):
-        test_the_package_job_import_walks_the_pyaml_wheel(mutated)
+        test_the_package_job_import_walks_the_pyaml_wheel(
+            _load_workflow(), _replace_step(steps, index, narrowed)
+        )
 
 
 def test_the_package_job_import_walks_the_pyaml_wheel__mutation_lean_venv_gets_framework() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _jobs(mutated)[PACKAGE_JOB]["steps"][_package_step_index(mutated, LEAN_WHEEL_STEP)]
-    step["run"] = step["run"].replace(
-        "dist/osprey_connectors-*.whl", "dist/osprey_framework-*.whl dist/osprey_connectors-*.whl"
-    )
+    steps = check_set.PACKAGE_STEPS
+    index = _step_index(steps, _installs_into(LEAN_PYTHON), "fills the lean venv")
+    widened = (*steps[index], "dist/osprey_framework-*.whl")
     with pytest.raises(AssertionError, match="connectors wheel alone"):
-        test_the_package_job_import_walks_the_pyaml_wheel(mutated)
+        test_the_package_job_import_walks_the_pyaml_wheel(
+            _load_workflow(), _replace_step(steps, index, widened)
+        )
 
 
-def test_the_package_job_import_walks_the_pyaml_wheel__mutation_built_before_upload() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    steps = _jobs(mutated)[PACKAGE_JOB]["steps"]
-    walk = steps.pop(_package_step_index(mutated, PYAML_WHEEL_STEP))
-    steps.insert(_package_step_index(mutated, "Upload package artifacts"), walk)
+def test_the_package_job_import_walks_the_pyaml_wheel__mutation_built_before_twine() -> None:
+    steps = [s for s in check_set.PACKAGE_STEPS if s != PYAML_BUILD_STEP]
+    steps.insert(steps.index(TWINE_CHECK_STEP), PYAML_BUILD_STEP)
+    with pytest.raises(AssertionError, match="framework-only dist/"):
+        test_the_package_job_import_walks_the_pyaml_wheel(_load_workflow(), tuple(steps))
+
+
+def test_the_package_job_import_walks_the_pyaml_wheel__mutation_uploads_all_of_dist() -> None:
+    mutated = _load_workflow()
+    _find_named_step(mutated, PACKAGE_JOB, PACKAGE_UPLOAD_STEP)["with"]["path"] = "dist/"
     with pytest.raises(AssertionError, match="framework-only dist/"):
         test_the_package_job_import_walks_the_pyaml_wheel(mutated)
+
+
+def _checks_dock_engine(step: tuple[str, ...]) -> bool:
+    return step[:2] == ("python3", "-c") and "dock_engine" in step[2]
+
+
+def test_the_package_job_checks_the_framework_wheel_for_dock_engine(
+    workflow: dict[str, Any], steps: PackageSteps | None = None
+) -> None:
+    """``dock_engine`` ships inside the framework wheel, not as a wheel of its own,
+    so the package check reads the framework wheel's file list for the module and
+    the package data ``dock_engine._data`` needs. No dock-engine wheel is built
+    anywhere in the check or the job."""
+    steps = check_set.PACKAGE_STEPS if steps is None else steps
+    check = _step_index(steps, _checks_dock_engine, "checks the framework wheel for dock_engine")
+    assert "dist/osprey_framework-*.whl" in steps[check], (
+        "the check does not read the framework wheel"
+    )
+    for member in DOCK_ENGINE_WHEEL_DATA:
+        assert member in steps[check][2], f"the dock-engine check does not look for {member}"
+    job_text = " ".join(" ".join(step) for step in steps) + json.dumps(_jobs(workflow)[PACKAGE_JOB])
+    assert "osprey-dock-engine" not in job_text and "osprey_dock_engine" not in job_text, (
+        "the package job builds or installs a dock-engine wheel; the engine ships inside "
+        "the framework wheel and has no distribution of its own"
+    )
+
+
+def test_the_package_job_checks_the_framework_wheel_for_dock_engine__mutation_drops_the_step() -> (
+    None
+):
+    steps = tuple(s for s in check_set.PACKAGE_STEPS if not _checks_dock_engine(s))
+    with pytest.raises(AssertionError, match="no step that"):
+        test_the_package_job_checks_the_framework_wheel_for_dock_engine(_load_workflow(), steps)
+
+
+@pytest.mark.parametrize("member", DOCK_ENGINE_WHEEL_DATA)
+def test_the_package_job_checks_the_framework_wheel_for_dock_engine__mutation_skips_data(
+    member: str,
+) -> None:
+    steps = check_set.PACKAGE_STEPS
+    index = _step_index(steps, _checks_dock_engine, "checks the framework wheel")
+    step = steps[index]
+    assert member in step[2], f"the check no longer names {member}; mutation is stale"
+    mutated = _replace_step(steps, index, (*step[:2], step[2].replace(member, ""), *step[3:]))
+    with pytest.raises(AssertionError, match=f"does not look for {re.escape(member)}"):
+        test_the_package_job_checks_the_framework_wheel_for_dock_engine(_load_workflow(), mutated)
+
+
+def test_the_package_job_checks_the_framework_wheel_for_dock_engine__mutation_builds_a_wheel() -> (
+    None
+):
+    steps = (*check_set.PACKAGE_STEPS, ("uv", "build", "--package", "osprey-dock-engine"))
+    with pytest.raises(AssertionError, match="no distribution of its own"):
+        test_the_package_job_checks_the_framework_wheel_for_dock_engine(_load_workflow(), steps)
 
 
 def _release_staging_script(release: dict[str, Any]) -> str:
@@ -10702,8 +11637,9 @@ def _staged_siblings(release: dict[str, Any], tmp_path: Path) -> list[str]:
 
 
 def _assert_release_stages_every_member_wheel(release: dict[str, Any], tmp_path: Path) -> None:
+    # osprey-connectors is absent even from a dist/ that holds it: it releases
+    # on its own tags, so the framework's floor on it must resolve from PyPI.
     assert _staged_siblings(release, tmp_path) == [
-        "osprey_connectors-2026.9.1-py3-none-any.whl",
         "pyaml_cs_osprey-2026.9.1-py3-none-any.whl",
     ], "the release gate stages the wrong sibling set"
 
@@ -10719,9 +11655,10 @@ def _with_staging(release: dict[str, Any], staging: str) -> dict[str, Any]:
 
 
 def test_the_release_gate_stages_every_member_wheel_but_the_framework(tmp_path: Path) -> None:
-    """The framework depends on every member, so a sibling left out of the
-    find-links fails the gate on the tag that first ships it; the framework's
-    own wheel or any sdist staged there would let an unpublished pin resolve."""
+    """The framework depends on every lockstep member, so a sibling left out of
+    the find-links fails the gate on the tag that first ships it; the
+    framework's own wheel, any sdist, or a connectors wheel staged there would
+    let an unpublished pin resolve."""
     _assert_release_stages_every_member_wheel(yaml.safe_load(RELEASE_YML.read_text()), tmp_path)
 
 
@@ -10731,6 +11668,19 @@ def test_the_release_gate_stages_every_member_wheel__mutation_connectors_only(
     mutated = _with_staging(
         yaml.safe_load(RELEASE_YML.read_text()),
         f"cp dist/osprey_connectors-*.whl {RELEASE_SIBLING_DIR}/",
+    )
+    with pytest.raises(AssertionError, match="wrong sibling set"):
+        _assert_release_stages_every_member_wheel(mutated, tmp_path)
+
+
+def test_the_release_gate_stages_every_member_wheel__mutation_offers_connectors(
+    tmp_path: Path,
+) -> None:
+    """Staging by exclusion of the framework alone, as before the split."""
+    mutated = _with_staging(
+        yaml.safe_load(RELEASE_YML.read_text()),
+        f'for wheel in dist/*.whl; do case "$(basename "$wheel")" in '
+        f'osprey_framework-*) ;; *) cp "$wheel" {RELEASE_SIBLING_DIR}/ ;; esac; done',
     )
     with pytest.raises(AssertionError, match="wrong sibling set"):
         _assert_release_stages_every_member_wheel(mutated, tmp_path)
@@ -10760,7 +11710,9 @@ TWO_UID_LOG_OS = "ubuntu-latest"
 TWO_UID_LOG_SHARD = "rest-a"
 
 
-def test_the_unit_lane_runs_the_two_uid_log_case_on_a_linux_cell(workflow: dict[str, Any]) -> None:
+def test_the_unit_lane_runs_the_two_uid_log_case_on_a_linux_cell(
+    workflow: dict[str, Any], unit: Any = None
+) -> None:
     """The unit lane's ubuntu `rest-a` cells collect the case, deselect it by no
     marker, and leave `CI` to the runner, which is what turns a missing engine
     into a failure there."""
@@ -10773,7 +11725,7 @@ def test_the_unit_lane_runs_the_two_uid_log_case_on_a_linux_cell(workflow: dict[
     assert TWO_UID_LOG_SHARD in matrix["shard"], (
         f"{lane} has no '{TWO_UID_LOG_SHARD}' shard to collect {TWO_UID_LOG_FILE}"
     )
-    assert _shard_reaches(workflow, TWO_UID_LOG_SHARD, TWO_UID_LOG_FILE), (
+    assert _shard_reaches(TWO_UID_LOG_SHARD, TWO_UID_LOG_FILE, unit), (
         f"{lane}'s '{TWO_UID_LOG_SHARD}' shard does not collect {TWO_UID_LOG_FILE}"
     )
     exclude = matrix.get("exclude", "")
@@ -10786,7 +11738,7 @@ def test_the_unit_lane_runs_the_two_uid_log_case_on_a_linux_cell(workflow: dict[
     step = _find_named_step(workflow, UNIT_TEST_JOB, "Run unit tests")
     # The ignores the pinned shard runs under: the line every shard shares and
     # the shard's own arguments, not the ignores that spell another shard.
-    shard_line = f"{_unit_test_pytest_line(workflow)} {_unit_shards(workflow)[TWO_UID_LOG_SHARD]}"
+    shard_line = f"{_unit_test_pytest_line(workflow)} {_unit_shards(unit)[TWO_UID_LOG_SHARD]}"
     for ignored in re.findall(r"--ignore=([^\s\"';]+)", shard_line):
         assert not (
             TWO_UID_LOG_FILE == ignored or TWO_UID_LOG_FILE.startswith(ignored.rstrip("/") + "/")
@@ -10881,34 +11833,27 @@ def test_the_two_uid_log_case_is_a_docker_group_case__mutation_drops_the_group()
 # ---------------------------------------------------------------------------
 #
 # The unit lane runs each matrix cell as several jobs, one per set of
-# directories, chosen by a `case` on `matrix.shard` in "Run unit tests". A
-# directory two shards name runs twice and costs a slow runner its margin under
-# the step cap; a directory no shard names runs nowhere with every check green.
-# The last shard is spelled as ignores of every directory another shard names,
-# so a new directory falls into it; what is pinned here is that the spellings
-# still partition the tree.
-
-#: One arm of the shard `case`: ``rest-a) SHARD_PATH="..."; SHARD_ARGS="..." ;;``.
-_SHARD_ARM_RE = re.compile(
-    r'^\s*(?P<name>[\w-]+)\)\s*SHARD_PATH="(?P<path>[^"]*)";\s*SHARD_ARGS="(?P<args>[^"]*)"\s*;;',
-    re.MULTILINE,
-)
+# directories, named by `matrix.shard` in "Run unit tests" and defined by the
+# check's ``UNIT_SELECTION.shards``. A directory two shards name runs twice and
+# costs a slow runner its margin under the step cap; a directory no shard names
+# runs nowhere with every check green. The last shard is spelled as ignores of
+# every directory another shard names, so a new directory falls into it; what
+# is pinned here is that the spellings still partition the tree.
 
 
-def _unit_shards(wf: dict[str, Any]) -> dict[str, str]:
-    """Each shard's own pytest selection, ``tests/$SHARD_PATH $SHARD_ARGS``
-    expanded, keyed by its `case` label. The ignores every shard shares are
-    left out: they narrow the lane, not the partition."""
-    run_text = _find_named_step(wf, UNIT_TEST_JOB, "Run unit tests")["run"]
-    arms = {
-        m["name"]: f"pytest tests/{m['path']} {m['args']}" for m in _SHARD_ARM_RE.finditer(run_text)
+def _unit_shards(unit: Any = None) -> dict[str, str]:
+    """Each shard's own pytest selection, its paths and its own ignores, keyed
+    by its name. The ignores every shard shares are left out: they narrow the
+    lane, not the partition."""
+    unit = unit or check_set.UNIT_SELECTION
+    return {
+        name: " ".join(["pytest", *paths, *(f"--ignore={path}" for path in ignores)])
+        for name, (paths, ignores) in unit.shards.items()
     }
-    assert arms, "no SHARD_PATH/SHARD_ARGS case arms in the unit lane"
-    return arms
 
 
-def _shard_reaches(wf: dict[str, Any], shard: str, test_file: str) -> bool:
-    return _invocation_reaches(_unit_shards(wf).get(shard, ""), test_file)
+def _shard_reaches(shard: str, test_file: str, unit: Any = None) -> bool:
+    return _invocation_reaches(_unit_shards(unit).get(shard, ""), test_file)
 
 
 def _test_tree_entries(root: Path = TESTS_ROOT) -> list[str]:
@@ -10928,20 +11873,20 @@ def _test_tree_entries(root: Path = TESTS_ROOT) -> list[str]:
     return sorted(entries)
 
 
-def _shard_coverage_problems(wf: dict[str, Any], entries: list[str]) -> list[str]:
+def _shard_coverage_problems(wf: dict[str, Any], entries: list[str], unit: Any = None) -> list[str]:
     """Why the shards do not partition *entries* (empty = each entry in exactly
-    one shard, and the `case` arms are the matrix's shards).
+    one shard, and the declared shards are the matrix's shards).
 
     The partition is checked at the top level of ``tests/``, so it holds only
     while every shard path and ignore is a top-level entry: an ignore one level
     deeper takes its files out of the shard that names the directory while no
     other shard picks them up. A shard that reaches below the top level is
     refused outright rather than checked file by file."""
-    shards = _unit_shards(wf)
+    shards = _unit_shards(unit)
     matrix = sorted(_jobs(wf)[UNIT_TEST_JOB]["strategy"]["matrix"]["shard"])
     problems = []
     if sorted(shards) != matrix:
-        problems.append(f"case arms {sorted(shards)} are not the matrix shards {matrix}")
+        problems.append(f"declared shards {sorted(shards)} are not the matrix shards {matrix}")
     for name, command in shards.items():
         for token in command.split()[1:]:
             path = token.removeprefix("--ignore=").rstrip("/")
@@ -10959,57 +11904,47 @@ def _shard_coverage_problems(wf: dict[str, Any], entries: list[str]) -> list[str
     return problems
 
 
-def test_the_unit_shards_cover_the_test_tree_exactly_once(workflow: dict[str, Any]) -> None:
+def test_the_unit_shards_cover_the_test_tree_exactly_once(
+    workflow: dict[str, Any], unit: Any = None
+) -> None:
     entries = _test_tree_entries()
     assert "tests/cli" in entries and len(entries) > 10, f"test tree scan broke: {entries}"
     assert set(PACKAGE_TEST_ROOTS) <= set(entries), f"package suite scan broke: {entries}"
-    problems = _shard_coverage_problems(workflow, entries)
+    problems = _shard_coverage_problems(workflow, entries, unit)
     assert problems == [], "the unit lane's shards do not partition tests/:\n" + "\n".join(problems)
 
 
-def _with_shard_arm(wf: dict[str, Any], shard: str, path: str, args: str) -> dict[str, Any]:
-    step = _find_named_step(wf, UNIT_TEST_JOB, "Run unit tests")
-    original = step["run"]
-    step["run"] = re.sub(
-        rf"^(\s*){re.escape(shard)}\)[^\n]*$",
-        lambda m: f'{m[1]}{shard}) SHARD_PATH="{path}"; SHARD_ARGS="{args}" ;;',
-        original,
-        flags=re.MULTILINE,
-    )
-    assert step["run"] != original, f"no '{shard}' arm in the unit lane; mutation is stale"
-    return wf
+def _with_shard(shard: str, paths: tuple[str, ...], ignores: tuple[str, ...]) -> Any:
+    """The declared selection with *shard* redefined."""
+    unit = check_set.UNIT_SELECTION
+    assert shard in unit.shards, f"no '{shard}' shard declared; mutation is stale"
+    return replace(unit, shards={**unit.shards, shard: (paths, ignores)})
 
 
-def _last_shard(wf: dict[str, Any]) -> tuple[str, str, list[str]]:
-    """The shard spelled by exclusion: its name, path and ignored directories."""
-    for name, command in _unit_shards(wf).items():
-        ignores = [
-            t.removeprefix("--ignore=") for t in command.split() if t.startswith("--ignore=")
-        ]
+def _last_shard() -> tuple[str, tuple[str, ...], tuple[str, ...]]:
+    """The shard spelled by exclusion: its name, paths and ignored directories."""
+    for name, (paths, ignores) in check_set.UNIT_SELECTION.shards.items():
         if ignores:
-            return name, command.split()[1].removeprefix("tests/"), ignores
+            return name, paths, ignores
     raise AssertionError("no unit shard is spelled by exclusion")
 
 
 def test_the_unit_shards_cover_the_test_tree__mutation_drops_an_ignore() -> None:
     """The last shard forgets one directory another shard names: it runs twice."""
-    wf = _load_workflow()
-    name, path, ignores = _last_shard(wf)
+    name, paths, ignores = _last_shard()
     dropped = ignores[-1]
-    kept = " ".join(f"--ignore={i}" for i in ignores if i != dropped)
-    mutated = _with_shard_arm(wf, name, path, kept)
+    mutated = _with_shard(name, paths, ignores[:-1])
     with pytest.raises(AssertionError, match=rf"{re.escape(dropped)} is in 2 shards"):
-        test_the_unit_shards_cover_the_test_tree_exactly_once(mutated)
+        test_the_unit_shards_cover_the_test_tree_exactly_once(_load_workflow(), mutated)
 
 
 def test_the_unit_shards_cover_the_test_tree__mutation_lists_the_last_shard() -> None:
     """The last shard is spelled as a list of directories instead of by
     exclusion: every directory nobody listed runs nowhere."""
-    wf = _load_workflow()
-    name, _, _ = _last_shard(wf)
-    mutated = _with_shard_arm(wf, name, "pty", "tests/va")
+    name, _, _ = _last_shard()
+    mutated = _with_shard(name, ("tests/pty", "tests/va"), ())
     with pytest.raises(AssertionError, match=r"is in 0 shards"):
-        test_the_unit_shards_cover_the_test_tree_exactly_once(mutated)
+        test_the_unit_shards_cover_the_test_tree_exactly_once(_load_workflow(), mutated)
 
 
 def test_the_unit_shards_cover_the_test_tree__mutation_new_directory_lands_once() -> None:
@@ -11029,31 +11964,438 @@ def test_the_unit_shards_cover_the_test_tree__mutation_drops_a_matrix_shard() ->
 def test_the_unit_lane_runs_the_two_uid_log_case__mutation_moves_it_to_another_shard() -> None:
     """The case's directory leaves the shard the pin names, so the pinned
     shard name no longer says where the case runs."""
-    wf = _load_workflow()
     directory = "/".join(TWO_UID_LOG_FILE.split("/")[:2])
-    command = _unit_shards(wf)[TWO_UID_LOG_SHARD]
-    path, *args = command.split()[1:]
-    kept = [p for p in [path, *args] if p != directory]
-    assert len(kept) == len(args), (
+    paths, ignores = check_set.UNIT_SELECTION.shards[TWO_UID_LOG_SHARD]
+    kept = tuple(path for path in paths if path != directory)
+    assert len(kept) == len(paths) - 1, (
         f"{directory} not named by '{TWO_UID_LOG_SHARD}'; mutation is stale"
     )
-    mutated = _with_shard_arm(
-        wf, TWO_UID_LOG_SHARD, kept[0].removeprefix("tests/"), " ".join(kept[1:])
-    )
+    mutated = _with_shard(TWO_UID_LOG_SHARD, kept, ignores)
     with pytest.raises(AssertionError, match="shard does not collect"):
-        test_the_unit_lane_runs_the_two_uid_log_case_on_a_linux_cell(mutated)
+        test_the_unit_lane_runs_the_two_uid_log_case_on_a_linux_cell(_load_workflow(), mutated)
 
 
 def test_the_unit_shards_cover_the_test_tree__mutation_ignores_below_the_top_level() -> None:
     """A shard ignores a subdirectory of a directory it names: those files run in
     no shard, and a top-level check alone would still see the directory once."""
-    wf = _load_workflow()
-    command = _unit_shards(wf)[TWO_UID_LOG_SHARD]
-    path, *args = command.split()[1:]
+    paths, ignores = check_set.UNIT_SELECTION.shards[TWO_UID_LOG_SHARD]
     deeper = "tests/deployment/web_terminals"
-    assert "tests/deployment" in [path, *args], "rest-a no longer names tests/deployment"
-    mutated = _with_shard_arm(
-        wf, TWO_UID_LOG_SHARD, path.removeprefix("tests/"), " ".join([*args, f"--ignore={deeper}"])
-    )
+    assert "tests/deployment" in paths, "rest-a no longer names tests/deployment"
+    mutated = _with_shard(TWO_UID_LOG_SHARD, paths, (*ignores, deeper))
     with pytest.raises(AssertionError, match="below a top-level test directory"):
-        test_the_unit_shards_cover_the_test_tree_exactly_once(mutated)
+        test_the_unit_shards_cover_the_test_tree_exactly_once(_load_workflow(), mutated)
+
+
+# ---------------------------------------------------------------------------
+# One check set: the caller jobs run scripts/check.py and spell no check
+# ---------------------------------------------------------------------------
+#
+# A check is declared once, in scripts/check.py, and CI is one of its callers.
+# Three statements keep that true, each read from ci.yml as written: no step of
+# a caller job spells a check, every check of the full tier is called by one,
+# and every job the roll-up gate requires is a caller or a lane the declaration
+# names.
+
+#: A `run:` of a caller job that prepares the job or reports on it, and judges
+#: nothing.
+_SETUP_RUN_RES = (
+    re.compile(r"uv python install \S+(?: \S+)*"),
+    re.compile(r"uv sync(?: --extra [\w-]+)*"),
+    re.compile(r"npm ci"),
+    re.compile(r"sudo apt-get update && sudo apt-get install -y --no-install-recommends [\w -]+"),
+    re.compile(
+        r"python3 scripts/ci/diag_summary\.py ci-diag >> \"\$GITHUB_STEP_SUMMARY\" \|\| true"
+    ),
+)
+#: The steps of a caller job that prepare or report in ways no pattern above
+#: states, by job and step name; each has its own tests above. The docs job's
+#: link check reports and cannot fail (test_the_link_check_is_advisory).
+CALLER_SETUP_STEPS: dict[str, tuple[str, ...]] = {DOCS_JOB: (LINKCHECK_STEP,)}
+#: The commands the checks run. One of these in a caller step is a check
+#: spelled a second time. The link check is not one: it is advisory and no
+#: check declares it.
+LEAF_COMMANDS = (
+    "ruff ",
+    "mypy",
+    "pytest",
+    "tsc",
+    "eslint",
+    "vitest",
+    "lint-imports",
+    "npm run ",
+    "build.mjs",
+    "changelog_fragments.py",
+    "check_config_keys.py",
+    "plugin_version.py",
+    "live_ca/gate.py",
+    "uv lock --check",
+    "git ls-files -ci",
+    "make html",
+    "twine",
+    "uv build",
+)
+#: Full-tier checks no caller step names, each with the reason CI needs no step
+#: for it.
+CHECKS_WITHOUT_A_CI_STEP = {
+    # The wall-clock budgets run alone in the lane that hosts their marker
+    # (LANE_LEAVING_MARKERS), on a runner with no xdist workers beside them.
+    "pytest-wallclock": "its suite runs serially in the lane that hosts the wallclock marker",
+}
+#: The `if:` clause that puts a step on the runners that meet the venue.
+VENUE_RUNNER_CLAUSES = {check_set.LIVE_CA_VENUE: "matrix.os == 'ubuntu-latest'"}
+
+
+@pytest.fixture()
+def raw_workflow() -> dict[str, Any]:
+    return _load_raw_workflow()
+
+
+def _leaf_commands(run: object) -> list[str]:
+    """The check commands a ``run:`` script spells outside its check.py calls.
+
+    A log file's name is not a command: ``ci-diag/pytest.log`` is where the
+    unit step tees its output.
+    """
+    words = [
+        word
+        for line in _uncommented_lines(run)
+        for word in _CHECK_CALL_RE.sub(" ", line).split()
+        if not word.endswith(".log")
+    ]
+    text = " ".join(words) + " "
+    return [leaf for leaf in LEAF_COMMANDS if leaf in text]
+
+
+def _caller_steps(wf: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    """Every step of a caller job that runs a script, with its job."""
+    return [
+        (job, step)
+        for job in check_set.CALLER_JOBS
+        for step in _jobs(wf)[job]["steps"]
+        if "run" in step
+    ]
+
+
+def _addopts_words() -> list[str]:
+    """The words of pyproject's ``[tool.pytest.ini_options].addopts``."""
+    return shlex.split(_load_pyproject()["tool"]["pytest"]["ini_options"]["addopts"])
+
+
+def _callers_repeating_addopts(wf: dict[str, Any]) -> list[str]:
+    """Each caller's pass-through word that addopts already gives pytest."""
+    configured = set(_addopts_words())
+    problems = []
+    for job, step in _caller_steps(wf):
+        for call in _check_calls(step):
+            passed = call[call.index("--") + 1 :] if "--" in call else []
+            problems.extend(
+                f"{job}: '{step.get('name')}' passes {word}"
+                for word in passed
+                if word in configured
+            )
+    return problems
+
+
+def test_no_caller_repeats_the_configured_pytest_options(raw_workflow: dict[str, Any]) -> None:
+    """pyproject's addopts is the one home of pytest's verbosity and traceback
+    style. A caller that passes one of its words again runs pytest with it
+    twice, so ``-v`` becomes ``-vv`` and a failing log buries the failure."""
+    assert _addopts_words(), "pyproject sets no addopts; this pin is stale"
+    assert _callers_repeating_addopts(raw_workflow) == []
+
+
+def test_no_caller_repeats_the_configured_pytest_options__mutation_adds_v() -> None:
+    mutated = _load_raw_workflow()
+    step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
+    original = step["run"]
+    step["run"] = original.replace(" -- --durations=50", " -- -v --durations=50")
+    assert step["run"] != original, "the unit step's flags moved; mutation is stale"
+    with pytest.raises(AssertionError):
+        test_no_caller_repeats_the_configured_pytest_options(mutated)
+
+
+#: The one CI step that passes execution flags through the check command: the
+#: unit sweep, whose durations, timeout, workers and coverage flags are not yet
+#: part of the pytest check's declaration. Every other step leaves execution to
+#: the declaration, so each check runs on CI as it runs on a laptop.
+EXECUTION_FLAGS_EXCEPTION = (UNIT_TEST_JOB, "Run unit tests")
+
+
+def _steps_passing_execution_flags(wf: dict[str, Any]) -> list[str]:
+    """Each step outside the exception that passes words after ``--`` to the
+    check command, and the exception when it no longer passes any."""
+    problems = []
+    exception_passes = False
+    for job, body in _jobs(wf).items():
+        for step in body.get("steps", []):
+            for call in _check_calls(step):
+                if "--" not in call:
+                    continue
+                if (job, step.get("name")) == EXECUTION_FLAGS_EXCEPTION:
+                    exception_passes = True
+                    continue
+                passed = " ".join(call[call.index("--") + 1 :])
+                problems.append(
+                    f"{job}: '{step.get('name')}' passes {passed!r} through {CHECK_SCRIPT}"
+                )
+    if not exception_passes:
+        problems.append(
+            f"{EXECUTION_FLAGS_EXCEPTION} passes no execution flags; drop the exception"
+        )
+    return problems
+
+
+def test_no_ci_step_passes_execution_flags_through_the_check_command(
+    raw_workflow: dict[str, Any],
+) -> None:
+    """Execution flags are a laptop affordance: on CI a check runs with what its
+    declaration says, verbosity included, set in one place."""
+    assert _steps_passing_execution_flags(raw_workflow) == []
+
+
+def test_no_ci_step_passes_execution_flags__mutation_the_pty_step_passes_v() -> None:
+    mutated = _load_raw_workflow()
+    step = _find_named_step(mutated, UNIT_TEST_JOB, TERMINAL_HOST.step)
+    step["run"] = f"{step['run'].rstrip()} -- -v"
+    assert _steps_passing_execution_flags(mutated) == [
+        f"test: '{TERMINAL_HOST.step}' passes '-v' through {CHECK_SCRIPT}"
+    ]
+
+
+def test_no_ci_step_passes_execution_flags__mutation_the_sweep_drops_its_flags() -> None:
+    mutated = _load_raw_workflow()
+    step = _find_named_step(mutated, *EXECUTION_FLAGS_EXCEPTION)
+    old = " -- --durations=50 --timeout=600 --timeout-method=signal -n 4 $COV_ARGS"
+    assert step["run"].count(old) == 1, f"{old!r} moved — mutation is stale"
+    step["run"] = step["run"].replace(old, "")
+    assert _steps_passing_execution_flags(mutated) == [
+        f"{EXECUTION_FLAGS_EXCEPTION} passes no execution flags; drop the exception"
+    ]
+
+
+def _is_setup(job: str, step: dict[str, Any]) -> bool:
+    return step.get("name") in CALLER_SETUP_STEPS.get(job, ())
+
+
+def _spelled_checks(wf: dict[str, Any]) -> list[str]:
+    """What is wrong with the caller jobs' steps as callers, one line per defect."""
+    problems = []
+    for job, step in _caller_steps(wf):
+        where = f"{job}: '{step.get('name')}'"
+        calls = _check_calls(step)
+        run = str(step["run"]).strip()
+        setup = _is_setup(job, step)
+        if setup and calls:
+            problems.append(f"{where} is declared a setup step and calls {CHECK_SCRIPT}")
+        elif not calls and not setup and not any(p.fullmatch(run) for p in _SETUP_RUN_RES):
+            problems.append(f"{where} is neither a setup step nor a call of {CHECK_SCRIPT}")
+        for call in calls:
+            if call[:1] != ["run"]:
+                problems.append(f"{where} must call `{CHECK_SCRIPT} run ID`; got {call}")
+                continue
+            try:
+                _resolved(call)
+            except (check_set.Refused, SystemExit) as refusal:
+                problems.append(f"{where} makes a call {CHECK_SCRIPT} refuses: {refusal}")
+        spelled = _leaf_commands(step["run"])
+        if spelled:
+            problems.append(f"{where} spells {spelled}")
+    return problems
+
+
+def test_no_caller_step_spells_a_check(raw_workflow: dict[str, Any]) -> None:
+    """Two spellings of one check drift apart, and the one a contributor runs
+    locally is then not the one that gates the merge. So a caller job's step
+    either prepares the job or names a check, and the command it names is one
+    the declaration accepts."""
+    assert _caller_steps(raw_workflow), "the caller jobs run no script; this scan is stale"
+    assert _spelled_checks(raw_workflow) == []
+
+
+def test_no_caller_step_spells_a_check__mutation_restores_the_ruff_command() -> None:
+    mutated = _load_raw_workflow()
+    _find_named_step(mutated, LINT_JOB, "Run ruff (linting)")["run"] = "uv run ruff check ."
+    assert _spelled_checks(mutated) == [
+        f"lint: 'Run ruff (linting)' is neither a setup step nor a call of {CHECK_SCRIPT}",
+        "lint: 'Run ruff (linting)' spells ['ruff ']",
+    ]
+
+
+def test_no_caller_step_spells_a_check__mutation_restores_the_bundle_check() -> None:
+    mutated = _load_raw_workflow()
+    step = _find_named_step(mutated, FRONTEND_JS_JOB, "Check the dock-engine bundle is current")
+    step["run"] = "node packages/dock-engine/scripts/build.mjs --check"
+    assert _spelled_checks(mutated) == [
+        f"frontend-js: 'Check the dock-engine bundle is current' is neither a setup step "
+        f"nor a call of {CHECK_SCRIPT}",
+        "frontend-js: 'Check the dock-engine bundle is current' spells ['build.mjs']",
+    ]
+
+
+def test_no_caller_step_spells_a_check__mutation_spells_one_beside_a_call() -> None:
+    mutated = _load_raw_workflow()
+    step = _find_named_step(mutated, FRONTEND_JS_JOB, "Run JS tests (vitest)")
+    step["run"] = f"{step['run'].rstrip()} && npm run test:js"
+    assert _spelled_checks(mutated) == ["frontend-js: 'Run JS tests (vitest)' spells ['npm run ']"]
+
+
+def test_no_caller_step_spells_a_check__mutation_passes_a_selection() -> None:
+    """A selection flag after ``--`` would make the step a second declaration
+    of what the sweep runs; the command refuses it."""
+    mutated = _load_raw_workflow()
+    step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
+    original = step["run"]
+    step["run"] = original.replace(" -n 4 $COV_ARGS", " -n 4 -k smoke $COV_ARGS")
+    assert step["run"] != original, "the unit step's flags moved; mutation is stale"
+    (problem,) = _spelled_checks(mutated)
+    assert problem.startswith(f"test: 'Run unit tests' makes a call {CHECK_SCRIPT} refuses: -k")
+
+
+def test_no_caller_step_spells_a_check__mutation_runs_a_tier() -> None:
+    mutated = _load_raw_workflow()
+    step = _find_named_step(mutated, LINT_JOB, MYPY_STEP)
+    step["run"] = step["run"].replace("run mypy", "quick")
+    (problem,) = _spelled_checks(mutated)
+    assert problem.startswith(f"lint: '{MYPY_STEP}' must call `{CHECK_SCRIPT} run ID`")
+
+
+def test_no_caller_step_spells_a_check__mutation_adds_a_step_that_is_neither() -> None:
+    mutated = _load_raw_workflow()
+    _jobs(mutated)["docs"]["steps"].append({"name": "Count pages", "run": "ls docs/build/html"})
+    assert _spelled_checks(mutated) == [
+        f"docs: 'Count pages' is neither a setup step nor a call of {CHECK_SCRIPT}"
+    ]
+
+
+def test_a_log_file_name_is_not_a_spelled_check() -> None:
+    assert _leaf_commands("x 2>&1 | tee ci-diag/pytest.log\ngrep -m1 y ci-diag/pytest.log") == []
+    assert _leaf_commands("uv run pytest tests/  # serial") == ["pytest"]
+    assert _leaf_commands("echo ok  # was: uv run mypy src/") == []
+    assert _leaf_commands("python3 scripts/check.py run pytest mypy | tee out.log") == []
+
+
+def _called_checks(wf: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    """Each check id a caller step names after ``run``, with the steps that name it."""
+    by_id = {check.id for check in check_set.CHECKS}
+    called: dict[str, list[dict[str, Any]]] = {}
+    for _job, step in _caller_steps(wf):
+        for call in _check_calls(step):
+            for word in call[1:] if call[:1] == ["run"] else []:
+                if word in by_id:
+                    called.setdefault(word, []).append(step)
+    return called
+
+
+def _checks_missing_from_ci(wf: dict[str, Any]) -> list[str]:
+    """What is wrong with CI as a caller of the full tier, one line per defect."""
+    called = _called_checks(wf)
+    problems = []
+    for check in check_set.CHECKS:
+        if "full" not in check.tiers:
+            continue
+        steps = called.get(check.id, [])
+        if check.id in CHECKS_WITHOUT_A_CI_STEP:
+            if steps:
+                problems.append(f"{check.id}: a caller step runs it; drop its exemption")
+        elif not steps:
+            problems.append(f"{check.id}: no caller step runs it")
+        elif check.venue:
+            clause = VENUE_RUNNER_CLAUSES[check.venue]
+            off_venue = [step.get("name") for step in steps if clause not in str(step.get("if"))]
+            if off_venue:
+                problems.append(f"{check.id}: {off_venue} is not held to {clause}")
+    declared = {check.id for check in check_set.CHECKS}
+    problems += [
+        f"{name}: exempted and not declared"
+        for name in sorted(set(CHECKS_WITHOUT_A_CI_STEP) - declared)
+    ]
+    return problems
+
+
+def test_every_full_check_is_called_on_ci(raw_workflow: dict[str, Any]) -> None:
+    """A check the full tier runs and CI does not is a check a pushed change
+    passes without. Every full-tier check is named by a caller step, and a
+    check bound to a venue by a step held to runners that meet it; the one
+    exemption is named beside its reason in ``CHECKS_WITHOUT_A_CI_STEP``."""
+    assert _checks_missing_from_ci(raw_workflow) == []
+
+
+def test_every_full_check_is_called_on_ci__mutation_drops_the_mypy_step() -> None:
+    mutated = _load_raw_workflow()
+    steps = _jobs(mutated)[LINT_JOB]["steps"]
+    steps[:] = [step for step in steps if step.get("name") != MYPY_STEP]
+    assert _checks_missing_from_ci(mutated) == ["mypy: no caller step runs it"]
+
+
+def test_every_full_check_is_called_on_ci__mutation_drops_the_bundle_step() -> None:
+    mutated = _load_raw_workflow()
+    steps = _jobs(mutated)[FRONTEND_JS_JOB]["steps"]
+    steps[:] = [s for s in steps if s.get("name") != "Check the dock-engine bundle is current"]
+    assert _checks_missing_from_ci(mutated) == ["dock-engine-bundle: no caller step runs it"]
+
+
+def test_every_full_check_is_called_on_ci__mutation_runs_live_ca_on_every_cell() -> None:
+    """Off its venue the check reports that it did not run and exits clean, so
+    a step on a macOS cell would be green over nothing."""
+    mutated = _load_raw_workflow()
+    step = _find_named_step(mutated, UNIT_TEST_JOB, "Run live Channel Access suites in isolation")
+    del step["if"]
+    (problem,) = _checks_missing_from_ci(mutated)
+    assert problem.startswith("live-ca: ['Run live Channel Access suites in isolation']")
+
+
+def test_every_full_check_is_called_on_ci__mutation_calls_an_exempted_check() -> None:
+    mutated = _load_raw_workflow()
+    _jobs(mutated)[LINT_JOB]["steps"].append(
+        {
+            "name": "Run the wall-clock budgets",
+            "run": "uv run python scripts/check.py run pytest-wallclock",
+        }
+    )
+    assert _checks_missing_from_ci(mutated) == [
+        "pytest-wallclock: a caller step runs it; drop its exemption"
+    ]
+
+
+def _unknown_required_jobs(wf: dict[str, Any]) -> list[str]:
+    """What is wrong with the roll-up gate's needs as the declaration reads them."""
+    jobs = _jobs(wf)
+    needs = jobs[GATE_JOB]["needs"]
+    lanes = {lane.job for lane in check_set.LANES}
+    callers = set(check_set.CALLER_JOBS)
+    problems = [
+        f"{job}: required, and neither a caller job nor a lane {CHECK_SCRIPT} names"
+        for job in needs
+        if job not in callers | lanes
+    ]
+    problems += [
+        f"{job}: a caller job the gate does not require" for job in sorted(callers - set(needs))
+    ]
+    problems += [
+        f"{job}: a caller job the workflow does not define" for job in sorted(callers - set(jobs))
+    ]
+    return problems
+
+
+def test_every_required_job_is_a_caller_or_a_named_lane(raw_workflow: dict[str, Any]) -> None:
+    """The check command names every CI lane it does not run. A required job
+    it does not know is a job a clean local verdict says nothing about, and
+    says nothing about saying nothing."""
+    assert _unknown_required_jobs(raw_workflow) == []
+
+
+def test_every_required_job_is_a_caller_or_a_named_lane__mutation_requires_an_unnamed_job() -> None:
+    mutated = _load_raw_workflow()
+    _jobs(mutated)["release-notes"] = {"runs-on": "ubuntu-latest", "steps": []}
+    _jobs(mutated)[GATE_JOB]["needs"].append("release-notes")
+    assert _unknown_required_jobs(mutated) == [
+        f"release-notes: required, and neither a caller job nor a lane {CHECK_SCRIPT} names"
+    ]
+
+
+def test_every_required_job_is_a_caller_or_a_named_lane__mutation_gate_drops_a_caller() -> None:
+    mutated = _load_raw_workflow()
+    _jobs(mutated)[GATE_JOB]["needs"].remove("frontend-js")
+    assert _unknown_required_jobs(mutated) == [
+        "frontend-js: a caller job the gate does not require"
+    ]

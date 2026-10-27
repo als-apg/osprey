@@ -102,7 +102,9 @@ describe('artifactViewportHtml: embedded pages carry the gallery theme', () => {
   test('the notebook rendered endpoint carries it too', () => {
     themeState.current = 'high-contrast-dark';
     const container = document.createElement('div');
-    container.innerHTML = artifactViewportHtml(makeArtifact({ id: 'nb1', artifact_type: 'notebook' }));
+    container.innerHTML = artifactViewportHtml(
+      makeArtifact({ id: 'nb1', artifact_type: 'notebook' })
+    );
 
     expect(qs(container, 'iframe').getAttribute('src')).toBe(
       '/api/notebooks/nb1/rendered?theme=high-contrast-dark'
@@ -138,14 +140,17 @@ describe('artifactViewportHtml: iframe sandbox follows the served type', () => {
     ['html', 'text/html'],
     ['html', undefined],
     ['notebook', 'application/x-ipynb+json'],
-  ])('artifact_type "%s" (%s) is framed with exactly the C-OPAQUE tokens', (artifact_type, mime_type) => {
-    const container = document.createElement('div');
-    container.innerHTML = artifactViewportHtml(makeArtifact({ artifact_type, mime_type }));
+  ])(
+    'artifact_type "%s" (%s) is framed with exactly the C-OPAQUE tokens',
+    (artifact_type, mime_type) => {
+      const container = document.createElement('div');
+      container.innerHTML = artifactViewportHtml(makeArtifact({ artifact_type, mime_type }));
 
-    const frame = qs(container, 'iframe');
-    expect(sandboxTokens(frame)).toEqual(OPAQUE_TOKENS);
-    expect(frame.getAttribute('sandbox')).not.toContain('allow-same-origin');
-  });
+      const frame = qs(container, 'iframe');
+      expect(sandboxTokens(frame)).toEqual(OPAQUE_TOKENS);
+      expect(frame.getAttribute('sandbox')).not.toContain('allow-same-origin');
+    }
+  );
 
   test('a PDF frame carries no sandbox attribute', () => {
     const container = document.createElement('div');

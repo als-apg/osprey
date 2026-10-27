@@ -44,7 +44,6 @@ import html
 import ipaddress
 import json
 import logging
-import mimetypes
 import os
 import re
 import secrets
@@ -58,6 +57,8 @@ from starlette.websockets import WebSocketState
 from websockets.asyncio.client import connect as _WebSocketConnect
 
 from osprey.dispatch import DISPATCHER_MCP_PATH
+from osprey.interfaces._media_types import STATIC_TEXT_TYPES as _STATIC_TEXT_TYPES
+from osprey.interfaces._media_types import asset_media_type as _asset_media_type
 from osprey.interfaces.common_middleware import (
     ASSET_CORS_HEADERS,
     EXTERNAL_ORIGIN_ENV,
@@ -384,7 +385,7 @@ def _is_redirect(resp: httpx.Response) -> bool:
 #: backend reads one header name whether the request came through nginx or
 #: through this proxy. A test pins the two spellings together rather than this
 #: request-path module importing the deployment renderer.
-TERMINAL_SECRET_HEADER = "X-Osprey-Terminal-Secret"
+TERMINAL_SECRET_HEADER = "X-Osprey-Terminal-Secret"  # noqa: S105 -- names a header, holds no secret
 
 
 def _backend_is_loopback(backend_url: str) -> bool:
@@ -947,23 +948,6 @@ _TERMINAL_STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
 #: pages (``theme-lab.html``) on purpose.
 _TERMINAL_STATIC_SUFFIXES = frozenset({".js", ".mjs", ".css", ".map", ".svg", ".woff2", ".png"})
 
-#: Text asset suffixes, mapped to the content type to serve them as. Shared by
-#: both panel-scoped static routes below; the design-system one additionally
-#: rewrites the bodies of the files listed here.
-_STATIC_TEXT_TYPES = {
-    ".css": "text/css",
-    ".js": "text/javascript",
-    ".mjs": "text/javascript",
-    ".html": "text/html",
-    ".json": "application/json",
-    ".map": "application/json",
-}
-
-#: Font suffixes, mapped to the content type to serve them as. The hub's shared
-#: fonts are served with a font type that does not depend on the host's mime
-#: table.
-_STATIC_FONT_TYPES = {".ttf": "font/ttf"}
-
 
 def _contained_asset(root: Path, asset_path: str) -> Path | None:
     """Resolve *asset_path* under *root*, or ``None`` when it is not a file there.
@@ -997,22 +981,6 @@ def _contained_asset(root: Path, asset_path: str) -> Path | None:
     except (ValueError, OSError):
         return None
     return candidate
-
-
-def _asset_media_type(candidate: Path) -> str:
-    """The content type to serve *candidate* as.
-
-    :data:`_STATIC_TEXT_TYPES` first — it is the deliberate mapping, and it is
-    what decides whether the design-system route rewrites a body — then
-    ``mimetypes`` for images and fonts, then a bytes-shaped fallback so an
-    unknown suffix is still served rather than guessed wrong as text.
-    """
-    suffix = candidate.suffix.lower()
-    mapped = _STATIC_TEXT_TYPES.get(suffix) or _STATIC_FONT_TYPES.get(suffix)
-    if mapped is not None:
-        return mapped
-    guessed, _ = mimetypes.guess_type(candidate.name)
-    return guessed or "application/octet-stream"
 
 
 @router.api_route(

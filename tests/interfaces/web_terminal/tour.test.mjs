@@ -456,7 +456,7 @@ describe('prompt chips', () => {
     expect(cardTitle()).toBe('Try it');
   }
 
-  test('the chips are first contact\'s starter prompts, in its order', () => {
+  test("the chips are first contact's starter prompts, in its order", () => {
     serve({ kind: 'simulator', logbook: true });
     reachTryIt();
 

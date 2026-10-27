@@ -76,7 +76,11 @@ describe('copyText', () => {
 
   test('falls back to the textarea rung when writeText rejects, and removes it', async () => {
     Object.defineProperty(navigator, 'clipboard', {
-      value: { writeText: async () => { throw new Error('denied'); } },
+      value: {
+        writeText: async () => {
+          throw new Error('denied');
+        },
+      },
       configurable: true,
     });
     document.execCommand = () => true;
@@ -87,7 +91,9 @@ describe('copyText', () => {
 
   test('removes the textarea even when execCommand throws', async () => {
     stubClipboardAbsent();
-    document.execCommand = () => { throw new Error('blocked'); };
+    document.execCommand = () => {
+      throw new Error('blocked');
+    };
 
     await expect(copyText('hello')).resolves.toBe(false);
     expect(textareaCount()).toBe(0);

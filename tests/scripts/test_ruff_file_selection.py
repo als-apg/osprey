@@ -1,4 +1,4 @@
-"""Ruff checks exactly the files the ruff pre-commit hook checks.
+"""The files ruff checks, exactly those the pre-commit hook checks, and the rules it judges.
 
 The hook hands ruff every tracked file that ``identify`` types as Python: a
 ``.py``, ``.pyi`` or ``.ipynb`` suffix, or an executable file whose shebang
@@ -8,15 +8,27 @@ extend-include`` names it, and a directory list narrower than the repository
 misses whole trees the hook lints. Either gap lets the two gates disagree
 about the same commit. These tests hold the configuration and every written
 ruff invocation to the hook's selection.
+
+The hygiene rules are pinned by piping text to ruff under a path and reading
+the codes it reports: debug prints in the shipped trees, debugger calls,
+commented-out code, quoted credentials outside the tests and work markers
+without a link. A deliberate exception to one of them is a noqa that carries
+its reason.
 """
 
 from __future__ import annotations
 
+import ast
+import io
+import json
 import re
 import subprocess
 import sys
+import tokenize
 import tomllib
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -30,16 +42,16 @@ PYTHON_SHEBANG = re.compile(rb"^#![^\n]*\bpython[0-9.]*\b")
 #: then its arguments up to the end of the shell word list.
 RUFF_INVOCATION = re.compile(r"\bruff\s+(?:check|format)\b((?:[ \t]+[^\s`'\"|;&>)]+)*)")
 
+#: The one declaration CI's ruff steps run from.
+CHECK_SCRIPT = "scripts/check.py"
+
 #: Every place that runs ruff or tells a contributor how to.
 INVOCATION_SURFACES = (
-    ".github/workflows/ci.yml",
-    "scripts/ci_check.sh",
-    "scripts/quick_check.sh",
-    "scripts/premerge_check.sh",
-    "scripts/gate.sh",
+    CHECK_SCRIPT,
     "CONTRIBUTING.md",
     "docs/source/contributing/development-setup.rst",
     "plugins/osprey/skills/pre-commit/SKILL.md",
+    "plugins/osprey/skills/test-audit/SKILL.md",
 )
 
 
@@ -60,7 +72,8 @@ def _tracked_modes() -> dict[str, str]:
 
 
 def _is_python_script(path: str, mode: str) -> bool:
-    if mode != "100755":
+    # A tracked file the working tree has deleted is handed to no hook.
+    if mode != "100755" or not (REPO_ROOT / path).is_file():
         return False
     with (REPO_ROOT / path).open("rb") as handle:
         return bool(PYTHON_SHEBANG.match(handle.readline()))
@@ -113,6 +126,25 @@ def _paths_checked(text: str) -> list[tuple[int, list[str]]]:
     return found
 
 
+def _declared_command_lines(source: str) -> str:
+    """Every tuple of string literals in Python *source*, in order, each joined into a line."""
+    tuples = [
+        node for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Tuple) and node.elts
+    ]
+    lines = []
+    for node in sorted(tuples, key=lambda node: (node.lineno, node.col_offset)):
+        words = [e.value for e in node.elts if isinstance(e, ast.Constant)]
+        if len(words) == len(node.elts) and all(isinstance(w, str) for w in words):
+            lines.append(" ".join(words))
+    return "\n".join(lines)
+
+
+def _surface_text(surface: str) -> str:
+    """The text of *surface* in which its ruff command lines are written out."""
+    text = (REPO_ROOT / surface).read_text(encoding="utf-8")
+    return _declared_command_lines(text) if surface == CHECK_SCRIPT else text
+
+
 def test_ruff_discovers_every_file_the_hook_lints() -> None:
     missing = _hook_selection() - _ruff_selection()
     assert not missing, (
@@ -157,7 +189,7 @@ def test_extend_exclude_hides_only_the_generated_schema_modules() -> None:
 def test_every_ruff_invocation_checks_the_whole_repository() -> None:
     narrowed = []
     for surface in INVOCATION_SURFACES:
-        found = _paths_checked((REPO_ROOT / surface).read_text(encoding="utf-8"))
+        found = _paths_checked(_surface_text(surface))
         assert found, f"{surface} no longer runs ruff; drop it from INVOCATION_SURFACES"
         narrowed += [f"{surface}:{number}: {paths}" for number, paths in found if paths != ["."]]
     assert not narrowed, "ruff must check `.`, as the pre-commit hook does:\n" + "\n".join(narrowed)
@@ -176,6 +208,22 @@ def test_a_directory_list_is_reported() -> None:
     ]
 
 
+def test_a_declared_directory_list_is_reported() -> None:
+    source = (
+        'CHECKS = (Check("ruff", ("uv", "run", "ruff", "check", "src/", "tests/")),)\n'
+        'FIX = (("uv", "run", "ruff", "format", "."), ("scope/**", 1))\n'
+    )
+    assert [paths for _, paths in _paths_checked(_declared_command_lines(source))] == [
+        ["src/", "tests/"],
+        ["."],
+    ]
+
+
+def test_the_check_command_declares_both_ruff_checks() -> None:
+    found = _paths_checked(_surface_text(CHECK_SCRIPT))
+    assert len(found) >= 2, f"{CHECK_SCRIPT} declares {len(found)} ruff commands"
+
+
 def test_the_whole_repository_passes() -> None:
     text = (
         "uv run ruff check . --output-format=github\n"
@@ -184,3 +232,135 @@ def test_the_whole_repository_passes() -> None:
         "`ruff check .`\n"
     )
     assert [paths for _, paths in _paths_checked(text)] == [["."]] * 4
+
+
+#: The codes of the hygiene rules; a noqa naming one carries its reason.
+HYGIENE_CODES = re.compile(r"^(?:T20\d|T100|ERA001|S10[5-7]|TD003)$")
+
+#: A line or file-level noqa: its codes, then whatever follows them.
+NOQA = re.compile(r"#\s*(?:ruff:\s*)?noqa:\s*(?P<codes>[A-Z]+\d+(?:\s*,\s*[A-Z]+\d+)*)(?P<rest>.*)")
+
+#: The reason a noqa gives after its codes.
+REASON = re.compile(r"^\s+--\s+\S")
+
+
+def _reported(text: str, path: str) -> list[str]:
+    """The codes ruff reports for *text* linted as if it were at *path*."""
+    out = subprocess.run(
+        [sys.executable, "-m", "ruff", "check", "--stdin-filename", path]
+        + ["--output-format", "json", "-"],
+        cwd=REPO_ROOT,
+        input=text,
+        capture_output=True,
+        text=True,
+    ).stdout
+    return sorted(diagnostic["code"] for diagnostic in json.loads(out))
+
+
+def _unreasoned_hygiene_noqa(source: str) -> list[int]:
+    """The lines of *source* whose noqa names a hygiene rule and gives no reason."""
+    lines = []
+    for token in tokenize.generate_tokens(io.StringIO(source).readline):
+        if token.type != tokenize.COMMENT:
+            continue
+        match = NOQA.search(token.string)
+        if match is None:
+            continue
+        codes = re.split(r"\s*,\s*", match["codes"])
+        if any(HYGIENE_CODES.match(code) for code in codes) and not REASON.match(match["rest"]):
+            lines.append(token.start[0])
+    return lines
+
+
+PRINT = 'print("x")\n'
+
+
+@pytest.mark.parametrize("path", ["src/osprey/x.py", "packages/osprey-connectors/src/x.py"])
+def test_a_print_in_a_shipped_tree_is_reported(path: str) -> None:
+    assert _reported(PRINT, path) == ["T201"]
+
+
+@pytest.mark.parametrize("path", ["tests/x.py", "scripts/x.py", "docs/x.py"])
+def test_a_print_outside_the_shipped_trees_is_not_reported(path: str) -> None:
+    assert _reported(PRINT, path) == []
+
+
+def test_a_print_with_a_reasoned_noqa_is_not_reported() -> None:
+    assert _reported('print("x")  # noqa: T201 -- the reason\n', "src/osprey/x.py") == []
+
+
+def test_a_file_level_noqa_covers_every_print_of_a_program() -> None:
+    text = "# ruff: noqa: T201 -- stdout is this program's output\n" + PRINT * 2
+    assert _reported(text, "src/osprey/x.py") == []
+
+
+def test_a_stale_print_noqa_is_reported() -> None:
+    assert _reported("x = 1  # noqa: T201 -- the reason\n", "src/osprey/x.py") == ["RUF100"]
+
+
+@pytest.mark.parametrize("path", ["src/osprey/x.py", "tests/x.py", "scripts/x.py"])
+def test_a_debugger_call_is_reported_anywhere(path: str) -> None:
+    assert _reported("breakpoint()\n", path) == ["T100"]
+
+
+def test_commented_out_code_is_reported() -> None:
+    assert _reported("x = 1\n# return value\n", "src/osprey/x.py") == ["ERA001"]
+
+
+def test_a_heading_worded_as_prose_is_not_reported() -> None:
+    assert _reported("x = 1\n# Tests of connect()\n", "tests/x.py") == []
+
+
+CREDENTIALS = {
+    "S105": 'password = "x"\n',
+    "S106": 'def f(**kwargs):\n    return kwargs\n\n\nf(password="x")\n',
+    "S107": 'def f(password="x"):\n    return password\n',
+}
+
+
+@pytest.mark.parametrize("code", sorted(CREDENTIALS))
+def test_a_quoted_credential_in_shipped_code_is_reported(code: str) -> None:
+    assert _reported(CREDENTIALS[code], "src/osprey/x.py") == [code]
+
+
+@pytest.mark.parametrize("path", ["tests/x.py", "packages/osprey-connectors/tests/x.py"])
+@pytest.mark.parametrize("code", sorted(CREDENTIALS))
+def test_a_quoted_credential_in_a_test_is_not_reported(code: str, path: str) -> None:
+    assert _reported(CREDENTIALS[code], path) == []
+
+
+def test_a_work_marker_without_a_link_is_reported() -> None:
+    assert _reported("x = 1  # TODO: tidy\n", "src/osprey/x.py") == ["TD003"]
+
+
+@pytest.mark.parametrize("link", ["issue #12", "https://example.org/issues/12"])
+def test_a_work_marker_with_a_link_is_not_reported(link: str) -> None:
+    assert _reported(f"x = 1  # TODO: tidy, {link}\n", "src/osprey/x.py") == []
+
+
+def test_a_work_marker_inside_a_string_is_not_reported() -> None:
+    assert _reported('x = "# TODO: tidy"\n', "src/osprey/x.py") == []
+
+
+def test_every_hygiene_noqa_gives_its_reason() -> None:
+    unreasoned = []
+    for path in sorted(_hook_selection()):
+        if path.endswith(".ipynb"):
+            continue
+        source = (REPO_ROOT / path).read_text(encoding="utf-8")
+        if "noqa" not in source:
+            continue
+        unreasoned += [f"{path}:{line}" for line in _unreasoned_hygiene_noqa(source)]
+    assert not unreasoned, "write the reason as `# noqa: CODE -- reason`:\n" + "\n".join(unreasoned)
+
+
+def test_a_hygiene_noqa_without_a_reason_is_found() -> None:
+    source = (
+        'print("x")  # noqa: T201\n'
+        "# ruff: noqa: ERA001\n"
+        'token = "x"  # noqa: E501, S105\n'
+        'print("x")  # noqa: T201 -- the reason\n'
+        "import os  # noqa: F401\n"
+        'x = "# noqa: T201"\n'
+    )
+    assert _unreasoned_hygiene_noqa(source) == [1, 2, 3]
