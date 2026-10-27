@@ -43,7 +43,7 @@ import os
 import time
 import uuid
 from collections import OrderedDict
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -58,6 +58,7 @@ from osprey.agent_record import writer as record_writer
 from osprey.agent_record.client import DEFAULT_TIMEOUT, ClientAnswer, RecordClient
 from osprey.agent_runner import launcher
 from osprey.agent_runner.artifact_resolve import (
+    _deployed_config,
     deployed_config_path,
     deployed_record_retention_days,
     deployed_render_dir,
@@ -69,7 +70,7 @@ from osprey.agent_runner.artifact_resolve import (
     resolve_single_run_artifact,
 )
 from osprey.agent_runner.errors import AgentCliUnavailableError
-from osprey.agent_runner.tool_names import DISPATCH_DENIED_TOOLS
+from osprey.agent_runner.tool_names import dispatch_denied_tools
 from osprey.mcp_server.dispatch_worker import (
     counters,
     failure_class,
@@ -77,6 +78,7 @@ from osprey.mcp_server.dispatch_worker import (
     run_stats,
     sdk_runner,
 )
+from osprey.mcp_server.dispatch_worker.agent_surfaces import parse_project_agents
 from osprey.mcp_server.dispatch_worker.credentials import WORKER_TOKEN_ENV, worker_credentials
 from osprey.mcp_server.dispatch_worker.input_files_policy import (
     InputFilesError,
@@ -520,13 +522,35 @@ async def _limit_request_body(request: Request, call_next):
 _bearer_scheme = HTTPBearer()
 
 
-def _is_denied(tool: str) -> bool:
+def _denied_tools(job_tools: Iterable[str]) -> frozenset[str]:
+    """The denylist a job naming ``job_tools`` runs under.
+
+    The floor plus the render's ``dispatch.denied_app_tools``; with that list
+    missing or unreadable, every server ``job_tools`` names outside the
+    framework's own is denied whole (see
+    :func:`~osprey.agent_runner.tool_names.dispatch_denied_tools`).
+    """
+    section = _deployed_config().get("dispatch")
+    listed = section.get("denied_app_tools") if isinstance(section, dict) else None
+    return dispatch_denied_tools(listed, sdk_runner.required_mcp_servers(job_tools))
+
+
+def _job_tools(request: DispatchRequest) -> list[str]:
+    """Every tool a job may reach: its own, its surface's and its subagents'."""
+    tools = [*request.allowed_tools, *(request.surface_tools or [])]
+    for surface in parse_project_agents(deployed_render_dir()).values():
+        tools.extend(surface or ())
+    return tools
+
+
+def _is_denied(tool: str, denied: Iterable[str] | None = None) -> bool:
     """Return True if ``tool`` is on the denylist.
 
     Entries ending in ``*`` match by prefix (e.g. the ``mcp__plugin_*`` entry
     blocks every plugin server's tools); all other entries match exactly.
+    ``denied`` defaults to the list a job naming only ``tool`` runs under.
     """
-    return matches_denylist(tool, DISPATCH_DENIED_TOOLS)
+    return matches_denylist(tool, _denied_tools([tool]) if denied is None else denied)
 
 
 # ---------------------------------------------------------------------------
@@ -983,7 +1007,7 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
                 allowed_tools=request.allowed_tools,
                 max_turns=request.max_turns,
                 event_queue=queue,
-                denied_tools=DISPATCH_DENIED_TOOLS,
+                denied_tools=_denied_tools(_job_tools(request)),
                 run_id=run_id,
                 surface_prompt=request.surface_prompt,
                 surface_tools=request.surface_tools,
@@ -1074,7 +1098,8 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
 async def dispatch(request: DispatchRequest) -> DispatchResponse:
     """Enqueue an agent prompt and return immediately with a run_id to poll."""
     # Server-side tool denylist enforcement (supports '*'-suffix wildcards)
-    denied = [t for t in request.allowed_tools if _is_denied(t)]
+    job_denied = _denied_tools(request.allowed_tools)
+    denied = [t for t in request.allowed_tools if _is_denied(t, job_denied)]
     if denied:
         logger.warning("Rejected dispatch: denied tools %s", denied)
         raise HTTPException(
