@@ -202,8 +202,8 @@ class ARIELContext:
 
         from osprey.services.ariel_search.service import create_ariel_service
 
-        # Call directly — NOT as context manager. We manage pool shutdown
-        # ourselves in shutdown().
+        # Call directly — NOT as context manager: the service outlives one
+        # request, and shutdown() closes it.
         # This server registers sql_query, the read-only pool's one consumer,
         # so its build is the one that opens that pool.
         self._service = await create_ariel_service(self.config, serves_sql_tool=True)
@@ -211,21 +211,16 @@ class ARIELContext:
         return self._service
 
     async def shutdown(self) -> None:
-        """Close the service's DB pools. Called on server shutdown.
+        """Close the service this context built, through the service's own close.
 
-        Both of them: the service is built here directly rather than through
-        its async context manager, so the teardown the manager would have run
-        is this method's to run instead. The read-only pool opens at start-up
-        with a live connection of its own, so skipping it leaves the store
-        holding an idle session the process will never use again.
+        Called by the server's lifespan on exit. Never raises: an error while
+        closing is logged and the service is dropped either way.
         """
         if self._service is not None:
             try:
-                if self._service.readonly_pool is not None:
-                    await self._service.readonly_pool.close()
-                await self._service.pool.close()
+                await self._service.aclose()
             except Exception:
-                logger.debug("Error closing ARIEL pool (ignored)", exc_info=True)
+                logger.debug("Error closing the ARIEL service (ignored)", exc_info=True)
             self._service = None
             logger.info("ARIELContext: shutdown complete")
 

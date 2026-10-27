@@ -964,6 +964,34 @@ class TestAdvancedParamsWiring:
             "parsed",
         }
 
+    @pytest.mark.asyncio
+    async def test_search_calls_reach_exactly_the_modules_that_declare_them(self):
+        """A module declaring ``needs_search_calls`` gets the service's own pool;
+        a module that does not gets no such argument."""
+        from osprey.services.ariel_search.search import keyword, qmd
+
+        assert qmd.get_tool_descriptor().needs_search_calls
+        assert not keyword.get_tool_descriptor().needs_search_calls
+        service = self._create_mock_service(
+            search_modules={"keyword": {"enabled": True}, "hybrid": {"enabled": True}}
+        )
+
+        with (
+            patch(
+                "osprey.services.ariel_search.search.qmd.hybrid_search",
+                new=AsyncMock(return_value=[]),
+            ) as hybrid_search,
+            patch(
+                "osprey.services.ariel_search.search.keyword.keyword_search",
+                new=AsyncMock(return_value=[]),
+            ) as keyword_search,
+        ):
+            await service.search("test", mode="hybrid")
+            await service.search("test", mode="keyword")
+
+        assert hybrid_search.call_args.kwargs["search_calls"] is service.search_calls
+        assert "search_calls" not in keyword_search.call_args.kwargs
+
 
 class TestServiceState:
     """Tests for service internal state management."""

@@ -10,7 +10,8 @@ Usage:
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -18,6 +19,7 @@ from fastmcp import FastMCP
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 
 from osprey.ariel_attachment_view import DEFAULT_VIEW_ENABLED, VIEW_ENABLED_KEY
+from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.mcp_server.errors import make_error  # re-exported for ARIEL tools
 
 if TYPE_CHECKING:
@@ -142,11 +144,24 @@ class ToolOfferMiddleware(Middleware):
         return [tool for tool in tools if tool.name not in withheld]
 
 
+@asynccontextmanager
+async def _lifespan(_server: FastMCP) -> AsyncIterator[dict[str, Any]]:
+    """Close the ARIEL service the server's context built when the server exits."""
+    try:
+        yield {}
+    finally:
+        try:
+            await get_ariel_context().shutdown()
+        except Exception:
+            logger.debug("Error during ARIEL shutdown (ignored)", exc_info=True)
+
+
 # ---------------------------------------------------------------------------
 # FastMCP server instance -- imported by every tool module
 # ---------------------------------------------------------------------------
 mcp = FastMCP(
     "ariel",
+    lifespan=_lifespan,
     instructions=(
         "Search facility logbook entries and operational records. "
         "When an entry includes an `entry_url`, link to it verbatim; "

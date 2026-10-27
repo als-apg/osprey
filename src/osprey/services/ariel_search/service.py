@@ -16,7 +16,7 @@ import asyncio
 import copy
 import dataclasses
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -168,6 +168,7 @@ class ARIELSearchService:
         self.readonly_pool_error = readonly_pool_error
         self.repository = repository
         self.search_calls = SearchCallPool()
+        self._closed = False
         self._embedder: BaseProvider | None = None
         self._validated_search_model = False
 
@@ -1140,11 +1141,35 @@ class ARIELSearchService:
         """Enter async context."""
         return self
 
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """Exit async context and cleanup."""
+    async def aclose(self) -> None:
+        """Close everything the service opened; the service's one close.
+
+        Closes the search-call pool (queued calls are cancelled, running ones
+        are waited for within the pool's close budget and any still running
+        past it is named), then the read-only pool when there is one, then the
+        ingestion pool. Each runs whatever the one before it raised; the first
+        error propagates once all have run. A second call does nothing.
+        """
+        if self._closed:
+            return
+        self._closed = True
+        closes: list[Callable[[], Awaitable[object]]] = [self.search_calls.aclose]
         if self.readonly_pool is not None:
-            await self.readonly_pool.close()
-        await self.pool.close()
+            closes.append(self.readonly_pool.close)
+        closes.append(self.pool.close)
+        first_error: BaseException | None = None
+        for close in closes:
+            try:
+                await close()
+            except BaseException as exc:
+                if first_error is None:
+                    first_error = exc
+        if first_error is not None:
+            raise first_error
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Exit async context through :meth:`aclose`."""
+        await self.aclose()
 
 
 _MAX_FILENAME_BYTES = 255

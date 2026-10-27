@@ -480,7 +480,7 @@ def _create_lifespan(config_path: str | Path | None = None):
         # Cleanup
         logger.info("Shutting down ARIEL Web Interface...")
         if service is not None:
-            await service.__aexit__(None, None, None)
+            await service.aclose()
 
     return lifespan
 

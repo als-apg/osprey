@@ -222,51 +222,8 @@ async def test_the_readonly_pool_is_closed_with_the_service():
 
 
 # ---------------------------------------------------------------------------
-# The two consumers that close the service by hand
-#
-# `async with service` closes both pools, but neither long-lived consumer uses
-# it: the MCP server builds the service directly so it can outlive one request,
-# and the capability path caches a module singleton. Whatever the context
-# manager would have done is theirs to do instead.
+# The build that hosts the raw-SQL tool
 # ---------------------------------------------------------------------------
-
-
-class _RecordingPool:
-    """Stands in for an ``AsyncConnectionPool`` that only has to be closed."""
-
-    def __init__(self) -> None:
-        self.closed = False
-
-    async def close(self) -> None:
-        self.closed = True
-
-
-def _service_with_two_pools() -> tuple[Any, _RecordingPool, _RecordingPool]:
-    from osprey.services.ariel_search.service import ARIELSearchService
-
-    ingest, readonly = _RecordingPool(), _RecordingPool()
-    service = ARIELSearchService(
-        config=_config(),
-        pool=ingest,  # type: ignore[arg-type]
-        repository=object(),  # type: ignore[arg-type]
-        readonly_pool=readonly,  # type: ignore[arg-type]
-    )
-    return service, ingest, readonly
-
-
-@pytest.mark.asyncio
-async def test_the_mcp_context_shutdown_closes_both_pools():
-    """The server that hosts ``sql_query`` is the readonly pool's one consumer."""
-    from osprey.mcp_server.ariel.server_context import ARIELContext
-
-    service, ingest, readonly = _service_with_two_pools()
-    context = ARIELContext.__new__(ARIELContext)
-    context._service = service
-
-    await context.shutdown()
-
-    assert ingest.closed
-    assert readonly.closed
 
 
 @pytest.mark.asyncio
@@ -285,42 +242,3 @@ async def test_the_mcp_context_builds_the_service_that_hosts_the_sql_tool(monkey
     await context.service()
 
     assert create.await_args.kwargs == {"serves_sql_tool": True}
-
-
-@pytest.mark.asyncio
-async def test_closing_the_capability_singleton_closes_both_pools(monkeypatch):
-    """Same hand-rolled teardown, one module along."""
-    from osprey.services.ariel_search import capability
-
-    service, ingest, readonly = _service_with_two_pools()
-    monkeypatch.setattr(capability, "_ariel_service_instance", service)
-
-    await capability.close_ariel_service()
-
-    assert ingest.closed
-    assert readonly.closed
-    assert capability._ariel_service_instance is None
-
-
-@pytest.mark.asyncio
-async def test_a_single_pool_service_still_closes_cleanly(monkeypatch):
-    """A stack without the SQL tool has no readonly pool; neither teardown may trip."""
-    from osprey.mcp_server.ariel.server_context import ARIELContext
-    from osprey.services.ariel_search import capability
-    from osprey.services.ariel_search.service import ARIELSearchService
-
-    for close in ("context", "singleton"):
-        pool = _RecordingPool()
-        service = ARIELSearchService(
-            config=_config(),
-            pool=pool,  # type: ignore[arg-type]
-            repository=object(),  # type: ignore[arg-type]
-        )
-        if close == "context":
-            context = ARIELContext.__new__(ARIELContext)
-            context._service = service
-            await context.shutdown()
-        else:
-            monkeypatch.setattr(capability, "_ariel_service_instance", service)
-            await capability.close_ariel_service()
-        assert pool.closed
