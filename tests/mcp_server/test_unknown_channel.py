@@ -18,7 +18,7 @@ from osprey.mcp_server.control_system.error_handling import connector_error_hand
 from osprey.mcp_server.control_system.server_context import initialize_server_context
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.errors import ChannelNotFoundError
-from tests.connectors.test_mock_connector import _config_with_writes_enabled
+from tests._config_lookup import writes_enabled_lookup
 from tests.facility.served_tree import in_process_config, served_tree
 from tests.mcp_server.conftest import (
     assert_raises_error,
@@ -50,7 +50,7 @@ async def served(tmp_path, monkeypatch):
     }
     (tmp_path / "config.yml").write_text(yaml.safe_dump({"control_system": control_system}))
     initialize_server_context()
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", _config_with_writes_enabled)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_lookup)
 
     connector = VAInProcessConnector()
     await connector.connect(in_process_config(view, response_delay_ms=0))
