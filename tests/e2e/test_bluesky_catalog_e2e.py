@@ -325,15 +325,7 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
     if build.returncode != 0:
         pytest.fail(format_failure("osprey build", build))
 
-    # The repo root's .env is the deployment's whole secret store and the file
-    # every compose invocation is pointed at, so `up` refuses to start without
-    # one. `osprey init` writes it only when the shell exports a key for this
-    # profile's provider, which this browse-only lane has no need of — this is
-    # the `cp .env.example .env` the CLI itself recommends, done for the
-    # operator.
-    env_path = repo / ".env"
-    if not env_path.exists():
-        shutil.copy(repo / ".env.example", env_path)
+    _orm_stack.seed_repo_env(repo)
 
     # Force a fresh --dev build so the deployed bridge runs CURRENT source
     # (osprey up does not pass --build to compose, so it would otherwise

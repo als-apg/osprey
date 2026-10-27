@@ -102,7 +102,12 @@ from osprey_connectors.control_context import RECORD_FILENAME
 from osprey_connectors.dotenv import parse_dotenv_file
 from osprey_connectors.posture_store import STATE_DIR_NAME
 from osprey_connectors.workspace import TIERS_DIRNAME
-from tests.e2e._deploy_support import find_osprey_console_script, format_failure
+from tests.e2e._deploy_support import (
+    find_osprey_console_script,
+    format_failure,
+    run_osprey,
+    runtime_cli,
+)
 from tests.e2e._facility_select import repo_view
 from tests.e2e._orm_stack import VA_CA_PORT, VA_PVA_PORT
 from tests.e2e._volumes import remove_project_volumes
@@ -194,29 +199,12 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 # ---------------------------------------------------------------------------
 
 
-def _runtime_cli(*args: str, timeout: int = 30) -> subprocess.CompletedProcess:
-    return subprocess.run([RUNTIME, *args], capture_output=True, text=True, timeout=timeout)
-
-
-def _run_osprey(
-    osprey_bin: Path, args: list[str], cwd: Path, timeout: int = VERB_TIMEOUT_SEC
-) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [str(osprey_bin), *args],
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env={**os.environ, "CLAUDECODE": "", "CONTAINER_RUNTIME": RUNTIME},
-    )
-
-
 def _web_container() -> str:
     return f"{PROJECT}-web-{USER}"
 
 
 def _logs(name: str) -> str:
-    result = _runtime_cli("logs", "--tail", "80", name, timeout=20)
+    result = runtime_cli("logs", "--tail", "80", name, timeout=20)
     return f"--- {name} stdout ---\n{result.stdout}\n--- {name} stderr ---\n{result.stderr}"
 
 
@@ -376,7 +364,7 @@ def _shape_repo(repo: Path) -> None:
 def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
     repo = tmp_path / PROJECT_NAME
 
-    init = _run_osprey(
+    init = run_osprey(
         osprey_bin,
         [
             "init",
@@ -396,7 +384,7 @@ def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
     assert init.returncode == 0, format_failure("osprey init (notebook panel)", init)
     _shape_repo(repo)
 
-    build = _run_osprey(
+    build = run_osprey(
         osprey_bin,
         ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         tmp_path,
@@ -420,7 +408,7 @@ def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
 
 def _compose_project() -> str | None:
     """The compose project stamped on the terminal container, if it exists."""
-    result = _runtime_cli(
+    result = runtime_cli(
         "inspect",
         "--type",
         "container",
@@ -434,14 +422,14 @@ def _compose_project() -> str | None:
 
 def _teardown(project: str | None) -> None:
     """Exact-named sweep; failures swallowed (a safety net, never an assertion)."""
-    _runtime_cli("rm", "-f", _web_container())
-    _runtime_cli("rm", "-f", f"{PROJECT}-nginx")
+    runtime_cli("rm", "-f", _web_container())
+    runtime_cli("rm", "-f", f"{PROJECT}-nginx")
     for project_name in {project, PROJECT_NAME} - {None}:
-        _runtime_cli("compose", "-p", str(project_name), "down", timeout=120)
+        runtime_cli("compose", "-p", str(project_name), "down", timeout=120)
         remove_project_volumes(str(project_name), runtime=RUNTIME)
     if not os.environ.get("E2E_REUSE_IMAGES"):
         for tag in (RENDER_IMAGE_TAG, *SERVICE_IMAGE_TAGS):
-            _runtime_cli("rmi", "-f", tag, timeout=120)
+            runtime_cli("rmi", "-f", tag, timeout=120)
 
 
 # ---------------------------------------------------------------------------
@@ -781,7 +769,7 @@ def terminal(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Terminal]:
     """One ``osprey up --dev`` for the whole module; torn down whatever happens."""
     if shutil.which(RUNTIME) is None:
         pytest.skip(f"{RUNTIME} not available")
-    if _runtime_cli("ps", timeout=10).returncode != 0:
+    if runtime_cli("ps", timeout=10).returncode != 0:
         pytest.skip(f"{RUNTIME} daemon not responding")
 
     tmp_path = tmp_path_factory.mktemp("notebook-panel")
@@ -791,7 +779,7 @@ def terminal(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Terminal]:
     client = httpx.Client(timeout=60)
     try:
         _teardown(_compose_project())
-        up = _run_osprey(osprey_bin, ["up", "--dev"], repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
+        up = run_osprey(osprey_bin, ["up", "--dev"], repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
         assert up.returncode == 0, format_failure("osprey up --dev (notebook panel)", up)
         secret = (parse_dotenv_file(repo / ".env").get(terminal_secret_var(USER)) or "").strip()
         assert secret, f"{terminal_secret_var(USER)} was not provisioned into the deploy .env"
@@ -800,7 +788,7 @@ def terminal(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Terminal]:
         yield deployed
     finally:
         project = _compose_project()
-        _run_osprey(osprey_bin, ["down"], repo)
+        run_osprey(osprey_bin, ["down"], repo, timeout=VERB_TIMEOUT_SEC)
         _teardown(project)
         client.close()
 
@@ -1193,9 +1181,9 @@ def test_notebooks_survive_a_restart_and_kernels_do_not(terminal: Terminal) -> N
     terminal.start_notebook_session(SURVIVOR_NOTEBOOK)
     assert len(terminal.get(f"{PANEL}/api/kernels").json()) >= 1
 
-    down = _run_osprey(terminal.osprey_bin, ["down"], terminal.repo)
+    down = run_osprey(terminal.osprey_bin, ["down"], terminal.repo, timeout=VERB_TIMEOUT_SEC)
     assert down.returncode == 0, format_failure("osprey down", down)
-    up = _run_osprey(
+    up = run_osprey(
         terminal.osprey_bin, ["up", "--dev"], terminal.repo, timeout=DEPLOY_UP_TIMEOUT_SEC
     )
     assert up.returncode == 0, format_failure("osprey up --dev (second start)", up)

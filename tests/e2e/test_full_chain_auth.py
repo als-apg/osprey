@@ -206,6 +206,7 @@ from tests.e2e._deploy_support import (
     find_osprey_console_script,
     format_failure,
     image_exists,
+    run_osprey,
     runtime_cli,
     runtime_logs,
 )
@@ -324,7 +325,6 @@ READER = "ext"
 # Two real framework installs; give them room. The step budget in CI is 55
 # minutes (see the module docstring); this is the in-test ceiling below it.
 DEPLOY_UP_TIMEOUT_SEC = 2400
-VERB_TIMEOUT_SEC = 120
 # `init` + `build` render the whole repo (no dependency install, no lifecycle
 # hooks — see the flags below), which is filesystem work rather than network.
 RENDER_TIMEOUT_SEC = 600
@@ -407,26 +407,6 @@ CONTAINER_AUDIT_DIR = f"/app/{TERMINAL_PROJECT}/var/audit"
 
 def _web_container(user: str) -> str:
     return f"{PROJECT}-web-{user}"
-
-
-def _run_osprey(
-    osprey_bin: Path, args: list[str], cwd: Path, timeout: int = VERB_TIMEOUT_SEC
-) -> subprocess.CompletedProcess:
-    """Run an ``osprey`` verb with the deploy-side runtime pinned to RUNTIME.
-
-    Deliberately does NOT set ``OSPREY_PIP_SPEC``: the lifecycle fixtures poison
-    it so a stub Dockerfile that ever started consuming it would fail loudly,
-    but two of the images here are REAL framework installs and must resolve
-    normally.
-    """
-    return subprocess.run(
-        [str(osprey_bin), *args],
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env={**os.environ, "CLAUDECODE": "", "CONTAINER_RUNTIME": RUNTIME},
-    )
 
 
 def _container_image(name: str) -> str | None:
@@ -805,7 +785,7 @@ def _make_repo(tmp_path: Path, osprey_bin: Path, edits: dict[str, Any] | None = 
     edits = edits or _profile_edits()
     repo = tmp_path / PROJECT_NAME
 
-    init = _run_osprey(
+    init = run_osprey(
         osprey_bin,
         [
             "init",
@@ -822,7 +802,7 @@ def _make_repo(tmp_path: Path, osprey_bin: Path, edits: dict[str, Any] | None = 
 
     _author_tiers(repo, edits)
 
-    build = _run_osprey(
+    build = run_osprey(
         osprey_bin,
         ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         tmp_path,
@@ -1240,7 +1220,7 @@ def deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, A
     try:
         # Run from inside the repo: every lifecycle verb walks up to the nearest
         # profile.yml, so standing in the deployment is what selects it.
-        up = _run_osprey(osprey_bin, ["up", "--dev"], repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
+        up = run_osprey(osprey_bin, ["up", "--dev"], repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
         assert up.returncode == 0, format_failure("osprey up --dev (full-chain auth)", up)
 
         health = _wait_for_health(AUTH_READY_TIMEOUT_SEC)
@@ -1255,7 +1235,7 @@ def deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, A
         # The shipped teardown first — it stops the web stack the way the
         # lifecycle does, in the order that leaves nothing behind — then the
         # exact-named sweep as a safety net for anything it could not reach.
-        _run_osprey(osprey_bin, ["down"], repo)
+        run_osprey(osprey_bin, ["down"], repo)
         _teardown()
 
 
@@ -2809,14 +2789,14 @@ def history_withdrawal(deployment: dict[str, Any], history_page: dict[str, Any])
     profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
 
     osprey_bin = find_osprey_console_script()
-    build = _run_osprey(
+    build = run_osprey(
         osprey_bin,
         ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         repo,
         timeout=RENDER_TIMEOUT_SEC,
     )
     assert build.returncode == 0, format_failure("osprey build (history withdrawal)", build)
-    up = _run_osprey(osprey_bin, ["up", "--dev"], repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
+    up = run_osprey(osprey_bin, ["up", "--dev"], repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
     assert up.returncode == 0, format_failure("osprey up --dev (history withdrawal)", up)
     _wait_for_health(AUTH_READY_TIMEOUT_SEC)
     return {"carol": carol, "removed_view": removed_view}

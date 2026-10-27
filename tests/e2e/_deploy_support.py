@@ -62,6 +62,25 @@ def run_command(cmd: list[str], cwd: Path, timeout: int) -> subprocess.Completed
     )
 
 
+def run_osprey(
+    osprey_bin: Path, args: list[str], cwd: Path, timeout: int = 120
+) -> subprocess.CompletedProcess:
+    """Run an ``osprey`` verb with the deploy-side runtime pinned to RUNTIME.
+
+    Deliberately does NOT set ``OSPREY_PIP_SPEC``: the lifecycle fixtures poison
+    it so a stub Dockerfile that ever started consuming it would fail loudly,
+    but the real framework installs some suites build must resolve normally.
+    """
+    return subprocess.run(
+        [str(osprey_bin), *args],
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env={**os.environ, "CLAUDECODE": "", "CONTAINER_RUNTIME": RUNTIME},
+    )
+
+
 def format_failure(label: str, result: subprocess.CompletedProcess) -> str:
     """A failure message carrying the exit code and both captured streams."""
     return (

@@ -125,7 +125,6 @@ import http.cookiejar
 import json
 import os
 import shutil
-import subprocess
 import time
 import urllib.error
 import urllib.parse
@@ -149,6 +148,7 @@ from tests.e2e._deploy_support import (
     find_osprey_console_script,
     format_failure,
     image_exists,
+    run_osprey,
     runtime_cli,
     runtime_logs,
 )
@@ -288,7 +288,6 @@ OPEN_LANE = Lane(
 
 # The render build is a real framework install; give it room.
 DEPLOY_UP_TIMEOUT_SEC = 1800
-VERB_TIMEOUT_SEC = 120
 # `init` + `build` render the whole repo (no dependency install, no lifecycle
 # hooks — see the flags below), which is filesystem work rather than network.
 RENDER_TIMEOUT_SEC = 600
@@ -360,25 +359,6 @@ print(
     + json.dumps({"ports": list(ports), "armed": run(ports), "control": run(())})
 )
 """
-
-
-def _run_osprey(
-    osprey_bin: Path, args: list[str], cwd: Path, timeout: int = VERB_TIMEOUT_SEC
-) -> subprocess.CompletedProcess:
-    """Run an ``osprey`` verb with the deploy-side runtime pinned to RUNTIME.
-
-    Deliberately does NOT set ``OSPREY_PIP_SPEC``: the lifecycle fixtures poison
-    it so a stub Dockerfile that ever started consuming it would fail loudly, but
-    the render image here is a REAL framework install and must resolve normally.
-    """
-    return subprocess.run(
-        [str(osprey_bin), *args],
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env={**os.environ, "CLAUDECODE": "", "CONTAINER_RUNTIME": RUNTIME},
-    )
 
 
 def _container_env(name: str) -> dict[str, str]:
@@ -456,7 +436,7 @@ def _make_repo(lane: Lane, tmp_path: Path, osprey_bin: Path) -> Path:
     """
     repo = tmp_path / lane.project_name
 
-    init = _run_osprey(
+    init = run_osprey(
         osprey_bin,
         ["init", str(repo), "--preset", PRESET, "--no-git", *set_pairs(_profile_edits(lane))],
         tmp_path,
@@ -464,7 +444,7 @@ def _make_repo(lane: Lane, tmp_path: Path, osprey_bin: Path) -> Path:
     )
     assert init.returncode == 0, format_failure(f"osprey init ({lane.posture} multiuser)", init)
 
-    build = _run_osprey(
+    build = run_osprey(
         osprey_bin,
         ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         tmp_path,
@@ -640,7 +620,7 @@ def _deploy(lane: Lane, tmp_path: Path) -> Iterator[dict[str, Any]]:
     try:
         # Run from inside the repo: every lifecycle verb walks up to the nearest
         # profile.yml, so standing in the deployment is what selects it.
-        up = _run_osprey(osprey_bin, ["up", "--dev"], repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
+        up = run_osprey(osprey_bin, ["up", "--dev"], repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
         assert up.returncode == 0, format_failure(f"osprey up --dev ({lane.posture} multiuser)", up)
         for user in lane.usernames:
             # Under `open` every location is injected into and answers 200;
@@ -655,7 +635,7 @@ def _deploy(lane: Lane, tmp_path: Path) -> Iterator[dict[str, Any]]:
     finally:
         # The shipped teardown first — it stops the web stack the way the
         # lifecycle does — then the exact-named sweep as a safety net.
-        _run_osprey(osprey_bin, ["down"], repo)
+        run_osprey(osprey_bin, ["down"], repo)
         _teardown(lane)
 
 

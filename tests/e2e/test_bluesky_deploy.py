@@ -94,6 +94,7 @@ from tests.e2e._deploy_support import (
     wait_for_container_health,
     wait_for_health,
 )
+from tests.e2e._orm_stack import seed_repo_env
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 
@@ -164,20 +165,6 @@ pytestmark = [
 ]
 
 
-def _seed_repo_env(repo: Path) -> None:
-    """Give the repo the ``.env`` ``osprey up`` refuses to start without.
-
-    The repo root's ``.env`` is the deployment's whole secret store and the file
-    every compose invocation is pointed at, so ``up`` aborts when it is absent.
-    ``osprey init`` writes one only when the shell exports a key for the
-    profile's provider, which no bluesky lane has — this is the ``cp
-    .env.example .env`` the CLI itself recommends, done for the operator.
-    """
-    env_path = repo / ".env"
-    if not env_path.exists():
-        shutil.copy(repo / ".env.example", env_path)
-
-
 @pytest.fixture(scope="module")
 def deployed_bridge(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     """Init + build + ``osprey up --dev`` a bluesky-only repo; tear down after."""
@@ -229,7 +216,7 @@ def deployed_bridge(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     )
     if build.returncode != 0:
         pytest.fail(format_failure("osprey build", build))
-    _seed_repo_env(repo)
+    seed_repo_env(repo)
 
     # Force a fresh image build so the deployed bridge runs CURRENT source —
     # `osprey up` does not pass --build to compose, so it would otherwise

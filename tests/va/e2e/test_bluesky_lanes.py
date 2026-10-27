@@ -94,7 +94,7 @@ from osprey_connectors import control_context, posture_store
 from osprey_connectors.workspace import reset_config_cache
 from osprey_connectors_tests._harness import write_control_context
 from tests.e2e._deploy_support import find_osprey_console_script
-from tests.e2e._orm_stack import VA_PVA_PORT
+from tests.e2e._orm_stack import VA_PVA_PORT, seed_repo_env
 from tests.e2e._queue_drive import wait_for_worker_environment
 from tests.e2e.profile_edits import set_pairs
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
@@ -548,9 +548,8 @@ def stack(tmp_path_factory: pytest.TempPathFactory, live_endpoint: int):
     _remove_stale_deployment()
     repo = _init_and_build(base, PROJECT_NAME, second_lane=True)
 
+    seed_repo_env(repo)
     env_path = repo / ".env"
-    if not env_path.exists():
-        shutil.copy(repo / ".env.example", env_path)
     with env_path.open("a", encoding="utf-8") as handle:
         handle.write(f"EPICS_CA_NAME_SERVERS=host.docker.internal:{live_endpoint}\n")
 

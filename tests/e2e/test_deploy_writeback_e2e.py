@@ -102,6 +102,7 @@ from tests.e2e._deploy_support import (
     runtime_cli,
     volume_exists,
 )
+from tests.e2e._orm_stack import seed_repo_env
 from tests.e2e.profile_edits import set_pairs
 
 pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.dockerbuild]
@@ -295,23 +296,8 @@ def _init_and_build(base_dir: Path, name: str, preset: str, edits: dict[str, Any
     assert build.returncode == 0, format_failure(f"osprey build {name}", build)
     assert (repo / "build" / "config.yml").is_file(), f"osprey build rendered nothing in {repo}"
 
-    _seed_repo_env(repo)
+    seed_repo_env(repo)
     return repo
-
-
-def _seed_repo_env(repo: Path) -> None:
-    """Give the repo the ``.env`` ``osprey up`` refuses to start without.
-
-    The repo root's ``.env`` is the deployment's whole secret store and the file
-    every compose invocation is pointed at, so ``up`` aborts when it is absent.
-    ``osprey init`` writes one only when the shell exports a key for the
-    profile's provider, and these cases deliberately run with every relevant
-    variable stripped (see :func:`_child_env`) — this is the ``cp .env.example
-    .env`` the CLI itself recommends, done for the operator.
-    """
-    env_path = repo / ".env"
-    if not env_path.exists():
-        shutil.copy(repo / ".env.example", env_path)
 
 
 def _env_of(path: Path) -> dict[str, str]:
