@@ -34,6 +34,7 @@ from osprey.infrastructure.server_launcher import (
     _resolve_dotted,
     ensure_web_server,
 )
+from osprey.interfaces._serving import free_port
 from osprey.registry.web import (
     FRAMEWORK_WEB_SERVERS,
     WebServerConfigDepthError,
@@ -41,7 +42,6 @@ from osprey.registry.web import (
     framework_web_port_default,
     resolve_web_server_address,
 )
-from tests._live import free_port
 
 
 def _make_launcher(host: str = "127.0.0.1", port: int | None = None) -> ServerLauncher:

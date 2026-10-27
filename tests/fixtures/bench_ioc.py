@@ -51,7 +51,7 @@ from typing import Any
 
 import pytest
 
-from tests._live import free_port
+from osprey.interfaces._serving import free_port
 
 # ---------------------------------------------------------------------------
 # The image, and what it serves

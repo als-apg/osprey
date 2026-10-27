@@ -1,4 +1,4 @@
-"""Helpers for tests that drive a live process or server.
+"""Polling helpers for tests that drive a live process or server.
 
 ``wait_until`` and ``async_wait_until`` poll a probe until it returns something
 truthy and hand that value back, so a wait that is also a read stays one call::
@@ -8,29 +8,21 @@ truthy and hand that value back, so a wait that is also a read stays one call::
 On timeout they raise :class:`AssertionError` naming *what* was awaited and the
 probe's last value, which is what a failing test log needs to show.
 
-``free_port`` reserves an OS-assigned loopback port and releases it, for a
-server the test is about to start on it.
+For ports, use ``free_port`` / ``wait_for_port`` from
+:mod:`osprey.interfaces._serving` (tests/README.md, "Ports").
 """
 
 from __future__ import annotations
 
 import asyncio
 import inspect
-import socket
 import time
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
 T = TypeVar("T")
 
-__all__ = ["async_wait_until", "free_port", "wait_until"]
-
-
-def free_port() -> int:
-    """An unused TCP port on 127.0.0.1, released so the caller can bind it."""
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return int(probe.getsockname()[1])
+__all__ = ["async_wait_until", "wait_until"]
 
 
 def wait_until(
