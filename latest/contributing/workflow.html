@@ -484,8 +484,8 @@ short-lived topic branches that PR back into it. Releases are CalVer tags
 </pre></div>
 </div>
 <p><strong>2. Make changes</strong> – follow the code standards below, add tests, update docs.</p>
-<p><strong>3. Test locally</strong> with the check command, <code class="docutils literal notranslate"><span class="pre">scripts/check.py</span></code>, the one
-declaration of the merge gate:</p>
+<p><strong>3. Test locally</strong> with the check command, <code class="docutils literal notranslate"><span class="pre">scripts/check.py</span></code>, which runs
+the merge gate from the checks every owner declares:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># The quick tier -- before every commit (--fix lets ruff and prettier rewrite</span>
 <span class="c1"># files first)</span>
 uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>scripts/check.py<span class="w"> </span>quick
@@ -502,6 +502,14 @@ uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </sp
 run also names the CI lanes your diff touches. <code class="docutils literal notranslate"><span class="pre">--base</span> <span class="pre">BASE</span></code> arms the checks
 that judge a range without scoping the tier, so <code class="docutils literal notranslate"><span class="pre">full</span> <span class="pre">--base</span> <span class="pre">origin/main</span></code>
 judges the whole tree and the range in one verdict.</p>
+<p>A check is declared by the code that owns it, in a <code class="docutils literal notranslate"><span class="pre">repo_checks.py</span></code> module
+beside that code: <code class="docutils literal notranslate"><span class="pre">scripts/repo_checks.py</span></code> holds the framework’s and the
+repository-wide checks, and a package that brings checks of its own, such as
+<code class="docutils literal notranslate"><span class="pre">packages/osprey-connectors/</span></code>, carries its own module. <code class="docutils literal notranslate"><span class="pre">scripts/check.py</span></code>
+collects every such module in the tree; it holds no check itself. Each record in
+a module’s <code class="docutils literal notranslate"><span class="pre">CHECKS</span></code> carries everything the command does with the check – its
+command, scope, tiers, needs, bound and hooks – so adding a check is one record
+in its owner’s module and a CI step that calls <code class="docutils literal notranslate"><span class="pre">scripts/check.py</span> <span class="pre">run</span> <span class="pre">ID</span></code>.</p>
 <p>JavaScript (<code class="docutils literal notranslate"><span class="pre">*.js</span></code> and <code class="docutils literal notranslate"><span class="pre">*.mjs</span></code>) is formatted by Prettier, exact-pinned in
 <code class="docutils literal notranslate"><span class="pre">package.json</span></code> and configured by <code class="docutils literal notranslate"><span class="pre">.prettierrc.json</span></code>: <code class="docutils literal notranslate"><span class="pre">npm</span> <span class="pre">run</span> <span class="pre">format</span></code>
 rewrites the tree, and the <code class="docutils literal notranslate"><span class="pre">prettier</span></code> check (<code class="docutils literal notranslate"><span class="pre">npm</span> <span class="pre">run</span> <span class="pre">format:check</span></code>) fails
