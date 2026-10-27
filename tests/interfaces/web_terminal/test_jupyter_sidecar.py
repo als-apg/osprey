@@ -36,6 +36,7 @@ from osprey.interfaces.web_terminal.jupyter_sidecar import (
     starter_read_channel,
 )
 from osprey.mcp_server.python_executor.executor import resolve_agent_interpreter
+from tests._live import wait_until
 
 READY_TIMEOUT = 90.0
 
@@ -702,10 +703,8 @@ def test_stop_returns_while_an_orphan_still_holds_the_stderr_pipe(
     sidecar.spawn()
     orphan: int | None = None
     try:
-        deadline = time.monotonic() + 10
-        while not pid_file.exists() and time.monotonic() < deadline:
-            time.sleep(0.05)
-        assert pid_file.exists(), "the stand-in never reported its orphan"
+        wait_until(pid_file.exists, timeout=10, what="the stand-in to report its orphan")
+
         orphan = int(pid_file.read_text())
         assert _alive(orphan)
 
