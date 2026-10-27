@@ -4003,96 +4003,39 @@ def test_the_browser_lane_runs_unconditionally__mutation_gates_an_install_on_the
     assert _browser_steps_gated_on_outputs(mutated) == ["Install Playwright webkit"]
 
 
-def test_login_flow_browser_test_runs_in_the_browser_lane(workflow: dict[str, Any]) -> None:
+COMBOBOX_BROWSER_TEST_FILE = "tests/interfaces/bluesky_web/test_channel_combobox_browser.py"
+HISTORY_BROWSER_TEST_FILE = "tests/interfaces/history/test_history_page_browser.py"
+LATTICE_BROWSER_TEST_FILE = "tests/interfaces/test_lattice_dashboard_browser.py"
+
+#: The browser suites (h) and its siblings each pin by name: the login flow, the
+#: channel combobox, the history page and the lattice dashboard.
+_NAMED_BROWSER_TEST_FILES = [
+    AUTH_BROWSER_TEST_FILE,
+    COMBOBOX_BROWSER_TEST_FILE,
+    HISTORY_BROWSER_TEST_FILE,
+    LATTICE_BROWSER_TEST_FILE,
+]
+
+
+@pytest.mark.parametrize("test_file", _NAMED_BROWSER_TEST_FILES)
+def test_browser_test_runs_in_the_browser_lane(workflow: dict[str, Any], test_file: str) -> None:
     """The suite has to be NAMED in the lane's pytest invocation.
 
     The lane runs an explicit file list, not a directory glob, so a new
     browser-marked file that nobody adds here is never collected anywhere: the
     unit lane skips it (no chromium), and this lane never hears of it. It
     reports green by running nothing at all."""
-    assert AUTH_BROWSER_TEST_FILE in _browser_lane_files(workflow)
+    assert test_file in _browser_lane_files(workflow)
 
 
-def test_login_flow_browser_test_runs_in_the_browser_lane__mutation_drops_the_file() -> None:
+@pytest.mark.parametrize("test_file", _NAMED_BROWSER_TEST_FILES)
+def test_browser_test_runs_in_the_browser_lane__mutation_drops_the_file(test_file: str) -> None:
     """Removing the file from the invocation must fail the guard — the exact
     vacuous-green shape above."""
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
-    step["run"] = step["run"].replace(f"{AUTH_BROWSER_TEST_FILE} \\\n", "")
-    assert AUTH_BROWSER_TEST_FILE not in _browser_lane_files(mutated)
-
-
-# ---------------------------------------------------------------------------
-# (h2) channel-combobox browser test: same vacuous-green shape as (h) — the
-# lane runs an explicit file list, and a suite missing from it runs nowhere
-# ---------------------------------------------------------------------------
-
-COMBOBOX_BROWSER_TEST_FILE = "tests/interfaces/bluesky_web/test_channel_combobox_browser.py"
-
-
-def test_channel_combobox_browser_test_runs_in_the_browser_lane(
-    workflow: dict[str, Any],
-) -> None:
-    """The combobox suite has to be NAMED in the lane's pytest invocation —
-    the unit lane skips browser-marked files, so this lane is the only place
-    it is ever collected."""
-    assert COMBOBOX_BROWSER_TEST_FILE in _browser_lane_files(workflow)
-
-
-def test_channel_combobox_browser_test_runs_in_the_browser_lane__mutation_drops_the_file() -> None:
-    """Removing the file from the invocation must fail the guard."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
-    step["run"] = step["run"].replace(f"{COMBOBOX_BROWSER_TEST_FILE} \\\n", "")
-    assert COMBOBOX_BROWSER_TEST_FILE not in _browser_lane_files(mutated)
-
-
-# ---------------------------------------------------------------------------
-# (h3) history page browser test: same vacuous-green shape as (h) — the lane
-# runs an explicit file list, and a suite missing from it runs nowhere
-# ---------------------------------------------------------------------------
-
-HISTORY_BROWSER_TEST_FILE = "tests/interfaces/history/test_history_page_browser.py"
-
-
-def test_history_page_browser_test_runs_in_the_browser_lane(workflow: dict[str, Any]) -> None:
-    """The history page suite has to be NAMED in the lane's pytest invocation —
-    the unit lane skips browser-marked files, so this lane is the only place
-    it is ever collected."""
-    assert HISTORY_BROWSER_TEST_FILE in _browser_lane_files(workflow)
-
-
-def test_history_page_browser_test_runs_in_the_browser_lane__mutation_drops_the_file() -> None:
-    """Removing the file from the invocation must fail the guard."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
-    step["run"] = step["run"].replace(f"{HISTORY_BROWSER_TEST_FILE} \\\n", "")
-    assert HISTORY_BROWSER_TEST_FILE not in _browser_lane_files(mutated)
-
-
-# ---------------------------------------------------------------------------
-# (h2b) lattice-dashboard browser test: same vacuous-green shape as (h) — the
-# lane runs an explicit file list, and a suite missing from it runs nowhere
-# ---------------------------------------------------------------------------
-
-LATTICE_BROWSER_TEST_FILE = "tests/interfaces/test_lattice_dashboard_browser.py"
-
-
-def test_lattice_dashboard_browser_test_runs_in_the_browser_lane(
-    workflow: dict[str, Any],
-) -> None:
-    """The lattice dashboard suite has to be NAMED in the lane's pytest
-    invocation — the unit lane skips browser-marked files, so this lane is the
-    only place it is ever collected."""
-    assert LATTICE_BROWSER_TEST_FILE in _browser_lane_files(workflow)
-
-
-def test_lattice_dashboard_browser_test_runs_in_the_browser_lane__mutation_drops_the_file() -> None:
-    """Removing the file from the invocation must fail the guard."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
-    step["run"] = step["run"].replace(f"{LATTICE_BROWSER_TEST_FILE} \\\n", "")
-    assert LATTICE_BROWSER_TEST_FILE not in _browser_lane_files(mutated)
+    step["run"] = step["run"].replace(f"{test_file} \\\n", "")
+    assert test_file not in _browser_lane_files(mutated)
 
 
 # ---------------------------------------------------------------------------
