@@ -17,36 +17,19 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any
 
 import httpx
 
+#: Container runtime selection -- ``docker`` by default, ``podman`` opt-in via
+#: OSPREY_E2E_RUNTIME (the CI podman lanes set it), so one env var drives every
+#: lane. Any other value fails clearly at collection time rather than silently
+#: falling back to docker.
 _SUPPORTED_RUNTIMES = ("docker", "podman")
-
-
-def container_runtime() -> str:
-    """The container runtime the RUNTIME-aware suites drive.
-
-    ``docker`` by default, ``podman`` opt-in via OSPREY_E2E_RUNTIME (the CI
-    podman lanes set it), so one env var drives every lane. Any other value
-    fails clearly rather than silently falling back to docker -- at collection
-    time for a suite that imports ``RUNTIME``, and only there: a suite that
-    takes nothing runtime-aware from this module still collects.
-    """
-    runtime = os.environ.get("OSPREY_E2E_RUNTIME", "docker")
-    if runtime not in _SUPPORTED_RUNTIMES:
-        raise RuntimeError(
-            f"OSPREY_E2E_RUNTIME={runtime!r} is not supported; expected one of {_SUPPORTED_RUNTIMES}"
-        )
-    return runtime
-
-
-def __getattr__(name: str) -> Any:
-    # ``RUNTIME`` is resolved when a suite imports it, not when this module
-    # loads, so a bad OSPREY_E2E_RUNTIME fails only the suites that use it.
-    if name == "RUNTIME":
-        return container_runtime()
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+RUNTIME = os.environ.get("OSPREY_E2E_RUNTIME", "docker")
+if RUNTIME not in _SUPPORTED_RUNTIMES:
+    raise RuntimeError(
+        f"OSPREY_E2E_RUNTIME={RUNTIME!r} is not supported; expected one of {_SUPPORTED_RUNTIMES}"
+    )
 
 
 def find_osprey_console_script() -> Path:
@@ -94,7 +77,7 @@ def run_osprey(
         capture_output=True,
         text=True,
         timeout=timeout,
-        env={**os.environ, "CLAUDECODE": "", "CONTAINER_RUNTIME": container_runtime()},
+        env={**os.environ, "CLAUDECODE": "", "CONTAINER_RUNTIME": RUNTIME},
     )
 
 
@@ -113,7 +96,7 @@ def runtime_cli(
     daemon that stops answering is a fact worth surfacing, not a false negative.
     """
     return subprocess.run(
-        [container_runtime(), *args],
+        [RUNTIME, *args],
         capture_output=True,
         text=True,
         timeout=timeout,
