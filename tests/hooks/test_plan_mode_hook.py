@@ -63,7 +63,7 @@ def _deny_reason(result):
 
 
 def test_plan_mode_denies_a_listed_tool_with_the_one_reason(tmp_path, hook_runner, monkeypatch):
-    from tests._control_context_fixtures import pin_identity
+    from osprey_connectors_tests._harness import pin_identity
 
     identity = pin_identity(monkeypatch)
     module = import_hook("osprey_plan_mode")
