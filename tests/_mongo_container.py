@@ -3,7 +3,8 @@
 Four suites need one — the connector fixtures, the world-contract fixtures and the
 two seeder suites. They differ in the credentials they hand out, the server flags
 they ask for and what they put in the mapping they yield, not in how the store is
-brought up, so the bring-up lives here once.
+brought up, so the bring-up lives here once. Whether mongod's TTL sweeper runs is
+part of that recipe, not a flag each suite spells: it is off unless asked for.
 
 **Why the wait cannot be left to the container library.** ``mongo`` boots twice
 when it has a root user to create: a throwaway server for the init scripts, then
@@ -63,8 +64,16 @@ def started_mongo(
     username: str,
     password: str,
     command: Sequence[str] | None = None,
+    sweeper: bool = False,
 ) -> Iterator[tuple[str, int]]:
     """A started MongoDB that has answered, stopped again when the caller is done.
+
+    A seeded store keeps the fixture's clock, not the wall clock: its expiry
+    stamps can lie in the past, so a sweep landing between two steps of a test
+    deletes documents the next step reads. mongod's TTL sweeper therefore runs
+    only where a test asks for it — ``sweeper=True`` from boot, or
+    ``setParameter ttlMonitorEnabled`` at runtime — and the one-second sleep the
+    recipe always sets makes such a pass quick.
 
     Args:
         label: Human-readable name for the store, used in skip and failure messages.
@@ -72,6 +81,7 @@ def started_mongo(
             authenticates as against :data:`MONGO_AUTH_DB`.
         password: That user's password.
         command: Server flags to run mongod with, for a suite that needs any.
+        sweeper: Whether mongod's TTL sweeper runs from boot.
 
     Yields:
         The host and the published port to reach the store on.
@@ -89,7 +99,7 @@ def started_mongo(
 
     def build():
         container = MongoDbContainer(MONGO_IMAGE, username=username, password=password)
-        return container.with_command(list(command)) if command else container
+        return container.with_command(_server_flags(command, sweeper=sweeper))
 
     exits: list[str] = []
     for attempt in range(1, CONTAINER_START_ATTEMPTS + 1):
@@ -121,6 +131,18 @@ def started_mongo(
         yield host, port
     finally:
         stop_quietly(container)
+
+
+def _server_flags(command: Sequence[str] | None, *, sweeper: bool) -> list[str]:
+    """The caller's server flags, then the recipe's sweeper settings.
+
+    The sweep interval is always one second; the sweeper itself is switched off
+    unless ``sweeper`` is set, which leaves the server's own default (on).
+    """
+    flags = [*(command or ()), "--setParameter", "ttlMonitorSleepSecs=1"]
+    if not sweeper:
+        flags += ["--setParameter", "ttlMonitorEnabled=false"]
+    return flags
 
 
 def _ping(host: str, port: int, username: str, password: str) -> None:
