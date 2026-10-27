@@ -44,7 +44,6 @@ import math
 import multiprocessing
 import os
 import shutil
-import socket
 import threading
 import time
 from collections.abc import Callable, Coroutine, Iterator, Mapping
@@ -56,6 +55,8 @@ from typing import Any
 
 import pytest
 import yaml
+
+from tests._live import free_port
 
 pytest.importorskip(
     "lume_pva_apg",
@@ -71,20 +72,13 @@ if importlib.util.find_spec("aioca") is None:
     pytest.skip("the Channel Access client is aioca", allow_module_level=True)
 
 
-def _free_port() -> str:
-    """An unused loopback TCP port, as a string ready for the environment."""
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return str(probe.getsockname()[1])
-
-
 #: The served views, each in a process of its own: the three below, and the
 #: stub view again for a start-up pass that fails.
 SERVERS = ("names", "demo", "stub", "first_pass")
 
 # Each server listens on a Channel Access port of its own, so the client
 # searches them all; the pairing of server and port is fixed here, once.
-CA_PORTS: dict[str, str] = {server: _free_port() for server in SERVERS}
+CA_PORTS: dict[str, str] = {server: str(free_port()) for server in SERVERS}
 # What this module's client searches with. libca reads its settings once, when
 # the process's CA context is created, and other modules collected into the same
 # process write their own at import (test_apply_fault.py names a port of its own).
@@ -100,7 +94,7 @@ CA_CLIENT_ENV: dict[str, str | None] = {
 # import-time required because libca reads the repeater port when the first CA
 # context in the process is created, which may be another module's, before any
 # of this module's fixtures run; point_at does not carry it.
-os.environ.setdefault("EPICS_CA_REPEATER_PORT", _free_port())
+os.environ.setdefault("EPICS_CA_REPEATER_PORT", str(free_port()))
 
 # Found, never imported: pcaspy's extension bundles its own EPICS base, and
 # loaded beside aioca's libca it drops the client on every write. The servers
@@ -734,8 +728,8 @@ def _served(
         "state": None if state_dir is None else str(state_dir),
         "tick": tick_interval_s,
         "ca_port": CA_PORTS[server],
-        "pva_port": _free_port(),
-        "pva_broadcast": _free_port(),
+        "pva_port": str(free_port()),
+        "pva_broadcast": str(free_port()),
         "physics": physics,
         "stub": stub,
         "first_pass_fault": first_pass_fault,

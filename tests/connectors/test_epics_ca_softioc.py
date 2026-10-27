@@ -27,6 +27,8 @@ import pytest
 
 import osprey_connectors
 
+from tests._live import free_port
+
 pytest.importorskip("aioca", reason="the EPICS connector's Channel Access client")
 pytest.importorskip("epicscorelibs.ioc", reason="serves the soft IOC")
 
@@ -78,12 +80,6 @@ record(ao, "{prefix}:DISABLED") {{ field(DISV, "1") field(DISA, "1") field(DISP,
 """
 
 
-def _free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.bind(("127.0.0.1", 0))
-        return probe.getsockname()[1]
-
-
 def _ca_env(port: int) -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if not k.startswith(("EPICS_CA", "EPICS_PVA"))}
     env.update(
@@ -106,7 +102,7 @@ def prefix() -> str:
 @pytest.fixture
 def ioc(tmp_path, prefix):
     """A soft IOC with access security on a port of its own; yields its CA env."""
-    port = _free_port()
+    port = free_port()
     database = tmp_path / "test.db"
     database.write_text(_database(prefix))
     acf = tmp_path / "test.acf"

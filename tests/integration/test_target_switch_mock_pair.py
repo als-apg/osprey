@@ -50,7 +50,6 @@ import contextlib
 import json
 import os
 import signal
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -78,6 +77,7 @@ from osprey_connectors.factory import ConnectorFactory, isolated_connector_regis
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc._proxy import ConnectorHostProxy
 from osprey_connectors.ipc._verification import derive_endpoints
+from tests._live import async_wait_until
 from tests.fixtures.control_context import context_for
 from tests.integration._mock_pair_connectors import (
     BATCH_CHANNELS,
@@ -237,16 +237,6 @@ async def pair(config_file, monkeypatch):
 
 
 # ------------------------------------------------------------------- helpers
-
-
-async def wait_for(predicate, timeout: float = SETTLE_TIMEOUT_S) -> bool:
-    """Poll *predicate* on the event loop until it holds, or give up."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if predicate():
-            return True
-        await asyncio.sleep(0.05)
-    return False
 
 
 async def read_through_the_tool(*channels: str) -> dict[str, Any]:
@@ -547,7 +537,11 @@ class TestChildDeathIsRefusedThenRecovered:
 
         # The session is still pointed where it was — a dead child is not a
         # switch — and the seam has no child to hand out.
-        assert await wait_for(lambda: not pair.manager.has_child())
+        await async_wait_until(
+            lambda: not pair.manager.has_child(),
+            timeout=SETTLE_TIMEOUT_S,
+            what="the manager dropping the dead child",
+        )
         with pytest.raises(NoConnectorHostError) as refusal:
             await pair.context.control_system()
         assert refusal.value.as_dict()["reason"] == "no_connector_host"
