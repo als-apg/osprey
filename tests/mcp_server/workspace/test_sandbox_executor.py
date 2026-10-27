@@ -22,6 +22,17 @@ from tests.mcp_server._zones import zone_away_from_host
 # ---------------------------------------------------------------------------
 # validate_sandbox_code tests
 # ---------------------------------------------------------------------------
+async def _run_in_sandbox(code, execution_folder, workspace_root, *, timeout=30):
+    """Execute ``code`` in the sandbox with the agent-data root at ``workspace_root``."""
+    with patch(
+        "osprey_connectors.workspace.resolve_agent_data_root",
+        return_value=workspace_root,
+    ):
+        return await execute_sandbox_code(
+            code=code, execution_folder=execution_folder, timeout=timeout
+        )
+
+
 class TestValidateSandboxCode:
     """Tests for the AST-level code validation."""
 
@@ -238,15 +249,7 @@ class TestExecuteSandboxCode:
             print(sum(x))
         """)
 
-        with patch(
-            "osprey_connectors.workspace.resolve_agent_data_root",
-            return_value=workspace_root,
-        ):
-            result = await execute_sandbox_code(
-                code=code,
-                execution_folder=execution_folder,
-                timeout=30,
-            )
+        result = await _run_in_sandbox(code, execution_folder, workspace_root)
 
         assert result.success
         assert result.execution_time_seconds is not None
@@ -263,15 +266,7 @@ class TestExecuteSandboxCode:
             plt.title('Test Plot')
         """)
 
-        with patch(
-            "osprey_connectors.workspace.resolve_agent_data_root",
-            return_value=workspace_root,
-        ):
-            result = await execute_sandbox_code(
-                code=code,
-                execution_folder=execution_folder,
-                timeout=30,
-            )
+        result = await _run_in_sandbox(code, execution_folder, workspace_root)
 
         assert result.success
         # No auto-capture: artifacts should be empty
@@ -288,15 +283,7 @@ class TestExecuteSandboxCode:
             save_artifact(fig, "Test Plot")
         """)
 
-        with patch(
-            "osprey_connectors.workspace.resolve_agent_data_root",
-            return_value=workspace_root,
-        ):
-            result = await execute_sandbox_code(
-                code=code,
-                execution_folder=execution_folder,
-                timeout=30,
-            )
+        result = await _run_in_sandbox(code, execution_folder, workspace_root)
 
         assert result.success
         assert len(result.artifacts) == 1
@@ -310,15 +297,7 @@ class TestExecuteSandboxCode:
             time.sleep(60)
         """)
 
-        with patch(
-            "osprey_connectors.workspace.resolve_agent_data_root",
-            return_value=workspace_root,
-        ):
-            result = await execute_sandbox_code(
-                code=code,
-                execution_folder=execution_folder,
-                timeout=2,
-            )
+        result = await _run_in_sandbox(code, execution_folder, workspace_root, timeout=2)
 
         assert not result.success
         assert "timed out" in result.error_message
@@ -362,15 +341,7 @@ class TestExecuteSandboxCode:
             save_artifact(fig, "3D Scatter Plot")
         """)
 
-        with patch(
-            "osprey_connectors.workspace.resolve_agent_data_root",
-            return_value=workspace_root,
-        ):
-            result = await execute_sandbox_code(
-                code=code,
-                execution_folder=execution_folder,
-                timeout=30,
-            )
+        result = await _run_in_sandbox(code, execution_folder, workspace_root)
 
         assert result.success, f"3D matplotlib plot failed: {result.error_message}\n{result.stderr}"
         assert len(result.artifacts) == 1
@@ -661,15 +632,7 @@ class TestSaveArtifactBokehSupport:
             save_artifact(column(p), "Bokeh Test")
         """)
 
-        with patch(
-            "osprey_connectors.workspace.resolve_agent_data_root",
-            return_value=workspace_root,
-        ):
-            result = await execute_sandbox_code(
-                code=code,
-                execution_folder=execution_folder,
-                timeout=30,
-            )
+        result = await _run_in_sandbox(code, execution_folder, workspace_root)
 
         assert result.success, f"Bokeh import failed: {result.error_message}\n{result.stderr}"
         assert len(result.artifacts) == 1
@@ -683,99 +646,42 @@ class TestSaveArtifactBokehSupport:
             save_artifact(fig, "Plotly Test")
         """)
 
-        with patch(
-            "osprey_connectors.workspace.resolve_agent_data_root",
-            return_value=workspace_root,
-        ):
-            result = await execute_sandbox_code(
-                code=code,
-                execution_folder=execution_folder,
-                timeout=30,
-            )
+        result = await _run_in_sandbox(code, execution_folder, workspace_root)
 
         assert result.success
         assert len(result.artifacts) == 1
         assert result.artifacts[0]["artifact_type"] == "plot_html"
         assert result.artifacts[0]["path"].suffix == ".html"
 
-    async def test_save_artifact_string(self, execution_folder, workspace_root):
-        """Verify save_artifact() handles string content."""
-        code = textwrap.dedent("""\
-            save_artifact("# Hello World\\nSome markdown content", "String Test")
-        """)
-
-        with patch(
-            "osprey_connectors.workspace.resolve_agent_data_root",
-            return_value=workspace_root,
-        ):
-            result = await execute_sandbox_code(
-                code=code,
-                execution_folder=execution_folder,
-                timeout=30,
-            )
-
-        assert result.success
-        assert len(result.artifacts) == 1
-        assert result.artifacts[0]["artifact_type"] == "markdown"
-
-    async def test_save_artifact_dict(self, execution_folder, workspace_root):
-        """Verify save_artifact() handles dict content."""
-        code = textwrap.dedent("""\
-            save_artifact({"key": "value", "count": 42}, "Dict Test")
-        """)
-
-        with patch(
-            "osprey_connectors.workspace.resolve_agent_data_root",
-            return_value=workspace_root,
-        ):
-            result = await execute_sandbox_code(
-                code=code,
-                execution_folder=execution_folder,
-                timeout=30,
-            )
+    @pytest.mark.parametrize(
+        ("code", "artifact_type"),
+        [
+            pytest.param(
+                'save_artifact("# Hello World\\nSome markdown content", "String Test")',
+                "markdown",
+                id="string",
+            ),
+            pytest.param(
+                'save_artifact({"key": "value", "count": 42}, "Dict Test")', "json", id="dict"
+            ),
+            pytest.param(
+                "import pandas as pd\n"
+                'df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})\n'
+                'save_artifact(df, "DataFrame Test")',
+                "table_html",
+                id="pandas-dataframe",
+            ),
+            pytest.param(
+                'save_artifact(b"binary content here", "Bytes Test")', "binary", id="bytes"
+            ),
+        ],
+    )
+    async def test_save_artifact_content_type(
+        self, execution_folder, workspace_root, code, artifact_type
+    ):
+        """save_artifact() records each kind of content as its own artifact type."""
+        result = await _run_in_sandbox(code, execution_folder, workspace_root)
 
         assert result.success
         assert len(result.artifacts) == 1
-        assert result.artifacts[0]["artifact_type"] == "json"
-
-    async def test_save_artifact_pandas_dataframe(self, execution_folder, workspace_root):
-        """Verify save_artifact() handles pandas DataFrames."""
-        code = textwrap.dedent("""\
-            import pandas as pd
-            df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
-            save_artifact(df, "DataFrame Test")
-        """)
-
-        with patch(
-            "osprey_connectors.workspace.resolve_agent_data_root",
-            return_value=workspace_root,
-        ):
-            result = await execute_sandbox_code(
-                code=code,
-                execution_folder=execution_folder,
-                timeout=30,
-            )
-
-        assert result.success
-        assert len(result.artifacts) == 1
-        assert result.artifacts[0]["artifact_type"] == "table_html"
-
-    async def test_save_artifact_bytes(self, execution_folder, workspace_root):
-        """Verify save_artifact() handles bytes content."""
-        code = textwrap.dedent("""\
-            save_artifact(b"binary content here", "Bytes Test")
-        """)
-
-        with patch(
-            "osprey_connectors.workspace.resolve_agent_data_root",
-            return_value=workspace_root,
-        ):
-            result = await execute_sandbox_code(
-                code=code,
-                execution_folder=execution_folder,
-                timeout=30,
-            )
-
-        assert result.success
-        assert len(result.artifacts) == 1
-        assert result.artifacts[0]["artifact_type"] == "binary"
+        assert result.artifacts[0]["artifact_type"] == artifact_type

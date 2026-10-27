@@ -5,6 +5,7 @@ pattern detection, script args, encoding errors, and delegation to the
 shared response builder.
 """
 
+from contextlib import ExitStack, contextmanager
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -38,6 +39,52 @@ def _mock_execute_code(
     return AsyncMock(return_value=result)
 
 
+#: Pattern detection's verdict on a script that calls ``caput``.
+_CAPUT_DETECTED = {
+    "has_writes": True,
+    "has_reads": False,
+    "detected_patterns": {"writes": ["caput"], "reads": []},
+}
+
+
+@contextmanager
+def _patched_run(tmp_path, mock_exec, *, detection=None, writes_enabled=None):
+    """Run execute_file from ``tmp_path`` with ``execute_code`` replaced by ``mock_exec``.
+
+    ``detection`` replaces pattern detection's verdict and ``writes_enabled`` the
+    deployment's write gate; either is left real when not given.
+    """
+    from osprey.services.python_executor.execution.control import ExecutionControlConfig
+
+    with ExitStack() as stack:
+        stack.enter_context(
+            patch(
+                "osprey.mcp_server.python_executor.executor._resolve_project_root",
+                return_value=tmp_path,
+            )
+        )
+        if detection is not None:
+            stack.enter_context(
+                patch(
+                    "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
+                    return_value=detection,
+                )
+            )
+        if writes_enabled is not None:
+            stack.enter_context(
+                patch(
+                    "osprey.services.python_executor.execution.control.get_execution_control_config",
+                    return_value=ExecutionControlConfig(
+                        control_system_writes_enabled=writes_enabled
+                    ),
+                )
+            )
+        stack.enter_context(
+            patch("osprey.mcp_server.python_executor.executor.execute_code", mock_exec)
+        )
+        yield
+
+
 def _no_writes():
     """Standard pattern detection return value with no writes."""
     return {"has_writes": False, "has_reads": False, "detected_patterns": {}}
@@ -52,20 +99,7 @@ async def test_execute_file_basic(tmp_path, monkeypatch):
 
     mock_exec = _mock_execute_code(success=True, stdout="hello world\n")
 
-    with (
-        patch(
-            "osprey.mcp_server.python_executor.executor._resolve_project_root",
-            return_value=tmp_path,
-        ),
-        patch(
-            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
-            return_value=_no_writes(),
-        ),
-        patch(
-            "osprey.mcp_server.python_executor.executor.execute_code",
-            mock_exec,
-        ),
-    ):
+    with _patched_run(tmp_path, mock_exec, detection=_no_writes()):
         fn = _get_python_execute_file()
         result = await fn(
             file_path=str(script),
@@ -96,20 +130,7 @@ async def test_execute_file_relative_path(tmp_path, monkeypatch):
 
     mock_exec = _mock_execute_code(success=True, stdout="")
 
-    with (
-        patch(
-            "osprey.mcp_server.python_executor.executor._resolve_project_root",
-            return_value=tmp_path,
-        ),
-        patch(
-            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
-            return_value=_no_writes(),
-        ),
-        patch(
-            "osprey.mcp_server.python_executor.executor.execute_code",
-            mock_exec,
-        ),
-    ):
+    with _patched_run(tmp_path, mock_exec, detection=_no_writes()):
         fn = _get_python_execute_file()
         result = await fn(
             file_path="scripts/run.py",
@@ -230,24 +251,7 @@ async def test_execute_file_readonly_blocks_writes(tmp_path, monkeypatch):
 
     mock_exec = _mock_execute_code()
 
-    with (
-        patch(
-            "osprey.mcp_server.python_executor.executor._resolve_project_root",
-            return_value=tmp_path,
-        ),
-        patch(
-            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
-            return_value={
-                "has_writes": True,
-                "has_reads": False,
-                "detected_patterns": {"writes": ["caput"], "reads": []},
-            },
-        ),
-        patch(
-            "osprey.mcp_server.python_executor.executor.execute_code",
-            mock_exec,
-        ),
-    ):
+    with _patched_run(tmp_path, mock_exec, detection=_CAPUT_DETECTED):
         fn = _get_python_execute_file()
         with assert_raises_error(error_type="safety_error") as _exc_ctx:
             await fn(
@@ -271,30 +275,8 @@ async def test_execute_file_readwrite_allows_writes(tmp_path, monkeypatch):
 
     # The deployment-level writes gate is independent of execution_mode; this
     # test asserts the readwrite path, so the gate must be allow-through.
-    from osprey.services.python_executor.execution.control import ExecutionControlConfig
 
-    with (
-        patch(
-            "osprey.mcp_server.python_executor.executor._resolve_project_root",
-            return_value=tmp_path,
-        ),
-        patch(
-            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
-            return_value={
-                "has_writes": True,
-                "has_reads": False,
-                "detected_patterns": {"writes": ["caput"], "reads": []},
-            },
-        ),
-        patch(
-            "osprey.services.python_executor.execution.control.get_execution_control_config",
-            return_value=ExecutionControlConfig(control_system_writes_enabled=True),
-        ),
-        patch(
-            "osprey.mcp_server.python_executor.executor.execute_code",
-            mock_exec,
-        ),
-    ):
+    with _patched_run(tmp_path, mock_exec, detection=_CAPUT_DETECTED, writes_enabled=True):
         fn = _get_python_execute_file()
         result = await fn(
             file_path=str(script),
@@ -321,30 +303,7 @@ async def test_execute_file_deployment_writes_disabled_blocks(tmp_path, monkeypa
 
     mock_exec = _mock_execute_code()
 
-    from osprey.services.python_executor.execution.control import ExecutionControlConfig
-
-    with (
-        patch(
-            "osprey.mcp_server.python_executor.executor._resolve_project_root",
-            return_value=tmp_path,
-        ),
-        patch(
-            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
-            return_value={
-                "has_writes": True,
-                "has_reads": False,
-                "detected_patterns": {"writes": ["caput"], "reads": []},
-            },
-        ),
-        patch(
-            "osprey.services.python_executor.execution.control.get_execution_control_config",
-            return_value=ExecutionControlConfig(control_system_writes_enabled=False),
-        ),
-        patch(
-            "osprey.mcp_server.python_executor.executor.execute_code",
-            mock_exec,
-        ),
-    ):
+    with _patched_run(tmp_path, mock_exec, detection=_CAPUT_DETECTED, writes_enabled=False):
         fn = _get_python_execute_file()
         with assert_raises_error(error_type="safety_error") as ctx:
             await fn(
@@ -367,30 +326,7 @@ async def test_execute_file_rejects_unknown_execution_mode(tmp_path, monkeypatch
 
     mock_exec = _mock_execute_code()
 
-    from osprey.services.python_executor.execution.control import ExecutionControlConfig
-
-    with (
-        patch(
-            "osprey.mcp_server.python_executor.executor._resolve_project_root",
-            return_value=tmp_path,
-        ),
-        patch(
-            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
-            return_value={
-                "has_writes": True,
-                "has_reads": False,
-                "detected_patterns": {"writes": ["caput"], "reads": []},
-            },
-        ),
-        patch(
-            "osprey.services.python_executor.execution.control.get_execution_control_config",
-            return_value=ExecutionControlConfig(control_system_writes_enabled=False),
-        ),
-        patch(
-            "osprey.mcp_server.python_executor.executor.execute_code",
-            mock_exec,
-        ),
-    ):
+    with _patched_run(tmp_path, mock_exec, detection=_CAPUT_DETECTED, writes_enabled=False):
         fn = _get_python_execute_file()
         with assert_raises_error(error_type="validation_error") as ctx:
             await fn(
@@ -412,20 +348,7 @@ async def test_execute_file_script_args(tmp_path, monkeypatch):
 
     mock_exec = _mock_execute_code(success=True, stdout="")
 
-    with (
-        patch(
-            "osprey.mcp_server.python_executor.executor._resolve_project_root",
-            return_value=tmp_path,
-        ),
-        patch(
-            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
-            return_value=_no_writes(),
-        ),
-        patch(
-            "osprey.mcp_server.python_executor.executor.execute_code",
-            mock_exec,
-        ),
-    ):
+    with _patched_run(tmp_path, mock_exec, detection=_no_writes()):
         fn = _get_python_execute_file()
         await fn(
             file_path=str(script),
