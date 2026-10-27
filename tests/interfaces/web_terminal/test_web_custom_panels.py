@@ -968,28 +968,25 @@ class TestPanelRegisterAPI:
         # Assert
         assert resp.status_code == 422
 
-    def test_register_non_http_scheme_returns_422(self, client_runtime_panels):
-        """A URL with a non-http/https scheme is rejected with 422 without a DNS lookup."""
-        # Arrange — ftp:// is not a valid panel URL scheme
-
-        # Act
-        resp = client_runtime_panels.post(
-            "/api/panels/register",
-            json={"id": "ftp-panel", "label": "FTP", "url": "ftp://files.example.com/"},
-        )
-
-        # Assert
-        assert resp.status_code == 422
-
-    def test_register_builtin_id_returns_422(self, client_runtime_panels):
-        """Using a built-in panel id (e.g. 'ariel') for registration is rejected with 422."""
-        # Arrange — "ariel" is in BUILTIN_PANELS
-
-        # Act
-        resp = client_runtime_panels.post(
-            "/api/panels/register",
-            json={"id": "ariel", "label": "ARIEL", "url": "http://grafana.lan:3000"},
-        )
+    @pytest.mark.parametrize(
+        "panel",
+        [
+            # ftp:// is not a valid panel URL scheme.
+            pytest.param(
+                {"id": "ftp-panel", "label": "FTP", "url": "ftp://files.example.com/"},
+                id="non_http_scheme",
+            ),
+            # "ariel" is in BUILTIN_PANELS.
+            pytest.param(
+                {"id": "ariel", "label": "ARIEL", "url": "http://grafana.lan:3000"},
+                id="builtin_id",
+            ),
+        ],
+    )
+    def test_register_refused_without_a_dns_lookup_returns_422(self, client_runtime_panels, panel):
+        """A non-http(s) URL or a built-in panel id is rejected with 422 before any lookup."""
+        # Act — no getaddrinfo patch
+        resp = client_runtime_panels.post("/api/panels/register", json=panel)
 
         # Assert
         assert resp.status_code == 422
@@ -1033,41 +1030,33 @@ class TestPanelRegisterAPI:
             "beam_viewer.2"
         ]
 
-    def test_register_host_not_in_allowlist_returns_422(self, client_runtime_panels_allowlist):
-        """A host not in runtime_panel_allowlist is rejected with 422 even with a LAN address."""
-        # Arrange — allowlist contains only "grafana.lan"; "other-host.lan" is not listed
-
+    @pytest.mark.parametrize(
+        ("panel", "status"),
+        [
+            # "other-host.lan" is not listed: refused even with a LAN address.
+            pytest.param(
+                {"id": "other", "label": "OTHER", "url": "http://other-host.lan:3000"},
+                422,
+                id="host_not_listed",
+            ),
+            # "grafana.lan" is listed and its address is not blocked.
+            pytest.param(
+                {"id": "grafana", "label": "GRAFANA", "url": "http://grafana.lan:3000"},
+                200,
+                id="host_listed",
+            ),
+        ],
+    )
+    def test_register_host_is_judged_against_the_allowlist(
+        self, client_runtime_panels_allowlist, panel, status
+    ):
+        """Only a host in runtime_panel_allowlist (here just "grafana.lan") registers."""
         # Act
         with patch(_GETADDRINFO_TARGET, return_value=_LAN_ADDR):
-            resp = client_runtime_panels_allowlist.post(
-                "/api/panels/register",
-                json={
-                    "id": "other",
-                    "label": "OTHER",
-                    "url": "http://other-host.lan:3000",
-                },
-            )
+            resp = client_runtime_panels_allowlist.post("/api/panels/register", json=panel)
 
         # Assert
-        assert resp.status_code == 422
-
-    def test_register_host_in_allowlist_succeeds(self, client_runtime_panels_allowlist):
-        """A host present in runtime_panel_allowlist is accepted when the address is not blocked."""
-        # Arrange — allowlist contains "grafana.lan"; URL host matches
-
-        # Act
-        with patch(_GETADDRINFO_TARGET, return_value=_LAN_ADDR):
-            resp = client_runtime_panels_allowlist.post(
-                "/api/panels/register",
-                json={
-                    "id": "grafana",
-                    "label": "GRAFANA",
-                    "url": "http://grafana.lan:3000",
-                },
-            )
-
-        # Assert
-        assert resp.status_code == 200
+        assert resp.status_code == status
 
     def test_register_deploy_host_own_address_returns_422(self, client_runtime_panels):
         """A host resolving to one of THIS host's interface addresses is rejected.

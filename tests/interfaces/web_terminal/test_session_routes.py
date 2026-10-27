@@ -144,24 +144,14 @@ class TestSessionScopedDiagnostics:
         client.app.state.transcript_map = {SESSION_KEY: CLEARED_TRANSCRIPT}
         client.app.state.transcript_map_provisional = False
 
-    def test_session_agents_reads_the_transcript_the_key_points_at(self, client):
-        """GET /api/session-agents maps a session key to its current transcript."""
+    @pytest.mark.parametrize("route", ["/api/session-agents", "/api/session-log"])
+    def test_session_route_reads_the_transcript_the_key_points_at(self, client, route):
+        """The route maps a session key to its current transcript."""
         self._point_key_at_cleared_transcript(client)
         with patch(self._TR) as MockReader:
             instance = MockReader.return_value
             instance.read_session_by_id.return_value = []
-            resp = client.get(f"/api/session-agents?session_id={SESSION_KEY}")
-
-        assert resp.status_code == 200
-        instance.read_session_by_id.assert_called_once_with(CLEARED_TRANSCRIPT)
-
-    def test_session_log_reads_the_transcript_the_key_points_at(self, client):
-        """GET /api/session-log maps a session key to its current transcript."""
-        self._point_key_at_cleared_transcript(client)
-        with patch(self._TR) as MockReader:
-            instance = MockReader.return_value
-            instance.read_session_by_id.return_value = []
-            resp = client.get(f"/api/session-log?session_id={SESSION_KEY}")
+            resp = client.get(f"{route}?session_id={SESSION_KEY}")
 
         assert resp.status_code == 200
         instance.read_session_by_id.assert_called_once_with(CLEARED_TRANSCRIPT)
