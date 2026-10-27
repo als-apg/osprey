@@ -496,15 +496,6 @@ def test_an_unset_provider_names_the_key_the_operator_sets(lifecycle_repo, monke
     assert "claude_code.provider" not in text
 
 
-def _config_with_telemetry(block: str) -> str:
-    """The rendered config, plus a ``claude_code.telemetry`` block under it."""
-    return _RENDERED_CONFIG + block
-
-
-#: A telemetry block naming the gateway. The profile block chooses no exporter,
-#: so it changes nothing below; it is here because deployed configs carry it.
-_GATEWAY_TELEMETRY = "  telemetry:\n    enabled: true\n    backend: gateway\n"
-
 #: The record's address the launch is handed.
 _RECORD_URL = "http://127.0.0.1:10061"
 
@@ -517,7 +508,7 @@ def test_a_missing_record_login_is_not_a_provider_failure(lifecycle_repo, monkey
     """Without a record login the launch exports nothing; the provider still reads."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("OSPREY_AGENT_RECORD_LOGIN", raising=False)
-    render_build(lifecycle_repo, config=_config_with_telemetry(_GATEWAY_TELEMETRY))
+    render_build(lifecycle_repo, config=_RENDERED_CONFIG)
 
     text = report(lifecycle_repo)
 
@@ -539,7 +530,7 @@ def _telemetry_report(repo: Path, monkeypatch) -> str:
         + f"OSPREY_AGENT_RECORD_URL={_RECORD_URL}\n"
         + f"OSPREY_AGENT_RECORD_LOGIN={_WORKING_LOGIN}\n"
     )
-    render_build(repo, config=_config_with_telemetry(_GATEWAY_TELEMETRY))
+    render_build(repo, config=_RENDERED_CONFIG)
     return report(repo)
 
 

@@ -721,7 +721,6 @@ config:
   control_system.connector.virtual_accelerator.serving: in_process
   archiver.type: mock_archiver
   approval.enabled: false
-  claude_code.telemetry.enabled: false
   hooks.debug: false
 """
 
