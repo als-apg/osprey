@@ -348,7 +348,7 @@ def test_a_tier_file_carrying_its_top_level_knobs_builds(tmp_path: Path):
     keys a tier file takes, so the build accepts them."""
     repo = _with_readwrite_knobs(build_exemplar_repo(tmp_path / PROJECT))
     with preserved_environ():
-        result = CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+        result = invoke_build(repo)
     assert result.exit_code == 0, result.output
     assert (
         render_projection(repo, PROJECT)["readwrite"]["extra_mounts"]
