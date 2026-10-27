@@ -12,7 +12,7 @@ import asyncio
 import json
 import sys
 from contextlib import contextmanager
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 import yaml
@@ -20,7 +20,6 @@ from fastmcp.exceptions import ToolError
 from mcp.types import CallToolResult
 
 from osprey.mcp_server.control_system.server_context import (
-    initialize_server_context,
     reset_server_context,
 )
 from osprey.mcp_server.errors import extract_error_envelope
@@ -265,20 +264,6 @@ def _block_web_terminal_posts(request, monkeypatch):
 
 
 @pytest.fixture
-def init_registry():
-    """Initialize the MCP registry after chdir and config setup.
-
-    Call this fixture AFTER writing config.yml and chdir-ing to tmp_path.
-    Returns the registry instance for direct use in tests.
-    """
-
-    def _init():
-        return initialize_server_context()
-
-    return _init
-
-
-@pytest.fixture
 def workspace_dir(tmp_path):
     """Create temporary workspace structure matching _agent_data layout."""
     ws = tmp_path / "_agent_data"
@@ -314,102 +299,11 @@ def mock_config(tmp_path):
 
 
 @pytest.fixture
-def mock_config_writes_disabled(tmp_path):
-    """Config with writes_enabled: false."""
-    config = tmp_path / "config.yml"
-    config.write_text(
-        yaml.dump(
-            {
-                "control_system": {
-                    "type": "virtual_accelerator",
-                    "connector": {"virtual_accelerator": {"serving": "in_process"}},
-                    "writes_enabled": False,
-                    "limits_checking": {"enabled": False},
-                },
-            }
-        )
-    )
-    return config
-
-
-@pytest.fixture
-def mock_config_with_limits(tmp_path):
-    """Config with limits_checking enabled and a channel_limits.json database."""
-    limits_db = tmp_path / "channel_limits.json"
-    limits_db.write_text(
-        json.dumps(
-            {
-                "TEST:PV:SETPOINT": {
-                    "min_value": 0.0,
-                    "max_value": 100.0,
-                    "writable": True,
-                },
-                "TEST:PV:READONLY": {
-                    "writable": False,
-                },
-            }
-        )
-    )
-    config = tmp_path / "config.yml"
-    config.write_text(
-        yaml.dump(
-            {
-                "control_system": {
-                    "type": "virtual_accelerator",
-                    "connector": {"virtual_accelerator": {"serving": "in_process"}},
-                    "writes_enabled": True,
-                    "limits_checking": {
-                        "enabled": True,
-                        "database_path": str(limits_db),
-                        "mode": "exclusive",
-                        "on_violation": "error",
-                    },
-                },
-                "archiver": {"type": "mock"},
-                "execution": {
-                    "execution_method": "subprocess",
-                },
-                "python_executor": {
-                    "execution_timeout_seconds": 60,
-                },
-            }
-        )
-    )
-    return config
-
-
-@pytest.fixture
 def mock_connector():
     """Mock control system connector with async methods."""
     connector = AsyncMock()
     connector.disconnect = AsyncMock()
     return connector
-
-
-@pytest.fixture
-def mock_channel_value():
-    """Factory for creating mock ChannelValue objects."""
-
-    def _make(value=500.2, units="mA", alarm_status="NO_ALARM", timestamp="2024-01-15T10:30:00"):
-        cv = MagicMock()
-        cv.value = value
-        cv.timestamp = timestamp
-        cv.metadata = MagicMock()
-        cv.metadata.units = units
-        cv.metadata.alarm_status = alarm_status
-        cv.metadata.alarm_severity = 0
-        cv.metadata.precision = 3
-        cv.metadata.description = "Test channel"
-        cv.metadata.min_value = 0.0
-        cv.metadata.max_value = 1000.0
-        # Not an enum channel. Spelled out because a bare MagicMock attribute is
-        # truthy, and the read tool ships these keys only when they are not None.
-        cv.metadata.enum_label = None
-        cv.metadata.enum_labels = None
-        cv.metadata.raw_metadata = {}
-        return cv
-
-    return _make
 
 
 @pytest.fixture
