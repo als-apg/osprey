@@ -135,6 +135,10 @@ class LlamaStub:
                 if stub.hang:
                     self._stall()
                     return
+                # Close the listener before answering: a stop after the answer races the
+                # client's next request, which the still-running serve loop accepts.
+                if stub.refuse_after is not None and number >= stub.refuse_after:
+                    stub.stop()
                 if stub.status is not None:
                     self._send(stub.status, {"error": {"code": stub.status}})
                 elif stub.embed_status is not None:
@@ -146,8 +150,6 @@ class LlamaStub:
                     self._send(200, None, raw=b"{not json")
                 else:
                     self._send(200, stub._answer(request, number))
-                if stub.refuse_after is not None and number >= stub.refuse_after:
-                    stub.stop()
 
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.server.daemon_threads = True
