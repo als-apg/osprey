@@ -25,13 +25,13 @@ per tool.
 """
 
 import contextlib
-import socket
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import yaml
 
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
+from tests._live import free_port
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,
@@ -49,13 +49,6 @@ _EXECUTE_FILE_MOD = "osprey.mcp_server.python_executor.tools.python_execute_file
 _LATTICE_MOD = "osprey.mcp_server.workspace.tools.lattice_tools"
 _SETUP_MOD = "osprey.mcp_server.workspace.tools.setup"
 _SCREEN_MOD = "osprey.mcp_server.workspace.tools.screen_capture"
-
-
-def _free_port() -> int:
-    """Reserve a localhost port and release it (nothing will be listening)."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
 
 
 # ── channel_write ───────────────────────────────────────────────────────────
@@ -1614,7 +1607,7 @@ async def test_focus_result_unchanged_when_terminal_down(tmp_path, monkeypatch):
 
     from osprey.mcp_server.workspace.tools.focus_tools import artifact_focus
 
-    port = _free_port()
+    port = free_port()
     # Gallery acknowledges the POST (a gallery failure is a tool error by
     # contract); only the TERMINAL is down here — the notify half under test.
     with (
@@ -1649,7 +1642,7 @@ async def test_channel_write_result_unchanged_when_terminal_down(tmp_path, monke
     mock_connector = AsyncMock()
     mock_connector.write_channel.return_value = write_result
 
-    port = _free_port()
+    port = free_port()
     conn_patch, validator_patch = _channel_write_patches(mock_connector)
     with (
         conn_patch,

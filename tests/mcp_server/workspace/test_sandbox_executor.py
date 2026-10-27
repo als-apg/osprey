@@ -2,10 +2,9 @@
 
 import json
 import textwrap
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
-from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -17,18 +16,7 @@ from osprey.mcp_server.workspace.execution.sandbox_executor import (
     validate_sandbox_code,
 )
 from osprey.stores.artifact_manifest import collect_artifacts
-
-
-def _zone_away_from_host() -> ZoneInfo:
-    """Return a zone whose wall-clock differs from the host clock by hours.
-
-    The folder stamp must be shown to follow the facility zone and not the host clock, so the
-    two must differ by more than the test tolerance on any host (the closest real host offset
-    to +14 h is +13:45, fifteen minutes away).
-    """
-    if datetime.now().astimezone().utcoffset() == timedelta(hours=14):
-        return ZoneInfo("Etc/GMT+12")
-    return ZoneInfo("Etc/GMT-14")
+from tests.mcp_server._zones import zone_away_from_host
 
 
 # ---------------------------------------------------------------------------
@@ -607,7 +595,7 @@ class TestCreateExecutionFolder:
         """The folder name carries the start time in the facility zone, not the host clock."""
         ws = tmp_path / "_agent_data"
         ws.mkdir()
-        zone = _zone_away_from_host()
+        zone = zone_away_from_host()
         monkeypatch.setattr("osprey_connectors.config.get_facility_timezone", lambda: zone)
 
         with patch(

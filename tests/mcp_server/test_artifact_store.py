@@ -9,24 +9,16 @@ Covers:
 """
 
 import json
-import socket
 from unittest.mock import patch
 
 import pytest
 
+from tests._live import free_port
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,
     get_tool_fn,
 )
-
-
-def _free_port() -> int:
-    """Return an ephemeral port the OS just handed us (avoids fixed-port flakes)."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
-
 
 # ---------------------------------------------------------------------------
 # ArtifactStore — core storage layer
@@ -1354,7 +1346,7 @@ class TestServerLauncherRetry:
 
         launcher = ServerLauncher(
             name="Test Server",
-            config_reader=lambda: ("127.0.0.1", _free_port()),
+            config_reader=lambda: ("127.0.0.1", free_port()),
             auto_launch_checker=lambda: True,
             app_factory=crash_app_factory,
             pass_workspace=False,
@@ -1388,7 +1380,7 @@ class TestServerLauncherRetry:
 
         launcher = ServerLauncher(
             name="Test Server",
-            config_reader=lambda: ("127.0.0.1", _free_port()),
+            config_reader=lambda: ("127.0.0.1", free_port()),
             auto_launch_checker=lambda: True,
             app_factory=noop_app_factory,
             pass_workspace=False,
