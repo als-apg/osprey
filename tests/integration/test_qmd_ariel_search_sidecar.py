@@ -460,15 +460,21 @@ async def sidecar_repository(sidecar_world: _World):
 async def _search(world, repository, client, query=SAFE_TOKEN, **kwargs):
     """Run the real search module against the real sidecar."""
     from osprey.services.ariel_search.config import ARIELConfig
+    from osprey.services.ariel_search.search._offload import SearchCallPool
     from osprey.services.ariel_search.search.qmd import hybrid_search
 
-    return await hybrid_search(
-        query,
-        repository,
-        ARIELConfig.from_dict(world.config_dict),
-        client=client,
-        **kwargs,
-    )
+    search_calls = SearchCallPool()
+    try:
+        return await hybrid_search(
+            query,
+            repository,
+            ARIELConfig.from_dict(world.config_dict),
+            client=client,
+            search_calls=search_calls,
+            **kwargs,
+        )
+    finally:
+        await search_calls.aclose()
 
 
 def _ids(results) -> set[str]:

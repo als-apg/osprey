@@ -17,10 +17,7 @@ from osprey.services.ariel_search.models import (
     START_BOUND_DESCRIPTION,
     TimeBoundText,
 )
-from osprey.services.ariel_search.search._offload import (
-    QUERY_EMBEDDING_TIMEOUT_S,
-    run_search_call,
-)
+from osprey.services.ariel_search.search._offload import QUERY_EMBEDDING_TIMEOUT_S
 from osprey.services.ariel_search.search.base import (
     ModuleOutput,
     ParameterDescriptor,
@@ -34,6 +31,7 @@ if TYPE_CHECKING:
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
+    from osprey.services.ariel_search.search._offload import SearchCallPool
     from osprey.services.ariel_search.search.base import QueryExpansion
 
 logger = get_logger("ariel")
@@ -205,6 +203,7 @@ async def semantic_search(
     config: ARIELConfig,
     embedder: BaseProvider,
     *,
+    search_calls: SearchCallPool,
     provider_config: dict[str, Any] | None = None,
     max_results: int = 10,
     similarity_threshold: float | None = None,
@@ -226,6 +225,7 @@ async def semantic_search(
         config: ARIEL configuration
         embedder: The embedding provider adapter instance. Its class supplies
             the base-URL rule and whether vectors are cut to the table's length.
+        search_calls: The pool the query embedding runs on.
         provider_config: The provider's ``api.providers`` entry (``api_key``,
             ``base_url``). ``None`` resolves it from the provider
             :func:`semantic_provider` names.
@@ -303,7 +303,7 @@ async def semantic_search(
 
     step_timeout_s = QUERY_EMBEDDING_TIMEOUT_S / 2 + QUERY_EMBEDDING_TIMEOUT_S + 1
     try:
-        embeddings = await run_search_call(
+        embeddings = await search_calls.run(
             _embed_query,
             embedder,
             embed_text,
@@ -470,5 +470,6 @@ def get_tool_descriptor() -> SearchToolDescriptor:
         execute=semantic_search,
         format_result=format_semantic_result,
         needs_embedder=True,
+        needs_search_calls=True,
         accepts_expansion=True,
     )

@@ -194,7 +194,7 @@ class TestNoServerListening:
         assert health["reason"] == "unreachable"
         assert out["attachments"]["picture_search_unavailable"] == "unreachable"
 
-    async def test_hybrid_search_answers_text_only(self, llama_stub):
+    async def test_hybrid_search_answers_text_only(self, llama_stub, search_calls):
         llama_stub
         config = lane_config(_nobody_listening())
         hits = [make_hit("a", score=0.9), make_hit("b", score=0.5)]
@@ -203,9 +203,16 @@ class TestNoServerListening:
             return LaneRepository([make_entry("a"), make_entry("b")])
 
         text_only = await hybrid_search(
-            "q", repo(), config, client=StubClient(hits), include_images=False
+            "q",
+            repo(),
+            config,
+            client=StubClient(hits),
+            include_images=False,
+            search_calls=search_calls,
         )
-        result = await hybrid_search("q", repo(), config, client=StubClient(hits))
+        result = await hybrid_search(
+            "q", repo(), config, client=StubClient(hits), search_calls=search_calls
+        )
 
         assert isinstance(result, ModuleOutput)
         assert list(result.entries) == list(text_only)

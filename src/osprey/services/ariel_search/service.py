@@ -45,6 +45,7 @@ from osprey.services.ariel_search.models import (
     SearchDiagnostic,
     SyncStatus,
 )
+from osprey.services.ariel_search.search._offload import SearchCallPool
 from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
@@ -166,6 +167,7 @@ class ARIELSearchService:
         self.readonly_pool = readonly_pool
         self.readonly_pool_error = readonly_pool_error
         self.repository = repository
+        self.search_calls = SearchCallPool()
         self._embedder: BaseProvider | None = None
         self._validated_search_model = False
 
@@ -686,6 +688,8 @@ class ARIELSearchService:
             kwargs["query_expansion"] = expansion
         if include_images is not None:
             kwargs["include_images"] = include_images
+        if descriptor.needs_search_calls:
+            kwargs["search_calls"] = self.search_calls
 
         parse_diagnostics = parsed.diagnostics if parsed is not None else ()
 

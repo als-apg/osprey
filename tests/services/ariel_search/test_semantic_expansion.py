@@ -69,7 +69,7 @@ class TestExpansionReachesTheEmbedder:
     """What the embedder is handed, with and without an expansion."""
 
     @pytest.mark.asyncio
-    async def test_flattened_text_is_embedded(self, repository, config, embedder):
+    async def test_flattened_text_is_embedded(self, repository, config, embedder, search_calls):
         """With an expansion, the embedder sees the flattened text, not the query."""
         await semantic_search(
             "ts fault",
@@ -77,24 +77,29 @@ class TestExpansionReachesTheEmbedder:
             config,
             embedder,
             query_expansion=AMBIGUOUS_EXPANSION,
+            search_calls=search_calls,
         )
 
         assert embedded_texts(embedder) == ["ts fault troubleshoot timing system"]
 
     @pytest.mark.asyncio
-    async def test_raw_query_is_embedded_without_expansion(self, repository, config, embedder):
+    async def test_raw_query_is_embedded_without_expansion(
+        self, repository, config, embedder, search_calls
+    ):
         """Without an expansion the call is byte-identical to today's."""
-        await semantic_search("ts fault", repository, config, embedder)
+        await semantic_search("ts fault", repository, config, embedder, search_calls=search_calls)
 
         assert embedded_texts(embedder) == ["ts fault"]
 
     @pytest.mark.asyncio
-    async def test_long_query_reaches_the_embedder_untruncated(self, repository, config, embedder):
+    async def test_long_query_reaches_the_embedder_untruncated(
+        self, repository, config, embedder, search_calls
+    ):
         """The 1000-char cap is keyword-only: semantic queries are never truncated."""
         query = "beam loss " * 120  # 1200 characters
         assert len(query) == 1200
 
-        await semantic_search(query, repository, config, embedder)
+        await semantic_search(query, repository, config, embedder, search_calls=search_calls)
 
         (embedded,) = embedded_texts(embedder)
         assert embedded == query
@@ -102,7 +107,7 @@ class TestExpansionReachesTheEmbedder:
 
     @pytest.mark.asyncio
     async def test_long_expanded_query_reaches_the_embedder_untruncated(
-        self, repository, config, embedder
+        self, repository, config, embedder, search_calls
     ):
         """Nor is the flattened text truncated when expansion is active."""
         query = "beam loss " * 120
@@ -111,7 +116,14 @@ class TestExpansionReachesTheEmbedder:
             flattened_text=f"{query} beam position monitor",
         )
 
-        await semantic_search(query, repository, config, embedder, query_expansion=expansion)
+        await semantic_search(
+            query,
+            repository,
+            config,
+            embedder,
+            query_expansion=expansion,
+            search_calls=search_calls,
+        )
 
         (embedded,) = embedded_texts(embedder)
         assert embedded == expansion.flattened_text
@@ -122,16 +134,20 @@ class TestReturnShape:
     """The conditional return shape: bare list today, ModuleOutput on expansion."""
 
     @pytest.mark.asyncio
-    async def test_without_expansion_a_bare_list_is_returned(self, repository, config, embedder):
+    async def test_without_expansion_a_bare_list_is_returned(
+        self, repository, config, embedder, search_calls
+    ):
         """Direct callers keep the list they have always received."""
-        result = await semantic_search("ts fault", repository, config, embedder)
+        result = await semantic_search(
+            "ts fault", repository, config, embedder, search_calls=search_calls
+        )
 
         assert isinstance(result, list)
         assert result == []
 
     @pytest.mark.asyncio
     async def test_with_expansion_a_module_output_carries_the_groups(
-        self, repository, config, embedder
+        self, repository, config, embedder, search_calls
     ):
         """The applied expansion comes back for the service to surface."""
         result = await semantic_search(
@@ -140,6 +156,7 @@ class TestReturnShape:
             config,
             embedder,
             query_expansion=AMBIGUOUS_EXPANSION,
+            search_calls=search_calls,
         )
 
         assert isinstance(result, ModuleOutput)
@@ -148,7 +165,9 @@ class TestReturnShape:
         assert result.diagnostics == ()
 
     @pytest.mark.asyncio
-    async def test_module_output_entries_are_the_search_results(self, repository, config, embedder):
+    async def test_module_output_entries_are_the_search_results(
+        self, repository, config, embedder, search_calls
+    ):
         """`entries` holds exactly what the bare-list return would have held."""
         rows = [({"entry_id": "1"}, 0.9), ({"entry_id": "2"}, 0.7)]
         repository.semantic_search = AsyncMock(return_value=rows)
@@ -159,13 +178,14 @@ class TestReturnShape:
             config,
             embedder,
             query_expansion=AMBIGUOUS_EXPANSION,
+            search_calls=search_calls,
         )
 
         assert isinstance(result, ModuleOutput)
         assert result.entries == rows
 
     @pytest.mark.asyncio
-    async def test_early_returns_keep_the_shape(self, repository, config, embedder):
+    async def test_early_returns_keep_the_shape(self, repository, config, embedder, search_calls):
         """A path that produces no results still answers in the requested shape."""
         result = await semantic_search(
             "   ",
@@ -173,6 +193,7 @@ class TestReturnShape:
             config,
             embedder,
             query_expansion=AMBIGUOUS_EXPANSION,
+            search_calls=search_calls,
         )
 
         assert isinstance(result, ModuleOutput)
