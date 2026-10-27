@@ -108,6 +108,10 @@ class _ServiceDouble:
         """Report the double as healthy (the lifespan logs this)."""
         return True, "Service healthy"
 
+    async def verify_search_model_table(self) -> None:
+        """Report the embedding table as present (the lifespan probes it)."""
+        return None
+
     async def __aenter__(self) -> _ServiceDouble:
         """Enter the async context the service protocol defines."""
         return self
