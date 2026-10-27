@@ -617,40 +617,41 @@ def test_no_owner_header_when_nothing_stamped_the_connection() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_start_unarmed_503_passes_through_with_its_code() -> None:
-    refusal = {
-        "detail": {
-            "code": "launch_token_required",
-            "detail": "starting the queue requires a launch token",
-            "manager_state": "idle",
-        }
-    }
-    app = _build_app(lambda request: httpx.Response(503, json=refusal))
+@pytest.mark.parametrize(
+    ("status", "refusal"),
+    [
+        pytest.param(
+            503,
+            {
+                "detail": {
+                    "code": "launch_token_required",
+                    "detail": "starting the queue requires a launch token",
+                    "manager_state": "idle",
+                }
+            },
+            id="unarmed",
+        ),
+        pytest.param(
+            403,
+            {
+                "detail": {
+                    "code": "launch_token_invalid",
+                    "detail": "the supplied launch token does not match this bridge",
+                    "manager_state": "executing_queue",
+                }
+            },
+            id="token-mismatch",
+        ),
+    ],
+)
+def test_start_refusal_passes_through_with_its_code(status: int, refusal: dict) -> None:
+    app = _build_app(lambda request: httpx.Response(status, json=refusal))
 
     with TestClient(app) as client:
         response = client.post("/queue/start")
 
-    assert response.status_code == 503
+    assert response.status_code == status
     assert response.json() == refusal
-    assert response.json()["detail"]["code"] == "launch_token_required"
-
-
-def test_start_token_mismatch_403_passes_through_with_its_code() -> None:
-    refusal = {
-        "detail": {
-            "code": "launch_token_invalid",
-            "detail": "the supplied launch token does not match this bridge",
-            "manager_state": "executing_queue",
-        }
-    }
-    app = _build_app(lambda request: httpx.Response(403, json=refusal))
-
-    with TestClient(app) as client:
-        response = client.post("/queue/start")
-
-    assert response.status_code == 403
-    assert response.json() == refusal
-    assert response.json()["detail"]["code"] == "launch_token_invalid"
 
 
 def test_abort_relays_the_bridge_success_body_verbatim() -> None:
@@ -1298,34 +1299,27 @@ def test_queue_events_refuses_an_unknown_lane() -> None:
     assert seen == []
 
 
-def test_clear_items_relays_success_with_no_body() -> None:
-    """``DELETE /queue/items`` is the Clear button: every pending item, one
-    hop, no body — the bridge route takes none, and a stray content-type on an
-    empty body would be a 422 there."""
+@pytest.mark.parametrize(
+    "path",
+    [
+        # The Clear button: every pending item, one hop, no body -- the bridge
+        # route takes none, and a stray content-type on an empty body would be
+        # a 422 there.
+        pytest.param("/queue/items", id="queue-items"),
+        # The History card's Clear: one hop, no body.
+        pytest.param("/history", id="history"),
+    ],
+)
+def test_clear_relays_success_with_no_body(path: str) -> None:
     app, seen, contents = _recording_app(200, {"cleared": True, "msg": ""})
 
     with TestClient(app) as client:
-        response = client.delete("/queue/items")
+        response = client.delete(path)
 
     assert response.status_code == 200
     assert response.json() == {"cleared": True, "msg": ""}
     assert seen[0].method == "DELETE"
-    assert seen[0].url.path == "/queue/items"
-    assert contents[0] == b""
-    assert "content-type" not in seen[0].headers
-
-
-def test_clear_history_relays_success_with_no_body() -> None:
-    """``DELETE /history`` is the History card's Clear: one hop, no body."""
-    app, seen, contents = _recording_app(200, {"cleared": True, "msg": ""})
-
-    with TestClient(app) as client:
-        response = client.delete("/history")
-
-    assert response.status_code == 200
-    assert response.json() == {"cleared": True, "msg": ""}
-    assert seen[0].method == "DELETE"
-    assert seen[0].url.path == "/history"
+    assert seen[0].url.path == path
     assert contents[0] == b""
     assert "content-type" not in seen[0].headers
 

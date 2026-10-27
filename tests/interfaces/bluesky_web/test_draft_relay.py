@@ -142,61 +142,39 @@ def test_patch_draft_forwards_query_params() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_patch_draft_no_draft_409_passes_through_verbatim() -> None:
-    def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(409, json={"code": "no_draft"})
-
-    app = _build_app(handler)
-    with TestClient(app) as client:
-        response = client.patch("/draft", json={"plan_args_patch": {}, "client_id": "tab-1"})
-
-    assert response.status_code == 409
-    assert response.json() == {"code": "no_draft"}
-
-
-def test_patch_draft_expected_plan_name_mismatch_409_passes_through() -> None:
-    def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(409, json={"detail": "expected_plan_name mismatch"})
-
-    app = _build_app(handler)
-    with TestClient(app) as client:
-        response = client.patch(
-            "/draft",
-            json={"expected_plan_name": "orm", "client_id": "tab-1"},
-        )
-
-    assert response.status_code == 409
-    assert response.json() == {"detail": "expected_plan_name mismatch"}
-
-
-def test_patch_draft_field_validation_422_passes_through() -> None:
-    def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
+@pytest.mark.parametrize(
+    ("patch", "status", "body"),
+    [
+        pytest.param(
+            {"plan_args_patch": {}, "client_id": "tab-1"}, 409, {"code": "no_draft"}, id="no-draft"
+        ),
+        pytest.param(
+            {"expected_plan_name": "orm", "client_id": "tab-1"},
+            409,
+            {"detail": "expected_plan_name mismatch"},
+            id="expected-plan-name-mismatch",
+        ),
+        pytest.param(
+            {"plan_args_patch": {"readbacks": []}, "client_id": "tab-1"},
             422,
-            json={"detail": [{"loc": ["readbacks"], "msg": "min_length", "type": "value_error"}]},
-        )
-
-    app = _build_app(handler)
+            {"detail": [{"loc": ["readbacks"], "msg": "min_length", "type": "value_error"}]},
+            id="field-validation",
+        ),
+        pytest.param(
+            {"plan_name": "nope", "client_id": "tab-1"},
+            422,
+            {"detail": "unknown plan"},
+            id="unknown-plan-name",
+        ),
+    ],
+)
+def test_patch_draft_refusal_passes_through_verbatim(patch: dict, status: int, body: dict) -> None:
+    app = _build_app(lambda _request: httpx.Response(status, json=body))
     with TestClient(app) as client:
-        response = client.patch(
-            "/draft",
-            json={"plan_args_patch": {"readbacks": []}, "client_id": "tab-1"},
-        )
+        response = client.patch("/draft", json=patch)
 
-    assert response.status_code == 422
-    assert response.json()["detail"][0]["msg"] == "min_length"
-
-
-def test_patch_draft_unknown_plan_name_422_passes_through() -> None:
-    def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(422, json={"detail": "unknown plan"})
-
-    app = _build_app(handler)
-    with TestClient(app) as client:
-        response = client.patch("/draft", json={"plan_name": "nope", "client_id": "tab-1"})
-
-    assert response.status_code == 422
-    assert response.json() == {"detail": "unknown plan"}
+    assert response.status_code == status
+    assert response.json() == body
 
 
 # ---------------------------------------------------------------------------
@@ -204,37 +182,19 @@ def test_patch_draft_unknown_plan_name_422_passes_through() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_get_draft_bridge_unreachable_returns_502() -> None:
+@pytest.mark.parametrize(
+    ("method", "path", "payload"),
+    [
+        pytest.param("GET", "/draft", None, id="get"),
+        pytest.param("PATCH", "/draft", {"client_id": "tab-1"}, id="patch"),
+        pytest.param("DELETE", "/draft", None, id="delete"),
+        pytest.param("GET", "/draft/events", None, id="events"),
+    ],
+)
+def test_draft_bridge_unreachable_returns_502(method: str, path: str, payload: dict | None) -> None:
     app = _build_app(refusing_handler)
     with TestClient(app) as client:
-        response = client.get("/draft")
-
-    assert response.status_code == 502
-    assert response.json() == {"detail": "bluesky bridge unreachable"}
-
-
-def test_patch_draft_bridge_unreachable_returns_502() -> None:
-    app = _build_app(refusing_handler)
-    with TestClient(app) as client:
-        response = client.patch("/draft", json={"client_id": "tab-1"})
-
-    assert response.status_code == 502
-    assert response.json() == {"detail": "bluesky bridge unreachable"}
-
-
-def test_delete_draft_bridge_unreachable_returns_502() -> None:
-    app = _build_app(refusing_handler)
-    with TestClient(app) as client:
-        response = client.delete("/draft")
-
-    assert response.status_code == 502
-    assert response.json() == {"detail": "bluesky bridge unreachable"}
-
-
-def test_draft_events_bridge_unreachable_returns_502() -> None:
-    app = _build_app(refusing_handler)
-    with TestClient(app) as client:
-        response = client.get("/draft/events")
+        response = client.request(method, path, json=payload)
 
     assert response.status_code == 502
     assert response.json() == {"detail": "bluesky bridge unreachable"}
