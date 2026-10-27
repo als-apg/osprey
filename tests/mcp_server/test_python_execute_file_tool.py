@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from osprey.mcp_server.python_executor.executor import ExecutionResult
+from tests.mcp_server._execute_code import mock_execute_code
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 
@@ -18,25 +19,6 @@ def _get_python_execute_file():
     from osprey.mcp_server.python_executor.tools.python_execute_file import execute_file
 
     return get_tool_fn(execute_file)
-
-
-def _mock_execute_code(
-    success=True,
-    stdout="",
-    stderr="",
-    figures=None,
-    execution_method_used="subprocess",
-):
-    """Build an AsyncMock for execute_code returning a configured ExecutionResult."""
-    result = ExecutionResult(
-        success=success,
-        stdout=stdout,
-        stderr=stderr,
-        figures=figures or [],
-        execution_method_used=execution_method_used,
-        execution_time_seconds=0.1,
-    )
-    return AsyncMock(return_value=result)
 
 
 #: Pattern detection's verdict on a script that calls ``caput``.
@@ -97,7 +79,7 @@ async def test_execute_file_basic(tmp_path, monkeypatch):
     script = tmp_path / "hello.py"
     script.write_text("print('hello world')\n")
 
-    mock_exec = _mock_execute_code(success=True, stdout="hello world\n")
+    mock_exec = mock_execute_code(success=True, stdout="hello world\n")
 
     with _patched_run(tmp_path, mock_exec, detection=_no_writes()):
         fn = _get_python_execute_file()
@@ -128,7 +110,7 @@ async def test_execute_file_relative_path(tmp_path, monkeypatch):
     script = subdir / "run.py"
     script.write_text("x = 1\n")
 
-    mock_exec = _mock_execute_code(success=True, stdout="")
+    mock_exec = mock_execute_code(success=True, stdout="")
 
     with _patched_run(tmp_path, mock_exec, detection=_no_writes()):
         fn = _get_python_execute_file()
@@ -215,7 +197,7 @@ async def test_execute_file_safety_check_blocks(tmp_path, monkeypatch):
     # Use a benign-looking string; the mock controls whether it's blocked
     script.write_text("run_dangerous_code()\n")
 
-    mock_exec = _mock_execute_code()
+    mock_exec = mock_execute_code()
 
     with (
         patch(
@@ -249,7 +231,7 @@ async def test_execute_file_readonly_blocks_writes(tmp_path, monkeypatch):
     script = tmp_path / "writer.py"
     script.write_text("epics.caput('PV', 1)\n")
 
-    mock_exec = _mock_execute_code()
+    mock_exec = mock_execute_code()
 
     with _patched_run(tmp_path, mock_exec, detection=_CAPUT_DETECTED):
         fn = _get_python_execute_file()
@@ -271,7 +253,7 @@ async def test_execute_file_readwrite_allows_writes(tmp_path, monkeypatch):
     script = tmp_path / "writer.py"
     script.write_text("epics.caput('PV', 1)\n")
 
-    mock_exec = _mock_execute_code(success=True, stdout="done\n")
+    mock_exec = mock_execute_code(success=True, stdout="done\n")
 
     # The deployment-level writes gate is independent of execution_mode; this
     # test asserts the readwrite path, so the gate must be allow-through.
@@ -301,7 +283,7 @@ async def test_execute_file_deployment_writes_disabled_blocks(tmp_path, monkeypa
     script = tmp_path / "writer.py"
     script.write_text("epics.caput('PV', 1)\n")
 
-    mock_exec = _mock_execute_code()
+    mock_exec = mock_execute_code()
 
     with _patched_run(tmp_path, mock_exec, detection=_CAPUT_DETECTED, writes_enabled=False):
         fn = _get_python_execute_file()
@@ -324,7 +306,7 @@ async def test_execute_file_rejects_unknown_execution_mode(tmp_path, monkeypatch
     script = tmp_path / "writer.py"
     script.write_text("epics.caput('PV', 1)\n")
 
-    mock_exec = _mock_execute_code()
+    mock_exec = mock_execute_code()
 
     with _patched_run(tmp_path, mock_exec, detection=_CAPUT_DETECTED, writes_enabled=False):
         fn = _get_python_execute_file()
@@ -346,7 +328,7 @@ async def test_execute_file_script_args(tmp_path, monkeypatch):
     script = tmp_path / "args.py"
     script.write_text("import sys; print(sys.argv)\n")
 
-    mock_exec = _mock_execute_code(success=True, stdout="")
+    mock_exec = mock_execute_code(success=True, stdout="")
 
     with _patched_run(tmp_path, mock_exec, detection=_no_writes()):
         fn = _get_python_execute_file()
@@ -426,7 +408,7 @@ async def test_execute_file_readonly_refuses_epics_import(tmp_path, monkeypatch)
     monkeypatch.chdir(tmp_path)
     script = tmp_path / "alias.py"
     script.write_text("from epics import caput as _w\n_w('SR:MAG:QF:01:CURRENT:SP', 150)\n")
-    mock_exec = _mock_execute_code(success=True, stdout="")
+    mock_exec = mock_execute_code(success=True, stdout="")
 
     with (
         patch(
