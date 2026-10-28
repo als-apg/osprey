@@ -649,7 +649,7 @@ def test_divergent_shell_export_never_overwrites_the_pinned_secret(tmp_path: Pat
         # than about a store that was never initialized in the first place.
         _assert_store_authenticates(project_name, minted)
 
-        up2 = _run_osprey(["up", "-d"], repo, extra_env={DB_PASSWORD_VAR: divergent})
+        up2 = _run_osprey(["up", "-d", "--dev"], repo, extra_env={DB_PASSWORD_VAR: divergent})
         assert up2.returncode == 0, _fmt("osprey up (divergent export)", up2)
 
         output = _squash(up2)

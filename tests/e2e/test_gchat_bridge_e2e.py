@@ -791,7 +791,9 @@ RECORD_BRIDGE = record_ids.BRIDGE_IDENTITIES["gchat_bridge"]
 
 
 @pytest.fixture(scope="module")
-def agent_record(tmp_path_factory: pytest.TempPathFactory) -> Iterator[WorkerRecord]:
+def agent_record(
+    built_repo: Path, tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[WorkerRecord]:
     """A real agent-record service over an embedded backend, in a thread.
 
     The bridge's conversation history lives in the record: its turns are appended to the
@@ -800,7 +802,7 @@ def agent_record(tmp_path_factory: pytest.TempPathFactory) -> Iterator[WorkerRec
     Module-scoped, like the dispatch pair whose runs it records.
     """
     with worker_record(
-        tmp_path_factory.mktemp("agent_record"), bridges=("gchat_bridge",)
+        tmp_path_factory.mktemp("agent_record"), built_repo, bridges=("gchat_bridge",)
     ) as record:
         yield record
 

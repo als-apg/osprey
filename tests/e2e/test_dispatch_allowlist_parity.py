@@ -217,7 +217,7 @@ def _start_worker(repo: Path, record: WorkerRecord) -> tuple[subprocess.Popen, s
 def worker(request, tmp_path: Path) -> Iterator[str]:
     """Start a real worker, recording into its own record, on the repo fixture named by the param."""
     repo = request.getfixturevalue(request.param)
-    with worker_record(tmp_path / "agent_record") as record:
+    with worker_record(tmp_path / "agent_record", repo) as record:
         proc, url = _start_worker(repo, record)
         try:
             yield url

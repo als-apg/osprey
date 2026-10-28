@@ -1971,7 +1971,13 @@ def _auth_none_edits() -> dict[str, Any]:
 
 
 def _rendered_services(repo: Path) -> dict[str, dict[str, Any]]:
-    """Every compose service the render wrote under ``build/``, by name."""
+    """Every compose service the render wrote under ``build/``, and the web slice's, by name.
+
+    The web slice (nginx, the terminals, the history page) is rendered by
+    ``osprey up`` from ``build/config.yml``, through the function read here.
+    """
+    from osprey.deployment.web_terminals.render import render_web_terminals
+
     services: dict[str, dict[str, Any]] = {}
     for path in sorted((repo / "build").rglob("*.yml")):
         try:
@@ -1980,6 +1986,8 @@ def _rendered_services(repo: Path) -> dict[str, dict[str, Any]]:
             continue
         if isinstance(document, dict) and isinstance(document.get("services"), dict):
             services.update(document["services"])
+    web = yaml.safe_load(render_web_terminals(_rendered_config(repo))["docker-compose.web.yml"])
+    services.update(web.get("services") or {})
     return services
 
 
@@ -2036,6 +2044,35 @@ def _record_sessions(repo: Path, viewer: str) -> set[str]:
     return {str(row.get("session_id")) for row in answer.data or [] if isinstance(row, dict)}
 
 
+def _record_ingest_state(repo: Path) -> str:
+    """The record's per-source ingest health and the spool's ownership, for a failure message."""
+    import subprocess
+
+    import httpx
+
+    from osprey.agent_record.contract import HEALTH_SOURCES_PATH
+    from osprey.agent_record.credentials import login_file, read_login
+    from osprey.port_layout import resolve_port_base
+    from osprey_connectors.workspace import SPOOL_DIR_RELPATH
+
+    config = _rendered_config(repo)
+    block = config.get("agent_record") or {}
+    port = int(block.get("port") or default_port("agent_record", base=resolve_port_base(config)))
+    token = read_login(repo / login_file("operator"), "operator")
+    try:
+        health = httpx.get(
+            f"http://127.0.0.1:{port}{HEALTH_SOURCES_PATH}",
+            auth=("operator", token or ""),
+            timeout=10,
+        ).text[:4000]
+    except httpx.HTTPError as exc:
+        health = f"unreadable: {exc}"
+    listing = subprocess.run(
+        ["ls", "-lnaR", str(repo / SPOOL_DIR_RELPATH)], capture_output=True, text=True
+    ).stdout[:4000]
+    return f"--- record health ---\n{health}\n--- spool ---\n{listing}"
+
+
 def _spool_prompt(repo: Path, identity: str, session: str) -> None:
     """One prompt from *identity*'s terminal, written to its spool the way a hook does."""
     from osprey.agent_record import writer
@@ -2069,7 +2106,9 @@ def history_page(deployment: dict[str, Any]) -> dict[str, Any]:
         lambda seen: set(sessions.values()) <= seen,
         timeout=RECORD_INGEST_SEC,
     )
-    assert set(sessions.values()) <= listed, f"the record never listed {sessions}: {listed}"
+    assert set(sessions.values()) <= listed, (
+        f"the record never listed {sessions}: {listed}\n{_record_ingest_state(repo)}"
+    )
     return {
         "repo": repo,
         "reader": f"http://127.0.0.1:{history_origin_port(config)}",

@@ -10,6 +10,11 @@ directory, and a Claude config directory whose ``projects/`` is the transcript
 root the record tails. A bridge beside it reads its conversation history from
 the same record under its own login.
 
+The worker runs its agent with ``CLAUDE_CONFIG_DIR`` on the repo's agent-data
+zone (:func:`~osprey.agent_runner.artifact_resolve.dispatch_claude_config_dir`),
+where compose mounts the worker's transcripts volume over ``projects/``; here
+that ``projects/`` is a link to the transcript root the record tails.
+
 The service is the shipped one (:func:`osprey.agent_record.service.create_app`)
 over an embedded backend, served by :func:`run_app_server` on a free port.
 """
@@ -41,7 +46,6 @@ class WorkerRecord:
 
     url: str
     spool_root: Path
-    claude_config_dir: Path
     tokens: Mapping[str, str]
 
     def login(self, identity: str) -> str:
@@ -58,20 +62,22 @@ class WorkerRecord:
         }
 
     def worker_env(self) -> dict[str, str]:
-        """:meth:`env_for` the worker, with the Claude config whose transcripts the record tails."""
-        return {
-            **self.env_for(WORKER_IDENTITY),
-            "CLAUDE_CONFIG_DIR": str(self.claude_config_dir),
-        }
+        """:meth:`env_for` the worker."""
+        return self.env_for(WORKER_IDENTITY)
 
 
 @contextlib.contextmanager
-def worker_record(base: Path, *, bridges: tuple[str, ...] = ()) -> Iterator[WorkerRecord]:
-    """Serve a record for one dispatch worker and *bridges* under *base*.
+def worker_record(
+    base: Path, repo: Path, *, bridges: tuple[str, ...] = ()
+) -> Iterator[WorkerRecord]:
+    """Serve a record for one dispatch worker of *repo* and *bridges* under *base*.
 
     Args:
         base: The directory the record, its spools and transcripts live in;
             created when absent, and empty if it exists.
+        repo: The built deployment repo the worker serves; its dispatch
+            agent's ``projects/`` is pointed at this record's transcript root,
+            replacing a link an earlier record left.
         bridges: Deployed bridge service names (keys of
             :data:`~osprey.agent_record.identities.BRIDGE_IDENTITIES`) that
             read from this record.
@@ -88,9 +94,11 @@ def worker_record(base: Path, *, bridges: tuple[str, ...] = ()) -> Iterator[Work
         if identity == WORKER_IDENTITY
     )
     (transcripts / root).mkdir(parents=True)
-    claude_config = base / "worker-claude-config"
-    claude_config.mkdir()
-    (claude_config / "projects").symlink_to(transcripts / root, target_is_directory=True)
+    projects = _dispatch_claude_config_dir(repo) / "projects"
+    projects.parent.mkdir(parents=True, exist_ok=True)
+    if projects.is_symlink():
+        projects.unlink()
+    projects.symlink_to(transcripts / root, target_is_directory=True)
     spool_root = base / "spool"
     spool_root.mkdir()
 
@@ -110,6 +118,15 @@ def worker_record(base: Path, *, bridges: tuple[str, ...] = ()) -> Iterator[Work
     with EmbeddedBackend(base / "record" / "record.duckdb") as backend:
         app = record_service.create_app(config=config, backend=backend, env=env)
         with run_app_server(app) as url:
-            yield WorkerRecord(
-                url=url, spool_root=spool_root, claude_config_dir=claude_config, tokens=tokens
-            )
+            yield WorkerRecord(url=url, spool_root=spool_root, tokens=tokens)
+
+
+def _dispatch_claude_config_dir(repo: Path) -> Path:
+    """Where *repo*'s worker runs its agent's Claude state, as the worker derives it."""
+    import yaml
+
+    from osprey.agent_runner.artifact_resolve import DISPATCH_CLAUDE_CONFIG_DIRNAME
+    from osprey_connectors.workspace import agent_data_base_dir, anchored_path
+
+    config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8")) or {}
+    return anchored_path(agent_data_base_dir(config), repo) / DISPATCH_CLAUDE_CONFIG_DIRNAME

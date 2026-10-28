@@ -866,7 +866,9 @@ RECORD_BRIDGE = BRIDGE_IDENTITIES["nextcloud_bridge"]
 
 
 @pytest.fixture(scope="module")
-def agent_record(tmp_path_factory: pytest.TempPathFactory) -> Iterator[WorkerRecord]:
+def agent_record(
+    built_repo: Path, tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[WorkerRecord]:
     """A real agent-record service the worker records its runs in and the bridge reads.
 
     The worker reads a run back from the record once it is no longer in flight, and the
@@ -874,7 +876,7 @@ def agent_record(tmp_path_factory: pytest.TempPathFactory) -> Iterator[WorkerRec
     Module-scoped, like the dispatch pair whose runs it records.
     """
     with worker_record(
-        tmp_path_factory.mktemp("agent_record"), bridges=("nextcloud_bridge",)
+        tmp_path_factory.mktemp("agent_record"), built_repo, bridges=("nextcloud_bridge",)
     ) as record:
         yield record
 

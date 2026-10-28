@@ -233,9 +233,9 @@ def _write_local_triggers(dst: Path, worker_port: int) -> None:
 
 
 @pytest.fixture
-def agent_record(tmp_path: Path) -> Iterator[WorkerRecord]:
+def agent_record(built_repo: Path, tmp_path: Path) -> Iterator[WorkerRecord]:
     """The record the worker records its runs in and reads them back from."""
-    with worker_record(tmp_path / "agent_record") as record:
+    with worker_record(tmp_path / "agent_record", built_repo) as record:
         yield record
 
 
