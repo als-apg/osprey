@@ -1765,19 +1765,180 @@ def test_a_tier_without_node_is_refused_and_names_the_install(
     install = "the Node toolchain is not installed: install Node, then run npm ci"
     refused = "tsc, eslint, prettier, vitest, dock-engine-tests, dock-engine-bundle"
     assert f"check: refused: {refused} ({install})" in capsys.readouterr().err
-    probes = {
-        shlex.join(probe[1:])
-        for probe in (fw.DOCS_EXTRA_PROBE, fw.LIVE_CA_PROBE, fw.WORKFLOW_LINT_PROBE)
-    }
+    probes = {shlex.join(probe[1:]) for probe in _need_probe_argvs()}
     log = tmp_path / "uv.log"
     logged = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
     assert set(logged) <= probes, logged
     assert recorder.calls == []
     stub(stub_path, "node", "exit 0")
     stub(stub_path, "npm", "exit 0")
+    _lockfiles(tmp_path, installed="1.0.0")
     assert fw._need_node() is None
+    (tmp_path / "node_modules/.package-lock.json").unlink()
     (tmp_path / "node_modules").rmdir()
-    assert "npm ci" in (fw._need_node() or "")
+    answer = fw._need_node() or ""
+    assert recorder.calls == [["npm", "ci"]]
+    assert "node_modules/.package-lock.json is absent" in answer
+
+
+# ---------------------------------------------------------------------------
+# Provisioning: the needs put the tree's pins in place before any check runs
+
+
+def _need_probe_argvs() -> list[tuple[str, ...]]:
+    """Every argv constant a declared need's probe runs, read from the probes."""
+    found: dict[str, tuple[str, ...]] = {}
+    for probe in fw.NEEDS.values():
+        for name in probe.__code__.co_names:
+            value = getattr(fw, name, None)
+            if isinstance(value, tuple) and value and all(isinstance(v, str) for v in value):
+                found[name] = value
+    return list(found.values())
+
+
+def _assert_never_relocks(probe: Sequence[str]) -> None:
+    if tuple(probe[:2]) == ("uv", "run"):
+        assert probe[2] == "--frozen", probe
+
+
+def test_the_pin_probe_never_relocks() -> None:
+    """The needs are probed before the lockfile check, and a plain ``uv run``
+    re-locks a stale lockfile and hands that check a current one."""
+    assert fw.CLAUDE_PIN_PROBE in _need_probe_argvs()
+    _assert_never_relocks(fw.CLAUDE_PIN_PROBE)
+
+
+def test_the_pin_probe_never_relocks__mutation_drops_frozen() -> None:
+    relocking = tuple(part for part in fw.CLAUDE_PIN_PROBE if part != "--frozen")
+    with pytest.raises(AssertionError):
+        _assert_never_relocks(relocking)
+
+
+def test_the_pin_probe_runs_the_resolver() -> None:
+    assert fw.CLAUDE_PIN_PROBE[3:] == ("python", "scripts/pinned_claude.py")
+    assert (REPO_ROOT / fw.CLAUDE_PIN_PROBE[-1]).is_file()
+
+
+def test_the_test_sweep_needs_the_pin() -> None:
+    assert BY_ID["pytest"].needs == ("uv", "claude-pin")
+
+
+@pytest.mark.usefixtures("recorder")
+def test_the_pin_goes_first_on_path_before_any_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pin = tmp_path / "pin"
+    pin.mkdir()
+    probed: list[tuple[str, ...]] = []
+
+    def probe(argv: Sequence[str]) -> tuple[int, str, str]:
+        probed.append(tuple(argv))
+        return 0, f"{pin}\n", ""
+
+    monkeypatch.setenv("PATH", os.environ.get("PATH", ""))
+    monkeypatch.setattr(fw, "_probe", probe)
+    monkeypatch.setitem(check.NEED_PROBES, "claude-pin", fw._need_claude_pin)
+    assert check.main(["quick"]) == 0
+    assert os.environ["PATH"].startswith(str(pin) + os.pathsep)
+    assert probed == [fw.CLAUDE_PIN_PROBE]
+
+
+@pytest.mark.parametrize(
+    ("answer", "refusal"),
+    [
+        (
+            (
+                1,
+                "",
+                "This project pins Claude Code X and none was found.\n"
+                "  npm install -g @anthropic-ai/claude-code@X\n"
+                "then run again.\n",
+            ),
+            "This project pins Claude Code X and none was found. "
+            "npm install -g @anthropic-ai/claude-code@X then run again.",
+        ),
+        ((0, "not a directory\n", ""), "printed no directory"),
+        ((3, "", ""), "exited 3"),
+    ],
+    ids=["refused", "no-directory", "silent"],
+)
+def test_no_pin_is_a_refusal_and_nothing_runs(
+    recorder: Recorder,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    answer: tuple[int, str, str],
+    refusal: str,
+) -> None:
+    monkeypatch.setenv("PATH", os.environ.get("PATH", ""))
+    monkeypatch.setattr(fw, "_probe", lambda argv: answer)
+    monkeypatch.setitem(check.NEED_PROBES, "claude-pin", fw._need_claude_pin)
+    assert check.main(["quick"]) == 2
+    assert recorder.calls == []
+    err = capsys.readouterr().err
+    (line,) = (line for line in err.splitlines() if line.startswith("check: pytest: refused ("))
+    assert refusal in line
+
+
+_LOCK = {
+    "name": "fixture",
+    "lockfileVersion": 3,
+    "packages": {
+        "": {"name": "fixture", "devDependencies": {"a": "1.0.0"}},
+        "node_modules/a": {"version": "1.0.0", "integrity": "sha512-a", "dev": True},
+    },
+}
+
+
+def _lockfiles(root: Path, *, installed: str | None) -> None:
+    """``package-lock.json`` under *root*, and npm's hidden lockfile recording
+    package ``a`` at *installed*, or no ``node_modules`` when ``None``."""
+    (root / "package-lock.json").write_text(json.dumps(_LOCK), encoding="utf-8")
+    if installed is None:
+        return
+    hidden = json.loads(json.dumps(_LOCK))
+    del hidden["packages"][""]
+    hidden["packages"]["node_modules/a"]["version"] = installed
+    (root / "node_modules").mkdir(exist_ok=True)
+    (root / "node_modules/.package-lock.json").write_text(json.dumps(hidden), encoding="utf-8")
+
+
+@pytest.fixture
+def node_need(recorder: Recorder, monkeypatch: pytest.MonkeyPatch) -> Recorder:
+    """The real ``node`` need, with ``node`` and ``npm`` found and the recorder
+    standing in for npm."""
+    monkeypatch.setitem(check.NEED_PROBES, "node", fw._need_node)
+    monkeypatch.setattr(fw.shutil, "which", lambda name: f"/usr/bin/{name}")
+    return recorder
+
+
+def test_npm_ci_does_not_run_when_node_modules_is_current(
+    node_need: Recorder, tmp_path: Path
+) -> None:
+    _lockfiles(tmp_path, installed="1.0.0")
+    assert check.main(["quick"]) == 0
+    assert ["npm", "ci"] not in node_need.calls
+
+
+def test_npm_ci_runs_before_any_check_when_node_modules_is_stale(
+    node_need: Recorder, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _lockfiles(tmp_path, installed="0.9.0")
+    assert check.main(["quick"]) == 2
+    assert node_need.calls[0] == ["npm", "ci"]
+    assert ["uv", "lock", "--check"] not in node_need.calls
+    captured = capsys.readouterr()
+    assert "check: node: node_modules/a differs from package-lock.json; npm ci" in captured.out
+    assert "node_modules still differs from package-lock.json after npm ci" in captured.err
+
+
+def test_a_failed_npm_ci_is_a_refusal(
+    node_need: Recorder, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _lockfiles(tmp_path, installed="0.9.0")
+    node_need.failing = {"npm ci": 1}
+    assert check.main(["quick"]) == 2
+    assert node_need.calls == [["npm", "ci"]]
+    assert "npm ci failed (exit 1): node_modules/a differs" in capsys.readouterr().err
 
 
 def test_a_run_without_uv_is_refused(stub_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
