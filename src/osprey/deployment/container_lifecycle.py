@@ -6074,6 +6074,18 @@ def _preflight_legacy_ariel_mirror(config: dict, repo_root: Path) -> None:
     )
 
 
+def _copy_existing_transcripts(config: dict, env: Mapping[str, str] | None) -> None:
+    """Copy transcripts that predate their own volume into it, and say which.
+
+    The runtime is asked only when the config renders a transcripts volume.
+    """
+    if not claude_projects_volumes(config):
+        return
+    runtime = get_runtime_command(config)[0]
+    for volume in copy_transcripts_once(config, runtime=runtime, env=env):
+        _report_fact(f"copied the existing transcripts into {volume}")
+
+
 def _report_unmounted_host_transcripts(
     config: dict, compose_files: list[str], repo_root: Path | str
 ) -> None:
@@ -6682,12 +6694,8 @@ def _start_stack(
     # Transcripts that predate their own volume are copied into it, once, before
     # any compose invocation below can create that volume empty and start a
     # container on it. Both start paths reach here, and so do the single-service
-    # ups of the staging steps that follow. The runtime is asked only when the
-    # config renders a transcripts volume.
-    if claude_projects_volumes(config):
-        runtime = get_runtime_command(config)[0]
-        for volume in copy_transcripts_once(config, runtime=runtime, env=env):
-            _report_fact(f"copied the existing transcripts into {volume}")
+    # ups of the staging steps that follow.
+    _copy_existing_transcripts(config, env)
     _report_unmounted_host_transcripts(config, compose_files, repo_root)
 
     # Stage the archiver store and seed its history BEFORE the branch split, so

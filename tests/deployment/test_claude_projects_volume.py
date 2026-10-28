@@ -495,13 +495,19 @@ def _assert_copies_precede_compose(calls: list[list[str]]) -> None:
     assert max(copies) < min(composes), calls
 
 
+#: The start's copy step, bound before the suite's stand-in replaces it.
+_REAL_COPY_EXISTING_TRANSCRIPTS = container_lifecycle._copy_existing_transcripts
+
+
 def _route_runtime_through(monkeypatch, fake: FakeRuntime, record: list[list[str]]) -> None:
     """Send every subprocess call to *fake*, keeping one ordered record.
 
     The start's copy step is put back in place of the suite's stand-in
     (``tests/deployment/conftest.py``), so the copy these tests order is the real one.
     """
-    monkeypatch.setattr(container_lifecycle, "copy_transcripts_once", copy_transcripts_once)
+    monkeypatch.setattr(
+        container_lifecycle, "_copy_existing_transcripts", _REAL_COPY_EXISTING_TRANSCRIPTS
+    )
 
     def _run(cmd, env=None, check=False, **kwargs):  # noqa: ARG001 - subprocess.run's keywords
         cmd = list(cmd)
