@@ -29,7 +29,7 @@ from pathlib import Path
 
 import pytest
 
-from tests._tree_scan import EXTENSIONLESS_SHIPPED_NAMES, matching_lines, text_files
+from tests._text_sweep import EXTENSIONLESS_SHIPPED_NAMES, matching_lines, text_files
 
 #: Every retired name, spelled once, as a single alternation.
 #:

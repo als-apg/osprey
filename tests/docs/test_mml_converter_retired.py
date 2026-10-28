@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from tests._tree_scan import SHIPPED_TEXT_SUFFIXES, matching_lines, text_files
+from tests._text_sweep import SHIPPED_TEXT_SUFFIXES, matching_lines, text_files
 
 #: Both retired names, spelled once, as a single alternation: the module path a
 #: page told the reader to run, and the class it exported.

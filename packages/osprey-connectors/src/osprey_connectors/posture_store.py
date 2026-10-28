@@ -202,7 +202,6 @@ __all__ = [
     "launch_narrowed_target",
     "launch_permits",
     "launch_posture_stamp",
-    "parse_launch_posture",
     "parse_posture_value",
     "record_verdict_detail",
     "recorded_posture",
@@ -1041,7 +1040,7 @@ def launch_posture_stamp(target: str | None, launch_posture: str) -> str:
     """Compose the :data:`LAUNCH_POSTURE_ENV_VAR` value for one launch.
 
     The one place the wire format is written, so the executor that stamps it
-    and :func:`parse_launch_posture` which reads it cannot disagree about the
+    and :func:`_parse_launch_posture` which reads it cannot disagree about the
     separator or about how "no target" is spelled.
 
     Args:
@@ -1054,7 +1053,7 @@ def launch_posture_stamp(target: str | None, launch_posture: str) -> str:
     return f"{target or LAUNCH_POSTURE_ALL_TARGETS}={launch_posture}"
 
 
-def parse_launch_posture(raw: str | None) -> dict[str, str]:
+def _parse_launch_posture(raw: str | None) -> dict[str, str]:
     """Decode a launch stamp into ``{target: "sandbox"}`` — narrowings only.
 
     The same filter rule 2 applies to the record, on the environment's one-pair
@@ -1104,7 +1103,7 @@ def launch_narrowed_target() -> str | None:
     places, and the second must not be reported as somebody's decision.
     """
     text = (os.environ.get(LAUNCH_POSTURE_ENV_VAR) or "").strip()
-    if not parse_launch_posture(text):
+    if not _parse_launch_posture(text):
         return None
     target = text.partition("=")[0].strip()
     return target or None
@@ -1133,7 +1132,7 @@ def launch_permits(target: str | None) -> bool:
     ``True`` — permitted — for every process that carries no stamp, which is
     every process except an executor sandbox.
     """
-    return _permits(parse_launch_posture(os.environ.get(LAUNCH_POSTURE_ENV_VAR)), target)
+    return _permits(_parse_launch_posture(os.environ.get(LAUNCH_POSTURE_ENV_VAR)), target)
 
 
 # -- the rule ---------------------------------------------------------------

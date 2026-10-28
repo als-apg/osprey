@@ -39,7 +39,11 @@ from osprey.agent_runner import (
 )
 from osprey.agent_runner.clean_env import build_clean_env
 from osprey.agent_runner.write_tools import read_only_disallowed_tools
-from osprey.interfaces.web_terminal.chat_session_pool import ChatCapacityError
+from osprey.interfaces.web_terminal.chat_session_pool import (
+    UNREAD_IDLE_FACTOR,
+    ChatCapacityError,
+    ChatSessionPool,
+)
 from osprey.interfaces.web_terminal.operator_session import (
     OperatorRegistry,
     OperatorSession,
@@ -50,6 +54,7 @@ from osprey.interfaces.web_terminal.operator_session import (
     format_tool_name,
     validate_project_directory,
 )
+from osprey.interfaces.web_terminal.process_tree import ProcessTableUnreadable
 from tests._agent_cli import STUB_AGENT_CLI
 from tests.interfaces.web_terminal._fakes import (
     PRESET_SYSTEM_PROMPT,
@@ -1195,20 +1200,22 @@ class FakeChatSession:
         self.stop_calls = 0
         self.start_delay = 0.0
         self.start_error: Exception | None = None
-        # What ``started_commands`` answers, the threads it was asked on, and
-        # what it does when asked.
+        # What ``started_commands`` answers (``None`` raises as a table that could
+        # not be read), the threads it was asked on, and what it does when asked.
         self.running_commands: list | None = []
         self.look_threads: list[int] = []
         self.look_error: Exception | None = None
         self.on_look: Callable[[], None] | None = None
 
-    def started_commands(self) -> list | None:
+    def started_commands(self) -> list:
         self.look_threads.append(threading.get_ident())
         if self.on_look is not None:
             self.on_look()
         if self.look_error is not None:
             raise self.look_error
-        return None if self.running_commands is None else list(self.running_commands)
+        if self.running_commands is None:
+            raise ProcessTableUnreadable(OSError("process table"))
+        return list(self.running_commands)
 
     async def start(self, *, resume_id=None):
         self.resume_id = resume_id
@@ -1719,7 +1726,8 @@ class TestOperatorRegistryChatPool:
         factory = _session_factory()
         with _patch_session(factory):
             a, _ = await registry.get_or_create_chat_session("stale-chat", cwd="/tmp")
-        stale = time.monotonic() - 100
+        # Past the idle timeout, within the grace an unknown look is given.
+        stale = time.monotonic() - 15
         a.last_activity = stale
         a.running_commands = None
 
@@ -1729,7 +1737,7 @@ class TestOperatorRegistryChatPool:
         assert reaped == 0
         assert registry.get_chat_session("stale-chat") is a
         assert a.stop_calls == 0
-        assert a.last_activity > stale
+        assert a.last_activity == stale
         warnings = [
             r
             for r in caplog.records
@@ -1743,7 +1751,7 @@ class TestOperatorRegistryChatPool:
         factory = _session_factory()
         with _patch_session(factory):
             a, _ = await registry.get_or_create_chat_session("stale-chat", cwd="/tmp")
-        stale = time.monotonic() - 100
+        stale = time.monotonic() - 15
         a.last_activity = stale
         a.look_error = OSError("ps")
 
@@ -1753,13 +1761,33 @@ class TestOperatorRegistryChatPool:
         assert reaped == 0
         assert registry.get_chat_session("stale-chat") is a
         assert a.stop_calls == 0
-        assert a.last_activity > stale
+        assert a.last_activity == stale
         warnings = [
             r
             for r in caplog.records
             if r.levelno == logging.WARNING and "stale-chat" in r.getMessage()
         ]
         assert len(warnings) == 1
+
+    @pytest.mark.asyncio
+    async def test_an_unreadable_process_table_does_not_keep_a_chat_open_for_good(self):
+        """Every sweep that cannot look leaves the idle clock alone, so the reap comes."""
+        clock = [time.monotonic()]
+        pool = ChatSessionPool(factory=_session_factory(), idle_seconds=10.0, now=lambda: clock[0])
+        a, _ = await pool.get_or_create("stale-chat", "/tmp")
+        a.running_commands = None
+        last = a.last_activity
+
+        for moment in (10.0, 15.0, 10.0 * UNREAD_IDLE_FACTOR - 1.0):
+            clock[0] = last + moment
+            assert await pool.reap_idle() == 0
+            assert pool.get("stale-chat") is a
+            assert a.last_activity == last
+
+        clock[0] = last + 10.0 * UNREAD_IDLE_FACTOR
+        assert await pool.reap_idle() == 1
+        assert pool.get("stale-chat") is None
+        assert a.stop_calls == 1
 
     @pytest.mark.asyncio
     async def test_reap_idle_leaves_a_chat_replaced_during_the_look(self):

@@ -276,7 +276,7 @@ async def test_the_path_is_resolved_on_each_mutation(tmp_path, monkeypatch):
     context_owner = ControlContextOwner(TERMINAL)
 
     monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(after))
-    path = control_context.record_path_under(after)
+    path = control_context._record_path_under(after)
     control_context.write_record(
         ControlContext(target="live", generation=1, owner=TERMINAL), path=path
     )
@@ -287,7 +287,7 @@ async def test_the_path_is_resolved_on_each_mutation(tmp_path, monkeypatch):
 
     stored = read(path)
     assert stored is not None and stored.target == "standin"
-    assert not control_context.record_path_under(before).exists()
+    assert not control_context._record_path_under(before).exists()
 
 
 # -- serialisation, which is the whole point --------------------------------

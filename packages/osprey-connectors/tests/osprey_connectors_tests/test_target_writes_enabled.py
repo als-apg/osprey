@@ -23,7 +23,7 @@ import pytest
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system import _base as connector_base
 from osprey_connectors.control_system._base import WriteOutcome
-from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
+from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.types import (
     EPICS,
     IN_PROCESS,
@@ -45,7 +45,7 @@ from osprey_connectors.types import (
     writes_enabled_key,
     writes_enabled_remedy,
 )
-from osprey_connectors_tests._harness import write_control_context
+from osprey_connectors_tests._harness import isolated_connector_registries, write_control_context
 from osprey_connectors_tests._write_fakes import RecordingConnector, config_reader
 
 CUSTOM_TYPE = "mypackage.MoatConnector"
@@ -1022,7 +1022,7 @@ def store(tmp_path, monkeypatch):
     posture_store.invalidate_cache()
 
     class _Store:
-        path = control_context.record_path_under(root)
+        path = control_context._record_path_under(root)
 
         @classmethod
         def narrow(cls, **targets: str) -> None:
