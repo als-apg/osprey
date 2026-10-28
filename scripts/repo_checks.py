@@ -966,6 +966,8 @@ LANES: tuple[Lane, ...] = (
     _scan("bluesky-queue-e2e", "test_bluesky_queue_e2e.py"),
     _e2e("scan-agentic-e2e", "test_plan_stack_agentic.py", why="models"),
     _e2e("archiver-world-e2e", "test_archiver_world_e2e.py"),
+    _e2e("agent-record-e2e", "test_agent_record_e2e.py"),
+    _e2e("host-record-e2e", "test_host_record_e2e.py", why="models"),
     _e2e("graph-reseed-e2e", "test_graph_reseed_stamp.py"),
     _scan("tiled-roundtrip-e2e", "test_tiled_roundtrip.py"),
     _scan("bluesky-catalog-e2e", "test_bluesky_catalog_e2e.py"),
