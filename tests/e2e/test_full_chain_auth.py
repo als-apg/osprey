@@ -1995,8 +1995,8 @@ def _history_server_block(repo: Path) -> str:
     """The history page's ``server`` block of the nginx config *repo*'s render produces.
 
     Rendered from ``build/config.yml`` through the function ``osprey up`` writes
-    the deployed file with, so the auth-none case reads exactly what a deploy
-    of that render would serve without deploying it.
+    the deployed file with, so it reads exactly what a deploy of that render
+    serves.
     """
     from osprey.agent_record.config import history_origin_port
     from osprey.deployment.web_terminals.render import render_web_terminals
@@ -2073,24 +2073,57 @@ def _record_ingest_state(repo: Path) -> str:
     return f"--- record health ---\n{health}\n--- spool ---\n{listing}"
 
 
-def _spool_prompt(repo: Path, identity: str, session: str) -> None:
-    """One prompt from *identity*'s terminal, written to its spool the way a hook does."""
-    from osprey.agent_record import writer
-    from osprey.agent_record.contract import KIND_PROMPT, SPOOL_DIR_ENV
-    from osprey_connectors.workspace import SPOOL_DIR_RELPATH
+#: Where a terminal container's Claude Code transcripts live: its
+#: ``<user>-claude-projects`` volume, the transcript root the record tails.
+TERMINAL_PROJECTS_DIR = "/data/claude-config/projects"
 
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setenv(SPOOL_DIR_ENV, str(repo / SPOOL_DIR_RELPATH / identity))
-        entry_id = writer.write(
-            KIND_PROMPT, {"text": f"a prompt from {identity}"}, session_id=session
-        )
-        writer.seal_all()
-    assert entry_id, f"the writer stored no prompt for {identity!r}"
+
+def _transcript_prompt(identity: str, session: str) -> None:
+    """One prompt in *identity*'s terminal transcript, appended the way Claude Code writes it.
+
+    A prompt is a transcript fact: the record takes it from the terminal's
+    transcripts volume and from nowhere else. Appended inside that user's own
+    container (exact name, see CONTAINER-OPS SAFETY), into its mounted volume.
+    """
+    import uuid as _uuid
+    from datetime import UTC, datetime
+
+    line = {
+        "parentUuid": None,
+        "isSidechain": False,
+        "userType": "external",
+        "cwd": "/data/workspace",
+        "sessionId": session,
+        "version": "2.1.300",
+        "type": "user",
+        "message": {"role": "user", "content": f"a prompt from {identity}"},
+        "uuid": str(_uuid.uuid4()),
+        "timestamp": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+    }
+    directory = f"{TERMINAL_PROJECTS_DIR}/-e2e-history"
+    result = subprocess.run(
+        [
+            RUNTIME,
+            "exec",
+            "-i",
+            "-u",
+            "0",
+            _web_container(identity),
+            "sh",
+            "-c",
+            f'mkdir -p "{directory}" && cat >> "{directory}/{session}.jsonl"',
+        ],
+        input=json.dumps(line) + "\n",
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, _fmt(f"append {identity}'s transcript", result)
 
 
 @pytest.fixture(scope="module")
 def history_page(deployment: dict[str, Any]) -> dict[str, Any]:
-    """The two origins and one prompt session per person, spooled into the record."""
+    """The two origins and one prompt session per person, in each person's transcript."""
     from osprey.agent_record.config import history_app_port, history_origin_port
 
     repo: Path = deployment["repo"]
@@ -2100,7 +2133,7 @@ def history_page(deployment: dict[str, Any]) -> dict[str, Any]:
         user: f"hist-{nonce}-{user}" for user in (REAL_USER, HEADER_USER, NO_ROLE_USER, SHARED_CARD)
     }
     for user, session in sessions.items():
-        _spool_prompt(repo, user, session)
+        _transcript_prompt(user, session)
     listed = _settled(
         lambda: _record_sessions(repo, "all"),
         lambda seen: set(sessions.values()) <= seen,
@@ -2181,22 +2214,26 @@ def _settled(read: Any, ready: Any, timeout: float = HISTORY_SETTLE_SEC) -> Any:
     return value
 
 
-def test_history_is_404_under_auth_method_none_by_render(tmp_path: Path) -> None:
-    """Without sign-on there is no history service, and nginx answers `/history/` 404.
+def test_history_is_not_served_under_auth_method_none_by_render(tmp_path: Path) -> None:
+    """Without sign-on there is no history page, and no server on its origin's port.
 
     A render, not a second deployment (owner ruling F2): the compose set carries
-    no ``history`` service, and the history page's server has no ``/history/``
-    location, so the request falls to its catch-all ``return 404``.
+    no ``history`` service, and nginx renders no server for the history page's
+    origin, since the page is all that origin answers.
     """
+    from osprey.agent_record.config import history_origin_port
+    from osprey.deployment.web_terminals.render import render_web_terminals
+
     repo = _make_repo(tmp_path, _find_osprey_console_script(), edits=_auth_none_edits())
 
     services = _rendered_services(repo)
     assert "nginx" in services, sorted(services)
     assert "history" not in services, sorted(services)
-    server = _history_server_block(repo)
-    assert "/history" not in server, server
-    assert "verify-history" not in server, server
-    assert re.search(r"location / \{\s*return 404;\s*\}", server), server
+    config = _rendered_config(repo)
+    nginx = render_web_terminals(config)["nginx/nginx.conf"]
+    port = history_origin_port(config)
+    assert not re.search(rf"(?m)^\s*listen {port}\b", nginx), nginx
+    assert "verify-history" not in nginx
 
 
 def test_history_service_runs_the_project_image_the_render_names(
