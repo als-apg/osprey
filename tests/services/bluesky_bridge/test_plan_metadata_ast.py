@@ -86,10 +86,63 @@ def test_module_is_not_executed(tmp_path: Path) -> None:
     assert not canary.exists()
 
 
-def test_missing_plan_metadata_raises_typed_error(tmp_path: Path) -> None:
-    path = _write(tmp_path, "def a_plan(devices, params):\n    yield from ()\n")
+_NO_LITERAL = "no module-level literal PLAN_METADATA"
+_NOT_A_LITERAL_DICT = "not a literal dict"
+_UNREADABLE = "could not read plan source"
 
-    with pytest.raises(PlanMetadataError, match="no module-level literal PLAN_METADATA"):
+
+@pytest.mark.parametrize(
+    ("source", "match"),
+    [
+        pytest.param(
+            "def a_plan(devices, params):\n    yield from ()\n", _NO_LITERAL, id="missing"
+        ),
+        pytest.param(
+            "PLAN_METADATA = {\n"
+            '    "name": "extra",\n'
+            '    "description": "Declares a key outside the contract.",\n'
+            '    "writes": False,\n'
+            '    "category": "accelerator",\n'
+            "}\n",
+            "unknown key\\(s\\): category",
+            id="unknown-key-is-named",
+        ),
+        pytest.param(
+            'PLAN_METADATA = {"name": "bad", "description": "Bad.", "writes": "not-a-bool"}\n',
+            "writes",
+            id="wrong-typed-field",
+        ),
+        pytest.param('PLAN_METADATA = ["not", "a", "dict"]\n', _NO_LITERAL, id="not-a-dict"),
+        # Values computed at import time cannot be read without running the
+        # module, so the dict is refused rather than partially guessed at.
+        pytest.param(
+            "import os\n"
+            'PLAN_METADATA = {"name": os.environ["PLAN_NAME"], "description": "d", "writes": False}\n',
+            _NOT_A_LITERAL_DICT,
+            id="computed",
+        ),
+        # Only a module-level binding is part of the plan contract.
+        pytest.param(
+            "def build():\n"
+            '    PLAN_METADATA = {"name": "nested", "description": "d", "writes": False}\n'
+            "    return PLAN_METADATA\n",
+            _NO_LITERAL,
+            id="nested-in-a-function",
+        ),
+        pytest.param("def broken(:\n", _UNREADABLE, id="unparseable"),
+        # `ast.literal_eval` raises `TypeError`, not `ValueError`, on an
+        # unhashable key. Callers catch `PlanMetadataError` and nothing else, so
+        # a `TypeError` escaping would abort a whole plan-file scan rather than
+        # skip the one bad file.
+        pytest.param("PLAN_METADATA = {[1]: 2}\n", _NOT_A_LITERAL_DICT, id="unhashable-key"),
+    ],
+)
+def test_a_source_outside_the_contract_raises_the_typed_error(
+    tmp_path: Path, source: str, match: str
+) -> None:
+    path = _write(tmp_path, source)
+
+    with pytest.raises(PlanMetadataError, match=match):
         extract_plan_metadata_from_source(path)
 
 
@@ -100,64 +153,6 @@ def test_missing_required_key_raises_typed_error_naming_the_key(tmp_path: Path) 
         extract_plan_metadata_from_source(path)
 
     assert "unknown key(s)" not in str(excinfo.value)
-
-
-def test_unknown_key_raises_typed_error_naming_the_key(tmp_path: Path) -> None:
-    path = _write(
-        tmp_path,
-        "PLAN_METADATA = {\n"
-        '    "name": "extra",\n'
-        '    "description": "Declares a key outside the contract.",\n'
-        '    "writes": False,\n'
-        '    "category": "accelerator",\n'
-        "}\n",
-    )
-
-    with pytest.raises(PlanMetadataError, match="unknown key\\(s\\): category"):
-        extract_plan_metadata_from_source(path)
-
-
-def test_wrong_typed_field_raises_typed_error(tmp_path: Path) -> None:
-    path = _write(
-        tmp_path,
-        'PLAN_METADATA = {"name": "bad", "description": "Bad.", "writes": "not-a-bool"}\n',
-    )
-
-    with pytest.raises(PlanMetadataError, match="writes"):
-        extract_plan_metadata_from_source(path)
-
-
-def test_non_dict_plan_metadata_raises_typed_error(tmp_path: Path) -> None:
-    path = _write(tmp_path, 'PLAN_METADATA = ["not", "a", "dict"]\n')
-
-    with pytest.raises(PlanMetadataError, match="no module-level literal PLAN_METADATA"):
-        extract_plan_metadata_from_source(path)
-
-
-def test_computed_plan_metadata_is_rejected_rather_than_run(tmp_path: Path) -> None:
-    """A dict whose values are computed at import time cannot be read without
-    running the module, so it is refused — not partially guessed at."""
-    path = _write(
-        tmp_path,
-        "import os\n"
-        'PLAN_METADATA = {"name": os.environ["PLAN_NAME"], "description": "d", "writes": False}\n',
-    )
-
-    with pytest.raises(PlanMetadataError, match="not a literal dict"):
-        extract_plan_metadata_from_source(path)
-
-
-def test_plan_metadata_nested_in_a_function_is_ignored(tmp_path: Path) -> None:
-    """Only a module-level binding is part of the plan contract."""
-    path = _write(
-        tmp_path,
-        "def build():\n"
-        '    PLAN_METADATA = {"name": "nested", "description": "d", "writes": False}\n'
-        "    return PLAN_METADATA\n",
-    )
-
-    with pytest.raises(PlanMetadataError, match="no module-level literal PLAN_METADATA"):
-        extract_plan_metadata_from_source(path)
 
 
 def test_last_module_level_assignment_wins(tmp_path: Path) -> None:
@@ -171,13 +166,6 @@ def test_last_module_level_assignment_wins(tmp_path: Path) -> None:
     assert extract_plan_metadata_from_source(path).name == "second"
 
 
-def test_unparseable_file_raises_typed_error(tmp_path: Path) -> None:
-    path = _write(tmp_path, "def broken(:\n")
-
-    with pytest.raises(PlanMetadataError, match="could not read plan source"):
-        extract_plan_metadata_from_source(path)
-
-
 def test_missing_file_raises_typed_error(tmp_path: Path) -> None:
     with pytest.raises(PlanMetadataError, match="could not read plan source"):
         extract_plan_metadata_from_source(tmp_path / "nope.py")
@@ -187,20 +175,6 @@ def test_error_messages_name_the_offending_file(tmp_path: Path) -> None:
     path = _write(tmp_path, "x = 1\n")
 
     with pytest.raises(PlanMetadataError, match=str(path)):
-        extract_plan_metadata_from_source(path)
-
-
-def test_unhashable_key_raises_the_typed_error_not_a_type_error(tmp_path: Path) -> None:
-    """`ast.literal_eval` raises `TypeError`, not `ValueError`, on an unhashable
-    key — so it needs its own clause to keep the one-error-type contract.
-
-    Callers catch `PlanMetadataError` and nothing else; a `TypeError` escaping
-    here would abort whatever scan is walking plan files rather than skipping
-    the one bad file.
-    """
-    path = _write(tmp_path, "PLAN_METADATA = {[1]: 2}\n")
-
-    with pytest.raises(PlanMetadataError, match="not a literal dict"):
         extract_plan_metadata_from_source(path)
 
 
@@ -239,24 +213,33 @@ def test_a_non_literal_sibling_value_does_not_hide_the_name(tmp_path: Path) -> N
         extract_plan_metadata_from_source(path)
 
 
-def test_a_contract_failing_block_still_yields_its_name(tmp_path: Path) -> None:
-    """Missing and surplus keys are the strict reader's business, not this one's."""
-    path = _write(
-        tmp_path,
-        'PLAN_METADATA = {"name": "facility_plan", "provenance": "facility"}\n',
-    )
-
-    assert extract_plan_name_from_source(path) == "facility_plan"
-
-
-def test_the_last_module_level_binding_names_the_plan(tmp_path: Path) -> None:
-    path = _write(
-        tmp_path,
-        'PLAN_METADATA = {"name": "first", "description": "Superseded.", "writes": False}\n'
-        'PLAN_METADATA = {"name": "second", "description": "The live one.", "writes": True}\n',
-    )
-
-    assert extract_plan_name_from_source(path) == "second"
+@pytest.mark.parametrize(
+    ("source", "name"),
+    [
+        # Missing and surplus keys are the strict reader's business, not this one's.
+        pytest.param(
+            'PLAN_METADATA = {"name": "facility_plan", "provenance": "facility"}\n',
+            "facility_plan",
+            id="contract-failing-block",
+        ),
+        pytest.param(
+            'PLAN_METADATA = {"name": "first", "description": "Superseded.", "writes": False}\n'
+            'PLAN_METADATA = {"name": "second", "description": "The live one.", "writes": True}\n',
+            "second",
+            id="last-module-level-binding",
+        ),
+        # A ``**spread`` only makes what comes BEFORE it unknowable: a literal
+        # ``name`` after it is the last word in the dict display, so it is what
+        # an import binds.
+        pytest.param(
+            "PLAN_METADATA = {**_EXTRA, 'name': 'real_name'}\n",
+            "real_name",
+            id="spread-before-the-name-key",
+        ),
+    ],
+)
+def test_the_name_an_import_binds_is_reported(tmp_path: Path, source: str, name: str) -> None:
+    assert extract_plan_name_from_source(_write(tmp_path, source)) == name
 
 
 @pytest.mark.parametrize(
@@ -293,17 +276,6 @@ def test_an_unidentifiable_file_returns_none(label: str, body: str, tmp_path: Pa
     no such plan ever registers either.
     """
     assert extract_plan_name_from_source(_write(tmp_path, body)) is None, label
-
-
-def test_a_spread_before_the_name_key_does_not_hide_it(tmp_path: Path) -> None:
-    """A ``**spread`` only makes what comes BEFORE it unknowable.
-
-    A literal ``name`` after the spread is the last word in the dict display,
-    so it is what an import binds and what this reader reports.
-    """
-    path = _write(tmp_path, "PLAN_METADATA = {**_EXTRA, 'name': 'real_name'}\n")
-
-    assert extract_plan_name_from_source(path) == "real_name"
 
 
 def test_a_bytes_name_reads_as_the_name_an_import_binds(tmp_path: Path) -> None:

@@ -115,6 +115,19 @@ def _previous_release_repo(dest: Path, *, git: bool = False) -> Path:
     return dest
 
 
+#: The retired write keys the previous release's readwrite and logbook files spell.
+_READWRITE_RETIRED_KEYS = (
+    "  control_system.writes_enabled: false\n"
+    "  control_system.connector.epics.writes_enabled: false\n"
+    "  control_system.connector.virtual_accelerator.writes_enabled: true\n"
+)
+_LOGBOOK_RETIRED_KEYS = (
+    "  control_system.writes_enabled: false\n"
+    "  control_system.connector.epics.writes_enabled: false\n"
+    "  control_system.connector.virtual_accelerator.writes_enabled: false\n"
+)
+
+
 def _without_channel_finder(root: Path) -> None:
     """Make the fixture's profile the previous release's exactly: no `shared:` at all."""
     path = root / "profile.yml"
@@ -469,8 +482,14 @@ def test_a_comment_only_edit_keeps_the_file_and_prints_the_manual_step(tmp_path:
     result = _revalidate(root)
 
     assert result.exit_code == 0, result.output
-    assert (root / "tiers" / "readwrite.yml").read_text(encoding="utf-8") == edited
+    # Kept as written, but for the write posture: the three retired keys become
+    # the tier key they amount to (simulator armed: `allowed`), and the one
+    # comment line the previous release shipped about them takes today's words.
+    assert (root / "tiers" / "readwrite.yml").read_text(encoding="utf-8") == edited.replace(
+        _READWRITE_RETIRED_KEYS, "  control_system.writes: allowed\n"
+    ).replace("same reason writes_enabled is.", "same reason control_system.writes is.")
     assert "tiers/readwrite.yml was made from `control-assistant-readwrite`" in result.output
+    assert "# The tier boundary, and it takes three keys." in result.output
 
 
 def test_a_comment_only_edit_keeps_a_logbook_retired_tier_a_tier(tmp_path: Path) -> None:
@@ -481,7 +500,9 @@ def test_a_comment_only_edit_keeps_a_logbook_retired_tier_a_tier(tmp_path: Path)
 
     result = _revalidate(root)
 
-    assert (root / "tiers" / "logbook.yml").read_text(encoding="utf-8") == edited
+    assert (root / "tiers" / "logbook.yml").read_text(encoding="utf-8") == edited.replace(
+        _LOGBOOK_RETIRED_KEYS, "  control_system.writes: never\n"
+    )
     assert not (root / "apps" / "logbook.yml").exists()
     assert "        tier: logbook\n" in (root / "profile.yml").read_text(encoding="utf-8")
     assert "tiers/logbook.yml was made from `control-assistant-logbook`" in result.output

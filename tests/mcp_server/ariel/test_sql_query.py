@@ -1,13 +1,11 @@
 """Tests for the sql_query MCP tool and sql_query validation."""
 
-import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from osprey.services.ariel_search.search.sql_query import validate_sql_query
-from tests.mcp_server.ariel.conftest import get_tool_fn
+from tests.mcp_server.ariel.conftest import get_tool_fn, patch_ariel_service
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 
 # ---------------------------------------------------------------------------
@@ -129,16 +127,9 @@ _DATABASE = {
 }
 
 
-def _setup_registry(tmp_path, monkeypatch, database=None):
-    monkeypatch.chdir(tmp_path)
-    config = {"ariel": {"database": _DATABASE if database is None else database}}
-    (tmp_path / "config.yml").write_text(json.dumps(config))
-    initialize_ariel_context()
-
-
-async def test_sql_query_valid(tmp_path, monkeypatch):
+async def test_sql_query_valid(ariel_registry):
     """Valid SELECT query executes and returns rows."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry(database=_DATABASE)
 
     mock_rows = [
         {"entry_id": "e1", "author": "Alice"},
@@ -149,10 +140,7 @@ async def test_sql_query_valid(tmp_path, monkeypatch):
     mock_service.pool = AsyncMock()
 
     with (
-        patch(
-            "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-            new=AsyncMock(return_value=mock_service),
-        ),
+        patch_ariel_service(mock_service),
         patch(
             "osprey.mcp_server.ariel.tools.sql_query.execute_sql_query",
             new=AsyncMock(return_value=mock_rows),
@@ -186,9 +174,9 @@ async def test_sql_query_empty():
     _exc_ctx["envelope"]
 
 
-async def test_sql_query_row_limit(tmp_path, monkeypatch):
+async def test_sql_query_row_limit(ariel_registry):
     """max_rows > 200 is capped at 200 inside sql_query()."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry(database=_DATABASE)
 
     mock_service = AsyncMock()
     mock_service.pool = AsyncMock()
@@ -196,10 +184,7 @@ async def test_sql_query_row_limit(tmp_path, monkeypatch):
     mock_sql = AsyncMock(return_value=[])
 
     with (
-        patch(
-            "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-            new=AsyncMock(return_value=mock_service),
-        ),
+        patch_ariel_service(mock_service),
         patch(
             "osprey.mcp_server.ariel.tools.sql_query.execute_sql_query",
             new=mock_sql,
@@ -212,18 +197,15 @@ async def test_sql_query_row_limit(tmp_path, monkeypatch):
     mock_sql.assert_called_once()
 
 
-async def test_sql_query_service_error(tmp_path, monkeypatch):
+async def test_sql_query_service_error(ariel_registry):
     """Database error returns internal_error."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry(database=_DATABASE)
 
     mock_service = AsyncMock()
     mock_service.pool = AsyncMock()
 
     with (
-        patch(
-            "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-            new=AsyncMock(return_value=mock_service),
-        ),
+        patch_ariel_service(mock_service),
         patch(
             "osprey.mcp_server.ariel.tools.sql_query.execute_sql_query",
             new=AsyncMock(side_effect=RuntimeError("Connection refused")),
@@ -237,11 +219,11 @@ async def test_sql_query_service_error(tmp_path, monkeypatch):
     assert "Connection refused" in data["error_message"]
 
 
-async def test_sql_query_uses_the_readonly_pool(tmp_path, monkeypatch):
+async def test_sql_query_uses_the_readonly_pool(ariel_registry):
     """The tool queries through the SELECT-only role where the deployment has
     one, so a dangerous function is refused by Postgres rather than by a
     pattern match over the query text."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry(database=_DATABASE)
 
     mock_service = AsyncMock()
     mock_service.pool = AsyncMock()
@@ -250,10 +232,7 @@ async def test_sql_query_uses_the_readonly_pool(tmp_path, monkeypatch):
     mock_sql = AsyncMock(return_value=[])
 
     with (
-        patch(
-            "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-            new=AsyncMock(return_value=mock_service),
-        ),
+        patch_ariel_service(mock_service),
         patch(
             "osprey.mcp_server.ariel.tools.sql_query.execute_sql_query",
             new=mock_sql,
@@ -265,13 +244,13 @@ async def test_sql_query_uses_the_readonly_pool(tmp_path, monkeypatch):
     assert mock_sql.call_args.args[0] is mock_service.readonly_pool
 
 
-async def test_sql_query_without_a_readonly_login_is_not_supported(tmp_path, monkeypatch):
+async def test_sql_query_without_a_readonly_login_is_not_supported(ariel_registry):
     """An authored store with no ``readonly_uri`` has no login the tool may run
     as. The refusal names the key and comes before any service is built, so the
     ingestion pool is never reached."""
     from osprey.services.ariel_search.config import READONLY_URI_KEY
 
-    _setup_registry(tmp_path, monkeypatch, database={"uri": "postgresql://ariel@localhost/test"})
+    ariel_registry(database={"uri": "postgresql://ariel@localhost/test"})
 
     service = AsyncMock(side_effect=AssertionError("no service may be built"))
     mock_sql = AsyncMock(side_effect=AssertionError("no query may run"))
@@ -291,11 +270,11 @@ async def test_sql_query_without_a_readonly_login_is_not_supported(tmp_path, mon
     mock_sql.assert_not_awaited()
 
 
-async def test_sql_query_with_a_refused_readonly_login_is_unavailable(tmp_path, monkeypatch):
+async def test_sql_query_with_a_refused_readonly_login_is_unavailable(ariel_registry):
     """A store whose data volume predates the role refuses the read-only login.
     The tool says so with the recorded reason and never queries through the
     ingestion pool."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry(database=_DATABASE)
 
     mock_service = AsyncMock()
     mock_service.pool = AsyncMock()
@@ -305,10 +284,7 @@ async def test_sql_query_with_a_refused_readonly_login_is_unavailable(tmp_path, 
     mock_sql = AsyncMock(return_value=[])
 
     with (
-        patch(
-            "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-            new=AsyncMock(return_value=mock_service),
-        ),
+        patch_ariel_service(mock_service),
         patch(
             "osprey.mcp_server.ariel.tools.sql_query.execute_sql_query",
             new=mock_sql,

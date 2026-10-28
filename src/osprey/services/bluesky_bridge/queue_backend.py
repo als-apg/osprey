@@ -410,8 +410,8 @@ def resolve_lane_connector_type() -> tuple[str, str | None]:
        ``control_system.type`` is the whole answer, unchanged from before the
        lane axis existed.
     2. The lane declares a target that RESOLVES on this deployment: that type.
-       It is also the key of the block the connector's settings and its write
-       posture come from, so a VA lane beside a live baseline is armed by
+       It is also the key of the block the connector's settings come from, so
+       a VA lane beside a live baseline is built from
        ``control_system.connector.virtual_accelerator`` alone.
     3. The lane declares a target this deployment cannot resolve. The LIVE lane
        of a virtual-accelerator baseline is the shipped case: it declares
@@ -419,9 +419,10 @@ def resolve_lane_connector_type() -> tuple[str, str | None]:
        gateway is a facility address no build can verify and
        ``${EPICS_CA_NAME_SERVERS:?}`` is what supplies it at ``osprey up``. The
        answer stays ``control_system.type`` — what that lane has always built —
-       so it keeps working, with the write posture that type inherits from the
-       deployment-wide key. The mismatch is *reported* rather than absorbed:
-       the lane addresses one machine with a type the config tied to another.
+       so it keeps reading, but its writes are refused: the connector's verdict
+       answers each one ``target_unknown``, because the declared target does
+       not resolve. The mismatch is *reported* rather than absorbed: the lane
+       addresses one machine with a type the config tied to another.
     4. Nothing usable at all: the fail-safe type, the simulator, which an
        unreadable config serves in process, so it never touches Channel Access.
 
@@ -447,11 +448,35 @@ def resolve_lane_connector_type() -> tuple[str, str | None]:
         return baseline_type, (
             f"Lane {lane!r} declares the {declared!r} target, which this deployment "
             f"cannot resolve to a control system, so its worker is built as "
-            f"{baseline_type!r} — the deployment baseline — and inherits the "
-            f"deployment-wide write posture. Configure the connector block for the "
-            f"machine this lane addresses (control_system.connector.{EPICS}, say) to "
-            f"make the lane concrete."
+            f"{baseline_type!r} — the deployment baseline — and its writes are "
+            f"refused because its target does not resolve. Configure the connector "
+            f"block for the machine this lane addresses "
+            f"(control_system.connector.{EPICS}, say) to make the lane concrete."
         )
+
+
+def lane_tier_allows(section: Any) -> bool:
+    """Whether this lane's worker could be allowed to write at all.
+
+    The startup half of the write verdict, the half that does not move while
+    the process runs: :func:`osprey_connectors.posture_store.backstop_verdict`
+    allows (not a read-only run, and a login tier that allows writes, in that
+    verdict's own order), and the lane is not degraded. The tier is target-blind —
+    a deployment that allows writes allows them for every machine, and the
+    person's switch picks which one — so it is the tier, not any one
+    connector block, that decides.
+
+    A degraded lane (rung 3 of :func:`resolve_lane_connector_type`) is never
+    allowed: it addresses a machine this deployment cannot resolve, so the
+    connector's verdict refuses each of its writes as ``target_unknown``, and
+    this answer agrees with it.
+
+    Each write is still decided on its own, by the connector's verdict for the
+    owner the plan wrapper bound. This never reads a record. Never raises.
+    """
+    from osprey_connectors.posture_store import backstop_verdict
+
+    return backstop_verdict(section).allowed and resolve_lane_connector_type()[1] is None
 
 
 def resolve_lane_identity() -> tuple[str, str]:
@@ -963,7 +988,7 @@ class QueueBackend:
         top level of the kwargs the item arrived with and re-added from this
         argument alone. An item carrying the key already would otherwise bind
         its run to a name the caller never stamped, and be judged against that
-        name's narrowing. Top level is where the drop belongs because that is
+        name's switch. Top level is where the drop belongs because that is
         the only depth the wrapper binds from: the same key nested inside a
         plan argument is one of that argument's own values and names nobody.
 

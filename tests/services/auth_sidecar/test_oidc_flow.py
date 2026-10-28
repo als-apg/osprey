@@ -38,7 +38,6 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from osprey.deployment.web_terminals.roster import access_wire_value
-from osprey.interfaces._serving import run_app_server
 from osprey.services.auth_sidecar import audit
 from osprey.services.auth_sidecar.app import (
     DEFAULT_OIDC_SCOPES,
@@ -68,21 +67,24 @@ from osprey.services.auth_sidecar.sessions import (
     SessionState,
     UnlockedUser,
 )
-from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+from tests.services.auth_sidecar._helpers import (
+    SESSION_LIFETIME,
+    SESSION_SECRET,
+    STATE_SECRET,
+    ledger_records,
+    osprey_log,
+    set_cookie_header,
+)
 from tests.services.auth_sidecar.mock_idp import (
     DISCOVERY_AS_HTML,
     DISCOVERY_WITHOUT_AUTHORIZATION_ENDPOINT,
     MockIdP,
 )
 
-SESSION_SECRET = "session-secret-value"
-STATE_SECRET = "state-secret-value"
 EXTERNAL_ORIGIN = "https://testserver"
 """The deployment's public origin. It matches the test client's base URL so the
 callback the provider redirects to is one this client can actually be asked
 for, exactly as a browser would be."""
-
-SESSION_LIFETIME = 3600
 
 ALICE_SUBJECT = "idp|alice"
 CAROL_SUBJECT = "idp|carol"
@@ -100,47 +102,11 @@ would strip the state cookie from."""
 # --- the provider ------------------------------------------------------------
 
 
-@pytest.fixture(scope="module")
-def idp() -> Iterator[MockIdP]:
-    """One stub provider, listening on a real port for the whole module.
-
-    Served once rather than per test: the sidecar reaches it over TCP, so it
-    cannot be an ASGI object handed to a client, and standing a server up for
-    each of thirty tests costs more than resetting one.
-    """
-    provider = MockIdP()
-    with run_app_server(provider.app) as base_url:
-        provider.issuer = base_url
-        yield provider
-
-
 @pytest.fixture(autouse=True)
 def _reset_idp(idp: MockIdP) -> Iterator[None]:
     """Give every test an unmodified provider with no recorded requests."""
     idp.reset()
     yield
-
-
-@pytest.fixture
-def zone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """The sidecar's own bound audit subdirectory, as compose gives it.
-
-    Only the shared-card tests ask for it: they pin the *categories* the ledger
-    files a refusal under, which no assertion on the response alone can see.
-    """
-    directory = tmp_path / "var" / "audit" / "sidecar"
-    directory.mkdir(parents=True)
-    monkeypatch.setenv(audit.AUDIT_DIR_ENV, str(directory))
-    monkeypatch.setenv(AUDIT_IDENTITY_ENV, "sidecar")
-    monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
-    return directory
-
-
-def _records(zone: Path) -> list[dict[str, Any]]:
-    path = zone / f"{audit.SURFACE}.jsonl"
-    if not path.exists():
-        return []
-    return [json.loads(line) for line in path.read_text("utf-8").splitlines() if line]
 
 
 def _bind_roster_role(monkeypatch: pytest.MonkeyPatch, user: str, role: str) -> None:
@@ -254,21 +220,6 @@ def _session_from(response: httpx.Response) -> SessionState:
     """Decode the auth session cookie the response set."""
     codec = SessionCodec(SESSION_SECRET, max_age=SESSION_LIFETIME)
     return codec.decode(response.cookies[SESSION_COOKIE_NAME])
-
-
-def _set_cookie_header(response: httpx.Response, name: str) -> str:
-    """The raw ``Set-Cookie`` header for ``name``; attributes are asserted on it."""
-    for header in response.headers.get_list("set-cookie"):
-        if header.startswith(f"{name}="):
-            return header
-    raise AssertionError(f"no Set-Cookie for {name!r} in {response.headers.get_list('set-cookie')}")
-
-
-def _osprey_log(caplog: pytest.LogCaptureFixture) -> str:
-    """Only this service's log records, never the test clients' request logs."""
-    return "\n".join(
-        record.getMessage() for record in caplog.records if record.name.startswith("osprey.")
-    )
 
 
 # --- the round trip ----------------------------------------------------------
@@ -417,7 +368,7 @@ def test_the_callback_arrives_as_a_lax_cross_site_navigation(idp: MockIdP) -> No
     """
     with _browser(_sidecar(idp)) as client:
         login = _start_login(client, "alice")
-        header = _set_cookie_header(login, STATE_COOKIE_NAME).lower()
+        header = set_cookie_header(login, STATE_COOKIE_NAME).lower()
         assert "samesite=lax" in header
         assert "path=/auth" in header
         assert "max-age=300" in header
@@ -473,7 +424,7 @@ def test_a_replayed_nonce_is_refused(idp: MockIdP, caplog: pytest.LogCaptureFixt
 
     assert response.status_code == 502
     assert SESSION_COOKIE_NAME not in response.cookies
-    assert "did not validate" in _osprey_log(caplog)
+    assert "did not validate" in osprey_log(caplog)
 
 
 def test_a_token_signed_by_an_unpublished_key_is_refused(
@@ -490,7 +441,7 @@ def test_a_token_signed_by_an_unpublished_key_is_refused(
 
     assert response.status_code == 502
     assert SESSION_COOKIE_NAME not in response.cookies
-    assert "did not validate" in _osprey_log(caplog)
+    assert "did not validate" in osprey_log(caplog)
 
 
 def test_a_token_from_another_issuer_is_refused(
@@ -503,7 +454,7 @@ def test_a_token_from_another_issuer_is_refused(
 
     assert response.status_code == 502
     assert SESSION_COOKIE_NAME not in response.cookies
-    assert "did not validate" in _osprey_log(caplog)
+    assert "did not validate" in osprey_log(caplog)
 
 
 def test_a_token_for_another_audience_is_refused(
@@ -525,7 +476,7 @@ def test_a_token_for_another_audience_is_refused(
 
     assert response.status_code == 502
     assert SESSION_COOKIE_NAME not in response.cookies
-    log = _osprey_log(caplog)
+    log = osprey_log(caplog)
     assert "did not validate" in log
     assert "InvalidClaimError" in log
     assert "MissingClaimError" not in log
@@ -585,7 +536,7 @@ def test_an_expired_token_is_refused(idp: MockIdP, caplog: pytest.LogCaptureFixt
 
     assert response.status_code == 502
     assert SESSION_COOKIE_NAME not in response.cookies
-    assert "did not validate" in _osprey_log(caplog)
+    assert "did not validate" in osprey_log(caplog)
 
 
 def test_a_token_response_without_an_id_token_is_refused(idp: MockIdP) -> None:
@@ -660,7 +611,7 @@ def test_an_identity_mapped_to_nobody_is_refused(
 
     assert response.status_code == 403
     assert SESSION_COOKIE_NAME not in response.cookies
-    assert "alice" in _osprey_log(caplog)
+    assert "alice" in osprey_log(caplog)
 
 
 def test_an_identity_mapped_to_another_user_is_refused(idp: MockIdP) -> None:
@@ -779,7 +730,7 @@ def test_the_session_cookie_carries_the_pinned_attributes(idp: MockIdP) -> None:
     with _browser(_sidecar(idp)) as client:
         response = _log_in(client, "alice")
 
-    header = _set_cookie_header(response, SESSION_COOKIE_NAME).lower()
+    header = set_cookie_header(response, SESSION_COOKIE_NAME).lower()
     assert "httponly" in header
     assert "samesite=lax" in header
     assert "secure" in header
@@ -800,7 +751,7 @@ def test_a_refusal_never_echoes_the_token_or_the_client_secret(
     issued = idp.token_requests[-1]["code"]
     for value in (idp.client_secret, issued, CAROL_SUBJECT):
         assert value not in response.text
-        assert value not in _osprey_log(caplog)
+        assert value not in osprey_log(caplog)
 
 
 # --- shared cards: the access rule is `any` ----------------------------------
@@ -921,7 +872,7 @@ def test_an_identity_matching_no_entry_is_refused_on_a_shared_card(
 
     assert response.status_code == 403
     assert SESSION_COOKIE_NAME not in response.cookies
-    assert [(r["subject"], r["reason"]) for r in _records(zone)] == [
+    assert [(r["subject"], r["reason"]) for r in ledger_records(zone)] == [
         ("bob", audit.REASON_IDENTITY_MISMATCH)
     ]
 
@@ -942,7 +893,7 @@ def test_an_identity_mapped_to_two_entries_is_refused_as_ambiguous(
 
     assert response.status_code == 403
     assert SESSION_COOKIE_NAME not in response.cookies
-    assert [(r["subject"], r["reason"]) for r in _records(zone)] == [
+    assert [(r["subject"], r["reason"]) for r in ledger_records(zone)] == [
         ("bob", audit.REASON_AMBIGUOUS_IDENTITY)
     ]
 
@@ -970,7 +921,7 @@ def test_a_matched_identity_that_cannot_be_carried_is_refused_not_a_crash(
     assert SESSION_COOKIE_NAME not in response.cookies
     # Post-exchange: the token endpoint was genuinely reached first.
     assert idp.token_requests
-    assert [(r["subject"], r["reason"]) for r in _records(zone)] == [
+    assert [(r["subject"], r["reason"]) for r in ledger_records(zone)] == [
         ("bob", audit.REASON_NON_ASCII_SUBJECT)
     ]
 
@@ -1022,7 +973,7 @@ def test_the_claims_binding_is_not_consulted_on_a_shared_card(
         refused = _log_in(client, "alice")
     assert refused.status_code == 403
 
-    assert [(r["subject"], r["reason"]) for r in _records(zone)] == [
+    assert [(r["subject"], r["reason"]) for r in ledger_records(zone)] == [
         ("bob", audit.REASON_OIDC_LOGIN),
         ("alice", audit.REASON_UNMAPPED_ROLE_CLAIM),
     ]
@@ -1284,7 +1235,7 @@ def test_the_owner_of_a_domain_only_card_outside_that_domain_is_refused(
 
     assert response.status_code == 403
     assert SESSION_COOKIE_NAME not in response.cookies
-    assert [(r["subject"], r["reason"]) for r in _records(zone)] == [
+    assert [(r["subject"], r["reason"]) for r in ledger_records(zone)] == [
         ("bob", audit.REASON_NO_COVERING_PRINCIPAL)
     ]
 
@@ -1310,7 +1261,7 @@ def test_a_mapped_roster_identity_outside_the_domain_is_not_admitted(
 
     assert response.status_code == 403
     assert SESSION_COOKIE_NAME not in response.cookies
-    assert [(r["subject"], r["reason"]) for r in _records(zone)] == [
+    assert [(r["subject"], r["reason"]) for r in ledger_records(zone)] == [
         ("bob", audit.REASON_NO_COVERING_PRINCIPAL)
     ]
 
@@ -1345,7 +1296,7 @@ def test_every_rule_refusal_answers_alike_and_files_its_own_category(
     assert response.json()["detail"] == "this identity is not permitted for this user"
     assert SESSION_COOKIE_NAME not in response.cookies
 
-    records = _records(zone)
+    records = ledger_records(zone)
     assert [(r["subject"], r["reason"]) for r in records] == [("bob", reason)]
     filed = json.dumps(records)
     # String claims only. A boolean would be compared as `"False"` against a
@@ -1534,7 +1485,7 @@ def test_an_identity_no_card_admits_is_refused_and_filed(idp: MockIdP, zone: Pat
     assert response.status_code == 403
     assert "No terminal for this account" in response.text
     assert SESSION_COOKIE_NAME not in response.cookies
-    assert [(r["subject"], r["reason"]) for r in _records(zone)] == [
+    assert [(r["subject"], r["reason"]) for r in ledger_records(zone)] == [
         (audit.SIGN_IN_SUBJECT, audit.REASON_NO_CARD)
     ]
 
@@ -1552,7 +1503,7 @@ def test_a_card_refused_for_its_role_is_left_out_and_filed(
     assert response.status_code == 303
     assert response.headers["location"] == "/u/carol/"
     assert list(_minted(response)) == ["carol"]
-    assert [(r["subject"], r["reason"]) for r in _records(zone)] == [
+    assert [(r["subject"], r["reason"]) for r in ledger_records(zone)] == [
         ("alice", audit.REASON_UNMAPPED_ROLE_CLAIM),
         ("carol", audit.REASON_OIDC_LOGIN),
     ]
@@ -1571,7 +1522,7 @@ def test_an_ambiguous_shared_card_is_left_out_not_fatal(idp: MockIdP, zone: Path
     assert "alice" in minted
     assert "bob" not in minted
     assert ("bob", audit.REASON_AMBIGUOUS_IDENTITY) in [
-        (r["subject"], r["reason"]) for r in _records(zone)
+        (r["subject"], r["reason"]) for r in ledger_records(zone)
     ]
 
 
@@ -1597,6 +1548,6 @@ def test_a_token_without_an_id_token_is_filed_under_the_sign_in_subject(
         response = _enter(client)
 
     assert response.status_code == 502
-    assert [(r["subject"], r["reason"]) for r in _records(zone)] == [
+    assert [(r["subject"], r["reason"]) for r in ledger_records(zone)] == [
         (audit.SIGN_IN_SUBJECT, audit.REASON_UNVALIDATED_TOKEN)
     ]

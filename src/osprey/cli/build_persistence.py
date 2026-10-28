@@ -530,6 +530,12 @@ def _persist_mcp_servers(project_path: Path, mcp_servers: dict[str, Any]) -> Non
             }
         if server.permissions:
             spec["permissions"] = dict(server.permissions)
+        if server.hooks:
+            spec["hooks"] = {event: list(presets) for event, presets in server.hooks.items()}
+        if server.writes is not None:
+            # An empty list is written too: it declares that no tool writes,
+            # which is not the same as a server that declares no list.
+            spec["writes"] = list(server.writes)
 
         specs[name] = spec
 

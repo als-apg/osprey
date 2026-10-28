@@ -57,26 +57,46 @@ def clean_epics_env(monkeypatch):
         monkeypatch.delenv(var, raising=False)
 
 
-def patch_writes_enabled(monkeypatch, enabled: bool) -> None:
-    """Answer the deployment-wide ``control_system.writes_enabled`` key with ``enabled``."""
+def patch_writes_enabled(monkeypatch, enabled: bool, root: Any = None) -> None:
+    """Arm or disarm writes the way the reference monitor's verdict reads them.
+
+    ``False`` serves a ``control_system`` section whose write tier is
+    ``never``: every connector write is refused ``tier_never``. ``True`` serves
+    one whose tier allows writes and turns the login's switch on for the
+    simulator target under *root* (required then), stamping connectors built
+    off the factory with it — see :func:`osprey_connectors_tests._write_fakes.arm_switch`.
+    """
+    section = {"writes": "allowed" if enabled else "never"}
 
     def fake_get_config_value(key, default=None):
-        if key == "control_system.writes_enabled":
-            return enabled
+        if key == "control_system":
+            return dict(section)
         return default
 
     monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
+    if enabled:
+        if root is None:
+            raise ValueError(
+                "patch_writes_enabled(..., True) needs the root to arm the switch under"
+            )
+        # Imported here: ``_write_fakes`` imports this module.
+        from osprey_connectors_tests._write_fakes import arm_switch
+
+        arm_switch(monkeypatch, root)
 
 
 @pytest.fixture
-def writes_enabled(monkeypatch):
-    """Open the base-class writes gate so ``write_channel`` reaches its real body.
+def writes_enabled(monkeypatch, tmp_path):
+    """Arm writes through the verdict so ``write_channel`` reaches its real body.
 
     ``ControlSystemConnector.__init_subclass__`` wraps ``write_channel`` with a
-    ``_writes_enabled`` pre-check that is False in a config-less test
-    environment; the tests using this are about what happens after that gate.
+    ``_writes_enabled`` pre-check — the write verdict — that refuses in a
+    config-less test environment. This serves a write tier that allows and turns
+    the login's switch on for the simulator target, stamping connectors built off
+    the factory with it (:func:`patch_writes_enabled`), so the tests using it
+    pass the real monitor rather than a bypass of it.
     """
-    monkeypatch.setattr(EPICSConnector, "_writes_enabled", property(lambda self: True))
+    patch_writes_enabled(monkeypatch, True, tmp_path / "armed-data")
 
 
 # ---------------------------------------------------------------------------
@@ -391,11 +411,24 @@ def fake_aioca(monkeypatch):
 
 
 def ca_connector(
-    *, aioca=None, channels=None, limits_validator=None, timeout=5.0
+    *,
+    aioca=None,
+    channels=None,
+    limits_validator=None,
+    timeout=5.0,
+    selected_role="read_only",
+    write_gateway=False,
 ) -> EPICSConnector:
     """A Channel Access connector that skips ``connect()`` by injecting its runtime state.
 
     Pass a :class:`FakeAioca` as ``aioca``, or ``channels`` to build one.
+
+    The gateway role ``connect()`` would have stored is set explicitly: by
+    default the connector went through its ``read_only`` gateway and the block
+    configures no write gateway, so an allowed write goes out as it is. A test
+    about a connector whose gateway lags the switch passes
+    ``write_gateway=True`` (with the default role), and one connected through
+    the write gateway passes ``selected_role="write_access"`` as well.
     """
     connector = EPICSConnector()
     connector._aioca = aioca if aioca is not None else FakeAioca(channels)
@@ -404,6 +437,8 @@ def ca_connector(
     connector._timeout = timeout
     connector._connected = True
     connector._epics_configured = True
+    connector._selected_role = selected_role
+    connector._write_gateway_configured = write_gateway
     return connector
 
 

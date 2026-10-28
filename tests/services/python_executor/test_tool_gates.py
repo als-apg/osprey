@@ -11,13 +11,16 @@ mocked for them: reaching an assertion at all proves the gate ran ahead of
 execution.
 """
 
-import json
 import re
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from osprey_connectors_tests._harness import write_control_context
+from osprey.audit import posture
+from osprey_connectors.refusals import refusal_phrase, refusal_text
+from osprey_connectors_tests._harness import REFUSAL_BAN_LIST, write_control_context
+from osprey_connectors_tests._write_fakes import ARMED_SECTION, ARMED_TARGET, arm_switch
+from tests._audit_ledger import ledger_records
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 #: A literal write into the render zone — the canonical thing the policy exists
@@ -70,13 +73,18 @@ def _no_ambient_deployment(control_context_root, monkeypatch):
     read as a regression in the path policy. Autouse for the same reason
     ``audit_zone`` is: a case added here later must not have to rediscover it.
 
-    ``OSPREY_CONTROL_TARGET`` is cleared beside it because that stamp outranks
-    the record, and an inherited one names a target no test here wrote.
+    ``OSPREY_CONTROL_TARGET`` is cleared beside it because an inherited stamp
+    names a target no test here wrote.
+
+    The scratch deployment allows writes: its tier allows them and its record
+    is on the simulator with the switch on, so a readwrite call reaches the
+    gates behind the clamp unless a test says otherwise.
     """
     from osprey_connectors import posture_store
 
     monkeypatch.delenv("OSPREY_CONTROL_TARGET", raising=False)
-    posture_store.invalidate_cache()
+    monkeypatch.setattr(posture, "control_system_section", lambda: dict(ARMED_SECTION))
+    arm_switch(monkeypatch, control_context_root, ARMED_TARGET, stamp=False)
     yield control_context_root
     posture_store.invalidate_cache()
 
@@ -123,12 +131,8 @@ def _refusal_prose(envelope) -> str:
 def _refusal_records(audit_zone):
     """Every executor record this identity filed — the ledger is per-identity."""
     from osprey.audit.envelope import SURFACE_EXECUTOR
-    from osprey_connectors.identity import acting_identity
 
-    log = audit_zone / acting_identity() / f"{SURFACE_EXECUTOR}.jsonl"
-    if not log.exists():
-        return []
-    return [json.loads(line) for line in log.read_text().splitlines() if line.strip()]
+    return ledger_records(audit_zone, SURFACE_EXECUTOR)
 
 
 # ---------------------------------------------------------------------------
@@ -339,13 +343,9 @@ async def test_clean_read_still_executes(tmp_path, monkeypatch, audit_zone):
 # correct for a while without being wired into either tool, which left the
 # executor gate that FR6 names as enforced doing nothing at all.
 #
-# ``posture()`` answers ``sandbox`` for two different reasons, and the remedy
-# differs, so the refusal forks and the assertions below fork with it:
-# ``OSPREY_EXECUTION_MODE=readonly`` on this process is a DEPLOYMENT-wide
-# read-only run, which the header chip cannot lift; a recorded narrowing for the
-# deployment's control target is the operator's own, which is exactly
-# what the chip lifts. A refusal that names the wrong one sends the operator
-# somewhere that changes nothing.
+# The verdict refuses for several reasons and each phrase says who lifts it, so
+# the assertions below fork on the reason: a read-only run, which the chip
+# cannot lift, and a switch that is off, which the chip turns back on.
 # ---------------------------------------------------------------------------
 
 CLEAN_READWRITE_CODE = "print('would write')\n"
@@ -360,64 +360,44 @@ def readonly_run(monkeypatch):
 
 
 @pytest.fixture
-def narrowed_session(control_context_root, monkeypatch):
-    """The other source: the operator narrowed this control target from the chip.
+def switched_off(control_context_root, monkeypatch):
+    """The other source: the operator's switch is off for the run's machine.
 
-    No ``OSPREY_EXECUTION_MODE`` anywhere — narrowing one target must not
-    sandbox the process, which is the whole point of the narrowing.
-    ``posture()`` reads the deployment's control-context record: the target it
-    is pointed at, and the sandbox entry the chip wrote against that target,
-    are two fields of that one file.
-
-    The session key is still stamped because the ledger joins on it; no reader
-    indexes the narrowing by it.
+    No ``OSPREY_EXECUTION_MODE`` anywhere — turning one machine off must not
+    make the process read-only. The session key is still stamped because the
+    ledger joins on it.
     """
-    from osprey_connectors import posture_store
+    from osprey_connectors import control_context, posture_store
 
     monkeypatch.setenv("OSPREY_POSTURE_SESSION", SESSION_KEY)
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
 
-    write_control_context(control_context_root, target="live", posture={"live": "sandbox"})
+    write_control_context(control_context_root, target=ARMED_TARGET, owned_by=None, switch={})
     posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     yield control_context_root
     posture_store.invalidate_cache()
 
 
-#: The remedy sentence each source must carry, and the one it must NOT.
-#: Keyed by source, because the loose "'posture' in message" net this replaced
-#: let the chip sentence stand on a deployment-wide run without failing. The
-#: store row names ``live`` because that is the target ``narrowed_session``
-#: narrows: the store-derived refusal is per TARGET, so its remedy names a
-#: machine rather than the session.
+#: The phrase each source refuses with, and the one it must NOT borrow.
 POSTURE_REMEDIES = {
-    "deployment": (
-        "the control-target chip in the header cannot lift a deployment-wide read-only run",
-        # A live discriminator, not a dead string: this is how BOTH store-derived
-        # wordings open, so borrowing either one here fails.
-        "writes are off for",
-    ),
-    "store": (
-        "turn writes back on for 'live' from the control-target chip in the header",
-        "cannot lift a deployment-wide read-only run",
-    ),
+    "deployment": (refusal_phrase("readonly_run"), "turn it on from the chip"),
+    "store": (refusal_phrase("switch_off"), "the chip cannot lift this"),
 }
 
 
 def _assert_posture_envelope(envelope, *, source="deployment"):
-    """The refusal must name the remedy for its OWN source, and not the deployment config.
+    """The refusal is its own reason's phrase, and names no key, file or variable.
 
-    Sending an operator to ``control_system.writes_enabled`` when the real gate
-    is the posture costs them a config edit that changes nothing — and sending
-    them to the header chip when the real gate is a deployment-wide read-only
-    run costs them a click that changes nothing, on a chip that already reads
-    writes.
+    Sending an operator to a config key when the real gate is the switch costs
+    them an edit that changes nothing — and sending them to the chip when the
+    real gate is a read-only run costs them a click that changes nothing.
     """
     expected, forbidden = POSTURE_REMEDIES[source]
-    text = " ".join([envelope["error_message"], *envelope["suggestions"]]).lower()
-    assert expected in text, text
-    assert forbidden not in text, text
-    assert "writes_enabled" not in envelope["error_message"]
-    assert not any("writes_enabled" in s for s in envelope["suggestions"])
+    text = " ".join([envelope["error_message"], *envelope["suggestions"]])
+    assert envelope["error_message"].startswith(expected), text
+    assert forbidden not in text.lower(), text
+    assert REFUSAL_BAN_LIST.search(text) is None, text
 
 
 @pytest.mark.usefixtures("readonly_run")
@@ -455,11 +435,11 @@ async def test_execute_file_readwrite_is_refused_under_a_read_only_run(script_ro
 
 @pytest.mark.usefixtures("readonly_run")
 async def test_a_read_only_run_does_not_send_the_operator_to_the_chip():
-    """The deployment-wide source names the variable, never the chip as a fix.
+    """The deployment-wide source names the chip only as what cannot lift it.
 
-    The chip already reads writes for this session — the run itself is what
-    refuses — so a message pointing at it is a dead end. It is still named,
-    because it is the first place an operator would look.
+    The run itself is what refuses, so a message pointing at the chip as a fix
+    is a dead end. It is still named, because it is the first place an
+    operator would look.
     """
     with assert_raises_error(error_type="safety_error") as ctx:
         await _execute()(
@@ -470,15 +450,14 @@ async def test_a_read_only_run_does_not_send_the_operator_to_the_chip():
 
     envelope = ctx["envelope"]
     _assert_posture_envelope(envelope, source="deployment")
-    assert "readonly execution mode" in envelope["error_message"].lower()
-    assert "OSPREY_EXECUTION_MODE=readonly" in " ".join(envelope["suggestions"])
+    assert "the chip cannot lift this" in envelope["error_message"]
 
 
-@pytest.mark.usefixtures("narrowed_session")
-async def test_a_narrowed_target_sends_the_operator_to_the_chip():
-    """The store-derived source is the operator's own narrowing, so it points at
-    the chip that made it — the sentence the deployment-wide branch must not
-    borrow — and names the ONE target it narrowed, never the session."""
+@pytest.mark.usefixtures("switched_off")
+async def test_a_switched_off_target_sends_the_operator_to_the_chip():
+    """The switch is the operator's own, so the refusal points at the chip that
+    turns it back on — the sentence the read-only branch must not borrow — and
+    names the kind of machine it is about."""
     with assert_raises_error(error_type="safety_error") as ctx:
         await _execute()(
             code=CLEAN_READWRITE_CODE,
@@ -488,20 +467,15 @@ async def test_a_narrowed_target_sends_the_operator_to_the_chip():
 
     envelope = ctx["envelope"]
     _assert_posture_envelope(envelope, source="store")
-    assert "'live' control target" in envelope["error_message"]
-    assert "applies to every session of this login" in envelope["error_message"]
-    assert "This terminal session is in the sandbox posture" not in envelope["error_message"]
-    assert "OSPREY_EXECUTION_MODE" not in " ".join(envelope["suggestions"])
+    assert envelope["error_message"] == refusal_text("switch_off", "simulator")
+    assert envelope["details"] == {"reason": "switch_off", "target": ARMED_TARGET}
 
 
 async def _run_clean_readwrite(tmp_path, monkeypatch):
     """Run a harmless readwrite script with the subprocess mocked out.
 
-    The deployment kill switch is neutralised (``None`` = the deployment has
-    nothing to say about writes), because a tmp_path with no ``config.yml``
-    falls back to safe defaults and would refuse the run at that *later* gate.
-    These tests are about the posture clamp, so the gate behind it must not be
-    what answers.
+    The scratch deployment's switch is on (``_no_ambient_deployment``), so only
+    what the test changes can refuse.
     """
     monkeypatch.chdir(tmp_path)
 
@@ -521,10 +495,6 @@ async def _run_clean_readwrite(tmp_path, monkeypatch):
             "osprey.services.python_executor.analysis.pattern_detection"
             ".detect_control_system_operations",
             return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
-        ),
-        patch(
-            "osprey.services.python_executor.execution.control.get_execution_control_config",
-            return_value=None,
         ),
         patch("osprey.mcp_server.python_executor.executor.execute_code", mock_exec),
     ):
@@ -573,7 +543,7 @@ async def test_readonly_still_runs_under_a_read_only_run(tmp_path, monkeypatch):
 
 
 async def test_readwrite_is_unchanged_with_no_posture_in_the_environment(tmp_path, monkeypatch):
-    """No posture variable means no clamp — the gate must not fire on absence."""
+    """No read-only variable and the switch on: the gate must not fire on absence."""
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
 
     data = extract_response_dict(await _run_clean_readwrite(tmp_path, monkeypatch))
@@ -591,35 +561,25 @@ async def test_the_writes_posture_does_not_clamp(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Deployment writes gate, per control target
+# The verdict, per control target
 #
-# Write posture is per connector type, so the gate has to ask about the target
-# the session is actually on. The deployment below is the shape that makes the
-# difference visible: one machine with writes refused and a virtual accelerator
-# on the same deployment with writes armed.
+# Writes are switched per machine, so the gate has to ask about the machine the
+# run will launch on. The deployment below is the shape that makes the
+# difference visible: one tier that allows writes, the simulator switched on
+# and the live machine switched off.
 # ---------------------------------------------------------------------------
 
 MIXED_POSTURE_SECTION = {
     "type": "epics",
-    "writes_enabled": False,
-    "connector": {
-        "epics": {},
-        "virtual_accelerator": {"writes_enabled": True},
-    },
+    "writes": "allowed",
+    "connector": {"epics": {}, "virtual_accelerator": {}},
 }
-
-#: The block key an operator has to edit to arm writes on that deployment's
-#: live machine — what its refusal must name, instead of the global key.
-LIVE_BLOCK_KEY = "control_system.connector.epics.writes_enabled"
-
-#: The deployment-wide key, which governs nothing here and so must appear
-#: nowhere in the refusal.
-GLOBAL_KEY = "control_system.writes_enabled"
 
 
 @pytest.fixture
 def mixed_posture(monkeypatch):
-    """A deployment that arms writes on its VA and refuses them on its machine."""
+    """A deployment whose simulator is switched on and whose real machine is not."""
+    monkeypatch.setattr(posture, "control_system_section", lambda: dict(MIXED_POSTURE_SECTION))
     monkeypatch.setattr(
         "osprey_connectors.config.get_config_value",
         lambda path, default=None, config_path=None: (
@@ -629,17 +589,29 @@ def mixed_posture(monkeypatch):
 
 
 @pytest.fixture
-def control_target(monkeypatch):
-    """Put the deployment on a control target, as its control-context record does."""
-    from osprey_connectors import control_context
+def control_target(control_context_root):
+    """Put the deployment on a control target, as its control-context record does.
+
+    ``None`` removes the record: no record is every switch off, and the run
+    would launch on the baseline.
+    """
+    from osprey_connectors import control_context, posture_store
 
     def _select(target, generation=1):
-        record = (
-            None
-            if target is None
-            else control_context.ControlContext(target=target, generation=generation)
-        )
-        monkeypatch.setattr(control_context, "read_record", lambda **kwargs: record)
+        if target is None:
+            path = control_context.record_path()
+            if path is not None and path.exists():
+                path.unlink()
+        else:
+            write_control_context(
+                control_context_root,
+                target=target,
+                generation=generation,
+                owned_by=None,
+                switch={"va": "on"},
+            )
+        posture_store.invalidate_cache()
+        control_context.invalidate_cache()
 
     return _select
 
@@ -680,19 +652,16 @@ async def _run_readwrite(tmp_path, monkeypatch):
 
 
 def _assert_refused_for_the_live_machine(envelope, expected_target):
-    """The refusal names the block that governs, the target, and nothing else."""
+    """The refusal is the switch-off phrase for the real machine, and names no key."""
     text = " ".join([envelope["error_message"], *envelope["suggestions"]])
-    assert LIVE_BLOCK_KEY in text
-    assert f"{GLOBAL_KEY}=" not in text
-    assert envelope["details"]["active_target"] == expected_target
-    assert envelope["details"]["writes_enabled_key"] == LIVE_BLOCK_KEY
+    assert envelope["error_message"] == refusal_text("switch_off", "real")
+    assert REFUSAL_BAN_LIST.search(text) is None, text
+    assert envelope["details"] == {"reason": "switch_off", "target": expected_target}
 
 
 @pytest.mark.usefixtures("mixed_posture")
-async def test_readwrite_runs_on_a_target_whose_block_arms_writes(
-    tmp_path, monkeypatch, control_target
-):
-    """A global false does not disarm a VA block that says true."""
+async def test_readwrite_runs_on_a_target_whose_switch_is_on(tmp_path, monkeypatch, control_target):
+    """The live machine's switch being off does not hold the simulator off."""
     control_target("va")
 
     data = extract_response_dict(await _run_readwrite(tmp_path, monkeypatch))
@@ -703,7 +672,7 @@ async def test_readwrite_runs_on_a_target_whose_block_arms_writes(
 
 @pytest.mark.usefixtures("mixed_posture")
 async def test_readwrite_is_refused_on_the_live_target(tmp_path, monkeypatch, control_target):
-    """The same deployment, the other target: the machine's own block refuses."""
+    """The same deployment, the other target: the machine's own switch refuses."""
     control_target("live")
 
     with assert_raises_error(error_type="safety_error") as ctx:
@@ -716,7 +685,7 @@ async def test_readwrite_is_refused_on_the_live_target(tmp_path, monkeypatch, co
 async def test_an_unstamped_run_is_answered_for_the_baseline_target(
     tmp_path, monkeypatch, control_target
 ):
-    """No session record means the baseline — which here is the live machine."""
+    """No record means the baseline — here the live machine — with every switch off."""
     control_target(None)
 
     with assert_raises_error(error_type="safety_error") as ctx:
@@ -729,12 +698,7 @@ async def test_an_unstamped_run_is_answered_for_the_baseline_target(
 async def test_a_failing_target_read_answers_the_baseline_rather_than_skipping(
     tmp_path, monkeypatch
 ):
-    """Not knowing the target narrows the question; it never drops the gate.
-
-    A target read that raises used to be the one way to reach a readwrite run
-    with no deployment check at all, if it were allowed to join the gate's
-    import guard — whose failure path is to return.
-    """
+    """Not knowing the target narrows the question to the baseline; it never drops the gate."""
     from osprey_connectors import control_context
 
     def unreadable(**kwargs):

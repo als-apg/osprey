@@ -26,26 +26,7 @@ from osprey.mcp_server.sandbox_env import (
 )
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 
-
-@pytest.fixture(autouse=True)
-def _reset_all_config_caches(monkeypatch):
-    """Reset ALL config caches before each test (see test_executor_adapter.py)."""
-    from osprey_connectors.workspace import reset_config_cache
-
-    reset_config_cache()
-
-    import osprey_connectors.config as _cfg
-
-    monkeypatch.setattr(_cfg, "_default_config", None)
-    monkeypatch.setattr(_cfg, "_default_configurable", None)
-    saved_cache = _cfg._config_cache.copy()
-    _cfg._config_cache.clear()
-
-    yield
-
-    reset_config_cache()
-    _cfg._config_cache.clear()
-    _cfg._config_cache.update(saved_cache)
+pytestmark = pytest.mark.usefixtures("reset_config_caches")
 
 
 def _write_subprocess_config(tmp_path):
@@ -158,95 +139,11 @@ def test_sensitive_env_constants_are_reexports_of_canonical_module():
 # ---------------------------------------------------------------------------
 
 
-async def test_local_subprocess_env_excludes_launch_token(tmp_path, monkeypatch):
-    """The local-exec subprocess is spawned with an env that excludes the token."""
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "super-secret-value")
-    _write_subprocess_config(tmp_path)
-
-    mock_proc = AsyncMock()
-    mock_proc.communicate = AsyncMock(return_value=(b"", b""))
-    mock_proc.returncode = 0
-    mock_proc.kill = MagicMock()
-    mock_proc.wait = MagicMock()  # not awaited on this path; avoids an unawaited-coroutine warning
-
-    with patch(
-        "osprey.mcp_server.python_executor.executor.asyncio.create_subprocess_exec",
-        new_callable=AsyncMock,
-        return_value=mock_proc,
-    ) as mock_spawn:
-        await execute_code("print(42)", "readonly", "test")
-
-    assert mock_spawn.await_count == 1
-    passed_env = mock_spawn.await_args.kwargs["env"]
-    assert "BLUESKY_LAUNCH_TOKEN" not in passed_env
-
-
-async def test_local_subprocess_env_excludes_event_dispatcher_token(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "super-secret-value")
-    _write_subprocess_config(tmp_path)
-
-    mock_proc = AsyncMock()
-    mock_proc.communicate = AsyncMock(return_value=(b"", b""))
-    mock_proc.returncode = 0
-    mock_proc.kill = MagicMock()
-    mock_proc.wait = MagicMock()  # not awaited on this path; avoids an unawaited-coroutine warning
-
-    with patch(
-        "osprey.mcp_server.python_executor.executor.asyncio.create_subprocess_exec",
-        new_callable=AsyncMock,
-        return_value=mock_proc,
-    ) as mock_spawn:
-        await execute_code("print(42)", "readonly", "test")
-
-    assert mock_spawn.await_count == 1
-    passed_env = mock_spawn.await_args.kwargs["env"]
-    assert "EVENT_DISPATCHER_TOKEN" not in passed_env
-
-
-async def test_local_subprocess_env_keeps_config_file(tmp_path, monkeypatch):
-    """Non-sensitive vars the sandbox legitimately needs (e.g. CONFIG_FILE) survive."""
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "super-secret-value")
-    monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "config.yml"))
-    _write_subprocess_config(tmp_path)
-
-    mock_proc = AsyncMock()
-    mock_proc.communicate = AsyncMock(return_value=(b"", b""))
-    mock_proc.returncode = 0
-    mock_proc.kill = MagicMock()
-    mock_proc.wait = MagicMock()  # not awaited on this path; avoids an unawaited-coroutine warning
-
-    with patch(
-        "osprey.mcp_server.python_executor.executor.asyncio.create_subprocess_exec",
-        new_callable=AsyncMock,
-        return_value=mock_proc,
-    ) as mock_spawn:
-        await execute_code("print(42)", "readonly", "test")
-
-    assert mock_spawn.await_count == 1
-    passed_env = mock_spawn.await_args.kwargs["env"]
-    assert passed_env.get("CONFIG_FILE") == str(tmp_path / "config.yml")
-
-
-# ---------------------------------------------------------------------------
-# _execute_via_local — the navigation-only perimeter stamp
-# ---------------------------------------------------------------------------
-#
-# Under `auth.method: none` the deployment renders OSPREY_WEB_PERIMETER=open and
-# OSPREY_WEB_PERIMETER_DENY_PORTS onto every per-user container (the render half
-# is pinned by tests/deployment/web_terminals/test_perimeter_stamp.py). This
-# process reads both, hands the parsed ports to the ExecutionWrapper, and drops
-# the two names from the sandbox child's environment: the sandbox is TOLD what
-# it may not reach, and cannot re-derive, widen or empty the list.
-
-
 async def _run_with_stubbed_subprocess() -> dict[str, str]:
     """Run one local execution against a stubbed spawn; return the child's env.
 
-    Same stub shape as the scrub tests above — the sandbox process is never
-    really started, so the assertions are about what the seam WOULD hand it.
+    The sandbox process is never really started, so the assertions are about
+    what the seam WOULD hand it.
     """
     mock_proc = AsyncMock()
     mock_proc.communicate = AsyncMock(return_value=(b"", b""))
@@ -263,6 +160,42 @@ async def _run_with_stubbed_subprocess() -> dict[str, str]:
 
     assert mock_spawn.await_count == 1
     return mock_spawn.await_args.kwargs["env"]
+
+
+@pytest.mark.parametrize("name", ["BLUESKY_LAUNCH_TOKEN", "EVENT_DISPATCHER_TOKEN"])
+async def test_local_subprocess_env_excludes_the_token(tmp_path, monkeypatch, name):
+    """The local-exec subprocess is spawned with an env that excludes the token."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(name, "super-secret-value")
+    _write_subprocess_config(tmp_path)
+
+    passed_env = await _run_with_stubbed_subprocess()
+
+    assert name not in passed_env
+
+
+async def test_local_subprocess_env_keeps_config_file(tmp_path, monkeypatch):
+    """Non-sensitive vars the sandbox legitimately needs (e.g. CONFIG_FILE) survive."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "super-secret-value")
+    monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "config.yml"))
+    _write_subprocess_config(tmp_path)
+
+    passed_env = await _run_with_stubbed_subprocess()
+
+    assert passed_env.get("CONFIG_FILE") == str(tmp_path / "config.yml")
+
+
+# ---------------------------------------------------------------------------
+# _execute_via_local — the navigation-only perimeter stamp
+# ---------------------------------------------------------------------------
+#
+# Under `auth.method: none` the deployment renders OSPREY_WEB_PERIMETER=open and
+# OSPREY_WEB_PERIMETER_DENY_PORTS onto every per-user container (the render half
+# is pinned by tests/deployment/web_terminals/test_perimeter_stamp.py). This
+# process reads both, hands the parsed ports to the ExecutionWrapper, and drops
+# the two names from the sandbox child's environment: the sandbox is TOLD what
+# it may not reach, and cannot re-derive, widen or empty the list.
 
 
 def test_perimeter_ports_parse_when_the_marker_is_open():

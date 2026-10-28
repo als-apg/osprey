@@ -20,9 +20,9 @@ from pathlib import Path
 import duckdb
 import pytest
 from tests.services.channel_finder.graph_index import corpora
+from tests.services.channel_finder.graph_index._index import corpus_meta
 
 from osprey.services.channel_finder.graph_index.builder import (
-    CALLER_META_KEYS,
     ParsedCorpus,
     build_from_rows,
     parse_corpus,
@@ -35,28 +35,10 @@ from osprey.services.channel_finder.graph_index.reader import (
 )
 from osprey.services.channel_finder.graph_index.schema import META_KEYS, SCHEMA_VERSION
 
-CORPUS_SHA = "a" * 64
-CORPUS_FILENAME = "facility.ttl"
-
-
-def _meta(parsed: ParsedCorpus) -> dict:
-    """The ``meta`` mapping the corpus build states for ``parsed``."""
-    values = {
-        "corpus_sha256": CORPUS_SHA,
-        "corpus_filename": CORPUS_FILENAME,
-        "binding_count": len(parsed.binding_rows),
-        "device_count": len({row.device_uri for row in parsed.binding_rows}),
-        "class_count": len(parsed.class_rows),
-        "signal_count": parsed.signal_count,
-        "section_count": len(parsed.section_codes),
-    }
-    assert set(values) == set(CALLER_META_KEYS)
-    return values
-
 
 def _build(parsed: ParsedCorpus, index_path: Path) -> dict:
     """Write ``parsed`` to ``index_path``; return the ``meta`` it was given."""
-    values = _meta(parsed)
+    values = corpus_meta(parsed)
     build_from_rows(
         parsed.binding_rows,
         parsed.class_rows,
@@ -95,7 +77,9 @@ class TestOpen:
         opened = open_graph_index(index)
         assert isinstance(opened, GraphIndex)
         with opened:
-            assert opened.meta == GraphIndexMeta(schema_version=SCHEMA_VERSION, **_meta(parsed))
+            assert opened.meta == GraphIndexMeta(
+                schema_version=SCHEMA_VERSION, **corpus_meta(parsed)
+            )
 
     def test_meta_carries_every_column_of_the_meta_table(self):
         assert tuple(GraphIndexMeta.__dataclass_fields__) == META_KEYS

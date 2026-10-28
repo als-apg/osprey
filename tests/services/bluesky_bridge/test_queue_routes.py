@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -35,7 +34,6 @@ from osprey.services.bluesky_bridge import (
     history_removals,
     plan_loader,
     queue,
-    queue_removals,
 )
 from osprey.services.bluesky_bridge import queue_backend as qb
 from osprey.services.bluesky_bridge.app import app
@@ -48,11 +46,15 @@ from osprey.services.bluesky_bridge.plan_fields import (
 from osprey.services.bluesky_bridge.plan_types import PlanSpec
 from osprey.services.bluesky_bridge.queue_backend import QueueBackend
 from osprey.services.bluesky_bridge.session_upload import SessionPlanNotReadyError
-from tests._control_system import IN_PROCESS, section_for
+from osprey.services.bluesky_bridge.validation_record import validation_records
+from tests._control_system import IN_PROCESS
+from tests.services.bluesky_bridge._queue_fakes import (
+    FakeManager,
+    install_abort_backend,
+    install_backend,
+    status_doc,
+)
 
-_SESSION_PLAN_DIR_ENV = "BLUESKY_SESSION_PLAN_DIR"
-_PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
-_PLAN_MODULE_ENV = "BLUESKY_PLAN_MODULE"
 _TOKEN_ENV = "BLUESKY_LAUNCH_TOKEN"
 _TOKEN = "s3cr3t"
 
@@ -64,122 +66,9 @@ _GRID_SCAN_ARGS: dict[str, Any] = {
 }
 
 
-class FakeManager:
-    """A scripted ``REManagerAPI`` stand-in (same contract as `test_queue_backend.py`'s).
-
-    Records every call as ``(method, kwargs)`` and answers from ``responses``;
-    an exception instance is raised instead of returned; a list is consumed one
-    call at a time with the tail repeating.
-    """
-
-    def __init__(self, **responses: Any) -> None:
-        self.calls: list[tuple[str, dict[str, Any]]] = []
-        self.responses = responses
-        self.closed = False
-
-    def _answer(self, method: str) -> Any:
-        response = self.responses.get(method, {"success": True, "msg": ""})
-        if isinstance(response, list):
-            value = response[0]
-            if len(response) > 1:
-                response.pop(0)
-        else:
-            value = response
-        if isinstance(value, Exception):
-            raise value
-        return value
-
-    def __getattr__(self, method: str) -> Any:
-        async def call(**kwargs: Any) -> Any:
-            self.calls.append((method, kwargs))
-            return self._answer(method)
-
-        return call
-
-    async def close(self) -> None:
-        self.closed = True
-
-    def kwargs_for(self, method: str) -> list[dict[str, Any]]:
-        return [kwargs for name, kwargs in self.calls if name == method]
-
-    def method_names(self) -> list[str]:
-        return [name for name, _ in self.calls]
-
-
-def status_doc(**overrides: Any) -> dict[str, Any]:
-    """A manager status document: idle, environment open, nothing running."""
-    doc = {
-        "success": True,
-        "manager_state": "idle",
-        "worker_environment_exists": True,
-        "items_in_queue": 0,
-        "items_in_history": 0,
-        "running_item_uid": None,
-        "plan_queue_uid": "q-1",
-        "plan_history_uid": "h-1",
-        "queue_stop_pending": False,
-        "queue_autostart_enabled": False,
-    }
-    doc.update(overrides)
-    return doc
-
-
-@pytest.fixture(autouse=True)
-def _isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Mirror `test_draft.py`'s isolation, plus the queue module's own state.
-
-    The backend singleton lives in `app.py`; clearing it to `None` here means
-    a test that forgets to install a fake would lazily build a managerless
-    real backend (fail-closed refusals) rather than seeing another test's fake.
-    """
-    monkeypatch.delenv(_PLAN_DIRS_ENV, raising=False)
-    monkeypatch.delenv(_PLAN_MODULE_ENV, raising=False)
-    monkeypatch.delenv(_TOKEN_ENV, raising=False)
-    monkeypatch.setenv(_SESSION_PLAN_DIR_ENV, str(tmp_path / "plans_session"))
-    plan_loader.reset_facility_plans()
-    draft._clear()
-    queue._clear()
-    history_removals._clear()
-    queue_removals._clear()
-    app_module.set_queue_backend(None)
-    yield
-    plan_loader.reset_facility_plans()
-    draft._clear()
-    queue._clear()
-    history_removals._clear()
-    queue_removals._clear()
-    app_module.set_queue_backend(None)
-
-
-@pytest.fixture
-def connector(monkeypatch: pytest.MonkeyPatch):
-    """Set (or break) the ``control_system.type`` the capability check resolves."""
-
-    def _set(value: str | Exception) -> None:
-        def fake_get_config_value(key: str, _default: Any = None) -> Any:
-            if isinstance(value, Exception):
-                raise value
-            section = section_for(value)
-            if key == "control_system.type":
-                return section["type"]
-            if key == "control_system":
-                return section
-            return value
-
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
-
-    return _set
-
-
 @pytest.fixture
 def client() -> TestClient:
     return TestClient(app)
-
-
-def _install(manager: Any) -> QueueBackend:
-    backend = QueueBackend(manager)
-    app_module.set_queue_backend(backend)
-    return backend
 
 
 def _make_draft(client: TestClient) -> int:
@@ -206,7 +95,7 @@ async def _make_draft_direct() -> int:
 
 
 def test_get_queue_reports_items_running_item_and_status_summary(client: TestClient) -> None:
-    _install(
+    install_backend(
         FakeManager(
             status=status_doc(items_in_queue=1),
             queue_get={"success": True, "items": [{"item_uid": "a"}], "running_item": {}},
@@ -228,7 +117,7 @@ def test_get_queue_reports_items_running_item_and_status_summary(client: TestCli
 
 
 def test_get_queue_maps_manager_silence_to_503(client: TestClient) -> None:
-    _install(FakeManager(status=RequestTimeoutError("no answer", {})))
+    install_backend(FakeManager(status=RequestTimeoutError("no answer", {})))
 
     resp = client.get("/queue")
 
@@ -267,7 +156,7 @@ def test_enqueue_on_an_idle_queue_is_ungated_and_threads_the_run_id(
     manager = FakeManager(
         status=status_doc(), item_add={"success": True, "item": {"item_uid": "u1"}}
     )
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
 
     resp = client.post("/queue/items", json={"draft_revision": revision})
@@ -304,7 +193,7 @@ def test_enqueue_consumes_the_draft_revision_exactly_once(client: TestClient, co
     manager = FakeManager(
         status=status_doc(), item_add={"success": True, "item": {"item_uid": "u1"}}
     )
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
 
     assert client.post("/queue/items", json={"draft_revision": revision}).status_code == 200
@@ -320,7 +209,7 @@ def test_enqueue_with_a_stale_revision_409s_without_touching_the_queue(
 ) -> None:
     connector("virtual_accelerator")
     manager = FakeManager(status=status_doc())
-    _install(manager)
+    install_backend(manager)
     _make_draft(client)
 
     resp = client.post("/queue/items", json={"draft_revision": 99})
@@ -341,7 +230,7 @@ def test_an_item_the_backend_refuses_as_malformed_is_a_400_with_its_own_code(
     launched."""
     connector("virtual_accelerator")
     manager = FakeManager(status=status_doc())
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
 
     async def _refuse(*args: Any, **kwargs: Any) -> dict[str, Any]:
@@ -365,7 +254,7 @@ def test_unarmed_enqueue_is_refused_while_the_manager_is_active(
     monkeypatch.setenv(_TOKEN_ENV, _TOKEN)
     connector("virtual_accelerator")
     manager = FakeManager(status=status_doc(manager_state=state))
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
 
     resp = client.post("/queue/items", json={"draft_revision": revision})
@@ -386,7 +275,7 @@ def test_unarmed_enqueue_on_an_unarmed_bridge_is_503_while_active(
     """No token configured at all: enqueue-while-active refuses 503, not 403."""
     connector("virtual_accelerator")
     manager = FakeManager(status=status_doc(manager_state="executing_queue"))
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
 
     resp = client.post("/queue/items", json={"draft_revision": revision})
@@ -405,7 +294,7 @@ def test_armed_enqueue_while_active_succeeds(
         status=status_doc(manager_state="executing_queue"),
         item_add={"success": True, "item": {"item_uid": "u1"}},
     )
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
 
     resp = client.post(
@@ -438,7 +327,7 @@ def test_post_add_recheck_removes_the_item_and_refuses(
         ],
         item_add={"success": True, "item": {"item_uid": "u1"}},
     )
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
 
     resp = client.post("/queue/items", json={"draft_revision": revision})
@@ -473,7 +362,7 @@ def test_recheck_refusal_reports_a_stranded_item_when_removal_fails(
         item_add={"success": True, "item": {"item_uid": "u1"}},
         item_remove=RequestFailedError({}, {"msg": "cannot remove a running item"}),
     )
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
 
     resp = client.post("/queue/items", json={"draft_revision": revision})
@@ -494,7 +383,7 @@ def test_unarmed_enqueue_is_refused_when_autostart_is_enabled(
     monkeypatch.setenv(_TOKEN_ENV, _TOKEN)
     connector("virtual_accelerator")
     manager = FakeManager(status=status_doc(queue_autostart_enabled=True))
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
 
     resp = client.post("/queue/items", json={"draft_revision": revision})
@@ -514,7 +403,7 @@ def test_post_enqueue_bookkeeping_failure_releases_the_reservation(
     manager = FakeManager(
         status=status_doc(), item_add={"success": True, "item": {"item_uid": "u1"}}
     )
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
 
     async def _boom(*, run_id: str, revision: int) -> None:  # noqa: ARG001 - the record_and_broadcast_launch signature
@@ -541,7 +430,7 @@ def test_recheck_failure_fails_closed_by_withdrawing_the_item(
         ],
         item_add={"success": True, "item": {"item_uid": "u1"}},
     )
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
 
     resp = client.post("/queue/items", json={"draft_revision": revision})
@@ -568,7 +457,7 @@ def test_recheck_failure_reports_a_stranded_item_when_withdrawal_also_fails(
         item_add={"success": True, "item": {"item_uid": "u1"}},
         item_remove=RequestTimeoutError("no answer either", {}),
     )
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
 
     resp = client.post("/queue/items", json={"draft_revision": revision})
@@ -584,7 +473,7 @@ def test_recheck_failure_reports_a_stranded_item_when_withdrawal_also_fails(
 def test_enqueue_is_refused_on_a_browse_only_deployment(client: TestClient, connector) -> None:
     connector(IN_PROCESS)
     manager = FakeManager(status=status_doc())
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
 
     resp = client.post("/queue/items", json={"draft_revision": revision})
@@ -625,7 +514,7 @@ def test_validation_gate_refusal_releases_the_reservation(
     manager = FakeManager(
         status=status_doc(), item_add={"success": True, "item": {"item_uid": "u1"}}
     )
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
 
     def _reject(_request: Any) -> None:
@@ -652,7 +541,7 @@ def test_enqueue_refuses_a_non_admissible_session_plan(
     and the refused enqueue never burns the draft revision."""
     connector("virtual_accelerator")
     manager = FakeManager(status=status_doc())
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
 
     async def _reject(name: str) -> None:
@@ -853,7 +742,7 @@ def test_enqueue_refuses_a_device_the_worker_did_not_build(client: TestClient, c
     field the plan declares movable."""
     connector("virtual_accelerator")
     manager = FakeManager(status=status_doc(), devices_allowed=_devices("BPM1"))
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
 
     resp = client.post("/queue/items", json={"draft_revision": revision})
@@ -884,7 +773,7 @@ def test_a_session_tier_plan_is_refused_in_the_session_plans_own_words(
     refusal is the one that sounds like a different problem."""
     connector("virtual_accelerator")
     manager = FakeManager(status=status_doc(), devices_allowed=_devices("BPM1"))
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
     monkeypatch.setattr(
         plan_loader.get_facility_plans().plans["grid_scan"], "provenance", "session"
@@ -905,7 +794,7 @@ def test_the_refusal_sentence_caps_a_long_device_list(client: TestClient, connec
     connector("virtual_accelerator")
     built = [f"BPM{n}" for n in range(50)]
     manager = FakeManager(status=status_doc(), devices_allowed=_devices(*built))
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
 
     detail = client.post("/queue/items", json={"draft_revision": revision}).json()["detail"]
@@ -927,7 +816,7 @@ def test_unknown_device_refusal_reports_available_count_above_cap(
     connector("virtual_accelerator")
     built = [f"BPM{n}" for n in range(5)]
     manager = FakeManager(status=status_doc(), devices_allowed=_devices(*built))
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
 
     resp = client.post("/queue/items", json={"draft_revision": revision})
@@ -953,7 +842,7 @@ def test_the_refusal_inlines_the_device_list_at_exactly_the_page_size(
     connector("virtual_accelerator")
     built = [f"BPM{n}" for n in range(5)]
     manager = FakeManager(status=status_doc(), devices_allowed=_devices(*built))
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
 
     detail = client.post("/queue/items", json={"draft_revision": revision}).json()["detail"]
@@ -974,7 +863,7 @@ def test_the_sentence_points_at_the_inline_list_at_exactly_the_page_size(
     connector("virtual_accelerator")
     built = [f"BPM{n}" for n in range(25)]
     manager = FakeManager(status=status_doc(), devices_allowed=_devices(*built))
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
 
     detail = client.post("/queue/items", json={"draft_revision": revision}).json()["detail"]
@@ -998,7 +887,7 @@ def test_a_declared_field_absent_from_the_params_is_not_checked(
         devices_allowed=_devices("BPM1"),
         item_add={"success": True, "item": {"item_uid": "u1"}},
     )
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
     spec = plan_loader.get_facility_plans().plans["grid_scan"]
     monkeypatch.setattr(spec, "schema", _AbsentFieldParams)
@@ -1021,7 +910,7 @@ def test_enqueue_passes_when_the_worker_holds_every_named_device(
         devices_allowed=_devices("BPM1", "COR1"),
         item_add={"success": True, "item": {"item_uid": "u1"}},
     )
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
 
     resp = client.post("/queue/items", json={"draft_revision": revision})
@@ -1041,7 +930,7 @@ def test_the_precheck_reads_only_the_role_typed_fields(client: TestClient, conne
         devices_allowed=_devices("BPM1", "COR1"),
         item_add={"success": True, "item": {"item_uid": "u1"}},
     )
-    _install(manager)
+    install_backend(manager)
     orm_args, _, _ = _SHIPPED_PLAN_ARGS["orm"]
     resp = client.patch(
         "/draft",
@@ -1069,7 +958,7 @@ def test_a_plan_declaring_no_channel_roles_is_never_pre_checked(
         devices_allowed=_devices("BPM1"),
         item_add={"success": True, "item": {"item_uid": "u1"}},
     )
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
     monkeypatch.setattr(plan_loader.get_facility_plans().plans["grid_scan"], "roles", ())
 
@@ -1087,7 +976,7 @@ def test_a_readable_channel_the_worker_lacks_is_refused_too(client: TestClient, 
     loosened and nothing is tightened by the move to declared roles."""
     connector("virtual_accelerator")
     manager = FakeManager(status=status_doc(), devices_allowed=_devices("COR1"))
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
 
     resp = client.post("/queue/items", json={"draft_revision": revision})
@@ -1107,7 +996,7 @@ def test_the_refusal_sentence_leads_with_a_movable_channel(client: TestClient, c
     wire either way, under `devices`."""
     connector("virtual_accelerator")
     manager = FakeManager(status=status_doc(), devices_allowed=_devices("SOMETHING_ELSE"))
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
 
     detail = client.post("/queue/items", json={"draft_revision": revision}).json()["detail"]
@@ -1154,7 +1043,7 @@ def test_an_unreadable_device_list_does_not_block_the_enqueue(
         devices_allowed=RequestTimeoutError("no answer", {}),
         item_add={"success": True, "item": {"item_uid": "u1"}},
     )
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
 
     resp = client.post("/queue/items", json={"draft_revision": revision})
@@ -1174,7 +1063,7 @@ def test_a_worker_reporting_no_devices_at_all_does_not_block_the_enqueue(
         devices_allowed=_devices(),
         item_add={"success": True, "item": {"item_uid": "u1"}},
     )
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
 
     assert client.post("/queue/items", json={"draft_revision": revision}).status_code == 200
@@ -1221,18 +1110,6 @@ def build_plan(devices, params):
 _WORKER_DEVICES = ("BPM1", "COR1")
 
 
-@pytest.fixture
-def _clean_validation_records():
-    """`validation_records` is a process singleton; each test starts and ends empty."""
-    from osprey.services.bluesky_bridge.validation_record import validation_records
-
-    with validation_records.lock:
-        validation_records._passing_hashes.clear()
-    yield validation_records
-    with validation_records.lock:
-        validation_records._passing_hashes.clear()
-
-
 def _write_sweep(client: TestClient) -> str:
     resp = client.post(
         "/plans/session",
@@ -1243,14 +1120,14 @@ def _write_sweep(client: TestClient) -> str:
 
 
 def test_validation_refuses_sample_args_naming_a_device_the_worker_lacks(
-    client: TestClient, _clean_validation_records
+    client: TestClient,
 ) -> None:
     """A pass the queue would later refuse is not a pass: the sample arguments
     are held to the worker's devices, and a refusal records and uploads nothing."""
     pytest.importorskip("bluesky")
     pytest.importorskip("ophyd_async")
     manager = FakeManager(status=status_doc(), devices_allowed=_devices(*_WORKER_DEVICES))
-    _install(manager)
+    install_backend(manager)
     content_hash = _write_sweep(client)
     missing = "COR9"
     assert missing not in _WORKER_DEVICES
@@ -1269,17 +1146,15 @@ def test_validation_refuses_sample_args_naming_a_device_the_worker_lacks(
     assert detail["devices"] == [missing]
     assert detail["available_devices"] == sorted(_WORKER_DEVICES)
     assert detail["detail"].startswith(f"session plan {_SWEEP_PLAN!r}")
-    assert _clean_validation_records.has_passing_record(content_hash) is False
+    assert validation_records.has_passing_record(content_hash) is False
     assert "script_upload" not in manager.method_names()
 
 
-def test_validation_passes_sample_args_drawn_from_the_workers_devices(
-    client: TestClient, _clean_validation_records
-) -> None:
+def test_validation_passes_sample_args_drawn_from_the_workers_devices(client: TestClient) -> None:
     pytest.importorskip("bluesky")
     pytest.importorskip("ophyd_async")
     manager = FakeManager(status=status_doc(), devices_allowed=_devices(*_WORKER_DEVICES))
-    _install(manager)
+    install_backend(manager)
     content_hash = _write_sweep(client)
 
     resp = client.post(
@@ -1292,17 +1167,15 @@ def test_validation_passes_sample_args_drawn_from_the_workers_devices(
 
     assert resp.status_code == 200, resp.text
     assert resp.json()["passed"] is True, resp.json()["reasons"]
-    assert _clean_validation_records.has_passing_record(content_hash) is True
+    assert validation_records.has_passing_record(content_hash) is True
 
 
-def test_validation_stands_when_the_worker_cannot_list_its_devices(
-    client: TestClient, _clean_validation_records
-) -> None:
+def test_validation_stands_when_the_worker_cannot_list_its_devices(client: TestClient) -> None:
     """Fail-open, as at enqueue: a worker that cannot answer leaves the pass as it was."""
     pytest.importorskip("bluesky")
     pytest.importorskip("ophyd_async")
     manager = FakeManager(status=status_doc(), devices_allowed=RequestTimeoutError("no answer", {}))
-    _install(manager)
+    install_backend(manager)
     content_hash = _write_sweep(client)
 
     resp = client.post(
@@ -1312,17 +1185,15 @@ def test_validation_stands_when_the_worker_cannot_list_its_devices(
 
     assert resp.status_code == 200, resp.text
     assert resp.json()["passed"] is True, resp.json()["reasons"]
-    assert _clean_validation_records.has_passing_record(content_hash) is True
+    assert validation_records.has_passing_record(content_hash) is True
 
 
-def test_validation_refusal_is_the_body_the_enqueue_builds(
-    client: TestClient, _clean_validation_records
-) -> None:
+def test_validation_refusal_is_the_body_the_enqueue_builds(client: TestClient) -> None:
     """Whichever point catches the name, the caller reads one body."""
     pytest.importorskip("bluesky")
     pytest.importorskip("ophyd_async")
     manager = FakeManager(status=status_doc(), devices_allowed=_devices(*_WORKER_DEVICES))
-    _install(manager)
+    install_backend(manager)
     _write_sweep(client)
     movable, readable = {"COR9"}, {"BPM9"}
 
@@ -1416,7 +1287,7 @@ def test_enqueue_records_no_progress_denominator(client: TestClient, connector) 
     manager = FakeManager(
         status=status_doc(), item_add={"success": True, "item": {"item_uid": "u1"}}
     )
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
 
     body = client.post("/queue/items", json={"draft_revision": revision}).json()
@@ -1432,7 +1303,7 @@ def test_get_queue_attaches_progress_to_the_running_item(
         status=status_doc(running_item_uid="r1"),
         queue_get={"success": True, "items": [], "running_item": running},
     )
-    _install(manager)
+    install_backend(manager)
     progress = {"rows_seen": 5, "expected_points": 9, "fraction": 5 / 9, "complete": False}
     monkeypatch.setattr(
         queue.document_plane, "progress", lambda run_id: progress if run_id == "rid-1" else None
@@ -1451,7 +1322,7 @@ def test_get_queue_attaches_progress_to_the_running_item(
 
 def test_move_forwards_the_single_destination(client: TestClient) -> None:
     manager = FakeManager(item_move={"success": True, "item": {"item_uid": "u1"}})
-    _install(manager)
+    install_backend(manager)
 
     resp = client.post("/queue/items/u1/move", json={"before_uid": "u2"})
 
@@ -1462,7 +1333,7 @@ def test_move_forwards_the_single_destination(client: TestClient) -> None:
 
 def test_move_with_no_destination_is_409(client: TestClient) -> None:
     manager = FakeManager()
-    _install(manager)
+    install_backend(manager)
 
     resp = client.post("/queue/items/u1/move", json={})
 
@@ -1472,7 +1343,7 @@ def test_move_with_no_destination_is_409(client: TestClient) -> None:
 
 def test_remove_forwards_and_maps_an_unknown_uid_to_409(client: TestClient) -> None:
     manager = FakeManager(item_remove={"success": True, "item": {"item_uid": "u1"}})
-    _install(manager)
+    install_backend(manager)
 
     resp = client.delete("/queue/items/u1")
     assert resp.status_code == 200
@@ -1494,7 +1365,7 @@ def test_start_requires_the_launch_token(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     manager = FakeManager(status=status_doc())
-    _install(manager)
+    install_backend(manager)
 
     # Unarmed bridge (no token configured): 503, in the queue surface's
     # refusal shape — the arming refusal is exactly the one panels and MCP
@@ -1519,7 +1390,7 @@ def test_start_ensures_the_environment_then_starts(
     monkeypatch.setenv(_TOKEN_ENV, _TOKEN)
     connector("virtual_accelerator")
     manager = FakeManager(status=status_doc())
-    _install(manager)
+    install_backend(manager)
 
     resp = client.post("/queue/start", headers={"X-Launch-Token": _TOKEN})
 
@@ -1541,7 +1412,7 @@ def test_start_on_a_browse_only_deployment_carries_the_capability(
     monkeypatch.setenv(_TOKEN_ENV, _TOKEN)
     connector(IN_PROCESS)
     manager = FakeManager(status=status_doc())
-    _install(manager)
+    install_backend(manager)
 
     resp = client.post("/queue/start", headers={"X-Launch-Token": _TOKEN})
 
@@ -1571,7 +1442,7 @@ def test_start_gates_every_item_the_start_would_drain(
             "running_item": {},
         },
     )
-    _install(manager)
+    install_backend(manager)
 
     seen: list[list[str]] = []
 
@@ -1595,7 +1466,7 @@ def test_start_is_refused_when_a_queued_session_plan_is_stale(
         status=status_doc(),
         queue_get={"success": True, "items": [{"name": "session_sweep"}], "running_item": {}},
     )
-    _install(manager)
+    install_backend(manager)
 
     async def _reject(_names: Any) -> None:
         raise SessionPlanNotReadyError("record died with a bridge restart", plan="session_sweep")
@@ -1643,7 +1514,7 @@ def test_start_refuses_while_an_interrupted_item_sits_in_the_queue(
             "running_item": {},
         },
     )
-    _install(manager)
+    install_backend(manager)
 
     resp = client.post("/queue/start", headers={"X-Launch-Token": _TOKEN})
 
@@ -1686,7 +1557,7 @@ def test_start_is_not_blocked_by_an_ordinary_pending_item(
             "running_item": {},
         },
     )
-    _install(manager)
+    install_backend(manager)
 
     resp = client.post("/queue/start", headers={"X-Launch-Token": _TOKEN})
 
@@ -1720,7 +1591,7 @@ def test_start_refuses_while_a_plan_is_already_running(
             "running_item": {"name": "grid_scan", "item_uid": "running-uid"},
         },
     )
-    _install(manager)
+    install_backend(manager)
 
     resp = client.post("/queue/start", headers={"X-Launch-Token": _TOKEN})
 
@@ -1752,7 +1623,7 @@ def test_start_still_starts_when_nothing_is_running(
             "running_item": {},
         },
     )
-    _install(manager)
+    install_backend(manager)
 
     resp = client.post("/queue/start", headers={"X-Launch-Token": _TOKEN})
 
@@ -1774,7 +1645,7 @@ def test_stop_is_ungated_but_cancelling_a_stop_requires_the_token(
     token-gated — an unarmed caller must not be able to reverse a human's stop."""
     monkeypatch.setenv(_TOKEN_ENV, _TOKEN)
     manager = FakeManager()
-    _install(manager)
+    install_backend(manager)
 
     resp = client.post("/queue/stop")
     assert resp.status_code == 200
@@ -1811,7 +1682,7 @@ def test_stop_on_a_queue_that_is_not_running_is_the_disarm(client: TestClient) -
     manager = FakeManager(
         queue_stop=RequestFailedError({}, {"msg": "Queue is not running."}),
     )
-    _install(manager)
+    install_backend(manager)
 
     resp = client.post("/queue/stop")
 
@@ -1823,7 +1694,7 @@ def test_stop_on_a_queue_that_is_not_running_is_the_disarm(client: TestClient) -
 
 def test_clear_drops_every_pending_item_ungated(client: TestClient) -> None:
     manager = FakeManager(queue_clear={"success": True, "msg": "cleared"})
-    _install(manager)
+    install_backend(manager)
 
     resp = client.delete("/queue/items")
 
@@ -1837,7 +1708,7 @@ def test_clear_drops_every_pending_item_ungated(client: TestClient) -> None:
 def test_clear_relays_a_manager_refusal_as_409(client: TestClient) -> None:
 
     manager = FakeManager(queue_clear=RequestFailedError({}, {"msg": "nope"}))
-    _install(manager)
+    install_backend(manager)
 
     resp = client.delete("/queue/items")
 
@@ -1851,7 +1722,7 @@ def test_clear_relays_a_manager_refusal_as_409(client: TestClient) -> None:
 
 def test_clear_history_drops_the_managers_history_ungated(client: TestClient) -> None:
     manager = FakeManager(history_clear={"success": True, "msg": "history cleared"})
-    _install(manager)
+    install_backend(manager)
 
     resp = client.delete("/history")
 
@@ -1864,7 +1735,7 @@ def test_clear_history_forgets_the_osprey_side_removals_too(client: TestClient) 
     """The entries the removals masked are gone with the history, so the
     removed set must not linger and mask the NEXT run to reuse an id."""
     manager = FakeManager(history_clear={"success": True, "msg": ""})
-    _install(manager)
+    install_backend(manager)
     history_removals.removed_runs().add("run-old")
     assert len(history_removals.removed_runs()) == 1
 
@@ -1875,7 +1746,7 @@ def test_clear_history_forgets_the_osprey_side_removals_too(client: TestClient) 
 
 def test_clear_history_relays_a_manager_refusal_as_409(client: TestClient) -> None:
     manager = FakeManager(history_clear=RequestFailedError({}, {"msg": "nope"}))
-    _install(manager)
+    install_backend(manager)
 
     resp = client.delete("/history")
 
@@ -1888,7 +1759,7 @@ def test_status_summary_carries_the_removed_count(client: TestClient) -> None:
     manager = FakeManager(
         status=status_doc(), queue_get={"success": True, "items": [], "running_item": {}}
     )
-    _install(manager)
+    install_backend(manager)
 
     assert client.get("/queue").json()["status"]["runs_removed"] == 0
     history_removals.removed_runs().add("run-1")
@@ -1898,13 +1769,6 @@ def test_status_summary_carries_the_removed_count(client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 # POST /queue/abort — the emergency halt, ungated on every axis
 # ---------------------------------------------------------------------------
-
-
-def _install_abort(manager: Any) -> QueueBackend:
-    """Install a backend whose abort pause window closes fast enough to test."""
-    backend = QueueBackend(manager, abort_pause_polls=2, abort_poll_interval=0)
-    app_module.set_queue_backend(backend)
-    return backend
 
 
 def test_abort_needs_no_token_even_on_an_armed_bridge(
@@ -1922,7 +1786,7 @@ def test_abort_needs_no_token_even_on_an_armed_bridge(
         ],
         re_abort={"success": True, "msg": "aborted"},
     )
-    _install_abort(manager)
+    install_abort_backend(manager)
 
     resp = client.post("/queue/abort")
 
@@ -1972,7 +1836,7 @@ def test_abort_is_not_capability_gated(client: TestClient, connector) -> None:
     manager = FakeManager(
         status=[status_doc(manager_state="paused"), status_doc(manager_state="idle")]
     )
-    _install_abort(manager)
+    install_abort_backend(manager)
 
     resp = client.post("/queue/abort")
 
@@ -1982,7 +1846,7 @@ def test_abort_is_not_capability_gated(client: TestClient, connector) -> None:
 
 def test_abort_with_nothing_running_is_a_409_nothing_running(client: TestClient) -> None:
     manager = FakeManager(status=status_doc(manager_state="idle"))
-    _install_abort(manager)
+    install_abort_backend(manager)
 
     resp = client.post("/queue/abort")
 
@@ -1999,7 +1863,7 @@ def test_abort_that_never_pauses_is_a_503_that_says_nothing_stopped(
     """The refusal an operator reads while a machine may still be running. It
     must carry its own code and say plainly that nothing was aborted."""
     manager = FakeManager(status=status_doc(manager_state="executing_queue"))
-    _install_abort(manager)
+    install_abort_backend(manager)
 
     resp = client.post("/queue/abort")
 
@@ -2011,7 +1875,7 @@ def test_abort_that_never_pauses_is_a_503_that_says_nothing_stopped(
 
 def test_abort_on_an_unreachable_manager_is_a_503(client: TestClient) -> None:
     manager = FakeManager(status=RequestTimeoutError("silent", {}))
-    _install_abort(manager)
+    install_abort_backend(manager)
 
     resp = client.post("/queue/abort")
 
@@ -2024,7 +1888,7 @@ def test_abort_refused_by_the_manager_is_a_409(client: TestClient) -> None:
         status=status_doc(manager_state="paused"),
         re_abort=RequestFailedError("cannot abort", {}),
     )
-    _install_abort(manager)
+    install_abort_backend(manager)
 
     resp = client.post("/queue/abort")
 
@@ -2052,7 +1916,7 @@ async def test_abort_pushes_the_state_change_to_sse_subscribers() -> None:
         ],
         queue_get={"success": True, "items": [], "running_item": {}},
     )
-    _install_abort(manager)
+    install_abort_backend(manager)
 
     subscriber, hello = await queue._subscribe()
     try:
@@ -2072,7 +1936,7 @@ async def test_abort_pushes_the_state_change_to_sse_subscribers() -> None:
 
 def test_stop_cancel_on_an_unarmed_bridge_is_503(client: TestClient) -> None:
     manager = FakeManager()
-    _install(manager)
+    install_backend(manager)
 
     resp = client.post("/queue/stop", json={"cancel": True})
 
@@ -2095,7 +1959,7 @@ def test_lifespan_leaves_a_pre_injected_backend_to_its_owner(
     using it after the app comes down."""
     monkeypatch.delenv(qb.QSERVER_CONTROL_ADDRESS_ENV, raising=False)
     manager = FakeManager(status=status_doc())
-    backend = _install(manager)
+    backend = install_backend(manager)
 
     with TestClient(app) as client:
         assert client.get("/health").status_code == 200
@@ -2420,7 +2284,7 @@ async def test_sse_reports_a_bridge_with_no_queue_server_as_not_retryable() -> N
 
 def test_bridge_mutations_nudge_the_sse_poller(client: TestClient) -> None:
     manager = FakeManager(item_remove={"success": True})
-    _install(manager)
+    install_backend(manager)
     queue._change_event.clear()
 
     assert client.delete("/queue/items/u1").status_code == 200
@@ -2512,7 +2376,7 @@ def test_public_item_lifts_the_owner_on_a_history_entry() -> None:
 
 
 def test_get_queue_shows_the_owner_and_never_the_reserved_kwarg(client: TestClient) -> None:
-    _install(
+    install_backend(
         FakeManager(
             status=status_doc(items_in_queue=1, running_item_uid="u2"),
             queue_get={
@@ -2556,7 +2420,7 @@ def test_the_add_response_shows_the_owner_and_never_the_reserved_kwarg(
     client: TestClient, connector
 ) -> None:
     connector("virtual_accelerator")
-    _install(
+    install_backend(
         FakeManager(status=status_doc(), item_add={"success": True, "item": _owned_item("u1")})
     )
     revision = _make_draft(client)
@@ -2571,7 +2435,7 @@ def test_the_add_response_shows_the_owner_and_never_the_reserved_kwarg(
 def test_the_move_and_remove_responses_show_the_owner(client: TestClient) -> None:
     """The two mutation echoes are the same relay: a panel that renders the
     returned item renders it exactly as it renders a queue row."""
-    _install(
+    install_backend(
         FakeManager(
             item_move={"success": True, "item": _owned_item("u1")},
             item_remove={"success": True, "item": _owned_item("u1")},
@@ -2597,7 +2461,7 @@ def test_the_add_route_passes_the_call_headers(client: TestClient, connector) ->
     manager = FakeManager(
         status=status_doc(), item_add={"success": True, "item": {"item_uid": "u1"}}
     )
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
 
     resp = client.post(
@@ -2620,7 +2484,7 @@ def test_a_malformed_call_header_costs_the_attribution_not_the_add(
     manager = FakeManager(
         status=status_doc(), item_add={"success": True, "item": {"item_uid": "u1"}}
     )
-    _install(manager)
+    install_backend(manager)
     revision = _make_draft(client)
 
     resp = client.post(

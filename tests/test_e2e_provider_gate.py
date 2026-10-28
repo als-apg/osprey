@@ -649,7 +649,10 @@ def test_the_build_and_run_lanes_name_the_lane_model() -> None:
     the suite's budgets are not sized for."""
     for relative in BUILD_AND_RUN_MODULES:
         source = (_TESTS_ROOT / relative).read_text(encoding="utf-8")
-        assert "model={E2E_MODEL}" in source or "model={build_model(model)}" in source, (
+        # Inline in the module's `osprey build` argv, or handed to the shared
+        # `tests/e2e/_dispatch_harness.build_repo`, which puts it there.
+        spellings = ("model={E2E_MODEL}", "model={build_model(model)}", "model=E2E_MODEL")
+        assert any(spelling in source for spelling in spellings), (
             f"tests/{relative} must build with the lane model"
         )
 

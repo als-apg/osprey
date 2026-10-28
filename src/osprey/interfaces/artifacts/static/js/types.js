@@ -172,11 +172,10 @@ export function thumbnailHtml(a) {
     case 'table_html':
     case 'dashboard_html':
     case 'html':
-      return `<iframe src="${url}" sandbox="allow-scripts allow-same-origin"
+      return `<iframe src="${url}"${sandboxAttr(a)}
                loading="lazy" tabindex="-1"></iframe>`;
     case 'notebook':
-      return `<iframe src="/api/notebooks/${encodeURIComponent(a.id)}/rendered"
-               sandbox="allow-scripts allow-same-origin"
+      return `<iframe src="/api/notebooks/${encodeURIComponent(a.id)}/rendered"${sandboxAttr(a)}
                loading="lazy" tabindex="-1"></iframe>`;
     default:
       if (a.summary && Object.keys(a.summary).length > 0) {
@@ -351,6 +350,79 @@ export function withTheme(url, theme) {
   if (!theme) return url;
   const sep = url.includes('?') ? '&' : '?';
   return `${url}${sep}theme=${encodeURIComponent(theme)}`;
+}
+
+// ---- Opaque origin (C-OPAQUE mirror) ---- //
+//
+// The server serves every agent-written document that is not on a closed inert
+// list under `Content-Security-Policy: sandbox <tokens>` (opaque_origin.py).
+// These mirror that module so the gallery frames and prints an artifact the
+// same way the server serves it.
+
+/** The sandbox tokens of an opaque document — never `allow-same-origin`. */
+export const OPAQUE_SANDBOX = 'allow-scripts allow-modals allow-popups allow-downloads';
+
+/** The closed inert list; a type not named here is opaque. */
+const INERT_TYPES = new Set([
+  'application/pdf',
+  'text/plain',
+  'application/json',
+  'text/csv',
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+]);
+
+/**
+ * Whether a response of type `mime` is served without the sandbox. Compared
+ * case-insensitively with parameters removed; empty or unknown is not inert.
+ * @param {string|null|undefined} mime
+ * @returns {boolean}
+ */
+export function isInert(mime) {
+  if (!mime) return false;
+  return INERT_TYPES.has(mime.split(';', 1)[0].trim().toLowerCase());
+}
+
+/**
+ * The type the server serves an artifact's {@link openUrl} as: `text` is
+ * always text/plain, markdown and notebooks are rendered HTML, everything
+ * else goes out under its own `mime_type`.
+ * @param {any} a
+ * @returns {string}
+ */
+export function servedMime(a) {
+  switch (a.artifact_type) {
+    case 'text':
+      return 'text/plain';
+    case 'markdown':
+    case 'notebook':
+      return 'text/html';
+    default:
+      return a.mime_type || '';
+  }
+}
+
+/**
+ * Whether an artifact's page is served opaque (sandboxed, origin "null").
+ * @param {any} a
+ * @returns {boolean}
+ */
+export function isOpaque(a) {
+  return !isInert(servedMime(a));
+}
+
+/**
+ * The ` sandbox="…"` attribute for an iframe showing `a`: the C-OPAQUE tokens
+ * for an opaque artifact, none for an inert one (Chrome's PDF viewer does not
+ * render sandboxed). The attribute and the response CSP intersect, so print
+ * needs `allow-modals` in both.
+ * @param {any} a
+ * @returns {string}
+ */
+export function sandboxAttr(a) {
+  return isOpaque(a) ? ` sandbox="${OPAQUE_SANDBOX}"` : '';
 }
 
 /**

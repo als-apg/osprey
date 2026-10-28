@@ -201,7 +201,7 @@ def repo(endpoints: Endpoints, tmp_path_factory: pytest.TempPathFactory) -> Path
     config = {
         "control_system": {
             "type": "virtual_accelerator",
-            "writes_enabled": False,
+            "writes": "never",
             "connector": {
                 "virtual_accelerator": _block(endpoints.sandbox),
                 "live_standin": _block(endpoints.standin),

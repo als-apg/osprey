@@ -46,21 +46,6 @@ from osprey.services.bluesky_bridge.plan_fields import (
 from osprey.services.bluesky_bridge.plan_loader import FacilityPlans
 from osprey.services.bluesky_bridge.plan_types import PlanSpec
 
-_TILED_URI_ENV = "BLUESKY_TILED_URI"
-
-
-@pytest.fixture(autouse=True)
-def _isolated_state(monkeypatch: pytest.MonkeyPatch):
-    live_rows._clear()
-    figure_cache._clear()
-    analysis._clear()
-    monkeypatch.delenv(_TILED_URI_ENV, raising=False)
-    yield
-    live_rows._clear()
-    figure_cache._clear()
-    analysis._clear()
-
-
 # =========================================================================
 # Data helpers
 # =========================================================================

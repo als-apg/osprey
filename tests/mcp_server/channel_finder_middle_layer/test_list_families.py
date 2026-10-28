@@ -2,22 +2,15 @@
 
 from unittest.mock import MagicMock, PropertyMock, patch
 
-from osprey.mcp_server.channel_finder_middle_layer.server_context import (
-    initialize_cf_ml_context,
-)
-from tests.mcp_server.channel_finder_middle_layer.conftest import get_tool_fn
-from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
+import pytest
+
+from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
+
+pytestmark = pytest.mark.usefixtures("cf_ml_context")
 
 
-def _setup(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("{}")
-    initialize_cf_ml_context()
-
-
-def test_list_families_returns_families(tmp_path, monkeypatch):
+def test_list_families_returns_families():
     """Happy path: returns list of families for a system."""
-    _setup(tmp_path, monkeypatch)
     mock_db = MagicMock()
     mock_db.list_families.return_value = [
         {"name": "BPM", "description": "Beam Position Monitor"},
@@ -42,9 +35,8 @@ def test_list_families_returns_families(tmp_path, monkeypatch):
     mock_db.list_families.assert_called_once_with("SR")
 
 
-def test_list_families_validation_error(tmp_path, monkeypatch):
+def test_list_families_validation_error():
     """ValueError from database returns validation_error envelope."""
-    _setup(tmp_path, monkeypatch)
     mock_db = MagicMock()
     mock_db.list_families.side_effect = ValueError("Unknown system 'XX'")
     with patch(
@@ -64,9 +56,8 @@ def test_list_families_validation_error(tmp_path, monkeypatch):
     assert "Unknown system" in data["error_message"]
 
 
-def test_list_families_internal_error(tmp_path, monkeypatch):
+def test_list_families_internal_error():
     """Internal error returns standard error envelope."""
-    _setup(tmp_path, monkeypatch)
     mock_db = MagicMock()
     mock_db.list_families.side_effect = Exception("DB broke")
     with patch(

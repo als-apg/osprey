@@ -1130,7 +1130,8 @@ These keys configure the ``phoebus`` MCP server, which is off until
        offers the reading tools only: ``phoebus_drive`` is left out of the
        agent's tool list and permissions, and the server refuses a drive.
        ``read_write`` offers ``phoebus_drive``, which still asks for approval
-       and still stops when ``control_system.writes_enabled`` is ``false``.
+       and still stops where the write verdict refuses
+       (:ref:`write-safety-config`).
        Any other value is refused by name. The switch is all or nothing: a
        panel runs whatever its widgets are wired to, so finer control belongs
        to the EPICS gateway or access security the Phoebus product connects

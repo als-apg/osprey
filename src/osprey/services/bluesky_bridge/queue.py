@@ -77,7 +77,7 @@ deployment must never hold queue items it can never run.
 
 **Who a write is for.** ``X-Osprey-Owner`` names the person a request is made
 for, read through `owner_from_header` and never from a body field. The add
-stamps it onto the item, so the plan runs under that person's narrowing. The
+stamps it onto the item, so the plan runs under that person's tier and switch. The
 three routes that take work off the queue — the single removal, the clear and
 the abort — record it instead, in `queue_removals.py`, and `GET
 /queue/removals` serves that log: the manager keeps no record of a removal at

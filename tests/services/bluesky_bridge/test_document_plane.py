@@ -59,15 +59,6 @@ _POLL_INTERVAL = 0.05
 _FORGED_GRACE = 3.0
 
 
-@pytest.fixture(autouse=True)
-def _clean_buffers():
-    live_rows._clear()
-    document_plane._clear()
-    yield
-    live_rows._clear()
-    document_plane._clear()
-
-
 @pytest.fixture
 def certificates(tmp_path: Path) -> dict[str, Path]:
     """CURVE keypairs for the proxy, an authorized publisher, and an intruder.

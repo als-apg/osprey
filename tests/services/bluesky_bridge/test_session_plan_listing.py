@@ -29,29 +29,7 @@ from osprey.services.bluesky_bridge import plan_loader
 from osprey.services.bluesky_bridge.app import app
 from osprey.services.bluesky_bridge.plan_validation import hash_plan_body
 from osprey.services.bluesky_bridge.validation_record import validation_records
-
-_SESSION_PLAN_DIR_ENV = "BLUESKY_SESSION_PLAN_DIR"
-_PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
-_PLAN_MODULE_ENV = "BLUESKY_PLAN_MODULE"
-
-
-@pytest.fixture(autouse=True)
-def _isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.delenv(_PLAN_DIRS_ENV, raising=False)
-    monkeypatch.delenv(_PLAN_MODULE_ENV, raising=False)
-    monkeypatch.setenv(_SESSION_PLAN_DIR_ENV, str(tmp_path / "plans_session"))
-    plan_loader.reset_facility_plans()
-
-    with validation_records.lock:
-        saved_hashes = set(validation_records._passing_hashes)
-        validation_records._passing_hashes.clear()
-
-    yield
-
-    plan_loader.reset_facility_plans()
-    with validation_records.lock:
-        validation_records._passing_hashes.clear()
-        validation_records._passing_hashes.update(saved_hashes)
+from tests.services.bluesky_bridge._session_plans import session_plan_source, write_session_plan
 
 
 @pytest.fixture
@@ -59,30 +37,15 @@ def client() -> TestClient:
     return TestClient(app)
 
 
-def _session_plan_source(name: str) -> str:
-    return (
-        "PLAN_METADATA = {\n"
-        f'    "name": {name!r},\n'
-        '    "description": "A session-tier test plan.",\n'
-        '    "writes": False,\n'
-        "}\n\n\n"
-        "def build_plan(devices, params):\n"
-        f'    return {{"plan": {name!r}}}\n'
-    )
-
-
-def _author(tmp_path: Path, name: str, *, validated: bool) -> Path:
+def _author(name: str, *, validated: bool) -> Path:
     """Put a session plan on disk; record a passing validation only when asked.
 
     The unvalidated case is the one this module exists for: a file the registry
     (`GET /plans`) will not list, which is exactly the state a plan is in while
     its dry run is still running.
     """
-    session_dir = tmp_path / "plans_session"
-    session_dir.mkdir(parents=True, exist_ok=True)
-    path = session_dir / f"{name}.py"
-    source = _session_plan_source(name)
-    path.write_text(source)
+    source = session_plan_source(name)
+    path = write_session_plan(name, source)
     if validated:
         validation_records.record(hash_plan_body(source))
     plan_loader.reset_facility_plans()
@@ -105,36 +68,34 @@ def _authored(client: TestClient) -> dict[str, bool]:
 
 
 def test_an_unvalidated_session_plan_is_listed_even_though_the_registry_hides_it(
-    tmp_path: Path, client: TestClient
+    client: TestClient,
 ) -> None:
     """The gap the scan-stack cleanup fell through, pinned at the route level.
 
     The registry quarantining the file is correct and is asserted too — this
     listing exists precisely because that quarantine is not negotiable.
     """
-    _author(tmp_path, "in_flight", validated=False)
+    _author("in_flight", validated=False)
 
     assert "in_flight" not in _registered_names(client)
     assert _authored(client) == {"in_flight": False}
 
 
-def test_a_validated_session_plan_is_listed_as_validated(
-    tmp_path: Path, client: TestClient
-) -> None:
-    _author(tmp_path, "ready", validated=True)
+def test_a_validated_session_plan_is_listed_as_validated(client: TestClient) -> None:
+    _author("ready", validated=True)
 
     assert "ready" in _registered_names(client)
     assert _authored(client) == {"ready": True}
 
 
-def test_the_listing_covers_only_the_session_directory(tmp_path: Path, client: TestClient) -> None:
+def test_the_listing_covers_only_the_session_directory(client: TestClient) -> None:
     """Shipped plans are registered but never authored: they do not appear here.
 
     The route is scoped the way the write and delete routes are — one
     directory — so a consumer retiring everything it lists can never be handed
     a shipped/preset/facility name to delete.
     """
-    _author(tmp_path, "mine", validated=True)
+    _author("mine", validated=True)
 
     registered = _registered_names(client)
     assert "mine" in registered
@@ -144,16 +105,14 @@ def test_the_listing_covers_only_the_session_directory(tmp_path: Path, client: T
     assert set(_authored(client)) == {"mine"}
 
 
-def test_everything_listed_can_be_retired_without_knowing_a_name(
-    tmp_path: Path, client: TestClient
-) -> None:
+def test_everything_listed_can_be_retired_without_knowing_a_name(client: TestClient) -> None:
     """The cleanup's actual loop: list, delete each, nothing is left.
 
     Both validation states are present so the loop is proven over the one the
     registry would have hidden.
     """
-    in_flight = _author(tmp_path, "in_flight", validated=False)
-    ready = _author(tmp_path, "ready", validated=True)
+    in_flight = _author("in_flight", validated=False)
+    ready = _author("ready", validated=True)
 
     for name in _authored(client):
         response = client.delete(f"/plans/session/{name}")

@@ -57,6 +57,7 @@ from osprey_connectors.simulation.archive import waveform_collection, waveform_d
 
 # The session-scoped MongoDB container, reused rather than re-declared: one
 # container for the whole test session, skipping cleanly without Docker.
+from tests._simulator_view import view_channel
 from tests.connectors.conftest import mongodb_container  # noqa: F401
 
 
@@ -342,19 +343,11 @@ def test_any_channel_address_is_recorded(tmp_path: Path) -> None:
 def _variables(view: Path, value_types: dict[str, str]) -> None:
     """Write a simulator view's ``variables.json`` giving each channel its value type."""
     channels = [
-        {
-            "address": address,
-            "role": "readback",
-            "pair": None,
-            "value_type": value_type,
-            "unit": None,
-            "description": None,
-            "writable": False,
-            "value_range": None,
-            "owner": "texture",
-            "on": None,
+        view_channel(
+            address,
+            value_type=value_type,
             **({"shape": [TRACE_POINTS]} if value_type == "waveform" else {}),
-        }
+        )
         for address, value_type in value_types.items()
     ]
     document = {"schema": "osprey.facility.simulator/2", "code": "demo", "channels": channels}

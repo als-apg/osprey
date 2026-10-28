@@ -4,9 +4,9 @@ One route answers the whole of what the header chip and its popover render.
 There is one control context per login identity, so every answer here is that
 login's: which target it is standing on, at which generation, who owns the
 record, what each running controls server has actually bound, what is executing
-right now, and one row per configured target carrying that machine's identity,
-its reachability, the render's ceiling, the operator's narrowing, the effective
-answer the connector will apply and whether a switch is offered.
+right now, and one row per configured target carrying that machine's identity
+and kind, its reachability, the login's switch for it, the write verdict a new
+call by the signed-in login would meet and whether a target switch is offered.
 
 Four properties shape every test below.
 
@@ -18,10 +18,11 @@ Four properties shape every test below.
   here because the browser's clock is not the one the stamps were written on;
   and the collapse from "two gateway roles were probed" to "this row is
   reachable" follows the role the connector will actually select.
-* **Ceiling, posture and effective are three separate columns.** The ceiling is
-  the deployment's, the posture is the operator's, and the effective answer is
-  the rule the connector applies. Collapsing them would leave the popover unable
-  to say whether a locked toggle is the render's doing or the operator's.
+* **The write columns are the verdict's (C-GET).** ``switch`` is what the login
+  recorded; ``write_allowed`` / ``write_reason`` / ``write_phrase`` are the
+  write verdict a fresh call would get, and ``machine_kind`` is that verdict's
+  kind. A recorded ``on`` the verdict refuses is shown as both — recorded, and
+  inert.
 * **The fleet is published, not collapsed.** A switch has landed when every live
   server reports the generation it was asked for, so the rows say which server
   is where instead of offering one verdict that could not name a stuck pid.
@@ -56,7 +57,9 @@ from osprey.mcp_server.control_system import (
     target_state,
 )
 from osprey_connectors import control_context, posture_store, workspace
+from osprey_connectors.identity import acting_identity
 from osprey_connectors.ipc import _verification as verification
+from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._harness import (
     owner,
     state_dir_under,
@@ -84,14 +87,21 @@ DEAD_PID = 2_147_483_646
 OTHER_TERMINAL_PID = os.getppid()
 OTHER_TERMINAL_PORT = 8090
 
+#: Each machine kind's banner (C-WORDS, D4): the label every GET row carries.
+REAL_LABEL = "Real machine — writes move hardware"
+REHEARSAL_LABEL = "Rehearsal — nothing moves"
+SIM_LABEL = "Simulator — nothing moves"
+
 #: Per-target display metadata in the shape a controls server publishes.
 TARGET_META = {
-    "live": {"label": "LIVE MACHINE", "endpoint": "gw:5064", "real_machine": True},
-    "va": {"label": "virtual accelerator (simulation)", "endpoint": "localhost:5064"},
+    "live": {"label": REAL_LABEL, "endpoint": "gw:5064", "real_machine": True},
+    "va": {"label": SIM_LABEL, "endpoint": "localhost:5064"},
     "standin": {
-        "label": "LIVE MACHINE (stand-in)",
+        "label": REHEARSAL_LABEL,
         "endpoint": f"localhost:{STANDIN_PORT}",
         "real_machine": True,
+        # C-KIND: the controls server vouches that this stand-in is live.
+        "machine_kind": "rehearsal",
     },
 }
 
@@ -102,7 +112,7 @@ ROW_FIELDS = {
     "label",
     "display_name",
     "short_label",
-    "kind",
+    "machine_kind",
     "endpoint",
     "real_machine",
     "active",
@@ -110,10 +120,10 @@ ROW_FIELDS = {
     "available_now",
     "reason",
     "reason_detail",
-    "ceiling_writes",
-    "posture",
-    "effective",
-    "narrowing_refusal",
+    "switch",
+    "write_allowed",
+    "write_reason",
+    "write_phrase",
     "reachability",
 }
 
@@ -142,6 +152,9 @@ TOP_LEVEL_FIELDS = {
     "generation",
     "store_available",
     "readonly_run",
+    "switch_epoch",
+    "any_on",
+    "locks",
     "owner",
     "servers",
     "execution_in_flight",
@@ -156,13 +169,13 @@ TOP_LEVEL_FIELDS = {
 def render(
     *,
     global_writes=False,
-    va_writes=None,
     standin_roles=("read_only", "write_access"),
     display_names=None,
     live_write_port=None,
     name="config.yml",
     tmp_path=None,
     va_port=None,
+    extra=None,
 ):
     """A render carrying all three control targets.
 
@@ -191,6 +204,9 @@ def render(
     ``va_port`` leaves the simulator's gateway without a ``port`` and states it
     as ``services.virtual_accelerator.port`` instead, which is where an unset
     gateway port is filled from.
+
+    ``extra`` is merged into ``control_system`` verbatim (``writes``,
+    ``login_tiers``, ...).
     """
     gateway = {"address": "gw", "port": 5064, "use_name_server": True}
     standin_gateway = {"address": "localhost", "port": STANDIN_PORT, "use_name_server": True}
@@ -198,14 +214,13 @@ def render(
         "probe_channel": "SIM:PROBE",
         "gateways": {"read_only": dict(gateway)},
     }
-    if va_writes is not None:
-        va["writes_enabled"] = va_writes
     if va_port is not None:
         del va["gateways"]["read_only"]["port"]
     config = {
         "control_system": {
             "type": "live_standin",
-            "writes_enabled": global_writes,
+            # The deployment's write tier (PR-3): only ``"allowed"`` arms.
+            "writes": "allowed" if global_writes else "never",
             # The keys a switch is judged on besides the gateways: a channel to
             # probe and the
             # operator's acknowledgement of the live gateway. Without them every
@@ -240,6 +255,8 @@ def render(
         config["control_system"]["target_display_names"] = display_names
     if va_port is not None:
         config["services"]["virtual_accelerator"] = {"port": va_port}
+    if extra is not None:
+        config["control_system"].update(extra)
     path = tmp_path / name
     path.write_text(yaml.safe_dump(config), encoding="utf-8")
     return path
@@ -449,12 +466,14 @@ class TestTheFieldSet:
     def test_the_owner_row_carries_the_same_keys(self, client):
         assert set(get_posture(client)["owner"]) == OWNER_FIELDS
 
-    def test_the_session_id_is_echoed_and_nothing_else_reads_it(self, make_client):
-        """A recorded narrowing reads the same with and without a key: it is the deployment's."""
-        with make_client(posture={"standin": "sandbox"}) as client:
-            with_id = get_posture(client, SESSION_A)
-            without = get_posture(client)
-        assert row_for(without, "standin")["posture"] == "sandbox"
+    def test_the_session_id_is_echoed_and_nothing_else_reads_it(self, client, agent_data_root):
+        """A recorded switch reads the same with and without a key: it is the login's."""
+        write_control_context(
+            agent_data_root, target="live", generation=4, switch={"standin": "on"}
+        )
+        with_id = get_posture(client, SESSION_A)
+        without = get_posture(client)
+        assert row_for(without, "standin")["switch"] == "on"
         assert with_id["session_id"] == SESSION_A
         assert without["session_id"] is None
         assert {k: v for k, v in with_id.items() if k != "session_id"} == {
@@ -485,7 +504,7 @@ class TestTheTarget:
         assert [row["target"] for row in payload["targets"] if row["is_baseline"]] == ["standin"]
 
     def test_no_record_falls_back_to_the_baseline_at_no_generation(self, client):
-        with patch.object(control_context, "read_record", return_value=None):
+        with patch.object(control_context, "read_record_status", return_value=(None, "missing")):
             payload = get_posture(client)
         assert payload["control_target"] == "standin"
         assert payload["generation"] is None
@@ -839,17 +858,19 @@ class TestStampOrdering:
         write_server_report(
             agent_data_root,
             SERVER_A,
-            targets={"live": {"label": "NAMED BY A DATED REPORT", "real_machine": True}},
+            targets={"live": {"label": REAL_LABEL, "endpoint": "dated:5064", "real_machine": True}},
             updated_at=stamp(),
         )
         write_server_report(
             agent_data_root,
             SERVER_B,
-            targets={"live": {"label": "NAMED BY AN UNDATED ONE", "real_machine": True}},
+            targets={
+                "live": {"label": REAL_LABEL, "endpoint": "undated:5064", "real_machine": True}
+            },
         )
         with only_alive(SERVER_A, SERVER_B):
             payload = get_posture(client)
-        assert row_for(payload, "live")["label"] == "NAMED BY A DATED REPORT"
+        assert row_for(payload, "live")["endpoint"] == "dated:5064"
 
 
 # -- executions in flight ---------------------------------------------------
@@ -986,51 +1007,84 @@ class TestLastSwitchAndRealign:
 class TestTargetIdentity:
     """What each machine is called, and which derivation named it."""
 
-    def test_a_published_label_wins_over_the_render(self, client, agent_data_root):
+    def test_the_label_is_the_published_kinds_banner(self, client, agent_data_root):
+        """D4: a row's label is its machine kind's banner, never a writer's string."""
         write_server_report(agent_data_root, SERVER_A, targets=TARGET_META)
         with only_alive(SERVER_A):
             payload = get_posture(client)
-        assert row_for(payload, "live")["label"] == "LIVE MACHINE"
-        assert row_for(payload, "standin")["label"] == "LIVE MACHINE (stand-in)"
+        assert row_for(payload, "live")["label"] == REAL_LABEL
+        assert row_for(payload, "standin")["label"] == REHEARSAL_LABEL
+        assert row_for(payload, "va")["label"] == SIM_LABEL
+
+    def test_a_published_label_never_names_the_row(self, client, agent_data_root):
+        """A label an older writer minted is not repeated: the kind names the row."""
+        write_server_report(
+            agent_data_root,
+            SERVER_A,
+            targets={"live": {"label": "A LABEL AN OLDER WRITER MINTED", "real_machine": True}},
+        )
+        with only_alive(SERVER_A):
+            payload = get_posture(client)
+        assert row_for(payload, "live")["label"] == REAL_LABEL
 
     def test_the_newest_publisher_wins_per_target(self, client, agent_data_root):
         write_server_report(
             agent_data_root,
             SERVER_A,
-            targets={"live": {"label": "OLD NAME", "real_machine": True}},
+            targets={"live": {"label": REAL_LABEL, "endpoint": "old:5064", "real_machine": True}},
             updated_at=stamp(age_s=600),
         )
         write_server_report(
             agent_data_root,
             SERVER_B,
-            targets={"live": {"label": "NEW NAME", "real_machine": True}},
+            targets={"live": {"label": REAL_LABEL, "endpoint": "new:5064", "real_machine": True}},
             updated_at=stamp(age_s=1),
         )
         with only_alive(SERVER_A, SERVER_B):
             payload = get_posture(client)
-        assert row_for(payload, "live")["label"] == "NEW NAME"
+        assert row_for(payload, "live")["endpoint"] == "new:5064"
 
     def test_a_target_no_server_published_still_renders(self, client, agent_data_root):
         write_server_report(
             agent_data_root,
             SERVER_A,
-            targets={"live": {"label": "LIVE MACHINE", "real_machine": True}},
+            targets={"live": {"label": REAL_LABEL, "real_machine": True}},
         )
         with only_alive(SERVER_A):
             payload = get_posture(client)
-        assert row_for(payload, "va")["label"]
-        assert row_for(payload, "va")["kind"] == "virtual accelerator"
+        assert row_for(payload, "va")["label"] == SIM_LABEL
+        assert row_for(payload, "va")["machine_kind"] == "simulator"
 
-    def test_the_short_word_comes_from_the_label_not_the_target_name(self, client, agent_data_root):
+    def test_the_short_word_follows_the_published_kind(self, client, agent_data_root):
         write_server_report(agent_data_root, SERVER_A, targets=TARGET_META)
         with only_alive(SERVER_A):
             payload = get_posture(client)
         assert row_for(payload, "live")["short_label"] == "LIVE"
         assert row_for(payload, "standin")["short_label"] == "STAND-IN"
         assert row_for(payload, "va")["short_label"] == "VIRTUAL"
+        assert row_for(payload, "standin")["machine_kind"] == "rehearsal"
 
-    def test_a_row_that_is_not_a_real_machine_is_the_simulator(self, client, agent_data_root):
-        """Whatever its label says: the only machine that is not real is the simulator."""
+    def test_a_stand_in_label_no_server_vouched_for_reads_as_the_real_machine(
+        self, client, agent_data_root
+    ):
+        """A label claiming the rehearsal is not C-KIND: only the published kind is."""
+        unvouched = {k: v for k, v in TARGET_META["standin"].items() if k != "machine_kind"}
+        write_server_report(agent_data_root, SERVER_A, targets={"standin": unvouched})
+        with only_alive(SERVER_A):
+            row = row_for(get_posture(client), "standin")
+        assert row["label"] == REAL_LABEL
+        assert row["machine_kind"] == "real"
+        assert row["short_label"] == "LIVE"
+
+    def test_a_dead_servers_rehearsal_claim_is_ignored(self, client, agent_data_root):
+        write_server_report(agent_data_root, DEAD_PID, targets=TARGET_META)
+        with only_alive(SERVER_A):
+            row = row_for(get_posture(client), "standin")
+        assert row["machine_kind"] == "real"
+
+    def test_the_simulator_is_named_by_the_kind_whatever_its_label_says(
+        self, client, agent_data_root
+    ):
         write_server_report(
             agent_data_root,
             SERVER_A,
@@ -1039,7 +1093,8 @@ class TestTargetIdentity:
         with only_alive(SERVER_A):
             payload = get_posture(client)
         assert row_for(payload, "va")["short_label"] == "VIRTUAL"
-        assert row_for(payload, "va")["kind"] == "virtual accelerator"
+        assert row_for(payload, "va")["machine_kind"] == "simulator"
+        assert row_for(payload, "va")["label"] == SIM_LABEL
 
     def test_a_deployment_may_rename_the_rows(self, make_client, tmp_path):
         config = render(tmp_path=tmp_path, display_names={"va": "Digital Twin"})
@@ -1083,7 +1138,6 @@ class TestTargetIdentity:
 
             monkeypatch.setattr(module, name, recording)
 
-        spy(target_eligibility, "narrowing_refusal")
         spy(target_eligibility, "target_availability")
         spy(connector_host_manager, "target_display_metadata")
         spy(verification, "derive_endpoints")
@@ -1094,74 +1148,262 @@ class TestTargetIdentity:
             assert set(paths) == {expected}, name
 
 
-# -- ceiling, posture, effective -------------------------------------------
+# -- the write columns (C-GET) ----------------------------------------------
+
+
+def armed(tmp_path, **kwargs):
+    """A render whose deployment tier allows writes, so the switch decides."""
+    return render(tmp_path=tmp_path, global_writes=True, **kwargs)
+
+
+def fresh_verdict(config_path, target):
+    """The write verdict a new call by the signed-in login gets, asked directly."""
+    section = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))["control_system"]
+    return posture_store.write_verdict(section, target, owner=acting_identity())
+
+
+def switch_on(agent_data_root, *targets):
+    write_control_context(
+        agent_data_root, target="live", generation=4, switch=dict.fromkeys(targets, "on")
+    )
+
+
+def post_switch(client, target, state):
+    """One switch gesture through C-POST, retrying once on a stamped 409."""
+    epoch = get_posture(client)["switch_epoch"]
+    body = {"target": target, "state": state, "epoch": epoch}
+    resp = client.post("/api/terminal/posture", json=body)
+    if resp.status_code == 409 and resp.json()["detail"].get("stamped"):
+        body["epoch"] = resp.json()["detail"]["epoch"]
+        resp = client.post("/api/terminal/posture", json=body)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def make_unreadable():
+    path = control_context.record_path()
+    assert path is not None
+    path.write_text("{not json", encoding="utf-8")
+    control_context.invalidate_cache()
+    posture_store.invalidate_cache()
 
 
 class TestTheWriteColumns:
-    """Three separate answers, never collapsed into one."""
+    """Every row's write columns are the verdict's, for the signed-in login."""
 
-    def test_absence_in_the_record_spells_writes(self, client):
-        for row in get_posture(client)["targets"]:
-            assert row["posture"] == "writes"
-
-    def test_a_recorded_narrowing_shows_and_zeroes_the_effective_answer(
-        self, make_client, tmp_path
+    @pytest.mark.parametrize("live_report", [False, True], ids=["no-report", "live-report"])
+    def test_every_row_is_a_fresh_write_verdict(
+        self, make_client, tmp_path, agent_data_root, live_report
     ):
-        """The record a predecessor left governs the first read, over an armed ceiling."""
-        config = render(tmp_path=tmp_path, va_writes=True)
-        with make_client(config, posture={"va": "sandbox"}) as client:
-            payload = get_posture(client)
-        assert row_for(payload, "va")["ceiling_writes"] is True
-        assert row_for(payload, "va")["posture"] == "sandbox"
-        assert row_for(payload, "va")["effective"] is False
-
-    def test_the_ceiling_is_reported_per_target(self, make_client, tmp_path):
-        config = render(tmp_path=tmp_path, va_writes=True)
+        config = armed(tmp_path)
         with make_client(config) as client:
-            payload = get_posture(client)
-        assert row_for(payload, "va")["ceiling_writes"] is True
-        assert row_for(payload, "live")["ceiling_writes"] is False
+            switch_on(agent_data_root, "va", "standin")
+            if live_report:
+                write_server_report(agent_data_root, SERVER_A, targets=TARGET_META)
+            with only_alive(SERVER_A):
+                payload = get_posture(client)
+                expected = {t: fresh_verdict(config, t) for t in ("live", "va", "standin")}
+        assert {row["target"] for row in payload["targets"]} == set(expected)
+        for row in payload["targets"]:
+            verdict = expected[row["target"]]
+            assert row["write_allowed"] is verdict.allowed, row["target"]
+            assert row["write_reason"] == verdict.reason, row["target"]
+            assert row["machine_kind"] == verdict.kind, row["target"]
+            assert row["write_phrase"] == (
+                None if verdict.reason is None else refusal_phrase(verdict.reason, verdict.kind)
+            ), row["target"]
+        # The case split this parametrization exists for: only a live report
+        # makes the stand-in the rehearsal, and the switch alone decides here.
+        assert row_for(payload, "standin")["machine_kind"] == (
+            "rehearsal" if live_report else "real"
+        )
+        assert row_for(payload, "va")["write_allowed"] is True
+        assert row_for(payload, "live")["write_reason"] == "switch_off"
 
-    def test_an_armed_target_with_no_narrowing_is_effective(self, make_client, tmp_path):
-        config = render(tmp_path=tmp_path, va_writes=True)
+    def test_a_refused_row_carries_the_phrase_an_allowed_one_none(
+        self, make_client, tmp_path, agent_data_root
+    ):
+        with make_client(armed(tmp_path)) as client:
+            switch_on(agent_data_root, "va")
+            payload = get_posture(client)
+        assert row_for(payload, "va")["write_phrase"] is None
+        live = row_for(payload, "live")
+        assert live["write_phrase"] == refusal_phrase("switch_off", "real")
+
+    def test_the_switch_is_what_the_login_recorded(self, make_client, tmp_path, agent_data_root):
+        with make_client(armed(tmp_path)) as client:
+            switch_on(agent_data_root, "va")
+            payload = get_posture(client)
+        assert {row["target"]: row["switch"] for row in payload["targets"]} == {
+            "live": "off",
+            "va": "on",
+            "standin": "off",
+        }
+
+    def test_no_record_is_every_switch_off_not_unknown(self, client):
+        with patch.object(control_context, "read_record_status", return_value=(None, "missing")):
+            payload = get_posture(client)
+        assert all(row["switch"] == "off" for row in payload["targets"])
+        assert payload["switch_epoch"] is None
+        assert payload["any_on"] is False
+
+    def test_an_unreadable_record_is_a_null_switch_and_record_unavailable(
+        self, make_client, tmp_path, agent_data_root
+    ):
+        with make_client(armed(tmp_path)) as client:
+            switch_on(agent_data_root, "va")
+            make_unreadable()
+            payload = get_posture(client)
+        for row in payload["targets"]:
+            assert row["switch"] is None, row["target"]
+            assert row["write_allowed"] is False, row["target"]
+            assert row["write_reason"] == "record_unavailable", row["target"]
+            assert row["write_phrase"] == refusal_phrase("record_unavailable", row["machine_kind"])
+        assert payload["any_on"] is False
+        assert payload["switch_epoch"] is None
+
+    def test_any_on_counts_a_machine_this_render_no_longer_configures(
+        self, make_client, tmp_path, agent_data_root
+    ):
+        """What enables "Turn all off": a dropped machine is still on in the record."""
+        with make_client(armed(tmp_path)) as client:
+            write_control_context(
+                agent_data_root, target="live", generation=4, switch={"gone": "on"}
+            )
+            payload = get_posture(client)
+        assert payload["any_on"] is True
+        assert "gone" not in {row["target"] for row in payload["targets"]}
+        assert all(row["switch"] == "off" for row in payload["targets"])
+
+    def test_any_on_is_false_with_everything_off(self, make_client, tmp_path):
+        with make_client(armed(tmp_path)) as client:
+            assert get_posture(client)["any_on"] is False
+
+    def test_the_switch_epoch_is_the_records(self, make_client, tmp_path, agent_data_root):
+        """As a decimal string: integer nanoseconds exceed a browser's exact range."""
+        with make_client(armed(tmp_path)) as client:
+            switch_on(agent_data_root, "va")
+            payload = get_posture(client)
+        record = control_context.read_record()
+        assert record is not None and record.switch_epoch is not None
+        assert payload["switch_epoch"] == str(record.switch_epoch)
+
+    def test_a_demoted_logins_on_stays_recorded_and_inert(
+        self, make_client, tmp_path, agent_data_root
+    ):
+        """O-3: the tier comes before the record, so the ``on`` stays on disk and refuses."""
+        config = armed(tmp_path, extra={"login_tiers": {acting_identity(): "never"}})
         with make_client(config) as client:
+            switch_on(agent_data_root, "va")
             payload = get_posture(client)
-        assert row_for(payload, "va")["effective"] is True
+        va = row_for(payload, "va")
+        assert va["switch"] == "on"
+        assert va["write_allowed"] is False
+        assert va["write_reason"] == "tier_never"
+        assert va["write_phrase"] == refusal_phrase("tier_never", "simulator")
+        assert payload["any_on"] is True
+        assert payload["locks"] == {"readonly_run": False, "tier": "never"}
 
-    def test_a_ceiling_off_target_is_never_effective(self, client):
-        for row in get_posture(client)["targets"]:
-            if not row["ceiling_writes"]:
-                assert row["effective"] is False
-
-    def test_a_read_only_run_is_stated_outright(self, make_client, tmp_path, monkeypatch):
+    def test_a_read_only_run_refuses_every_row(
+        self, make_client, tmp_path, agent_data_root, monkeypatch
+    ):
         monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
-        config = render(tmp_path=tmp_path, va_writes=True)
-        with make_client(config) as client:
+        with make_client(armed(tmp_path)) as client:
+            switch_on(agent_data_root, "live", "va", "standin")
             payload = get_posture(client)
         assert payload["readonly_run"] is True
-        assert row_for(payload, "va")["effective"] is False
-        assert row_for(payload, "va")["ceiling_writes"] is True
+        assert payload["locks"]["readonly_run"] is True
+        for row in payload["targets"]:
+            assert row["switch"] == "on", row["target"]
+            assert row["write_allowed"] is False, row["target"]
+            assert row["write_reason"] == "readonly_run", row["target"]
 
-    def test_narrowing_a_target_that_would_strand_it_is_flagged(self, make_client, tmp_path):
-        """A stand-in configured for writes alone has no read gateway to fall to."""
-        config = render(tmp_path=tmp_path, standin_roles=("write_access",))
+    def test_the_tier_lock_is_allowed_on_an_armed_render(self, make_client, tmp_path):
+        with make_client(armed(tmp_path)) as client:
+            assert get_posture(client)["locks"] == {"readonly_run": False, "tier": "allowed"}
+
+    def test_the_tier_lock_is_never_on_a_render_that_allows_no_writes(self, client):
+        payload = get_posture(client)
+        assert payload["locks"]["tier"] == "never"
+        for row in payload["targets"]:
+            assert row["write_reason"] == "tier_never", row["target"]
+
+    def test_availability_is_judged_on_the_write_verdict(
+        self, make_client, tmp_path, agent_data_root
+    ):
+        """``reason`` / ``reason_detail`` keep their meaning, computed from ``write_allowed``."""
+        config = armed(tmp_path)
         with make_client(config) as client:
-            payload = get_posture(client)
-        assert row_for(payload, "standin")["narrowing_refusal"] == "selected_role_missing"
+            switch_on(agent_data_root, "va")
+            write_server_report(
+                agent_data_root,
+                SERVER_A,
+                reachability=sweep(standin={"read_only": probed("reached")}),
+            )
+            with only_alive(SERVER_A):
+                payload = get_posture(client)
+                rendered = yaml.safe_load(config.read_text(encoding="utf-8"))
+                for row in payload["targets"]:
+                    verdict = target_eligibility.target_availability(
+                        rendered,
+                        row["target"],
+                        payload["control_target"],
+                        "standin",
+                        writes_enabled=row["write_allowed"],
+                        config_path=str(config),
+                    )
+                    assert row["available_now"] is bool(verdict.available_now), row["target"]
+                    assert row["reason"] == verdict.reason, row["target"]
+                    assert row["reason_detail"] == (
+                        (verdict.detail or None) if verdict.reason else None
+                    ), row["target"]
 
-    def test_an_already_narrowed_row_is_not_flagged(self, make_client, tmp_path):
-        """That toggle brings the target back; nothing about it can strand anything."""
-        config = render(tmp_path=tmp_path, standin_roles=("write_access",))
-        with make_client(config, posture={"standin": "sandbox"}) as client:
-            payload = get_posture(client)
-        assert row_for(payload, "standin")["narrowing_refusal"] is None
+    def test_none_of_the_retired_columns_is_published(self, client):
+        retired = {"kind", "ceiling_writes", "posture", "effective", "narrowing_refusal"}
+        for row in get_posture(client)["targets"]:
+            assert not retired & set(row), row["target"]
 
 
-# -- where a narrowing can be recorded --------------------------------------
+class TestAWriteGatewayOnlyMachine:
+    """PR-9: a machine configured with ``write_access`` alone is switched like any other.
+
+    Its reads go through the write gateway whether the switch is on or off, so
+    turning writes off never strands the machine — the case that used to lock
+    the toggle as ``selected_role_missing``.
+    """
+
+    def test_it_accepts_on_and_off_and_its_reads_continue_while_off(
+        self, make_client, tmp_path, agent_data_root
+    ):
+        config = armed(tmp_path, standin_roles=("write_access",))
+        with make_client(config) as client:
+            write_server_report(
+                agent_data_root,
+                SERVER_A,
+                reachability=sweep(standin={"write_access": probed("reached")}),
+            )
+            with only_alive(SERVER_A):
+                post_switch(client, "standin", "on")
+                on = row_for(get_posture(client), "standin")
+                post_switch(client, "standin", "off")
+                off = row_for(get_posture(client), "standin")
+        assert on["switch"] == "on"
+        assert on["write_allowed"] is True
+        assert off["switch"] == "off"
+        assert off["write_allowed"] is False
+        assert off["write_reason"] == "switch_off"
+        for row in (on, off):
+            assert row["reachability"]["role"] == "write_access"
+            assert row["reachability"]["state"] == "reached"
+            assert row["reason"] != "selected_role_missing"
+        assert off["available_now"] == on["available_now"]
+
+
+# -- where a switch can be recorded ----------------------------------------
 
 
 class TestWhereItLands:
-    """``store_available`` answers "is there anywhere to record a narrowing"."""
+    """``store_available`` answers "is there anywhere to record a switch"."""
 
     def test_a_resolvable_root_answers_yes(self, client):
         assert get_posture(client)["store_available"] is True

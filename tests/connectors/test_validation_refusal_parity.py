@@ -21,6 +21,8 @@ import pytest
 
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
+from osprey_connectors_tests._write_fakes import arm_switch
+from osprey_connectors_tests._write_fakes import writes_enabled_config as _writes_enabled
 from tests.facility.served_tree import in_process_config, served_tree
 
 _DOOCS_LIMITS_PATCH = (
@@ -35,11 +37,15 @@ _TANGO_TZ_PATCH = "osprey_connectors.control_system._tango_connector.get_facilit
 VALUE_SENT = 5.0
 
 
-def _writes_enabled(key, default=None):
-    """Enable writes and answer every other config lookup with its default."""
-    if key == "control_system.writes_enabled":
-        return True
-    return default
+@pytest.fixture(autouse=True)
+def _switch_on(monkeypatch, tmp_path):
+    """The login's switch on for the simulator target, connectors stamped with it.
+
+    With :func:`writes_enabled_config` serving a write tier that allows, that is
+    everything the reference monitor's verdict asks before a write reaches the
+    transport; a test that disarms serves a tier that does not.
+    """
+    return arm_switch(monkeypatch, tmp_path / "armed-data")
 
 
 def _broken_validator() -> MagicMock:

@@ -51,6 +51,7 @@ _EXPECTED_KEYS = {
     "approval_prefixes",
     "write_tools",
     "control_system_write_tools",
+    "facility_write_tools",
     "mixed_read_write_tools",
     "lane_addressed_tools",
     "measurement",
@@ -370,6 +371,72 @@ def test_control_system_write_tools_is_empty_when_the_project_names_no_extras(tm
 
 
 # ---------------------------------------------------------------------------
+# facility_write_tools: the registry's facility write set, verbatim
+# ---------------------------------------------------------------------------
+
+#: A facility server that declares its writes beside one that does not.
+_DECLARING_SERVERS = {
+    "plc": {
+        "command": "node",
+        "args": ["plc.js"],
+        "writes": ["set_value"],
+        "permissions": {"allow": ["get_value", "set_value"]},
+    },
+    "sitectl": _MULTI_SERVER["sitectl"],
+}
+
+
+def test_facility_write_tools_is_exact_for_a_declaring_server(tmp_path):
+    """Declared tools exactly, a list-less server whole; no framework tool."""
+    manager, project_dir = _create_project(tmp_path)
+    _reconfigure(project_dir, claude_code_servers=_DECLARING_SERVERS)
+    config = _regenerate(manager, project_dir)
+
+    assert config["facility_write_tools"] == ["mcp__plc__set_value", "mcp__sitectl__.*"]
+    assert "mcp__plc__set_value" in config["write_tools"]
+    assert not any(t.startswith("mcp__plc__get") for t in config["write_tools"])
+
+
+def test_facility_write_tools_is_the_producer_output_verbatim(tmp_path, monkeypatch):
+    """The template computes nothing: it renders what the registry produced."""
+    import osprey.registry.mcp as registry
+
+    produced = ["mcp__plc__set_value", "mcp__unrelated__.*"]
+    monkeypatch.setattr(registry, "facility_write_tools", lambda servers: list(produced))
+    manager, project_dir = _create_project(tmp_path)
+    _reconfigure(project_dir, claude_code_servers=_DECLARING_SERVERS)
+    config = _regenerate(manager, project_dir)
+
+    assert config["facility_write_tools"] == produced
+
+
+def test_facility_write_tools_is_empty_with_no_custom_server(tmp_path):
+    """Framework servers, and their extends clones, contribute nothing."""
+    manager, project_dir = _create_project(tmp_path)
+    _reconfigure(
+        project_dir,
+        claude_code_servers={"python2": {"extends": "python", "enabled": True}},
+    )
+    config = _regenerate(manager, project_dir)
+
+    assert config["facility_write_tools"] == []
+
+
+def test_a_control_system_extra_is_kept_and_appended(tmp_path):
+    """PR-5a: a non-framework ``control_system.write_tools`` entry still lands in
+    ``write_tools`` and the extras key, beside the facility set."""
+    manager, project_dir = _create_project(tmp_path)
+    config = _reconfigure(project_dir, claude_code_servers=_DECLARING_SERVERS)
+    config["control_system"]["write_tools"] = ["mcp__orbit__apply_correction"]
+    (project_dir / "config.yml").write_text(yaml.dump(config))
+    rendered = _regenerate(manager, project_dir)
+
+    assert rendered["control_system_write_tools"] == ["mcp__orbit__apply_correction"]
+    assert "mcp__orbit__apply_correction" in rendered["write_tools"]
+    assert "mcp__orbit__apply_correction" not in rendered["facility_write_tools"]
+
+
+# ---------------------------------------------------------------------------
 # Absence semantics of the rendering context
 # ---------------------------------------------------------------------------
 
@@ -397,6 +464,7 @@ def test_absent_mixed_key_renders_an_empty_list():
 
     config = json.loads(rendered)
     assert config["mixed_read_write_tools"] == []
+    assert config["facility_write_tools"] == []
     assert set(config) == _EXPECTED_KEYS
 
 

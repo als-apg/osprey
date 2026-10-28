@@ -32,7 +32,9 @@ from osprey.audit import dedup, writer
 from osprey.audit.envelope import DECISION_ALLOWED, DECISION_REFUSED, SURFACE_EXECUTOR
 from osprey.mcp_server import audit_middleware as am
 from osprey.mcp_server.python_executor.tools import _execution_gates as gates
-from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+from tests._audit_ledger import ledger_records
+from tests.audit._verdict_arming import arm_writes
 
 # --------------------------------------------------------------------------
 # Fixtures and helpers
@@ -111,13 +113,6 @@ def project(tmp_path, monkeypatch):
 
     am.reset_audit_state()
     dedup.clear_recorded()
-
-
-def _records(audit_root, surface: str) -> list[dict]:
-    path = audit_root / acting_identity() / f"{surface}.jsonl"
-    if not path.exists():
-        return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
 def _all_records(audit_root) -> list[dict]:
@@ -235,7 +230,7 @@ class TestTheMiddlewareDefersToTheInnerLayer:
         assert len(records) == 1
         assert records[0]["decision"] == DECISION_REFUSED
         assert records[0]["surface"] == SURFACE_EXECUTOR
-        assert _records(project, "python") == []
+        assert ledger_records(project, "python") == []
 
     async def test_the_production_runtime_reporter_is_the_layer_the_middleware_defers_to(
         self, project, monkeypatch
@@ -284,7 +279,7 @@ class TestTheMiddlewareDefersToTheInnerLayer:
             DECISION_REFUSED,
             gates.LAYER_RUNTIME_GUARD,
         )
-        assert _records(project, "python") == [], "the middleware filed a record of its own"
+        assert ledger_records(project, "python") == [], "the middleware filed a record of its own"
         assert alerts, "the operator alert is the other half of the report"
 
     async def test_the_runtime_report_records_the_mode_the_run_actually_asked_for(
@@ -314,7 +309,7 @@ class TestTheMiddlewareDefersToTheInnerLayer:
             execution_mode="readwrite",
         )
 
-        (record,) = _records(project, SURFACE_EXECUTOR)
+        (record,) = ledger_records(project, SURFACE_EXECUTOR)
         assert "mode=readwrite" in record["detail"], record["detail"]
         assert record["reason"] == gates.LAYER_RAW_CLIENT_WRITE
         assert alerts == ["BLOCKED a control-system write in readwrite mode (raw_client_write)"]
@@ -325,7 +320,7 @@ class TestTheMiddlewareDefersToTheInnerLayer:
 
         await am.AuditMiddleware().on_call_tool(_context("execute"), call_next)
 
-        records = _records(project, "python")
+        records = ledger_records(project, "python")
         assert [(r["decision"], r["reason"]) for r in records] == [
             (DECISION_ALLOWED, am.REASON_TOOL_CALL)
         ]
@@ -347,8 +342,8 @@ class TestTheMiddlewareDefersToTheInnerLayer:
             await am.AuditMiddleware().on_call_tool(_context("execute"), call_next)
 
         assert len(_all_records(project)) == 1
-        assert _records(project, "python") == []
-        assert _records(project, SURFACE_EXECUTOR)[0]["reason"] == am.REASON_POSTURE
+        assert ledger_records(project, "python") == []
+        assert ledger_records(project, SURFACE_EXECUTOR)[0]["reason"] == am.REASON_POSTURE
 
     async def test_a_tool_error_no_inner_layer_recorded_is_still_recorded(self, project):
         async def call_next(_context):
@@ -357,7 +352,7 @@ class TestTheMiddlewareDefersToTheInnerLayer:
         with pytest.raises(ToolError):
             await am.AuditMiddleware().on_call_tool(_context("execute"), call_next)
 
-        records = _records(project, "python")
+        records = ledger_records(project, "python")
         assert [(r["decision"], r["reason"]) for r in records] == [
             (DECISION_REFUSED, am.REASON_TOOL_ERROR)
         ]
@@ -373,7 +368,7 @@ class TestTheMiddlewareDefersToTheInnerLayer:
 
         await mw.on_call_tool(_context("execute"), clean)
 
-        assert [r["decision"] for r in _records(project, "python")] == [DECISION_ALLOWED]
+        assert [r["decision"] for r in ledger_records(project, "python")] == [DECISION_ALLOWED]
         assert len(_all_records(project)) == 2
 
     async def test_a_marker_left_by_an_earlier_call_does_not_suppress_this_one(self, project):
@@ -385,7 +380,7 @@ class TestTheMiddlewareDefersToTheInnerLayer:
 
         await am.AuditMiddleware().on_call_tool(_context("execute"), call_next)
 
-        assert [r["decision"] for r in _records(project, "python")] == [DECISION_ALLOWED]
+        assert [r["decision"] for r in ledger_records(project, "python")] == [DECISION_ALLOWED]
 
     async def test_a_marker_from_another_process_does_not_suppress_the_outer_record(
         self, project, monkeypatch
@@ -399,7 +394,7 @@ class TestTheMiddlewareDefersToTheInnerLayer:
 
         await am.AuditMiddleware().on_call_tool(_context("execute"), call_next)
 
-        assert [r["decision"] for r in _records(project, "python")] == [DECISION_ALLOWED]
+        assert [r["decision"] for r in ledger_records(project, "python")] == [DECISION_ALLOWED]
 
 
 # --------------------------------------------------------------------------
@@ -414,13 +409,15 @@ class TestThePostureClampRecordsAndMarks:
         with pytest.raises(ToolError):
             gates.enforce_posture_clamp("readwrite", tool="execute")
 
-        records = _records(project, SURFACE_EXECUTOR)
+        records = ledger_records(project, SURFACE_EXECUTOR)
         assert len(records) == 1
         assert records[0]["decision"] == DECISION_REFUSED
         assert records[0]["reason"] == gates.REASON_POSTURE
         assert records[0]["subject"] == PYTHON_EXECUTE
         assert records[0]["posture"] == gates.POSTURE_SANDBOX
         assert records[0].get("source") is None
+        # The verdict's own reason rides in the detail, as on every layer.
+        assert records[0]["detail"].startswith("reason=readonly_run")
 
         marked = dedup.recorded_decision()
         assert marked is not None
@@ -432,7 +429,9 @@ class TestThePostureClampRecordsAndMarks:
         with pytest.raises(ToolError):
             gates.enforce_posture_clamp("readwrite", tool="execute_file")
 
-        assert _records(project, SURFACE_EXECUTOR)[0]["subject"] == "mcp__python__execute_file"
+        assert (
+            ledger_records(project, SURFACE_EXECUTOR)[0]["subject"] == "mcp__python__execute_file"
+        )
 
     def test_the_clamp_records_the_stamped_posture_source_and_session(self, project, monkeypatch):
         monkeypatch.setenv(gates.POSTURE_ENV_VAR, gates.SANDBOX_POSTURE)
@@ -442,7 +441,7 @@ class TestThePostureClampRecordsAndMarks:
         with pytest.raises(ToolError):
             gates.enforce_posture_clamp("readwrite", tool="execute")
 
-        record = _records(project, SURFACE_EXECUTOR)[0]
+        record = ledger_records(project, SURFACE_EXECUTOR)[0]
         assert record["posture_source"] == "spawn"
         assert record["session"] == "operator-7"
 
@@ -453,7 +452,7 @@ class TestThePostureClampRecordsAndMarks:
         with pytest.raises(ToolError):
             gates.enforce_posture_clamp("readwrite", tool="execute")
 
-        assert _records(project, SURFACE_EXECUTOR)[0]["posture_source"] == "process"
+        assert ledger_records(project, SURFACE_EXECUTOR)[0]["posture_source"] == "process"
 
     def test_a_readonly_run_is_neither_recorded_nor_marked(self, project, monkeypatch):
         monkeypatch.setenv(gates.POSTURE_ENV_VAR, gates.SANDBOX_POSTURE)
@@ -461,7 +460,10 @@ class TestThePostureClampRecordsAndMarks:
         assert _all_records(project) == []
         assert dedup.recorded_decision() is None
 
-    def test_the_writes_posture_is_neither_recorded_nor_marked(self, project, monkeypatch):
+    def test_the_writes_posture_is_neither_recorded_nor_marked(
+        self, project, monkeypatch, tmp_path
+    ):
+        arm_writes(monkeypatch, tmp_path / "agent_data")
         monkeypatch.setenv(gates.POSTURE_ENV_VAR, "readwrite")
         gates.enforce_posture_clamp("readwrite", tool="execute")
         assert _all_records(project) == []
@@ -498,7 +500,7 @@ class TestThePostureClampRecordsAndMarks:
         assert len(records) == 1
         assert records[0]["surface"] == SURFACE_EXECUTOR
         assert records[0]["reason"] == gates.REASON_POSTURE
-        assert _records(project, "python") == []
+        assert ledger_records(project, "python") == []
 
 
 # --------------------------------------------------------------------------
@@ -573,7 +575,7 @@ class TestTheDeferralIsTransitive:
         assert len(records) == 1
         assert records[0]["decision"] == DECISION_REFUSED
         assert records[0]["surface"] == SURFACE_EXECUTOR
-        assert _records(project, "python") == []
+        assert ledger_records(project, "python") == []
 
     async def test_two_stacked_middlewares_record_a_tool_error_once(self, project):
         inner_mw = am.AuditMiddleware()
@@ -598,7 +600,7 @@ class TestTheDeferralIsTransitive:
             await outer_mw.on_call_tool(_context("execute"), through_the_inner_middleware)
 
         assert len(_all_records(project)) == 1
-        assert _records(project, "python") == []
+        assert ledger_records(project, "python") == []
 
     async def test_a_stacked_middleware_still_records_a_call_nobody_claimed(self, project):
         """Transitivity must not turn the *outer* layer off for an unclaimed call."""
@@ -616,7 +618,7 @@ class TestTheDeferralIsTransitive:
         # Both layers record: nothing claimed the decision, and this is the
         # double-record that stacking has always produced. What must not happen
         # is a *split* decision, which the refusal tests above pin.
-        assert [r["decision"] for r in _records(project, "python")] == [
+        assert [r["decision"] for r in ledger_records(project, "python")] == [
             DECISION_ALLOWED,
             DECISION_ALLOWED,
         ]
@@ -657,7 +659,7 @@ class TestTheInnerRecorderMustBeOnTheAwaitingTask:
         # really happened. This is the documented limitation of the carrier,
         # not a behaviour to rely on: an inner recorder has to run inline on
         # the task the middleware awaits.
-        assert [r["decision"] for r in _records(project, "python")] == [DECISION_ALLOWED]
+        assert [r["decision"] for r in ledger_records(project, "python")] == [DECISION_ALLOWED]
         assert len(_all_records(project)) == 2
 
     async def test_a_recorder_awaited_inline_is_seen(self, project, monkeypatch):
@@ -682,7 +684,7 @@ class TestTheInnerRecorderMustBeOnTheAwaitingTask:
         await am.AuditMiddleware().on_call_tool(_context("execute"), call_next)
 
         assert len(_all_records(project)) == 1
-        assert _records(project, "python") == []
+        assert ledger_records(project, "python") == []
 
     def test_the_executor_tools_are_coroutine_functions(self):
         """The live inner recorders sit inside ``async def`` tools.
@@ -718,7 +720,7 @@ class TestAnInnerRecordThatDidNotLand:
         with pytest.raises(ToolError):
             await am.AuditMiddleware().on_call_tool(_context("execute"), call_next)
 
-        assert [(r["decision"], r["reason"]) for r in _records(project, "python")] == [
+        assert [(r["decision"], r["reason"]) for r in ledger_records(project, "python")] == [
             (DECISION_REFUSED, am.REASON_TOOL_ERROR)
         ]
 

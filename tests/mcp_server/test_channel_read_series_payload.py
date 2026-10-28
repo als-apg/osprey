@@ -9,7 +9,6 @@ chart endpoint does - the contract is asserted end to end, not restated.
 """
 
 import json
-from contextlib import nullcontext
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import numpy as np
@@ -17,26 +16,10 @@ import numpy as np
 from osprey.mcp_server.control_system.server_context import initialize_server_context
 from osprey.stores.artifact_store import get_artifact_store, initialize_artifact_store
 from osprey.utils.timeseries import extract_channel_series
+from tests.mcp_server._channel_read import config_patch, make_channel_value
 from tests.mcp_server.conftest import extract_response_dict, get_tool_fn
 
 ADDRESS = "SR:BPM:WAVEFORM"
-
-
-def _make_channel_value(value, timestamp="2024-01-15T10:30:00"):
-    cv = MagicMock()
-    cv.value = value
-    cv.timestamp = timestamp
-    cv.metadata = MagicMock()
-    cv.metadata.units = "counts"
-    cv.metadata.precision = 3
-    cv.metadata.alarm_status = "NO_ALARM"
-    cv.metadata.alarm_severity = 0
-    cv.metadata.description = "Test channel"
-    # Not an enum channel: a bare MagicMock attribute would be truthy, and the
-    # read tool ships the enum keys only when they are not None.
-    cv.metadata.enum_label = None
-    cv.metadata.enum_labels = None
-    return cv
 
 
 class _FakeConnector:
@@ -46,24 +29,7 @@ class _FakeConnector:
         self._values = values
 
     async def read_channel(self, address: str):
-        return _make_channel_value(self._values[address])
-
-
-def _config_patch(overrides: dict):
-    """Patch only the named config keys, delegating everything else."""
-    if not overrides:
-        return nullcontext()
-
-    from osprey_connectors import config as config_module
-
-    real = config_module.get_config_value
-
-    def fake(path, default=None, *args, **kwargs):
-        if path in overrides:
-            return overrides[path]
-        return real(path, default, *args, **kwargs)
-
-    return patch("osprey_connectors.config.get_config_value", side_effect=fake)
+        return make_channel_value(self._values[address])
 
 
 async def _read(tmp_path, monkeypatch, values, *, overrides=None, **kwargs):
@@ -85,7 +51,7 @@ async def _read(tmp_path, monkeypatch, values, *, overrides=None, **kwargs):
             return_value=connector,
         ),
         patch("osprey.infrastructure.server_launcher.ensure_web_server", lambda *a, **k: None),
-        _config_patch(overrides or {}),
+        config_patch(overrides or {}),
     ):
         result = await get_tool_fn(channel_read)(channels=list(values), **kwargs)
     return extract_response_dict(result)

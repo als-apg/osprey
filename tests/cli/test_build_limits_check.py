@@ -16,6 +16,7 @@ import pytest
 import yaml
 
 from osprey.cli.build_limits_check import limits_database_errors
+from osprey_connectors.types import WRITES_KEY
 
 VALID_DB = {
     "SR:C01:MAG:SP": {
@@ -42,7 +43,7 @@ STALE_DB = {
 def _control_system(**overrides) -> dict:
     section = {
         "type": "epics",
-        "writes_enabled": True,
+        "writes": "allowed",
         "limits_checking": {
             "enabled": True,
             "mode": "exclusive",
@@ -82,7 +83,7 @@ def test_a_stale_schema_is_refused_with_the_validators_own_message(tmp_path: Pat
     assert "verification" in line
     assert "confirm" in line
     # And the posture that made the file load, so the operator can see why.
-    assert "writes_enabled" in line
+    assert WRITES_KEY in line
     assert "limits_checking.enabled" in line
     assert "live" in line
 
@@ -132,7 +133,7 @@ def test_an_absolute_path_is_read_where_it_points(tmp_path: Path) -> None:
 def test_a_read_only_deployment_may_stage_the_file_later(tmp_path: Path) -> None:
     """Writes-gated, like the bridge and the compose mount: no target arms writes,
     so a stale or absent database is nothing the deploy will ever read."""
-    section = _control_system(writes_enabled=False)
+    section = _control_system(writes="never")
 
     assert limits_database_errors(_render(tmp_path, section, STALE_DB)) == []
     assert limits_database_errors(_render(tmp_path, section, database=None)) == []

@@ -18,33 +18,13 @@ token from its environment, it could bypass the queue tools' in-tool
 that path is closed at the environment layer.
 """
 
-import json
-
 import pytest
 import yaml
 
 from osprey.mcp_server.python_executor.executor import execute_code
+from tests.mcp_server._env_probe import DUMP_ENV_CODE, extract_env_keys
 
-
-@pytest.fixture(autouse=True)
-def _reset_all_config_caches(monkeypatch):
-    """Reset ALL config caches before each test (see test_executor_adapter.py)."""
-    from osprey_connectors.workspace import reset_config_cache
-
-    reset_config_cache()
-
-    import osprey_connectors.config as _cfg
-
-    monkeypatch.setattr(_cfg, "_default_config", None)
-    monkeypatch.setattr(_cfg, "_default_configurable", None)
-    saved_cache = _cfg._config_cache.copy()
-    _cfg._config_cache.clear()
-
-    yield
-
-    reset_config_cache()
-    _cfg._config_cache.clear()
-    _cfg._config_cache.update(saved_cache)
+pytestmark = pytest.mark.usefixtures("reset_config_caches")
 
 
 def _write_subprocess_config(tmp_path):
@@ -60,31 +40,16 @@ def _write_subprocess_config(tmp_path):
     (tmp_path / "config.yml").write_text(yaml.dump(config))
 
 
-_DUMP_ENV_CODE = (
-    "import json, os\n"
-    "print('ENV_KEYS_JSON_START')\n"
-    "print(json.dumps(sorted(os.environ.keys())))\n"
-    "print('ENV_KEYS_JSON_END')\n"
-)
-
-
-def _extract_env_keys(stdout: str) -> list[str]:
-    """Pull the JSON-encoded sorted env key list out of the sandbox's stdout."""
-    start = stdout.index("ENV_KEYS_JSON_START") + len("ENV_KEYS_JSON_START")
-    end = stdout.index("ENV_KEYS_JSON_END")
-    return json.loads(stdout[start:end])
-
-
 async def test_sandbox_code_cannot_see_bluesky_launch_token(tmp_path, monkeypatch):
     """Real sandboxed execution: BLUESKY_LAUNCH_TOKEN is absent from os.environ."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "super-secret-promote-value")
     _write_subprocess_config(tmp_path)
 
-    result = await execute_code(_DUMP_ENV_CODE, "readonly", "pentest env dump")
+    result = await execute_code(DUMP_ENV_CODE, "readonly", "pentest env dump")
 
     assert result.success, f"sandbox execution failed: {result.error_message}\n{result.stderr}"
-    env_keys = _extract_env_keys(result.stdout)
+    env_keys = extract_env_keys(result.stdout)
     assert "BLUESKY_LAUNCH_TOKEN" not in env_keys
     # The literal secret value must not leak into stdout/stderr either.
     assert "super-secret-promote-value" not in result.stdout
@@ -97,10 +62,10 @@ async def test_sandbox_code_cannot_see_event_dispatcher_token(tmp_path, monkeypa
     monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "super-secret-dispatch-value")
     _write_subprocess_config(tmp_path)
 
-    result = await execute_code(_DUMP_ENV_CODE, "readonly", "pentest env dump")
+    result = await execute_code(DUMP_ENV_CODE, "readonly", "pentest env dump")
 
     assert result.success, f"sandbox execution failed: {result.error_message}\n{result.stderr}"
-    env_keys = _extract_env_keys(result.stdout)
+    env_keys = extract_env_keys(result.stdout)
     assert "EVENT_DISPATCHER_TOKEN" not in env_keys
     # The literal secret value must not leak into stdout/stderr either.
     assert "super-secret-dispatch-value" not in result.stdout
@@ -114,10 +79,10 @@ async def test_sandbox_code_cannot_see_either_token_simultaneously(tmp_path, mon
     monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "dispatch-secret")
     _write_subprocess_config(tmp_path)
 
-    result = await execute_code(_DUMP_ENV_CODE, "readonly", "pentest env dump")
+    result = await execute_code(DUMP_ENV_CODE, "readonly", "pentest env dump")
 
     assert result.success, f"sandbox execution failed: {result.error_message}\n{result.stderr}"
-    env_keys = _extract_env_keys(result.stdout)
+    env_keys = extract_env_keys(result.stdout)
     assert "BLUESKY_LAUNCH_TOKEN" not in env_keys
     assert "EVENT_DISPATCHER_TOKEN" not in env_keys
     # Neither literal secret value may leak into stdout/stderr either.
@@ -136,10 +101,10 @@ async def test_sandbox_still_has_a_usable_environment(tmp_path, monkeypatch):
     monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "promote-secret")
     _write_subprocess_config(tmp_path)
 
-    result = await execute_code(_DUMP_ENV_CODE, "readonly", "pentest env dump")
+    result = await execute_code(DUMP_ENV_CODE, "readonly", "pentest env dump")
 
     assert result.success, f"sandbox execution failed: {result.error_message}\n{result.stderr}"
-    env_keys = _extract_env_keys(result.stdout)
+    env_keys = extract_env_keys(result.stdout)
     assert "PATH" in env_keys
     assert len(env_keys) > 1
 

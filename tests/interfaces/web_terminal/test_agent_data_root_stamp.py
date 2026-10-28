@@ -79,8 +79,8 @@ OPERATOR_KEY = "operator-deadbeef"
 
 EXECUTION_MODE_ENV = "OSPREY_EXECUTION_MODE"
 
-POSTURE_SANDBOX = websocket_routes.POSTURE_SANDBOX
-POSTURE_WRITES = websocket_routes.POSTURE_WRITES
+POSTURE_SANDBOX = posture_store.POSTURE_SANDBOX
+POSTURE_WRITES = posture_store.POSTURE_WRITES
 
 
 # --------------------------------------------------------------------------- #

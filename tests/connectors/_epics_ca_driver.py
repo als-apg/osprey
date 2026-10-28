@@ -14,13 +14,20 @@ happens at exit, can share one.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import json
+import os
 import sys
+import tempfile
 import threading
+from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+from osprey_connectors import control_context
+from osprey_connectors.control_system._base import ControlSystemConnector
 from osprey_connectors.control_system._ca_loop import get_ca_loop
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 
@@ -346,10 +353,61 @@ SCENARIOS = {
 }
 
 
+#: The machine this process's writes go to, and the tier that allows them.
+_ARMED_TARGET = "va"
+_ARMED_SECTION = {"writes": "allowed"}
+
+
+def _armed_config(key: str, default: Any = None) -> Any:
+    """``get_config_value`` stand-in: a write tier that allows, all else defaulted."""
+    if key == "control_system":
+        return dict(_ARMED_SECTION)
+    return default
+
+
+@contextlib.contextmanager
+def _writes_armed() -> Iterator[None]:
+    """Arm this process's writes the way the reference monitor's verdict reads them.
+
+    A tier that allows writes, connectors stamped with :data:`_ARMED_TARGET`,
+    and an ownerless record under a scratch agent-data root whose switch is on
+    for that machine — the same three a deployment needs, so a write here passes
+    the real monitor rather than a bypass of it. This module runs as a script,
+    outside the ``tests`` package, so it spells the arming itself.
+    """
+    for name in (
+        "OSPREY_CONTROL_OWNER",
+        "OSPREY_CONTROL_CONTEXT_TREE",
+        "OSPREY_CONTROL_CONTEXT_DIR",
+        "OSPREY_LAUNCH_POSTURE",
+        "OSPREY_EXECUTION_MODE",
+    ):
+        os.environ.pop(name, None)
+    with tempfile.TemporaryDirectory(prefix="osprey-ca-driver-") as scratch:
+        os.environ["OSPREY_AGENT_DATA_ROOT"] = scratch
+        path = control_context._record_path_under(Path(scratch))
+        control_context.write_record(
+            control_context.ControlContext(
+                target=_ARMED_TARGET, generation=1, owner=None, posture={}, last_switch=None
+            ),
+            path=path,
+        )
+        try:
+            control_context.set_switch([_ARMED_TARGET], "on", epoch=0, path=path)
+        except control_context.StoppedSince as stamped:
+            control_context.set_switch([_ARMED_TARGET], "on", epoch=stamped.epoch, path=path)
+        control_context.invalidate_cache()
+        with (
+            patch("osprey_connectors.config.get_config_value", _armed_config),
+            patch.object(ControlSystemConnector, "_control_target", _ARMED_TARGET),
+        ):
+            yield
+
+
 def main() -> None:
     scenario, prefix = sys.argv[1], sys.argv[2]
     run = SCENARIOS[scenario]
-    with patch.object(EPICSConnector, "_writes_enabled", property(lambda _self: True)):
+    with _writes_armed():
         result = asyncio.run(run(prefix)) if inspect.iscoroutinefunction(run) else run(prefix)
     print(RESULT_MARKER + json.dumps(result), flush=True)
 

@@ -88,7 +88,9 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.deployment.compose_generator import resolve_project_name
+from osprey.deployment.compose_generator import ensure_control_target_dir, resolve_project_name
+from osprey_connectors import posture_store
+from osprey_connectors.types import TARGET_VA
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import (
     container_logs,
@@ -97,6 +99,7 @@ from tests.e2e._deploy_diagnostics import (
 )
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
+from tests.e2e.sdk_helpers import render_dir, switch_on_in_record
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SWEEP_SCRIPT = REPO_ROOT / "scripts" / "va" / "sweep_check.py"
@@ -487,7 +490,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # control-system type. Written as a flat dotted-string key under `config:`,
     # the spelling the preset itself uses: everything after `config.` is one
     # key naming one leaf, so the rest of the `control_system` block
-    # (writes_enabled/limits_checking/connector gateways) is left alone.
+    # (writes/limits_checking/connector gateways) is left alone.
     # `dispatch: null` drops control-assistant's default event-dispatcher
     # stack (Node + Claude CLI image) -- irrelevant here and far slower to
     # build than the VA image already is. The preset's `services:` block holds
@@ -570,6 +573,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         )
 
     _write_env(repo)
+    _arm_queue_owner(repo)
 
     # Force fresh --dev builds so the deployed containers run CURRENT source
     # (osprey up does not pass --build to compose, so it would otherwise reuse a
@@ -617,6 +621,31 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         # `osprey down` keeps volumes by design; drop this project's own so a
         # rerun cannot inherit their state (see tests/e2e/_volumes.py).
         remove_project_volumes(_orm_stack.project_prefix(PROJECT_NAME))
+
+
+def _queue_owner() -> str:
+    """The login every queue add of this module names (``X-Osprey-Owner``).
+
+    The bridge worker's writes follow the add's owner's switch, so an ownerless
+    add has no switch to follow and every write it makes is refused.
+    """
+    owner = posture_store.current_owner()
+    assert isinstance(owner, str) and owner, f"this process names no owner: {owner!r}"
+    return owner
+
+
+def _arm_queue_owner(repo: Path) -> None:
+    """Turn :func:`_queue_owner`'s switch on for the simulator in the deployment's record.
+
+    The preset's tier already allows writes (``control_system.writes:
+    allowed``); the switch is the other half. Written through the production
+    writers (:func:`~tests.e2e.sdk_helpers.switch_on_in_record`) into the
+    control tree the deploy provisions, before ``up`` so the worker reads it.
+    """
+    config = yaml.safe_load((render_dir(repo) / "config.yml").read_text(encoding="utf-8"))
+    owner = _queue_owner()
+    ensure_control_target_dir(config, repo, owner, relative_to=repo)
+    switch_on_in_record(repo, owner=owner, targets=[TARGET_VA])
 
 
 def _dead_container_logs() -> str:
@@ -762,7 +791,12 @@ async def _run_scan(
     """
     token = _minted_token(repo)
     run_id = _queue_drive.stage_and_enqueue(
-        BRIDGE_URL, plan_name, plan_args, client_id=_QUEUE_CLIENT_ID, token=token
+        BRIDGE_URL,
+        plan_name,
+        plan_args,
+        client_id=_QUEUE_CLIENT_ID,
+        token=token,
+        owner=_queue_owner(),
     )
     _queue_drive.start_draining(BRIDGE_URL, token, run_id)
 
@@ -809,7 +843,8 @@ def _host_ca_op_spec(
     process boundary -- required for CA-teardown safety (see ``_va_host_ca_op.py``).
     """
     overrides: dict[str, Any] = {
-        "control_system.writes_enabled": True,
+        # The tier half of the write gate; the switch half is ``arm_target``.
+        "control_system.writes": "allowed",
         "control_system.limits_checking.enabled": True,
         "control_system.limits_checking.database_path": str(
             repo / "build" / "data" / "channel_limits.json"
@@ -834,6 +869,10 @@ def _host_ca_op_spec(
         # than race the echo (see _va_host_ca_op.py).
         "settle_read": settle_read,
         "settle_tolerance": settle_tolerance,
+        # A write is stamped with the machine it writes to and needs that
+        # machine's switch on (see ``_va_host_ca_op._arm_switch``); a read-only
+        # op arms nothing.
+        "arm_target": TARGET_VA if write is not None else None,
     }
 
 
@@ -1073,6 +1112,7 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
         },
         client_id=_QUEUE_CLIENT_ID,
         token=token,
+        owner=_queue_owner(),
     )
     _queue_drive.start_draining(BRIDGE_URL, token, run_id)
 

@@ -26,10 +26,8 @@ import pytest
 from bluesky_queueserver_api.comm_base import RequestFailedError
 from fastapi.testclient import TestClient
 
-from osprey.services.bluesky_bridge import app as app_module
-from osprey.services.bluesky_bridge import history_removals, queue, queue_removals
+from osprey.services.bluesky_bridge import queue, queue_removals
 from osprey.services.bluesky_bridge.app import app
-from osprey.services.bluesky_bridge.queue_backend import QueueBackend
 from osprey.services.bluesky_bridge.queue_removals import (
     ACTION_ABORT,
     ACTION_CLEAR,
@@ -39,35 +37,17 @@ from osprey.services.bluesky_bridge.queue_removals import (
 )
 from osprey.utils.owner_header import OWNER_HEADER
 from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
-
-from .test_queue_routes import FakeManager, _install_abort, status_doc
-
-_SESSION_PLAN_DIR_ENV = "BLUESKY_SESSION_PLAN_DIR"
-
-
-@pytest.fixture(autouse=True)
-def _isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv(_SESSION_PLAN_DIR_ENV, str(tmp_path / "plans_session"))
-    queue._clear()
-    queue_removals._clear()
-    history_removals._clear()
-    app_module.set_queue_backend(None)
-    yield
-    queue._clear()
-    queue_removals._clear()
-    history_removals._clear()
-    app_module.set_queue_backend(None)
+from tests.services.bluesky_bridge._queue_fakes import (
+    FakeManager,
+    install_abort_backend,
+    install_backend,
+    status_doc,
+)
 
 
 @pytest.fixture
 def client() -> TestClient:
     return TestClient(app)
-
-
-def _install(manager: Any) -> QueueBackend:
-    backend = QueueBackend(manager)
-    app_module.set_queue_backend(backend)
-    return backend
 
 
 def _item(uid: str, *, name: str = "count_scan", owner: str | None = None) -> dict[str, Any]:
@@ -222,7 +202,7 @@ def test_a_failed_save_leaves_the_log_usable_in_this_process(tmp_path: Path) -> 
 
 
 def test_a_removal_records_who_asked_for_it(client: TestClient) -> None:
-    _install(FakeManager(item_remove={"success": True, "item": _item("u1", owner="bob")}))
+    install_backend(FakeManager(item_remove={"success": True, "item": _item("u1", owner="bob")}))
 
     resp = client.delete("/queue/items/u1", headers={OWNER_HEADER: "anna"})
 
@@ -239,7 +219,7 @@ def test_a_removal_records_who_asked_for_it(client: TestClient) -> None:
 def test_an_owner_less_removal_is_recorded_with_a_null_owner(client: TestClient) -> None:
     """Cron and token-only callers name nobody, and their withdrawals are
     still the deployment's to know about."""
-    _install(FakeManager(item_remove={"success": True, "item": _item("u1")}))
+    install_backend(FakeManager(item_remove={"success": True, "item": _item("u1")}))
 
     assert client.delete("/queue/items/u1").status_code == 200
 
@@ -253,7 +233,7 @@ def test_a_header_the_reader_refuses_costs_the_name_and_not_the_removal(
 ) -> None:
     """The allowlist is the single reader of this name everywhere; a value it
     will not accept is recorded as nobody, and the item still goes."""
-    _install(FakeManager(item_remove={"success": True, "item": _item("u1")}))
+    install_backend(FakeManager(item_remove={"success": True, "item": _item("u1")}))
 
     resp = client.delete("/queue/items/u1", headers={OWNER_HEADER: "not a name/../"})
 
@@ -265,7 +245,7 @@ def test_a_header_the_reader_refuses_costs_the_name_and_not_the_removal(
 
 def test_a_refused_removal_records_nothing(client: TestClient) -> None:
     """The log says what happened to the queue, and this did not happen."""
-    _install(FakeManager(item_remove=RequestFailedError({}, {"msg": "no such item"})))
+    install_backend(FakeManager(item_remove=RequestFailedError({}, {"msg": "no such item"})))
 
     assert client.delete("/queue/items/u1", headers={OWNER_HEADER: "anna"}).status_code == 409
 
@@ -276,7 +256,7 @@ async def test_the_rollback_of_a_just_added_item_records_nothing() -> None:
     """The unarmed enqueue's post-add re-check removes the item it added. That
     is the request undoing itself, not an operator withdrawing work: the caller
     is told the enqueue was refused and never had an item to withdraw."""
-    backend = _install(FakeManager(item_remove={"success": True, "item": _item("u1")}))
+    backend = install_backend(FakeManager(item_remove={"success": True, "item": _item("u1")}))
 
     assert await queue._remove_item_best_effort(backend, "u1") is True
 
@@ -289,7 +269,7 @@ async def test_the_rollback_of_a_just_added_item_records_nothing() -> None:
 
 
 def test_a_clear_records_one_entry_per_item_it_dropped(client: TestClient) -> None:
-    _install(
+    install_backend(
         FakeManager(
             queue_get={
                 "success": True,
@@ -310,7 +290,7 @@ def test_a_clear_records_one_entry_per_item_it_dropped(client: TestClient) -> No
 
 def test_clearing_an_empty_queue_records_nothing(client: TestClient) -> None:
     """Nothing was dropped, so nothing was withdrawn."""
-    _install(
+    install_backend(
         FakeManager(
             queue_get={"success": True, "items": [], "running_item": {}},
             queue_clear={"success": True, "msg": ""},
@@ -324,7 +304,7 @@ def test_clearing_an_empty_queue_records_nothing(client: TestClient) -> None:
 
 def test_a_clear_whose_read_went_unanswered_is_recorded_bare(client: TestClient) -> None:
     """The read is the log's, not the clear's: losing it costs the detail."""
-    _install(
+    install_backend(
         FakeManager(
             queue_get=RequestFailedError({}, {"msg": "nope"}),
             queue_clear={"success": True, "msg": "cleared"},
@@ -340,7 +320,7 @@ def test_a_clear_whose_read_went_unanswered_is_recorded_bare(client: TestClient)
 
 
 def test_a_refused_clear_records_nothing(client: TestClient) -> None:
-    _install(
+    install_backend(
         FakeManager(
             queue_get={"success": True, "items": [_item("u1")], "running_item": {}},
             queue_clear=RequestFailedError({}, {"msg": "nope"}),
@@ -358,7 +338,7 @@ def test_a_refused_clear_records_nothing(client: TestClient) -> None:
 
 
 def test_an_abort_records_who_stopped_what(client: TestClient) -> None:
-    _install_abort(
+    install_abort_backend(
         FakeManager(
             status=status_doc(manager_state="paused", running_item_uid="u1"),
             queue_get={
@@ -397,7 +377,7 @@ def test_the_plan_is_read_after_the_pause_and_before_the_discard(
         queue_get={"success": True, "items": [], "running_item": _item("u1")},
         re_abort={"success": True, "msg": "aborted"},
     )
-    _install_abort(manager)
+    install_abort_backend(manager)
 
     assert client.post("/queue/abort", headers={OWNER_HEADER: "anna"}).status_code == 200
 
@@ -412,7 +392,7 @@ def test_nothing_running_issues_no_read_and_records_nothing(client: TestClient) 
         status=status_doc(manager_state="idle"),
         queue_get={"success": True, "items": [], "running_item": {}},
     )
-    _install_abort(manager)
+    install_abort_backend(manager)
 
     assert client.post("/queue/abort", headers={OWNER_HEADER: "anna"}).status_code == 409
 
@@ -430,7 +410,7 @@ def test_a_pause_that_never_lands_issues_no_read_and_records_nothing(
         status=status_doc(manager_state="executing_queue"),
         queue_get={"success": True, "items": [], "running_item": _item("u1")},
     )
-    _install_abort(manager)
+    install_abort_backend(manager)
 
     resp = client.post("/queue/abort", headers={OWNER_HEADER: "anna"})
 
@@ -450,7 +430,7 @@ def test_an_abort_whose_read_is_refused_still_halts_and_records(
         queue_get=RequestFailedError({}, {"msg": "nope"}),
         re_abort={"success": True, "msg": "aborted"},
     )
-    _install_abort(manager)
+    install_abort_backend(manager)
 
     resp = client.post("/queue/abort", headers={OWNER_HEADER: "anna"})
 
@@ -471,7 +451,7 @@ def test_the_abort_response_carries_no_plan_arguments(client: TestClient) -> Non
         queue_get={"success": True, "items": [], "running_item": _item("u1", owner="bob")},
         re_abort={"success": True, "msg": "aborted"},
     )
-    _install_abort(manager)
+    install_abort_backend(manager)
 
     body = client.post("/queue/abort", headers={OWNER_HEADER: "anna"}).json()
 
@@ -488,7 +468,7 @@ def test_the_abort_response_carries_no_plan_arguments(client: TestClient) -> Non
 
 
 def test_the_read_serves_the_log_newest_first(client: TestClient) -> None:
-    _install(
+    install_backend(
         FakeManager(
             item_remove=[
                 {"success": True, "item": _item("u1", name="count_scan")},
@@ -507,14 +487,14 @@ def test_the_read_serves_the_log_newest_first(client: TestClient) -> None:
 
 def test_the_read_answers_while_the_manager_is_down(client: TestClient) -> None:
     """The log is the bridge's own; serving it touches no manager."""
-    _install(FakeManager(status=RequestFailedError({}, {"msg": "gone"})))
+    install_backend(FakeManager(status=RequestFailedError({}, {"msg": "gone"})))
 
     assert client.get("/queue/removals").status_code == 200
     assert client.get("/queue/removals").json() == []
 
 
 def test_a_removal_moves_the_summary_so_subscribers_re_read(client: TestClient) -> None:
-    _install(
+    install_backend(
         FakeManager(
             status=status_doc(),
             queue_get={"success": True, "items": [], "running_item": {}},
@@ -532,7 +512,7 @@ def test_a_removal_moves_the_summary_so_subscribers_re_read(client: TestClient) 
 def test_clearing_history_empties_the_withdrawals_listed_with_it(client: TestClient) -> None:
     """One control, one list: the panel lists both under History, so Clear
     must not leave half of it on screen."""
-    _install(
+    install_backend(
         FakeManager(
             item_remove={"success": True, "item": _item("u1")},
             history_clear={"success": True, "msg": "cleared"},

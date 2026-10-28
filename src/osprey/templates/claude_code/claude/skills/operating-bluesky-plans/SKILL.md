@@ -271,10 +271,10 @@ them apart is what lets you explain a blocked plan instead of retrying it.
 ### Layer 1: the write posture of the machine the lane drives, applied before the tool runs
 
 Write posture is per control target, not one switch for the deployment.
-`control_system.writes_enabled` is the posture a connector type inherits, and a
-`control_system.connector.<type>.writes_enabled` block answers for that type
-instead — so a deployment can be armed on its virtual accelerator and left
-unarmed on the live machine. Each queue lane is bound at build time to one
+`control_system.writes` is the tier's ceiling, `allowed` or `never`, for every
+machine; the owner's switch, turned on per machine from the chip, picks which
+— so a deployment can be armed on its virtual accelerator and left unarmed on
+the live machine. Each queue lane is bound at build time to one
 target, and that target's posture is what applies to a call on that lane.
 
 **When no target here may write**, `queue_add` and `queue_start` are not yours

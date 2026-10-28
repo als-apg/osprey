@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import os
 import re
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -90,16 +89,6 @@ def _exporter(store: FakeStore, **kwargs) -> TelemetryExporter:
         sleep=sleeps.append,
         **kwargs,
     )
-
-
-@pytest.fixture
-def trees(tmp_path):
-    sources = tmp_path / "sources"
-    sources.mkdir()
-    dest = tmp_path / "dest"
-    dest.mkdir()
-    os.chmod(dest, 0o700)
-    return sources, dest
 
 
 def _lines(dest: Path, day: str = "2026-09-24") -> list[dict]:

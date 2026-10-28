@@ -567,8 +567,8 @@ def test_provenance_outranks_the_retired_key(runner: CliRunner, tmp_path: Path) 
     serving = "control_system.connector.virtual_accelerator.serving"
     epics_timeout = "control_system.connector.epics.timeout_s"
     # Measured, not assumed: the two presets disagree on these keys.
-    assert bundle["control_system.writes_enabled"] is True
-    assert recorded["control_system.writes_enabled"] is False
+    assert bundle["control_system.writes"] == "allowed"
+    assert recorded["control_system.writes"] == "never"
     assert serving not in bundle
     assert recorded[serving] == "in_process"
     assert epics_timeout in bundle
@@ -579,14 +579,17 @@ def test_provenance_outranks_the_retired_key(runner: CliRunner, tmp_path: Path) 
     profile = repo / "profile.yml"
     removed = _to_old_shape(profile, drop=("control_system.",), template="control_assistant")
 
-    assert _revalidate(runner, repo).exit_code == 0
+    result = _revalidate(runner, repo)
+    assert result.exit_code == 0, result.output
 
     data = _profile_data(profile)
     assert data["provenance"]["preset"] == "hello-world"
     assert data["provenance"]["preset_hash"] == compute_preset_hash("hello-world")
     assert PRESET_DATA_BUNDLE_KEY not in data
-    assert [key for key in removed if key not in data["config"]] == []
-    assert data["config"]["control_system.writes_enabled"] is False
+    # The fill never writes the tier key: a root that does not state it reads
+    # as `never`, so neither preset's value is taken, and the output says so.
+    assert [key for key in removed if key not in data["config"]] == ["control_system.writes"]
+    assert "control_system.writes" in result.output
     assert data["config"][serving] == "in_process"
     assert epics_timeout not in data["config"]
 

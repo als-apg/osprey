@@ -74,10 +74,13 @@ from typing import Any
 import pytest
 
 from osprey.deployment.compose_generator import resolve_project_name
+from osprey.utils.owner_header import OWNER_HEADER
+from osprey_connectors import posture_store
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
+from tests.e2e.sdk_helpers import arm_deployed_queue_owner
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -273,6 +276,9 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # `osprey up` refuses to start without. The plan devices are not among what
     # `up` appends here: they reach the worker as the device file the build staged.
     _orm_stack.seed_repo_env(repo)
+    # The plan writes, and the worker's writes follow the add's owner's switch:
+    # this login's switch on in the deployment's record, before `up`.
+    arm_deployed_queue_owner(repo)
 
     # Force a fresh --dev build so the deployed bridge container runs CURRENT
     # source (osprey up does not pass --build to compose, so it would
@@ -398,7 +404,11 @@ def _docker_inspect(container: str, fmt: str) -> str:
 
 
 def _request(
-    path: str, method: str, body: dict | None = None, token: str | None = None
+    path: str,
+    method: str,
+    body: dict | None = None,
+    token: str | None = None,
+    owner: str | None = None,
 ) -> tuple[int, Any]:
     data = json.dumps(body).encode("utf-8") if body is not None else None
     headers: dict[str, str] = {}
@@ -406,6 +416,9 @@ def _request(
         headers["Content-Type"] = "application/json"
     if token:
         headers["X-Launch-Token"] = token
+    if owner:
+        # The login the plan runs for: the worker's writes follow its switch.
+        headers[OWNER_HEADER] = owner
     req = urllib.request.Request(f"{BRIDGE_URL}{path}", data=data, method=method, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=30.0) as resp:
@@ -485,7 +498,11 @@ def test_tiled_roundtrip(deployed_stack: DeployedStack) -> None:
     # add is what runs the plan; `start_draining` sends a Start only where the
     # manager reports the queue stopped.
     status, enqueued = _request(
-        "/queue/items", "POST", {"draft_revision": patched["revision"]}, token=deployed_stack.token
+        "/queue/items",
+        "POST",
+        {"draft_revision": patched["revision"]},
+        token=deployed_stack.token,
+        owner=posture_store.current_owner(),
     )
     assert status == 200, f"POST /queue/items failed: {status} {enqueued}"
     run_id = enqueued["run_id"]

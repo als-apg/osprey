@@ -47,6 +47,8 @@ from osprey.audit.protected import (
 )
 from osprey.interfaces.common_middleware import HTTP_MUTATION_SURFACE, HttpAuditMiddleware
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
+from tests._audit_ledger import ledger_records
+from tests.audit._verdict_arming import arm_writes
 
 #: Two protected config keys, in two different blocks. Different blocks on
 #: purpose: a recorder that keyed on the top-level section would collapse two
@@ -87,14 +89,6 @@ def audit_root(tmp_path, monkeypatch):
     dedup.clear_recorded()
     yield root
     dedup.clear_recorded()
-
-
-def _records(root: Path, surface: str) -> list[dict]:
-    """Every record on one surface's ledger, oldest first."""
-    path = root / acting_identity() / f"{surface}.jsonl"
-    if not path.is_file():
-        return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
 def _all_records(root: Path) -> list[dict]:
@@ -154,7 +148,7 @@ class TestOneRecordPerSurfaceAndKey:
                 claim=surface != SURFACE_SCAFFOLD_RESTORE,
             )
 
-        records = _records(audit_root, surface)
+        records = ledger_records(audit_root, surface)
         assert [r["subject"] for r in records] == list(subjects)
         assert _keys(records) == [(surface, subject) for subject in subjects]
         _assert_no_duplicates(_all_records(audit_root))
@@ -176,8 +170,11 @@ class TestOneRecordPerSurfaceAndKey:
         assert len(_all_records(audit_root)) == len(PROTECTED_SURFACES)
         _assert_no_duplicates(_all_records(audit_root))
 
-    def test_the_record_carries_what_the_retired_ledger_carried(self, audit_root):
+    def test_the_record_carries_what_the_retired_ledger_carried(
+        self, audit_root, monkeypatch, tmp_path
+    ):
         """Nothing the ``protected-writes`` record answered is unanswerable now."""
+        arm_writes(monkeypatch, tmp_path / "agent_data", identity="svc.terminal")
         protected.record_protected_refusal(
             surface=SURFACE_HTTP_CONFIG,
             target_file="config.yml",
@@ -186,7 +183,7 @@ class TestOneRecordPerSurfaceAndKey:
             reason="protected_key",
         )
 
-        (record,) = _records(audit_root, SURFACE_HTTP_CONFIG)
+        (record,) = ledger_records(audit_root, SURFACE_HTTP_CONFIG)
         assert record["surface"] == SURFACE_HTTP_CONFIG
         assert record["subject"] == KEY_A
         assert record["decision"] == DECISION_REFUSED
@@ -236,7 +233,7 @@ class TestTheOuterLayerDefersExactlyWhereItShould:
             claim=False,
         )
 
-        assert _records(audit_root, SURFACE_SCAFFOLD_RESTORE), "the refusal is still durable"
+        assert ledger_records(audit_root, SURFACE_SCAFFOLD_RESTORE), "the refusal is still durable"
         assert dedup.recorded_decision() is None
 
     def test_the_restore_call_site_itself_asks_not_to_claim(self, audit_root):
@@ -268,7 +265,7 @@ class TestTheOuterLayerDefersExactlyWhereItShould:
                 "will now defer to a refusal that was not the answer to its request"
             )
 
-        records = _records(audit_root, SURFACE_SCAFFOLD_RESTORE)
+        records = ledger_records(audit_root, SURFACE_SCAFFOLD_RESTORE)
         assert _keys(records) == [(SURFACE_SCAFFOLD_RESTORE, PATH_A)], (
             "the refusal is still durable -- not claiming is not not recording"
         )
@@ -289,7 +286,9 @@ class TestTheOuterLayerDefersExactlyWhereItShould:
             assert marker is not None, "the panel refused the request and must claim it"
             assert (marker.decision, marker.reason) == (DECISION_REFUSED, "reserved path")
 
-        assert _keys(_records(audit_root, SURFACE_CLAUDE_SETUP)) == [(SURFACE_CLAUDE_SETUP, PATH_A)]
+        assert _keys(ledger_records(audit_root, SURFACE_CLAUDE_SETUP)) == [
+            (SURFACE_CLAUDE_SETUP, PATH_A)
+        ]
 
     @pytest.mark.usefixtures("audit_root")
     def test_the_last_key_of_a_multi_key_refusal_owns_the_call(self):
@@ -335,11 +334,11 @@ class TestTheHttpLayerFilesNothingOnTopOfTheRoute:
         response = client.patch("/api/config", json={})
 
         assert response.status_code == 403
-        assert _keys(_records(audit_root, SURFACE_HTTP_CONFIG)) == [
+        assert _keys(ledger_records(audit_root, SURFACE_HTTP_CONFIG)) == [
             (SURFACE_HTTP_CONFIG, KEY_A),
             (SURFACE_HTTP_CONFIG, KEY_B),
         ]
-        assert _records(audit_root, HTTP_MUTATION_SURFACE) == [], (
+        assert ledger_records(audit_root, HTTP_MUTATION_SURFACE) == [], (
             "the HTTP layer filed a second record for a refusal the route already owned"
         )
         _assert_no_duplicates(_all_records(audit_root))
@@ -349,9 +348,9 @@ class TestTheHttpLayerFilesNothingOnTopOfTheRoute:
         assert client.patch("/api/config", json={}).status_code == 403
         assert client.patch("/api/config", json={}).status_code == 403
 
-        subjects = [r["subject"] for r in _records(audit_root, SURFACE_HTTP_CONFIG)]
+        subjects = [r["subject"] for r in ledger_records(audit_root, SURFACE_HTTP_CONFIG)]
         assert subjects == [KEY_A, KEY_B, KEY_A, KEY_B]
-        assert _records(audit_root, HTTP_MUTATION_SURFACE) == []
+        assert ledger_records(audit_root, HTTP_MUTATION_SURFACE) == []
 
     def test_an_admitted_mutation_is_still_recorded_by_the_layer_below(self, audit_root):
         """The negative control: with nothing claimed, the HTTP layer records.
@@ -368,7 +367,7 @@ class TestTheHttpLayerFilesNothingOnTopOfTheRoute:
         app.add_middleware(HttpAuditMiddleware)
 
         assert TestClient(app).patch("/api/config", json={}).status_code == 200
-        assert len(_records(audit_root, HTTP_MUTATION_SURFACE)) == 1
+        assert len(ledger_records(audit_root, HTTP_MUTATION_SURFACE)) == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -415,7 +414,7 @@ class TestTheSetupPatchToolRecordsPerKey:
                 with assert_raises_error(error_type="protected_key"):
                     await fn(file="config.yml", key_path=key, value="x")
 
-        records = _records(audit_root, SURFACE_SETUP_PATCH)
+        records = ledger_records(audit_root, SURFACE_SETUP_PATCH)
         assert _keys(records) == [(SURFACE_SETUP_PATCH, KEY_A), (SURFACE_SETUP_PATCH, KEY_B)]
         _assert_no_duplicates(_all_records(audit_root))
 
@@ -522,7 +521,7 @@ class TestPinnedSpellings:
             reason="reserved path",
         )
 
-        (record,) = _records(audit_root, SURFACE_CLAUDE_SETUP)
+        (record,) = ledger_records(audit_root, SURFACE_CLAUDE_SETUP)
         assert record["posture"] == protected.POSTURE_SANDBOX
         assert record["session"] == "chat-7"
 

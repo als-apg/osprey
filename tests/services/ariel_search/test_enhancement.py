@@ -1945,31 +1945,6 @@ class TestBaseHealthContract:
 # ---------------------------------------------------------------------------
 
 
-class _SpyExpander:
-    """Wraps an expander and records the ``limit`` of every scan."""
-
-    def __init__(self, inner):
-        self.inner = inner
-        self.limits = []
-
-    def expand(self, text, *, limit=None, tokens=None):
-        self.limits.append(limit)
-        return self.inner.expand(text, limit=limit, tokens=tokens)
-
-
-def _fit_expander(unit_vocabulary_file):
-    from osprey.services.ariel_search.vocabulary import EntryExpander
-    from osprey.services.ariel_search.vocabulary.loader import load_vocabulary
-
-    loaded, errors, _warnings = load_vocabulary(
-        unit_vocabulary_file, canonical_to_acronym=True, canonical_to_shorthand=False
-    )
-    assert errors == []
-    return _SpyExpander(
-        EntryExpander(loaded, canonical_to_acronym=True, canonical_to_shorthand=False)
-    )
-
-
 def _fit(raw, expander, *, room, floor, scanned=None):
     from osprey.services.ariel_search.enhancement.text_embedding.embedder import _fit_expanded
     from osprey.services.ariel_search.vocabulary.model import match_tokens
@@ -1996,9 +1971,8 @@ def _floor(raw, room):
 class TestFitExpanded:
     """``_fit_expanded`` picks a word-aligned cut whose expansion fits the room."""
 
-    def test_fit_expanded_uncut_entry_keeps_whole_text(self, unit_vocabulary_file):
+    def test_fit_expanded_uncut_entry_keeps_whole_text(self, expander):
         raw = "RF trip at BPM 3, quad reset"
-        expander = _fit_expander(unit_vocabulary_file)
         cut, expansion = _fit(raw, expander, room=200, floor=len(raw))
         assert cut == len(raw)
         assert expansion.text == (
@@ -2006,23 +1980,21 @@ class TestFitExpanded:
         )
         assert _bytes_at(raw, cut, expansion) <= 200
 
-    def test_fit_expanded_uncut_entry_never_cut_when_terms_overflow(self, unit_vocabulary_file):
+    def test_fit_expanded_uncut_entry_never_cut_when_terms_overflow(self, expander):
         # 15 acronyms in a short entry: the raw text stays whole, the caller drops
         # the trailing insertions that do not fit.
         raw = " ".join(["RF trip"] * 15)
         room = len(raw) + 40
-        expander = _fit_expander(unit_vocabulary_file)
         cut, expansion = _fit(raw, expander, room=room, floor=len(raw))
         assert cut == len(raw)
         assert len(expansion.insertions) == 15
         assert _bytes_at(raw, cut, expansion) > room
         assert len(expander.limits) == 2  # walk scan + one confirming re-scan at the floor
 
-    def test_fit_expanded_cut_entry_picks_largest_fitting_word_end(self, unit_vocabulary_file):
+    def test_fit_expanded_cut_entry_picks_largest_fitting_word_end(self, expander):
         raw = "BPM drift " + "filler word " * 40
         room = 200
         floor = _floor(raw, room)
-        expander = _fit_expander(unit_vocabulary_file)
         cut, expansion = _fit(raw, expander, room=room, floor=floor)
         assert cut in _word_ends(raw)
         assert floor <= cut
@@ -2031,30 +2003,27 @@ class TestFitExpanded:
         nxt = min(end for end in _word_ends(raw) if end > cut)
         assert _bytes_at(raw, nxt, expansion) > room
 
-    def test_fit_expanded_dense_entry_falls_back_to_floor(self, unit_vocabulary_file):
+    def test_fit_expanded_dense_entry_falls_back_to_floor(self, expander):
         raw = " ".join(["BPM trip"] * 100)
         room = 120
         floor = _floor(raw, room)
-        expander = _fit_expander(unit_vocabulary_file)
         cut, expansion = _fit(raw, expander, room=room, floor=floor)
         assert cut == floor
         assert len(raw[:cut].encode()) >= room * 3 // 4
         assert all(i.anchor <= cut for i in expansion.insertions)
 
-    def test_fit_expanded_expansion_is_scanned_up_to_the_cut(self, unit_vocabulary_file):
+    def test_fit_expanded_expansion_is_scanned_up_to_the_cut(self, expander):
         raw = "word " * 30 + "RF " + "word " * 30
         room = 100
         floor = _floor(raw, room)
-        expander = _fit_expander(unit_vocabulary_file)
         cut, expansion = _fit(raw, expander, room=room, floor=floor)
         assert expander.limits[-1] == cut
         assert all(i.anchor <= cut for i in expansion.insertions)
 
-    def test_fit_expanded_runs_at_most_three_rescans(self, unit_vocabulary_file):
+    def test_fit_expanded_runs_at_most_three_rescans(self, expander):
         raw = ("RF BPM quad " * 60).strip()
         room = 300
         floor = _floor(raw, room)
-        expander = _fit_expander(unit_vocabulary_file)
         from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
             _utf8_prefix,
         )
@@ -2064,47 +2033,42 @@ class TestFitExpanded:
         assert 1 <= len(expander.limits) <= 3
         assert floor <= cut
 
-    def test_fit_expanded_reuses_given_scan(self, unit_vocabulary_file):
+    def test_fit_expanded_reuses_given_scan(self, expander):
         raw = "RF trip"
-        expander = _fit_expander(unit_vocabulary_file)
         scanned = expander.inner.expand(raw, limit=len(raw))
         _fit(raw, expander, room=100, floor=len(raw), scanned=scanned)
         assert expander.limits == [len(raw)]
 
-    def test_fit_expanded_ignores_torn_token_at_room_end(self, unit_vocabulary_file):
+    def test_fit_expanded_ignores_torn_token_at_room_end(self, expander):
         # The room ends inside the last word: that word's end is not a candidate.
         raw = "alpha beta gamma RFQ"
         room = len("alpha beta gamma RF")
-        expander = _fit_expander(unit_vocabulary_file)
         cut, expansion = _fit(raw, expander, room=room, floor=len("alpha beta gamma"))
         assert cut == len("alpha beta gamma")
         assert expansion.insertions == ()
 
-    def test_fit_expanded_no_boundary_floor_is_final(self, unit_vocabulary_file):
+    def test_fit_expanded_no_boundary_floor_is_final(self, expander):
         raw = "RF " + "x" * 400
         room = 200
         floor = len(raw.encode()[:room].decode())
-        expander = _fit_expander(unit_vocabulary_file)
         cut, expansion = _fit(raw, expander, room=room, floor=floor)
         assert cut == floor
         assert expander.limits[-1] == floor
 
-    def test_fit_expanded_multibyte_text_counts_bytes(self, unit_vocabulary_file):
+    def test_fit_expanded_multibyte_text_counts_bytes(self, expander):
         raw = "RF " + "ünïcödé " * 40
         room = 150
         floor = _floor(raw, room)
-        expander = _fit_expander(unit_vocabulary_file)
         cut, expansion = _fit(raw, expander, room=room, floor=floor)
         assert cut in _word_ends(raw)
         assert _bytes_at(raw, cut, expansion) <= room
         assert len(raw[:cut].encode()) >= room * 3 // 4
 
-    def test_fit_expanded_random_invariants(self, unit_vocabulary_file):
+    def test_fit_expanded_random_invariants(self, expander):
         import random
 
         rng = random.Random(1234)
         words = ["RF", "BPM", "quad", "trip", "beam", "ünï", "orbit", "BPMs", "x" * 9, "TS"]
-        expander = _fit_expander(unit_vocabulary_file)
         for _ in range(200):
             raw = " ".join(rng.choice(words) for _ in range(rng.randint(1, 120)))
             room = rng.randint(40, 400)
@@ -2184,8 +2148,7 @@ class TestBuildEmbeddingInput:
         with pytest.raises(dataclasses.FrozenInstanceError):
             value.text = "b"
 
-    def test_embedding_input_short_entry_embeds_every_term(self, unit_vocabulary_file):
-        expander = _fit_expander(unit_vocabulary_file)
+    def test_embedding_input_short_entry_embeds_every_term(self, expander):
         raw = "RF trip at BPM 3, quad reset"
 
         built = _build(raw, None, 512, expander)
@@ -2193,8 +2156,7 @@ class TestBuildEmbeddingInput:
         assert built.text == expander.inner.expand(raw).text
         assert built.kept_chars == len(raw)
 
-    def test_embedding_input_without_matches_is_today_bytes(self, unit_vocabulary_file):
-        expander = _fit_expander(unit_vocabulary_file)
+    def test_embedding_input_without_matches_is_today_bytes(self, expander):
         short = "beam lost at injection"
         long = "beam lost at injection " * 20
 
@@ -2202,10 +2164,7 @@ class TestBuildEmbeddingInput:
         assert _build(long, None, 40, expander).text == fit_to_input_limit(long, 40)
         assert expander.limits[-1] == len(fit_to_input_limit(long, 40))
 
-    def test_embedding_input_short_entry_is_never_cut_terms_dropped_whole(
-        self, unit_vocabulary_file
-    ):
-        expander = _fit_expander(unit_vocabulary_file)
+    def test_embedding_input_short_entry_is_never_cut_terms_dropped_whole(self, expander):
         raw = "RF trip at BPM 3, quad reset"
         # Room for the raw text, " radio frequency" and " quadrupole", but not
         # " beam position monitor": once a term overflows the rest are dropped.
@@ -2217,8 +2176,7 @@ class TestBuildEmbeddingInput:
         assert built.kept_chars == len(raw)
         assert len(built.text.encode()) <= room
 
-    def test_embedding_input_long_entry_cut_at_word_end_above_floor(self, unit_vocabulary_file):
-        expander = _fit_expander(unit_vocabulary_file)
+    def test_embedding_input_long_entry_cut_at_word_end_above_floor(self, expander):
         raw = "RF trip at BPM 3, quad reset and the vertical orbit drifted " * 6
         room = 120
 
@@ -2234,10 +2192,7 @@ class TestBuildEmbeddingInput:
         assert len(expander.limits) <= 1 + 3
         assert expander.limits[0] == len(fit_to_input_limit(raw, _tokens_for(room)))
 
-    def test_embedding_input_output_is_raw_prefix_plus_ordered_insertions(
-        self, unit_vocabulary_file
-    ):
-        expander = _fit_expander(unit_vocabulary_file)
+    def test_embedding_input_output_is_raw_prefix_plus_ordered_insertions(self, expander):
         raw = "quad trip, BPM 4 noisy, RF ok, then quad again " * 5
         for room in (40, 63, 90, 150, 400):
             built = _build(raw, None, _tokens_for(room), expander)
@@ -2256,10 +2211,7 @@ class TestBuildEmbeddingInput:
             assert built.text in renders
             assert len(built.text.encode()) <= room
 
-    def test_embedding_input_no_boundary_in_window_falls_back_to_byte_cut(
-        self, unit_vocabulary_file
-    ):
-        expander = _fit_expander(unit_vocabulary_file)
+    def test_embedding_input_no_boundary_in_window_falls_back_to_byte_cut(self, expander):
         raw = "RF " + "x" * 100
         tokens = _tokens_for(40)
 
@@ -2268,8 +2220,7 @@ class TestBuildEmbeddingInput:
         assert built.text == fit_to_input_limit(raw, tokens)
         assert built.kept_chars == 40
 
-    def test_embedding_input_torn_token_is_never_matched(self, unit_vocabulary_file):
-        expander = _fit_expander(unit_vocabulary_file)
+    def test_embedding_input_torn_token_is_never_matched(self, expander):
         raw = "x " * 18 + "BPM trip"  # the room ends inside "BPM"
         tokens = _tokens_for(37)
 
@@ -2278,8 +2229,7 @@ class TestBuildEmbeddingInput:
         assert built.text == fit_to_input_limit(raw, tokens)
         assert "beam position monitor" not in built.text
 
-    def test_embedding_input_picture_text_keeps_its_quarter(self, unit_vocabulary_file):
-        expander = _fit_expander(unit_vocabulary_file)
+    def test_embedding_input_picture_text_keeps_its_quarter(self, expander):
         raw = "RF trip at BPM 3, quad reset " * 10
         att = "c" * 200
         budget = 120
@@ -2291,19 +2241,19 @@ class TestBuildEmbeddingInput:
         assert "radio frequency" in built.text
         assert built.kept_chars < len(raw)
 
-    def test_embedding_input_running_key_composition(self, unit_vocabulary_file):
+    def test_embedding_input_running_key_composition(self, expander):
         from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
             INPUT_RULE,
             running_input_key,
         )
         from osprey.services.ariel_search.vocabulary.entry import classify_build_keys
 
-        expander = _fit_expander(unit_vocabulary_file).inner
+        inner = expander.inner
 
         assert INPUT_RULE == 1
         assert running_input_key(None) == "r1"
-        assert running_input_key(expander) == f"r1:{expander.key}"
-        for key in (running_input_key(None), running_input_key(expander)):
+        assert running_input_key(inner) == f"r1:{inner.key}"
+        for key in (running_input_key(None), running_input_key(inner)):
             classify_build_keys({}, key)
 
 

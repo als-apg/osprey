@@ -557,7 +557,8 @@ Checklist for a new test area:
       it degrades — exit 1, and the colliding file's tests simply never run,
       which later reads as a coverage shortfall rather than a collection failure.
 - [ ] **Reuse the shared fixtures and helpers.** `free_port()` / `wait_for_port()`
-      for ports, the existing reset seams for global state, `patch_subprocess()`
+      for ports, `tests._live.wait_until()` / `async_wait_until()` for polling a
+      condition, the existing reset seams for global state, `patch_subprocess()`
       for subprocess fakes, `isolated_home` for anything touching `$HOME`.
 - [ ] **New global state gets a public reset seam in `src/`**, plus an autouse
       fixture in the area's `conftest.py` in the house style — reset before and

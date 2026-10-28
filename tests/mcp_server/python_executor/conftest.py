@@ -2,34 +2,6 @@
 
 import pytest
 
-from osprey.mcp_server.python_executor.executor import ExecutionResult
-
-
-@pytest.fixture
-def mock_execution_result():
-    """Factory for creating mock ExecutionResult objects."""
-
-    def _make(
-        success=True,
-        stdout="42\n",
-        stderr="",
-        figures=None,
-        execution_method_used="subprocess",
-        execution_time_seconds=1.5,
-        error_message=None,
-    ):
-        return ExecutionResult(
-            success=success,
-            stdout=stdout,
-            stderr=stderr,
-            figures=figures or [],
-            execution_method_used=execution_method_used,
-            execution_time_seconds=execution_time_seconds,
-            error_message=error_message,
-        )
-
-    return _make
-
 
 @pytest.fixture
 def execution_folder(tmp_path):

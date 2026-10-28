@@ -9,27 +9,28 @@ them the same way, so the answers live here once and each recorder imports
 them. This module is a leaf below all three: the middleware and the gates
 already depend on the audit package, and nothing here depends on them.
 
-The posture *value* has two sources, and :func:`posture` is the seam between
-them. The environment answers first: a process launched read-only is sandboxed
-and nothing else has to be read. Otherwise the answer comes from the operator's
-narrowing, which is per CONTROL TARGET — "the live machine is read-only, leave
-the virtual accelerator alone". No environment variable can carry that, because
-setting one would sandbox both targets, so it is a field of the control-context
-record, read through :mod:`osprey_connectors.posture_store` and imported lazily
-so that the leaf stays a leaf. That record can only NARROW: an environment that
-already says sandbox is returned unchanged, and no narrowing has ever granted a
-write.
+The posture *value* is the write verdict's, read for the control target this
+process's writes are about: :func:`verdict` asks
+:func:`osprey_connectors.posture_store.write_verdict` about
+:func:`recorded_control_target`, and :func:`posture` spells its answer the way
+the ledger does — ``writes`` when the verdict allows, ``sandbox`` when it
+refuses. So the ledger reads ``sandbox`` whenever a write to that target would
+be refused: a read-only run, a tier that allows no writes, an unknown target or
+owner, an unreadable record, a switch that is off. The connector package is
+imported lazily so that the leaf stays a leaf.
 
-The narrowing belongs to the DEPLOYMENT rather than to a process tree inside
-it, so :data:`POSTURE_SESSION_ENV_VAR` does not index it and does not gate it:
-a dispatch worker, an ``agent_runner`` child and a CLI run are answered from
-the same record as a Web Terminal session's child. That variable is the audit
-session id, which is what the ledger joins records on.
+The verdict belongs to the DEPLOYMENT's record rather than to a process tree
+inside it, so :data:`POSTURE_SESSION_ENV_VAR` does not index it and does not
+gate it: a dispatch worker, an ``agent_runner`` child and a CLI run are answered
+from the same record as a Web Terminal session's child. That variable is the
+audit session id, which is what the ledger joins records on.
 
-:func:`posture` never raises. Three refusal paths call it on every tool call,
-and an exception from any of them would cost the call rather than answer it, so
-every way of failing to read the record — a missing file, a corrupt one, an
-unresolvable target, an import that fails — degrades to the environment answer.
+:func:`verdict` and :func:`posture` never raise. Every recorder calls
+:func:`posture` on every record it files, and an exception would cost the call
+rather than answer it. A config that cannot be read is a tier that allows
+nothing (``tier_never``), and a verdict that cannot be reached at all is a
+refusal; neither is ever a grant. This module decides nothing: the refusals are
+the surfaces' own, through the same verdict.
 
 The spellings are the wire contract with the spawn sites
 (``interfaces/web_terminal``), which stamp the variables by these names and are
@@ -41,28 +42,31 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import TYPE_CHECKING, Any
 
 from osprey.audit.envelope import POSTURE_SOURCE_PROCESS, POSTURE_SOURCES
+
+if TYPE_CHECKING:
+    from osprey_connectors.posture_store import WriteVerdict
 
 logger = logging.getLogger("osprey.audit.posture")
 
 __all__ = [
     "CONTROL_TARGET_ENV_VAR",
     "OSPREY_AGENT_DATA_ROOT",
-    "CAUSE_DEPLOYMENT_READONLY",
-    "CAUSE_NARROWED_TARGET",
     "POSTURE_ENV_VAR",
     "POSTURE_SANDBOX",
     "POSTURE_SESSION_ENV_VAR",
     "POSTURE_SOURCE_ENV_VAR",
     "POSTURE_WRITES",
     "SANDBOX_MODE",
+    "control_system_section",
     "is_readonly_run",
-    "sandbox_cause",
     "posture",
     "posture_session",
     "posture_source",
     "recorded_control_target",
+    "verdict",
 ]
 
 #: The session posture, carried into every child of a Web Terminal session,
@@ -117,91 +121,81 @@ POSTURE_WRITES = "writes"
 def posture() -> str:
     """This process's posture, spelled the way the ledger spells it.
 
-    The state at decision time, not the reason for any decision: the protected
-    set and the static executor layers refuse in the writes posture too.
+    :func:`verdict` mapped to the ledger's two words: ``writes`` when it allows
+    a write to this process's control target, ``sandbox`` when it refuses one,
+    for whichever reason. The state at decision time, not the reason for any
+    decision — the reason is the refusing surface's to record.
 
-    Two sources, in this order:
-
-    1. **The environment.** ``OSPREY_EXECUTION_MODE == "readonly"`` is a
-       sandbox — a *value* comparison, never a presence check, because the
-       writes posture and a readwrite run set the same variable. It
-       short-circuits: the record holds narrowings only, so consulting it could
-       not change that answer.
-    2. **The control-context record's posture**, indexed by the control target
-       this process's writes are about (:func:`recorded_control_target`); a
-       sandbox narrowing there is a sandbox here. A narrowing on any OTHER
-       target says nothing about this process — narrowing the live machine must
-       leave a process working on the virtual accelerator alone, which is the
-       entire point of the feature.
-
-    :data:`POSTURE_SESSION_ENV_VAR` is not consulted: the narrowing is the
+    :data:`POSTURE_SESSION_ENV_VAR` is not consulted: the record is the
     deployment's, so a process that belongs to no session is answered from the
     same record as one that does.
 
-    Never raises. See :func:`_target_is_sandboxed` for the degradation rule:
-    every failure to read the record answers the environment.
+    Never raises: anything that goes wrong on the way is ``sandbox``.
     """
-    env_answer = POSTURE_SANDBOX if is_readonly_run() else POSTURE_WRITES
-    if env_answer == POSTURE_SANDBOX:
-        return env_answer
-    return POSTURE_SANDBOX if _target_is_sandboxed() else env_answer
+    try:
+        allowed = verdict().allowed
+    except Exception:  # verdict() never raises by contract; answer it if it does
+        logger.debug("Write verdict unavailable; the posture reads sandbox", exc_info=True)
+        allowed = False
+    return POSTURE_WRITES if allowed else POSTURE_SANDBOX
 
 
-#: :func:`sandbox_cause`: the deployment itself was started read-only. No chip
-#: click lifts it — the run has to be started without the environment variable.
-CAUSE_DEPLOYMENT_READONLY = "deployment_readonly"
+def control_system_section() -> Any:
+    """The deployment's ``control_system`` section, or ``None`` when it cannot be read.
 
-#: :func:`sandbox_cause`: the operator narrowed a control target from the header
-#: chip. That is where it lifts, and the cause carries which machine it is about
-#: — ``None`` when no target could be resolved, in which case the record's rule
-#: is that the most restrictive narrowing decides and no machine may be named.
-CAUSE_NARROWED_TARGET = "narrowed_target"
+    The one reader the audit package uses for the section a verdict is asked
+    about: :func:`verdict` here, and the audit middleware's backstop. ``None``
+    is not an empty grant — every verdict reads a section that is not a mapping
+    as a tier that allows nothing (``tier_never``).
+
+    Never raises.
+    """
+    try:
+        # Imported inside the function: this module is a leaf.
+        from osprey_connectors.config import get_config_value
+
+        return get_config_value("control_system", None)
+    except Exception:  # an unreadable config is a tier that allows nothing
+        logger.debug("The control_system section could not be read", exc_info=True)
+        return None
+
+
+def verdict() -> WriteVerdict:
+    """The write verdict for this process's recorded control target.
+
+    :func:`osprey_connectors.posture_store.write_verdict` for
+    :func:`control_system_section` and :func:`recorded_control_target`, with the
+    owner left to that function's own ladder. ``None`` for a target that cannot
+    be named is passed through, and the verdict answers it as it answers any
+    target it cannot resolve.
+
+    Never raises. A config that cannot be read answers ``tier_never``, through
+    the verdict itself; a verdict that cannot be reached refuses as
+    ``record_unavailable``.
+
+    ``osprey-connectors`` is a declared dependency of this package, so the lazy
+    import below is a leaf's import-cost rule, not an optional feature.
+    """
+    from osprey_connectors.posture_store import WriteVerdict, write_verdict
+
+    try:
+        return write_verdict(control_system_section(), recorded_control_target())
+    except Exception:  # write_verdict never raises by contract; refuse if it does
+        logger.debug("Write verdict could not be reached; refusing", exc_info=True)
+        return WriteVerdict(allowed=False, reason="record_unavailable", target=None, kind=None)
 
 
 def is_readonly_run() -> bool:
     """Whether this process was started as a deployment-wide read-only run.
 
-    Rung 1 of :func:`posture`, spelled once so the refusal surfaces cannot ask
-    it differently from the answer they are explaining. A **value** comparison,
+    The first term of the write verdict, spelled once here for the surfaces
+    that explain a refusal, so they cannot ask it differently from the verdict. A **value** comparison,
     never a presence check, deliberately mirroring ``osprey_connectors``'
     ``is_readonly_run``: the writes posture and a readwrite run set the same
     variable, so a presence check would claim a read-only run for every process
     whose environment carries it for any other reason.
     """
     return os.environ.get(POSTURE_ENV_VAR) == SANDBOX_MODE
-
-
-def sandbox_cause() -> tuple[str, str | None]:
-    """Why :func:`posture` answered ``sandbox``, and which machine it is about.
-
-    The two causes send an operator to different places — a deployment started
-    read-only cannot be lifted from the header chip, and a narrowed target can
-    — so every surface that refuses under this posture has to decide which one
-    it is looking at. It is decided here rather than once per surface, so two
-    refusals for one posture cannot disagree about where the operator should go.
-
-    Returns:
-        ``(CAUSE_DEPLOYMENT_READONLY, None)`` for the environment answer, which
-        short-circuits exactly as it does in :func:`posture`; otherwise
-        ``(CAUSE_NARROWED_TARGET, target)``, where *target* is the control
-        target this process's writes are about, or ``None`` when none can be
-        resolved.
-
-    Never raises. :func:`recorded_control_target` is documented not to, but this
-    runs on the refusal path of every clamped call, and a surprise here would
-    turn a refusal into an internal error — so a failure degrades to the
-    target-less cause, which names no machine rather than inventing one.
-    """
-    if is_readonly_run():
-        return CAUSE_DEPLOYMENT_READONLY, None
-    try:
-        return CAUSE_NARROWED_TARGET, recorded_control_target()
-    except Exception:  # the name degrades; the refusal does not
-        logger.warning(
-            "Could not name the active control target for the posture refusal",
-            exc_info=True,
-        )
-        return CAUSE_NARROWED_TARGET, None
 
 
 def posture_source(declared: str | None = None) -> str:
@@ -268,13 +262,9 @@ def recorded_control_target() -> str | None:
     on a machine nobody selected is the runtime's generation pin, not this
     lookup.
 
-    ``None`` is an honest "not knowable here", and :func:`posture` answers the
-    environment for it rather than clamping: this gate refuses EVERY write tool
-    in the process, so firing it on a target nobody could name would refuse
-    writes to machines the operator never narrowed. The fail-closed layer for
-    one specific write is the connector's reference monitor, whose
-    ``effective_writes`` takes the most restrictive entry when it cannot name a
-    target.
+    ``None`` is an honest "not knowable here". :func:`verdict` passes it on, and
+    the write verdict refuses a target it cannot resolve; nothing here invents
+    one.
 
     Never raises: an unimportable ``osprey_connectors`` (a deployment where the
     connector package is not installed) and an unreadable record are both "not
@@ -306,29 +296,3 @@ def recorded_control_target() -> str | None:
         return None
 
     return None if record is None else record.target
-
-
-def _target_is_sandboxed() -> bool:
-    """Whether the record narrows this process's control target to the sandbox.
-
-    The one place :mod:`osprey_connectors.posture_store` is reached from the
-    audit package, and the one place the degradation rule lives: ``False`` for
-    every way of not knowing — no record, a corrupt or unreadable one, a target
-    that cannot be resolved, a connector package that cannot be imported. The
-    caller then answers the environment, which is what a deployment with
-    nothing narrowed has always been answered.
-
-    ``False`` is not a grant. A narrowing can only refuse, so failing to read
-    one leaves whatever the deployment and the environment already decided —
-    including a deployment-wide read-only run, which no reader here can lift.
-    """
-    try:
-        from osprey_connectors import posture_store
-
-        target = recorded_control_target()
-        if target is None:
-            return False
-        return posture_store.target_posture(target) == posture_store.POSTURE_SANDBOX
-    except Exception:  # posture() is called on every tool call
-        logger.debug("Control-context record unavailable; answering the environment", exc_info=True)
-        return False

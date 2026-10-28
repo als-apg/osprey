@@ -393,47 +393,27 @@ def test_write_session_plan_overwrite_changes_the_hash(client: TestClient):
     assert first["content_hash"] != second["content_hash"]
 
 
-def test_write_session_plan_rejects_an_unsafe_name(client: TestClient):
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param("../escape", id="path-escape"),
+        # Regression: `$` matches at end-of-string OR just before a single
+        # trailing "\n", so a naive `^...$` anchor would let "foo\n" through,
+        # producing a file literally named "foo\n.py" and a `PLAN_METADATA["name"]`
+        # that is not a valid identifier. The route must anchor with `\Z` (or
+        # `re.fullmatch`) instead.
+        pytest.param("foo\n", id="trailing-newline"),
+        # Must fail closed with a clean 400, not surface as an unhandled 500
+        # (e.g. an OSError from `Path.write_text` on a filesystem that rejects
+        # overlong filenames).
+        pytest.param("a" * 5000, id="overlong"),
+    ],
+)
+def test_write_session_plan_rejects_a_non_identifier_name(client: TestClient, name):
+    """A plan name that is not a safe identifier is refused with a 400."""
     resp = client.post(
         "/plans/session",
-        json={
-            "name": "../escape",
-            "writes": False,
-            "body": "x = 1\n",
-        },
-    )
-    assert resp.status_code == 400
-
-
-def test_write_session_plan_rejects_a_trailing_newline_name(client: TestClient):
-    """Regression: `$` matches at end-of-string OR just before a single
-    trailing "\\n", so a naive `^...$` anchor would let "foo\\n" through —
-    producing a file literally named "foo\\n.py" and a `PLAN_METADATA["name"]`
-    that is not a valid identifier. The route must anchor with `\\Z` (or
-    `re.fullmatch`) instead, so this must be rejected exactly like any other
-    non-identifier name."""
-    resp = client.post(
-        "/plans/session",
-        json={
-            "name": "foo\n",
-            "writes": False,
-            "body": "x = 1\n",
-        },
-    )
-    assert resp.status_code == 400
-
-
-def test_write_session_plan_rejects_an_overlong_name(client: TestClient):
-    """An absurdly long name must fail closed with a clean 400, not surface
-    as an unhandled 500 (e.g. an OSError from `Path.write_text` on a
-    filesystem that rejects overlong filenames)."""
-    resp = client.post(
-        "/plans/session",
-        json={
-            "name": "a" * 5000,
-            "writes": False,
-            "body": "x = 1\n",
-        },
+        json={"name": name, "writes": False, "body": "x = 1\n"},
     )
     assert resp.status_code == 400
 

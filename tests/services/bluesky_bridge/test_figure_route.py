@@ -66,23 +66,6 @@ _TILED_URI_ENV = "BLUESKY_TILED_URI"
 _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
 
 
-@pytest.fixture(autouse=True)
-def _isolated_state(monkeypatch: pytest.MonkeyPatch):
-    """Fresh buffers, fresh cache, no ambient Tiled config.
-
-    Clearing the Tiled env means a test that forgets to fake the client fails
-    loudly on the wrong branch instead of passing against whatever the ambient
-    environment happens to hold (`test_dual_source_read.py`'s precedent).
-    """
-    live_rows._clear()
-    figure_cache._clear()
-    monkeypatch.delenv(_TILED_URI_ENV, raising=False)
-    monkeypatch.delenv(_TILED_API_KEY_ENV, raising=False)
-    yield
-    live_rows._clear()
-    figure_cache._clear()
-
-
 @pytest.fixture
 def client() -> TestClient:
     return TestClient(app)

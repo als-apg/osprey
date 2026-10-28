@@ -340,11 +340,16 @@ def _chat_timeline(path: Path) -> list[dict[str, Any]]:
     text, so a client that ignores ``events`` still replays the words.
 
     A ``tool_result`` event carries its call's ``decision`` when the transcript
-    shows one; see :func:`_replayed_decision`.
+    shows one; see :func:`_replayed_decision`. It carries ``refusal`` exactly as
+    the live stream does (:func:`~osprey.interfaces.web_terminal.tool_preview.tool_result_refusal`).
     """
     from osprey.interfaces.web_terminal.operator_session import format_tool_name
     from osprey.interfaces.web_terminal.routes.chat import clip_input
-    from osprey.interfaces.web_terminal.tool_preview import tool_result_preview, tool_result_text
+    from osprey.interfaces.web_terminal.tool_preview import (
+        tool_result_preview,
+        tool_result_refusal,
+        tool_result_text,
+    )
 
     turns: list[dict[str, Any]] = []
     agent: dict[str, Any] | None = None
@@ -426,7 +431,9 @@ def _chat_timeline(path: Path) -> list[dict[str, Any]]:
                 )
             elif btype == "tool_result":
                 result_text = tool_result_text(block.get("content"))
-                preview, truncated = tool_result_preview(result_text)
+                # Read before the preview cut, as the live stream does.
+                refusal, shown = tool_result_refusal(result_text, bool(block.get("is_error")))
+                preview, truncated = tool_result_preview(shown)
                 agent["events"].append(
                     {
                         "type": "tool_result",
@@ -434,6 +441,7 @@ def _chat_timeline(path: Path) -> list[dict[str, Any]]:
                         "is_error": bool(block.get("is_error")),
                         "preview": preview,
                         "truncated": truncated,
+                        "refusal": refusal,
                         "decision": _replayed_decision(
                             block.get("tool_use_id", ""),
                             result_text,

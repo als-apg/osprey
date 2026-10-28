@@ -23,11 +23,8 @@ async def scratch_pool(scratch_config):
     """Pool on the empty scratch database."""
     from osprey.services.ariel_search.database import create_connection_pool
 
-    pool = await create_connection_pool(scratch_config.database)
-    try:
+    async with await create_connection_pool(scratch_config.database) as pool:
         yield pool
-    finally:
-        await pool.close()
 
 
 class TestCoreMigration:
@@ -224,14 +221,11 @@ class TestConnectionPool:
         from osprey.services.ariel_search.database import create_connection_pool
 
         config = DatabaseConfig(uri=database_url)
-        pool = await create_connection_pool(config)
-        try:
+        async with await create_connection_pool(config) as pool:
             async with pool.connection() as conn:
                 result = await conn.execute("SELECT 1 AS value")
                 row = await result.fetchone()
                 assert row[0] == 1
-        finally:
-            await pool.close()
 
     async def test_pool_executes_queries(self, database_url):
         """Pool can execute queries."""
@@ -239,14 +233,11 @@ class TestConnectionPool:
         from osprey.services.ariel_search.database import create_connection_pool
 
         config = DatabaseConfig(uri=database_url)
-        pool = await create_connection_pool(config)
-        try:
+        async with await create_connection_pool(config) as pool:
             async with pool.connection() as conn:
                 result = await conn.execute("SELECT version() AS version")
                 row = await result.fetchone()
                 assert "PostgreSQL" in row[0]
-        finally:
-            await pool.close()
 
 
 # ==============================================================================
@@ -773,13 +764,10 @@ class TestAttachmentFilesCopyStateMigration:
         modules["semantic_processor"] = EnhancementModuleConfig(enabled=semantic_processor)
         config = replace(scratch_config, enhancement_modules=modules)
 
-        pool = await create_connection_pool(config.database)
-        try:
+        async with await create_connection_pool(config.database) as pool:
             applied = await run_migrations(pool, config)
             async with pool.connection() as conn:
                 columns = await self._columns(conn)
-        finally:
-            await pool.close()
 
         assert self.MIGRATION in applied
         assert ("semantic_processor" in applied) is semantic_processor
@@ -1201,14 +1189,11 @@ class TestV2SearchIndexMigrations:
         from osprey.services.ariel_search.database import create_connection_pool, run_migrations
 
         config = self._config(scratch_config, True)
-        pool = await create_connection_pool(config.database)
-        try:
+        async with await create_connection_pool(config.database) as pool:
             await run_migrations(pool, config)
             async with pool.connection() as conn:
                 await self._seed(conn)
             yield pool
-        finally:
-            await pool.close()
 
     @pytest.mark.parametrize("semantic_processor", [False, True])
     async def test_v2_topological_order_and_kept_v1_indexes(
@@ -1218,13 +1203,10 @@ class TestV2SearchIndexMigrations:
         from osprey.services.ariel_search.database import create_connection_pool, run_migrations
 
         config = self._config(scratch_config, semantic_processor)
-        pool = await create_connection_pool(config.database)
-        try:
+        async with await create_connection_pool(config.database) as pool:
             applied = await run_migrations(pool, config)
             async with pool.connection() as conn:
                 indexes = await self._indexes(conn)
-        finally:
-            await pool.close()
 
         pos = applied.index
         assert pos("attachment_text_upstream_fold") < pos("raw_text_fts_index_v2")

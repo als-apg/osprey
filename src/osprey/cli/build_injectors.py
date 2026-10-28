@@ -1115,8 +1115,8 @@ def _warn_underivable_lane_targets(config: Any, lanes: list[tuple[str, dict[str,
     variable that fails loudly at ``osprey up``, or the co-deployed stand-in
     container. Such a lane's worker is built as the
     deployment baseline and keeps working; what it does not have is a connector
-    block of its own, so it inherits the deployment-wide write posture instead
-    of carrying one. That is worth saying at build time, when the author is
+    block of its own, so the connector refuses each of its writes as an
+    unknown target. That is worth saying at build time, when the author is
     still holding the profile.
     """
     control_system = config.get("control_system") or {}
@@ -1130,7 +1130,7 @@ def _warn_underivable_lane_targets(config: Any, lanes: list[tuple[str, dict[str,
             logger.warning(
                 "    Lane %s declares the %r target, which this config cannot resolve "
                 "to a control system: its worker builds %r — the deployment baseline — "
-                "and inherits control_system.writes_enabled. Configure the connector "
+                "and its writes are refused as an unknown target. Configure the connector "
                 "block for the machine it addresses (control_system.connector.%s, say) "
                 "to make the lane concrete.",
                 lane_key,

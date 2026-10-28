@@ -7,7 +7,7 @@ must be facility-neutral: no default archiver URL, and no site-specific string
 anywhere in the migrated source.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -23,6 +23,7 @@ from osprey.mcp_server.phoebus.models import (
     TimeRange,
     TraceType,
 )
+from tests.mcp_server._zones import zone_away_from_host
 
 
 def _minimal_config(**overrides) -> PlotConfig:
@@ -188,20 +189,6 @@ def test_default_time_window_is_facility_local(tmp_path, monkeypatch):
     assert abs((end - start).total_seconds() - 24 * 3600) < 1
 
 
-def _zone_away_from_host() -> ZoneInfo:
-    """Return a zone whose wall-clock differs from the host clock by hours.
-
-    The file-name stamp must be shown to follow the facility zone and not the host clock, so
-    the two must differ by more than the test tolerance on any host. UTC+14 is used unless the
-    host already runs at +14 h; the closest real host offset to +14 h is +13:45, fifteen
-    minutes away.
-    """
-    host_offset = datetime.now().astimezone().utcoffset()
-    if host_offset == timedelta(hours=14):
-        return ZoneInfo("Etc/GMT+12")
-    return ZoneInfo("Etc/GMT-14")
-
-
 def _patch_zone(monkeypatch, zone) -> None:
     monkeypatch.setattr(
         "osprey.mcp_server.phoebus.plt_generator.get_facility_timezone",
@@ -259,7 +246,7 @@ def test_annotation_times_are_facility_wall_clock(tmp_path, monkeypatch):
 
 def test_file_name_is_stamped_in_the_facility_zone(tmp_path, monkeypatch):
     """The file-name stamp is facility wall-clock, not the host clock."""
-    zone = _zone_away_from_host()
+    zone = zone_away_from_host()
     _patch_zone(monkeypatch, zone)
     plt_path = plt_generator.create_plt_from_config(_minimal_config(), workspace_dir=tmp_path)
 

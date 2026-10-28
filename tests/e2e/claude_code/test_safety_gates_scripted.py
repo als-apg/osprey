@@ -20,6 +20,7 @@ import pytest
 
 from osprey.agent_runner.primitives import ToolTrace
 from osprey_connectors.control_context import _record_path_under
+from osprey_connectors.refusals import refusal_phrase
 from tests.e2e.scripted_model import ScriptedCall
 from tests.e2e.sdk_helpers import HookObservedResult, agent_data_dir, run_sdk_query_with_hooks
 
@@ -37,7 +38,8 @@ READBACK = "SR:MAG:QF:01:CURRENT:RB"
 CORRECTOR = "MAG:HCM01:CURRENT:SP"
 
 LIMITS_REASON = "CHANNEL LIMITS VIOLATION"
-WRITES_REASON = "WRITES DISABLED"
+#: What every writes-check refusal opens with; the reason's trailer closes it.
+WRITES_REASON = "WRITES OFF"
 NO_SUCH_TOOL = "No such tool available"
 
 
@@ -84,6 +86,11 @@ def assert_hook_refused(trace: ToolTrace, *, own: str, other: str) -> None:
     )
     assert own in text, f"the refusal does not carry {own!r}: {text[:300]}"
     assert other not in text, f"the refusal carries another gate's {other!r}: {text[:300]}"
+
+
+def refusal_trailer(reason: str) -> str:
+    """The last line of a write refusal for *reason* (``refusals.refusal_text``)."""
+    return f"[osprey-refusal: {reason}]"
 
 
 def assert_no_callback(result: HookObservedResult, tool: str) -> None:
@@ -217,8 +224,8 @@ async def test_channel_write_is_removed_when_writes_are_disarmed(
     """With no target armed the write tool is not offered, and a call that
     names it anyway is rejected as a tool that does not exist.
 
-    The fixture is the operator's action — set ``writes_enabled: false`` and
-    re-render — and the re-render is what moves the tool into
+    The fixture is the operator's action — set ``control_system.writes: never``
+    and rebuild — and the rebuild is what moves the tool into
     ``permissions.deny``. The read tool is checked as present so the absence
     is the deny's doing and not a controls server that failed to start.
     """
@@ -256,6 +263,7 @@ async def test_python_write_is_refused_when_writes_are_disarmed(
     before, refused, after = result.tool_traces
     assert refused.name == EXECUTE
     assert_hook_refused(refused, own=WRITES_REASON, other=LIMITS_REASON)
+    assert refusal_trailer("tier_never") in (refused.result or ""), refused.result
     assert_no_callback(result, EXECUTE)
     assert_untouched(reading(before, CORRECTOR), reading(after, CORRECTOR), 5.0)
 
@@ -270,9 +278,9 @@ def _record_target(repo) -> str | None:
 
     The record is what the hooks resolve the target from, and the controls MCP
     server writes it at startup. The path comes from ``_record_path_under`` so
-    this reads the file the hooks read. Without a record the hooks deny on the
-    most restrictive posture over all targets, which also refuses the write —
-    reading it is what tells the two apart.
+    this reads the file the hooks read. Without a record the hooks refuse with
+    ``record_unavailable``, which also refuses the write — reading it is what
+    tells the two apart.
     """
     record = _record_path_under(agent_data_dir(repo))
     if not record.exists():
@@ -284,7 +292,7 @@ async def test_channel_write_is_refused_on_live_when_only_va_is_armed(
     safety_project_mixed_render, scripted_model
 ):
     """On a render armed for ``va`` only, a write from a session on ``live``
-    is refused by the writes hook, naming the live target.
+    is refused by the writes hook: the switch is off for the live target.
 
     The write tool is legal on ``va``, so the render cannot remove it: it is
     offered, and the whole boundary is the PreToolUse chain — the writes hook
@@ -299,12 +307,17 @@ async def test_channel_write_is_refused_on_live_when_only_va_is_armed(
     )
     assert _record_target(safety_project_mixed_render) == "live", (
         "no control-context record names the live target; the refusal below "
-        "would be the missing-record fallback, not the live target's posture"
+        "would be the missing-record fallback, not the live target's switch"
     )
     assert WRITE in model.offered_tools
     before, refused, after = result.tool_traces
     assert_hook_refused(refused, own=WRITES_REASON, other=LIMITS_REASON)
-    assert "active target (live)" in (refused.result or "")
+    # The switch is on for ``va`` only, so the live target reads it off.
+    assert refusal_trailer("switch_off") in (refused.result or ""), refused.result
+    # ... and the refusal names the machine it refused: live is the real
+    # machine, never the simulator whose switch is on.
+    assert refusal_phrase("switch_off", "real") in (refused.result or ""), refused.result
+    assert refusal_phrase("switch_off", "simulator") not in (refused.result or ""), refused.result
     assert_no_callback(result, WRITE)
     assert_untouched(reading(before, CORRECTOR), reading(after, CORRECTOR), 5.0)
 

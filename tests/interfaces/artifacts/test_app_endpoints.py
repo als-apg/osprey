@@ -23,6 +23,7 @@ from osprey.interfaces.artifacts.app import (
     create_app,
     run_server,
 )
+from osprey.interfaces.opaque_origin import INERT_TYPES, OPAQUE_CSP
 
 
 def _save_text_artifact(store, title="Plain text"):
@@ -390,7 +391,10 @@ class TestServedPlotThemeBridge:
         assert '/design-system/js/theme-boot.js"' in body
         assert '/design-system/css/tokens.css"' in body
         assert "/design-system/js/theme-manager.js" in body
-        assert "window.parent" not in body
+        # The C-MSG listener posts to window.parent, but nothing reads the
+        # parent's document or theme -- on an opaque origin it could not.
+        assert "parent.document" not in body
+        assert "parent.localStorage" not in body
 
     def test_snippets_carry_no_hardcoded_palette(self):
         """No injected snippet may carry a color literal or a baked theme id --
@@ -675,3 +679,141 @@ class TestIndexArtifactDirMeta:
         root_path = Path(root)
         repo_root = repo_root_for_agent_data(root_path, base_dir)
         assert _agent_artifact_dir(root_path / "artifacts", repo_root, base_dir) == expected
+
+
+def _save_typed_artifact(store, *, artifact_type, mime_type, filename, content=b"<x/>"):
+    return store.save_file(
+        file_content=content,
+        filename=filename,
+        artifact_type=artifact_type,
+        title=filename,
+        description="",
+        mime_type=mime_type,
+        tool_source="test",
+    )
+
+
+class TestServedArtifactsAreOpaque:
+    """Agent-written bytes that a browser could run are served on an opaque
+    origin (C-OPAQUE); inert types keep their headers plus ``nosniff``; the
+    gallery's own pages carry neither."""
+
+    @pytest.mark.parametrize(
+        ("mime_type", "filename"),
+        [
+            ("image/svg+xml", "figure.svg"),
+            ("application/xhtml+xml", "page.xhtml"),
+            ("application/atom+xml", "feed.xml"),
+            ("application/xslt+xml", "style.xsl"),
+            ("application/octet-stream", "blob.bin"),
+        ],
+    )
+    def test_a_served_file_of_a_scriptable_type_carries_the_opaque_sandbox(
+        self, app_client, mime_type, filename
+    ):
+        client, _ = app_client
+        entry = _save_typed_artifact(
+            client.app.state.artifact_store,
+            artifact_type="file",
+            mime_type=mime_type,
+            filename=filename,
+        )
+        resp = client.get(f"/files/{entry.id}/{entry.filename}")
+        assert resp.status_code == 200
+        assert resp.headers["content-security-policy"] == OPAQUE_CSP
+        assert resp.headers["x-content-type-options"] == "nosniff"
+
+    @pytest.mark.parametrize(
+        "mime_type",
+        sorted(INERT_TYPES),
+    )
+    def test_a_served_file_of_an_inert_type_gets_nosniff_and_no_sandbox(
+        self, app_client, mime_type
+    ):
+        client, _ = app_client
+        entry = _save_typed_artifact(
+            client.app.state.artifact_store,
+            artifact_type="file",
+            mime_type=mime_type,
+            filename="data.bin",
+            content=b"\x00\x01",
+        )
+        resp = client.get(f"/files/{entry.id}/{entry.filename}")
+        assert resp.status_code == 200
+        assert "content-security-policy" not in resp.headers
+        assert resp.headers["x-content-type-options"] == "nosniff"
+
+    def test_a_text_artifact_is_served_as_inert_plain_text(self, app_client):
+        """A ``text`` artifact (a .tex file, say) is served as text/plain, which
+        is inert whatever type it was saved under."""
+        client, _ = app_client
+        entry = _save_typed_artifact(
+            client.app.state.artifact_store,
+            artifact_type="text",
+            mime_type="application/x-tex",
+            filename="paper.tex",
+            content=b"\\section{x}",
+        )
+        resp = client.get(f"/files/{entry.id}/{entry.filename}")
+        assert resp.headers["content-type"].startswith("text/plain")
+        assert "content-security-policy" not in resp.headers
+        assert resp.headers["x-content-type-options"] == "nosniff"
+
+    @pytest.mark.parametrize("artifact_type", ["plot_html", "html", "table_html", "dashboard_html"])
+    def test_an_injected_html_artifact_carries_the_opaque_sandbox(self, app_client, artifact_type):
+        client, _ = app_client
+        entry = _save_typed_artifact(
+            client.app.state.artifact_store,
+            artifact_type=artifact_type,
+            mime_type="text/html",
+            filename="page.html",
+            content=b"<html><head></head><body><script>fetch('/x')</script></body></html>",
+        )
+        resp = client.get(f"/files/{entry.id}/{entry.filename}")
+        assert resp.status_code == 200
+        assert resp.headers["content-security-policy"] == OPAQUE_CSP
+        assert resp.headers["x-content-type-options"] == "nosniff"
+        assert resp.headers["content-disposition"].startswith("inline")
+
+    @pytest.mark.parametrize("path", ["/", "/static/js/md-render.js", "/api/artifacts"])
+    def test_the_gallerys_own_pages_carry_no_sandbox(self, app_client, path):
+        client, _ = app_client
+        resp = client.get(path)
+        assert resp.status_code == 200
+        assert "content-security-policy" not in resp.headers
+
+
+class TestArtifactMessageListener:
+    """C-MSG: every injection point carries the print/ready listener and keeps
+    following the theme through the design-system module."""
+
+    def test_the_listener_posts_ready_and_prints_on_request(self):
+        from osprey.interfaces.artifacts.app import _ARTIFACT_MESSAGE_LISTENER
+
+        assert "osprey-artifact-ready" in _ARTIFACT_MESSAGE_LISTENER
+        assert "osprey-artifact-print" in _ARTIFACT_MESSAGE_LISTENER
+        assert "window.opener || window.parent" in _ARTIFACT_MESSAGE_LISTENER
+        assert "window.print()" in _ARTIFACT_MESSAGE_LISTENER
+        # print is accepted only from the frame's opener or parent
+        assert "event.source" in _ARTIFACT_MESSAGE_LISTENER
+
+    @pytest.mark.parametrize("artifact_type", ["plot_html", "html", "table_html", "dashboard_html"])
+    def test_every_html_snippet_carries_the_listener_and_the_theme_follower(self, artifact_type):
+        from osprey.interfaces.artifacts.app import (
+            _ARTIFACT_MESSAGE_LISTENER,
+            _RESPONSIVE_SNIPPETS,
+        )
+
+        snippet = _RESPONSIVE_SNIPPETS[artifact_type]
+        assert _ARTIFACT_MESSAGE_LISTENER in snippet
+        assert "from '/design-system/js/theme-manager.js'" in snippet
+        assert "initTheme({ role: 'follower' })" in snippet
+
+    def test_a_served_html_artifact_carries_the_listener(self, app_client):
+        client, _ = app_client
+        entry = _save_html_artifact(
+            client.app.state.artifact_store, "<html><head></head><body></body></html>"
+        )
+        body = client.get(f"/files/{entry.id}/{entry.filename}").text
+        assert "osprey-artifact-ready" in body
+        assert "osprey-artifact-print" in body

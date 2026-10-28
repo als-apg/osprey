@@ -25,6 +25,8 @@ from osprey_connectors.control_system._tango_connector import (
     _quality_fields,
     _split_address,
 )
+from osprey_connectors_tests._write_fakes import arm_switch
+from osprey_connectors_tests._write_fakes import writes_enabled_config as _writes_enabled
 
 # --------------------------------------------------------------------------------------
 # Helpers to build mock PyTango objects
@@ -43,6 +45,17 @@ _ADDRESS = "sr/power_supply/ps01/Current"
 #: only when the call it guards ran somewhere it should not have, so a broken
 #: offload fails an assertion instead of hanging the suite.
 _OFFLOAD_CEILING_S = 5.0
+
+
+@pytest.fixture(autouse=True)
+def _switch_on(monkeypatch, tmp_path):
+    """The login's switch on for the simulator target, connectors stamped with it.
+
+    With :func:`writes_enabled_config` serving a write tier that allows, that is
+    everything the reference monitor's verdict asks before a write reaches the
+    transport; a test that disarms serves a tier that does not.
+    """
+    return arm_switch(monkeypatch, tmp_path / "armed-data")
 
 
 class _Quality:
@@ -106,12 +119,6 @@ def _make_limits_validator(confirm=True):
     validator.validate.return_value = None
     validator.resolve_confirm.return_value = confirm
     return validator
-
-
-def _writes_enabled(key, default=None):
-    if key == "control_system.writes_enabled":
-        return True
-    return default
 
 
 @pytest.fixture

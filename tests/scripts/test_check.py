@@ -181,6 +181,8 @@ def test_the_check_ids_are_the_public_names() -> None:
 #: Modules whose import is a read of the whole tests tree.
 _TREE_READER_MODULES = frozenset({"tests._tree_scan"})
 _GLOB_METHODS = frozenset({"glob", "rglob"})
+#: Collectors that walk each root they are handed (``tests._text_sweep``).
+_ROOT_WALKERS = frozenset({"text_files"})
 
 #: A resolved expression: ("path", parts relative to the repository root) or ("str", text).
 _Value = tuple[str, Any]
@@ -266,6 +268,12 @@ def _globs_the_tests_tree(
         if isinstance(func, ast.Attribute) and func.attr in _GLOB_METHODS:
             if _resolve(func.value, env, here) == tests:
                 return True
+        name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+        if name in _ROOT_WALKERS and any(
+            _names_the_tests_root(arg, roots)
+            for arg in (*node.args, *(keyword.value for keyword in node.keywords))
+        ):
+            return True
         if (
             isinstance(func, ast.Attribute)
             and func.attr == "walk"
@@ -277,6 +285,15 @@ def _globs_the_tests_tree(
             return True
     return any(
         _globs_the_tests_tree(child, env, here, roots) for child in ast.iter_child_nodes(node)
+    )
+
+
+def _names_the_tests_root(node: ast.expr, roots: frozenset[str]) -> bool:
+    """Whether *node* is one of *roots* or a literal tuple or list naming ``"tests"``."""
+    if isinstance(node, ast.Name):
+        return node.id in roots
+    return isinstance(node, (ast.Tuple, ast.List)) and any(
+        isinstance(e, ast.Constant) and e.value == "tests" for e in node.elts
     )
 
 
@@ -440,6 +457,9 @@ _PREAMBLE = (
             False,
         ),
         ("for root in ROOTS:\n    FILES = list((ROOT / root).rglob('*'))\n", True),
+        ("FILES = text_files(ROOT, ROOTS)\n", True),
+        ('FILES = text_files(ROOT, roots=("docs", "tests"))\n', True),
+        ('FILES = text_files(ROOT, ("src", "docs"))\n', False),
     ],
     ids=[
         "argument-default",
@@ -449,6 +469,9 @@ _PREAMBLE = (
         "other-path-after-loop",
         "other-loop-after-loop",
         "loop-over-roots",
+        "walker-over-roots",
+        "walker-over-literal-roots",
+        "walker-elsewhere",
     ],
 )
 def test_the_tree_reader_rule_follows_where_a_name_is_bound(body: str, reads: bool) -> None:

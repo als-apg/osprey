@@ -17,10 +17,10 @@ deployment's own profile:
 
 * ``readonly`` — simple chat-first surface; every write surface refuses on
   every target; built without the EVENTS/BLUESKY panels.
-* ``readwrite`` — expert workspace; armed on the virtual accelerator alone and
-  read-only on both hardware-shaped targets, because write posture is per
-  connector type; channel writes pass the ordinary safety chain (writes-check,
-  limits, human approval); adds the EVENTS/BLUESKY panels.
+* ``readwrite`` — expert workspace; ``control_system.writes: allowed``, so a
+  session may write to every machine the deployment configures; channel writes
+  pass the ordinary safety chain (writes-check, limits, human approval); adds
+  the EVENTS/BLUESKY panels.
 * ``admin`` — readwrite's write posture over the MACHINE and its operator
   panels, plus the privileges the deployment floors off: the ``setup_patch``
   tool, the web Config panel, the scaffold gallery's editors, and the
@@ -36,9 +36,7 @@ owns its own lists and runs on the deployment's services:
 
 The tier contract has two halves, and both are asserted wholesale below rather
 than key-by-key. The MACHINE axes separate readonly from readwrite: enforcement
-(the simulator's own
-``control_system.connector.virtual_accelerator.writes_enabled`` leaf, the one
-posture key the two tiers set differently), surface (``web.ui_mode``), and the
+(``control_system.writes``, ``never`` against ``allowed``), surface (``web.ui_mode``), and the
 write-oriented panels (EVENTS + BLUESKY, added by every write-armed tier and
 absent from readonly). The DEPLOYMENT axes separate admin from both:
 ``claude_code.permissions.remove_deny`` for the ``setup_patch`` tool,
@@ -65,6 +63,7 @@ import yaml
 
 from osprey.cli.build_cmd import _profile_data_bundle
 from osprey.cli.build_profile import BuildProfile, resolve_build_profile
+from osprey.cli.build_profile_document import retired_write_answer
 from osprey.cli.build_profile_load import _KNOWN_PROFILE_KEYS, load_profile
 from osprey.cli.build_profile_presets import _presets_dir, list_apps, list_presets, list_tiers
 from osprey.cli.templates.manager import TemplateManager
@@ -86,7 +85,7 @@ from osprey.port_layout import (
 )
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.utils.config_writer import config_update_fields
-from osprey_connectors.types import CONTROL_TARGETS, configured_targets, target_writes_enabled
+from osprey_connectors.types import configured_targets, tier_writes
 from tests._preset_data import bundle_data_root
 from tests._renders import tier_render
 from tests.fixtures.lifecycle_repo import build_exemplar_repo
@@ -118,11 +117,29 @@ TIER_KIND_KEYS = (_KNOWN_PROFILE_KEYS - _ROOT_ONLY_KEYS) | _TIER_EXTRA_KEYS
 # facts the build supplies; a bundled tier names none of them.
 _ATTACHMENT_CONFIG_KEYS = frozenset({"modules.web_terminals.enabled", "deployed_services"})
 
-WRITE_KEYS = (
-    "control_system.writes_enabled",
-    "control_system.connector.epics.writes_enabled",
-    "control_system.connector.virtual_accelerator.writes_enabled",
-)
+#: The tier key: the one write posture a render holds, for every machine.
+TIER_WRITES_KEY = "control_system.writes"
+#: The retired posture leaves (the flat switch and any connector type's).
+_RETIRED_WRITE_KEY = re.compile(r"control_system(\.connector\.[^.]+)?\.writes_enabled")
+
+
+def _stated_writes(config: dict) -> str | None:
+    """The ``control_system.writes`` a file's own ``config:`` states.
+
+    The tier key when it spells it, else what its retired ``writes_enabled``
+    leaves amount to (the normalizer's rewrite), else ``None``. Read either
+    way so the check holds the posture, not the spelling a shipped file is on.
+    """
+    if TIER_WRITES_KEY in config:
+        return config[TIER_WRITES_KEY]
+    return retired_write_answer(config)
+
+
+def _posture_keys(config: dict) -> set[str]:
+    """The keys of a flat ``config:`` block that state the write posture."""
+    return {
+        key for key in config if key == TIER_WRITES_KEY or _RETIRED_WRITE_KEY.fullmatch(str(key))
+    }
 
 
 def _tier_path(name: str) -> Path:
@@ -181,18 +198,14 @@ def test_tier_opens_with_its_preset_comment(tier: str) -> None:
 @pytest.mark.parametrize(
     ("tier", "writes", "ui_mode"),
     [
-        ("readonly", (False, False, False), "simple"),
-        ("readwrite", (False, False, True), "expert"),
-        ("admin", (False, False, True), "expert"),
+        ("readonly", "never", "simple"),
+        ("readwrite", "allowed", "expert"),
+        ("admin", "allowed", "expert"),
     ],
 )
-def test_tier_pins_write_posture_and_ui_mode(
-    tier: str, writes: tuple[bool, bool, bool], ui_mode: str
-) -> None:
+def test_tier_pins_write_posture_and_ui_mode(tier: str, writes: str, ui_mode: str) -> None:
     config = _load_tier(tier)["config"]
-    assert tuple(config[k] for k in WRITE_KEYS) == writes
-    for key in WRITE_KEYS:
-        assert isinstance(config[key], bool)
+    assert _stated_writes(config) == writes
     assert config["web.ui_mode"] == ui_mode
 
 
@@ -200,14 +213,18 @@ def test_readonly_tier_adds_no_panels_skills_or_privileges() -> None:
     document = _load_tier("readonly")
     assert "web_panels" not in document
     assert "skills" not in document
-    assert set(document["config"]) == {*WRITE_KEYS, "web.ui_mode"}
+    config = document["config"]
+    assert _posture_keys(config)
+    assert set(config) - _posture_keys(config) == {"web.ui_mode"}
 
 
 def test_readwrite_tier_adds_the_write_panels_only() -> None:
     document = _load_tier("readwrite")
     assert document["web_panels"] == ["events", "bluesky"]
     assert "skills" not in document
-    assert set(document["config"]) == {*WRITE_KEYS, "web.ui_mode"}
+    config = document["config"]
+    assert _posture_keys(config)
+    assert set(config) - _posture_keys(config) == {"web.ui_mode"}
 
 
 def test_admin_tier_lifts_the_three_deployment_privileges() -> None:
@@ -416,8 +433,7 @@ def test_app_states_every_host_server_it_switches_off(app: str) -> None:
 @pytest.mark.parametrize("app", APP_NAMES)
 def test_app_pins_every_write_key_off_and_lists_no_write_hooks(app: str) -> None:
     document = _load_app(app)
-    for key in WRITE_KEYS:
-        assert document["config"][key] is False
+    assert _stated_writes(document["config"]) == "never"
     assert not ({"writes-check", "limits"} & set(document["hooks"]))
     assert not ({"events", "bluesky"} & set(document["web_panels"]))
 
@@ -524,15 +540,11 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
 # Shared helpers
 # ---------------------------------------------------------------------------
 
-# The enforcement axis the control-system tiers differ on — the reference
-# monitor's master write switch (see osprey_connectors.control_system.base).
-WRITES_KEY = "control_system.writes_enabled"
-# The same posture spelled per connector TYPE. The flat key above is only what
-# a type inherits when its own block says nothing, so these are what a tier
-# writes to arm one machine and not the other — and what a read-only tier has
-# to write to keep an inherited per-type `true` from arming one over its head.
-VA_WRITES_KEY = "control_system.connector.virtual_accelerator.writes_enabled"
-EPICS_WRITES_KEY = "control_system.connector.epics.writes_enabled"
+# The enforcement axis the control-system tiers differ on: the tier key, one
+# deployment-wide word (``allowed`` or ``never``) a render holds for every
+# machine. A loaded layer carries it whichever spelling the shipped file is on,
+# because the normalizer rewrites the retired ``writes_enabled`` leaves to it.
+WRITES_KEY = TIER_WRITES_KEY
 #: The reference deployment's tier files, hand-kept copies of the bundled
 #: tiers that other suites validate and parse.
 EXEMPLAR_TIERS_DIR = (
@@ -1141,7 +1153,8 @@ class TestControlAssistantTiersAndApps:
         profile = layers["tiers/readonly"]
         assert profile.name == "Control Assistant (Read-Only)"
         assert _profile_data_bundle(profile) == "control_assistant"
-        assert profile.config.get(WRITES_KEY) is False
+        assert profile.config.get(WRITES_KEY) == "never"
+        assert not _posture_keys(profile.config) - {WRITES_KEY}
         # Flat dotted key, never nested YAML under config:.
         assert "control_system" not in _own_config("tiers", "readonly")
 
@@ -1149,13 +1162,13 @@ class TestControlAssistantTiersAndApps:
         profile = layers["tiers/readwrite"]
         assert profile.name == "Control Assistant (Read-Write)"
         assert _profile_data_bundle(profile) == "control_assistant"
-        assert profile.config.get(WRITES_KEY) is False
-        assert profile.config.get(VA_WRITES_KEY) is True
+        assert profile.config.get(WRITES_KEY) == "allowed"
+        assert not _posture_keys(profile.config) - {WRITES_KEY}
         assert "control_system" not in _own_config("tiers", "readwrite")
 
     def test_admin_lifts_the_deployment_floor(self, layers: dict[str, BuildProfile]) -> None:
         """The admin tier is readwrite plus deployment editing, not a fourth
-        write posture: it pins the same three posture keys and
+        write posture: it holds the same ``control_system.writes`` and
         ``ui_mode: expert``, and adds the three keys that lift the floor.
 
         ``remove_deny`` rather than a bare absence of the deny is the whole
@@ -1166,9 +1179,8 @@ class TestControlAssistantTiersAndApps:
         profile = layers["tiers/admin"]
         assert profile.name == "Control Assistant (Admin)"
         assert _profile_data_bundle(profile) == "control_assistant"
-        assert profile.config.get(WRITES_KEY) is False
-        assert profile.config.get(EPICS_WRITES_KEY) is False
-        assert profile.config.get(VA_WRITES_KEY) is True
+        assert profile.config.get(WRITES_KEY) == "allowed"
+        assert not _posture_keys(profile.config) - {WRITES_KEY}
         assert profile.config.get(UI_MODE_KEY) == "expert"
         assert "control_system" not in _own_config("tiers", "admin")
 
@@ -1228,7 +1240,7 @@ class TestControlAssistantTiersAndApps:
         ad_cfg = dict(layers["tiers/admin"].config)
         # Shared machine posture: both tiers are expert desks armed on the
         # simulator and read-only on both hardware-shaped targets.
-        assert rw_cfg[WRITES_KEY] is False and ad_cfg[WRITES_KEY] is False
+        assert rw_cfg[WRITES_KEY] == "allowed" and ad_cfg[WRITES_KEY] == "allowed"
         assert rw_cfg[UI_MODE_KEY] == "expert" and ad_cfg[UI_MODE_KEY] == "expert"
         # Deployment axis 1 — the agent's tool. The deployment's deny reaches
         # BOTH tiers identically; what makes admin different is the subtraction.
@@ -1269,22 +1281,13 @@ class TestControlAssistantTiersAndApps:
     def test_tiers_differ_only_on_the_tier_contract(self, layers: dict[str, BuildProfile]) -> None:
         ro_cfg = dict(layers["tiers/readonly"].config)
         rw_cfg = dict(layers["tiers/readwrite"].config)
-        # Axis 1 — enforcement: the write posture. Both tiers state it with the
-        # same three keys — the flat key every connector type inherits when its
-        # own block says nothing, and the epics and virtual_accelerator blocks
-        # pinned by name so a per-type `true` inherited from anywhere cannot
-        # answer over them. They differ in one leaf only: the simulator's. What
-        # the two mean by the axis is compared through the resolver, per
-        # target, in TestWritePostureMatrix. Only the WRITE leaf is
-        # tier-specific: the deployment's per-type limits block rides along on
-        # every tier by design, so the pops name the leaf rather than the
-        # connector namespace.
-        assert ro_cfg.pop(WRITES_KEY) is False
-        assert ro_cfg.pop(EPICS_WRITES_KEY) is False
-        assert ro_cfg.pop(VA_WRITES_KEY) is False
-        assert rw_cfg.pop(WRITES_KEY) is False
-        assert rw_cfg.pop(EPICS_WRITES_KEY) is False
-        assert rw_cfg.pop(VA_WRITES_KEY) is True
+        # Axis 1 — enforcement: the write posture, one word on the tier key,
+        # `never` against `allowed`. No retired per-type leaf survives the
+        # load, so nothing else about the posture can differ. The deployment's
+        # per-type limits block rides along on every tier by design.
+        assert ro_cfg.pop(WRITES_KEY) == "never"
+        assert rw_cfg.pop(WRITES_KEY) == "allowed"
+        assert not _posture_keys(ro_cfg) and not _posture_keys(rw_cfg)
         # Axis 2 — surface: chat-first for the viewer, full dock for the operator.
         assert ro_cfg.pop(UI_MODE_KEY) == "simple"
         assert rw_cfg.pop(UI_MODE_KEY) == "expert"
@@ -1636,8 +1639,8 @@ class TestControlAssistantTiersAndApps:
         assert "jupyter" not in config["web"]["panels"]
         assert config["web"]["control_target_picker"] is False
         section = config["control_system"]
-        for target in CONTROL_TARGETS:
-            assert target_writes_enabled(section, target) is False, target
+        assert tier_writes(section) == "never"
+        assert "writes_enabled" not in section
 
     def test_knowledge_app_renders_the_knowledge_surface_and_nothing_else(
         self, built_layered_stack: Path
@@ -1704,10 +1707,6 @@ class TestControlAssistantTiersAndApps:
         assert hits == [], f"the channel-finder app dials no graph store but rendered {hits}"
 
 
-#: ``control_system.connector.<type>.writes_enabled``, any type.
-_PER_TYPE_WRITE_KEY = re.compile(r"control_system\.connector\.[^.]+\.writes_enabled")
-
-
 def _shipped_profile(key: str, layers: dict[str, BuildProfile]) -> BuildProfile:
     """The profile one matrix row names: a deployment preset by name, or a
     bundled tier or app (``tiers/<n>``, ``apps/<n>``) loaded over the
@@ -1746,60 +1745,38 @@ def _pinned_rows_match_the_shipped_set(pinned: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Write posture, per control target, across every shipped deployment, tier and app
+# Write posture across every shipped deployment, tier and app
 # ---------------------------------------------------------------------------
 
-#: row -> the write posture it resolves to for each control target. A row is a
-#: deployment preset by name, or a bundled tier or app as it loads over the
+#: row -> the ``control_system.writes`` it renders. A row is a deployment
+#: preset by name, or a bundled tier or app as it loads over the
 #: control-assistant deployment (``tiers/<name>``, ``apps/<name>``).
 #:
-#: The matrix rather than the keys, because the keys are not the answer: write
-#: posture is per connector type, a target names a machine, and what an
-#: operator holds is whatever ``target_writes_enabled`` returns for the target
-#: their deployment is on. A row can reach ``False`` three different ways —
-#: a flat key that is not literally ``True``, a per-type block pinned off, or a
-#: target that resolves to no type at all — and a table of keys would not tell
-#: them apart. Stated literally and never derived from the resolver: a table
-#: computed from the code under test would pin nothing.
+#: The rendered answer rather than the keys a file spells: a row reaches its
+#: posture through the tier key, through the retired ``writes_enabled`` leaves
+#: the normalizer rewrites to it, or through saying nothing (``never``), and
+#: what an operator holds is ``tier_writes`` of the rendered section — one word
+#: for every machine the deployment configures, the stand-in included. Stated
+#: literally and never derived from the resolver: a table computed from the
+#: code under test would pin nothing.
 #:
 #: Every shipped deployment, tier and app appears, so a new one has to state
 #: its posture here before it ships rather than inheriting a silent one.
-#:
-#: All three targets in :data:`CONTROL_TARGETS`, ``standin`` included, even
-#: though nothing shipped writes a ``control_system.connector.live_standin``
-#: block: the block is DERIVED by the build from
-#: ``virtual_accelerator.live_standin``, and this matrix renders the ``config:``
-#: layer alone. That is the point of the column rather than a gap in it — it
-#: pins that nothing shipped arms the stand-in by name, so the hardware-shaped
-#: third machine holds whatever the render's deployment-wide key holds and never
-#: a posture of its own.
-PINNED_TARGET_WRITE_POSTURE: dict[str, dict[str, bool]] = {
-    # The hosting preset arms the flat key and pins no per-type block, so every
-    # target inherits the arming — the stand-in included, which is the point:
-    # the stand-in is a target the operator switches to in order to rehearse,
-    # and a stand-in that refused writes could not rehearse anything. The
-    # read-only tier is what pins it back off, and this row is what makes that
-    # tier's pin load-bearing rather than decorative.
-    "control-assistant": {"live": True, "va": True, "standin": True},
-    # No `control_system:` section of its own; nothing has a write path to lose.
-    "hello-world": {"live": False, "va": False, "standin": False},
-    # The write-capable tiers. Their flat key is ``false`` and the simulator's
-    # own block is what arms them; the epics block is pinned off by name, and
-    # the stand-in has no block of its own and reaches ``False`` through the
-    # flat key. One machine armed, the two hardware-shaped ones not.
-    "tiers/admin": {"live": False, "va": True, "standin": False},
-    "tiers/readwrite": {"live": False, "va": True, "standin": False},
-    # The read-only tier: off on the flat key AND pinned off on the epics and
-    # virtual_accelerator blocks, so no per-type ``true`` inherited from
-    # anywhere can arm those two over it. The stand-in has no block to pin and
-    # reaches ``False`` through the flat key.
-    "tiers/readonly": {"live": False, "va": False, "standin": False},
-    # Every app pins the flat key off AND the epics and virtual_accelerator
-    # blocks, like the read-only tier: none has a control surface at all, and
-    # the boundary is stated the same way everywhere.
-    "apps/channel-finder": {"live": False, "va": False, "standin": False},
-    "apps/knowledge": {"live": False, "va": False, "standin": False},
-    "apps/logbook": {"live": False, "va": False, "standin": False},
+PINNED_WRITE_POSTURE: dict[str, str] = {
+    # The hosting preset arms writes; the read-only tier is what takes them
+    # back, and this row is what makes that tier's `never` load-bearing.
+    "control-assistant": "allowed",
+    # No `control_system:` posture of its own; nothing has a write path to lose.
+    "hello-world": "never",
+    # The write-capable tiers.
+    "tiers/admin": "allowed",
+    "tiers/readwrite": "allowed",
+    "tiers/readonly": "never",
+    # Every app renders `never`, whatever its host or its file says: the
+    # composer pins it.
+    "apps/channel-finder": "never",
+    "apps/knowledge": "never",
+    "apps/logbook": "never",
 }
 
 
@@ -1807,76 +1784,55 @@ class TestWritePostureMatrix:
     """What each shipped deployment, tier and app means by "may this session
     write".
 
-    The tier boundary used to be one key, and while it was, asserting the key
-    was asserting the boundary. It is now the resolver's answer for a target:
-    ``control_system.writes_enabled`` is what a connector type inherits when its
-    own ``control_system.connector.<type>`` block says nothing, and a per-type
-    key anywhere answers for that type instead. So the tests below read the
-    posture the way every write surface reads it — through
-    ``target_writes_enabled`` on the rendered section — rather than through the
-    key a file happens to spell."""
+    The boundary is the tier key, ``control_system.writes``: one word a render
+    holds for every machine it configures. The tests below read it the way
+    every write surface reads it — ``tier_writes`` on the rendered section —
+    rather than through the key a file happens to spell, and hold that no
+    retired ``writes_enabled`` leaf survives a render."""
 
-    @pytest.mark.parametrize("row", sorted(PINNED_TARGET_WRITE_POSTURE))
+    @pytest.mark.parametrize("row", sorted(PINNED_WRITE_POSTURE))
     def test_every_shipped_row_resolves_the_posture_it_is_pinned_to(
         self, tmp_path: Path, row: str, layers: dict[str, BuildProfile]
     ) -> None:
         # Arrange
-        section = _rendered_section(tmp_path, row, layers, "control_system")
+        section = _rendered_section(tmp_path, row, layers, "control_system") or {}
 
         # Act
-        resolved = {target: target_writes_enabled(section, target) for target in CONTROL_TARGETS}
+        resolved = tier_writes(section)
 
         # Assert
-        assert resolved == PINNED_TARGET_WRITE_POSTURE[row]
+        assert resolved == PINNED_WRITE_POSTURE[row]
+        assert not _RETIRED_WRITE_KEY.search(json.dumps(section)), section
 
     def test_the_shipped_set_is_pinned(self) -> None:
         """A new tier or app must state its posture here before it ships.
 
         Without this the parametrization above would simply not cover it, and
         the matrix would degrade into a sample as tiers and apps are added."""
-        _pinned_rows_match_the_shipped_set(PINNED_TARGET_WRITE_POSTURE)
+        _pinned_rows_match_the_shipped_set(PINNED_WRITE_POSTURE)
 
-    def test_readonly_pins_every_connector_block_off(self) -> None:
-        """Three keys, not one — and the two per-type ones are the point.
-
-        The flat key is what a type inherits when its block says nothing, so on
-        its own it is not a floor: a ``control_system.connector.<type>.
-        writes_enabled: true`` added anywhere in the profile would arm that
-        type over it, and per-type values never fall back to the flat key.
-        Every control-system tier therefore pins each block by name; what makes
-        this one read-only is that the simulator's leaf is off here too."""
+    def test_readonly_states_never(self) -> None:
+        """The read-only tier states ``never`` in its own file, so no root it
+        is laid over can arm it: the tier key is one word, and the tier's wins."""
         own = _own_config("tiers", "readonly")
 
-        assert own.get(WRITES_KEY) is False
-        assert own.get(EPICS_WRITES_KEY) is False
-        assert own.get(VA_WRITES_KEY) is False
+        assert _stated_writes(own) == "never"
         # Flat dotted keys, never a nested `control_system:` mapping — which
         # would replace the rendered subtree and drop the sibling keys.
         assert "control_system" not in own
 
-    def test_every_app_pins_the_write_boundary_the_same_way(self) -> None:
-        """The apps state the write boundary the same way, each in its own
-        file: the same write keys, every one off, so a profile that arms epics
-        or the simulator per type cannot arm it for any of them."""
-        pins = {
-            app: {
-                key: value
-                for key, value in _own_config("apps", app).items()
-                if key == WRITES_KEY or _PER_TYPE_WRITE_KEY.fullmatch(str(key))
-            }
-            for app in list_apps()
-        }
+    def test_every_app_states_never(self) -> None:
+        """Each app states the write boundary in its own file, the same way:
+        ``never``, which is also what the composer pins on every app render."""
+        stated = {app: _stated_writes(_own_config("apps", app)) for app in list_apps()}
 
-        assert pins == {
-            app: {WRITES_KEY: False, EPICS_WRITES_KEY: False, VA_WRITES_KEY: False}
-            for app in list_apps()
-        }
+        assert stated == dict.fromkeys(list_apps(), "never")
 
     @pytest.mark.parametrize("app", ["channel-finder", "knowledge", "logbook"])
     def test_every_app_keeps_the_deployments_targets(
         self, tmp_path: Path, app: str, layers: dict[str, BuildProfile]
     ) -> None:
-        """The write pins change what an app may do, never which machines the
+        """The write pin changes what an app may do, never which machines the
         deployment has: an app's configured targets are the deployment's."""
         (tmp_path / "app").mkdir()
         (tmp_path / "root").mkdir()
@@ -1885,39 +1841,20 @@ class TestWritePostureMatrix:
 
         assert configured_targets(section) == configured_targets(hosting)
 
-    def test_readwrite_pins_the_live_ceiling_by_name(self, layers: dict[str, BuildProfile]) -> None:
-        """Its three posture keys: the flat ``false`` every type inherits, the
-        simulator's block armed, and the live block written ``false`` by name
-        so a per-type ``true`` in the profile beneath cannot lift it."""
-        own = _own_config("tiers", "readwrite")
-
-        assert layers["tiers/readwrite"].name == "Control Assistant (Read-Write)"
-        assert own.get(WRITES_KEY) is False
-        assert own.get(VA_WRITES_KEY) is True
-        assert own.get(EPICS_WRITES_KEY) is False
-        assert "control_system" not in own
-
     def test_the_write_capable_tiers_state_the_posture_the_same_way(
         self, tmp_path: Path, layers: dict[str, BuildProfile]
     ) -> None:
         """readwrite and admin differ on deployment editing and on nothing about
-        the machine: the same three posture keys, the two per-type WRITE keys
-        the only ones they spell, and the same answer on every target."""
+        the machine: both state ``allowed`` and both render it."""
+        assert layers["tiers/readwrite"].name == "Control Assistant (Read-Write)"
         for tier in ("readwrite", "admin"):
             own = _own_config("tiers", tier)
-            assert own.get(WRITES_KEY) is False
-            assert own.get(EPICS_WRITES_KEY) is False
-            assert own.get(VA_WRITES_KEY) is True
-            assert sorted(key for key in own if _PER_TYPE_WRITE_KEY.fullmatch(str(key))) == sorted(
-                [EPICS_WRITES_KEY, VA_WRITES_KEY]
-            )
+            assert _stated_writes(own) == "allowed", tier
+            assert "control_system" not in own, tier
 
             (tmp_path / tier).mkdir()
             section = _rendered_section(tmp_path / tier, f"tiers/{tier}", layers, "control_system")
-            resolved = {
-                target: target_writes_enabled(section, target) for target in CONTROL_TARGETS
-            }
-            assert resolved == {"live": False, "va": True, "standin": False}, tier
+            assert tier_writes(section) == "allowed", tier
 
     @pytest.mark.parametrize("tier", ["readonly", "readwrite"])
     def test_the_reference_deployments_tiers_carry_the_bundled_posture(self, tier: str) -> None:
@@ -1930,11 +1867,7 @@ class TestWritePostureMatrix:
         assert f"Copied from the bundled `{tier}` tier" in text
 
         copy = yaml.safe_load(text)["config"]
-        shipped = _own_config("tiers", tier)
-        posture_keys = (WRITES_KEY, EPICS_WRITES_KEY, VA_WRITES_KEY)
-        assert {key: copy.get(key) for key in posture_keys} == {
-            key: shipped.get(key) for key in posture_keys
-        }
+        assert _stated_writes(copy) == _stated_writes(_own_config("tiers", tier))
 
 
 # ---------------------------------------------------------------------------
@@ -1943,7 +1876,7 @@ class TestWritePostureMatrix:
 
 #: row -> the ``web.control_target_picker`` it states, or None where it states
 #: nothing and the key's default (on) holds. Rows as in
-#: :data:`PINNED_TARGET_WRITE_POSTURE`; every shipped deployment, tier and app
+#: :data:`PINNED_WRITE_POSTURE`; every shipped deployment, tier and app
 #: appears, so a new one has to state its answer here before it ships.
 PINNED_CONTROL_TARGET_PICKER: dict[str, bool | None] = {
     "control-assistant": None,

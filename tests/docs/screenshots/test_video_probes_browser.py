@@ -16,23 +16,13 @@ from pathlib import Path
 import pytest
 from docs.screenshots import video_probes, video_take
 
+from tests._playwright import chromium_available
+
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
 # How long a test waits for the state it asserts: far above a healthy browser's
 # reaction, so only a page that never gets there fails.
 _DEADLINE_MS = 10_000
-
-
-def _chromium_available() -> bool:
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        return False
-    p = sync_playwright().start()
-    try:
-        return Path(p.chromium.executable_path).exists()
-    finally:
-        p.stop()
 
 
 def _scatter3d_page(tmp_path: Path) -> Path:
@@ -53,7 +43,7 @@ def _scatter3d_page(tmp_path: Path) -> Path:
 
 
 def test_a_drag_released_over_the_colorbar_still_reads_as_rotation(tmp_path):
-    if not _chromium_available():
+    if not chromium_available():
         pytest.skip("Playwright Chromium is not installed")
     from playwright.sync_api import sync_playwright
 
@@ -142,7 +132,7 @@ _DRAWN = (
 def test_the_preview_probe_waits_for_the_clicked_artifact_to_render(
     hidden, shown, viewport, expected
 ):
-    if not _chromium_available():
+    if not chromium_available():
         pytest.skip("Playwright Chromium is not installed")
     from playwright.sync_api import sync_playwright
 
@@ -167,7 +157,7 @@ def test_the_preview_probe_waits_for_the_clicked_artifact_to_render(
 
 
 def test_the_closing_hold_scrolls_the_attachment_into_view():
-    if not _chromium_available():
+    if not chromium_available():
         pytest.skip("Playwright Chromium is not installed")
     from playwright.sync_api import sync_playwright
 

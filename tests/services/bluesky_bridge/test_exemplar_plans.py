@@ -36,16 +36,6 @@ from osprey.services.bluesky_bridge.devices.mock import build_devices  # noqa: E
 
 from .bluesky_plan_drive import run_plan  # noqa: E402
 
-
-@pytest.fixture(autouse=True)
-def _isolated_state():
-    live_rows._clear()
-    plan_loader.reset_facility_plans()
-    yield
-    live_rows._clear()
-    plan_loader.reset_facility_plans()
-
-
 # =========================================================================
 # Registration through the real layered-directory loader
 # =========================================================================

@@ -138,6 +138,70 @@ def attach_fake_attachment_reader(
 
 
 @pytest.fixture
+def ariel_registry(tmp_path, monkeypatch):
+    """Factory: write a minimal ARIEL ``config.yml`` and initialize the context.
+
+    The test runs from ``tmp_path``. ``entry_text`` becomes ``ariel.entry_text``
+    and ``services`` the top-level ``services`` section, each only when given;
+    ``database`` replaces the default ``ariel.database`` (a ``uri`` only).
+    """
+    from osprey.mcp_server.ariel.server_context import initialize_ariel_context
+
+    def setup(*, entry_text=None, services=None, database=None):
+        monkeypatch.chdir(tmp_path)
+        if database is None:
+            database = {"uri": "postgresql://localhost/test"}
+        ariel: dict = {"database": database}
+        if entry_text is not None:
+            ariel["entry_text"] = entry_text
+        config: dict = {"ariel": ariel}
+        if services is not None:
+            config["services"] = services
+        (tmp_path / "config.yml").write_text(json.dumps(config))
+        initialize_ariel_context()
+
+    return setup
+
+
+def patch_ariel_service(service):
+    """Patch ``ARIELContext.service`` to answer ``service``."""
+    return patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=service),
+    )
+
+
+def make_search_result(
+    entries, *, mode, reasoning="", sources=(), diagnostics=(), expanded_terms=()
+):
+    """Build a mock ARIELSearchResult answered by the ``mode`` search module.
+
+    ``diagnostics`` and ``expanded_terms`` are set explicitly on every result:
+    a MagicMock auto-attribute is neither iterable nor JSON-serializable, so
+    leaving them unset would fail the envelope build rather than the assertion
+    under test.
+    """
+    result = MagicMock()
+    result.entries = tuple(entries)
+    result.answer = None
+    result.reasoning = reasoning
+    result.sources = tuple(sources)
+    result.search_modes_used = (mode,)
+    result.diagnostics = tuple(diagnostics)
+    result.expanded_terms = tuple(expanded_terms)
+    result.pipeline_details = None
+    return result
+
+
+def service_returning(search_result):
+    """An ARIEL service mock whose search returns *search_result*."""
+    service = AsyncMock()
+    attach_fake_attachment_reader(service)
+    service.search.return_value = search_result
+    return service
+
+
+@pytest.fixture
 def mock_ariel_service():
     """Create a mock ARIELSearchService with AsyncMock methods."""
     service = AsyncMock()
@@ -434,8 +498,5 @@ def keyset_harness(request, tmp_path, monkeypatch):
     service._embedder = make_fake_embedding_provider(vector=KEYSET_VECTOR)()
 
     monkeypatch.setattr(qmd_module, "_cached_client", KeysetQMDClient())
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=service),
-    ):
+    with patch_ariel_service(service):
         yield KeysetHarness(service=service, repository=repository, config=config)

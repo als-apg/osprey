@@ -2,22 +2,15 @@
 
 from unittest.mock import MagicMock, PropertyMock, patch
 
-from osprey.mcp_server.channel_finder_hierarchical.server_context import (
-    initialize_cf_hier_context,
-)
-from tests.mcp_server.channel_finder_hierarchical.conftest import get_tool_fn
-from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
+import pytest
+
+from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
+
+pytestmark = pytest.mark.usefixtures("cf_hier_context")
 
 
-def _setup(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("{}")
-    initialize_cf_hier_context()
-
-
-def test_build_channels_happy_path(tmp_path, monkeypatch):
+def test_build_channels_happy_path():
     """Returns list of constructed channel addresses."""
-    _setup(tmp_path, monkeypatch)
     mock_db = MagicMock()
     mock_db.build_channels_from_selections.return_value = [
         "SR:BPM:01:X",
@@ -48,9 +41,8 @@ def test_build_channels_happy_path(tmp_path, monkeypatch):
     mock_db.build_channels_from_selections.assert_called_once_with(selections)
 
 
-def test_build_channels_with_invalid_channels(tmp_path, monkeypatch):
+def test_build_channels_with_invalid_channels():
     """Inline validation separates valid and invalid channels."""
-    _setup(tmp_path, monkeypatch)
     mock_db = MagicMock()
     mock_db.build_channels_from_selections.return_value = [
         "SR:BPM:01:X",
@@ -77,9 +69,8 @@ def test_build_channels_with_invalid_channels(tmp_path, monkeypatch):
     assert data["invalid"] == ["SR:BPM:99:X"]
 
 
-def test_build_channels_value_error(tmp_path, monkeypatch):
+def test_build_channels_value_error():
     """ValueError from database returns validation_error."""
-    _setup(tmp_path, monkeypatch)
     mock_db = MagicMock()
     mock_db.build_channels_from_selections.side_effect = ValueError(
         "Missing required level: 'system'"
@@ -100,9 +91,8 @@ def test_build_channels_value_error(tmp_path, monkeypatch):
     assert "Missing required level" in data["error_message"]
 
 
-def test_build_channels_internal_error(tmp_path, monkeypatch):
+def test_build_channels_internal_error():
     """Unexpected exception returns internal_error."""
-    _setup(tmp_path, monkeypatch)
     with patch(
         "osprey.mcp_server.channel_finder_hierarchical.server_context.ChannelFinderHierContext.database",
         new_callable=PropertyMock,

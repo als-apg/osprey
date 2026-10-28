@@ -11,7 +11,6 @@ solve is refused and leaves the model serving.
 from __future__ import annotations
 
 import importlib.metadata
-import importlib.util
 import json
 import math
 import re
@@ -37,11 +36,12 @@ from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation import model_status
 from osprey_connectors.simulation.composite import _STATUS_MAX_BYTES, ENGINE_GROUP, Composite
 from osprey_connectors.simulation.view import SCHEMAS
+from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
+from tests._by_path import load_module
+from tests._simulator_view import view_channel
 from tests.simulation.conftest import stage_built_simulator_view
 
 if TYPE_CHECKING:
-    from types import ModuleType
-
     from tests._builds import BuiltProject
 
 T0 = 1_760_000_000.0
@@ -54,16 +54,12 @@ QUADRUPOLE = "SR:MAG:QF:01:CURRENT:SP"
 UNSTABLE_CURRENT = 712.2
 
 
-def _writes_enabled(key: str, default: Any = None) -> Any:
-    if key == "control_system.writes_enabled":
-        return True
-    return default
-
-
 @pytest.fixture(autouse=True)
-def _no_model_log_file(monkeypatch: pytest.MonkeyPatch) -> None:
+def _no_model_log_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """No model log file, and a write tier that allows with the simulator switched on."""
     monkeypatch.setattr(composite_module, "default_config_path", lambda: None)
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", _writes_enabled)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
+    arm_switch(monkeypatch, tmp_path / "agent-data")
 
 
 async def _connected(view: Path) -> VAInProcessConnector:
@@ -239,15 +235,7 @@ LINE_SOURCE = Path(__file__).resolve().parents[2] / "scripts" / "facility_demo" 
 LOST = re.compile(r"^lost at element \d+ \(\w+\) turn 0: ")
 
 
-def _line_module() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("_line", LINE_SOURCE)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-LINE = _line_module()
+LINE = load_module("_line", LINE_SOURCE)
 
 
 def _line_corrector() -> str:
@@ -364,29 +352,12 @@ def stub_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(composite_module, "metadata", SimpleNamespace(entry_points=entry_points))
 
 
-def _channel(address: str, owner: str, **fields: Any) -> dict[str, Any]:
-    role = fields.pop("role", "readback")
-    return {
-        "address": address,
-        "role": role,
-        "pair": address if role == "setpoint" else None,
-        "value_type": fields.pop("value_type", "float"),
-        "unit": None,
-        "description": None,
-        "writable": role == "setpoint",
-        "value_range": None,
-        "owner": owner,
-        "on": None,
-        **fields,
-    }
-
-
 def _stub_view(root: Path, settings: Mapping[str, Any] | None = None) -> Path:
     channels = [
-        _channel("M:RB", "M"),
-        _channel(FLAG, "M", value_type="bool"),
-        _channel(MODE, "M", value_type="enum", options=MODE_OPTIONS),
-        _channel("T:SP", "texture", role="setpoint"),
+        view_channel("M:RB", "M"),
+        view_channel(FLAG, "M", value_type="bool"),
+        view_channel(MODE, "M", value_type="enum", options=MODE_OPTIONS),
+        view_channel("T:SP", role="setpoint", writable=True),
     ]
     wiring = [
         {

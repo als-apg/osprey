@@ -13,9 +13,12 @@ import json
 import os
 import re
 import sys
+from pathlib import Path
 
 import pytest
 
+from osprey_connectors.control_context import _record_path_under
+from osprey_connectors.types import baseline_target
 from osprey_connectors_tests._harness import write_control_context, write_server_report
 from tests._guarded_run import (
     PLANTED_REFUSED,
@@ -40,6 +43,47 @@ DEFAULT_APPROVAL_CONFIG = {
         "mcp__ariel__",
     ],
 }
+
+#: Every machine switched on, the way the operator's chip leaves them.
+SWITCHED_ON = {"live": "on", "va": "on", "standin": "on"}
+
+#: The section a config that names none is given: a tier that allows writes on
+#: both targets of a real-machine deployment.
+WRITES_ALLOWED_SECTION = {
+    "type": "epics",
+    "writes": "allowed",
+    "connector": {"epics": {}, "virtual_accelerator": {}},
+}
+
+
+@pytest.fixture
+def make_config(make_config, tmp_path):
+    """The shared factory, on a deployment whose write verdict allows.
+
+    The hook defers, with no decision, on any write the verdict refuses, ahead of
+    every prompt and every config deny. Most tests here are about what the prompt
+    or the deny says, so each config is written onto a verdict that allows: a
+    config naming no ``control_system`` gets :data:`WRITES_ALLOWED_SECTION`, and
+    the first config of a test also files a record pointing at the section's
+    baseline with every machine switched on, under the stamped
+    ``OSPREY_AGENT_DATA_ROOT`` or else ``<tmp_path>/var/agent_data`` (the root the
+    hook derives from that config). A test that writes its own record
+    replaces it; the posture tests below state their section and record in full.
+    """
+
+    def _make(config_dict):
+        if isinstance(config_dict, dict) and "control_system" not in config_dict:
+            config_dict = {**config_dict, "control_system": WRITES_ALLOWED_SECTION}
+        path = make_config(config_dict)
+        stamped = os.environ.get("OSPREY_AGENT_DATA_ROOT")
+        root = Path(stamped) if stamped else tmp_path / "var" / "agent_data"
+        if not _record_path_under(root).exists():
+            section = config_dict.get("control_system") if isinstance(config_dict, dict) else None
+            write_control_context(root, target=baseline_target(section), switch=SWITCHED_ON)
+        return path
+
+    return _make
+
 
 # Per-tool approval config for new tests
 DEFAULT_TOOLS_CONFIG = {
@@ -69,7 +113,7 @@ def test_approval_disabled_passes_all(tmp_path, hook_runner, make_config):
     config = make_config(
         {
             "approval": {"enabled": False},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -100,7 +144,7 @@ SWITCH_CALLS = [
 
 
 def _switch_config(make_config, approval):
-    return make_config({"approval": approval, "control_system": {"writes_enabled": True}})
+    return make_config({"approval": approval, "control_system": {"writes": "allowed"}})
 
 
 def _switch_sentence(value):
@@ -199,8 +243,15 @@ def test_a_non_bool_switch_deny_files_a_refused_record(
 
 
 def test_a_non_bool_switch_denies_under_dispatch(tmp_path, hook_runner, make_config, monkeypatch):
-    """A headless dispatch run gets the same deny; nobody is there to ask."""
+    """A headless dispatch run gets the same deny; nobody is there to ask.
+
+    The job's owner is stamped, as the dispatcher does: an unscheduled job's
+    write is refused by the verdict and deferred before the config is read.
+    """
+    from osprey_connectors_tests._harness import pin_identity
+
     monkeypatch.setenv("OSPREY_DISPATCH_RUN", "1")
+    monkeypatch.setenv("OSPREY_CONTROL_OWNER", pin_identity(monkeypatch))
 
     result = hook_runner(
         "osprey_approval.py",
@@ -247,7 +298,7 @@ def test_selective_mode_blocks_write(tmp_path, hook_runner, make_config):
                 "default_policy": "selective",
                 "requires_approval": ["channel_write", "execute"],
             },
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -273,7 +324,7 @@ def test_selective_mode_blocks_python_write(tmp_path, hook_runner, make_config):
                 "enabled": True,
                 "default_policy": "selective",
             },
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -299,7 +350,7 @@ def test_selective_mode_allows_readonly_python(tmp_path, hook_runner, make_confi
                 "enabled": True,
                 "default_policy": "selective",
             },
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -326,7 +377,7 @@ def test_per_tool_skip_allows_read(tmp_path, hook_runner, make_config):
                 "default_policy": "selective",
                 "tools": {"channel_read": "skip"},
             },
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -360,7 +411,7 @@ def test_channel_read_skip_emits_allow_decision(tmp_path, hook_runner, make_conf
                 "default_policy": "always",
                 "tools": {"channel_read": "skip"},
             },
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -388,7 +439,7 @@ def test_channel_read_always_asks(tmp_path, hook_runner, make_config):
     config = make_config(
         {
             "approval": {"enabled": True, "default_policy": "always"},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -411,7 +462,7 @@ def test_default_policy_always_blocks_all_tools(tmp_path, hook_runner, make_conf
     config = make_config(
         {
             "approval": {"enabled": True, "default_policy": "always"},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -435,7 +486,7 @@ def test_non_osprey_tools_pass_through(tmp_path, hook_runner, make_config):
     config = make_config(
         {
             "approval": {"enabled": True, "default_policy": "always"},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -460,7 +511,7 @@ def test_approval_ask_includes_tool_info(tmp_path, hook_runner, make_config):
                 "default_policy": "selective",
                 "requires_approval": ["channel_write"],
             },
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -486,7 +537,7 @@ def test_approval_python_write_creates_notebook(tmp_path, hook_runner, make_conf
     config = make_config(
         {
             "approval": {"enabled": True, "default_policy": "selective"},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
             "artifact_server": {"host": "127.0.0.1", "port": 10200},
         }
     )
@@ -514,7 +565,7 @@ def test_approval_notebook_failure_nonfatal(tmp_path, hook_runner, make_config):
     config = make_config(
         {
             "approval": {"enabled": True, "default_policy": "selective"},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -544,7 +595,7 @@ def test_framework_pattern_detection_tango_write(tmp_path, hook_runner, make_con
     config = make_config(
         {
             "approval": {"enabled": True, "default_policy": "selective"},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -567,7 +618,7 @@ def test_framework_pattern_detection_labview_write(tmp_path, hook_runner, make_c
     config = make_config(
         {
             "approval": {"enabled": True, "default_policy": "selective"},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -590,7 +641,7 @@ def test_framework_pattern_detection_set_value(tmp_path, hook_runner, make_confi
     config = make_config(
         {
             "approval": {"enabled": True, "default_policy": "selective"},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -613,7 +664,7 @@ def test_framework_pattern_no_false_positive_dict(tmp_path, hook_runner, make_co
     config = make_config(
         {
             "approval": {"enabled": True, "default_policy": "selective"},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -634,7 +685,7 @@ def test_framework_pattern_detection_import_fallback(tmp_path, hook_runner, make
     config = make_config(
         {
             "approval": {"enabled": True, "default_policy": "selective"},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -661,7 +712,7 @@ def test_framework_pattern_config_driven(tmp_path, hook_runner, make_config):
         {
             "approval": {"enabled": True, "default_policy": "selective"},
             "control_system": {
-                "writes_enabled": True,
+                "writes": "allowed",
                 "patterns": {
                     "write": [r"\bmy_custom_write\s*\("],
                     "read": [],
@@ -695,7 +746,7 @@ def test_has_write_patterns_passes_config_to_framework(tmp_path, hook_runner, ma
         {
             "approval": {"enabled": True, "default_policy": "selective"},
             "control_system": {
-                "writes_enabled": True,
+                "writes": "allowed",
                 "patterns": {
                     "write": [r"\bfacility_hw_write\s*\("],
                     "read": [],
@@ -743,7 +794,7 @@ def test_has_write_patterns_override_via_config(tmp_path, hook_runner, make_conf
         {
             "approval": {"enabled": True, "default_policy": "selective"},
             "control_system": {
-                "writes_enabled": True,
+                "writes": "allowed",
                 "patterns": {
                     "mode": "override",
                     "write": [r"\bfacility_hw_write\s*\("],
@@ -856,7 +907,7 @@ def test_missing_approval_section_defaults_to_always(tmp_path, hook_runner, make
     """
     config = make_config(
         {
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
             # No 'approval' section at all
         }
     )
@@ -1047,7 +1098,7 @@ def test_setup_patch_always_asks(tmp_path, hook_runner, make_config):
     result = hook_runner(
         "osprey_approval.py",
         "mcp__osprey_workspace__setup_patch",
-        {"path": "control_system.writes_enabled", "value": True},
+        {"path": "control_system.writes", "value": "allowed"},
         config_path=config,
         cwd=tmp_path,
         hook_config=DEFAULT_APPROVAL_CONFIG,
@@ -1303,7 +1354,7 @@ def test_selective_readwrite_asks_without_write_patterns(tmp_path, hook_runner, 
     config = make_config(
         {
             "approval": {"enabled": True, "default_policy": "selective"},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -1325,7 +1376,7 @@ def test_selective_readwrite_asks_for_aliased_caput(tmp_path, hook_runner, make_
     config = make_config(
         {
             "approval": {"enabled": True, "default_policy": "selective"},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -1346,57 +1397,61 @@ def test_selective_readwrite_asks_for_aliased_caput(tmp_path, hook_runner, make_
 
 
 # ============================================================================
-# Write posture — the short-circuit that keeps an unarmed write from prompting
+# Write verdict — the defer that keeps a refused write from prompting
 # ============================================================================
-# When a deployment is not armed for the target a call names, this hook must
+# When the write verdict refuses the machine a call writes to, this hook must
 # emit NO decision at all: the layer that refuses the call has already spoken,
-# and an "ask" from here would reopen `can_use_tool` over it. Two things bound
-# that: the three-way (a config stating no posture prompts exactly as before),
-# and the rule that a defer is only safe where a refusal is GUARANTEED — by
-# `osprey_writes_check`'s deny for the tools that follow the control target, or by
-# `queue_start`'s own pre-bridge lane gate for a start whose lane is placed.
+# and an "ask" from here would reopen `can_use_tool` over it. The hook asks the
+# stdlib twin exactly what `osprey_writes_check` asks (which machine, then the
+# verdict on it), and a defer is only safe where a refusal is GUARANTEED: by
+# `osprey_writes_check`'s deny for every tool it does not carve out by lane, or
+# by `queue_start`'s own pre-bridge lane gate for a start whose lane is placed.
+#
+# These tests state their section and record in full, written past the
+# module's allowing `make_config`.
 
-#: A hook_config whose `write_tools` covers the two framework write tools and a
-#: whole self-gated Bluesky server, the way a rendered project spells it.
+#: A hook_config naming the framework write tools the way a rendered project
+#: does, with the queue tools a plan lane addresses.
 POSTURE_HOOK_CONFIG = {
     "server_prefixes": ["mcp__controls__", "mcp__python__", "mcp__bluesky__"],
     "approval_prefixes": ["mcp__controls__", "mcp__python__", "mcp__bluesky__"],
     "write_tools": [
         "mcp__controls__channel_write",
         "mcp__python__execute",
-        "mcp__bluesky__.*",
+        "mcp__bluesky__queue_add",
+        "mcp__bluesky__queue_start",
     ],
+    "lane_addressed_tools": ["queue_add", "queue_start", "queue_stop", "queue_remove"],
 }
 
-#: Global "yes" overridden by a "no" on the live machine's own connector block.
-#: Its live answer (not armed) and its most-restrictive answer (not armed) are
-#: the same, so a test using it alone cannot show the state file was read.
-DISARMED_LIVE_CONFIG = {
+#: A real-machine deployment with a simulator beside it, whose tier allows
+#: writes: every refusal over it comes from the switch, the record or the lane.
+TWO_TARGETS = {
     "type": "epics",
-    "writes_enabled": True,
-    "connector": {
-        "epics": {"writes_enabled": False},
-        "virtual_accelerator": {},
-    },
+    "writes": "allowed",
+    "connector": {"epics": {}, "virtual_accelerator": {}},
 }
 
-#: The mirror image: global "no", armed on the machine alone. Its live answer
-#: (armed) and its most-restrictive answer (not armed) DIFFER, so a call that
-#: prompts on target `live` proves the session's state file reached the hook.
-ARMED_LIVE_ONLY_CONFIG = {
+#: The same deployment with no tier stated anywhere, which is a tier that never
+#: writes.
+NO_TIER = {"type": "epics", "connector": {"epics": {}, "virtual_accelerator": {}}}
+
+#: A simulator-only deployment whose tier never writes.
+SIMULATOR_NEVER = {
+    "type": "virtual_accelerator",
+    "connector": {"virtual_accelerator": {"serving": "in_process"}},
+    "writes": "never",
+}
+
+#: The old per-type ceiling, unrebuilt: the mock connector armed, the machine's
+#: not, and no tier key. The runtime reads no retired leaf (D2), so this section
+#: is a tier that never writes, whatever its switch says.
+PER_TYPE_CEILING = {
     "type": "epics",
-    "writes_enabled": False,
-    "connector": {
-        "epics": {"writes_enabled": True},
-        "virtual_accelerator": {},
-    },
+    "connector": {"mock": {"writes_enabled": True}, "epics": {"writes_enabled": False}},
 }
 
-#: Not one word about posture anywhere — the shape every deployment had before
-#: the per-type key existed.
-NO_POSTURE_CONFIG = {"type": "epics", "connector": {"epics": {}}}
-
-#: Two rendered plan lanes, one per target, over a config that arms neither.
+#: Two rendered plan lanes, one per target.
 TWO_LANE_SERVICES = {
     "bluesky": {"port": 10080, "target": "va"},
     "bluesky_live": {"port": 10081, "target": "live"},
@@ -1405,31 +1460,39 @@ TWO_LANE_SERVICES = {
 #: One rendered plan lane, serving the machine.
 ONE_LANE_SERVICES = {"bluesky": {"port": 10080, "target": "live"}}
 
+CHANNEL_WRITE_INPUT = {"operations": [{"channel": "SR:QF:SP", "value": 1.5}]}
 
-def _posture_config(make_config, control_system, services=None):
+
+def _posture_config(tmp_path, control_system, services=None):
     """A config that prompts for everything, over the given control_system block."""
+    import yaml
+
     config = {
         "approval": {"enabled": True, "default_policy": "always"},
         "control_system": control_system,
     }
     if services is not None:
         config["services"] = services
-    return make_config(config)
+    path = tmp_path / "config.yml"
+    path.write_text(yaml.dump(config))
+    return path
 
 
-def _write_session_state(repo_root, target, posture=None):
-    """Point the deployment at *target* with the record the hooks read.
+def _write_session_state(repo_root, target, on=()):
+    """Point the deployment at *target*, with the switch on for each of *on*.
 
     Lands under ``<repo_root>/var/agent_data``, which is the root the hooks
-    derive when nothing stamps ``OSPREY_AGENT_DATA_ROOT`` and the subprocess
-    runs with *repo_root* as its ``cwd`` — so the read is the real one.
-
-    A live server's report is written beside it so the prompt's ``Target:``
-    line can name the machine; the identity is the reports', while the target
-    itself is the record's.
+    derive when nothing stamps ``OSPREY_AGENT_DATA_ROOT`` and the config sits in
+    *repo_root*, so the read is the real one. A live server's report is written
+    beside it so the prompt's ``Target:`` line can name the machine.
     """
     root = repo_root / "var" / "agent_data"
-    write_control_context(root, target=target, generation=1, posture=posture)
+    write_control_context(
+        root,
+        target=target,
+        generation=1,
+        switch=dict.fromkeys(on, "on") if on else None,
+    )
     write_server_report(
         root,
         os.getpid(),
@@ -1449,146 +1512,164 @@ def _decision(result):
     return result["hookSpecificOutput"]["permissionDecision"]
 
 
-def test_readonly_execute_still_prompts_when_writes_are_not_armed(
-    tmp_path, hook_runner, make_config
-):
-    """A readonly execution is not a write, so the posture never reaches it.
+def _run(hook, tmp_path, hook_runner, config, tool_name, tool_input):
+    return _decision(
+        hook_runner(
+            hook,
+            tool_name,
+            tool_input,
+            config_path=config,
+            cwd=tmp_path,
+            hook_config=POSTURE_HOOK_CONFIG,
+        )
+    )
+
+
+def test_readonly_execute_still_prompts_when_the_tier_never_writes(tmp_path, hook_runner):
+    """A readonly execution is not a write, so the verdict never reaches it.
 
     Deferring here would delete the approval prompt for ordinary analysis code
-    on every unarmed deployment — the tool `writes_check` deliberately lets
-    through is the one this hook must keep asking about.
+    on every read-only deployment: the tool `writes_check` lets through is the
+    one this hook must keep asking about.
     """
-    config = _posture_config(
-        make_config,
-        {
-            "type": "virtual_accelerator",
-            "connector": {"virtual_accelerator": {"serving": "in_process"}},
-            "writes_enabled": False,
-        },
-    )
+    config = _posture_config(tmp_path, SIMULATOR_NEVER)
+    _write_session_state(tmp_path, target="va", on=("va",))
 
-    result = hook_runner(
+    decision = _run(
         "osprey_approval.py",
+        tmp_path,
+        hook_runner,
+        config,
         "mcp__python__execute",
         {"code": "print(get_channel('SR:CURRENT'))", "execution_mode": "readonly"},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=POSTURE_HOOK_CONFIG,
     )
 
-    assert _decision(result) == "ask"
+    assert decision == "ask"
 
 
 @pytest.mark.parametrize("short_name", ["queue_add", "queue_stop"], ids=["queue_add", "queue_stop"])
-def test_the_queue_tools_that_no_layer_denies_keep_their_prompt(
-    tmp_path, hook_runner, make_config, short_name
-):
-    """Neither composing onto an idle queue nor halting one is ever deferred.
+def test_the_queue_tools_that_no_layer_denies_keep_their_prompt(tmp_path, hook_runner, short_name):
+    """Neither staging onto a queue nor halting one is ever deferred.
 
-    `writes_check` allows every lane-addressed tool and neither of these refuses
-    on posture, so this prompt is the only gate they have. `queue_add` starts
-    nothing — the server withholds the launch token and the bridge refuses
-    `launch_token_invalid` once the queue drains — and a plain stop is ungated
-    everywhere by design.
+    `writes_check` allows every lane-addressed tool, and neither of these
+    refuses on the verdict: an add the verdict refuses is staged tokenless, and
+    a plain stop is ungated everywhere by design. This prompt is their only gate.
     """
-    config = _posture_config(
-        make_config,
-        {
-            "type": "virtual_accelerator",
-            "connector": {"virtual_accelerator": {"serving": "in_process"}},
-            "writes_enabled": False,
-        },
-    )
+    config = _posture_config(tmp_path, SIMULATOR_NEVER)
 
-    result = hook_runner(
+    decision = _run(
         "osprey_approval.py",
+        tmp_path,
+        hook_runner,
+        config,
         f"mcp__bluesky__{short_name}",
         {"draft_revision": 3},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=POSTURE_HOOK_CONFIG,
     )
 
-    assert _decision(result) == "ask"
+    assert decision == "ask"
 
 
 @pytest.mark.parametrize(
-    ("control_system", "target", "decision"),
+    ("target", "on", "decision"),
     [
-        pytest.param(DISARMED_LIVE_CONFIG, "live", None, id="disarmed-block-on-the-machine"),
-        pytest.param(DISARMED_LIVE_CONFIG, "va", "ask", id="global-yes-still-arms-the-sim"),
-        pytest.param(ARMED_LIVE_ONLY_CONFIG, "live", "ask", id="armed-block-on-the-machine"),
-        pytest.param(ARMED_LIVE_ONLY_CONFIG, "va", None, id="global-no-leaves-the-sim-unarmed"),
+        pytest.param("live", ("va",), None, id="machine-switched-off"),
+        pytest.param("live", ("live",), "ask", id="machine-switched-on"),
+        pytest.param("va", ("live",), None, id="sim-switched-off"),
+        pytest.param("va", ("va",), "ask", id="sim-switched-on"),
     ],
 )
-def test_channel_write_follows_the_control_target(
-    tmp_path, hook_runner, make_config, control_system, target, decision
+def test_channel_write_follows_the_switch_of_the_write_target(
+    tmp_path, hook_runner, target, on, decision
 ):
-    """One tool, two configs, both targets — the posture is per target.
+    """One tool, one tier, both targets: the verdict reads the session target's switch.
 
-    Each config is the other's mirror, so no row can pass on the deployment-wide
-    key alone. `ARMED_LIVE_ONLY_CONFIG` is what makes the state file
-    load-bearing: its most-restrictive answer is "not armed", so the `live` row
-    can only prompt if the hook actually read the recorded control target.
+    Every row switches exactly one machine on, so no row can pass on a
+    deployment-wide answer: a prompt shows only when the machine the record
+    points at is the one switched on.
     """
-    config = _posture_config(make_config, control_system)
-    _write_session_state(tmp_path, target=target)
+    config = _posture_config(tmp_path, TWO_TARGETS)
+    _write_session_state(tmp_path, target=target, on=on)
 
-    result = hook_runner(
+    decision_seen = _run(
         "osprey_approval.py",
+        tmp_path,
+        hook_runner,
+        config,
         "mcp__controls__channel_write",
-        {"operations": [{"channel": "SR:QF:SP", "value": 1.5}]},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=POSTURE_HOOK_CONFIG,
+        CHANNEL_WRITE_INPUT,
     )
 
-    assert _decision(result) == decision
+    assert decision_seen == decision
 
 
-def test_a_config_that_states_no_posture_prompts_exactly_as_before(
-    tmp_path, hook_runner, make_config
-):
-    """No `writes_enabled` anywhere is the shape every deployment used to have.
+def test_a_tier_that_states_no_writes_defers(tmp_path, hook_runner):
+    """No `writes` and no armed block is a tier that never writes.
 
-    Silence is not a refusal. Reading it as one would make the approval prompt
-    disappear on every project written before the key existed.
+    `writes_check` denies every write on it, so a prompt would ask the human to
+    approve a call the next hook refuses, even with the machine switched on.
     """
-    config = _posture_config(make_config, NO_POSTURE_CONFIG)
+    config = _posture_config(tmp_path, NO_TIER)
+    _write_session_state(tmp_path, target="live", on=("live",))
 
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__controls__channel_write",
-        {"operations": [{"channel": "SR:QF:SP", "value": 1.5}]},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=POSTURE_HOOK_CONFIG,
-    )
+    def run(hook):
+        return _run(
+            hook,
+            tmp_path,
+            hook_runner,
+            config,
+            "mcp__controls__channel_write",
+            CHANNEL_WRITE_INPUT,
+        )
 
-    assert _decision(result) == "ask"
+    assert run("osprey_approval.py") is None
+    assert run("osprey_writes_check.py") == "deny"
 
 
-def test_an_unidentifiable_target_takes_the_most_restrictive_posture(
-    tmp_path, hook_runner, make_config
-):
-    """No state file means no target, and no target means both of them.
+def test_an_unrebuilt_per_type_ceiling_never_writes_on_a_switched_on_machine(tmp_path, hook_runner):
+    """Mock armed, epics not, no tier key, session on `live` with its switch on: deferred.
 
-    The deployment is unarmed on either side here, so the defer stands and
-    `writes_check`'s deny is what the agent sees. Picking the baseline instead
-    would state a posture for a session that may have switched away from it.
+    A retired per-type `writes_enabled` block is not read at runtime (D2); the
+    section is a tier that never writes (row `tier-absent-old-armed-connector`),
+    so the approval hook defers and `writes_check` denies, switch or no switch.
     """
-    config = _posture_config(make_config, {"type": "epics", "writes_enabled": False})
+    config = _posture_config(tmp_path, PER_TYPE_CEILING)
+    _write_session_state(tmp_path, target="live", on=("live",))
 
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__controls__channel_write",
-        {"operations": [{"channel": "SR:QF:SP", "value": 1.5}]},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=POSTURE_HOOK_CONFIG,
-    )
+    def run(hook):
+        return _run(
+            hook,
+            tmp_path,
+            hook_runner,
+            config,
+            "mcp__controls__channel_write",
+            CHANNEL_WRITE_INPUT,
+        )
 
-    assert _decision(result) is None
+    assert run("osprey_approval.py") is None
+    assert run("osprey_writes_check.py") == "deny"
+
+
+def test_a_write_whose_machine_cannot_be_placed_defers(tmp_path, hook_runner):
+    """No record under a guessed root places the write nowhere.
+
+    `writes_check` denies that cell (`posture_unknown`), so the defer stands.
+    Picking the baseline instead would state a verdict for a session that may
+    have switched away from it.
+    """
+    config = _posture_config(tmp_path, TWO_TARGETS)
+
+    def run(hook):
+        return _run(
+            hook,
+            tmp_path,
+            hook_runner,
+            config,
+            "mcp__controls__channel_write",
+            CHANNEL_WRITE_INPUT,
+        )
+
+    assert run("osprey_approval.py") is None
+    assert run("osprey_writes_check.py") == "deny"
 
 
 @pytest.mark.parametrize(
@@ -1601,34 +1682,33 @@ def test_an_unidentifiable_target_takes_the_most_restrictive_posture(
         pytest.param(ONE_LANE_SERVICES, {}, None, id="one-lane-binds-itself"),
     ],
 )
-def test_queue_start_follows_the_target_its_lane_serves(
-    tmp_path, hook_runner, make_config, services, tool_input, decision
+def test_queue_start_follows_the_switch_of_the_target_its_lane_serves(
+    tmp_path, hook_runner, services, tool_input, decision
 ):
     """A start is addressed by LANE, and only a PLACED lane may be deferred.
 
-    Which machine a plan lane drives is render-time truth in the config, so a
-    start bound to the disarmed lane defers whatever the deployment is pointed at:
-    `queue_start` re-reads that same posture and refuses before its bridge is
-    called. A start naming no lane binds to the one lane a single-lane
-    deployment has, which is what the tool's own `_bind_lane` does.
+    The session points at the machine with only the simulator switched on, so
+    a start bound to the machine's lane defers, and one bound to the
+    simulator's lane asks, whatever the session points at: `queue_start` asks
+    the same verdict for its lane and refuses before its bridge is called.
 
-    The two "cannot place it" rows are the ones that must NOT defer. Nothing
-    else denies a lane-addressed tool — `writes_check` allows them all — so
-    without a placed lane there is no guaranteed refusal behind a defer, and
-    this prompt is the only gate the start has.
+    The two "cannot place it" rows must NOT defer. `writes_check` allows every
+    lane-addressed tool, so without a placed lane there is no guaranteed
+    refusal behind a defer, and this prompt is the only gate the start has.
     """
-    config = _posture_config(make_config, DISARMED_LIVE_CONFIG, services=services)
+    config = _posture_config(tmp_path, TWO_TARGETS, services=services)
+    _write_session_state(tmp_path, target="live", on=("va",))
 
-    result = hook_runner(
+    decision_seen = _run(
         "osprey_approval.py",
+        tmp_path,
+        hook_runner,
+        config,
         "mcp__bluesky__queue_start",
         tool_input,
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=POSTURE_HOOK_CONFIG,
     )
 
-    assert _decision(result) == decision
+    assert decision_seen == decision
 
 
 # ============================================================================
@@ -1636,131 +1716,123 @@ def test_queue_start_follows_the_target_its_lane_serves(
 # ============================================================================
 
 #: The layer that refuses a call this hook defers on. `None` is the state the
-#: matrix forbids a defer in — nothing would stop the call.
+#: matrix forbids a defer in: nothing would stop the call.
 _BY_WRITES_CHECK = "osprey_writes_check denies it"
 _BY_LANE_GATE = "queue_start refuses before its bridge is called"
 
 
 @pytest.mark.parametrize(
-    ("control_system", "services", "tool_name", "tool_input", "target", "guarantor"),
+    ("control_system", "services", "tool_name", "tool_input", "record", "guarantor"),
     [
         pytest.param(
-            DISARMED_LIVE_CONFIG,
+            TWO_TARGETS,
             None,
             "mcp__controls__channel_write",
-            {"operations": [{"channel": "SR:QF:SP", "value": 1.5}]},
-            "live",
+            CHANNEL_WRITE_INPUT,
+            ("live", ("va",)),
             _BY_WRITES_CHECK,
-            id="channel_write-on-the-disarmed-machine",
+            id="channel_write-on-the-switched-off-machine",
         ),
         pytest.param(
-            DISARMED_LIVE_CONFIG,
+            TWO_TARGETS,
             None,
             "mcp__controls__channel_write",
-            {"operations": [{"channel": "SR:QF:SP", "value": 1.5}]},
-            "va",
+            CHANNEL_WRITE_INPUT,
+            ("va", ("va",)),
             None,
-            id="channel_write-on-the-armed-simulator",
+            id="channel_write-on-the-switched-on-simulator",
         ),
         pytest.param(
-            {
-                "type": "virtual_accelerator",
-                "connector": {"virtual_accelerator": {"serving": "in_process"}},
-                "writes_enabled": False,
-            },
+            SIMULATOR_NEVER,
             None,
             "mcp__python__execute",
             {"code": "caput('SR:QF:SP', 1.5)", "execution_mode": "readwrite"},
-            None,
+            ("va", ("va",)),
             _BY_WRITES_CHECK,
-            id="readwrite-execute-unarmed",
+            id="readwrite-execute-tier-never",
         ),
         pytest.param(
-            {
-                "type": "virtual_accelerator",
-                "connector": {"virtual_accelerator": {"serving": "in_process"}},
-                "writes_enabled": False,
-            },
+            SIMULATOR_NEVER,
             None,
             "mcp__python__execute",
             {"code": "print(1)", "execution_mode": "readonly"},
+            ("va", ("va",)),
             None,
-            None,
-            id="readonly-execute-unarmed",
+            id="readonly-execute-tier-never",
         ),
         pytest.param(
-            NO_POSTURE_CONFIG,
+            NO_TIER,
             None,
             "mcp__controls__channel_write",
-            {"operations": [{"channel": "SR:QF:SP", "value": 1.5}]},
-            None,
-            None,
-            id="no-posture-stated",
+            CHANNEL_WRITE_INPUT,
+            ("live", ("live",)),
+            _BY_WRITES_CHECK,
+            id="no-tier-stated",
         ),
         pytest.param(
-            DISARMED_LIVE_CONFIG,
+            TWO_TARGETS,
+            None,
+            "mcp__controls__channel_write",
+            CHANNEL_WRITE_INPUT,
+            None,
+            _BY_WRITES_CHECK,
+            id="channel_write-unplaced",
+        ),
+        pytest.param(
+            TWO_TARGETS,
             TWO_LANE_SERVICES,
             "mcp__bluesky__queue_start",
             {"lane": "bluesky_live"},
-            None,
+            ("live", ("va",)),
             _BY_LANE_GATE,
-            id="queue_start-on-the-disarmed-lane",
+            id="queue_start-on-the-switched-off-lane",
         ),
         pytest.param(
-            DISARMED_LIVE_CONFIG,
+            TWO_TARGETS,
             TWO_LANE_SERVICES,
             "mcp__bluesky__queue_start",
             {},
-            None,
+            ("live", ("va",)),
             None,
             id="queue_start-with-no-lane-to-place",
         ),
         pytest.param(
-            DISARMED_LIVE_CONFIG,
+            TWO_TARGETS,
             TWO_LANE_SERVICES,
             "mcp__bluesky__queue_add",
             {"draft_revision": 3},
+            ("live", ("va",)),
             None,
-            None,
-            id="queue_add-composes-tokenless",
+            id="queue_add-stages-tokenless",
         ),
     ],
 )
 def test_a_defer_is_never_the_last_word(
     tmp_path,
     hook_runner,
-    make_config,
     control_system,
     services,
     tool_input,
     tool_name,
-    target,
+    record,
     guarantor,
 ):
     """Both write hooks over one call: an approval defer must leave a refusal behind.
 
     Deferring emits no decision, so the call proceeds unless something else
     refuses it. Each row names the layer that would, and `None` names a row
-    where nothing does — which is precisely where this hook must keep prompting.
+    where nothing does, which is precisely where this hook must keep prompting.
     `osprey_writes_check` is the one guarantor a pytest process can observe, so
     rows naming it are checked against the deny it actually emits; the lane gate
     lives in `queue_start` itself, which no hook run reaches.
     """
-    config = _posture_config(make_config, control_system, services=services)
-    if target is not None:
-        _write_session_state(tmp_path, target=target)
+    config = _posture_config(tmp_path, control_system, services=services)
+    if record is not None:
+        target, on = record
+        _write_session_state(tmp_path, target=target, on=on)
 
     def run(hook):
-        return _decision(
-            hook_runner(
-                hook,
-                tool_name,
-                tool_input,
-                config_path=config,
-                cwd=tmp_path,
-                hook_config=POSTURE_HOOK_CONFIG,
-            )
-        )
+        return _run(hook, tmp_path, hook_runner, config, tool_name, tool_input)
 
     approval_deferred = run("osprey_approval.py") is None
 
@@ -1774,42 +1846,37 @@ def test_a_defer_is_never_the_last_word(
         assert run("osprey_writes_check.py") == "deny"
 
 
-def test_a_recorded_narrowing_defers_and_writes_check_denies(
-    tmp_path, hook_runner, make_config, monkeypatch
-):
-    """An operator narrowing composes like a config disarm: defer, with the deny behind it.
+def test_a_switch_turned_off_defers_and_writes_check_denies(tmp_path, hook_runner, monkeypatch):
+    """Turning the machine's switch off moves the prompt to a defer, with the deny behind it.
 
-    The deployment arms this machine, so the config half of the posture answers
-    "armed" — the narrowing recorded on the control-context record is the only
-    thing refusing here, and ``osprey_writes_check`` reads the same record
-    (``effective_writes_for``). Keeping the prompt would ask the human to
-    approve a write the next hook is guaranteed to refuse; the matrix above
-    pins the config half of this rule, this test pins the record half.
+    The machine starts switched on, so the prompt stands; then the switch on the
+    control-context record is turned off, and ``osprey_writes_check`` reads the
+    same record. Keeping the prompt would ask the human to approve a write the
+    next hook is guaranteed to refuse.
     """
     session_key = "4f1c2a7e-0000-4000-8000-000000000001"
-    config = _posture_config(make_config, ARMED_LIVE_ONLY_CONFIG)
-    _write_session_state(tmp_path, target="live")
+    config = _posture_config(tmp_path, TWO_TARGETS)
+    _write_session_state(tmp_path, target="live", on=("live",))
     monkeypatch.setenv("OSPREY_POSTURE_SESSION", session_key)
 
     def run(hook):
-        return _decision(
-            hook_runner(
-                hook,
-                "mcp__controls__channel_write",
-                {"operations": [{"channel": "SR:QF:SP", "value": 1.5}]},
-                config_path=config,
-                cwd=tmp_path,
-                hook_config=POSTURE_HOOK_CONFIG,
-            )
+        return _run(
+            hook,
+            tmp_path,
+            hook_runner,
+            config,
+            "mcp__controls__channel_write",
+            CHANNEL_WRITE_INPUT,
         )
 
-    # Control: with nothing narrowed, the armed machine keeps its prompt.
+    # Control: while its switch is on, the machine keeps its prompt.
     assert run("osprey_approval.py") == "ask"
 
-    _write_session_state(tmp_path, target="live", posture={"live": "sandbox"})
+    # The gesture turns every unnamed machine off: ``live`` off, ``va`` on.
+    _write_session_state(tmp_path, target="live", on=("va",))
 
     assert run("osprey_approval.py") is None, (
-        "the narrowing is refused by writes_check, so the prompt must defer to that deny"
+        "the switched-off machine is refused by writes_check, so the prompt must defer to that deny"
     )
     assert run("osprey_writes_check.py") == "deny"
 
@@ -1859,7 +1926,7 @@ def test_pre_execution_notebook_is_saved_without_launching_the_gallery(
 
 RAW_PUT_CONFIG = {
     "approval": DEFAULT_TOOLS_CONFIG,
-    "control_system": {"writes_enabled": True},
+    "control_system": {"writes": "allowed"},
 }
 
 
@@ -1928,7 +1995,7 @@ def test_raw_client_write_denied_even_when_approval_would_allow(
     tmp_path, hook_runner, make_config, approval
 ):
     """Neither a disabled approval gate nor a skip policy turns the deny into an allow."""
-    config = {"approval": approval, "control_system": {"writes_enabled": True}}
+    config = {"approval": approval, "control_system": {"writes": "allowed"}}
 
     result = _run_execute(
         hook_runner, make_config, tmp_path, "caput('SR:QF:SP', 1.5)", config=config
@@ -2067,7 +2134,7 @@ GUARDED_ALWAYS_CONFIG = {
         "default_policy": "always",
         "tools": {"execute": "always", "execute_file": "always"},
     },
-    "control_system": {"type": "virtual_accelerator", "writes_enabled": True},
+    "control_system": {"type": "virtual_accelerator", "writes": "allowed"},
 }
 
 #: Asks only for readwrite or write-shaped execute calls.
@@ -2077,7 +2144,7 @@ GUARDED_SELECTIVE_CONFIG = {
         "default_policy": "always",
         "tools": {"execute": "selective", "execute_file": "selective"},
     },
-    "control_system": {"type": "virtual_accelerator", "writes_enabled": True},
+    "control_system": {"type": "virtual_accelerator", "writes": "allowed"},
 }
 
 

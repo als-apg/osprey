@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from textwrap import dedent
 
 import pytest
 
+from tests.mcp_server._facility_bundle import install_bundle, write_minimal_bundle
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 
 # ---------------------------------------------------------------------------
@@ -19,57 +19,16 @@ from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 # ---------------------------------------------------------------------------
 
 
-def _write(path: Path, body: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(dedent(body).lstrip(), encoding="utf-8")
-
-
 @pytest.fixture
 def fixture_bundle(tmp_path: Path) -> Path:
     """Minimal OKF bundle with two distinct concept types."""
-    root = tmp_path / "bundle"
-    _write(
-        root / "index.md",
-        """\
-        # Facility Bundle
-        * [Accelerator Overview](/accelerator_overview.md) - High-level accelerator overview.
-        """,
-    )
-    _write(
-        root / "accelerator_overview.md",
-        """\
-        ---
-        type: facility_overview
-        title: Accelerator Overview
-        description: Overview of the accelerator complex.
-        ---
-
-        The facility uses a synchrotron ring to produce bright X-ray light.
-        """,
-    )
-    _write(
-        root / "tables" / "beam_params.md",
-        """\
-        ---
-        type: data_table
-        title: Beam Parameters
-        description: Live beam parameter PVs from the EPICS control system.
-        tags: [epics, beam]
-        ---
-
-        Contains PV names for all beam parameters.
-        """,
-    )
-    return root
+    return write_minimal_bundle(tmp_path / "bundle")
 
 
 @pytest.fixture(autouse=True)
 def _patch_bundle(fixture_bundle: Path, monkeypatch):
     """Inject the fixture bundle into the server module's ``_bundle`` global."""
-    import osprey.mcp_server.facility_knowledge.server as srv
-    from osprey.services.facility_knowledge.okf.bundle import OKFBundle
-
-    monkeypatch.setattr(srv, "_bundle", OKFBundle(fixture_bundle))
+    install_bundle(monkeypatch, fixture_bundle)
 
 
 # ---------------------------------------------------------------------------
@@ -158,13 +117,11 @@ class TestCapabilities:
         self, tmp_path: Path, monkeypatch
     ):
         """An empty bundle directory must return count=0 and types=[] — NOT an error."""
-        import osprey.mcp_server.facility_knowledge.server as srv
         from osprey.mcp_server.facility_knowledge.server import capabilities
-        from osprey.services.facility_knowledge.okf.bundle import OKFBundle
 
         empty_root = tmp_path / "empty_bundle"
         empty_root.mkdir()
-        monkeypatch.setattr(srv, "_bundle", OKFBundle(empty_root))
+        install_bundle(monkeypatch, empty_root)
 
         result = json.loads(await get_tool_fn(capabilities)())
 

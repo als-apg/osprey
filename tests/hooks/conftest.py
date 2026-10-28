@@ -98,6 +98,15 @@ _HOOK_VARS = (
     # ABOVE this one, so forwarding it would let a suite run from inside a
     # multi-user web terminal outrank the pin the test asked for.
     "OSPREY_AUDIT_IDENTITY",
+    # The write verdict's owner ladder: the stamped owner of a dispatch job's
+    # work, and the read-only bind of every login's control-context directory
+    # that a shared container carries. Forwarded so a test can put a hook
+    # subprocess in either position with ``monkeypatch.setenv``; without them
+    # here the child would fall through to the acting identity and read the
+    # host record, and a refusal test would pass for the wrong reason. Blanked
+    # by default in :func:`_no_session_posture`.
+    "OSPREY_CONTROL_OWNER",
+    "OSPREY_CONTROL_CONTEXT_TREE",
     "OSPREY_WEB_PORT",
     "OSPREY_WEB_UX",
     "BLUESKY_BRIDGE_URL",
@@ -265,21 +274,26 @@ def _isolated_home(hook_home, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _no_session_posture(session_posture_leak_guard):  # noqa: ARG001 - session_posture_leak_guard clears the session posture stamp
+def _no_session_posture(session_posture_leak_guard, monkeypatch):  # noqa: ARG001 - session_posture_leak_guard clears the session posture stamp
     """Run every hook test outside a session posture unless it asks for one.
 
     Five variables are blanked suite-wide by
     ``tests/conftest.py::session_posture_leak_guard`` — the three session
-    anchors and the two control-context binds — and this fixture depends on it
-    rather than restating them. It matters more here than anywhere else: the
-    three anchors are forwarded to hook subprocesses through ``_HOOK_VARS``, so
-    a developer running the suite from inside a narrowed web-terminal session
-    would otherwise put every hook under a posture — deployment-wide or
-    per-target — that no test asked for.
+    anchors and the two control-context binds, the tree among them — and this
+    fixture depends on it rather than restating them. It matters more here than
+    anywhere else: those variables are forwarded to hook subprocesses through
+    ``_HOOK_VARS``, so a developer running the suite from inside a narrowed
+    web-terminal session would otherwise put every hook under a posture —
+    deployment-wide or per-target — that no test asked for.
+
+    ``OSPREY_CONTROL_OWNER`` is the one forwarded variable that guard leaves
+    alone, so it is blanked here: a suite run from inside a dispatch job would
+    otherwise hand every hook subprocess that job's owner.
 
     Tests that want one of them set it with ``monkeypatch.setenv`` in the test
     body, which runs after both fixtures.
     """
+    monkeypatch.delenv("OSPREY_CONTROL_OWNER", raising=False)
     yield
 
 

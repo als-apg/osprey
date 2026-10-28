@@ -26,6 +26,7 @@ from osprey_connectors.posture_store import (
     CONTROL_CONTEXT_DIR_ENV_VAR,
     CONTROL_CONTEXT_TREE_ENV_VAR,
     CONTROL_OWNER_ENV_VAR,
+    DISPATCH_RUN_ENV_VAR,
     LAUNCH_POSTURE_ENV_VAR,
 )
 from osprey_connectors.workspace import RENDERED_CONFIG_RELPATH
@@ -122,6 +123,12 @@ class ServerDefinition:
     # exactly one of side-effecting (refused in plan mode unless
     # ``plan_mode_allowed``) or an audited read.
     audited_reads: list[str] = field(default_factory=list)
+    # The tools a custom server declares as writes (``mcp_servers.<n>.writes``),
+    # bare names in declared order. ``None`` is a server with no list (it keeps
+    # its whole-server hook rule); ``()`` is one that declares nothing writes.
+    # Read by the headless block, the audit and the kill switch through
+    # ``_server_to_dict``'s ``writes`` key and :func:`facility_write_tools`.
+    writes: tuple[str, ...] | None = None
 
     def withheld_optional_tools(self, ctx: Mapping) -> frozenset[str]:
         """The optional tools ``ctx`` withholds: those whose key, or its default, is falsy."""
@@ -605,7 +612,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         # either way: write_plan only writes a file (never imports/execs
         # it), and validate_plan's dry run drives mock devices only, in a
         # subprocess with EPICS_CA_* neutralized — both work identically whether
-        # control_system.writes_enabled is on or off, so like stop_run neither
+        # writes are allowed or not, so like stop_run neither
         # carries _WRITES_CHECK. They get their own (distinct, independently
         # allowlistable) short-names rather than reusing the queue tools'
         # tier, since an operator may want to permit authoring/validating plan
@@ -994,6 +1001,50 @@ def mixed_read_write_tools(servers: list[dict]) -> list[str]:
     return tools
 
 
+def facility_write_tools(servers: list[dict]) -> list[str]:
+    """The facility (custom-server) write set of one render, fully qualified.
+
+    The only producer of that set: the never-deny, the rendered hook config,
+    the drift hook and the headless guard all take it from here rather than
+    inferring it from matcher shape. Read off each server's own
+    ``_WRITES_CHECK``-gated rules, so it is exactly what the hooks gate:
+
+    - a server that declares ``writes:`` contributes one exact
+      ``mcp__<srv>__<tool>`` per declared tool, plus its warning-window tools
+      (undeclared tools in ``permissions.ask`` or with a destructive-marker
+      name);
+    - a server with no list contributes its whole-server matcher
+      ``mcp__<srv>__.*`` when that rule carries the writes-check preset.
+
+    Args:
+        servers: Output of :func:`resolve_servers`. Disabled servers and
+            framework servers (and their ``extends`` clones, whose write set
+            is the framework's) are skipped.
+
+    Returns:
+        Deduplicated, in resolved-server then hook order, so every render's
+        diff stays quiet.
+    """
+    tools: list[str] = []
+    for server in servers:
+        if not server.get("enabled") or not server.get("is_custom"):
+            continue
+        for rule in server.get("hooks_pre", []):
+            if rule_carries_writes_check(rule["hooks"]) and rule["matcher"] not in tools:
+                tools.append(rule["matcher"])
+    return tools
+
+
+def rule_carries_writes_check(hooks: list[dict]) -> bool:
+    """Whether a resolved hook rule's ``hooks`` run the writes-check preset.
+
+    The one test for "this rule gates writes": :func:`facility_write_tools`
+    produces the facility write set with it, and the settings render pulls
+    tools from ``ask`` with it, so the two classify alike.
+    """
+    return any(h.get("command") == _WRITES_CHECK.command for h in hooks)
+
+
 # ---------------------------------------------------------------------------
 # Side-effect classification
 # ---------------------------------------------------------------------------
@@ -1302,6 +1353,12 @@ CONTROL_CONTEXT_TREE_ENV = CONTROL_CONTEXT_TREE_ENV_VAR
 #: ``tests/registry/test_marker_nonpinnability.py``.
 CONTROL_CONTEXT_DIR_ENV = CONTROL_CONTEXT_DIR_ENV_VAR
 
+#: Marks a process as a dispatch job, which owns no narrowing: the owner
+#: resolution answers "no owner" for it and an owned write is refused. Imported
+#: from the same reader as the owner stamp, which both defines and reads it.
+#: Pinned by ``tests/registry/test_marker_nonpinnability.py``.
+DISPATCH_RUN_ENV = DISPATCH_RUN_ENV_VAR
+
 #: The audit-critical markers, in one tuple so a drift check can assert
 #: membership rather than re-encode the list. This is the seam the gate-wiring
 #: drift test imports. Spelled off the identity ladder and the posture
@@ -1336,6 +1393,10 @@ CONTROL_CONTEXT_DIR_ENV = CONTROL_CONTEXT_DIR_ENV_VAR
 #: ``OSPREY_CONTROL_CONTEXT_DIR`` names the one owner's directory the record is
 #: written to and read from — a directory of the spec's choosing holds no
 #: record, and a missing record reads as "nothing narrowed".
+#: ``OSPREY_DISPATCH_RUN`` closes the same question from the other side: it
+#: makes a process a dispatch job, whose owner is "no owner". A spec that could
+#: set it could present that ownerless answer where an owner's narrowing should
+#: have been read; its only legitimate source is the dispatch launcher.
 NON_PINNABLE_AUDIT_MARKERS: tuple[str, ...] = (
     *IDENTITY_ENV_LADDER,
     POSTURE_ENV_VAR,
@@ -1348,6 +1409,7 @@ NON_PINNABLE_AUDIT_MARKERS: tuple[str, ...] = (
     CONTROL_OWNER_ENV,
     CONTROL_CONTEXT_TREE_ENV,
     CONTROL_CONTEXT_DIR_ENV,
+    DISPATCH_RUN_ENV,
 )
 
 #: Env markers a server spec's ``env:`` may not set — the framework owns them.
@@ -1619,6 +1681,7 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
                 continue
             custom = _custom_server_from_spec(name, spec)
             if custom is not None:
+                _warn_writes_without_live_target(custom, ctx)
                 servers[name] = custom
 
     # ── Phoebus agent access ──────────────────────────────────
@@ -1642,6 +1705,28 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
                 )
         result.append(_server_to_dict(sdef, ctx))
     return result
+
+
+def _warn_writes_without_live_target(sdef: ServerDefinition, ctx: dict) -> None:
+    """Warn when a server declares writes the deployment has no live machine for.
+
+    Judged only when the caller put the ``control_system:`` section in ctx as
+    ``control_system_section``: a caller that did not has not said the target
+    is missing, and guessing either way would be a warning about nothing or
+    silence about something.
+    """
+    if not sdef.writes or "control_system_section" not in ctx:
+        return
+    from osprey_connectors.types import TARGET_LIVE, target_configured
+
+    if not target_configured(ctx["control_system_section"], TARGET_LIVE):
+        logger.warning(
+            "Server %r declares write tools (%s), but control_system configures no "
+            "%r target, so no session can arm them",
+            sdef.name,
+            ", ".join(sdef.writes),
+            TARGET_LIVE,
+        )
 
 
 def _withhold_optional_tools(servers: dict[str, ServerDefinition], ctx: dict) -> None:
@@ -1896,14 +1981,45 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition | None:
     # Resolve pre-tool-use hook presets
     hooks_pre: list[HookRule] = []
     pre_presets = spec.get("hooks", {}).get("pre_tool_use", [])
+    writes = _spec_writes(spec)
+    if writes is not None and "writes_check" in pre_presets:
+        # Two answers to "which tools write": the list names them, the preset
+        # says all of them. Picking either silently gates the wrong set.
+        raise ValueError(
+            f"MCP server '{name}' declares `writes:` and also attaches the "
+            "'writes_check' hook preset. The list already gates each declared "
+            "tool with writes-check and approval; drop 'writes_check' from "
+            "hooks.pre_tool_use."
+        )
+    if writes is not None:
+        hooks_pre.extend(
+            HookRule(matcher=f"mcp__{name}__{tool}", hooks=[_WRITES_CHECK, _APPROVAL])
+            for tool in _declared_write_rule_tools(name, writes, spec.get("permissions", {}))
+        )
     if pre_presets:
+        sunset = _write_keys_sunset()
+        if "writes_check" in pre_presets:
+            logger.warning(
+                "Server %r attaches the 'writes_check' hook preset to every tool; "
+                "declare `writes:` with the tools that write instead. The "
+                "whole-server preset is refused from OSPREY %s",
+                name,
+                sunset,
+            )
         resolved = []
         for preset in pre_presets:
             hook = HOOK_PRESETS.get(preset)
             if hook:
                 resolved.append(hook)
             else:
-                logger.warning("Unknown hook preset %r for server %r — skipping", preset, name)
+                logger.warning(
+                    "Unknown hook preset %r for server %r — skipping; refused from OSPREY %s. "
+                    "Known presets: %s",
+                    preset,
+                    name,
+                    sunset,
+                    ", ".join(HOOK_PRESETS),
+                )
         if "limits" in pre_presets:
             # The rule below matches every tool on the server, but the limits
             # hook only knows one input shape: a `channel_write`-shaped call
@@ -1920,7 +2036,7 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition | None:
                 name,
             )
         if resolved:
-            hooks_pre = [HookRule(matcher=f"mcp__{name}__.*", hooks=resolved)]
+            hooks_pre.append(HookRule(matcher=f"mcp__{name}__.*", hooks=resolved))
 
     return ServerDefinition(
         name=name,
@@ -1939,7 +2055,80 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition | None:
         hooks_post=[_post_error(f"mcp__{name}__.*")]
         if perms.get("allow") or perms.get("ask")
         else [],
+        writes=writes,
     )
+
+
+def _write_keys_sunset() -> str:
+    """C-SUNSET: the release from which the retired write spellings are refused.
+
+    Imported lazily: the registry is loaded by the running servers and hooks'
+    render side, and the build-profile loader is a CLI module it should not
+    pull in just to name a version in a warning.
+    """
+    from osprey.cli.build_profile_load import RETIRED_WRITE_KEYS_REFUSED_FROM
+
+    return RETIRED_WRITE_KEYS_REFUSED_FROM
+
+
+def _spec_writes(spec: dict) -> tuple[str, ...] | None:
+    """A custom spec's ``writes:`` list, deduplicated, or ``None`` when absent.
+
+    Absent and empty differ: no list keeps the whole-server behavior, an empty
+    one declares that nothing writes. The profile loader has already refused a
+    malformed list (CC-5), so only the shape a hand-written config could still
+    carry is guarded here.
+    """
+    raw = spec.get("writes")
+    if raw is None:
+        return None
+    if not isinstance(raw, (list, tuple)):
+        raise ValueError(f"`writes:` must be a list of tool names (got {type(raw).__name__})")
+    return tuple(dict.fromkeys(str(tool) for tool in raw))
+
+
+def _declared_write_rule_tools(name: str, writes: tuple[str, ...], perms: dict) -> list[str]:
+    """Bare tool names that get a per-tool writes-check rule on a declaring server.
+
+    The declared tools first, then the warning window (BX-1,
+    :func:`write_window_tools`): an undeclared tool that asks for permission,
+    or whose name carries a destructive marker, is gated the same way rather
+    than left open because the list forgot it. The facility-write lint warns
+    about those; the gate does not wait for it.
+    """
+    return [*writes, *(tool for tool, _asked in write_window_tools(name, writes, perms))]
+
+
+#: Characters that make a permission entry a pattern rather than one tool name.
+#: A pattern is neither gated per tool nor linted as a tool.
+_TOOL_PATTERN_CHARS = frozenset("*.|()[]")
+
+
+def write_window_tools(name: str, writes: tuple[str, ...], perms: dict) -> list[tuple[str, bool]]:
+    """The warning window of a declaring server: write-looking tools ``writes`` leaves out.
+
+    One ``(bare tool, asked)`` per undeclared tool in ``permissions.ask``
+    (``asked`` true) or in ``permissions.allow`` with a destructive-marker name
+    (``asked`` false), in ask-then-allow order, each once. Entries spelled with
+    the ``mcp__<name>__`` prefix are read bare; non-strings and patterns are
+    skipped. The one classifier both the gate (:func:`_declared_write_rule_tools`)
+    and the facility-write lint read, so the lint warns about exactly what the
+    gate catches.
+    """
+    prefix = f"mcp__{name}__"
+    seen = set(writes)
+    window: list[tuple[str, bool]] = []
+    for entry in [*perms.get("ask", []), *perms.get("allow", [])]:
+        if not isinstance(entry, str):
+            continue
+        tool = entry[len(prefix) :] if entry.startswith(prefix) else entry
+        if not tool or tool in seen or _TOOL_PATTERN_CHARS & set(tool):
+            continue
+        asked = entry in perms.get("ask", [])
+        if asked or any(marker in tool.lower() for marker in bsky.DESTRUCTIVE_MARKERS):
+            seen.add(tool)
+            window.append((tool, asked))
+    return window
 
 
 def _server_to_dict(sdef: ServerDefinition, ctx: dict) -> dict:
@@ -2026,6 +2215,9 @@ def _server_to_dict(sdef: ServerDefinition, ctx: dict) -> dict:
         # The tools plan mode refuses on this server; read by
         # :func:`plan_mode_denied_tools`.
         "plan_mode_denied": _server_plan_mode_denied(sdef),
+        # A custom server's declared write tools (bare names); None when it has
+        # no list. facility_write_tools reads the gated rules, this the intent.
+        "writes": list(sdef.writes) if sdef.writes is not None else None,
     }
 
 

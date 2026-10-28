@@ -47,7 +47,6 @@ from statistics import median
 from typing import Any
 
 import pytest
-from tests._builds import BuiltProject
 
 from osprey.services.channel_finder.graph_index.builder import (
     CALLER_META_KEYS,
@@ -561,12 +560,6 @@ def _report(label: str, timings: list[float]) -> tuple[float, float, float]:
 
 # Module-scoped rather than class-scoped: the scale class measures itself
 # against the demo corpus, so both classes have to reach the same build.
-
-
-@pytest.fixture(scope="module")
-def demo_path(built_control_assistant: BuiltProject) -> Path:
-    """The graph view the control-assistant build writes."""
-    return built_control_assistant.build_dir / "data" / "graph" / "facility.ttl"
 
 
 @pytest.fixture(scope="module")

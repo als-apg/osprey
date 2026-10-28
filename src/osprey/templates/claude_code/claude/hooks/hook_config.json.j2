@@ -10,7 +10,14 @@
   matcher lands in `write_tools` like any other (it is also what
   read_only_disallowed_tools is built from), and the hooks' shared
   `is_write_tool` honours the trailing wildcard — so every tool on such a
-  server is gated, reads included.
+  server is gated, reads included. A server that declares `writes:` gets one
+  exact matcher per write tool instead, so its other tools stay reads.
+
+  `facility_write_tools` is the facility (custom-server) write set — those
+  exact names and whole-server matchers — as
+  osprey.registry.mcp.facility_write_tools computed it; it is rendered
+  verbatim, and this template derives nothing from it. Both write-target
+  twins read it to send exactly those tools to `live`.
 
   `control_system_write_tools` is the subset of the project's
   `control_system.write_tools` that this render actually APPENDED to
@@ -58,6 +65,7 @@
   "approval_prefixes": {{ approval_pfx | tojson }},
   "write_tools": {{ write_tools | tojson }},
   "control_system_write_tools": {{ appended_extras | tojson }},
+  "facility_write_tools": {{ facility_write_tools | default([], true) | tojson }},
   "mixed_read_write_tools": {{ mixed_read_write_tools | default([], true) | tojson }},
   "lane_addressed_tools": {{ lane_addressed_tools | default([], true) | tojson }},
   "measurement": {{ measurement | default({}, true) | tojson }},

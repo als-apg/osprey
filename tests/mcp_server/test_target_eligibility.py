@@ -18,8 +18,8 @@ stand-in's.
 
 Every case injects ``readonly_run`` rather than letting it default, so no test
 depends on the execution mode of the machine running it. ``writes_enabled`` is
-injected too, except in the per-target posture matrix below, where the value the
-config resolves to for each target is the thing being tested.
+injected too, except in the tier matrix and the per-target verdict cases below,
+where the value the config or the record resolves to is the thing being tested.
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ from typing import Any
 import pytest
 
 from osprey.mcp_server.control_system import target_eligibility as te
+from osprey_connectors import control_context
 from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY
 from osprey_connectors.ipc._verification import (
     DEFAULT_CA_PORT,
@@ -40,6 +41,7 @@ from osprey_connectors.ipc._verification import (
     derive_endpoints,
     verify_child_report,
 )
+from osprey_connectors_tests._harness import isolate_verdict_environment, write_control_context
 
 LIVE = "live"
 VA = "va"
@@ -129,10 +131,14 @@ def _config(
     limits: str = "strict",
     ack: bool = True,
     archiver_type: str | None = "epics_archiver",
-    writes_enabled: bool = False,
+    writes: str | None = None,
     target_switch: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """A rendered config.yml, in the nested shape the MCP server reads."""
+    """A rendered config.yml, in the nested shape the MCP server reads.
+
+    *writes* is the write tier (``control_system.writes``); ``None`` leaves the
+    key out, which reads ``never``.
+    """
     switch: dict[str, Any] = dict(target_switch or {})
     if ack:
         switch[te.ACK_LEAF] = "gw.example.org"
@@ -146,7 +152,6 @@ def _config(
     config: dict[str, Any] = {
         "control_system": {
             "type": control_system_type,
-            "writes_enabled": writes_enabled,
             "limits_checking": limits_block,
             "connector": (
                 connector
@@ -156,6 +161,8 @@ def _config(
             "target_switch": switch,
         }
     }
+    if writes is not None:
+        config["control_system"]["writes"] = writes
     if archiver_type is not None:
         config["archiver"] = {"type": archiver_type}
     return config
@@ -303,23 +310,25 @@ def test_coming_home_to_a_connector_the_switch_cannot_dial_is_not_refused() -> N
     assert _eligibility(config, LIVE, direction=te.DIRECTION_BACK).eligible is True
 
 
-def test_a_gateways_table_without_the_selectable_role_is_ineligible() -> None:
-    """Writes off selects read_only; a write-only table therefore has no role."""
-    config = _config(
-        connector={
-            EPICS_TYPE: _epics_block(
-                gateways={
-                    "write_access": {
-                        "address": "gw.example.org",
-                        "port": 5084,
-                        "use_name_server": False,
-                    }
-                }
-            )
-        }
-    )
+def _write_only_gateways() -> dict[str, Any]:
+    return {"write_access": {"address": "gw.example.org", "port": 5084, "use_name_server": False}}
+
+
+def test_a_write_only_table_reads_through_its_write_gateway_while_writes_are_off() -> None:
+    """Writes off on a write-only block selects write_access; every write is refused."""
+    config = _config(connector={EPICS_TYPE: _epics_block(gateways=_write_only_gateways())})
 
     verdict = _eligibility(config, LIVE, writes_enabled=False)
+
+    assert verdict.eligible is True
+    assert _derive(config, LIVE, writes_enabled=False).selected_role == "write_access"
+
+
+def test_a_readonly_run_on_a_write_only_table_has_no_selectable_role() -> None:
+    """A readonly run never selects write_access, so a write-only table has no role."""
+    config = _config(connector={EPICS_TYPE: _epics_block(gateways=_write_only_gateways())})
+
+    verdict = _eligibility(config, LIVE, writes_enabled=False, readonly_run=True)
 
     assert verdict.eligible is False
     assert verdict.reason == te.REASON_SELECTED_ROLE_MISSING
@@ -339,7 +348,7 @@ def test_an_empty_gateway_entry_does_not_count_as_the_role() -> None:
         }
     )
 
-    verdict = _eligibility(config, LIVE)
+    verdict = _eligibility(config, LIVE, readonly_run=True)
 
     assert verdict.eligible is False
     assert verdict.reason == te.REASON_SELECTED_ROLE_MISSING
@@ -526,16 +535,17 @@ def test_coming_home_to_a_baseline_with_no_probe_channel_is_not_refused() -> Non
 
 
 def test_coming_home_to_a_baseline_missing_the_selected_role_is_not_refused() -> None:
-    """Writes unarmed selects ``read_only``, which a write-only table does not
-    carry. Away that is a refusal; home it is the read-only gateway the connector
-    would have fallen back to anyway."""
+    """A readonly run selects ``read_only``, which a write-only table does not
+    carry. Away that is a refusal; home it is not, because check 3 is waived on
+    the way back."""
     gateways = {"write_access": {"address": "gw.example.org", "port": 5084}}
     config = _config(connector={EPICS_TYPE: _epics_block(gateways=gateways), VA_TYPE: _va_block()})
 
-    assert _eligibility(config, LIVE, direction=te.DIRECTION_BACK).eligible is True
-    assert _eligibility(config, LIVE, direction=te.DIRECTION_AWAY).reason == (
-        te.REASON_SELECTED_ROLE_MISSING
-    )
+    home = _eligibility(config, LIVE, direction=te.DIRECTION_BACK, readonly_run=True)
+    away = _eligibility(config, LIVE, direction=te.DIRECTION_AWAY, readonly_run=True)
+
+    assert home.eligible is True
+    assert away.reason == te.REASON_SELECTED_ROLE_MISSING
 
 
 def test_va_is_never_gated_on_posture_or_acknowledgment() -> None:
@@ -1066,105 +1076,64 @@ def test_a_readonly_run_moves_the_selected_role_not_the_eligibility() -> None:
 
 
 def test_writes_enabled_defaults_to_the_configs_own_posture() -> None:
-    config = _config(writes_enabled=True)
+    config = _config(writes="allowed")
 
     assert derive_endpoints(config, LIVE, readonly_run=False).selected_role == "write_access"
 
 
 def test_readonly_run_defaults_to_the_processs_execution_mode(monkeypatch) -> None:
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
-    config = _config(writes_enabled=True)
+    config = _config(writes="allowed")
 
     assert derive_endpoints(config, LIVE).selected_role == "read_only"
 
 
 # ---------------------------------------------------------------------------
-# Write posture, per target
+# The tier, and the verdict per target
 # ---------------------------------------------------------------------------
 
-#: A block carrying no ``writes_enabled`` leaf at all, which is the tri-state's
-#: "inherit the deployment-wide key" and is not any value the leaf could hold.
-ABSENT = object()
 
-
-def _posture_config(*, deployment: bool, live: Any = ABSENT, va: Any = ABSENT) -> dict[str, Any]:
-    """A two-target config where each block states its own posture, or doesn't."""
-    epics = _epics_block()
-    va_block = _va_block()
-    if live is not ABSENT:
-        epics["writes_enabled"] = live
-    if va is not ABSENT:
-        va_block["writes_enabled"] = va
-    return _config(
-        writes_enabled=deployment,
-        connector={EPICS_TYPE: epics, VA_TYPE: va_block},
+def _tier_config(tier: Any = None, *, va_leaf: Any = None) -> dict[str, Any]:
+    """A two-target config with split gateway ports, carrying *tier* when given."""
+    va_block = _va_block(
+        gateways={
+            "read_only": {"address": "localhost", "port": 5074, "use_name_server": True},
+            "write_access": {"address": "localhost", "port": 5075, "use_name_server": True},
+        }
     )
+    if va_leaf is not None:
+        va_block["writes_enabled"] = va_leaf
+    config = _config(connector={EPICS_TYPE: _epics_block(), VA_TYPE: va_block})
+    if tier is not None:
+        config["control_system"]["writes"] = tier
+    return config
 
 
-# {deployment-wide posture} x {each block's own posture} x {readonly run}, with
-# the role EACH target selects written out per cell. Neither target's expectation
-# is derived from the other's: the whole point of the per-type key is that one
-# deployment can arm one machine and not the other, and a matrix that computed
-# the second answer from the first could not tell the two apart.
-#
-# These cases deliberately do not inject ``writes_enabled`` — the default seam,
-# which is what resolves the target's posture, is what they are about.
-POSTURE_MATRIX = {
-    # deployment-wide, live leaf, va leaf, readonly run, live role, va role
-    "arm-the-simulator-alone": (False, ABSENT, True, False, "read_only", "write_access"),
-    "disarm-the-real-machine-alone": (True, False, ABSENT, False, "read_only", "write_access"),
-    "arm-the-real-machine-alone": (False, True, ABSENT, False, "write_access", "read_only"),
-    "silent-blocks-inherit-a-disarmed-deployment": (
-        False,
-        ABSENT,
-        ABSENT,
-        False,
-        "read_only",
-        "read_only",
-    ),
-    "silent-blocks-inherit-an-armed-deployment": (
-        True,
-        ABSENT,
-        ABSENT,
-        False,
-        "write_access",
-        "write_access",
-    ),
-    "both-blocks-disarm-an-armed-deployment": (True, False, False, False, "read_only", "read_only"),
-    "a-quoted-true-arms-nothing": (False, ABSENT, "true", False, "read_only", "read_only"),
-    "a-readonly-run-collapses-an-armed-simulator": (
-        False,
-        ABSENT,
-        True,
-        True,
-        "read_only",
-        "read_only",
-    ),
-    "a-readonly-run-collapses-an-armed-deployment": (
-        True,
-        ABSENT,
-        ABSENT,
-        True,
-        "read_only",
-        "read_only",
-    ),
+# {tier} x {readonly run}, with the role EACH target selects written out per
+# cell. The tier is target-blind: it is a ceiling for every machine, and the
+# switch is what picks one. These cases do not inject ``writes_enabled`` — the
+# default seam of ``derive_endpoints``, which reads the tier, is what they are about.
+TIER_MATRIX = {
+    # tier, legacy va leaf, readonly run, live role, va role
+    "an-allowed-tier-allows-both": ("allowed", None, False, "write_access", "write_access"),
+    "a-never-tier-allows-neither": ("never", None, False, "read_only", "read_only"),
+    "a-non-string-tier-allows-nothing": (True, None, False, "read_only", "read_only"),
+    # No runtime retired-leaf fallback (D2): a block's legacy leaf with no tier
+    # key is no tier at all, for either machine.
+    "a-legacy-leaf-on-one-block-is-no-tier": (None, True, False, "read_only", "read_only"),
+    "a-readonly-run-collapses-an-allowed-tier": ("allowed", None, True, "read_only", "read_only"),
 }
 
 
 @pytest.mark.parametrize(
-    ("deployment", "live_leaf", "va_leaf", "readonly", "live_role", "va_role"),
-    POSTURE_MATRIX.values(),
-    ids=list(POSTURE_MATRIX),
+    ("tier", "va_leaf", "readonly", "live_role", "va_role"),
+    TIER_MATRIX.values(),
+    ids=list(TIER_MATRIX),
 )
-def test_each_target_selects_the_gateway_its_own_posture_arms(
-    deployment: bool,
-    live_leaf: Any,
-    va_leaf: Any,
-    readonly: bool,
-    live_role: str,
-    va_role: str,
+def test_the_derivation_default_follows_the_tier_for_every_target(
+    tier: Any, va_leaf: Any, readonly: bool, live_role: str, va_role: str
 ) -> None:
-    config = _posture_config(deployment=deployment, live=live_leaf, va=va_leaf)
+    config = _tier_config(tier, va_leaf=va_leaf)
 
     live = derive_endpoints(config, LIVE, readonly_run=readonly)
     va = derive_endpoints(config, VA, readonly_run=readonly)
@@ -1173,55 +1142,138 @@ def test_each_target_selects_the_gateway_its_own_posture_arms(
     assert va.selected_role == va_role
 
 
-def test_posture_decides_which_gateway_a_target_is_required_to_have() -> None:
-    """Check 3 is asked per target: a block with only a write gateway is eligible
-    exactly when its own posture arms the write role it has."""
-    config = _config(
-        writes_enabled=False,
-        connector={
-            EPICS_TYPE: _epics_block(
-                writes_enabled=True,
-                gateways={"write_access": {"address": "gw.example.org", "port": 5084}},
-            ),
-            VA_TYPE: _va_block(
-                gateways={"write_access": {"address": "localhost", "port": 5074}},
-            ),
-        },
+@pytest.fixture
+def verdict_root(tmp_path, monkeypatch):
+    """A clean write-verdict environment, the host record under *tmp_path*."""
+    root = tmp_path / "agent_data"
+    isolate_verdict_environment(monkeypatch, root)
+    yield root
+    control_context.invalidate_cache()
+
+
+def _switch_on(root, *targets: str) -> None:
+    write_control_context(root, owned_by=None, switch=dict.fromkeys(targets, "on"))
+
+
+def test_the_simulator_on_and_the_real_machine_off_are_two_answers(verdict_root) -> None:
+    """The control-system half of the simulator-lane criterion.
+
+    With the tier allowed, the simulator's switch on and the real machine's
+    off, a write to the simulator is allowed and one to the real machine is
+    refused, and each target derives the gateway its own verdict selects.
+    """
+    _switch_on(verdict_root, VA)
+    config = _tier_config("allowed")
+    section = config["control_system"]
+
+    va = te.target_write_verdict(section, VA)
+    live = te.target_write_verdict(section, LIVE)
+
+    assert (va.allowed, va.reason) == (True, None)
+    assert (live.allowed, live.reason, live.kind) == (False, "switch_off", "real")
+    assert te.target_write_verdict(section, VA).allowed is True
+    assert te.target_write_verdict(section, LIVE).allowed is False
+    for target, role in ((VA, "write_access"), (LIVE, "read_only")):
+        writes = te.target_write_verdict(section, target).allowed
+        assert derive_endpoints(config, target, writes_enabled=writes).selected_role == role
+
+
+def test_the_eligibility_default_is_the_verdict_not_the_tier(verdict_root, monkeypatch) -> None:
+    """``writes_enabled=None`` resolves through the verdict, per target."""
+    _switch_on(verdict_root, VA)
+    config = _tier_config("allowed")
+    seen: list[tuple[str, bool]] = []
+    real = te.derive_endpoints
+
+    def spy(config_, target, *, writes_enabled, **kwargs):
+        seen.append((target, writes_enabled))
+        return real(config_, target, writes_enabled=writes_enabled, **kwargs)
+
+    monkeypatch.setattr(te, "derive_endpoints", spy)
+
+    te.target_availability(
+        config, VA, control_target=LIVE, baseline_target=LIVE, readonly_run=False
     )
-
-    live = te.evaluate_eligibility(config, LIVE, readonly_run=False)
-    va = te.evaluate_eligibility(config, VA, readonly_run=False)
-
-    assert live.eligible is True
-    assert va.eligible is False
-    assert va.reason == te.REASON_SELECTED_ROLE_MISSING
-
-
-def test_the_roster_reads_each_targets_own_posture() -> None:
-    config = _config(
-        writes_enabled=False,
-        connector={
-            EPICS_TYPE: _epics_block(
-                writes_enabled=True,
-                gateways={"write_access": {"address": "gw.example.org", "port": 5084}},
-            ),
-            VA_TYPE: _va_block(
-                gateways={"write_access": {"address": "localhost", "port": 5074}},
-            ),
-        },
-    )
-
-    live = te.target_availability(
+    te.target_availability(
         config, LIVE, control_target=VA, baseline_target=LIVE, readonly_run=False
     )
-    va = te.target_availability(
-        config, VA, control_target=VA, baseline_target=LIVE, readonly_run=False
-    )
 
-    assert live.available_now is True
-    assert va.eligible is False
-    assert va.reason == te.REASON_ALREADY_ACTIVE
-    assert va.eligible_from_baseline is False
+    assert set(seen) == {(VA, True), (LIVE, False)}
+
+
+def test_an_off_switch_takes_writes_away_and_an_on_one_gives_them_back(verdict_root) -> None:
+    config = _tier_config("allowed")
+    section = config["control_system"]
+
+    assert te.target_write_verdict(section, VA).reason == "switch_off"
+    _switch_on(verdict_root, VA)
+    assert te.target_write_verdict(section, VA).allowed is True
+    _switch_on(verdict_root, LIVE)
+    assert te.target_write_verdict(section, VA).allowed is False
+
+
+def test_a_never_tier_refuses_whatever_the_switch_says(verdict_root) -> None:
+    _switch_on(verdict_root, VA, LIVE)
+    section = _tier_config("never")["control_system"]
+
+    assert te.target_write_verdict(section, VA).reason == "tier_never"
+    assert te.target_write_verdict(section, LIVE).allowed is False
+
+
+def test_a_readonly_run_refuses_before_the_switch(verdict_root, monkeypatch) -> None:
+    _switch_on(verdict_root, VA)
+    monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+    section = _tier_config("allowed")["control_system"]
+
+    assert te.target_write_verdict(section, VA).reason == "readonly_run"
+
+
+def test_an_unknown_target_refuses_as_target_unknown(verdict_root) -> None:
+    _switch_on(verdict_root, VA)
+    config = _tier_config("allowed")
+    config["control_system"]["type"] = VA_TYPE
+    del config["control_system"]["connector"][EPICS_TYPE]
+
+    verdict = te.target_write_verdict(config["control_system"], LIVE)
+
+    assert (verdict.allowed, verdict.reason) == (False, "target_unknown")
+    assert te.target_write_verdict(config["control_system"], "nowhere").allowed is False
+
+
+def test_an_owner_the_login_map_does_not_name_refuses_as_owner_unknown(verdict_root) -> None:
+    _switch_on(verdict_root, VA)
+    section = _tier_config("allowed")["control_system"]
+    section["login_tiers"] = {"somebody-else": "allowed"}
+
+    verdict = te.target_write_verdict(section, VA)
+
+    assert (verdict.allowed, verdict.reason) == (False, "owner_unknown")
+
+
+def test_an_unreadable_record_refuses_as_record_unavailable(verdict_root) -> None:
+    _switch_on(verdict_root, VA)
+    control_context._record_path_under(verdict_root).write_text("{not json", encoding="utf-8")
+    control_context.invalidate_cache()
+    section = _tier_config("allowed")["control_system"]
+
+    verdict = te.target_write_verdict(section, VA)
+
+    assert (verdict.allowed, verdict.reason) == (False, "record_unavailable")
+    assert te.target_write_verdict(section, VA).allowed is False
+
+
+@pytest.mark.usefixtures("verdict_root")
+def test_a_verdict_that_raises_refuses_rather_than_allows(monkeypatch) -> None:
+    from osprey_connectors import posture_store
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("the verdict could not be reached")
+
+    monkeypatch.setattr(posture_store, "write_verdict", boom)
+
+    verdict = te.target_write_verdict(_tier_config("allowed")["control_system"], VA)
+
+    assert (verdict.allowed, verdict.reason) == (False, "record_unavailable")
 
 
 # ---------------------------------------------------------------------------
@@ -1758,6 +1810,7 @@ def test_both_callers_name_a_busy_kernel_identically(monkeypatch) -> None:
             current_target=VA,
             baseline=VA,
             in_flight=(marker,),
+            writes_enabled=False,
             kernel_name=resolver,
         )
 
@@ -1768,9 +1821,17 @@ def test_both_callers_name_a_busy_kernel_identically(monkeypatch) -> None:
         assert verdict.details == details
 
     resolved = te.evaluate_switch(
-        {}, LIVE, current_target=VA, baseline=VA, in_flight=(marker,), kernel_name=resolve
+        {},
+        LIVE,
+        current_target=VA,
+        baseline=VA,
+        in_flight=(marker,),
+        writes_enabled=False,
+        kernel_name=resolve,
     )
-    unresolved = te.evaluate_switch({}, LIVE, current_target=VA, baseline=VA, in_flight=(marker,))
+    unresolved = te.evaluate_switch(
+        {}, LIVE, current_target=VA, baseline=VA, in_flight=(marker,), writes_enabled=False
+    )
     assert NOTEBOOK in " ".join(resolved.suggestions)
     assert f"notebook kernel {KERNEL_ID[:8]}" in " ".join(unresolved.suggestions)
 

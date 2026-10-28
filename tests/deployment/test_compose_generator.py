@@ -980,7 +980,7 @@ _CONNECTOR_SERVICE_TEMPLATES = [
         "services/bluesky/docker-compose.yml.j2",
         {
             "services": {"bluesky": {"port": 10080}},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
             "deployed_services": ["bluesky"],
             "deployment": {},
         },
@@ -990,7 +990,7 @@ _CONNECTOR_SERVICE_TEMPLATES = [
         "services/dispatch_worker/docker-compose.yml.j2",
         {
             "services": {"dispatch_worker": {"worker_count": 2}},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
             "deployed_services": [],
         },
         id="dispatch-worker",
@@ -1706,10 +1706,10 @@ def _render_bluesky_template(
     # control_system is omitted by default (matching every pre-existing call
     # site below). The template reads each lane's posture from
     # `svc.writes_enabled`, which compose_generator precomputes per lane from
-    # the resolver (`_bluesky_lane_write_posture`) rather than from the flat
-    # key, so a caller that cares stamps the lane the way the generator does.
+    # the render's tier (`_bluesky_lane_write_posture`) rather than from the
+    # config, so a caller that cares stamps the lane the way the generator does.
     if writes_enabled is not None:
-        kwargs["control_system"] = {"writes_enabled": writes_enabled}
+        kwargs["control_system"] = {"writes": "allowed" if writes_enabled else "never"}
         kwargs["services"] = {
             **kwargs["services"],
             "bluesky": {**kwargs["services"]["bluesky"], "writes_enabled": writes_enabled},
@@ -1799,7 +1799,7 @@ def test_bluesky_va_ca_port_defaults_when_va_config_block_absent() -> None:
 
 # ---------------------------------------------------------------------------
 # Task 3.2 / CC-2: read-only config + limits mounts under one /app/project
-# root. The connector-backed bridge reads control_system.type/writes_enabled
+# root. The connector-backed bridge reads control_system.type/writes
 # and control_system.limits_checking.database_path from config.yml at
 # runtime, and (when writes are enabled) resolves a relative database_path
 # against project_root -- so config.yml and channel_limits.json must land
@@ -1833,7 +1833,7 @@ def test_bluesky_template_always_mounts_config_yml_read_only() -> None:
 
 
 def test_bluesky_template_mounts_channel_limits_when_writes_enabled() -> None:
-    """control_system.writes_enabled=true must mount channel_limits.json
+    """An armed lane (tier `control_system.writes: allowed`) must mount channel_limits.json
     read-only under /app/project/data/, the same /app/project root as
     config.yml, so a relative control_system.limits_checking.database_path
     (e.g. "data/channel_limits.json") resolves against project_root exactly
@@ -1852,7 +1852,7 @@ def test_bluesky_template_mounts_channel_limits_when_writes_enabled() -> None:
 def test_bluesky_template_omits_channel_limits_mount_when_writes_disabled() -> None:
     """A read-only deploy must never mount channel_limits.json -- a
     read-only posture never opens the limits DB. Both the explicit
-    ``writes_enabled: false`` case and the default render (no
+    ``writes: never`` case and the default render (no
     ``control_system`` key at all in the context, matching every
     pre-existing call site in this module) must omit it.
     """
@@ -2272,15 +2272,15 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
     assert "\n  tiled:\n" in rendered, "Tiled must be co-deployed (bluesky.tiled_enabled=true)"
 
     # -- Task 3.2 / CC-2: read-only config + limits mounts under /app/project -
-    # The control-assistant preset defaults control_system.writes_enabled to
-    # true (this deploy config never overrides it off), so the real,
+    # The control-assistant preset's root sets control_system.writes: allowed
+    # (this deploy config never overrides it to never), so the real,
     # fully-flattened render must mount both config.yml and channel_limits.json
     # under the same /app/project root the connector resolves project_root
     # against.
-    assert config["control_system"]["writes_enabled"] is True, (
+    assert config["control_system"]["writes"] == "allowed", (
         "this assertion block assumes the control-assistant preset's "
-        "writes_enabled default -- if that default ever changes, this test's "
-        "premise for asserting the channel_limits.json mount changes too"
+        "control_system.writes: allowed default -- if that default ever changes, this "
+        "test's premise for asserting the channel_limits.json mount changes too"
     )
     assert "CONFIG_FILE: /app/project/config.yml" in rendered
     assert "./build/services/bluesky/config.yml:/app/project/config.yml:ro" in rendered, (
@@ -2295,7 +2295,7 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
     assert (
         "./build/data/channel_limits.json:/app/project/data/channel_limits.json:ro" in rendered
     ), (
-        "control_system.writes_enabled=true (preset default) must mount "
+        "control_system.writes: allowed (preset default) must mount "
         "channel_limits.json under the same /app/project root as config.yml, "
         "from the build zone the deployed config is read from"
     )
@@ -7515,16 +7515,17 @@ def test_inject_project_metadata_passes_config_dir_keys_through(tmp_path: Path) 
 # staying in step at both entry-point shapes - a deploy reading a config from
 # `build/`, and a build rendering from a staging tree that becomes it.
 #
-# A limits database is optional. Refusals ride on one target both arming
-# writes and requiring the database (`any_armed_target_requires_limits_database`:
-# `limits_checking.enabled` on, and a mode other than `optional` or a path
-# configured), because that pairing is what opens the file: a target that checks
-# no limits builds no validator and reads no database, and one checking in
-# `optional` mode with no path checks every channel as unlisted. The write half is a union over the targets a session here can
-# select rather than the flat key, since the template mounts the file per
-# Bluesky lane off each lane's own target posture -- so a deployment-wide
-# `writes_enabled: false` with an armed `connector.<type>.writes_enabled` still
-# mounts it. Where nothing opens the file, an unset or not-yet-staged path is a
+# A limits database is optional. Refusals ride on the login tier allowing
+# writes (`control_system.writes: allowed`) while some configured target's
+# limits posture requires the database (`tier_limits_database_targets`: limits
+# checking on, and either a mode other than `optional` or a path configured),
+# because that pairing is what opens the file: a target that checks no limits
+# builds no validator and reads no database, and one in `optional` mode with
+# no path checks every channel as unlisted against an empty one. The tier is target-blind -- `allowed` lets a session write
+# to every configured target. The config read here is a rendered one, so the
+# tier key is all that arms: a retired `writes_enabled` leaf was rewritten to
+# `writes` by the build's normalizer and is not read at run time (D2). Where
+# nothing opens the file, an unset or not-yet-staged path is a
 # posture and not a fault, and no mount is recorded at all.
 # ---------------------------------------------------------------------------
 
@@ -7549,10 +7550,10 @@ def _stage_limits_file(directory: Path, relpath: str = DEFAULT_LIMITS_RELPATH) -
     return staged
 
 
-def _limits_config(database_path: object, writes_enabled: bool = True) -> dict:
+def _limits_config(database_path: object, writes_allowed: bool = True) -> dict:
     """A ``control_system`` block carrying just the two keys under test."""
     return {
-        "writes_enabled": writes_enabled,
+        "writes": "allowed" if writes_allowed else "never",
         "limits_checking": {"enabled": True, "database_path": database_path},
     }
 
@@ -7683,7 +7684,7 @@ def test_limits_mount_refuses_a_checking_writable_deployment_with_no_configured_
     with pytest.raises(DeploymentPreconditionError, match=re.escape(LIMITS_KEY)) as excinfo:
         prepare_compose_files(str(config_path))
 
-    assert "writes_enabled" in excinfo.value.reason, (
+    assert "control_system.writes: allowed" in excinfo.value.reason, (
         "the reason must say which posture makes the missing key fatal"
     )
     assert LIMITS_KEY in excinfo.value.remedy, "the remedy must name the key"
@@ -7756,17 +7757,19 @@ def test_limits_mount_refuses_a_checking_writable_deployment_whose_file_is_absen
 
 
 def _mixed_posture_limits_config(database_path: object) -> dict:
-    """Read-only deployment-wide, armed on its virtual accelerator.
+    """What the build renders from the retired per-type spelling (flat key off,
+    armed on the virtual accelerator only).
 
-    The posture this branch exists for: ``control_system.writes_enabled`` is
-    ``false`` and the VA's own block overrides it, so the VA lane renders
-    ``svc.writes_enabled`` true and mounts the limits database while the flat
-    key says the deployment writes nothing.
+    The normalizer rewrites that spelling to the target-blind tier
+    ``control_system.writes: allowed`` and drops the per-type leaf, so the
+    rendered section carries a VA connector block with no posture of its own;
+    every lane renders ``svc.writes_enabled`` true and mounts the limits
+    database.
     """
     return {
         "type": "virtual_accelerator",
-        "writes_enabled": False,
-        "connector": {"virtual_accelerator": {"writes_enabled": True}},
+        "writes": "allowed",
+        "connector": {"virtual_accelerator": {}},
         "limits_checking": {"enabled": True, "database_path": database_path},
     }
 
@@ -7774,15 +7777,13 @@ def _mixed_posture_limits_config(database_path: object) -> dict:
 def test_limits_mount_refuses_a_per_target_writable_deployment_whose_file_is_absent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A target armed per type earns the same refusal as a global one.
+    """A render rewritten from a per-type arming earns the same refusal as a global one.
 
-    The mount is rendered per lane, off each lane's own target posture, so the
-    deployment-wide key is not what decides whether this file is mounted - the
-    union over the targets a session here can select is. Reading the flat key
-    would let this exact config, the one the per-target posture exists for,
-    render an armed lane binding a file that is not on the host: an absent bind
-    source is created as an empty directory by the container runtime, so the
-    build-time refusal is the only place it is caught.
+    The rendered tier is ``allowed`` whatever spelling produced it, so this VA
+    render's lane is armed and binds the limits database. Without the refusal it
+    would bind a file that is not on the host: an absent bind source is created
+    as an empty directory by the container runtime, so the build-time refusal is
+    the only place it is caught.
     """
     config_path = _write_config(
         tmp_path,
@@ -7797,7 +7798,7 @@ def test_limits_mount_refuses_a_per_target_writable_deployment_whose_file_is_abs
     assert str(tmp_path / DEFAULT_LIMITS_RELPATH) in excinfo.value.reason, (
         "the reason must name the host path that was probed, not just the key"
     )
-    assert "writes_enabled" in excinfo.value.reason, (
+    assert "control_system.writes: allowed" in excinfo.value.reason, (
         "the reason must say which posture makes the absent file fatal"
     )
 
@@ -7823,7 +7824,7 @@ def test_limits_mount_refuses_a_per_target_writable_deployment_with_no_configure
     with pytest.raises(DeploymentPreconditionError, match=re.escape(LIMITS_KEY)) as excinfo:
         prepare_compose_files(str(config_path))
 
-    assert "writes_enabled" in excinfo.value.reason, (
+    assert "control_system.writes: allowed" in excinfo.value.reason, (
         "the reason must say which posture makes the missing key fatal"
     )
 
@@ -7900,7 +7901,7 @@ def test_limits_mount_never_refuses_a_read_only_deployment(
     config_path = _write_config(
         tmp_path,
         deployed_services=[],
-        control_system=_limits_config(database_path, writes_enabled=False),
+        control_system=_limits_config(database_path, writes_allowed=False),
     )
     if staged:
         _stage_limits_file(tmp_path)
@@ -7916,7 +7917,7 @@ def test_limits_mount_never_refuses_a_read_only_deployment(
 def _unchecked_limits_config(database_path: object) -> dict:
     """Armed deployment-wide with limits checking explicitly off."""
     return {
-        "writes_enabled": True,
+        "writes": "allowed",
         "limits_checking": {
             "enabled": False,
             "mode": "exclusive",
@@ -7975,23 +7976,20 @@ def test_limits_mount_absent_for_an_unchecked_armed_deployment_whose_file_is_abs
 def test_limits_mount_refuses_when_only_the_armed_target_checks_limits(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Both leaves are read off the SAME target, not folded across targets.
+    """The baseline target checks limits while another configured target does not.
 
-    Here the armed VA checks limits while the read-only live block does not.
-    An answer folded over every target would see one armed target and one
-    checking target and could report a pairing that no single machine has; the
-    lane that opens the database is the VA, so the absent file is fatal.
+    The tier is target-blind, so an ``allowed`` render can write to the VA,
+    which checks limits; the lane that opens the database is the VA's, so the
+    absent file is fatal even though the live block beside it checks nothing.
     """
     control_system = {
         "type": "virtual_accelerator",
-        "writes_enabled": False,
+        "writes": "allowed",
         "connector": {
             "virtual_accelerator": {
-                "writes_enabled": True,
                 "limits_checking": {"enabled": True, "mode": "exclusive"},
             },
             "epics": {
-                "writes_enabled": False,
                 "limits_checking": {"enabled": False, "mode": "exclusive"},
             },
         },
@@ -8006,25 +8004,27 @@ def test_limits_mount_refuses_when_only_the_armed_target_checks_limits(
     assert str(tmp_path / DEFAULT_LIMITS_RELPATH) in excinfo.value.reason
 
 
-def test_limits_mount_lets_an_armed_unchecked_target_build_beside_a_checking_read_only_one(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("writes", ["allowed", "never"])
+def test_limits_mount_follows_the_tier_over_an_unchecked_baseline_beside_a_checking_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, writes: str
 ) -> None:
-    """The mirror image: the target that checks limits is the one nobody arms.
+    """The target that checks limits is not the baseline, and the tier decides.
 
-    A fold that asked "is anything armed" and "is anything checking" separately
-    would refuse this build over a read-only machine's posture. Nothing here
-    opens the database, so its absence is not a fault.
+    The baseline VA checks no limits; the configured live block does. The tier
+    is target-blind, so an ``allowed`` render can write to the checking live
+    target and the absent database is fatal -- while a ``never`` render writes
+    nowhere, so nothing opens the database and its absence is not a fault. A
+    fold that read only the baseline's posture would build the ``allowed`` case
+    unguarded; one that ignored the tier would refuse the ``never`` case.
     """
     control_system = {
         "type": "virtual_accelerator",
-        "writes_enabled": False,
+        "writes": writes,
         "connector": {
             "virtual_accelerator": {
-                "writes_enabled": True,
                 "limits_checking": {"enabled": False, "mode": "exclusive"},
             },
             "epics": {
-                "writes_enabled": False,
                 "limits_checking": {"enabled": True, "mode": "exclusive"},
             },
         },
@@ -8033,9 +8033,13 @@ def test_limits_mount_lets_an_armed_unchecked_target_build_beside_a_checking_rea
     config_path = _write_config(tmp_path, deployed_services=[], control_system=control_system)
 
     monkeypatch.chdir(tmp_path)
-    config, _ = prepare_compose_files(str(config_path))
-
-    assert "limits_mount" not in config
+    if writes == "never":
+        config, _ = prepare_compose_files(str(config_path))
+        assert "limits_mount" not in config
+        return
+    with pytest.raises(DeploymentPreconditionError, match=re.escape(LIMITS_KEY)) as excinfo:
+        prepare_compose_files(str(config_path))
+    assert str(tmp_path / DEFAULT_LIMITS_RELPATH) in excinfo.value.reason
 
 
 def test_limits_mount_absent_when_no_control_system_block_exists(
@@ -8241,7 +8245,7 @@ def _devices_config(
     in_process: bool = False,
 ) -> dict:
     """The slice of render config the staging step reads."""
-    control_system: dict = {"type": control_system_type, "writes_enabled": False}
+    control_system: dict = {"type": control_system_type, "writes": "never"}
     if in_process:
         control_system["connector"] = {"virtual_accelerator": {"serving": "in_process"}}
     return {
@@ -8606,7 +8610,7 @@ def test_an_armed_lane_that_checks_no_limits_builds_with_a_staged_device_set(
                 "channel_finder": {"pipeline_mode": "graph"},
                 "control_system": {
                     "type": "virtual_accelerator",
-                    "writes_enabled": True,
+                    "writes": "allowed",
                     "limits_checking": {
                         "enabled": False,
                         "mode": "exclusive",
