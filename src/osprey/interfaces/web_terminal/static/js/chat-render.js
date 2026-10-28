@@ -660,9 +660,7 @@ export function createChatRenderer(container, options = {}) {
           const line = refusalLine(/** @type {ToolOutcome} */ (event));
           if (line) {
             const t = ensureTurn();
-            closeText(t);
-            closeThinking(t);
-            closeGroup(t);
+            closeAll(t);
             t.entry.appendChild(line);
           }
         }
