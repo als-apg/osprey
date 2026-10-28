@@ -495,10 +495,10 @@ _PER_TYPE_MODE_KEY = "control_system.connector.virtual_accelerator.limits_checki
 def _posture_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Config whose in-process simulator block relaxes what the deployment-wide keys refuse.
 
-    The two postures disagree on purpose: the connector block arms writes and
-    allows unlisted channels, the deployment-wide keys do neither. Which pair a
-    built connector ends up reading is then observable on the connector itself,
-    which is what the degraded lane turns on. The loaded config sits in the
+    The tier allows writes; the two limits postures disagree on purpose: the
+    connector block allows unlisted channels, the deployment-wide keys do not.
+    Which one a built connector ends up reading is then observable on the
+    connector itself, which is what the degraded lane turns on. The loaded config sits in the
     render of a built tree, beside the simulator view the connector serves.
     """
     database = tmp_path / "limits.json"
@@ -510,7 +510,7 @@ def _posture_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     )
     section: dict[str, Any] = {
         "type": "virtual_accelerator",
-        "writes_enabled": False,
+        "writes": "allowed",
         "limits_checking": {
             "enabled": True,
             "mode": "exclusive",
@@ -519,14 +519,12 @@ def _posture_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         "connector": {
             "virtual_accelerator": {
                 "serving": "in_process",
-                "writes_enabled": True,
                 "limits_checking": {"enabled": True, "mode": "optional"},
             }
         },
     }
     values: dict[str, Any] = {
         "control_system": section,
-        "control_system.writes_enabled": False,
         "control_system.limits_checking.database_path": str(database),
     }
 

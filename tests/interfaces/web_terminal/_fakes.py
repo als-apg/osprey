@@ -430,9 +430,7 @@ async def armed_chat(project: Path) -> AsyncIterator[ArmedChat]:
     as an approval card instead of a refusal. The session is stopped when the
     block ends, which declines whatever is still waiting.
     """
-    (project / "config.yml").write_text(
-        "control_system:\n  writes_enabled: true\n", encoding="utf-8"
-    )
+    (project / "config.yml").write_text("control_system:\n  writes: allowed\n", encoding="utf-8")
     session = OperatorSession(cwd=str(project))
     with sdk_seam() as captured:
         await session.start()

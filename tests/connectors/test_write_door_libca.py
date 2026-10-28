@@ -114,7 +114,7 @@ asyncio.run(main())
 
 
 def _control_system(port: int) -> dict:
-    """An ``epics`` section with writes on and both gateways at the soft IOC.
+    """An ``epics`` section whose tier allows writes, both gateways at the soft IOC.
 
     No limits file: in the optional mode a channel with no record is written
     with no limits.
@@ -122,7 +122,7 @@ def _control_system(port: int) -> dict:
     endpoint = {"address": "127.0.0.1", "port": port, "use_name_server": False}
     return {
         "type": "epics",
-        "writes_enabled": True,
+        "writes": "allowed",
         "connector": {
             "epics": {
                 "timeout_s": CA_TIMEOUT_S,

@@ -275,7 +275,7 @@ class TestReadRender:
     """The chat reads the render its child runs in, and fails closed."""
 
     def test_a_render_whose_tier_allows_writes_allows_them(self, tmp_path):
-        project = _write_render(tmp_path, "control_system:\n  writes_enabled: true\n")
+        project = _write_render(tmp_path, "control_system:\n  writes: allowed\n")
         assert _read_render(project).tier_allows is True
 
     def test_the_tier_key_decides_over_the_old_leaf(self, tmp_path):
@@ -287,9 +287,10 @@ class TestReadRender:
     @pytest.mark.parametrize(
         "render",
         [
-            pytest.param("control_system:\n  writes_enabled: false\n", id="read-only"),
+            # D2: the retired leaf alone no longer arms (row tier-absent-old-armed-flat).
+            pytest.param("control_system:\n  writes_enabled: true\n", id="retired-leaf-alone"),
             pytest.param("control_system:\n  writes: never\n", id="tier-never"),
-            pytest.param("control_system: {writes_enabled: true\n", id="will-not-load"),
+            pytest.param("control_system: {writes: allowed\n", id="will-not-load"),
             pytest.param(None, id="missing"),
             pytest.param("project_name: demo\n", id="no-control-section"),
         ],
@@ -302,30 +303,30 @@ class TestReadRender:
         """The server's own working directory may hold an armed config; the child's does not."""
         child = tmp_path / "child"
         child.mkdir()
-        project = _write_render(child, "control_system:\n  writes_enabled: false\n")
+        project = _write_render(child, "control_system:\n  writes: never\n")
         server = tmp_path / "server"
         server.mkdir()
-        _write_render(server, "control_system:\n  writes_enabled: true\n")
+        _write_render(server, "control_system:\n  writes: allowed\n")
         monkeypatch.chdir(server)
         monkeypatch.delenv("OSPREY_CONFIG", raising=False)
         assert _read_render(project).tier_allows is False
 
     def test_the_hook_config_is_read_with_the_render(self, tmp_path):
-        project = _write_render(tmp_path, "control_system:\n  writes_enabled: true\n")
+        project = _write_render(tmp_path, "control_system:\n  writes: allowed\n")
         _write_hook_config(tmp_path, ["mcp__controls__channel_write"])
         assert _read_render(project).hook_config == {
             "write_tools": ["mcp__controls__channel_write"]
         }
 
     def test_an_unreadable_hook_config_is_an_empty_one(self, tmp_path):
-        project = _write_render(tmp_path, "control_system:\n  writes_enabled: true\n")
+        project = _write_render(tmp_path, "control_system:\n  writes: allowed\n")
         hooks = tmp_path / ".claude" / "hooks"
         hooks.mkdir(parents=True)
         (hooks / "hook_config.json").write_text("{not json", encoding="utf-8")
         assert _read_render(project).hook_config == {}
 
     async def test_start_arms_the_session_from_its_own_render(self, tmp_path):
-        _write_render(tmp_path, "control_system:\n  writes_enabled: true\n")
+        _write_render(tmp_path, "control_system:\n  writes: allowed\n")
         _write_hook_config(tmp_path, ["mcp__controls__channel_write"])
         session = OperatorSession(cwd=str(tmp_path))
         with sdk_seam():
@@ -339,7 +340,7 @@ class TestReadRender:
     async def test_a_tool_the_approval_hook_asks_about_gets_no_session_allow(self, tmp_path):
         """The hook asks on every call under its prefixes, so a standing allow for one
         would either do nothing or let the hook's ask be skipped: none is offered."""
-        _write_render(tmp_path, "control_system:\n  writes_enabled: true\n")
+        _write_render(tmp_path, "control_system:\n  writes: allowed\n")
         _write_hook_config(tmp_path, ["mcp__controls__channel_write"], ["mcp__controls__"])
         session = OperatorSession(cwd=str(tmp_path))
         with sdk_seam():
@@ -692,7 +693,7 @@ class TestStandingRules:
             "osprey.interfaces.web_terminal.operator_session.read_only_disallowed_tools",
             unreadable,
         )
-        _write_render(tmp_path, "control_system:\n  writes_enabled: true\n")
+        _write_render(tmp_path, "control_system:\n  writes: allowed\n")
         session = OperatorSession(cwd=str(tmp_path))
         with sdk_seam():
             await session.start()

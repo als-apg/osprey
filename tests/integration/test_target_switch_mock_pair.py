@@ -145,7 +145,7 @@ def raw_config() -> dict[str, Any]:
             # under the base class's write guard: with the write refused the
             # guard returns a blocked result and the raise is never reached.
             # This is the tier; the switch is turned on by ``state_root``.
-            "writes_enabled": True,
+            "writes": "allowed",
             "connector": {
                 LIVE_TYPE: {"probe_channel": LIVE_PROBE},
                 "virtual_accelerator": {"probe_channel": VA_PROBE},
@@ -764,7 +764,7 @@ class TestTheSimulatorInProcessIsTheBaseline:
         )
         return {
             "type": "virtual_accelerator",
-            "writes_enabled": True,
+            "writes": "allowed",
             "connector": {
                 "virtual_accelerator": in_process_config(
                     view, response_delay_ms=0, probe_channel=VA_PROBE

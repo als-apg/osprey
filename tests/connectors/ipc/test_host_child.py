@@ -1414,7 +1414,8 @@ def test_an_empty_gateways_table_rules_no_role():
     [
         ({"writes": "allowed"}, True),
         ({"writes": "never", "connector": {"epics": {"writes_enabled": True}}}, False),
-        ({"connector": {"epics": {"writes_enabled": True}}}, True),
+        # A retired leaf is read by nothing at runtime (row tier-absent-old-armed-connector).
+        ({"connector": {"epics": {"writes_enabled": True}}}, False),
         ({}, False),
     ],
     ids=["allowed", "never-beats-a-block", "old-armed-block", "silent"],

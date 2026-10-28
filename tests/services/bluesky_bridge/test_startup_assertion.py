@@ -23,13 +23,13 @@ what `test_guard_runs_with_no_bluesky_env_set_at_all` pins.
 
 Exercised here:
 
-- writes_enabled + limits_enabled + DB missing -> entering the app lifespan
+- tier allowed + limits_enabled + DB missing -> entering the app lifespan
   raises.
-- writes_enabled + limits_enabled + DB readable (valid channel_limits JSON)
+- tier allowed + limits_enabled + DB readable (valid channel_limits JSON)
   -> starts, `/health` 200.
-- writes_enabled + limits_enabled disabled -> starts without any database
+- tier allowed + limits_enabled disabled -> starts without any database
   configured at all.
-- writes_enabled=False -> starts read-only even with a missing database, and
+- tier never -> starts read-only even with a missing database, and
   the probe (`LimitsValidator._load_limits_database`) is never called.
 - A mixed per-type config -> both lanes refuse, because the write tier is
   target-blind; a degraded lane and a read-only run need no database at all.
@@ -103,7 +103,7 @@ def _isolated_state(monkeypatch: pytest.MonkeyPatch):
 def _patch_config(
     monkeypatch: pytest.MonkeyPatch,
     *,
-    writes_enabled: bool | None = None,
+    writes_allowed: bool | None = None,
     section: dict[str, Any] | None = None,
     lane_targets: dict[str, str] | None = None,
     limits_enabled: bool | None = None,
@@ -113,9 +113,10 @@ def _patch_config(
     """Patch `osprey_connectors.config.get_config_value` for the keys the guard reads.
 
     Write posture is per connector type, so the guard reads the whole
-    `control_system` SECTION rather than a dotted `writes_enabled` key, plus
-    the `services.<lane>.target` its lane declares. Pass `writes_enabled` for
-    a deployment whose only posture is the deployment-wide key; pass `section`
+    `control_system` SECTION (its `writes` tier key), plus the
+    `services.<lane>.target` its lane declares. Pass `writes_allowed` for a
+    deployment whose only posture is the tier (`writes: allowed` or
+    `writes: never`); pass `section`
     (and `lane_targets`) for a config that arms one connector type and not
     another.
 
@@ -134,7 +135,7 @@ def _patch_config(
     takes effect on the next call.
     """
     control_system: dict[str, Any] = (
-        {"writes_enabled": writes_enabled} if section is None else dict(section)
+        {"writes": "allowed" if writes_allowed else "never"} if section is None else dict(section)
     )
     if limits_enabled is not None:
         control_system["limits_checking"] = {
@@ -195,7 +196,7 @@ def test_writable_with_missing_limits_db_refuses_startup(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     missing = tmp_path / "does_not_exist.json"
-    _patch_config(monkeypatch, writes_enabled=True, limits_enabled=True, db_path=str(missing))
+    _patch_config(monkeypatch, writes_allowed=True, limits_enabled=True, db_path=str(missing))
 
     with pytest.raises(RuntimeError) as excinfo:
         with TestClient(app):
@@ -223,7 +224,7 @@ def test_guard_runs_with_no_bluesky_env_set_at_all(
         assert var not in os.environ
 
     missing = tmp_path / "does_not_exist.json"
-    _patch_config(monkeypatch, writes_enabled=True, limits_enabled=True, db_path=str(missing))
+    _patch_config(monkeypatch, writes_allowed=True, limits_enabled=True, db_path=str(missing))
 
     with pytest.raises(RuntimeError):
         with TestClient(app):
@@ -235,7 +236,7 @@ def test_writable_with_unparseable_limits_db_refuses_startup(
 ) -> None:
     bad_json = tmp_path / "channel_limits.json"
     bad_json.write_text("{not valid json")
-    _patch_config(monkeypatch, writes_enabled=True, limits_enabled=True, db_path=str(bad_json))
+    _patch_config(monkeypatch, writes_allowed=True, limits_enabled=True, db_path=str(bad_json))
 
     with pytest.raises(RuntimeError):
         with TestClient(app):
@@ -251,7 +252,7 @@ def test_writable_with_readable_limits_db_starts(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     db = _valid_limits_db(tmp_path)
-    _patch_config(monkeypatch, writes_enabled=True, limits_enabled=True, db_path=str(db))
+    _patch_config(monkeypatch, writes_allowed=True, limits_enabled=True, db_path=str(db))
 
     with TestClient(app) as client:
         resp = client.get("/health")
@@ -285,7 +286,7 @@ def test_writable_with_relative_db_path_resolves_via_config_file_dir(
     bogus_project_root = tmp_path / "host_build_path_does_not_exist"
     _patch_config(
         monkeypatch,
-        writes_enabled=True,
+        writes_allowed=True,
         limits_enabled=True,
         db_path="data/channel_limits.json",
         project_root=str(bogus_project_root),
@@ -308,7 +309,7 @@ def test_writable_with_an_unreadable_limits_leaf_refuses_startup(
     # Arrange
     _patch_config(
         monkeypatch,
-        section={"type": "epics", "writes_enabled": True, "limits_checking": {"enabled": "true"}},
+        section={"type": "epics", "writes": "allowed", "limits_checking": {"enabled": "true"}},
         db_path=str(_valid_limits_db(tmp_path)),
     )
     probe_calls = _spy_on_limits_probe(monkeypatch)
@@ -331,7 +332,7 @@ def test_writable_with_limits_checking_disabled_starts_without_db(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """writes enabled + limits checking disabled: no database required at all."""
-    _patch_config(monkeypatch, writes_enabled=True, limits_enabled=False, db_path=None)
+    _patch_config(monkeypatch, writes_allowed=True, limits_enabled=False, db_path=None)
 
     with TestClient(app) as client:
         resp = client.get("/health")
@@ -343,7 +344,7 @@ def test_writes_disabled_starts_readonly_even_with_missing_db(
 ) -> None:
     """Read-only posture starts regardless of limits readability, and never probes."""
     missing = tmp_path / "does_not_exist.json"
-    _patch_config(monkeypatch, writes_enabled=False, limits_enabled=True, db_path=str(missing))
+    _patch_config(monkeypatch, writes_allowed=False, limits_enabled=True, db_path=str(missing))
 
     probe_calls = _spy_on_limits_probe(monkeypatch)
 
@@ -366,7 +367,7 @@ def test_refusal_message_never_leaks_db_contents(
 ) -> None:
     db = tmp_path / "channel_limits.json"
     db.write_text('{"SECRET_MARKER_VALUE_DO_NOT_LEAK": not valid json')
-    _patch_config(monkeypatch, writes_enabled=True, limits_enabled=True, db_path=str(db))
+    _patch_config(monkeypatch, writes_allowed=True, limits_enabled=True, db_path=str(db))
 
     with pytest.raises(RuntimeError) as excinfo:
         with TestClient(app):
@@ -379,16 +380,16 @@ def test_refusal_message_never_leaks_db_contents(
 # The tier is target-blind; only a degraded lane is exempt
 # =========================================================================
 
-#: A live-baseline deployment that arms writes on its virtual accelerator only:
-#: the deployment-wide key is false, and the only `writes_enabled: true` in the
-#: config sits under the `virtual_accelerator` connector block. That arms the
-#: tier, and the tier is target-blind, so a lane serving `live` could write too.
+#: A live-baseline deployment with a virtual accelerator beside it, whose tier
+#: allows writes. The tier is target-blind (ruling PR-3): it arms every
+#: machine, and the person's switch picks which one at run time, so a lane
+#: serving `live` could write as well as one serving `va`.
 _MIXED_SECTION: dict[str, Any] = {
     "type": "epics",
-    "writes_enabled": False,
+    "writes": "allowed",
     "connector": {
         "epics": {"gateway_address": "epics-gateway.example"},
-        "virtual_accelerator": {"writes_enabled": True},
+        "virtual_accelerator": {},
     },
 }
 
@@ -397,10 +398,10 @@ _LIVE_LANE = "bluesky_live"
 _MIXED_LANE_TARGETS = {_VA_LANE: "va", _LIVE_LANE: "live"}
 
 
-def test_va_lane_requires_limits_db_when_only_the_va_block_is_armed(
+def test_va_lane_requires_limits_db_when_the_tier_allows_writes(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The armed lane refuses, even though `control_system.writes_enabled` is false."""
+    """The VA lane of a tier-allowed deployment refuses without its database."""
     # Arrange
     monkeypatch.setenv(_LANE_ENV, _VA_LANE)
     missing = tmp_path / "does_not_exist.json"
@@ -529,7 +530,7 @@ def test_malformed_device_page_size_refuses_startup(
     can refuse the lifespan is the page-size parse.
     """
     # Arrange
-    _patch_config(monkeypatch, writes_enabled=False)
+    _patch_config(monkeypatch, writes_allowed=False)
     monkeypatch.setenv(_DEVICE_PAGE_SIZE_ENV, bad_value)
 
     # Act
@@ -575,7 +576,7 @@ def test_malformed_live_row_cap_refuses_startup(
     refusal an operator can see.
     """
     # Arrange
-    _patch_config(monkeypatch, writes_enabled=False)
+    _patch_config(monkeypatch, writes_allowed=False)
     monkeypatch.setenv(env_var, bad_value)
 
     # Act

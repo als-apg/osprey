@@ -8,7 +8,7 @@ from osprey_connectors import types
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
-from osprey_connectors_tests._write_fakes import ARMED_TARGET, arm_switch
+from osprey_connectors_tests._write_fakes import ARMED_TARGET, arm_switch, writes_enabled_config
 
 
 @pytest.fixture(autouse=True)
@@ -139,14 +139,9 @@ class TestCustomConnectorConfirmDefault:
 
     @pytest.fixture
     def writes_enabled(self, monkeypatch):
-        # A custom connector is stamped with its dotted type and resolves its
-        # posture from the ``control_system`` section, which carries no block for
-        # that type and so inherits the deployment-wide key.
-        section = {"writes_enabled": True}
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value",
-            lambda key, default=None: section if key == "control_system" else default,
-        )
+        # A custom connector is stamped with its dotted type; the tier is
+        # target- and type-blind, so the deployment's allowed tier arms it.
+        monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
 
     async def _connector(self):
         config = {

@@ -226,21 +226,23 @@ class TestMockWritesDisabledViaBaseClass:
         assert result.value_written == 500.0
 
 
-#: A deployment whose old keys arm its simulator only: off deployment-wide, on
-#: for the virtual accelerator, and an ``epics`` block that says nothing.
-_SIMULATOR_ARMED_SECTION = {
+#: A deployment whose tier allows writes. The tier names no machine: the
+#: simulator's connector block is configured, the ``epics`` one too, and which
+#: of them a write may reach is the login's switch.
+_TIER_ALLOWED_SECTION = {
     "type": "epics",
-    "writes_enabled": False,
+    "writes": "allowed",
     "connector": {
-        "virtual_accelerator": {"writes_enabled": True},
+        "virtual_accelerator": {"response_delay_ms": 0},
         "epics": {"port": 5064},
     },
 }
 
-#: The mirror image: armed deployment-wide, disarmed for ``epics`` in particular.
+#: The same allowed tier with a retired per-type leaf disarming ``epics``. The
+#: leaf is read by nothing at runtime (ruling D2), so it holds back nothing.
 _LIVE_DISARMED_SECTION = {
     "type": "epics",
-    "writes_enabled": True,
+    "writes": "allowed",
     "connector": {"epics": {"writes_enabled": False}},
 }
 
@@ -279,11 +281,12 @@ class TestFactoryTypeStamp:
 
 
 class TestTheTierIsTargetBlind:
-    """The old per-type keys set the tier, and the tier arms every machine.
+    """The tier is one ``control_system.writes`` key, and it arms every machine.
 
-    A deployment that has not migrated to ``control_system.writes`` keeps its
-    old keys, rewritten into one tier: any literal ``true`` allows. Which
-    machine a write may reach is then the login's switch, not the key.
+    Which machine a write may reach is the login's switch, not the tier (ruling
+    PR-3). The retired ``writes_enabled`` leaves are not read at runtime, at any
+    level (ruling D2; rows ``tier-absent-old-armed-flat``,
+    ``tier-absent-old-armed-connector``).
     """
 
     def _stub(self, connector_type: str, target: str | None) -> _StubConnector:
@@ -292,13 +295,13 @@ class TestTheTierIsTargetBlind:
         connector._control_target = target
         return connector
 
-    def test_one_armed_leaf_allows_the_switched_machine(self, monkeypatch, tmp_path):
-        """The simulator's leaf arms the tier; the live machine's switch is on."""
+    def test_an_allowed_tier_allows_the_switched_machine(self, monkeypatch, tmp_path):
+        """The tier allows; the live machine's switch is on."""
         arm_switch(monkeypatch, tmp_path / "data", TARGET_LIVE, stamp=False)
         connector = self._stub("epics", TARGET_LIVE)
         with patch(
             "osprey_connectors.config.get_config_value",
-            side_effect=config_reader(_SIMULATOR_ARMED_SECTION),
+            side_effect=config_reader(_TIER_ALLOWED_SECTION),
         ):
             assert connector._writes_enabled is True
 
@@ -309,7 +312,7 @@ class TestTheTierIsTargetBlind:
         connector = self._stub("epics", TARGET_LIVE)
         with patch(
             "osprey_connectors.config.get_config_value",
-            side_effect=config_reader(_SIMULATOR_ARMED_SECTION),
+            side_effect=config_reader(_TIER_ALLOWED_SECTION),
         ):
             result = await connector.write_channel("TEST:PV", 1.0)
 
@@ -317,7 +320,7 @@ class TestTheTierIsTargetBlind:
         assert refusal_phrase("switch_off", "real") in result.error_message
         assert REFUSAL_BAN_LIST.search(result.error_message) is None
 
-    def test_a_disarmed_type_block_does_not_hold_back_an_armed_tier(self, monkeypatch, tmp_path):
+    def test_a_retired_type_leaf_does_not_hold_back_an_allowed_tier(self, monkeypatch, tmp_path):
         arm_switch(monkeypatch, tmp_path / "data", TARGET_LIVE, stamp=False)
         connector = self._stub("epics", TARGET_LIVE)
         with patch(
@@ -326,8 +329,9 @@ class TestTheTierIsTargetBlind:
         ):
             assert connector._writes_enabled is True
 
-    @pytest.mark.parametrize("stand_in", ["true", 1, "yes"])
-    def test_the_old_key_arms_only_on_a_literal_true(self, stand_in, monkeypatch, tmp_path):
+    @pytest.mark.parametrize("stand_in", [True, "true", 1, "yes"])
+    def test_the_retired_key_arms_nothing(self, stand_in, monkeypatch, tmp_path):
+        """Not even a literal ``true``: no tier key reads never (row ``tier-absent-old-armed-flat``)."""
         arm_switch(monkeypatch, tmp_path / "data", TARGET_LIVE, stamp=False)
         connector = self._stub("epics", TARGET_LIVE)
         section = {"type": "epics", "writes_enabled": stand_in}

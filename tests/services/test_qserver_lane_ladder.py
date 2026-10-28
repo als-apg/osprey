@@ -24,15 +24,15 @@ import pytest
 from osprey.services.bluesky_bridge import qserver_startup
 from osprey.services.bluesky_bridge import queue_backend as qb
 
-# A live baseline that arms its simulator and nothing else: the deployment a
-# facility runs when it wants an agent that may move the virtual accelerator
-# while the real machine stays read-only.
+# A live baseline with its simulator beside it, whose tier allows writes. The
+# tier is target-blind (ruling PR-3): which machine a write reaches is the
+# person's switch, read on each write, not anything a connector block says.
 LIVE_BASELINE = {
     "type": "epics",
-    "writes_enabled": False,
+    "writes": "allowed",
     "connector": {
         "epics": {"timeout_s": 5.0},
-        "virtual_accelerator": {"writes_enabled": True},
+        "virtual_accelerator": {},
     },
 }
 
@@ -41,8 +41,8 @@ LIVE_BASELINE = {
 # build can verify, supplied at `osprey up` as EPICS_CA_NAME_SERVERS.
 VA_BASELINE = {
     "type": "virtual_accelerator",
-    "writes_enabled": False,
-    "connector": {"virtual_accelerator": {"writes_enabled": True}},
+    "writes": "allowed",
+    "connector": {"virtual_accelerator": {}},
 }
 
 
@@ -69,8 +69,6 @@ def deployment(monkeypatch: pytest.MonkeyPatch):
                 return section
             if key == "control_system.type":
                 return section.get("type", default)
-            if key == "control_system.writes_enabled":
-                return section.get("writes_enabled", default)
             return declared.get(key, default)
 
         monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
@@ -125,11 +123,7 @@ def test_the_va_lane_of_a_live_baseline_builds_the_virtual_accelerator(deploymen
 
 
 def test_the_va_lane_of_a_live_baseline_may_write(deployment) -> None:
-    """The VA block's `writes_enabled` leaf is what makes this tier allow writes.
-
-    The deployment-wide key is false here; an unmigrated config that arms any
-    one connector block arms the tier.
-    """
+    """The tier allows writes, and the VA lane resolves its own target."""
     deployment(
         LIVE_BASELINE,
         lane="bluesky_va",
@@ -158,7 +152,7 @@ def test_the_live_lane_of_a_live_baseline_passes_the_target_blind_tier(deploymen
 
 @pytest.mark.parametrize("lane", ["bluesky", "bluesky_va"])
 def test_a_tier_of_never_disarms_every_lane(deployment, lane) -> None:
-    """`writes: never` refuses whatever any connector block's leaf says."""
+    """`writes: never` refuses every lane of the deployment."""
     deployment(
         {**LIVE_BASELINE, "writes": "never"},
         lane=lane,
@@ -218,12 +212,7 @@ def test_a_degraded_lane_names_what_it_declared_against_what_it_built(deployment
     assert "control_system.connector.epics" in lane_degraded
 
 
-@pytest.mark.parametrize(
-    "section",
-    [VA_BASELINE, {**VA_BASELINE, "writes": "allowed"}],
-    ids=["armed-by-the-va-block", "tier-allowed"],
-)
-def test_a_degraded_lane_may_not_write_whatever_the_tier_allows(deployment, section) -> None:
+def test_a_degraded_lane_may_not_write_whatever_the_tier_allows(deployment) -> None:
     """The safety property of rung 3.
 
     This lane was BUILT as a virtual accelerator but addresses the facility's
@@ -232,7 +221,7 @@ def test_a_degraded_lane_may_not_write_whatever_the_tier_allows(deployment, sect
     too — even on a tier that allows writes.
     """
     deployment(
-        section,
+        VA_BASELINE,
         lane="bluesky_live",
         targets={"bluesky": "va", "bluesky_live": "live"},
     )

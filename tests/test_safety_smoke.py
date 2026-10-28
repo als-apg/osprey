@@ -83,7 +83,7 @@ def smoke_env(tmp_path, monkeypatch):
         refuse every write while the switch is off, so a deployment that never
         turned it on would fail these scenarios at the first layer rather than
         at the one each is about
-      - config variant with writes_enabled: false
+      - config variant with writes: never
     """
     # Channel limits database
     limits_db = {
@@ -118,7 +118,7 @@ def smoke_env(tmp_path, monkeypatch):
         "control_system": {
             "type": "virtual_accelerator",
             "connector": {"virtual_accelerator": in_process_config(view)},
-            "writes_enabled": True,
+            "writes": "allowed",
             "limits_checking": {
                 "enabled": True,
                 "database_path": str(limits_path),
@@ -147,7 +147,7 @@ def smoke_env(tmp_path, monkeypatch):
     config_writes_off = config.copy()
     config_writes_off["control_system"] = {
         **config["control_system"],
-        "writes_enabled": False,
+        "writes": "never",
     }
     config_writes_off_path = tmp_path / "config_writes_off.yml"
     config_writes_off_path.write_text(yaml.dump(config_writes_off))
@@ -509,7 +509,7 @@ def test_8_safe_python_hooks_pass_through(smoke_env):
 
 
 def test_9_writes_disabled_hooks_deny(smoke_env):
-    """With writes_enabled: false, the writes_check hook denies all writes."""
+    """With writes: never, the writes_check hook denies all writes."""
     result, blocked_by = _run_hook_chain(
         "mcp__controls__channel_write",
         {"operations": [{"channel": "MAG:HCM01:CURRENT:SP", "value": 5.0}]},
@@ -521,7 +521,7 @@ def test_9_writes_disabled_hooks_deny(smoke_env):
 
 
 def test_9_writes_disabled_python_readwrite_hooks_deny(smoke_env):
-    """With writes_enabled: false, execute tool in readwrite mode is also denied."""
+    """With writes: never, execute tool in readwrite mode is also denied."""
     result, blocked_by = _run_hook_chain(
         "mcp__python__execute",
         {"code": "caput('TEST:PV', 1.0)", "execution_mode": "readwrite"},
