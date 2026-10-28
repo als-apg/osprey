@@ -1097,6 +1097,18 @@ and never carries a deployment fact, so it has no <code class="docutils literal 
 <p>An app is a whole agent definition — its own skills, rules, brief and tool
 servers — composed over the deployment’s services, data and provider. Every app
 render is read-only on the machine.</p>
+<p>An app runs the deployment’s model unless its file names its own with a
+top-level <code class="docutils literal notranslate"><span class="pre">model:</span></code>, such as a cheaper model for a research card:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># apps/logbook.yml</span>
+<span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-sonnet-5</span>
+</pre></div>
+</div>
+<p>The id must be one the deployment’s provider serves; the provider itself is
+always <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>’s. As for <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, an id the provider’s
+<code class="docutils literal notranslate"><span class="pre">models</span></code> list does not carry is used as written, and the build warns that the
+provider does not list it. A tier may set <code class="docutils literal notranslate"><span class="pre">model:</span></code> the same way. Neither
+spells <code class="docutils literal notranslate"><span class="pre">config:</span> <span class="pre">claude_code.default_model</span></code>; the build renders that key from
+<code class="docutils literal notranslate"><span class="pre">model:</span></code> and refuses it in the file that spells it.</p>
 <p>Both kinds may set <code class="docutils literal notranslate"><span class="pre">extra_mounts</span></code>, <code class="docutils literal notranslate"><span class="pre">seed_base</span></code> and <code class="docutils literal notranslate"><span class="pre">image</span></code> at the top of
 the file. Edit a file to change what its terminals can do, and see the merged
 result with:</p>
