@@ -31,7 +31,8 @@ from osprey.deployment.subprocess_capture import group_is_gone
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = _REPO_ROOT / "scripts" / "run_bounded.py"
 CHECK_SCRIPT = _REPO_ROOT / "scripts" / "check.py"
-WRAPPER = ["uv", "run", "python", "scripts/run_bounded.py"]
+#: The wrapper after ``uv run --frozen``, the prefix every bounded command carries.
+WRAPPER = ["python", "scripts/run_bounded.py"]
 
 
 @pytest.fixture(scope="module")
@@ -277,7 +278,10 @@ def _unbounded_pytest_checks(check: ModuleType, checks: tuple[Any, ...]) -> list
         for tier in sorted(declared.tiers):
             context = check.Context(tier=tier)
             for argv in check.commands(declared, check.Selection(check.WHOLE), context):
-                bounded = argv[:4] == WRAPPER and "--" in argv and float(argv[4]) > 0
+                prefix = [*check.kit.UV_RUN, *WRAPPER]
+                bounded = (
+                    argv[: len(prefix)] == prefix and "--" in argv and float(argv[len(prefix)]) > 0
+                )
                 if not bounded:
                     problems.append(f"{declared.id}: {tier} runs it without {WRAPPER[-1]}")
     return problems

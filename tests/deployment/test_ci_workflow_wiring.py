@@ -90,6 +90,8 @@ def _load_by_path(relative: str, name: str) -> ModuleType:
 check_set = _load_by_path(CHECK_SCRIPT, "_check_set_by_path")
 #: The framework's checks module: the unit sweep's selection and the package build.
 framework_checks = check_set.FRAMEWORK
+#: How a check starts a tool in the project's environment, as one shell line.
+CHECK_UV_RUN = shlex.join(framework_checks.UV_RUN)
 
 TILED_JOB = "tiled-roundtrip-e2e"
 VA_JOB = "va-substrate-equivalence-e2e"
@@ -1599,8 +1601,11 @@ _HOSTED = [(row, host) for row in LANE_LEAVING_MARKERS for host in row.hosts]
 _HOSTED_IDS = [f"{row.marker}-{host.job}" for row, host in _HOSTED]
 _HOSTS = [host for _, host in _HOSTED]
 
-#: A pytest invocation in a ci.yml run block, in both spellings the file uses.
-_CI_PYTEST_RE = re.compile(r"uv run (?:--no-sync )?pytest\b")
+#: A pytest invocation in a ci.yml run block, in both spellings the file uses,
+#: or in the command a check-command call there resolves to.
+_CI_PYTEST_RE = re.compile(
+    r"(?:uv run (?:--no-sync )?|" + re.escape(f"{CHECK_UV_RUN} ") + r")pytest\b"
+)
 #: Where one shell command ends and the next (or a pipe) begins.
 _SHELL_SEPARATOR_RE = re.compile(r"\|\||&&|[|;]")
 
@@ -2197,7 +2202,7 @@ SERIAL_MIRROR_TIERS = ("full",)
 
 
 def _script_pytest_lines(source: str) -> list[str]:
-    return [line for line in source.splitlines() if "uv run pytest " in line]
+    return [line for line in source.splitlines() if f"{CHECK_UV_RUN} pytest " in line]
 
 
 def _repo_source(path: str) -> str:
@@ -2286,14 +2291,14 @@ def _unreached_by_serial_runs(source: str, row: LaneLeavingMarker, files: list[s
     """The *files* that none of the tier's serial runs for *row* collects
     (empty = every one is reached).
 
-    Each line carrying the row's selection is read from ``uv run pytest`` up to
+    Each line carrying the row's selection is read from the check's pytest up to
     the next shell separator, the way ``_ci_pytest_invocations`` cuts a ci.yml
     command, so a wrapper before it (``run_bounded.py … --``) and a ``; then``
     after it are not read as paths. A line whose only path is ``"$@"`` reaches
     nothing by ``_invocation_reaches``' shell-variable rule: a run over the
     caller's paths owes no fixed file."""
     runs = [
-        _SHELL_SEPARATOR_RE.split(line[line.index("uv run pytest ") :], maxsplit=1)[0]
+        _SHELL_SEPARATOR_RE.split(line[line.index(f"{CHECK_UV_RUN} pytest ") :], maxsplit=1)[0]
         for line in _script_pytest_lines(source)
         if row.select() in line
     ]
@@ -2357,13 +2362,13 @@ def test_per_pr_hosts_are_the_hosts_the_merge_gate_needs(
 
 
 def test_unreached_by_serial_runs_reads_each_serial_line() -> None:
-    """Each serial line is read from ``uv run pytest`` to the next separator;
+    """Each serial line is read from the check's pytest to the next separator;
     a file under neither line's path is the one reported."""
     row = _row("wallclock")
     source = (
-        "if ! uv run python scripts/run_bounded.py 900 -- uv run pytest tests/integration "
+        f"if ! uv run python scripts/run_bounded.py 900 -- {CHECK_UV_RUN} pytest tests/integration "
         "-m wallclock -v; then\n"
-        "uv run pytest tests/cli/test_a.py -m wallclock && echo tests/elsewhere\n"
+        f"{CHECK_UV_RUN} pytest tests/cli/test_a.py -m wallclock && echo tests/elsewhere\n"
     )
     files = ["tests/integration/test_x.py", "tests/cli/test_a.py", "tests/elsewhere/test_y.py"]
     assert _unreached_by_serial_runs(source, row, files) == ["tests/elsewhere/test_y.py"]
@@ -8176,7 +8181,7 @@ def test_the_gate_checks_the_lockfile_before_any_uv_run(gate_source: str | None 
 def test_the_gate_checks_the_lockfile_before_any_uv_run__mutation_moves_it_after_ruff() -> None:
     lines = _tier_source("full", CI_BASE).splitlines()
     lines.remove("uv lock --check")
-    ruff = max(i for i, line in enumerate(lines) if line.startswith("uv run ruff "))
+    ruff = max(i for i, line in enumerate(lines) if line.startswith(f"{CHECK_UV_RUN} ruff "))
     lines.insert(ruff + 1, "uv lock --check")
     with pytest.raises(AssertionError):
         test_the_gate_checks_the_lockfile_before_any_uv_run("\n".join(lines))
@@ -10421,7 +10426,7 @@ def test_the_package_check_reports_twines_own_verdict__mutation_restores_the_gre
 # cannot reach the verdict at all.
 
 LINKCHECK_CHECK = "linkcheck"
-LINKCHECK_COMMAND = "uv run make linkcheck"
+LINKCHECK_COMMAND = f"{CHECK_UV_RUN} make linkcheck"
 LINKCHECK_STEP = "Check for broken links"
 DOCS_BUILD_STEP = "Build documentation"
 DOCS_UPLOAD_STEP = "Upload documentation artifact"

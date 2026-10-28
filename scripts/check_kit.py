@@ -31,6 +31,10 @@ FULL = frozenset({"full"})
 
 WHOLE, PATHS, NOT_TOUCHED = "whole", "paths", "not touched"
 
+#: Every uv run a check or need starts carries --frozen: a plain uv run rewrites
+#: a stale uv.lock, and the lockfile check must judge it as the tree left it.
+UV_RUN = ("uv", "run", "--frozen")
+
 #: Marks a field of a record that is behaviour, not declaration: ``list
 #: --json`` prints the declaration and leaves the hooks out, and two records
 #: that declare the same are equal.
@@ -230,7 +234,7 @@ def git_paths(subcommand: str, *args: str) -> list[str]:
 
 def bounded(seconds: int, argv: Sequence[str]) -> list[str]:
     """*argv* stopped at *seconds* by ``run_bounded.py``."""
-    return ["uv", "run", "python", "scripts/run_bounded.py", str(seconds), "--", *argv]
+    return [*UV_RUN, "python", "scripts/run_bounded.py", str(seconds), "--", *argv]
 
 
 # ---------------------------------------------------------------------------

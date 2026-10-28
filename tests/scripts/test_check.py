@@ -537,7 +537,7 @@ def run_of(job: str, containing: str) -> str:
 
 def after_bound(argv: list[str]) -> list[str]:
     """A bounded command without its ``run_bounded.py SECONDS --`` prefix."""
-    assert argv[:4] == ["uv", "run", "python", "scripts/run_bounded.py"]
+    assert argv[:5] == [*kit.UV_RUN, "python", "scripts/run_bounded.py"]
     return argv[argv.index("--") + 1 :]
 
 
@@ -600,32 +600,32 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
         return check.resolve(["run", *words])
 
     assert run("lockfile") == [["uv", "lock", "--check"]]
-    assert run("ruff-format") == [["uv", "run", "ruff", "format", "--check", "."]]
+    assert run("ruff-format") == [[*fw.UV_RUN, "ruff", "format", "--check", "."]]
     assert run("config-keys") == [
-        ["uv", "run", "python", "scripts/check_config_keys.py", "--back-test"]
+        [*fw.UV_RUN, "python", "scripts/check_config_keys.py", "--back-test"]
     ]
-    assert run("mypy") == [["uv", "run", "python", "scripts/mypy_gate.py"]]
+    assert run("mypy") == [[*fw.UV_RUN, "python", "scripts/mypy_gate.py"]]
     assert run("changelog", "--base", "origin/main") == [
         ["python3", "scripts/changelog_fragments.py", "check", "--base", "origin/main"]
     ]
     assert run("plugin-version", "--base", "origin/main") == [
         ["python3", "scripts/plugin_version.py", "check", "--base", "origin/main"]
     ]
-    assert run("import-contracts") == [["uv", "run", "lint-imports"]]
-    private = ["uv", "run", "ruff", "check", "--preview", "--select=PLC2701", "."]
+    assert run("import-contracts") == [[*fw.UV_RUN, "lint-imports"]]
+    private = [*fw.UV_RUN, "ruff", "check", "--preview", "--select=PLC2701", "."]
     assert run("private-imports") == [private]
     assert run("tracked-ignored") == []
     assert run("gitleaks", "--base", "origin/main") == [
         ["gitleaks", "git", "--log-opts=origin/main..HEAD", "--no-banner", "--redact"]
     ]
     assert run("invariant-tests") == [
-        ["uv", "run", "pytest", *fw.INVARIANT_TESTS, *pytest_report("invariant-tests")]
+        [*fw.UV_RUN, "pytest", *fw.INVARIANT_TESTS, *pytest_report("invariant-tests")]
     ]
-    assert run("actionlint") == [["uv", "run", "actionlint"]]
+    assert run("actionlint") == [[*fw.UV_RUN, "actionlint"]]
 
-    assert run("ruff") == [["uv", "run", "ruff", "check", "."]]
+    assert run("ruff") == [[*fw.UV_RUN, "ruff", "check", "."]]
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
-    assert run("ruff") == [["uv", "run", "ruff", "check", ".", "--output-format=github"]]
+    assert run("ruff") == [[*fw.UV_RUN, "ruff", "check", ".", "--output-format=github"]]
     assert run("private-imports") == [[*private, "--output-format=github"]]
     monkeypatch.delenv("GITHUB_ACTIONS")
 
@@ -642,7 +642,8 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
     for shard, selection in SHARD_SELECTIONS.items():
         (sweep,) = run("pytest", "--shard", shard, "--", *CI_UNIT_EXEC_FLAGS)
         assert after_bound(sweep) == [
-            *("uv", "run", "pytest"),
+            *fw.UV_RUN,
+            "pytest",
             *selection,
             *SWEEP_MARKER,
             *CI_UNIT_EXEC_FLAGS,
@@ -651,8 +652,7 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
         ]
     (pty,) = run("pytest-pty", "--", "-v", "--tb=short")
     assert after_bound(pty) == [
-        "uv",
-        "run",
+        *fw.UV_RUN,
         "pytest",
         "tests/pty/",
         "-m",
@@ -663,13 +663,14 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
     ]
     (wallclock,) = run("pytest-wallclock")
     assert after_bound(wallclock) == [
-        *("uv", "run", "pytest", "tests/integration", "-m", "wallclock"),
+        *fw.UV_RUN,
+        *("pytest", "tests/integration", "-m", "wallclock"),
         *pytest_report("pytest-wallclock"),
     ]
-    assert run("live-ca") == [["uv", "run", "python", "scripts/va/live_ca/gate.py", "--pva"]]
+    assert run("live-ca") == [[*fw.UV_RUN, "python", "scripts/va/live_ca/gate.py", "--pva"]]
 
-    assert run("docs") == [["uv", "run", "make", "html", "SPHINXOPTS=-W --keep-going"]]
-    assert run("linkcheck") == [["uv", "run", "make", "linkcheck"]]
+    assert run("docs") == [[*fw.UV_RUN, "make", "html", "SPHINXOPTS=-W --keep-going"]]
+    assert run("linkcheck") == [[*fw.UV_RUN, "make", "linkcheck"]]
     assert [c.id for c in check.CHECKS if c.workdir] == ["docs", "linkcheck"]
     assert BY_ID["linkcheck"].workdir == BY_ID["docs"].workdir
     assert (REPO_ROOT / BY_ID["docs"].workdir / "Makefile").is_file()
@@ -1716,7 +1717,7 @@ def test_full_without_the_docs_extra_is_refused(
     monkeypatch.setitem(check.NEED_PROBES, "docs-extra", fw._need_docs_extra)
     assert check.main(["full"]) == 2
     assert "uv sync --extra docs" in capsys.readouterr().err
-    assert probed == [("uv", "run", "python", "-c", "import myst_parser")]
+    assert probed == [fw.DOCS_EXTRA_PROBE]
     assert recorder.calls == []
 
 
@@ -1725,7 +1726,7 @@ def test_full_with_the_docs_extra_plans_the_docs_build(
 ) -> None:
     monkeypatch.setitem(check.NEED_PROBES, "docs-extra", fw._need_docs_extra)
     assert check.main(["full"]) == 0
-    assert ["uv", "run", "make", "html", "SPHINXOPTS=-W --keep-going"] in recorder.calls
+    assert [*fw.UV_RUN, "make", "html", "SPHINXOPTS=-W --keep-going"] in recorder.calls
 
 
 @pytest.mark.usefixtures("recorder")
@@ -1765,7 +1766,7 @@ def test_a_tier_without_node_is_refused_and_names_the_install(
     install = "the Node toolchain is not installed: install Node, then run npm ci"
     refused = "tsc, eslint, prettier, vitest, dock-engine-tests, dock-engine-bundle"
     assert f"check: refused: {refused} ({install})" in capsys.readouterr().err
-    probes = {shlex.join(probe[1:]) for probe in _need_probe_argvs()}
+    probes = {shlex.join(argv[1:]) for argv in _declared_argvs() if argv[:1] == ("uv",)}
     log = tmp_path / "uv.log"
     logged = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
     assert set(logged) <= probes, logged
@@ -1785,33 +1786,57 @@ def test_a_tier_without_node_is_refused_and_names_the_install(
 # Provisioning: the needs put the tree's pins in place before any check runs
 
 
-def _need_probe_argvs() -> list[tuple[str, ...]]:
-    """Every argv constant a declared need's probe runs, read from the probes."""
-    found: dict[str, tuple[str, ...]] = {}
-    for probe in fw.NEEDS.values():
-        for name in probe.__code__.co_names:
-            value = getattr(fw, name, None)
-            if isinstance(value, tuple) and value and all(isinstance(v, str) for v in value):
-                found[name] = value
-    return list(found.values())
+def _declared_argvs() -> list[tuple[str, ...]]:
+    """Every argv the checks modules declare: each module-level tuple of words
+    (and each step of a tuple of them), every check's argv and every fix."""
+    found: list[tuple[str, ...]] = []
+    for module in check.DECLARED.modules.values():
+        for value in vars(module).values():
+            if not isinstance(value, tuple):
+                continue
+            steps = value if value and all(isinstance(v, tuple) for v in value) else (value,)
+            found += [s for s in steps if s and all(isinstance(w, str) for w in s)]
+    for declared in check.CHECKS:
+        found += [declared.argv, *declared.fix]
+    return found
 
 
-def _assert_never_relocks(probe: Sequence[str]) -> None:
-    if tuple(probe[:2]) == ("uv", "run"):
-        assert probe[2] == "--frozen", probe
+def _assert_never_relocks(argv: Sequence[str]) -> None:
+    if tuple(argv[:2]) == ("uv", "run"):
+        assert argv[2] == "--frozen", argv
 
 
-def test_the_pin_probe_never_relocks() -> None:
-    """The needs are probed before the lockfile check, and a plain ``uv run``
-    re-locks a stale lockfile and hands that check a current one."""
-    assert fw.CLAUDE_PIN_PROBE in _need_probe_argvs()
-    _assert_never_relocks(fw.CLAUDE_PIN_PROBE)
+def test_every_declared_uv_run_never_relocks() -> None:
+    """A plain ``uv run`` rewrites a stale uv.lock, and the lockfile check must
+    judge it as the tree left it."""
+    argvs = _declared_argvs()
+    assert fw.CLAUDE_PIN_PROBE in argvs
+    assert BY_ID["pytest"].argv in argvs
+    for argv in argvs:
+        _assert_never_relocks(argv)
 
 
-def test_the_pin_probe_never_relocks__mutation_drops_frozen() -> None:
+def test_every_resolved_uv_run_never_relocks() -> None:
+    """The commands a tier starts, wrappers such as the bound included, keep
+    the declared argvs' ``--frozen``."""
+    for tier in check.TIERS:
+        resolved = check.resolve([tier])
+        assert any("scripts/run_bounded.py" in argv for argv in resolved), tier
+        for argv in resolved:
+            _assert_never_relocks(argv)
+
+
+def test_every_declared_uv_run_never_relocks__mutation_drops_frozen() -> None:
     relocking = tuple(part for part in fw.CLAUDE_PIN_PROBE if part != "--frozen")
     with pytest.raises(AssertionError):
         _assert_never_relocks(relocking)
+
+
+def test_no_check_sets_uv_frozen_for_its_children() -> None:
+    """Under ``UV_FROZEN`` the lockfile check validates the lock and no longer
+    judges whether it is stale."""
+    for script in sorted((REPO_ROOT / "scripts").glob("*check*.py")):
+        assert "UV_FROZEN" not in script.read_text(encoding="utf-8"), script
 
 
 def test_the_pin_probe_runs_the_resolver() -> None:
@@ -1954,7 +1979,8 @@ def test_a_pytest_check_leaves_its_output_on_the_callers_stdout(
     assert check.main(["run", "pytest-pty", "--", "-q"]) == 0
     assert "stub uv says hello" in capfd.readouterr().out
     logged = (tmp_path / "uv.log").read_text(encoding="utf-8").strip()
-    command = "run python scripts/run_bounded.py 600 -- uv run pytest tests/pty/ -m pty -q"
+    pty = shlex.join(BY_ID["pytest-pty"].argv)
+    command = f"{shlex.join(kit.UV_RUN[1:])} python scripts/run_bounded.py 600 -- {pty} -q"
     written = re.fullmatch(re.escape(command) + r" --junitxml=(\S+) -o junit_family=xunit1", logged)
     assert written, logged
     assert written[1].endswith("/pytest-pty/junit.xml")
@@ -2021,7 +2047,7 @@ def test_run_passes_execution_flags_to_the_pytest_checks_only(recorder: Recorder
     flags = ["-q", "-n", "4", "--cov=src/osprey", "--cov-report=xml", "--maxfail=1", "-nauto"]
     assert check.main(["run", "ruff", "pytest", "--", *flags]) == 0
     ruff, sweep = recorder.calls
-    assert ruff == ["uv", "run", "ruff", "check", "."]
+    assert ruff == [*fw.UV_RUN, "ruff", "check", "."]
     assert sweep[:-3][-len(flags) - 2 :] == [*flags, "--dist", "loadgroup"]
     assert sweep[-3].endswith("/pytest/junit.xml") and sweep[-2:] == ["-o", "junit_family=xunit1"]
     assert check.main(["run", "ruff", "--", "-v"]) == 2
@@ -2042,8 +2068,8 @@ def test_fix_lets_ruff_write_before_the_checks_and_only_in_quick(
 ) -> None:
     assert check.main(["quick", "--fix"]) == 0
     assert recorder.calls[:4] == [
-        ["uv", "run", "ruff", "check", ".", "--fix"],
-        ["uv", "run", "ruff", "format", "."],
+        [*fw.UV_RUN, "ruff", "check", ".", "--fix"],
+        [*fw.UV_RUN, "ruff", "format", "."],
         ["npm", "run", "format"],
         ["uv", "lock", "--check"],
     ]
@@ -2065,8 +2091,8 @@ def test_fix_runs_only_the_fixes_of_the_checks_the_range_touches(
     assert check.main(["quick", "--changed", "B", "--fix"]) == 0
     assert not recorder.ran("npm run format")
     assert recorder.calls[:2] == [
-        ["uv", "run", "ruff", "check", ".", "--fix"],
-        ["uv", "run", "ruff", "format", "."],
+        [*fw.UV_RUN, "ruff", "check", ".", "--fix"],
+        [*fw.UV_RUN, "ruff", "format", "."],
     ]
 
     # A fix declared on a scoped check runs only when the range touches its scope.
@@ -2128,15 +2154,15 @@ def test_the_docs_check_cleans_the_build_tree_before_it_builds(
     monkeypatch.setattr(kit, "run", placed)
     assert check.main(["run", "docs"]) == 0
     assert recorder.calls == [
-        ["uv", "run", "make", "clean"],
-        ["uv", "run", "make", "html", "SPHINXOPTS=-W --keep-going"],
+        [*fw.UV_RUN, "make", "clean"],
+        [*fw.UV_RUN, "make", "html", "SPHINXOPTS=-W --keep-going"],
     ]
     assert where == [tmp_path / "docs", tmp_path / "docs"]
 
     recorder.calls.clear()
     recorder.failing = {"make clean": 2}
     assert check.main(["run", "docs"]) == 1
-    assert recorder.calls == [["uv", "run", "make", "clean"]]
+    assert recorder.calls == [[*fw.UV_RUN, "make", "clean"]]
 
 
 @pytest.mark.parametrize("check_id", ["pytest", "pytest-pty"])
