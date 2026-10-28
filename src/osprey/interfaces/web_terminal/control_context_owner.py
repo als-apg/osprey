@@ -787,7 +787,7 @@ class ControlContextOwnerTask:
             baseline=request.baseline,
             in_flight=request.in_flight,
             reports=request.reports,
-            writes_enabled=target_eligibility.effective_writes_for_target(section, request.target),
+            writes_enabled=target_eligibility.target_write_verdict(section, request.target).allowed,
             config_path=request.config_path,
         )
 

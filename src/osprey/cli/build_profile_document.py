@@ -27,7 +27,13 @@ import yaml
 
 from osprey_connectors import yaml_loader
 from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.types import tier_writes
+from osprey_connectors.types import (
+    baseline_target,
+    configured_targets,
+    resolve_control_system_type,
+    resolve_target,
+    switch_capable,
+)
 from osprey_connectors.workspace import LAYER_DIR_KINDS, RETIRED_LAYER_DIRS
 
 _LOGGER = logging.getLogger(__name__)
@@ -333,7 +339,7 @@ _CONTROL_SYSTEM = "control_system"
 
 #: The connector table inside it, as path segments from ``config``. Each direct
 #: child of this mapping is ONE connector type, dots and all
-#: (``mypkg.Mod``), exactly as ``type_writes_enabled`` looks it up.
+#: (``mypkg.Mod``), exactly as :func:`_retired_type_armed` looks it up.
 _CONNECTOR_PATH = (_CONTROL_SYSTEM, "connector")
 
 #: The tier key and the retired posture leaf it replaces.
@@ -459,13 +465,91 @@ def _retired_leaves(config: dict) -> dict[str, Any]:
     return leaves
 
 
+# ---------------------------------------------------------------------------
+# Readers of the retired spellings
+#
+# The runtime reads only ``control_system.writes``. For the release window the
+# build still has to say what a document's retired ``writes_enabled`` leaves
+# meant, so the one reading of them lives here, private to the migration code:
+# the normalizer's rewrite and the PR-3 posture warnings. They read exactly as
+# the runtime read those leaves before the tier key replaced them.
+# ---------------------------------------------------------------------------
+
+
+def _retired_flat_armed(section: Any) -> bool:
+    """Whether the flat ``control_system.writes_enabled`` is a literal ``True``."""
+    return isinstance(section, dict) and section.get(RETIRED_WRITES_LEAF) is True
+
+
+def _retired_type_armed(section: Any, connector_type: str | None) -> bool:
+    """Whether the retired leaves armed one connector *type*.
+
+    The type's own ``writes_enabled`` leaf answers when its block carries one,
+    and only a literal ``True`` arms. A type whose block says nothing (no
+    table, no block, a block that is not a mapping, no leaf) inherits the flat
+    leaf. The type is one key, never split on its dots.
+    """
+    connector = section.get("connector") if isinstance(section, dict) else None
+    block = (
+        connector.get(connector_type) if connector_type and isinstance(connector, dict) else None
+    )
+    if not isinstance(block, dict) or RETIRED_WRITES_LEAF not in block:
+        return _retired_flat_armed(section)
+    return block[RETIRED_WRITES_LEAF] is True
+
+
+def _retired_target_armed(section: Any, target: Any) -> bool:
+    """Whether the retired leaves armed one session *target*.
+
+    :func:`_retired_type_armed` for the type *target* resolves to; a target
+    that does not resolve has no type, and answers the flat leaf.
+    """
+    try:
+        connector_type = resolve_target(section, target)
+    except ValueError:
+        return _retired_flat_armed(section)
+    return _retired_type_armed(section, connector_type)
+
+
+def _retired_session_posture(section: Any) -> dict[str, bool]:
+    """What the retired leaves armed, per target a session here can select.
+
+    Every configured target when the deployment renders the switch, else the
+    one built connector type under its baseline target.
+    """
+    if switch_capable(section):
+        return {
+            target: _retired_target_armed(section, target) for target in configured_targets(section)
+        }
+    built = resolve_control_system_type(section)
+    return {baseline_target(section): _retired_type_armed(section, built)}
+
+
+def _retired_tier(section: Any) -> str:
+    """The tier the retired leaves amount to: ``allowed`` or ``never``.
+
+    ``allowed`` when the flat leaf or any connector block's leaf is a literal
+    ``True``. Target-blind, as the tier is: one armed machine allows writes for
+    every machine. The tier key itself is not consulted.
+    """
+    if _retired_flat_armed(section):
+        return _ALLOWED
+    connector = section.get("connector") if isinstance(section, dict) else None
+    if isinstance(connector, dict) and any(
+        isinstance(block, dict) and block.get(RETIRED_WRITES_LEAF) is True
+        for block in connector.values()
+    ):
+        return _ALLOWED
+    return _NEVER
+
+
 def retired_write_answer(config_mapping: Any) -> str | None:
     """The tier a document's retired write-posture leaves amount to.
 
     ``"allowed"`` when any retired leaf — the flat
     ``control_system.writes_enabled`` or any connector type's
-    ``writes_enabled`` — is a literal ``True``, else ``"never"``: the reading
-    ``tier_writes`` gives the same section. ``None`` when the mapping spells no
+    ``writes_enabled`` — is a literal ``True``, else ``"never"``
+    (:func:`_retired_tier`). ``None`` when the mapping spells no
     retired leaf. Every spelling is read (dotted, nested, mixed); a connector
     type is one key, never split on its dots. Pure: *config_mapping* is not
     changed, and the tier key itself is not consulted.
@@ -481,7 +565,7 @@ def retired_write_answer(config_mapping: Any) -> str | None:
     leaves = _retired_leaves(config_mapping)
     if not leaves:
         return None
-    return tier_writes(leaves)
+    return _retired_tier(leaves)
 
 
 def retired_write_origin(path: Path) -> dict[str, Any] | None:
@@ -714,7 +798,7 @@ def normalize_retired_write_keys(
 
     leaves = _retired_leaves(config)
     kind = _document_kind(path)
-    answer = _NEVER if kind == _APP_KIND else tier_writes(leaves)
+    answer = _NEVER if kind == _APP_KIND else _retired_tier(leaves)
     _warn_retired_writes(found, source, kind, answer)
 
     _place_tier_key(config, found, answer)

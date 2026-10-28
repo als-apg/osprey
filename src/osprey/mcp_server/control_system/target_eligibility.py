@@ -94,11 +94,11 @@ selection, so a parent that derived from config alone would derive
 — and :func:`~osprey_connectors.ipc.verify_child_report`, doing its job, would
 abort the switch on a disagreement that is nobody's misconfiguration.
 
-:func:`effective_writes_for_target` is therefore what every caller in this
-stack passes as ``writes_enabled``: the verdict's ``allowed``, never restated
-here. :func:`derive_endpoints` itself keeps its config-only default, because it
-is also asked hypothetical questions — what would this target select with
-writes off — and a pure derivation is what makes those answerable.
+:func:`target_write_verdict` is therefore what every caller in this stack
+asks, passing its ``allowed`` as ``writes_enabled`` — never restated here.
+:func:`derive_endpoints` itself keeps its config-only default, because it is
+also asked hypothetical questions — what would this target select with writes
+off — and a pure derivation is what makes those answerable.
 """
 
 from __future__ import annotations
@@ -248,6 +248,13 @@ def target_write_verdict(section: Any, target: str) -> posture_store.WriteVerdic
     a verdict that could not be reached here refuses as ``record_unavailable``
     rather than allowing.
 
+    Every caller of :func:`derive_endpoints` in this stack passes the
+    verdict's ``allowed`` as ``writes_enabled``. That is not a convenience:
+    the child selects its gateway from exactly this verdict, so a parent
+    deriving anything else would hand :func:`verify_child_report` a
+    ``selected_role`` mismatch and abort a switch that was configured
+    correctly.
+
     Args:
         section: The ``control_system:`` config section.
         target: The control target the writes would land on.
@@ -264,29 +271,6 @@ def target_write_verdict(section: Any, target: str) -> posture_store.WriteVerdic
         )
 
 
-def effective_writes_for_target(section: Any, target: str) -> bool:
-    """Whether writes to *target* are allowed on this deployment, right now.
-
-    This is the write verdict's ``allowed`` (:func:`target_write_verdict`).
-    Asking it in one place is what stops the roster, the switch and the
-    connector child from each deciding for themselves what is allowed.
-
-    Every caller of :func:`derive_endpoints` in this stack passes
-    the result as ``writes_enabled``. That is not a convenience: the child
-    selects its gateway from exactly this verdict, so a parent deriving
-    anything else would hand :func:`verify_child_report` a ``selected_role``
-    mismatch and abort a switch that was configured correctly.
-
-    Args:
-        section: The ``control_system:`` config section.
-        target: The control target the writes would land on.
-
-    Returns:
-        ``True`` only when the verdict allows writes to *target*.
-    """
-    return target_write_verdict(section, target).allowed
-
-
 def _resolved_writes(config: Any, target: str, writes_enabled: bool | None) -> bool:
     """An explicit ``writes_enabled`` override, or the verdict's ``allowed``.
 
@@ -298,7 +282,7 @@ def _resolved_writes(config: Any, target: str, writes_enabled: bool | None) -> b
     """
     if writes_enabled is not None:
         return bool(writes_enabled)
-    return effective_writes_for_target(config_section(config, "control_system"), target)
+    return target_write_verdict(config_section(config, "control_system"), target).allowed
 
 
 # ---------------------------------------------------------------------------
@@ -465,8 +449,8 @@ def evaluate_eligibility(
             comes home to ``standin``.
         writes_enabled: Whether writes to *target* are allowed. Unlike
             :func:`derive_endpoints`, whose default is the configured tier,
-            this defaults to :func:`effective_writes_for_target` — the write
-            verdict for the session asking. This is the answer a live session
+            this defaults to :func:`target_write_verdict`'s ``allowed`` — the
+            write verdict for the session asking. This is the answer a live session
             gets, so it has to be the answer the child will select its gateway
             on. Pass the value to ask about writes other than the verdict's.
         readonly_run: See :func:`derive_endpoints`. It moves the *selected role*,
@@ -1182,7 +1166,7 @@ def evaluate_switch(
         reports: The live controls servers' reports. Liveness is established by
             the caller; an empty sequence means no controls server is running.
         writes_enabled: Whether the write verdict allows writes to *wanted*
-            (:func:`effective_writes_for_target`). Required: taking the verdict
+            (:func:`target_write_verdict`'s ``allowed``). Required: taking the verdict
             reads the record, and this function performs no file read, so the
             caller takes it in the hop it has for blocking work.
         kernel_name: Resolves a notebook kernel's id to its notebook, for the

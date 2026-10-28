@@ -33,7 +33,7 @@ from osprey_connectors.control_system._limits_validator import (
     step_read_timeout_seconds,
 )
 from osprey_connectors.logger import get_logger
-from osprey_connectors.types import machine_kind, writes_enabled_key
+from osprey_connectors.types import WRITES_KEY, machine_kind
 
 logger = get_logger("epics_connector")
 
@@ -636,9 +636,8 @@ class EPICSConnector(ControlSystemConnector):
         elif readonly_run and write_gateway:
             logger.debug("EPICS connector: readonly run, staying on read_only gateway")
         elif writes_enabled and not write_gateway:
-            posture_key = writes_enabled_key(self._connector_type)
             logger.warning(
-                f"{posture_key} is true but no gateways.write_access "
+                f"Writes are allowed ({WRITES_KEY}: allowed) but no gateways.write_access "
                 "is configured; routing through the read_only gateway, which may "
                 "reject writes. Configure gateways.write_access to enable hardware writes."
             )

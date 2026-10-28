@@ -21,8 +21,6 @@ from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import (
     configured_targets,
     resolve_target,
-    session_posture,
-    target_writes_enabled,
     tier_writes,
 )
 from osprey_connectors.workspace import LAYER_DIR_KINDS, PROFILE_FILENAME, RETIRED_LAYER_DIRS
@@ -1104,7 +1102,7 @@ def seal_app_render(render: dict[str, Any], app_rel: str) -> dict[str, Any]:
 #
 # The retired posture leaves are rewritten to ``control_system.writes`` per
 # document (C-NORM), which is PR-3's per-layer rule. Today's reading was per
-# machine instead: ``session_posture`` of the merged section, where a per-type
+# machine instead (``_retired_session_posture`` of the merged section), where a per-type
 # ``false`` overrides a flat ``true`` and a leaf on a type no configured target
 # reaches arms nothing. The two can differ on a merged render, and an operator
 # is told where they do (R2 CF-1 / BE-3, CC-2), once per render (BE-22).
@@ -1233,8 +1231,9 @@ def judge_retired_posture(
 ) -> None:
     """Compare today's write posture of a merged render with its tier, and say where they differ.
 
-    Today's reading is ``session_posture`` of the rendered ``control_system``
-    section with the retired leaves the normalizer removed along the chain
+    Today's reading is what the retired leaves armed per target
+    (:func:`~.build_profile_document._retired_session_posture`) in the
+    rendered ``control_system`` section with the retired leaves the normalizer removed along the chain
     (:func:`~.build_profile_document.retired_write_origin` of each of
     *origin_paths*, later over earlier) put back as the render applies them
     (:func:`_rendered_control_system`), so a block a later layer's mapping
@@ -1290,14 +1289,16 @@ def judge_retired_posture(
             f"{_machine(today_section, machine)} machine is no longer configured. Add a "
             "connection key to the block, or delete the block"
         )
-        if target_writes_enabled(today_section, machine):
+        if _document._retired_target_armed(today_section, machine):
             raise BuildProfileError(f"{emptied}.")
         if warn:
             _warn_once(dedupe, f"{_EMPTIED_BLOCK}:{connector_type}", emptied)
     if not warn:
         return
 
-    armed = [target for target, on in session_posture(today_section).items() if on]
+    armed = [
+        target for target, on in _document._retired_session_posture(today_section).items() if on
+    ]
     today = _ALLOWED if armed else _NEVER
     if today != tier:
         _warn_once(

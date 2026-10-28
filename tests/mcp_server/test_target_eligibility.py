@@ -131,10 +131,14 @@ def _config(
     limits: str = "strict",
     ack: bool = True,
     archiver_type: str | None = "epics_archiver",
-    writes_enabled: bool = False,
+    writes: str | None = None,
     target_switch: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """A rendered config.yml, in the nested shape the MCP server reads."""
+    """A rendered config.yml, in the nested shape the MCP server reads.
+
+    *writes* is the write tier (``control_system.writes``); ``None`` leaves the
+    key out, which reads ``never``.
+    """
     switch: dict[str, Any] = dict(target_switch or {})
     if ack:
         switch[te.ACK_LEAF] = "gw.example.org"
@@ -148,7 +152,6 @@ def _config(
     config: dict[str, Any] = {
         "control_system": {
             "type": control_system_type,
-            "writes_enabled": writes_enabled,
             "limits_checking": limits_block,
             "connector": (
                 connector
@@ -158,6 +161,8 @@ def _config(
             "target_switch": switch,
         }
     }
+    if writes is not None:
+        config["control_system"]["writes"] = writes
     if archiver_type is not None:
         config["archiver"] = {"type": archiver_type}
     return config
@@ -1071,14 +1076,14 @@ def test_a_readonly_run_moves_the_selected_role_not_the_eligibility() -> None:
 
 
 def test_writes_enabled_defaults_to_the_configs_own_posture() -> None:
-    config = _config(writes_enabled=True)
+    config = _config(writes="allowed")
 
     assert derive_endpoints(config, LIVE, readonly_run=False).selected_role == "write_access"
 
 
 def test_readonly_run_defaults_to_the_processs_execution_mode(monkeypatch) -> None:
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
-    config = _config(writes_enabled=True)
+    config = _config(writes="allowed")
 
     assert derive_endpoints(config, LIVE).selected_role == "read_only"
 
@@ -1113,13 +1118,9 @@ TIER_MATRIX = {
     "an-allowed-tier-allows-both": ("allowed", None, False, "write_access", "write_access"),
     "a-never-tier-allows-neither": ("never", None, False, "read_only", "read_only"),
     "a-non-string-tier-allows-nothing": (True, None, False, "read_only", "read_only"),
-    "a-legacy-leaf-on-one-block-is-a-tier-for-both": (
-        None,
-        True,
-        False,
-        "write_access",
-        "write_access",
-    ),
+    # No runtime retired-leaf fallback (D2): a block's legacy leaf with no tier
+    # key is no tier at all, for either machine.
+    "a-legacy-leaf-on-one-block-is-no-tier": (None, True, False, "read_only", "read_only"),
     "a-readonly-run-collapses-an-allowed-tier": ("allowed", None, True, "read_only", "read_only"),
 }
 
@@ -1170,10 +1171,10 @@ def test_the_simulator_on_and_the_real_machine_off_are_two_answers(verdict_root)
 
     assert (va.allowed, va.reason) == (True, None)
     assert (live.allowed, live.reason, live.kind) == (False, "switch_off", "real")
-    assert te.effective_writes_for_target(section, VA) is True
-    assert te.effective_writes_for_target(section, LIVE) is False
+    assert te.target_write_verdict(section, VA).allowed is True
+    assert te.target_write_verdict(section, LIVE).allowed is False
     for target, role in ((VA, "write_access"), (LIVE, "read_only")):
-        writes = te.effective_writes_for_target(section, target)
+        writes = te.target_write_verdict(section, target).allowed
         assert derive_endpoints(config, target, writes_enabled=writes).selected_role == role
 
 
@@ -1206,9 +1207,9 @@ def test_an_off_switch_takes_writes_away_and_an_on_one_gives_them_back(verdict_r
 
     assert te.target_write_verdict(section, VA).reason == "switch_off"
     _switch_on(verdict_root, VA)
-    assert te.effective_writes_for_target(section, VA) is True
+    assert te.target_write_verdict(section, VA).allowed is True
     _switch_on(verdict_root, LIVE)
-    assert te.effective_writes_for_target(section, VA) is False
+    assert te.target_write_verdict(section, VA).allowed is False
 
 
 def test_a_never_tier_refuses_whatever_the_switch_says(verdict_root) -> None:
@@ -1216,7 +1217,7 @@ def test_a_never_tier_refuses_whatever_the_switch_says(verdict_root) -> None:
     section = _tier_config("never")["control_system"]
 
     assert te.target_write_verdict(section, VA).reason == "tier_never"
-    assert te.effective_writes_for_target(section, LIVE) is False
+    assert te.target_write_verdict(section, LIVE).allowed is False
 
 
 def test_a_readonly_run_refuses_before_the_switch(verdict_root, monkeypatch) -> None:
@@ -1236,7 +1237,7 @@ def test_an_unknown_target_refuses_as_target_unknown(verdict_root) -> None:
     verdict = te.target_write_verdict(config["control_system"], LIVE)
 
     assert (verdict.allowed, verdict.reason) == (False, "target_unknown")
-    assert te.effective_writes_for_target(config["control_system"], "nowhere") is False
+    assert te.target_write_verdict(config["control_system"], "nowhere").allowed is False
 
 
 def test_an_owner_the_login_map_does_not_name_refuses_as_owner_unknown(verdict_root) -> None:
@@ -1258,7 +1259,7 @@ def test_an_unreadable_record_refuses_as_record_unavailable(verdict_root) -> Non
     verdict = te.target_write_verdict(section, VA)
 
     assert (verdict.allowed, verdict.reason) == (False, "record_unavailable")
-    assert te.effective_writes_for_target(section, VA) is False
+    assert te.target_write_verdict(section, VA).allowed is False
 
 
 @pytest.mark.usefixtures("verdict_root")

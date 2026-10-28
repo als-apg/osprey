@@ -1,7 +1,7 @@
 """Eligibility, the roster and the target switch, read through the write switch.
 
-The deployment's ``writes_enabled`` keys are not the last word on whether a
-target is armed. An operator turns one target's write switch off from the
+The deployment's write tier (``control_system.writes``) is not the last word on
+whether a target is armed. An operator turns one target's write switch off from the
 header chip, that switch lands in the login's control-context record, and the
 connector-host child selects its gateway from it — so every parent-side answer
 about "which gateway will this deployment use" has to read the same record or
@@ -42,7 +42,6 @@ from osprey.mcp_server.control_system.tools import control_target
 from osprey_connectors import posture_store
 from osprey_connectors.control_system._base import ChannelValue
 from osprey_connectors.ipc._verification import derive_endpoints
-from osprey_connectors.types import VIRTUAL_ACCELERATOR
 
 # The live-child half runs on the switch harness's fixture connector: a mock
 # variant whose connect() applies the real gateway-role selection against the
@@ -92,8 +91,7 @@ def _config(
     *,
     live_gateways: dict[str, Any] | None = None,
     va_gateways: dict[str, Any] | None = None,
-    live_writes: bool = True,
-    va_writes: bool = True,
+    writes: str = "allowed",
 ) -> dict[str, Any]:
     """A switch-capable config whose two targets are both armed by default.
 
@@ -104,18 +102,16 @@ def _config(
     return {
         "control_system": {
             "type": EPICS_TYPE,
-            "writes_enabled": False,
+            "writes": writes,
             "limits_checking": {"enabled": True, "mode": "exclusive"},
             "target_switch": {te.ACK_LEAF: "gw.example.org"},
             "connector": {
                 EPICS_TYPE: {
                     "probe_channel": "LIVE:PROBE",
-                    "writes_enabled": live_writes,
                     "gateways": (_gateways(5064, 5084) if live_gateways is None else live_gateways),
                 },
                 VA_TYPE: {
                     "probe_channel": "VA:PROBE",
-                    "writes_enabled": va_writes,
                     "gateways": _gateways(5074, 5075) if va_gateways is None else va_gateways,
                 },
             },
@@ -155,31 +151,31 @@ class TestEffectiveWritesForTarget:
         arm(store_root, LIVE, VA)
         section = _config()["control_system"]
 
-        assert te.effective_writes_for_target(section, LIVE) is True
-        assert te.effective_writes_for_target(section, VA) is True
+        assert te.target_write_verdict(section, LIVE).allowed is True
+        assert te.target_write_verdict(section, VA).allowed is True
 
     def test_a_switch_off_takes_arming_away_from_that_target_alone(self, store_root):
         arm(store_root, LIVE, VA)
         section = _config()["control_system"]
         arm(store_root, LIVE)
 
-        assert te.effective_writes_for_target(section, VA) is False
-        assert te.effective_writes_for_target(section, LIVE) is True
+        assert te.target_write_verdict(section, VA).allowed is False
+        assert te.target_write_verdict(section, LIVE).allowed is True
 
     def test_the_store_never_widens_a_deployment_that_arms_nothing(self, store_root):
         """A switch on cannot arm a target whose tier never allows writes."""
         arm(store_root, LIVE, VA)
-        section = _config(live_writes=False, va_writes=False)["control_system"]
+        section = _config(writes="never")["control_system"]
 
-        assert te.effective_writes_for_target(section, LIVE) is False
-        assert te.effective_writes_for_target(section, VA) is False
+        assert te.target_write_verdict(section, LIVE).allowed is False
+        assert te.target_write_verdict(section, VA).allowed is False
 
     def test_a_readonly_run_answers_no_before_the_store_is_consulted(self, monkeypatch, store_root):
         arm(store_root, LIVE, VA)
         monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
         section = _config()["control_system"]
 
-        assert te.effective_writes_for_target(section, VA) is False
+        assert te.target_write_verdict(section, VA).allowed is False
 
 
 # ---------------------------------------------------------------------------
@@ -194,7 +190,7 @@ class TestEligibilityFollowsTheStore:
         arm(store_root, LIVE)
 
         derivation = derive_endpoints(
-            config, VA, writes_enabled=te.effective_writes_for_target(config["control_system"], VA)
+            config, VA, writes_enabled=te.target_write_verdict(config["control_system"], VA).allowed
         )
 
         assert derivation.selected_role == "read_only"
@@ -334,14 +330,7 @@ async def make_manager(store_root, child_environment, monkeypatch):  # noqa: ARG
 def mixed_project(tmp_path, store_root):
     """A project config whose tier allows writes, with only the simulator switched on."""
     arm(store_root, VA)
-    return project_config(
-        tmp_path,
-        {
-            "type": GATEWAY_TYPE,
-            "writes_enabled": False,
-            "connector": {VIRTUAL_ACCELERATOR: {"writes_enabled": True}},
-        },
-    )
+    return project_config(tmp_path, {"type": GATEWAY_TYPE, "writes": "allowed"})
 
 
 def _mixed_raw() -> dict[str, Any]:
@@ -352,7 +341,7 @@ def _mixed_raw() -> dict[str, Any]:
     that disagree about the role still agree about the host and port, and the
     disagreement never surfaces.
     """
-    return gateway_config(writes_enabled=False, va_writes_enabled=True, va_gateways=True)
+    return gateway_config(va_gateways=True)
 
 
 class TestSwitchingOntoASwitchedOffTarget:

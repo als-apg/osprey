@@ -84,8 +84,8 @@ The realignment half
 A write verdict that moves for the target this deployment is currently ON does
 not take effect by itself: writes are refused or allowed per call from the
 record already, but the connector-host child *connected* on a gateway role
-chosen under the old verdict. So the reconciler takes
-:func:`~osprey.mcp_server.control_system.target_eligibility.effective_writes_for_target`
+chosen under the old verdict. So the reconciler takes the ``allowed`` of
+:func:`~osprey.mcp_server.control_system.target_eligibility.target_write_verdict`
 for the active target whenever the record moves, and a change of its answer —
 the operator's switch turned on or off — is a realignment: a rebuild of that
 child through
@@ -196,7 +196,7 @@ def _writes_allowed(context: Any, target: str) -> bool:
     """The write verdict's ``allowed`` for *target*, from *context*'s config.
 
     The same answer the switch gate and the connector host derive from
-    (:func:`~osprey.mcp_server.control_system.target_eligibility.effective_writes_for_target`).
+    (:func:`~osprey.mcp_server.control_system.target_eligibility.target_write_verdict`).
     A context whose config cannot be read answers with an empty section, which
     refuses: never a rebuild toward writes nobody allowed.
     """
@@ -207,7 +207,7 @@ def _writes_allowed(context: Any, target: str) -> bool:
     except Exception:
         config = None
     section = config.get("control_system") if isinstance(config, dict) else None
-    return target_eligibility.effective_writes_for_target(section, target)
+    return target_eligibility.target_write_verdict(section, target).allowed
 
 
 def _requester(record: dict[str, Any], pid: int) -> str:
@@ -726,7 +726,7 @@ class SessionControlReconciler:
             baseline=context.baseline,
             in_flight=target_state.in_flight_executions(),
             reports=reports,
-            writes_enabled=target_eligibility.effective_writes_for_target(section, wanted),
+            writes_enabled=target_eligibility.target_write_verdict(section, wanted).allowed,
             config_path=str(config_path) if config_path else None,
         )
 

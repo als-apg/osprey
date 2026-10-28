@@ -73,18 +73,25 @@ def test_a_silent_tier_entitles_nothing() -> None:
     assert config_needs_launch_token_for(config, "bluesky_va") is False
 
 
-def test_a_retired_spelling_answers_as_its_rewrite() -> None:
-    # One armed connector leaf is `allowed` under the rewrite, and the tier is
-    # target-blind: the live lane is entitled too, not only the VA one.
-    config = _two_lane_render(
+@pytest.mark.parametrize(
+    "control_system",
+    [
+        {"writes_enabled": True, "connector": {"epics": {}, "virtual_accelerator": {}}},
         {
             "writes_enabled": False,
             "connector": {"epics": {}, "virtual_accelerator": {"writes_enabled": True}},
-        }
-    )
+        },
+    ],
+    ids=["flat-armed", "connector-armed"],
+)
+def test_a_retired_spelling_alone_entitles_nothing(control_system: dict) -> None:
+    # A render reads the tier key only: an armed retired leaf with no tier key
+    # is `never` (rows tier-absent-old-armed-flat / -connector, ruling D2). The
+    # build rewrites the leaf; a render that skipped the rebuild entitles no lane.
+    config = _two_lane_render(control_system)
 
-    assert config_needs_launch_token_for(config, "bluesky") is True
-    assert config_needs_launch_token_for(config, "bluesky_va") is True
+    assert config_needs_launch_token_for(config, "bluesky") is False
+    assert config_needs_launch_token_for(config, "bluesky_va") is False
 
 
 def test_an_allowed_tier_without_the_bluesky_server_entitles_nothing() -> None:

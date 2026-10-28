@@ -47,21 +47,19 @@ def _tier_key(section: dict[str, Any]) -> str:
     :func:`~osprey_connectors.types.tier_writes`' fallback, and the line names
     the leaf that armed it rather than a key the file does not contain.
     """
-    from osprey_connectors.types import (
-        TYPE_WRITES_ENABLED_LEAF,
-        WRITES_ENABLED_KEY,
-        WRITES_KEY,
-    )
+    from osprey.cli.build_profile_document import RETIRED_WRITES_LEAF
+    from osprey_connectors.types import WRITES_KEY
 
-    if WRITES_KEY.rpartition(".")[2] in section:
+    section_name, _, tier_leaf = WRITES_KEY.rpartition(".")
+    if tier_leaf in section:
         return WRITES_KEY
-    if section.get(TYPE_WRITES_ENABLED_LEAF) is True:
-        return WRITES_ENABLED_KEY
+    if section.get(RETIRED_WRITES_LEAF) is True:
+        return f"{section_name}.{RETIRED_WRITES_LEAF}"
     connector = section.get("connector")
     if isinstance(connector, dict):
         for connector_type, block in connector.items():
-            if isinstance(block, dict) and block.get(TYPE_WRITES_ENABLED_LEAF) is True:
-                return f"control_system.connector.{connector_type}.{TYPE_WRITES_ENABLED_LEAF}"
+            if isinstance(block, dict) and block.get(RETIRED_WRITES_LEAF) is True:
+                return f"{section_name}.connector.{connector_type}.{RETIRED_WRITES_LEAF}"
     return WRITES_KEY
 
 

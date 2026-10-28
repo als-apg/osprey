@@ -29,6 +29,7 @@ from typing import Any, Literal, cast
 
 import yaml
 
+from osprey.cli.build_profile_document import RETIRED_WRITES_LEAF
 from osprey.config_guards import is_positive_int
 from osprey.deployment.compose_generator import (
     DISPATCH_WORKER_SERVICE_PREFIX,
@@ -111,8 +112,6 @@ from osprey.services.auth_sidecar.roster_env import (
 from osprey_connectors.dotenv import parse_dotenv_file
 from osprey_connectors.types import (
     TARGET_LIVE,
-    TYPE_WRITES_ENABLED_LEAF,
-    WRITES_ENABLED_KEY,
     WRITES_KEY,
     baseline_target,
     configured_targets,
@@ -2153,12 +2152,16 @@ def _check_privileged_tier_exposure(
 
 
 #: The two fixed ends of ``control_system.connector.<type>.writes_enabled``,
-#: which this module matches one path segment at a time. Both come from the
-#: resolver that reads the key at run time; the ``connector`` hop in the middle
-#: is spelled here because that module reads it off an already-resolved section
-#: and keeps no constant for it.
-_CONTROL_SYSTEM_SECTION = WRITES_ENABLED_KEY.split(".")[0]
+#: which this module matches one path segment at a time. The section comes from
+#: the tier key the runtime reads and the retired leaf from the build's
+#: migration code, the one place that still reads that spelling; the
+#: ``connector`` hop in the middle is spelled here because neither keeps a
+#: constant for it.
+_CONTROL_SYSTEM_SECTION = WRITES_KEY.split(".")[0]
 _CONNECTOR_TABLE_KEY = "connector"
+
+#: The retired flat posture key, ``control_system.writes_enabled``.
+_RETIRED_FLAT_KEY = f"{_CONTROL_SYSTEM_SECTION}.{RETIRED_WRITES_LEAF}"
 
 
 def _config_leaves(*layers: Any) -> dict[str, Any]:
@@ -2210,7 +2213,7 @@ def _connector_writes_type(path: str) -> str | None:
         return None
     if parts[0] != _CONTROL_SYSTEM_SECTION or parts[1] != _CONNECTOR_TABLE_KEY:
         return None
-    if parts[-1] != TYPE_WRITES_ENABLED_LEAF:
+    if parts[-1] != RETIRED_WRITES_LEAF:
         return None
     return ".".join(parts[2:-1])
 
@@ -2270,7 +2273,7 @@ def lint_app_render(render: Mapping[str, Any]) -> list[Finding]:
     ):
         problems.append(f"{WRITES_KEY} is not pinned to {_APP_WRITES}")
     for path, value in spelled:
-        if path != WRITES_ENABLED_KEY and _connector_writes_type(path) is None:
+        if path != _RETIRED_FLAT_KEY and _connector_writes_type(path) is None:
             continue
         if value is not False:
             problems.append(f"{path} is {value!r}")
