@@ -15,9 +15,11 @@ from __future__ import annotations
 import dataclasses
 import glob
 import importlib.util
+import os
 import platform
 import shlex
 import shutil
+import subprocess
 import sys
 import tempfile
 from collections.abc import Iterable, Sequence
@@ -529,6 +531,15 @@ DOCS_EXTRA_PROBE = ("uv", "run", "python", "-c", "import myst_parser")
 #: platform. The modules are the ones the live gate requires.
 LIVE_CA_PROBE = ("uv", "run", "python", "-c", "import pcaspy, p4p, lume_pva_apg")
 
+#: Prints the directory whose ``claude`` reports the pin, or the product's
+#: refusal on stderr. ``--frozen``: the need probes run before the lockfile
+#: check, and a plain ``uv run`` would re-lock a stale lockfile and hand that
+#: check a current one.
+CLAUDE_PIN_PROBE = ("uv", "run", "--frozen", "python", "scripts/pinned_claude.py")
+
+#: The compare of ``node_modules`` with ``package-lock.json``, stdlib only.
+JS_DEPS_CURRENT = Path(__file__).resolve().with_name("js_deps_current.py")
+
 #: Runs only in a venv synced with the dev extra. actionlint disables its
 #: shellcheck rule without a word when shellcheck is absent and still exits 0, so
 #: this probe is what keeps the check from passing over unread ``run:`` blocks.
@@ -558,10 +569,57 @@ def _need_workflow_linters() -> str | None:
     return "the workflow linters are not installed: run uv sync --extra dev"
 
 
+def _probe(argv: Sequence[str]) -> tuple[int, str, str]:
+    """Run a probe and return its exit status, stdout and stderr."""
+    try:
+        done = subprocess.run(list(argv), cwd=kit.ROOT, capture_output=True, text=True)
+    except FileNotFoundError:
+        return 127, "", ""
+    return done.returncode, done.stdout, done.stderr
+
+
+def _need_claude_pin() -> str | None:
+    """Met when a ``claude`` reporting the pin is found; its directory then goes
+    first on ``PATH``, so every check this command starts runs it."""
+    status, out, err = _probe(CLAUDE_PIN_PROBE)
+    if status != 0:
+        return " ".join(err.split()) or f"{shlex.join(CLAUDE_PIN_PROBE)} exited {status}"
+    lines = [line.strip() for line in out.splitlines() if line.strip()]
+    if not lines or not Path(lines[-1]).is_dir():
+        return f"{shlex.join(CLAUDE_PIN_PROBE)} printed no directory"
+    directory = lines[-1]
+    os.environ["PATH"] = directory + os.pathsep + os.environ.get("PATH", "")
+    kit.say(f"claude-pin: {directory} first on PATH")
+    return None
+
+
+def _js_deps_current() -> ModuleType:
+    """The lockfile compare, loaded by path: scripts/ is not a package."""
+    spec = importlib.util.spec_from_file_location("js_deps_current", JS_DEPS_CURRENT)
+    if spec is None or spec.loader is None:
+        raise Refused(f"cannot load {JS_DEPS_CURRENT}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _need_node() -> str | None:
-    if shutil.which("node") and shutil.which("npm") and (kit.ROOT / "node_modules").is_dir():
+    """Met when ``node_modules`` holds what ``package-lock.json`` pins; runs
+    ``npm ci`` when it does not."""
+    if not (shutil.which("node") and shutil.which("npm")):
+        return "the Node toolchain is not installed: install Node, then run npm ci"
+    first_difference = _js_deps_current().first_difference
+    difference = first_difference(kit.ROOT)
+    if difference is None:
         return None
-    return "the Node toolchain is not installed: install Node, then run npm ci"
+    kit.say(f"node: {difference}; npm ci")
+    status = kit.run(("npm", "ci"))
+    if status != 0:
+        return f"npm ci failed (exit {status}): {difference}"
+    again = first_difference(kit.ROOT)
+    if again is not None:
+        return f"node_modules still differs from package-lock.json after npm ci: {again}"
+    return None
 
 
 def _need_history() -> str | None:
@@ -593,6 +651,7 @@ NEEDS = {
     "uv": _need_uv,
     "gitleaks": _need_gitleaks,
     "node": _need_node,
+    "claude-pin": _need_claude_pin,
     "history": _need_history,
     "docs-extra": _need_docs_extra,
     "graphviz": _need_graphviz,
@@ -757,7 +816,7 @@ CHECKS: tuple[Check, ...] = (
         "tests",
         BOTH,
         ("uv", "run", "pytest"),
-        needs=("uv",),
+        needs=("uv", "claude-pin"),
         bound_s=5400,
         report="junit-pytest",
         tier_flags={

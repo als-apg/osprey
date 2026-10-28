@@ -70,6 +70,10 @@ even after an earlier one failed, and the last line is the verdict. A failed
 test check names its failing tests, read from the report its runner writes for
 the command. A refusal names every check it cannot judge and what to install.
 
+Before any check runs, the needs put the tree's pins in place: the pinned
+Claude Code first on PATH, and node_modules reinstalled when it differs from
+package-lock.json.
+
 What cannot run here is named, never counted as passed: a check bound to a venue
 this machine is not, a check whose install is absent, a check that needs a base
 when none was given, and the CI lanes this command never runs. A check that
