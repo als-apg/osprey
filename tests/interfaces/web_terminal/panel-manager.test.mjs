@@ -3547,6 +3547,166 @@ describe('panel frames — agent-writable panels are opaque, first-party panels 
     }
   });
 
+  // ---- D8: a panel keeps a working cap after navigation, recovery, expiry ----
+
+  const TTL_MS = 12 * 60 * 60 * 1000;
+
+  /**
+   * A cap answer minting a fresh cap per call, the way the hub does: the
+   * token's first segment is its expiry (epoch seconds, hex), 12 h out.
+   * @param {string} base  the panel's plain base, ending in `/`
+   */
+  function mintingCaps(base) {
+    let n = 0;
+    /** @type {string[]} */
+    const minted = [];
+    const cap = (/** @type {string} */ id) => {
+      n += 1;
+      const expiry = Math.floor((Date.now() + TTL_MS) / 1000).toString(16);
+      const url = `${base}~c/${expiry}.T${n}.S${n}/`;
+      minted.push(url);
+      return jsonOk({ id, cap_url: url });
+    };
+    return { cap, minted };
+  }
+
+  const agentDash = {
+    id: 'agent-dash',
+    label: 'DASH',
+    url: '/panel/agent-dash',
+    healthEndpoint: null,
+    path: '/',
+  };
+
+  test('re-navigating an opaque panel frames the new address under a freshly minted cap', async () => {
+    const { cap, minted } = mintingCaps('/panel/agent-dash/');
+    const { mod, capCalls } = await bootOne({ custom: [agentDash], visible: ['agent-dash'], cap });
+    await settled(() => expect(frame('agent-dash')?.dataset.panelFrame).toBe('opaque'));
+    const el = /** @type {HTMLIFrameElement} */ (frame('agent-dash'));
+    expect(new URL(el.src).pathname).toBe(minted[0]);
+
+    mod.navigateAndActivatePanel('agent-dash', '/panel/agent-dash/runs/42.html');
+    await settled(() => expect(capCalls).toHaveLength(2));
+    await settled(() => expect(new URL(el.src).pathname).toBe(`${minted[1]}runs/42.html`));
+    expect(el.dataset.panelFrame).toBe('opaque');
+    expect(el.getAttribute('sandbox')).toBe(OPAQUE);
+    // Never the bare, uncapped address.
+    expect(new URL(el.src).pathname.startsWith('/panel/agent-dash/runs')).toBe(false);
+  });
+
+  test('re-navigating a first-party catalog panel keeps the plain URL and asks for no cap', async () => {
+    const { mod, capCalls } = await bootOne({ enabled: ['artifacts'], visible: ['artifacts'] });
+    await settled(() => expect(frame('artifacts')).not.toBeNull());
+    const el = /** @type {HTMLIFrameElement} */ (frame('artifacts'));
+    mod.navigateAndActivatePanel('artifacts', '/panel/artifacts/item/7');
+    await settled(() => expect(new URL(el.src).pathname).toBe('/panel/artifacts/item/7'));
+    expect(el.getAttribute('sandbox')).toBe(FIRST_PARTY);
+    expect(capCalls).toEqual([]);
+  });
+
+  test('a recovered opaque panel loads its held address through a fresh cap', async () => {
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+    });
+    try {
+      vi.setSystemTime(new Date(2026, 0, 5, 9, 0, 0));
+      const { cap, minted } = mintingCaps('/panel/agent-dash/');
+      let down = false;
+      const healthy = {
+        ...agentDash,
+        healthEndpoint: '/health',
+      };
+      window.__OSPREY_PREFIX__ = '';
+      renderContainer();
+      /** @type {string[]} */
+      const capCalls = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (/** @type {string} */ url) => {
+          if (url === '/api/panels') {
+            return jsonOk({
+              enabled: [],
+              custom: [healthy],
+              default: null,
+              visible: ['agent-dash'],
+              active: null,
+              labels: {},
+            });
+          }
+          if (url === '/api/panels/agent-dash/cap') {
+            capCalls.push(url);
+            return cap('agent-dash');
+          }
+          if (url === '/panel/agent-dash/health') {
+            return down
+              ? { ok: false, status: 503, statusText: 'Down', json: async () => ({}) }
+              : jsonOk({ status: 'ok' });
+          }
+          return jsonOk({});
+        })
+      );
+      stubEventSource();
+      const mod = await freshImport();
+      await mod.initPanelManager('panel-manager');
+      const button = /** @type {HTMLElement} */ (
+        document.querySelector('.panel-rail-button[data-panel-id="agent-dash"]')
+      );
+      await settled(() => expect(button.classList.contains('disabled')).toBe(false));
+      if (!frame('agent-dash')) button.click();
+      await settled(() => expect(frame('agent-dash')?.dataset.panelFrame).toBe('opaque'));
+      const el = /** @type {HTMLIFrameElement} */ (frame('agent-dash'));
+      expect(new URL(el.src).pathname).toBe(minted[0]);
+      await vi.advanceTimersByTimeAsync(1000);
+
+      // The panel stops answering; an address sent meanwhile is held.
+      down = true;
+      await vi.advanceTimersByTimeAsync(10_000);
+      mod.navigateAndActivatePanel('agent-dash', '/panel/agent-dash/held.html');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(capCalls).toHaveLength(1);
+      expect(new URL(el.src).pathname).toBe(minted[0]);
+
+      // It answers again: the held address loads under a cap minted now.
+      down = false;
+      await vi.advanceTimersByTimeAsync(10_000);
+      await settled(() => expect(capCalls).toHaveLength(2));
+      await settled(() => expect(new URL(el.src).pathname).toBe(`${minted[1]}held.html`));
+      expect(el.getAttribute('sandbox')).toBe(OPAQUE);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('a panel left open renews its cap before expiry and never loads an expired one', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      vi.setSystemTime(new Date(2026, 0, 5, 9, 0, 0));
+      const { cap, minted } = mintingCaps('/panel/agent-dash/');
+      const { capCalls } = await bootOne({ custom: [agentDash], visible: ['agent-dash'], cap });
+      await settled(() => expect(frame('agent-dash')?.dataset.panelFrame).toBe('opaque'));
+      const el = /** @type {HTMLIFrameElement} */ (frame('agent-dash'));
+      const { CAP_RENEW_MARGIN_MS } = await import(FACTORY_PATH);
+      const firstExpiry = parseInt(minted[0].split('~c/')[1], 16) * 1000;
+
+      await vi.advanceTimersByTimeAsync(firstExpiry - CAP_RENEW_MARGIN_MS - Date.now() - 1000);
+      expect(capCalls).toHaveLength(1);
+      expect(new URL(el.src).pathname).toBe(minted[0]);
+
+      await vi.advanceTimersByTimeAsync(2000);
+      await settled(() => expect(capCalls).toHaveLength(2));
+      await settled(() => expect(new URL(el.src).pathname).toBe(minted[1]));
+      expect(Date.now()).toBeLessThan(firstExpiry);
+      expect(el.getAttribute('sandbox')).toBe(OPAQUE);
+
+      // And again for the renewed cap: the panel can stay open indefinitely.
+      await vi.advanceTimersByTimeAsync(TTL_MS);
+      await settled(() => expect(capCalls).toHaveLength(3));
+      expect(new URL(el.src).pathname).toBe(minted[2]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test('capTarget rebases under the cap and leaves foreign targets alone', async () => {
     vi.stubGlobal(
       'fetch',
