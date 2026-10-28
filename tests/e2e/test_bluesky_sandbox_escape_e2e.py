@@ -93,9 +93,12 @@ from typing import Any
 
 import pytest
 
+from osprey.utils.owner_header import OWNER_HEADER
+from osprey_connectors import posture_store
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
 from tests.e2e._volumes import remove_project_volumes
+from tests.e2e.sdk_helpers import arm_deployed_queue_owner
 
 pytestmark = [
     pytest.mark.e2e,
@@ -392,7 +395,11 @@ def _enqueue_session_plan(
         },
     )
     assert status == 200, f"PATCH /draft failed for {plan_name!r}: {status} {patched}"
-    headers = {"X-Launch-Token": token} if token else None
+    # Named for the login whose switch the stack armed: the worker's writes
+    # follow the add's owner, and an ownerless add has no switch to follow.
+    headers = {OWNER_HEADER: posture_store.current_owner()}
+    if token:
+        headers["X-Launch-Token"] = token
     return _post("/queue/items", {"draft_revision": patched["revision"]}, headers=headers)
 
 
@@ -500,6 +507,9 @@ def deployed_sandbox_stack(
     # The repo root's `.env` — the deployment's whole secret store, and the file
     # `osprey up` refuses to start without.
     _orm_stack.seed_repo_env(repo)
+    # The positive plan writes: this login's switch on in the deployment's
+    # record, before `up`, for the owner every add here names.
+    arm_deployed_queue_owner(repo)
 
     osprey_bin = _orm_stack.find_osprey_console_script()
 
