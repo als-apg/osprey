@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import errno
 import itertools
+import logging
 import os
 import signal
 import socket
@@ -22,6 +23,8 @@ from pathlib import Path
 
 import pytest
 
+from osprey.deployment import subprocess_capture
+from osprey.deployment.subprocess_capture import StopOutcome
 from osprey.interfaces.web_terminal import supervised_child
 from osprey.interfaces.web_terminal.supervised_child import (
     FAILURE_GAVE_UP,
@@ -63,6 +66,21 @@ CHILD = textwrap.dedent(
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
         while True:
             answer()
+    elif mode == "member":
+        # Leaves a member of its own group that ignores SIGTERM, then exits.
+        import subprocess
+        member = subprocess.Popen(
+            [sys.executable, "-c",
+             "import signal, time\\n"
+             "signal.signal(signal.SIGTERM, signal.SIG_IGN)\\n"
+             "print(1, flush=True)\\n"
+             "time.sleep(60)\\n"],
+            stdout=subprocess.PIPE,
+        )
+        member.stdout.readline()
+        with open(sys.argv[4] + ".tmp", "w") as out:
+            out.write(str(member.pid))
+        os.replace(sys.argv[4] + ".tmp", sys.argv[4])
     elif mode == "record":
         # One line per incarnation: the predecessor's exit status it was given.
         with open(sys.argv[4], "a") as out:
@@ -555,6 +573,72 @@ class TestStop:
         assert os.getpgid(pid) != os.getpgid(0)
         child.stop()
         assert not pid_alive(pid)
+
+
+class TestExitedChild:
+    """An exit the watcher observes is reaped by the child's stop, not by the watcher."""
+
+    def test_the_watcher_observes_the_exit_and_leaves_the_reap_to_the_stop(
+        self, harness: Harness, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        real_stop = subprocess_capture.stop_child
+        on_entry: list[bool] = []
+        reaped: list[bool] = []
+        look = os.WEXITED | os.WNOHANG | os.WNOWAIT
+
+        def spy(process: subprocess.Popen[bytes], **kwargs: float) -> StopOutcome[int]:
+            on_entry.append(subprocess_capture._waitid(process.pid, look) is not None)
+            outcome = real_stop(process, **kwargs)
+            try:
+                subprocess_capture._waitid(process.pid, look)
+            except ChildProcessError:
+                reaped.append(True)
+            else:
+                reaped.append(False)
+            return outcome
+
+        monkeypatch.setattr(subprocess_capture, "stop_child", spy)
+        child = harness.supervise("exit", START_REFUSED)
+        child.start()
+        assert _wait_for(lambda: harness.give_ups == 1)
+        assert child.exit_status == START_REFUSED
+        assert child.failure == FAILURE_REFUSED
+        assert on_entry == [True], "the watcher reaped the child before its stop"
+        assert reaped == [True], "the stop left the exited child unreaped"
+
+    def test_a_member_of_a_crashed_childs_group_that_outlives_sigkill_is_named(
+        self,
+        harness: Harness,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        member_file = tmp_path / "member.pid"
+        real_signal_group = subprocess_capture._signal_group
+
+        def no_sigkill(pgid: int, sig: int) -> None:
+            if sig != signal.SIGKILL:
+                real_signal_group(pgid, sig)
+
+        monkeypatch.setattr(subprocess_capture, "_signal_group", no_sigkill)
+        monkeypatch.setattr(subprocess_capture, "_KILL_WAIT_S", 0.2)
+        child = harness.supervise("member", START_REFUSED, str(member_file), grace_s=0.3)
+        member: int | None = None
+        try:
+            with caplog.at_level(logging.WARNING, logger=supervised_child.__name__):
+                child.start()
+                assert _wait_for(lambda: harness.give_ups == 1)
+            member = int(member_file.read_text())
+            assert child.exit_status == START_REFUSED
+            warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+            assert any(f"still running after SIGKILL: pid {member}" in w for w in warnings), (
+                warnings
+            )
+        finally:
+            if member is None and member_file.exists():
+                member = int(member_file.read_text())
+            if member is not None and pid_alive(member):
+                os.kill(member, signal.SIGKILL)
 
 
 def test_the_held_socket_outlives_a_killed_child(harness: Harness) -> None:
