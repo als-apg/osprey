@@ -109,8 +109,11 @@ def record_roles(plugin: Any) -> tuple[str, ...]:
 
     Returns:
         Its ``RECORD_ROLES``; the view's ``ROLES`` for a module stating none.
+
+    Raises:
+        TypeError: The module states ``RECORD_ROLES`` as one bare string.
     """
-    return tuple(str(role) for role in getattr(plugin, "RECORD_ROLES", ROLES))
+    return _names(plugin, "RECORD_ROLES", ROLES)
 
 
 def record_marks(plugin: Any) -> tuple[str, ...]:
@@ -121,5 +124,16 @@ def record_marks(plugin: Any) -> tuple[str, ...]:
 
     Returns:
         Its ``RECORD_MARKS``; empty for a module stating none.
+
+    Raises:
+        TypeError: The module states ``RECORD_MARKS`` as one bare string.
     """
-    return tuple(str(mark) for mark in getattr(plugin, "RECORD_MARKS", ()))
+    return _names(plugin, "RECORD_MARKS", ())
+
+
+def _names(plugin: Any, attribute: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    """The names an engine plug-in declares under ``attribute``, or ``default``."""
+    declared = getattr(plugin, attribute, default)
+    if isinstance(declared, str):
+        raise TypeError(f"{attribute} must be a sequence of names, not the string {declared!r}")
+    return tuple(str(name) for name in declared)

@@ -164,6 +164,30 @@ def test_an_undeclared_role_stops_the_build(register) -> None:
     assert "turn_series" in str(stop.value) and "RECORD_ROLES" in str(stop.value)
 
 
+def test_a_description_without_a_role_asks_for_one(register) -> None:
+    register(_engine(_describing(**{"M:TBT": {}})))
+    with pytest.raises(FacilityBuildError) as stop:
+        simulator_wiring(_facility(READ), "M")
+    assert stop.value.kind == "engine-invalid"
+    assert "None" not in str(stop.value)
+    assert "names no role" in stop.value.detail and "M:TBT" in stop.value.remedy
+
+
+@pytest.mark.parametrize("name", ["RECORD_ROLES", "RECORD_MARKS"])
+def test_a_bare_string_declaration_is_refused(name: str) -> None:
+    module = _engine(_function, **{name: "command"})
+    with pytest.raises(TypeError, match=name):
+        (record_roles if name == "RECORD_ROLES" else record_marks)(module)
+
+
+def test_a_bare_string_declaration_stops_the_build(register) -> None:
+    register(_engine(_describing(**{"M:CMD": {"role": "setpoint"}}), RECORD_MARKS="command"))
+    with pytest.raises(FacilityBuildError) as stop:
+        simulator_wiring(_facility(WRITE), "M")
+    assert (stop.value.kind, stop.value.record_id) == ("engine-invalid", "M")
+    assert "RECORD_MARKS" in str(stop.value)
+
+
 def test_a_binding_carries_the_records_marks() -> None:
     record = {"id": "w1", "address": "M:CMD", "direction": "write", "role": "setpoint"}
     record |= {"plane": None, "refresh": "pass"}

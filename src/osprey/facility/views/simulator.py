@@ -294,7 +294,17 @@ def _describer(model: Mapping[str, Any]) -> _Engine:
             record_kind="model",
             detail=f"engine {engine} states no describe(), so its wiring records carry no role",
         )
-    return _Engine(describe, record_roles(plugin), record_marks(plugin))
+    try:
+        return _Engine(describe, record_roles(plugin), record_marks(plugin))
+    except TypeError as declared:
+        raise FacilityBuildError(
+            "engine-invalid",
+            name,
+            stating_files(model, None, fallback=_MODELS_FILE),
+            "state the declaration as a tuple of names",
+            record_kind="model",
+            detail=f"engine {engine}: {declared}",
+        ) from declared
 
 
 def served_deck_path(model: Mapping[str, Any]) -> str | None:
@@ -336,6 +346,15 @@ def _check_role(
     role = description.get("role")
     if role in roles:
         return
+    if role is None:
+        raise FacilityBuildError(
+            "engine-invalid",
+            str(model["name"]),
+            stating_files(model, None, fallback=_MODELS_FILE),
+            f"make describe() name the role of {record['address']}, one of {', '.join(roles)}",
+            record_kind="model",
+            detail=f"the engine's description of {record['address']} names no role",
+        )
     raise FacilityBuildError(
         "engine-invalid",
         str(model["name"]),
