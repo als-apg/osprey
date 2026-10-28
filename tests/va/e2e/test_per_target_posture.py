@@ -15,10 +15,10 @@ end to end.
 Five claims, and this module is the acceptance gate for all five:
 
 1. **A narrowing lands on a live child.** With the session pointed at the
-   stand-in and its writes armed, ``POST /api/terminal/posture`` with
-   ``sandbox`` makes ``channel_write`` and a readwrite ``execute`` refuse —
-   naming the session posture and the chip, in each connector result's
-   ``error`` *and* in the raised all-refused envelope — while the same
+   stand-in and its switch on, ``POST /api/terminal/posture`` with
+   ``state: off`` makes ``channel_write`` and a readwrite ``execute`` refuse —
+   as ``switch_off``, with the phrase that sends the operator to the chip, in
+   each connector result's ``error`` *and* in the tool's refusal — while the same
    deployment still writes on the virtual accelerator, and while the
    connector-host child that serves the session keeps its pid. Enforcement is
    at write time; the route that used to terminate the child to re-stamp an
@@ -43,7 +43,7 @@ Five claims, and this module is the acceptance gate for all five:
    moved.
 5. **A widening never reaches a run in flight.** A sandbox launched under
    ``OSPREY_LAUNCH_POSTURE=<target>=sandbox`` keeps refusing after the operator
-   widens the store, and a sandbox launched after the widen writes.
+   turns the switch back on, and a sandbox launched after the turn-on writes.
 
 Three targets, two containers
 -----------------------------
@@ -124,7 +124,10 @@ from osprey.mcp_server.python_executor.tools import _execution_gates as executio
 from osprey.mcp_server.python_executor.tools import python_execute as python_execute_module
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system._base import ChannelValue
+from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.types import TARGET_LIVE, TARGET_STANDIN, TARGET_VA
+from osprey_connectors_tests._harness import write_control_context
+from tests._approval_stamp_fixture import ApprovalStamps
 from tests.fixtures.control_context import context_for, publish_reachability
 from tests.mcp_server.conftest import get_tool_fn
 from tests.va.e2e import conftest as e2e_conftest
@@ -365,17 +368,18 @@ def raw_config(*, va_port: int, standin_port: int, project_root: Path) -> dict:
 
     **The facility's own machine is configured and never written to**: the
     ``epics`` block is here so this module runs the three-target world the chip
-    is specified over. Its writes stay unarmed
-    (it inherits the deployment-wide ``false``) and nothing here ever switches
-    to it — its gateways name a port nothing serves, which is the truth about a
-    facility machine no test may reach.
+    is specified over. Its writes stay unarmed (the session's switch is
+    never turned on for it) and nothing here ever switches to it — its gateways
+    name a port nothing serves, which is the truth about a facility machine no
+    test may reach.
 
-    **Both driven blocks arm writes**, which is what makes every refusal below
-    attributable to the session posture: with the stand-in unarmed the
-    deployment ceiling would refuse first and this module would be measuring the
-    wrong gate, and with the virtual accelerator unarmed "the other target still
-    writes" would be untestable. The deployment-wide key stays off so that the
-    per-type posture is doing the arming, exactly as a rendered profile does it.
+    **Both driven machines are armed**: the login tier allows writes
+    (``control_system.writes: allowed``) and ``module_environment`` turns the
+    session's switch on for the virtual accelerator and the stand-in. That is
+    what makes every refusal below attributable to the switch the operator
+    moves: with the tier at ``never`` it would refuse first and this module
+    would be measuring the wrong gate, and with the virtual accelerator off
+    "the other target still writes" would be untestable.
 
     **Exclusive limits.** Under ``mode: exclusive`` only channels the shipped
     database lists can be written, so every write here names one.
@@ -393,17 +397,16 @@ def raw_config(*, va_port: int, standin_port: int, project_root: Path) -> dict:
         return {
             "timeout_s": CONNECTOR_TIMEOUT_S,
             "probe_channel": PROBE_CHANNEL,
-            "writes_enabled": True,
             "gateways": gateways(port),
         }
 
     return {
         "control_system": {
             "type": "virtual_accelerator",
-            # Off deployment-wide: each driven block arms itself, which is the
-            # per-type posture doing what it is for -- and it is what leaves the
-            # facility's own machine unarmed without a word being said about it.
-            "writes_enabled": False,
+            # The login tier: target-blind. Which machines it reaches is the
+            # session's switch (``module_environment``), which leaves the
+            # facility's own machine off.
+            "writes": "allowed",
             "limits_checking": {
                 "enabled": True,
                 "mode": "exclusive",
@@ -472,6 +475,13 @@ def module_environment(tmp_path_factory, endpoints):
     The audit writer is stubbed for the module: several gates below file ledger
     records, and a test that has redirected the state root but not the ledger
     would be writing into whichever deployment this checkout happens to resolve.
+
+    The control-context record is written under that root before anything
+    claims it, with the session's switch on for the two driven machines: a
+    connector chooses its write-capable gateway from the write verdict when it
+    connects, and that verdict needs the switch as well as the tier. Ownerless,
+    generation 0, on the baseline — what a claim would start, so the web
+    server's claim merges it and keeps the switch.
     """
     root = tmp_path_factory.mktemp("per-target-posture") / "var" / "agent_data"
     (root / target_state.STATE_DIR_NAME).mkdir(parents=True)
@@ -499,6 +509,14 @@ def module_environment(tmp_path_factory, endpoints):
         patch_env.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
         patch_env.setattr(target_state, "resolve_shared_data_root", lambda: root)
         posture_store.invalidate_cache()
+        control_context.invalidate_cache()
+        write_control_context(
+            root,
+            target=TARGET_VA,
+            generation=0,
+            owned_by=None,
+            switch={TARGET_VA: "on", TARGET_STANDIN: "on"},
+        )
         with patch.object(audit_writer, "record", side_effect=lambda **f: records.append(f)):
             yield SimpleNamespace(root=root, config_path=written)
     posture_store.invalidate_cache()
@@ -556,11 +574,24 @@ def web(tmp_path_factory, config_path, module_environment):  # noqa: ARG001 - th
                 yield client
 
 
-def post_posture(client, target: str, posture: str):
-    return client.post(
-        "/api/terminal/posture",
-        json={"session_id": SESSION_ID, "target": target, "posture": posture},
-    )
+def post_switch(client, target: str, state: str):
+    """The chip's switch gesture for *target*, as the chip sends it.
+
+    A turn-on names the ``switch_epoch`` the chip read, which is the GET's
+    answer at that moment; a turn-off needs none.
+    """
+    body: dict = {"session_id": SESSION_ID, "target": target, "state": state}
+    if state == "on":
+        posture_view = client.get("/api/terminal/posture", params={"session_id": SESSION_ID})
+        body["epoch"] = posture_view.json()["switch_epoch"]
+    return client.post("/api/terminal/posture", json=body)
+
+
+def switch_now() -> dict:
+    """The login's switch as the record holds it right now."""
+    control_context.invalidate_cache()
+    record = control_context.read_record()
+    return {} if record is None else dict(record.switch)
 
 
 def post_target(client, target: str):
@@ -613,13 +644,22 @@ async def write_via_tool(address: str, value: float) -> dict:
     ``{"raised": True, "envelope": ...}`` for one that raised the standard error
     envelope — the all-refused case, which is what a single refused write
     produces.
+
+    The call carries what the approval hook files for an approved write — the
+    ask stamp, and the write-approval stamp bound to the target and generation
+    the deployment is on as the prompt is rendered — because this deployment
+    asks before every write and the tool runs only on that record.
     """
     from fastmcp.exceptions import ToolError
 
+    operations = [{"channel": address, "value": value}]
+    binding = channel_write_module._read_target_binding()
+    target, generation = binding if binding is not None else (None, None)
     try:
-        result = await get_tool_fn(channel_write_module.channel_write)(
-            operations=[{"channel": address, "value": value}]
-        )
+        with ApprovalStamps(target_state.state_dir()).approved(
+            "channel_write", operations=operations, target=target, generation=generation
+        ):
+            result = await get_tool_fn(channel_write_module.channel_write)(operations=operations)
     except ToolError as exc:
         return {"raised": True, "envelope": json.loads(str(exc))}
     return {"raised": False, "payload": json.loads(result)}
@@ -925,9 +965,10 @@ async def session(config_path, web, module_environment):  # noqa: ARG001 - the s
 
             journal["child_before_toggle"] = manager.status()["child_pid"]
             journal["targets_before_toggle"] = published_targets()
-            narrow = post_posture(web, TARGET_STANDIN, "sandbox")
+            narrow = post_switch(web, TARGET_STANDIN, "off")
             journal["narrow_status"] = narrow.status_code
             journal["narrow_body"] = narrow.json()
+            journal["switch_after_narrow"] = switch_now()
             journal["child_after_toggle"] = manager.status()["child_pid"]
 
             journal["refused_rows"] = await write_rows(manager, CORRECTOR_SP, REFUSED_VALUE)
@@ -1026,11 +1067,12 @@ async def session(config_path, web, module_environment):  # noqa: ARG001 - the s
             # moves there, the target is narrowed, the stamp is taken from the
             # production stamper, and only then is the store widened.
             await move_session(TARGET_VA)
-            journal["pin_narrow_status"] = post_posture(web, TARGET_VA, "sandbox").status_code
+            journal["pin_narrow_status"] = post_switch(web, TARGET_VA, "off").status_code
             journal["narrow_stamps"] = launch_stamps()
-            widen = post_posture(web, TARGET_VA, "writes")
+            widen = post_switch(web, TARGET_VA, "on")
             journal["widen_status"] = widen.status_code
             journal["widen_body"] = widen.json()
+            journal["switch_after_widen"] = switch_now()
             journal["wide_stamps"] = launch_stamps()
 
             journal["launch_refused"] = run_sandbox(
@@ -1084,8 +1126,9 @@ class TestTheNarrowingLandsWithoutARespawn:
     def test_the_toggle_was_accepted_and_recorded_per_target(self, session) -> None:
         assert session["narrow_status"] == 200
         assert session["narrow_body"]["target"] == TARGET_STANDIN
-        assert session["narrow_body"]["posture"] == "sandbox"
-        assert session["narrow_body"]["entry"] == {TARGET_STANDIN: "sandbox"}
+        assert session["narrow_body"]["state"] == "off"
+        # Per target: the stand-in went off and the virtual accelerator stayed on.
+        assert session["switch_after_narrow"] == {TARGET_VA: "on"}
 
     def test_no_child_was_respawned_to_apply_it(self, session) -> None:
         """The whole point of enforcing at write time.
@@ -1110,9 +1153,10 @@ class TestTheNarrowingLandsWithoutARespawn:
 
         assert row["outcome"] == "refused"
         assert row["refusal_reason"] == "WRITES_DISABLED"
-        assert f"'{TARGET_STANDIN}' control target" in row["error"]
-        assert "writes are off" in row["error"]
-        assert "control-target chip in the header" in row["error"]
+        # The switch_off phrase sends the operator to the chip, and names the
+        # stand-in's machine kind -- the rehearsal machine, not the simulator.
+        assert refusal_phrase("switch_off", "rehearsal") in row["error"]
+        assert "[osprey-refusal: switch_off]" in row["error"]
 
     def test_the_raised_envelope_carries_that_sentence_too(self, session) -> None:
         """A single-channel refusal raises, so the results are never seen.
@@ -1125,10 +1169,10 @@ class TestTheNarrowingLandsWithoutARespawn:
         assert session["refused_tool"]["raised"] is True
         envelope = session["refused_tool"]["envelope"]
 
-        assert envelope["error_type"] == "write_refused"
-        assert envelope["details"]["reason"] == "WRITES_DISABLED"
-        assert f"'{TARGET_STANDIN}' control target" in envelope["error_message"]
-        assert "control-target chip in the header" in envelope["error_message"]
+        assert envelope["error_type"] == "writes_disabled"
+        assert envelope["details"]["reason"] == "switch_off"
+        assert envelope["details"]["target"] == TARGET_STANDIN
+        assert refusal_phrase("switch_off", "rehearsal") in envelope["error_message"]
 
     def test_a_readwrite_execute_is_refused_by_the_same_posture(self, session) -> None:
         """The executor's gate, on the tool the agent actually calls.
@@ -1142,8 +1186,8 @@ class TestTheNarrowingLandsWithoutARespawn:
         spoken = " ".join([envelope["error_message"], *envelope.get("suggestions", [])])
 
         assert envelope["error_type"] == "safety_error"
-        assert "posture" in spoken
-        assert "control-target chip in the header" in spoken
+        assert envelope["details"]["reason"] == "switch_off"
+        assert refusal_phrase("switch_off", "rehearsal") in spoken
 
     def test_nothing_reached_the_stand_in(self, session) -> None:
         """The refusals happened before Channel Access, not after it."""
@@ -1221,8 +1265,7 @@ class TestTheGatewayRealignsOnceNothingIsRunning:
         Three rows means the deployment really is in the two-target world the
         chip is specified over — a roster of one would make "per target" an
         empty distinction — and the facility's own machine reports its writes as
-        not permitted, which is the deployment ceiling doing its half while the
-        store does the other.
+        not permitted: its switch was never turned on.
         """
         rows = session["rows_narrowed"]
 
@@ -1334,7 +1377,9 @@ class TestThePublishedIdentityFollowsTheGateway:
         rows = {row["target"]: row for row in session["get_after_realign"]["targets"]}
         row = rows[TARGET_STANDIN]
 
-        assert row["effective"] is False
+        assert row["switch"] == "off"
+        assert row["write_allowed"] is False
+        assert row["write_reason"] == "switch_off"
         assert row["endpoint"] == slot["endpoint"]
         assert row["reachability"]["role"] == slot["selected_role"] == "read_only"
 
@@ -1418,8 +1463,9 @@ class TestTheAgentsNextWriteIsJudgedWhereTheSessionNowIs:
         assert session["write_on_b"]["raised"] is True
         envelope = session["write_on_b"]["envelope"]
 
-        assert envelope["details"]["reason"] == "WRITES_DISABLED"
-        assert f"'{TARGET_STANDIN}' control target" in envelope["error_message"]
+        assert envelope["details"]["reason"] == "switch_off"
+        assert envelope["details"]["target"] == TARGET_STANDIN
+        assert refusal_phrase("switch_off", "rehearsal") in envelope["error_message"]
 
     def test_the_second_machine_never_moved(self, session) -> None:
         assert session["readback_on_b"] == pytest.approx(REST_VALUE)
@@ -1434,13 +1480,13 @@ class TestARunLaunchedNarrowStaysNarrow:
     """The launch pin, across a real process boundary.
 
     Both stamps come from ``executor._apply_target_stamp`` — the production
-    stamper — taken either side of a real widening POST, and both runs are real
+    stamper — taken either side of a real turn-on POST, and both runs are real
     subprocesses that build their own connector from the deployment file. The
-    store says ``writes`` for both of them; the only thing that separates them
-    is the posture each was LAUNCHED under.
+    switch is on for both of them; the only thing that separates them is the
+    posture each was LAUNCHED under.
 
     **Measured on the virtual accelerator**, unlike every other leg in this
-    module. The pin is target-agnostic — ``store_permits`` takes the target as
+    module. The pin is target-agnostic — ``write_verdict`` takes the target as
     an argument and the stamp names whichever one the run was placed on — and
     the virtual accelerator is the target a sandbox on this deployment can
     build: ``osprey.registry.builtins`` does not list ``live_standin`` among the
@@ -1459,7 +1505,8 @@ class TestARunLaunchedNarrowStaysNarrow:
         """
         assert session["pin_narrow_status"] == 200
         assert session["widen_status"] == 200
-        assert TARGET_VA not in session["widen_body"]["entry"]
+        assert session["widen_body"]["state"] == "on"
+        assert session["switch_after_widen"].get(TARGET_VA) == "on"
         assert session["narrow_stamps"][host_executor.ENV_LAUNCH_POSTURE] == f"{TARGET_VA}=sandbox"
         assert session["wide_stamps"][host_executor.ENV_LAUNCH_POSTURE] == f"{TARGET_VA}=writes"
 
@@ -1467,9 +1514,10 @@ class TestARunLaunchedNarrowStaysNarrow:
         verdict = session["launch_refused"]
 
         assert verdict["wrote"] is False
-        assert "launched while" in verdict["message"]
-        assert TARGET_VA in verdict["message"]
-        assert "not to one already in flight" in verdict["message"]
+        # Refused by the pin, on the simulator -- not by the switch, which the
+        # turn-on had already put back on.
+        assert refusal_phrase("launch_pinned", "simulator") in verdict["message"]
+        assert "[osprey-refusal: launch_pinned]" in verdict["message"]
 
     def test_the_refused_run_left_the_machine_alone(self, session) -> None:
         assert session["readback_after_pinned_run"] == pytest.approx(REST_VALUE)
