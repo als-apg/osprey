@@ -1,7 +1,7 @@
 """The sidecar's audit seam: one function per login decision it must record.
 
 A login is a safety decision like any other Osprey records, so it belongs in the
-unified ledger (:mod:`osprey.audit.envelope`) rather than in a service log line
+agent record as an audit entry (:mod:`osprey.audit.envelope`) rather than in a service log line
 an operator has to grep for. This module is the only place in the sidecar that
 builds an envelope, so every category the login path admits or refuses under is
 shaped the same way and joins the rest of the ledger on the same columns.
@@ -28,7 +28,7 @@ spool directory and can never make a login history look like its own. The entry
 names the person in ``on_behalf_of``, which the record keeps because the sidecar
 is on its trusted on-behalf list.
 
-**What bounds the file's growth.** Every refusal an unauthenticated caller can
+**What bounds the record's growth.** Every refusal an unauthenticated caller can
 reach cheaply is recorded through a window: the first refusal in each window is
 filed and the rest are folded into it, so the append rate is bounded rather than
 set by the caller. On the password path that window is the login throttle,

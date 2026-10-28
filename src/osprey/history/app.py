@@ -66,7 +66,6 @@ def _templates() -> Environment:
     env.globals["root"] = ROOT_PATH
     env.globals["preview_chars"] = PREVIEW_CHARS
     env.filters["clock"] = clock
-    env.filters["preview"] = preview
     env.filters["full_text"] = full_text
     return env
 
@@ -98,11 +97,6 @@ def full_text(body: Any) -> str:
             if isinstance(value, str) and value:
                 return value
     return json.dumps(body, indent=2, sort_keys=True, ensure_ascii=False, default=str)
-
-
-def preview(body: Any) -> str:
-    """:func:`full_text`, cut at :data:`PREVIEW_CHARS`."""
-    return full_text(body)[:PREVIEW_CHARS]
 
 
 def _default_client_for(env: Mapping[str, str]) -> ClientFor:
@@ -153,7 +147,8 @@ def create_app(
             return page("no_scope.html", status=403, viewer=None)
 
     def client(viewer: Viewer) -> RecordClient:
-        return app.state.client_for(viewer.record_viewer)
+        record_client: RecordClient = app.state.client_for(viewer.record_viewer)
+        return record_client
 
     @app.get("/health", include_in_schema=False)
     def health() -> JSONResponse:

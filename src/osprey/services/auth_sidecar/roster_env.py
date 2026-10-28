@@ -35,7 +35,7 @@ always is.
 
 
 HISTORY_ORIGIN_VAR = "OSPREY_AUTH_HISTORY_ORIGIN"
-"""The history page's origin, ``scheme://host[:port]``, where the history page lives.
+"""The origin, ``scheme://host[:port]``, where the history page lives.
 
 A login may return the browser to an absolute URL only under this origin's
 ``/history/`` path; every other return-to stays a same-origin path.

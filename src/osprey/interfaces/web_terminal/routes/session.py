@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import re
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -54,7 +55,9 @@ def _unavailable(reason: str) -> dict[str, str]:
 
 def _session_info(row: dict[str, Any]) -> dict[str, Any]:
     """A ``list_sessions`` row as the session picker's entry."""
-    prompt = row.get("prompt") if isinstance(row.get("prompt"), str) else ""
+    prompt = row.get("prompt")
+    if not isinstance(prompt, str):
+        prompt = ""
     return {
         "session_id": row["session_id"],
         "first_message": prompt[:200],
@@ -160,7 +163,12 @@ async def session_agent_timeline(request: Request):
     try:
         read = await _read_session(request, agent_id=agent_id)
         if read is None:
-            return {"agent_id": agent_id, "timeline": [], "count": 0, "record": "complete"}
+            return {
+                "agent_id": agent_id,
+                "timeline": [],
+                "count": 0,
+                "record": session_record.RECORD_COMPLETE,
+            }
         timeline = session_record.agent_steps(read.nodes)
         return {
             "agent_id": agent_id,
@@ -494,7 +502,7 @@ def _chat_turns(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         turns.append(agent)
         agent = None
 
-    def result_event(result: dict[str, Any], tool_use_id: str) -> dict[str, Any]:
+    def result_event(result: Mapping[str, Any], tool_use_id: str) -> dict[str, Any]:
         body = _node_body(result)
         text = tool_result_text(body.get("content"))
         preview, truncated = tool_result_preview(text)
@@ -593,7 +601,7 @@ async def session_chat(request: Request):
     try:
         read = await _read_session(request)
         if read is None:
-            return {"turns": [], "count": 0, "record": "complete"}
+            return {"turns": [], "count": 0, "record": session_record.RECORD_COMPLETE}
         if request.query_params.get("session_id") and _wants_events(request):
             turns = _chat_turns(read.nodes)
         elif request.query_params.get("session_id") and _wants_full_messages(request):

@@ -10,7 +10,7 @@ session. Only the lookup of which transcript is current stays local.
 
 The converters here turn timeline nodes (the ``timeline`` read's
 ``TimelineNode.to_json`` shape) into the event and turn shapes the session
-readers have always answered:
+readers answer:
 
 * :func:`session_events` — ``tool_call`` events for MCP tool calls and an
   ``agent_start``/``agent_stop`` pair around every subagent's own events;
@@ -28,7 +28,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -204,9 +204,13 @@ def current_session_id(project_dir: Path | str | None = None) -> str | None:
 # ---------------------------------------------------------------------------
 
 
+def _mapping(value: Any) -> Mapping[str, Any]:
+    """*value* when it is a mapping, else an empty one."""
+    return value if isinstance(value, Mapping) else {}
+
+
 def _body(item: Any) -> Mapping[str, Any]:
-    body = item.get("body") if isinstance(item, Mapping) else None
-    return body if isinstance(body, Mapping) else {}
+    return _mapping(_mapping(item).get("body"))
 
 
 def _ts(item: Any) -> str:
@@ -278,7 +282,7 @@ def is_bookkeeping_prompt(body: Mapping[str, Any]) -> bool:
 
 
 def session_events(
-    nodes: list[Mapping[str, Any]], session_id: str | None, *, agent_id: str | None = None
+    nodes: Sequence[Mapping[str, Any]], session_id: str | None, *, agent_id: str | None = None
 ) -> list[dict[str, Any]]:
     """The tool-call and subagent events of *nodes*, descending into each subagent.
 
@@ -297,9 +301,9 @@ def session_events(
         if not isinstance(node, Mapping):
             continue
         body = _body(node)
-        result = node.get("result") if isinstance(node.get("result"), Mapping) else {}
+        result = _mapping(node.get("result"))
         result_body = _body(result)
-        subagent = node.get("subagent") if isinstance(node.get("subagent"), Mapping) else {}
+        subagent = _mapping(node.get("subagent"))
         children = subagent.get("timeline") or []
         if node.get("kind") == "tool_call":
             name = str(body.get("name", ""))
@@ -325,7 +329,7 @@ def session_events(
                     }
                 )
             elif name in _SUBAGENT_TOOLS:
-                tool_input = body.get("input") if isinstance(body.get("input"), Mapping) else {}
+                tool_input = _mapping(body.get("input"))
                 agent_type = tool_input.get("subagent_type", tool_input.get("description", ""))
                 started = (
                     subagent.get("agent_id")
@@ -377,7 +381,7 @@ def session_events(
 
 
 def chat_history(
-    nodes: list[Mapping[str, Any]], *, max_chars: int | None = MAX_CHAT_MESSAGE_LENGTH
+    nodes: Sequence[Mapping[str, Any]], *, max_chars: int | None = MAX_CHAT_MESSAGE_LENGTH
 ) -> list[dict[str, Any]]:
     """The conversation of the main stream as turns ``{role, content, timestamp}``.
 

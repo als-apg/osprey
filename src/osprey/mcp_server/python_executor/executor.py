@@ -360,16 +360,16 @@ def resolve_protected_roots(
       build reads to produce that render.
     * The **pre-upgrade audit tree**
       (:data:`~osprey_connectors.workspace.PRE_UPGRADE_AUDIT_RELPATH`), the
-      ledger a deployment kept before the agent record. Nothing writes it any
-      more, and it stays protected: a run that could rewrite it could erase or
-      forge the evidence of what an earlier agent was refused.
+      ledger a deployment kept before the agent record. Nothing writes it, and
+      it stays protected: a run that could rewrite it could erase or forge the
+      evidence of what an earlier agent was refused.
     * The **agent-record roots** (``var/spool``, ``var/agent_record``,
       ``var/state`` and ``var/archive``): the spool the record is ingested
       from, the embedded record itself, the per-container state that holds the
       sidecar's revocations, and the archive — the lasting half of the audit
       trail, holding the same facts as the record. Each is written by OSPREY
-      processes and never by executed code, which could
-      otherwise forge or erase entries.
+      processes and never by executed code, which could otherwise forge or
+      erase entries.
 
     Entries that do not exist yet are included on purpose: a repo without a
     ``tiers/`` directory is one where creating it is exactly the write to

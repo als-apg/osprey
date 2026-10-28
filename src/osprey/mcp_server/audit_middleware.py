@@ -244,14 +244,14 @@ _FLOOR_CLAMP: frozenset[str] = frozenset(_FALLBACK_WRITE_TOOLS) - frozenset(_FAL
 #: operator will look, next to the warning that says why it is unnamed.
 SURFACE_UNPREFIXED: str = "mcp"
 
-#: Reasons, in the ledger's short machine-ish vocabulary.
+#: Reasons, in the audit trail's short machine-ish vocabulary.
 #:
 #: :data:`REASON_POSTURE` is the one word three layers spell for the same
 #: refusal — this middleware, the executor's in-tool session clamp
 #: (``_execution_gates``), and the client-side ``osprey_writes_check.py`` hook.
-#: Refusals under the sandbox posture must join on one spelling, or
-#: ``grep '"reason": "posture"'`` over an identity's ledgers answers "what did
-#: the sandbox posture refuse?" with only the layer that happened to be asked.
+#: Refusals under the sandbox posture must join on one spelling, or a search
+#: of an identity's ``audit`` entries for ``"reason": "posture"`` answers "what
+#: did the sandbox posture refuse?" with only the layer that happened to be asked.
 #: A cross-layer test pins all three (the hook by AST, since it ships as a
 #: template file that imports nothing from ``osprey``).
 REASON_TOOL_CALL: str = "tool_call"

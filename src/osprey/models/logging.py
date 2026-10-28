@@ -297,7 +297,7 @@ def _sanitize_result_for_logging(result: Any) -> str:
     """Convert API result to string format suitable for logging.
 
     Handles different result types (str, BaseModel, list, dict) and
-    converts them to readable string format for file output.
+    converts them to readable string format for the entry's ``output`` field.
 
     Note: LiteLLM response objects (Message, Choices, StreamingChoices) have model_dump()
     but aren't standard Pydantic models - they have provider-specific fields that may not

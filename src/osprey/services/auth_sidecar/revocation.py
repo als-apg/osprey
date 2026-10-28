@@ -77,8 +77,7 @@ STATE_DIR_ENV = "OSPREY_STATE_DIR"
 REVOCATION_FILE_NAME = ".revoked-sessions.json"
 """The revoked-session file's name inside the state directory.
 
-Dot-named so the archive leaves it alone and nobody reads it as a ledger: a
-ledger ends ``.jsonl``, and the archive skips dot-named ``.json`` files there.
+Dot-named: an owner-only working file of the sidecar, not part of the record.
 """
 
 REVOCATION_FILE_VERSION = 1

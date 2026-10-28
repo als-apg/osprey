@@ -262,7 +262,7 @@ def _body_of(item: Any) -> Mapping[str, Any]:
 def _terminal_body(run_id: str, facts: Any) -> dict[str, Any] | None:
     """The status body of a run whose record facts hold a terminal outcome.
 
-    Named as the worker has always named it: the terminal entry's outcome
+    Named as every status body names it: the terminal entry's outcome
     fields, the answer of the run's session as ``text_output``, the tool-call
     count of its timeline, and the accept's time, session and requester (as
     ``owner``, present only when someone asked). ``None`` when *facts* hold no

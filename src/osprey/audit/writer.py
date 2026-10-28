@@ -44,7 +44,7 @@ ordinary decision costs the record one small entry. The exceptions, in order:
   logged. Trimming identifiers would leave a record that names the wrong
   thing, which is worse than a large one.
 
-The full ``tool_call`` record (:func:`append_record`) is not an envelope and is
+The ``tool_call`` record (:func:`append_record`) is not an envelope and is
 not bounded: it carries values by design.
 
 **Nothing here may cost the operation it records.** Every entry point swallows
@@ -127,7 +127,7 @@ def _strict(record: dict[str, Any]) -> dict[str, Any]:
     try:
         json.dumps(record, allow_nan=False)
     except ValueError:
-        return _finite(record)
+        return {key: _finite(item) for key, item in record.items()}
     return record
 
 
@@ -257,7 +257,7 @@ def record_envelope(envelope: AuditEnvelope) -> WriteResult:
 def append_record(surface: str, record: dict[str, Any]) -> WriteResult:
     """Write one prebuilt *record* as an ``audit`` entry on *surface*; its id or ``None``.
 
-    The entry point for the full ``tool_call`` surface (:mod:`osprey.audit.tool_call`),
+    The entry point for the ``tool_call`` surface (:mod:`osprey.audit.tool_call`),
     whose records are not envelopes and carry values by design, so they are
     not bounded by :data:`MAX_RECORD_BYTES`. The body is *record* as given,
     with its ``surface`` field set to *surface*.

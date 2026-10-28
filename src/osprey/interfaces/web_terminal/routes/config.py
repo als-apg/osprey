@@ -38,7 +38,7 @@ router = APIRouter()
 _CONFIG_FILE = "config.yml"
 
 #: Machine-ish reason recorded for a refused protected key. The same string
-#: ``setup_patch`` records, so one query across the protected-set ledgers finds
+#: ``setup_patch`` records, so one query across the protected-set surfaces finds
 #: every protected-key refusal regardless of which surface produced it.
 _PROTECTED_KEY_REASON = "protected_key"
 

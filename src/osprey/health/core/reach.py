@@ -12,7 +12,7 @@ what makes the row worth having. The ``ariel`` and ``graphdb``
 categories probe a service where its config block says it is;
 this one resolves the endpoint through the consumer's own resolver — the
 bridge URL the bluesky MCP server builds, the DSN the panel server derives,
-the OTLP endpoint the exporter posts to, env overrides included — in the
+env overrides included — in the
 process that runs the check. Run inside a per-user container by the health
 MCP server, the rows say what that container's agent will reach; run by
 ``osprey health`` on the host, what the host's own processes will.

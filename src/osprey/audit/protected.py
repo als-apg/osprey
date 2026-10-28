@@ -1,4 +1,4 @@
-"""Protected-set refusals, filed on the unified ledger.
+"""Protected-set refusals, filed as audit entries in the agent record.
 
 Five writers guard the framework the agent runs under — the ``setup_patch``
 tool, the config routes, the Claude-setup panel, the scaffold gallery and the
@@ -38,8 +38,6 @@ than turn a 403 into a 500 that reads like the gate malfunctioned.
 """
 
 from __future__ import annotations
-
-from pathlib import Path
 
 from osprey.audit import posture
 from osprey_connectors.logger import get_logger
@@ -130,8 +128,8 @@ def record_protected_refusal(
     reason: str,
     claim: bool = True,
     posture_source: str | None = None,
-) -> Path | None:
-    """File one protected-set refusal. Returns the ledger path, or ``None``.
+) -> str | None:
+    """File one protected-set refusal. Returns its ``entry_id``, or ``None``.
 
     Args:
         surface: Which writer refused — one of :data:`PROTECTED_SURFACES`.
@@ -163,9 +161,9 @@ def record_protected_refusal(
             the caller knows.
 
     Returns:
-        The path the record landed in, or ``None`` when it was not durably
+        The ``entry_id`` of the record, or ``None`` when it was not durably
         stored. Callers do not branch on it; a test can tell "wrote" from "gave
-        up quietly" without reading the directory.
+        up quietly" without reading the record.
 
     Never raises: see the module docstring.
     """

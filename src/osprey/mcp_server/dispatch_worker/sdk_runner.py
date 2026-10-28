@@ -534,8 +534,9 @@ async def run_dispatch(
 
     # Force the run's session UUID — the one it was accepted under, else a fresh
     # one — and hand it to the workspace provenance_locator tool via env, so a
-    # filed issue can point back to this run's telemetry. build_clean_env() strips CLAUDE_CODE_* (so the harness's
-    # own session id never reaches the MCP subprocess headless); instead OSPREY
+    # filed issue can point back to this run's telemetry. build_clean_env()
+    # strips CLAUDE_CODE_* (so the harness's own session id never reaches the
+    # MCP subprocess headless); instead OSPREY
     # owns the id: the same value is forced onto the SDK session below
     # (the ``session_id`` option) so the OTEL emitter tags records with it,
     # making the returned locator resolve. Race-free — fixed per run at spawn,
