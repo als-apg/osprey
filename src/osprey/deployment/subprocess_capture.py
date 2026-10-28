@@ -33,11 +33,12 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Generic, TypeVar
+from typing import Generic, NamedTuple, TypeVar
 
 from osprey.cli.phase_reporter import current_reporter, is_verbose
 from osprey.deployment.errors import CapturedProcessError, CapturedProcessTimeout
@@ -537,6 +538,73 @@ def _stop(process: subprocess.Popen, *, own_group: bool) -> None:
             continue
 
 
+class _ChildState(NamedTuple):
+    """What ``waitid(2)`` reports about a child that changed state."""
+
+    si_pid: int
+    si_code: int
+    si_status: int
+
+
+def _waitid(pid: int, flags: int) -> _ChildState | None:
+    """``waitid(P_PID, pid, flags)``: the child's state, or ``None`` while it runs.
+
+    ``flags`` are the ``os.W*`` constants; with ``os.WNOWAIT`` the child is left
+    unreaped. Raises :class:`ChildProcessError` when ``pid`` is not an unreaped
+    child of this process.
+    """
+    waitid = getattr(os, "waitid", None)
+    if waitid is None:
+        # Interim until the Python floor is 3.13: macOS CPython binds no os.waitid before it.
+        return _libc_waitid(pid, flags)
+    result = waitid(os.P_PID, pid, flags)
+    if result is None:
+        return None
+    return _ChildState(result.si_pid, result.si_code, result.si_status)
+
+
+def _libc_waitid(pid: int, flags: int) -> _ChildState | None:
+    """``waitid(2)`` called in the C library, for an interpreter that has no ``os.waitid``.
+
+    Interim: CPython binds ``os.waitid`` on macOS only from 3.13, so on 3.11 and
+    3.12 the call goes through ctypes with Darwin's ``siginfo_t`` layout. Removed,
+    and ``os.waitid`` used everywhere, once the supported Python floor is 3.13.
+    """
+    import ctypes
+    import errno
+
+    if sys.platform != "darwin":
+        raise OSError(errno.ENOSYS, f"waitid is not available on {sys.platform}")
+
+    class _SigInfo(ctypes.Structure):
+        # Darwin's siginfo_t (sys/signal.h).
+        _fields_ = [
+            ("si_signo", ctypes.c_int),
+            ("si_errno", ctypes.c_int),
+            ("si_code", ctypes.c_int),
+            ("si_pid", ctypes.c_int),
+            ("si_uid", ctypes.c_uint),
+            ("si_status", ctypes.c_int),
+            ("si_addr", ctypes.c_void_p),
+            ("si_value", ctypes.c_void_p),
+            ("si_band", ctypes.c_long),
+            ("_pad", ctypes.c_ulong * 7),
+        ]
+
+    waitid = ctypes.CDLL(None, use_errno=True).waitid
+    waitid.argtypes = [ctypes.c_int, ctypes.c_uint, ctypes.POINTER(_SigInfo), ctypes.c_int]
+    waitid.restype = ctypes.c_int
+    info = _SigInfo()
+    while waitid(os.P_PID, pid, ctypes.byref(info), flags) != 0:
+        err = ctypes.get_errno()
+        if err != errno.EINTR:
+            # OSError picks the subclass from the errno: ECHILD is ChildProcessError.
+            raise OSError(err, os.strerror(err))
+    if info.si_pid == 0:
+        return None
+    return _ChildState(info.si_pid, info.si_code, info.si_status)
+
+
 def observe_exit(process: subprocess.Popen, *, within: float | None = 0.0) -> int | None:
     """The exit status of a child this process owns, or ``None`` while it runs.
 
@@ -563,7 +631,7 @@ def observe_exit(process: subprocess.Popen, *, within: float | None = 0.0) -> in
     deadline = None if within is None else time.monotonic() + within
     while True:
         try:
-            result = os.waitid(os.P_PID, process.pid, flags)
+            result = _waitid(process.pid, flags)
         except ChildProcessError:
             return _settled_returncode(process)
         if result is not None:
