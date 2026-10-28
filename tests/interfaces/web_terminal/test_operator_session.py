@@ -2047,7 +2047,9 @@ class TestOperatorRegistryChatPool:
     @pytest.mark.asyncio
     async def test_an_unreadable_process_table_does_not_keep_a_chat_open_for_good(self):
         """Every sweep that cannot look leaves the idle clock alone, so the reap comes."""
-        clock = [time.monotonic()]
+        # A small whole start keeps `last + moment - last == moment` exact; a
+        # large monotonic reading rounds the sum and lands the reap a tick early.
+        clock = [1000.0]
         pool = ChatSessionPool(factory=_session_factory(), idle_seconds=10.0, now=lambda: clock[0])
         a, _ = await pool.get_or_create("stale-chat", "/tmp")
         a.running_commands = None
