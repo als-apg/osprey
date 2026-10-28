@@ -53,8 +53,11 @@ The entrypoint, the runner and the model surface read the view through
 ``osprey_connectors.simulation.view.SimulatorView``, the one reader every
 consumer of a view opens it with. Each wiring record of ``variables.json``
 states what its engine's ``describe()`` said of it at build time: its ``role``
-(``setpoint``, ``readback``, ``monitor`` or ``output``), the transverse
-``plane`` it steers or reads (``x``, ``y`` or none) and its ``refresh``. A
+(one of the view's ``ROLES`` — ``setpoint``, ``readback``, ``monitor``,
+``output`` — or a role the engine declares in ``RECORD_ROLES``), the transverse
+``plane`` it steers or reads (``x``, ``y`` or none), its ``refresh`` and, as
+``marks``, any mark the engine declares in ``RECORD_MARKS`` that the description
+sets. A
 write's pass publishes what the write can change, and never a channel whose
 binding refreshes ``periodic``, which the next periodic pass publishes: a
 physics setting publishes itself, its readback and what its model computes from
