@@ -50,7 +50,6 @@ from osprey_connectors.types import (
 
 __all__ = [
     "config_section",
-    "config_writes_enabled",
     "subsection",
     "DEFAULT_CA_PORT",
     "DEFAULT_PVA_PORT",
@@ -172,18 +171,6 @@ def subsection(section: dict[str, Any], name: str) -> dict[str, Any]:
 def connector_block(config: Any, connector_type: str) -> Any:
     """The ``control_system.connector.<type>`` block, as written."""
     return subsection(config_section(config, "control_system"), "connector").get(connector_type)
-
-
-def config_writes_enabled(config: Any, target: str) -> bool:
-    """Whether this config's login tier allows writes, as the write verdict reads it.
-
-    The tier's ceiling (:func:`~osprey_connectors.types.tier_allows`), so a
-    normalized ``control_system.writes: allowed`` render answers ``True``. The
-    ceiling is target-blind: *target* is kept for the callers that name one,
-    and which machine is actually written is the session's switch to decide.
-    """
-    del target
-    return tier_allows(config_section(config, "control_system"))
 
 
 def _mode(gateway: dict[str, Any], key: str) -> str:

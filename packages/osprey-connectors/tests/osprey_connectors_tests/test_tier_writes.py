@@ -3,9 +3,10 @@
 ``tier_writes`` is the ceiling a login tier sets on writes: ``allowed`` or
 ``never``, target-blind. What is pinned here is the reading rule. When the new
 key is present it decides alone, and only the literal string ``"allowed"`` arms;
-every other value is ``never``. When it is absent the older ``writes_enabled``
-leaves are rewritten into it: any literal ``True`` — flat or under any connector
-block — is ``allowed``. A section nobody can read is ``never``.
+every other value is ``never``. When it is absent the tier is ``never``: the
+retired arming leaves are not read at run time, so a render built before the
+tier key existed (an unrebuilt render) writes nowhere until the build's
+normalizer rewrites it. A section nobody can read is ``never``.
 
 ``machine_kind`` names what a target is by its name, for the words a refusal
 uses: ``live`` and ``standin`` are the real machine, ``va`` the simulator, and
@@ -34,10 +35,8 @@ from osprey_connectors.types import (
     WRITES_KEY,
     machine_kind,
     published_machine_kind,
-    target_writes_enabled,
     tier_allows,
     tier_writes,
-    type_writes_enabled,
 )
 
 
@@ -99,29 +98,42 @@ def test_a_section_that_is_not_a_mapping_is_never(section: Any) -> None:
     assert tier_allows(section) is False
 
 
-# -- the new key absent: the old leaves are rewritten ---------------------------
-
-
-def test_absent_key_with_flat_true_is_allowed() -> None:
-    assert tier_writes(_section(writes_enabled=True)) == "allowed"
+# -- the new key absent: never, whatever the retired leaves say ------------------
+#
+# These replace the removed fallback cases (absent key with a flat or per-type
+# ``writes_enabled: true`` read as ``allowed``): the package reads the tier key
+# alone, and the case table's ``tier-absent-old-armed-*`` rows pin the same
+# answer through the write verdict.
 
 
 @pytest.mark.parametrize(
-    "connector_type", [EPICS, VIRTUAL_ACCELERATOR, LIVE_STANDIN, "mypackage.Moat"]
+    "section",
+    [
+        pytest.param({"type": EPICS, "writes_enabled": True}, id="flat-leaf"),
+        pytest.param(
+            {"type": EPICS, "connector": {EPICS: {"writes_enabled": True}}}, id="connector-leaf"
+        ),
+        pytest.param(
+            {"type": EPICS, "connector": {VIRTUAL_ACCELERATOR: {"writes_enabled": True}}},
+            id="simulator-leaf-only",
+        ),
+        pytest.param(
+            {
+                "type": LIVE_STANDIN,
+                "writes_enabled": True,
+                "connector": {
+                    LIVE_STANDIN: {"writes_enabled": True},
+                    "mypackage.Moat": {"writes_enabled": True},
+                },
+            },
+            id="every-leaf",
+        ),
+    ],
 )
-def test_absent_key_with_any_per_type_true_is_allowed(connector_type: str) -> None:
-    section = _section(
-        writes_enabled=False,
-        connector={EPICS: {"writes_enabled": False}, connector_type: {"writes_enabled": True}},
-    )
-    assert tier_writes(section) == "allowed"
-
-
-def test_absent_key_allows_every_machine_when_only_the_simulator_is_armed() -> None:
-    """Target-blind: the shipped write tiers arm only the VA leaf, and still allow live."""
-    section = _section(connector={VIRTUAL_ACCELERATOR: {"writes_enabled": True}})
-    assert target_writes_enabled(section, TARGET_LIVE) is False
-    assert tier_writes(section) == "allowed"
+def test_an_unrebuilt_render_reads_never(section: dict[str, Any]) -> None:
+    """A render from before the tier key existed is ``never`` until it is rebuilt."""
+    assert tier_writes(section) == "never"
+    assert tier_allows(section) is False
 
 
 @pytest.mark.parametrize(
@@ -145,7 +157,7 @@ def test_absent_key_allows_every_machine_when_only_the_simulator_is_armed() -> N
         _section(connector={EPICS: True}),
     ],
 )
-def test_absent_key_with_nothing_armed_is_never(section: dict[str, Any]) -> None:
+def test_absent_key_with_nothing_stated_is_never(section: dict[str, Any]) -> None:
     assert tier_writes(section) == "never"
     assert tier_allows(section) is False
 
@@ -173,15 +185,6 @@ def test_tier_reading_never_mutates_the_section() -> None:
     snapshot = repr(section)
     tier_writes(section)
     assert repr(section) == snapshot
-
-
-def test_old_readers_are_untouched_by_the_new_key() -> None:
-    """The new key is the tier's alone; the per-type readers never consult it."""
-    section = _section(writes="allowed")
-    assert type_writes_enabled(section, EPICS) is False
-    assert target_writes_enabled(section, TARGET_LIVE) is False
-    section = _section(writes="never", writes_enabled=True)
-    assert type_writes_enabled(section, EPICS) is True
 
 
 # -- machine_kind -----------------------------------------------------------------

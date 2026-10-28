@@ -79,9 +79,16 @@ def test_allowed_tier_allows_with_no_target_and_no_kind():
 
 
 @pytest.mark.usefixtures("blind")
-def test_legacy_leaf_that_arms_the_tier_allows():
-    """The tier reader decides; a legacy ``writes_enabled: true`` arms it too."""
-    assert backstop_verdict({"type": "epics", "writes_enabled": True}).allowed is True
+def test_a_retired_leaf_does_not_arm_the_tier():
+    """The tier reader decides, and a retired ``writes_enabled: true`` arms nothing.
+
+    Rows ``tier-absent-old-armed-flat`` / ``tier-absent-old-armed-connector``
+    (ruling D2: no runtime retired-leaf fallback).
+    """
+    verdict = backstop_verdict({"type": "epics", "writes_enabled": True})
+
+    assert verdict.allowed is False
+    assert verdict.reason == "tier_never"
 
 
 @pytest.mark.usefixtures("blind")

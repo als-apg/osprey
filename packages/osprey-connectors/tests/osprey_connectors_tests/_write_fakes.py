@@ -23,7 +23,7 @@ from osprey_connectors.control_system._base import (
     WriteOutcome,
 )
 from osprey_connectors.control_system._epics_connector import EPICSConnector
-from osprey_connectors.types import TARGET_VA, WRITES_ENABLED_KEY
+from osprey_connectors.types import TARGET_VA
 from osprey_connectors_tests._epics_fakes import FakeAioca, FakeChannel, ca_connector
 from osprey_connectors_tests._harness._control_context_fixtures import (
     isolate_verdict_environment,
@@ -42,30 +42,24 @@ ARMED_TARGET = TARGET_VA
 def writes_enabled_config(key: str, default: Any = None) -> Any:
     """``get_config_value`` stand-in: a write tier that allows, all else defaulted.
 
-    Serves :data:`ARMED_SECTION` as the ``control_system`` section and the old
-    deployment-wide key as ``True``. The tier alone arms nothing: the write also
-    needs its machine's switch on (:func:`arm_switch`).
+    Serves :data:`ARMED_SECTION` as the ``control_system`` section. The tier
+    alone arms nothing: the write also needs its machine's switch on
+    (:func:`arm_switch`).
     """
     if key == "control_system":
         return dict(ARMED_SECTION)
-    if key == WRITES_ENABLED_KEY:
-        return True
     return default
 
 
 def config_reader(section: dict[str, Any]) -> Callable[..., Any]:
     """A ``get_config_value`` stand-in serving one ``control_system:`` section.
 
-    Answers both paths the posture is read through, the way dot-path lookup
-    would: the whole section, which the write verdict reads its tier from, and
-    the deployment-wide key inside it, which older readers still ask.
+    Answers the whole section, which the write verdict reads its tier from.
     """
 
     def _get(key: str, default: Any = None) -> Any:
         if key == "control_system":
             return section
-        if key == WRITES_ENABLED_KEY:
-            return section.get("writes_enabled", default)
         return default
 
     return _get

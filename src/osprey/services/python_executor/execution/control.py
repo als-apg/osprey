@@ -1,65 +1,23 @@
-"""Execution Control Configuration for Python Executor Service.
+"""Execution modes for the Python executor service.
 
-This module provides specialized execution control configuration for the Python
-executor service, with particular focus on control-system integration and
-security policies. It defines execution modes that determine the level of system
-access and control permissions available to executed Python code.
+This module defines the execution modes that determine the level of system
+access available to executed Python code: a clear separation between read-only
+operations (safe for automated execution) and write operations (requiring
+approval and oversight). This matters in scientific and industrial control
+environments, where code execution can have real-world physical consequences.
 
-The module implements a security-conscious approach to execution control, providing
-clear separation between read-only operations (safe for automated execution) and
-write operations (requiring additional approval and oversight). This is particularly
-important in scientific and industrial control environments where code execution
-can have real-world physical consequences.
-
-Key Components:
-    - **ExecutionMode**: Enumeration of available execution environments with
-      different security and access profiles
-    - **ExecutionControlConfig**: Configuration class carrying the write
-      posture for the control target it was built for, and the config key that
-      governs that posture
-    - **Configuration Utilities**: Helper functions for creating and validating
-      execution control configurations
-
-No executor gate reads this config. Whether a run may write is the write
-verdict's to decide (:func:`osprey_connectors.posture_store.write_verdict`):
-the executor's entry gate, its launch pin and the connector's reference
-monitor all ask it about the control target the run is on, and refuse in its
-words. ``control_system_writes_enabled`` reports the login tier's ceiling
-(``control_system.writes``, :func:`osprey_connectors.types.tier_allows`) and
-nothing more; it arms nothing.
-
-.. note::
-   The posture is about control-system access in general; it reads no
-   protocol-specific fact and holds for every connector the deployment can
-   select.
+Whether a run may write is not decided here. It is the write verdict's to decide
+(:func:`osprey_connectors.posture_store.write_verdict`): the executor's entry
+gate, its launch pin and the connector's reference monitor all ask it about the
+control target the run is on, and refuse in its words.
 
 .. warning::
    Write-enabled execution modes can perform system operations with real-world
    consequences. Ensure proper approval workflows are configured before enabling
    write access in production environments.
-
-Examples:
-    Configuration validation::
-
-        >>> config = ExecutionControlConfig(control_system_writes_enabled=True)
-        >>> warnings = config.validate()
-        >>> if warnings:
-        ...     print(f"Configuration warnings: {warnings}")
 """
 
-from dataclasses import dataclass
 from enum import Enum
-
-from osprey_connectors.logger import get_logger
-from osprey_connectors.types import (
-    UNSET_TYPE_WARNING,
-    VIRTUAL_ACCELERATOR,
-    WRITES_KEY,
-    baseline_target,
-    tier_allows,
-)
-
-logger = get_logger("execution_control")
 
 
 class ExecutionMode(Enum):
@@ -85,9 +43,6 @@ class ExecutionMode(Enum):
        WRITE_ACCESS mode can perform operations with real-world consequences in
        control system environments. Use with appropriate approval workflows.
 
-    .. seealso::
-       :class:`ExecutionControlConfig` : Configuration logic for mode selection
-
     Examples:
         Mode selection based on operation requirements::
 
@@ -104,130 +59,3 @@ class ExecutionMode(Enum):
 
     READ_ONLY = "read_only"  # Safe read-only operations only
     WRITE_ACCESS = "write_access"  # Live control-system write access (dangerous!)
-
-
-@dataclass
-class ExecutionControlConfig:
-    """Configuration class for control system execution control and security policy management.
-
-    This configuration class reports what the deployment config says about one
-    control target. It decides nothing: the executor's gates ask the write
-    verdict instead.
-
-    :param control_system_writes_enabled: Whether the login tier allows control-system writes
-        (``control_system.writes: allowed``); target-blind
-    :type control_system_writes_enabled: bool
-    :param control_system_type: Type of control system (epics, virtual_accelerator, tango, etc.).
-        Defaults to the simulator, served in process, so an under-specified config
-        never claims a live system.
-    :type control_system_type: str
-    :param active_target: Control target the config was built for, or ``None``
-        when the config was built without reading one.
-    :type active_target: str | None
-    :param writes_enabled_key: Dotted config key that governs that posture:
-        ``control_system.writes``. Carried on the config rather than re-derived
-        by a refusal, so an operator is never sent to a key that had no say in
-        the answer.
-    :type writes_enabled_key: str
-
-    .. note::
-       This configuration should be set based on the deployment environment and
-       security requirements. Production control systems should carefully consider
-       the implications of enabling write access.
-
-    .. warning::
-       Enabling control system writes allows executed code to potentially affect physical
-       systems. Ensure appropriate approval workflows and monitoring are in place.
-
-    .. seealso::
-       :class:`ExecutionMode` : Available execution environment modes
-       :func:`get_execution_control_config` : Factory function for creating configurations
-    """
-
-    # Control system settings
-    control_system_writes_enabled: bool = False
-    # Fail-closed: never assume a live system; the simulator, served in process.
-    control_system_type: str = VIRTUAL_ACCELERATOR
-    active_target: str | None = None
-    writes_enabled_key: str = WRITES_KEY
-
-    def validate(self) -> list[str]:
-        """
-        Validate configuration for logical consistency.
-
-        Returns:
-            List of validation warnings/errors
-        """
-        warnings = []
-
-        # Live writes are potentially dangerous - log warning
-        if self.control_system_writes_enabled:
-            warnings.append(
-                f"WARNING: {self.writes_enabled_key}=allowed (live control-system writes enabled!)"
-            )
-
-        return warnings
-
-
-def get_execution_control_config(target: str | None = None) -> ExecutionControlConfig:
-    """
-    Get execution control configuration from global config.
-
-    This is the single entry point for getting execution control configuration.
-    The write posture reported is the login tier's ceiling,
-    ``control_system.writes`` (:func:`osprey_connectors.types.tier_allows`):
-    target-blind, so a normalized ``allowed`` render reports writes for every
-    target. The target is still resolved and carried on the config.
-
-    Args:
-        target: The control target. ``None`` — the caller has no
-            target to name — answers the deployment's *baseline* target. Naming
-            a target nobody selected is otherwise not something this codebase
-            does; it is sound here because an unstamped run provably builds the
-            baseline connector, off the same section this reads.
-
-    Returns:
-        ExecutionControlConfig instance with type-safe configuration
-    """
-    try:
-        # Import here to avoid circular imports
-        from osprey_connectors.config import get_config_value
-
-        control_system_config = get_config_value("control_system", {})
-        active_target = target if target is not None else baseline_target(control_system_config)
-        writes_enabled = tier_allows(control_system_config)
-
-        # Get control system type for proper configuration. Fail closed: an
-        # unset (or blank) key must not be read as a live control system.
-        control_system_type = control_system_config.get("type")
-        if not control_system_type:
-            logger.warning(UNSET_TYPE_WARNING)
-            control_system_type = VIRTUAL_ACCELERATOR
-
-        # Build typed config with defaults
-        execution_control = ExecutionControlConfig(
-            control_system_writes_enabled=writes_enabled,
-            control_system_type=control_system_type,
-            active_target=active_target,
-            writes_enabled_key=WRITES_KEY,
-        )
-
-        # Validate configuration and log warnings
-        warnings = execution_control.validate()
-        if warnings:
-            for warning in warnings:
-                logger.warning(f"Execution control config: {warning}")
-
-        logger.debug(
-            f"Loaded execution control config: writes_enabled={execution_control.control_system_writes_enabled}, "
-            f"type={control_system_type}, target={active_target}, "
-            f"key={execution_control.writes_enabled_key}"
-        )
-
-        return execution_control
-
-    except Exception as e:
-        logger.warning(f"Failed to load execution control config: {e}, using safe defaults")
-
-        # Return safe defaults
-        return ExecutionControlConfig(control_system_writes_enabled=False)

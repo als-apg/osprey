@@ -2,7 +2,7 @@
 
 The retired write-posture leaves are rewritten per document to
 ``control_system.writes`` (PR-3's per-layer rule). Today's reading was per
-machine: ``session_posture`` of the merged section, where a per-type ``false``
+machine over the merged section (the retired reader), where a per-type ``false``
 overrides a flat ``true`` and a leaf on a type no configured target reaches
 arms nothing (R2 CF-1 / BE-3). Where the two differ, the render warns "was X,
 now Y" once per resolved layer path, and never when resolve runs with

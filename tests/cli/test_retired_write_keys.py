@@ -229,12 +229,14 @@ def _has_dotted_connector_type(config: dict[str, Any]) -> bool:
 @pytest.mark.parametrize(("config", "expected"), [c[1:] for c in CASES], ids=[c[0] for c in CASES])
 def test_every_retired_document_reads_as_its_tier(config, expected, tmp_path):
     raw = {"config": copy.deepcopy(config)}
-    # The oracle: PR-3's rule, read by hand off the row, and what tier_writes
-    # makes of the expanded nested section. `_expand_dotted` splits a dotted
-    # connector type, which `type_writes_enabled` never does (BE-5), so those
-    # rows rest on the hand-read value alone.
+    # The oracle: PR-3's rule, read by hand off the row, and what the migration's
+    # own retired-leaf reader makes of the expanded nested section (the run-time
+    # `tier_writes` no longer reads the retired leaves: an unrebuilt render is
+    # `never`). `_expand_dotted` splits a dotted connector type, which the
+    # retired reader never does (BE-5), so those rows rest on the hand-read
+    # value alone.
     if not _has_dotted_connector_type(config):
-        assert tier_writes(_expanded_section(config)) == expected
+        assert doc._retired_tier(_expanded_section(config)) == expected
     assert retired_write_answer(config) == expected
 
     normalize_retired_write_keys(raw, "profile.yml")
@@ -284,7 +286,7 @@ def test_every_previous_release_document_reads_as_its_bundled_successor(tmp_path
         old = yaml.safe_load(path.read_text(encoding="utf-8"))
         answer = retired_write_answer(old["config"])
         assert answer is not None, path
-        assert answer == tier_writes(_expanded_section(old["config"])), path
+        assert answer == doc._retired_tier(_expanded_section(old["config"])), path
         rendered = _section(_read_profile_document(path)["config"], tmp_path)
         assert rendered["writes"] == answer, path
         assert _retired_leaves_in(rendered) == [], path

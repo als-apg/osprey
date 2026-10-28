@@ -30,13 +30,11 @@ something this module reads from the environment: an environment-reading
 override would make the honesty predicate describe a deployment the process is
 no longer running.
 
-:func:`type_writes_enabled` and :func:`target_writes_enabled` answer "may this
-deployment write" the same way and for the same reason. Write posture is per
-connector type, so a deployment whose real machine is a live one can arm its
-simulator alone; and the lint that reads the config, the profile card that tells
-an operator what they hold, and the connector that would perform the write all have
-to agree about which types are armed. Two readings of one posture is one of them
-being wrong about a machine somebody can move.
+:func:`tier_writes` answers "may this deployment write" from the one tier key,
+``control_system.writes``, for the same reason. The lint that reads the config,
+the profile card that tells an operator what they hold, and the connector that
+would perform the write all have to agree about the answer. Two readings of one
+posture is one of them being wrong about a machine somebody can move.
 
 :class:`LimitsPosture` is the same story for limits checking, which is likewise
 per connector type: a deployment may run its simulator ``optional`` while its
@@ -44,7 +42,7 @@ live machine runs ``exclusive``. It carries the resolved posture together
 with the config key that answered it, so a refusal names the line an operator
 would have to edit rather than one some per-type block overrides.
 
-Where the write family reads an unusable value as "not armed" and is done, the
+Where the write tier reads an unusable value as ``never`` and is done, the
 limits family cannot: "no limits checking configured" is itself a permissive
 answer, so a leaf written as something no reader can turn into a boolean is
 reported as a block that failed to state it rather than as a block that stated
@@ -98,13 +96,9 @@ __all__ = [
     "TRANSPORT_DOOCS",
     "TRANSPORT_IN_PROCESS",
     "TRANSPORT_TANGO",
-    "TYPE_WRITES_ENABLED_LEAF",
     "UNSET_TYPE_WARNING",
     "VIRTUAL_ACCELERATOR",
-    "WRITES_ENABLED_KEY",
     "WRITES_KEY",
-    "any_armed_target_checks_limits",
-    "any_target_writes_enabled",
     "archiver_settings_errors",
     "archiver_settings_key",
     "baseline_target",
@@ -121,23 +115,16 @@ __all__ = [
     "resolve_serving",
     "resolve_target",
     "retired_type_message",
-    "session_posture",
     "speaks_channel_access",
     "switch_capable",
     "talks_to_network",
     "target_configured",
     "target_limits_posture",
-    "target_writes_enabled",
-    "target_writes_enabled_key",
     "tier_allows",
     "tier_checks_limits",
     "tier_limits_targets",
     "tier_writes",
     "type_limits_posture",
-    "type_writes_enabled",
-    "writes_enabled_answering_key",
-    "writes_enabled_key",
-    "writes_enabled_remedy",
 ]
 
 logger = logging.getLogger("osprey_connectors.types")
@@ -260,22 +247,11 @@ ONE_REAL_MACHINE = (
 )
 
 # -- Write posture --
-#: The deployment-wide write posture, dotted as a caller spells it for
-#: ``get_config_value`` and as every refusal names it to an operator.
-WRITES_ENABLED_KEY = "control_system.writes_enabled"
-
-#: The same posture inside one connector block —
-#: ``control_system.connector.<type>.writes_enabled``. A leaf name, not a path:
-#: it is looked up in an already-resolved block, whose own key is the connector
-#: type in full.
-TYPE_WRITES_ENABLED_LEAF = "writes_enabled"
-
 #: The login tier's write ceiling, dotted as a caller spells it for
 #: ``get_config_value``: ``"allowed"`` or ``"never"``. Target-blind — a tier
 #: that allows writes allows them for every machine, and which machine is
 #: actually written is the session's switch to decide, not the tier's. Read by
-#: :func:`tier_writes`; when the key is absent the older ``writes_enabled``
-#: leaves answer in its place.
+#: :func:`tier_writes`; when the key is absent the tier is ``never``.
 WRITES_KEY = "control_system.writes"
 
 #: :data:`WRITES_KEY`'s leaf inside the ``control_system:`` section.
@@ -768,266 +744,24 @@ def configured_targets(section: Any) -> list[str]:
     ]
 
 
-def type_writes_enabled(section: Any, connector_type: str) -> bool:
-    """Whether a deployment arms writes for one connector *type*.
-
-    A tri-state on ``control_system.connector.<type>.writes_enabled``, where
-    *connector_type* is one key. A custom connector's dotted module path
-    (``'mypackage.MoatConnector'``) names a single block, never a path through
-    several, so the type is looked up whole and never split on its dots:
-
-    - **Absent** — no connector table, no block for this type, a block that is
-      not a mapping, or a mapping without the leaf — inherits
-      ``control_system.writes_enabled``. That is the whole compatibility story:
-      a deployment that says nothing per type keeps the posture it had when the
-      deployment-wide key was the only posture there was.
-    - **Literally ``True``** arms writes for this type.
-    - **Any other value** leaves them unarmed, and does *not* fall back to the
-      deployment-wide key. A facility that wrote ``false`` under its live block
-      has said something about that machine, and a global ``true`` armed for the
-      simulator must not talk it into arming hardware. Values nobody can be sure
-      of land on the same side: the ``None`` YAML gives a bare
-      ``writes_enabled:``, the quoted string ``'true'``, ``1``. Unarmed is the
-      reading that costs an operator a config edit rather than a machine.
-
-    Keyed by type rather than by control target because that is the identity
-    most holders have: a connector, the factory that builds it, an IPC child, a
-    queueserver stamp all know which connector type they are and never which
-    target selected it. :func:`target_writes_enabled` is this same answer for
-    the holders that carry a target instead — the roster, the stdlib hooks, the
-    executor.
-
-    Never reads the environment, and in particular never consults
-    ``is_readonly_run()``. This is the deployment posture on its own; a caller
-    that must also honor a read-only run ANDs the two, so that what a config
-    describes stays what this function reports.
-
-    Args:
-        section: The ``control_system:`` config section, in the same shape
-            :func:`resolve_control_system_type` takes.
-        connector_type: A connector type name, as
-            :func:`resolve_control_system_type` and :func:`resolve_target`
-            return it — which is also its connector sub-block key.
-
-    Returns:
-        ``True`` only when writes are armed for that type. Never raises: a
-        section that is not a mapping is a deployment that has said nothing,
-        and a deployment that has said nothing is not armed.
-    """
-    block = _type_writes_block(section, connector_type)
-    if block is None:
-        return _global_writes_enabled(section)
-    return block[TYPE_WRITES_ENABLED_LEAF] is True
-
-
-def target_writes_enabled(section: Any, target: Any) -> bool:
-    """Whether a deployment arms writes for one session *target*.
-
-    :func:`type_writes_enabled` for the type that target resolves to, so a
-    holder following the control target and a connector that knows only its own
-    type read one posture and not two.
-
-    A target that does not resolve answers :data:`WRITES_ENABLED_KEY` instead.
-    Two shapes reach that branch and both mean the same thing — there is no
-    per-type block to consult because there is no type. An unknown target names
-    nothing. ``live`` on a deployment baselined on the simulator in process with
-    no real machine authored names a machine the config never described, which
-    :func:`resolve_target` refuses to guess; such a deployment has only ever had the one deployment-wide posture, and
-    keeping it is parity rather than a fallback. Refusing here would instead
-    take the posture away from every deployment that never had a second target.
-
-    Args:
-        section: The ``control_system:`` config section.
-        target: The control target, one of :data:`CONTROL_TARGETS`.
-
-    Returns:
-        ``True`` only when writes are armed for that target. Never raises.
-    """
-    try:
-        connector_type = resolve_target(section, target)
-    except ValueError:
-        return _global_writes_enabled(section)
-    return type_writes_enabled(section, connector_type)
-
-
-def writes_enabled_key(connector_type: str | None) -> str:
-    """The config key that decides write posture for one connector *type*.
-
-    ``control_system.connector.<type>.writes_enabled`` — the one line a facility
-    edits to arm a machine and leave the others alone — or
-    :data:`WRITES_ENABLED_KEY` for a caller holding no type at all, which is
-    where :func:`type_writes_enabled` read that posture from anyway.
-
-    A refusal names the key that answered it, and that is the whole point of
-    spelling the key in one place: an operator sent to the deployment-wide key
-    would arm every target at once, the machine they deliberately left unarmed
-    included, and a refusal naming a key some other block overrides would have
-    them flip a line that changes nothing.
-    """
-    if not connector_type:
-        return WRITES_ENABLED_KEY
-    return f"control_system.connector.{connector_type}.{TYPE_WRITES_ENABLED_LEAF}"
-
-
-def writes_enabled_answering_key(section: Any, connector_type: str | None) -> str:
-    """The config key whose value refused a write for *connector_type*.
-
-    The per-type key when that block carries the leaf, and
-    :data:`WRITES_ENABLED_KEY` when it does not — the key a type inherits when
-    it says nothing about itself. This is the key a refusal names as the REASON,
-    and it is not always :func:`writes_enabled_key`, which names the line an
-    operator edits to arm one type and leave the others alone. The two differ
-    exactly when a deployment states its posture once for everything, which is
-    the shape a deployment has before anyone splits it per machine.
-    """
-    if _type_writes_block(section, connector_type) is None:
-        return WRITES_ENABLED_KEY
-    return writes_enabled_key(connector_type)
-
-
-def writes_enabled_remedy(connector_type: str | None, *, one_line: bool = False) -> str:
-    """The edit that arms writes for one connector *type*, as an operator makes it.
-
-    :func:`writes_enabled_key` names the key; this names the CHANGE, and for a
-    dotted connector type the two are not interchangeable. A build profile
-    applies each of its dotted keys as a path, splitting on every dot, while
-    this posture is looked up with the type held whole (see
-    :func:`type_writes_enabled`). So an operator told to set
-    ``control_system.connector.my_pkg.mod.MyConnector.writes_enabled`` would
-    write a five-level nest that nothing ever reads, and the write would go on
-    being refused with the same line.
-
-    The remedy for a dotted type is therefore the mapping form the profile
-    applies verbatim: ``control_system.connector:`` with the type as one key
-    under it. A registered name has no dots to be split on, and keeps the
-    one-line form.
-
-    *one_line* asks for that mapping in YAML's flow spelling, which a profile
-    accepts as readily as the block one. A caller wants it when the remedy
-    shares a message with something else: a message a reader takes one line of
-    at a time loses whatever a block form pushes onto the lines below.
-    """
-    if connector_type and "." in connector_type and one_line:
-        return (
-            "Arm this connector in the build profile (profile.yml on the host) by its "
-            "own key, which is the connector type in full - a dotted type is one "
-            "mapping key and is never split on its dots, as "
-            f"control_system.connector: {{{connector_type}: "
-            f"{{{TYPE_WRITES_ENABLED_LEAF}: true}}}} "
-            f"— ({WRITES_ENABLED_KEY} is what a type inherits when it says nothing "
-            "about itself.)"
-        )
-    if connector_type and "." in connector_type:
-        return (
-            "Arm this connector in the build profile (profile.yml on the host) by its "
-            "own key, which is the connector type in full - a dotted type is one "
-            "mapping key and is never split on its dots:\n"
-            "  control_system.connector:\n"
-            f"    {connector_type}:\n"
-            f"      {TYPE_WRITES_ENABLED_LEAF}: true\n"
-            f"({WRITES_ENABLED_KEY} is what a type inherits when it says nothing "
-            "about itself.)"
-        )
-    return (
-        f"Set {writes_enabled_key(connector_type)}: true in the build profile "
-        "(profile.yml on the host)."
-    )
-
-
-def target_writes_enabled_key(section: Any, target: Any) -> str:
-    """The config key that decides write posture for one session *target*.
-
-    :func:`writes_enabled_key` for the type that target resolves to, and the
-    deployment-wide key for a target that resolves to none — the same two
-    branches :func:`target_writes_enabled` reads the posture from, so the key a
-    refusal names is always the key that answered it. Never raises.
-    """
-    try:
-        connector_type = resolve_target(section, target)
-    except ValueError:
-        return WRITES_ENABLED_KEY
-    return writes_enabled_key(connector_type)
-
-
-def session_posture(section: Any) -> dict[str, bool]:
-    """Write posture per target a *session* on this deployment can be pointed at.
-
-    Every one of :func:`configured_targets` when the deployment renders the
-    switch (:func:`switch_capable`), each through :func:`target_writes_enabled`
-    — the configured targets and never :data:`CONTROL_TARGETS`, which is the
-    vocabulary of machines that can exist rather than the ones this deployment
-    has. Looping the constant would give a deployment with no
-    ``control_system.connector.live_standin`` block a ``standin`` key anyway,
-    armed or not from the deployment-wide flag through
-    :func:`target_writes_enabled`'s unresolvable-target fallback: a posture
-    published for a stand-in nobody stood up. Widening the vocabulary must not
-    grow a slot on a deployment the widening did not change.
-
-    Without the switch a session sits on the one connector
-    ``control_system.type`` builds, so the answer is that type's own posture
-    under its :func:`baseline_target` — read by type on purpose. ``live`` is the
-    switch's derivation, and without the switch it would name a machine no
-    session here ever reaches; the built connector's reference monitor reads
-    its own type's posture, and a render that read the other would promise a
-    guarantee the runtime does not share.
-
-    Something that must speak about "the deployment's targets" without holding
-    one — a posture button, a permissions render, a lint — iterates this rather
-    than :data:`CONTROL_TARGETS`, because :func:`target_writes_enabled` answers
-    an unresolvable target from the deployment-wide key for a holder that *has*
-    that target, and a speculative loop over both would let that fallback arm
-    a machine the config never described.
-    """
-    if switch_capable(section):
-        targets = configured_targets(section)
-        return {target: target_writes_enabled(section, target) for target in targets}
-    built = resolve_control_system_type(section)
-    return {baseline_target(section): type_writes_enabled(section, built)}
-
-
-def any_target_writes_enabled(section: Any) -> bool:
-    """Whether writes are armed for at least one target a session here can select.
-
-    The union a caller with no target of its own may take, over
-    :func:`session_posture`. A deployment that says nothing per type answers
-    its deployment-wide key here exactly as it did when that key was the only
-    posture; one whose reachable targets are all explicitly unarmed answers
-    ``False`` no matter what the deployment-wide key says.
-    """
-    return any(session_posture(section).values())
-
-
 def tier_writes(section: Any) -> Literal["allowed", "never"]:
     """The write ceiling this deployment's login tier sets: ``allowed`` or ``never``.
 
     :data:`WRITES_KEY` decides when the section carries it, and then only the
     literal string ``"allowed"`` arms; ``"never"``, any other string, ``True``,
     ``None`` and every other value answer ``never``. When the key is absent the
-    older posture is rewritten into the new one: a literal ``True`` in the flat
-    ``writes_enabled`` or in any connector block's ``writes_enabled`` leaf is
-    ``allowed``, anything else ``never``. That is the rewrite a config normalizer
-    applies, so a deployment answers the same before and after it is migrated.
+    tier is ``never``: the retired arming leaves are not read at run
+    time, so a render built before the tier key existed writes nowhere until it
+    is rebuilt (the build's normalizer writes the key into every render).
 
-    Target-blind by design: a tier that arms one machine's leaf today allows
-    writes for every machine. The tier is a ceiling, not a selection — the
-    session's switch picks the machine.
+    Target-blind by design: a tier that allows writes allows them for every
+    machine. The tier is a ceiling, not a selection — the session's switch picks
+    the machine.
 
     Never raises. A section that is not a mapping answers ``never``.
     """
-    if not isinstance(section, dict):
-        return _TIER_NEVER
-    if _WRITES_LEAF in section:
-        value = section[_WRITES_LEAF]
-        return _TIER_ALLOWED if isinstance(value, str) and value == _TIER_ALLOWED else _TIER_NEVER
-    if _global_writes_enabled(section):
-        return _TIER_ALLOWED
-    connector = section.get("connector")
-    if isinstance(connector, dict) and any(
-        isinstance(block, dict) and block.get(TYPE_WRITES_ENABLED_LEAF) is True
-        for block in connector.values()
-    ):
-        return _TIER_ALLOWED
-    return _TIER_NEVER
+    value = section.get(_WRITES_LEAF) if isinstance(section, dict) else None
+    return _TIER_ALLOWED if isinstance(value, str) and value == _TIER_ALLOWED else _TIER_NEVER
 
 
 def tier_allows(section: Any) -> bool:
@@ -1242,7 +976,7 @@ class LimitsPosture:
         A posture holding no type at all — the deployment-wide answer, and the
         fallback a target that resolves to no type gets — spells the
         deployment-wide key, which is where such a posture was read from
-        anyway. Same reading :func:`writes_enabled_key` gives the same case.
+        anyway.
 
         Args:
             leaf: One of :data:`LIMITS_LEAVES`.
@@ -1332,9 +1066,8 @@ def type_limits_posture(section: Any, connector_type: str | None) -> LimitsPostu
     the build refusal's too (:func:`incomplete_limits_blocks`), so a config the
     build accepts and one the runtime enforces cannot come apart.
 
-    Keyed by type rather than by control target for the reason
-    :func:`type_writes_enabled` is: a connector, the factory that builds it, an
-    IPC child all know which connector type they are and never which target
+    Keyed by type rather than by control target because a connector, the
+    factory that builds it, an IPC child all know which connector type they are and never which target
     selected it. :func:`target_limits_posture` is this same answer for the
     holders that carry a target instead.
 
@@ -1384,9 +1117,8 @@ def target_limits_posture(section: Any, target: Any) -> LimitsPosture:
     no real machine authored names a machine the config never described, which
     :func:`resolve_target` refuses to guess.
     Such a deployment has only ever had the one deployment-wide block, and
-    keeping it is parity rather than a fallback — the same reading
-    :func:`target_writes_enabled` takes, so the two postures a refusal may quote
-    cannot disagree about which deployments have a second machine. Refusing here
+    keeping it is parity rather than a fallback: a target this deployment never
+    configured still has the one block every such deployment had. Refusing here
     would instead take the posture away from every deployment that never had a
     second target.
 
@@ -1417,7 +1149,7 @@ def most_restrictive_limits_posture(section: Any) -> LimitsPosture:
     to nothing — it still has to decide about a write, and the machine it is
     deciding about is any of the reachable ones.
 
-    The reachable set is exactly :func:`session_posture`'s: every
+    The reachable set is every
     :func:`configured_targets` when the deployment renders the switch
     (:func:`switch_capable`), and otherwise the single connector
     ``control_system.type`` builds, read by *type* through
@@ -1490,67 +1222,19 @@ def most_restrictive_limits_posture(section: Any) -> LimitsPosture:
     )
 
 
-def any_armed_target_checks_limits(section: Any) -> bool:
-    """Whether some target that arms writes also has limits checking on.
-
-    The question a deployment-level caller asks before it demands a channel-
-    limits database: only a target that both writes and checks limits opens
-    that file, so only such a target makes its absence matter.
-
-    The pairing is per target, and that is the whole point — the two leaves have
-    to be read off the SAME machine. A deployment can arm its simulator while
-    only its read-only live block checks limits, and separate
-    :func:`any_target_writes_enabled` and
-    :func:`most_restrictive_limits_posture` folds would answer "armed" and
-    "checked" from those two different blocks and report a pairing no target
-    has.
-
-    The reachable set is :func:`session_posture`'s, read the same way: every
-    :func:`configured_targets` when the deployment renders the switch
-    (:func:`switch_capable`), and otherwise the single connector
-    ``control_system.type`` builds, asked by *type* so a block belonging to a
-    machine no session here reaches cannot vote.
-
-    ``enabled`` alone decides the limits half, because that is the leaf that
-    decides whether a validator exists at all —
-    :meth:`~osprey_connectors.control_system.LimitsValidator._from_posture`
-    builds none for anything else, and a target with no validator consults no
-    database. ``mode`` governs what a built validator does
-    with a channel the database omits, which is a different question.
-
-    Args:
-        section: The ``control_system:`` config section, in the same shape
-            :func:`resolve_control_system_type` takes.
-
-    Returns:
-        ``True`` when at least one reachable target arms writes and states
-        ``limits_checking.enabled: true``. Never raises.
-    """
-    if switch_capable(section):
-        return any(
-            target_writes_enabled(section, target)
-            and target_limits_posture(section, target).enabled is True
-            for target in configured_targets(section)
-        )
-    built = resolve_control_system_type(section)
-    return (
-        type_writes_enabled(section, built) and type_limits_posture(section, built).enabled is True
-    )
-
-
 def tier_limits_targets(section: Any) -> list[str]:
     """The targets whose limits checking the login tier's write ceiling arms.
 
-    The tier twin of :func:`any_armed_target_checks_limits`. The tier is a
-    ceiling, not a selection: a render whose :func:`tier_writes` answers
-    ``allowed`` lets a session write to every :func:`configured_targets`, so
-    every one of them whose resolved :func:`target_limits_posture` states
+    The tier is a ceiling, not a selection: a render whose :func:`tier_writes`
+    answers ``allowed`` lets a session write to every :func:`configured_targets`,
+    so every one of them whose resolved :func:`target_limits_posture` states
     ``enabled: true`` may open the channel-limits database. A ``never`` render
     writes nowhere and so arms none.
 
-    ``enabled`` alone decides the limits half, for the reason
-    :func:`any_armed_target_checks_limits` gives; a caller that also refuses
-    half-written blocks reads :attr:`LimitsPosture.incomplete` itself.
+    ``enabled`` alone decides the limits half, because that is the leaf that
+    decides whether a validator exists at all — a target with no validator
+    consults no database. A caller that also refuses half-written blocks reads
+    :attr:`LimitsPosture.incomplete` itself.
 
     Args:
         section: The ``control_system:`` config section.
@@ -1675,32 +1359,6 @@ def incomplete_limits_blocks(section: Any) -> list[str]:
     return errors
 
 
-def _type_writes_block(section: Any, connector_type: str | None) -> dict[str, Any] | None:
-    """The connector block that answers the write posture for *connector_type*.
-
-    ``None`` when no block answers — no connector table, no block for this type,
-    a block that is not a mapping, or a mapping without the leaf — which is the
-    deployment saying nothing about this type. The type is one key and is never
-    split on its dots.
-    """
-    if not connector_type:
-        return None
-    connector = section.get("connector") if isinstance(section, dict) else None
-    block = connector.get(connector_type) if isinstance(connector, dict) else None
-    if not isinstance(block, dict) or TYPE_WRITES_ENABLED_LEAF not in block:
-        return None
-    return block
-
-
-def _global_writes_enabled(section: Any) -> bool:
-    """The deployment-wide posture, ``control_system.writes_enabled``.
-
-    Explicitly ``True`` and nothing else — the same reading the per-type leaf
-    gets, so a quoted ``'true'`` or a ``1`` arms nothing at either level.
-    """
-    return isinstance(section, dict) and section.get(TYPE_WRITES_ENABLED_LEAF) is True
-
-
 def _global_limits_posture(section: Any) -> LimitsPosture:
     """The deployment-wide posture, ``control_system.limits_checking``.
 
@@ -1794,8 +1452,8 @@ def _limits_leaf(value: Any) -> bool | None:
     """One limits leaf as a literal boolean, or ``None`` for anything else.
 
     The literal booleans and nothing else are readable. A quoted ``'true'``, a
-    ``1``, a bare ``enabled:`` — the same values :func:`type_writes_enabled`
-    refuses to read as an arming — are not.
+    ``1``, a bare ``enabled:`` — values no write tier reads as an arming
+    either — are not.
 
     Unlike write posture, ``None`` here is not itself the safe answer, which is
     why no caller reads this directly: an unset ``enabled`` means "this

@@ -36,10 +36,10 @@ from osprey_connectors.types import (
     TARGET_VA,
     VIRTUAL_ACCELERATOR,
     LimitsPosture,
-    any_armed_target_checks_limits,
     incomplete_limits_blocks,
     most_restrictive_limits_posture,
     target_limits_posture,
+    tier_limits_targets,
     type_limits_posture,
 )
 
@@ -114,9 +114,8 @@ class TestLimitsPosture:
     def test_key_treats_an_empty_type_as_no_type(self) -> None:
         """An empty type names nothing, so the deployment-wide key answers.
 
-        Same reading :func:`~osprey_connectors.types.writes_enabled_key` gives a
-        caller holding no type: a key with an empty segment in it would send an
-        operator to a line that cannot exist.
+        A key with an empty segment in it would send an operator to a line that
+        cannot exist.
         """
         posture = LimitsPosture(enabled=None, mode=None, connector_type="")
         assert posture.key("enabled") == "control_system.limits_checking.enabled"
@@ -549,10 +548,9 @@ class TestTargetLimitsPosture:
     to its type first and :func:`type_limits_posture` answers from there — one
     posture per machine, never one per holder.
 
-    A target that does not resolve answers the deployment-wide block, which is
-    the reading :func:`~osprey_connectors.types.target_writes_enabled` already
-    takes: there is no per-type block to consult because there is no type, and
-    a deployment that never had a second target keeps the posture it wrote.
+    A target that does not resolve answers the deployment-wide block: there is
+    no per-type block to consult because there is no type, and a deployment that
+    never had a second target keeps the posture it wrote.
     """
 
     # ------------------------------------------------------------------
@@ -628,8 +626,7 @@ class TestTargetLimitsPosture:
     ) -> None:
         """``live`` does not resolve here and the other two wrote no block.
 
-        Parity with :func:`~osprey_connectors.types.target_writes_enabled`:
-        refusing here would take the posture away from every deployment that
+        Refusing here would take the posture away from every deployment that
         never had a second target, rather than protecting anything.
         """
         posture = target_limits_posture(_in_process_deployment(), target)
@@ -690,8 +687,7 @@ class TestMostRestrictive:
 
     What a caller with no target of its own has to assume: the stdlib hook when
     the recorded control target cannot be read, and any reader that must answer before
-    a target is chosen. The reachable set is exactly the one
-    :func:`~osprey_connectors.types.session_posture` walks — the configured
+    a target is chosen. The reachable set is the configured
     targets when the deployment renders the switch, and otherwise the single
     connector ``control_system.type`` builds, read by *type*. A speculative loop
     over every target in the vocabulary would let the unresolvable-target
@@ -921,79 +917,14 @@ class TestMostRestrictive:
         assert most_restrictive_limits_posture(_va_baseline_deployment()).incomplete == ()
 
 
-class TestAnyArmedTargetChecksLimits:
-    """Whether some ONE target both arms writes and checks limits.
-
-    The question a deployment-level caller asks before it demands a channel-
-    limits database: only a target that writes and checks opens that file. Both
-    leaves are read off the same target, which is what separates this from
-    asking :func:`any_target_writes_enabled` and
-    :func:`most_restrictive_limits_posture` separately — those two folds can
-    report an armed machine and a checking machine that are not the same
-    machine.
-    """
-
-    @staticmethod
-    def _armed(section: dict[str, Any], target_type: str, armed: bool) -> dict[str, Any]:
-        section["connector"][target_type]["writes_enabled"] = armed
-        return section
-
-    def test_a_read_only_deployment_needs_no_limits_database(self) -> None:
-        """Nothing writes, so nothing consults the database, however strict."""
-        assert any_armed_target_checks_limits(_va_baseline_deployment()) is False
-
-    def test_an_armed_checking_target_answers_true(self) -> None:
-        """The pairing this exists to find, on one machine."""
-        section = self._armed(_va_baseline_deployment(), VIRTUAL_ACCELERATOR, True)
-        assert any_armed_target_checks_limits(section) is True
-
-    def test_an_armed_target_that_checks_no_limits_answers_false(self) -> None:
-        """Checking off builds no validator, so an armed target opens no file."""
-        section = _va_baseline_deployment()
-        section["connector"][VIRTUAL_ACCELERATOR][LIMITS_CHECKING_LEAF] = _block(False, "optional")
-        assert any_armed_target_checks_limits(self._armed(section, VIRTUAL_ACCELERATOR, True)) is (
-            False
-        )
-
-    def test_a_checking_target_does_not_vouch_for_an_armed_one(self) -> None:
-        """The armed machine and the checking machine have to be the same one.
-
-        Here the VA arms writes with checking off while the live block checks
-        limits and writes nothing. Two separate folds would see "something is
-        armed" and "something checks limits" and report a database this
-        deployment never opens.
-        """
-        section = _va_baseline_deployment()
-        section[LIMITS_CHECKING_LEAF] = _block(True, "exclusive")
-        section["connector"][VIRTUAL_ACCELERATOR][LIMITS_CHECKING_LEAF] = _block(False, "optional")
-        section["connector"][VIRTUAL_ACCELERATOR]["writes_enabled"] = True
-        section["connector"][EPICS]["writes_enabled"] = False
-
-        assert any_armed_target_checks_limits(section) is False
-
-    def test_a_deployment_wide_arming_reaches_every_target(self) -> None:
-        """A flat ``writes_enabled`` arms the targets that wrote no leaf of their own."""
-        section = _va_baseline_deployment()
-        section["writes_enabled"] = True
-        assert any_armed_target_checks_limits(section) is True
-
-    def test_a_single_connector_deployment_is_read_by_type(self) -> None:
-        """Without the switch, the one connector ``type`` builds is the answer.
-
-        An in-process deployment's ``live`` names a machine the config never described,
-        so reading it by target would answer from the deployment-wide block for
-        a machine no session here reaches.
-        """
-        section = _in_process_deployment()
-        section["writes_enabled"] = True
-        assert any_armed_target_checks_limits(section) is True
-
-        section[LIMITS_CHECKING_LEAF] = _block(False, "optional")
-        assert any_armed_target_checks_limits(section) is False
-
-    def test_an_unstated_posture_is_not_checking(self) -> None:
-        """Silence builds no validator, so it opens no database either."""
-        assert any_armed_target_checks_limits({"writes_enabled": True}) is False
+# The old armed-target limits fold is gone, and its cases with it: they armed
+# targets through the retired ``writes_enabled`` leaves, which no run-time reader
+# consults any more. Its question — does some writable target check limits — is
+# now asked of the render's tier by ``tier_limits_targets``/``tier_checks_limits``
+# and pinned in tests/deployment/test_bluesky_limits_mount.py
+# (``test_the_tier_arms_limits_for_every_reachable_target``,
+# ``test_nothing_that_never_opens_the_database_refuses_its_absence``,
+# ``test_a_never_render_mounts_neither``) and tests/deployment/test_compose_generator.py.
 
 
 def _missing(connector_type: str, leaf: str) -> str:
@@ -1263,7 +1194,7 @@ def _every_resolver_reads_this() -> dict[str, Any]:
     every branch that could be tempted to normalise a block in place is taken.
     """
     section = _standin_deployment()
-    section["writes_enabled"] = True
+    section["writes"] = "allowed"
     section["connector"][EPICS][LIMITS_CHECKING_LEAF] = _block(enabled=True)
     return section
 
@@ -1284,10 +1215,10 @@ def _resolve_every_target(section: dict[str, Any]) -> None:
         _resolve_every_type,
         _resolve_every_target,
         most_restrictive_limits_posture,
-        any_armed_target_checks_limits,
+        tier_limits_targets,
         incomplete_limits_blocks,
     ],
-    ids=["type", "target", "most-restrictive", "any-armed", "incomplete-blocks"],
+    ids=["type", "target", "most-restrictive", "tier-limits-targets", "incomplete-blocks"],
 )
 def test_resolvers_do_not_mutate_the_section(resolve: Any) -> None:
     """Resolvers read a shared, once-loaded config; none of them may write to it."""

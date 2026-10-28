@@ -431,7 +431,7 @@ def test_the_reader_derives_targets_exactly_as_the_framework_does(connector, bas
 def test_the_reader_reaches_the_standin_only_where_a_deployment_has_one() -> None:
     """``session_types`` restates ``configured_targets``, not the vocabulary.
 
-    The reachable set is what ``most_restrictive_posture`` ANDs over, so a
+    The reachable set is what ``most_restrictive_limits_posture`` folds over, so a
     ``standin`` slot on a deployment carrying no ``live_standin`` block would
     fold in a posture for a soft IOC nobody stood up.
     """
@@ -452,9 +452,14 @@ def test_the_reader_reaches_the_standin_only_where_a_deployment_has_one() -> Non
     }
 
     for section in (without, with_standin, standin_but_no_va):
-        assert sorted(reader.session_types(section)) == sorted(
-            connector_types.session_posture(section)
+        # The reachable set: every
+        # configured target when the deployment renders the switch, else its baseline.
+        reachable = (
+            connector_types.configured_targets(section)
+            if connector_types.switch_capable(section)
+            else [connector_types.baseline_target(section)]
         )
+        assert sorted(reader.session_types(section)) == sorted(reachable)
     assert "standin" not in reader.session_types(without)
     assert reader.session_types(with_standin)["standin"] == connector_types.LIVE_STANDIN
 
@@ -621,23 +626,20 @@ def test_a_two_target_deployment_enumerates_exactly_its_two_targets() -> None:
         TARGET_STANDIN,
         TARGET_VA,
         configured_targets,
-        session_posture,
     )
 
     connector = {
         "virtual_accelerator": {"timeout_s": 5.0},
         "epics": {"address_list": "10.0.0.1"},
     }
-    two = {"type": "virtual_accelerator", "writes_enabled": True, "connector": connector}
+    two = {"type": "virtual_accelerator", "writes": "allowed", "connector": connector}
     three = {**two, "connector": {**connector, "live_standin": {"timeout_s": 5.0}}}
 
     assert configured_targets(two) == [TARGET_LIVE, TARGET_VA]
-    assert set(session_posture(two)) == {TARGET_LIVE, TARGET_VA}
     # The mirror: the same deployment WITH a stand-in block does get the slot,
     # so the absence above is the config's doing and not a target that fell out
     # of the enumeration everywhere.
     assert configured_targets(three) == [TARGET_LIVE, TARGET_VA, TARGET_STANDIN]
-    assert set(session_posture(three)) == {TARGET_LIVE, TARGET_VA, TARGET_STANDIN}
 
 
 @pytest.mark.slow
