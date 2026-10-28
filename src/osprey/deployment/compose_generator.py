@@ -893,18 +893,25 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
         not a string (a mode other than ``optional``), or names a file that is
         not on this host
     """
+    from osprey_connectors.control_system import LimitsValidator, mapping_config_lookup
     from osprey_connectors.types import WRITES_KEY, tier_limits_database_targets
 
     control_system = config.get("control_system") or {}
     limits_checking = control_system.get("limits_checking") or {}
     raw = limits_checking.get("database_path")
+    # The connector's one reading of the key decides whether it names a file
+    # and which file that is, so the mount and the validator that opens it
+    # cannot disagree about one config. Only the directory of the anchor is
+    # read; the file name is nominal.
+    resolved = LimitsValidator.configured_database_path(
+        config_lookup=mapping_config_lookup(config),
+        config_path=str(Path(config_dir) / "config.yml"),
+    )
     limits_required = bool(
-        tier_limits_database_targets(
-            control_system, path_configured=isinstance(raw, str) and bool(raw.strip())
-        )
+        tier_limits_database_targets(control_system, path_configured=resolved is not None)
     )
 
-    if not isinstance(raw, str) or not raw.strip():
+    if resolved is None:
         if limits_required:
             raise DeploymentPreconditionError(
                 reason=(
@@ -936,11 +943,12 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
         # spelled.
         return None
 
-    configured = Path(raw).expanduser()
+    assert isinstance(raw, str)  # a key that names no string resolves to None above
+    configured = Path(raw.strip()).expanduser()
+    on_host = Path(resolved)
     if configured.is_absolute():
-        source = repo_relative_mount_source(raw, repo_root=None)
+        source = repo_relative_mount_source(str(configured), repo_root=None)
         target = source
-        on_host = configured
     else:
         relative = PurePosixPath(configured)
         # The prefix is joined for the SOURCE only. ``deployed_config_dir`` is
@@ -952,7 +960,6 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
         )
         source = repo_relative_mount_source(str(deployed), repo_root=None)
         target = str(PurePosixPath(_CONTAINER_PROJECT_ROOT) / relative)
-        on_host = Path(config_dir) / configured
 
     if not on_host.is_file():
         if limits_required:
