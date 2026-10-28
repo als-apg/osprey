@@ -21,8 +21,8 @@ from lume.variables import ConfigEnum, NDVariable, ScalarVariable, StrVariable, 
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation import series
 from osprey_connectors.simulation.composite import (
-    LOG_RECORD_MAX_BYTES,
-    STATUS_MAX_BYTES,
+    _LOG_RECORD_MAX_BYTES,
+    _STATUS_MAX_BYTES,
     Composite,
     WriteRefusedError,
 )
@@ -570,7 +570,7 @@ def test_a_long_engine_text_is_capped_in_utf8_bytes(tmp_path: Path) -> None:
 
     status = composite.status("M")
 
-    assert len(status.encode("utf-8")) <= STATUS_MAX_BYTES
+    assert len(status.encode("utf-8")) <= _STATUS_MAX_BYTES
     assert status.endswith("…")
     assert message.startswith(status[:-1])
 
@@ -606,7 +606,7 @@ def test_the_log_appends_one_line_per_record_widened_past_the_umask(
     records = [json.loads(line) for line in raw]
     assert stat.S_IMODE(log.stat().st_mode) == 0o664
     assert [record["error"][:6] for record in records] == ["xxxxxx", "broken"]
-    assert all(len(line) < LOG_RECORD_MAX_BYTES for line in raw)
+    assert all(len(line) < _LOG_RECORD_MAX_BYTES for line in raw)
     assert {(record["instance"], record["pid"]) for record in records} == {
         ("inprocess", os.getpid())
     }

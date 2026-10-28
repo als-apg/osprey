@@ -19,11 +19,22 @@ import pytest
 
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
-from tests._config_lookup import writes_enabled_lookup
+from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
 from tests.connectors._driver_fakes import driven_through
 from tests.facility.served_tree import in_process_config, served_tree
 
 VALUE_SENT = 5.0
+
+
+@pytest.fixture(autouse=True)
+def _switch_on(monkeypatch, tmp_path):
+    """The login's switch on for the simulator target, connectors stamped with it.
+
+    With :func:`writes_enabled_config` serving a write tier that allows, that is
+    everything the reference monitor's verdict asks before a write reaches the
+    transport; a test that disarms serves a tier that does not.
+    """
+    return arm_switch(monkeypatch, tmp_path / "armed-data")
 
 
 def _broken_validator() -> MagicMock:
@@ -42,7 +53,7 @@ class WriteRun:
 
 
 async def _run_mock(monkeypatch, tmp_path) -> WriteRun:
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_lookup)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
     view = served_tree(tmp_path, ["TEST:CHANNEL:SP"])
     connector = VAInProcessConnector()
     await connector.connect(in_process_config(view, response_delay_ms=0))
@@ -64,7 +75,7 @@ async def _run_doocs(_monkeypatch, _tmp_path) -> WriteRun:
 
     with (
         driven_through("doocs4py", doocs4py),
-        patch("osprey_connectors.config.get_config_value", side_effect=writes_enabled_lookup),
+        patch("osprey_connectors.config.get_config_value", side_effect=writes_enabled_config),
     ):
         from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
@@ -88,7 +99,7 @@ async def _run_tango(_monkeypatch, _tmp_path) -> WriteRun:
 
     with (
         driven_through("tango", tango),
-        patch("osprey_connectors.config.get_config_value", side_effect=writes_enabled_lookup),
+        patch("osprey_connectors.config.get_config_value", side_effect=writes_enabled_config),
     ):
         from osprey_connectors.control_system._tango_connector import TangoConnector
 

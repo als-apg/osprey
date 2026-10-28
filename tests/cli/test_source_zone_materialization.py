@@ -156,7 +156,7 @@ def test_extends_chain_preset_materializes_flat(
         "# The child's own comment, carried onto its override.\n"
         "deploy_services: false\n"
         "config:\n"
-        "  control_system.writes_enabled: false\n",
+        "  control_system.writes: never\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(build_profile_presets, "_presets_dir", lambda: presets)
@@ -168,7 +168,7 @@ def test_extends_chain_preset_materializes_flat(
     text = (target / "profile.yml").read_text()
     assert not any(line.startswith("extends:") for line in text.splitlines()), text
     assert "deploy_services: false" in text
-    assert "control_system.writes_enabled: false" in text
+    assert "control_system.writes: never" in text
     assert "preset: ro-child" in text
     # Base content, with the base file's comments.
     assert "Which model answers" in text

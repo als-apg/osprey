@@ -26,6 +26,7 @@ import pytest
 import yaml
 
 import osprey.runtime.guarded_run as guarded_run
+from osprey.mcp_server.approval_record import APPROVAL_CONFIG_INVALID, APPROVAL_MISSING, Refusal
 from osprey.mcp_server.python_executor import executor
 from osprey.mcp_server.python_executor.executor import ExecutionResult
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
@@ -115,6 +116,9 @@ async def test_each_tool_hands_the_approved_fields_to_the_gate_sequence(
         from osprey.mcp_server.python_executor.tools import python_execute_file as module
 
         monkeypatch.setattr(executor, "_resolve_project_root", lambda: tmp_path)
+        # execute_file asks the write verdict before the gate sequence, and this
+        # test is about what reaches the gate sequence, not about the verdict.
+        monkeypatch.setattr(module, "enforce_posture_clamp", lambda execution_mode, *, tool: None)
         script = tmp_path / "probe.py"
         script.write_text("x = 1\n", encoding="utf-8")
         kwargs = {"file_path": str(script)}
@@ -202,20 +206,34 @@ def _gate(
     tool: str = "execute",
     call_id: str | None = _CALL_ID,
     control_target: str = "live",
-) -> None:
+) -> Refusal | None:
     from osprey.audit.call import call_scope
 
     with call_scope(call_id, None):
-        executor._check_approved_call(mode, config, tool, approved, control_target=control_target)
+        return executor._check_approved_call(
+            mode, config, tool, approved, control_target=control_target
+        )
 
 
-def test_the_executor_spells_the_ask_stamp_like_the_hook() -> None:
+def _refused(
+    config: dict[str, Any],
+    approved: dict[str, str | None],
+    *,
+    error_type: str = APPROVAL_MISSING,
+    **kwargs: Any,
+) -> str:
+    """The message of the refusal :func:`_gate` answers, which must be of *error_type*."""
+    refusal = _gate(config, approved, **kwargs)
+    assert refusal is not None and refusal.error_type == error_type
+    return refusal.message
+
+
+def test_the_approved_fields_are_named_like_the_hook() -> None:
+    from osprey.mcp_server.approval_record import APPROVED_FIELDS
     from tests.hooks.conftest import import_hook
 
     approval = import_hook("osprey_approval")
-    assert executor.APPROVAL_ASK_PREFIX == approval.APPROVAL_ASK_PREFIX
-    assert executor.APPROVAL_ASK_SUFFIX == approval.APPROVAL_ASK_SUFFIX
-    assert all(name.startswith(approval.APPROVED_FIELD_PREFIX) for name in executor.APPROVED_FIELDS)
+    assert all(name.startswith(approval.APPROVED_FIELD_PREFIX) for name in APPROVED_FIELDS)
 
 
 #: The tool modules whose calls the approval prompt binds to their target.
@@ -243,15 +261,14 @@ def test_the_hooks_binding_key_is_the_tools_argument(module: str) -> None:
 def test_a_stamp_equal_to_the_call_is_admitted(stamps: Path) -> None:
     _stamp(stamps, **_BOUND)
 
-    _gate(_ASKING_CONFIG, _BOUND)
+    assert _gate(_ASKING_CONFIG, _BOUND) is None
 
 
 def test_execute_file_is_matched_by_its_own_name(stamps: Path) -> None:
     _stamp(stamps, tool="mcp__python__execute_file", **_BOUND)
 
-    _gate(_ASKING_CONFIG, _BOUND, tool="execute_file")
-    with pytest.raises(executor._ApprovalMissing, match="left no record"):
-        _gate(_ASKING_CONFIG, _BOUND, tool="execute")
+    assert _gate(_ASKING_CONFIG, _BOUND, tool="execute_file") is None
+    assert "left no record" in _refused(_ASKING_CONFIG, _BOUND, tool="execute")
 
 
 @pytest.mark.parametrize(
@@ -260,9 +277,7 @@ def test_execute_file_is_matched_by_its_own_name(stamps: Path) -> None:
 )
 @pytest.mark.usefixtures("stamps")
 def test_an_asking_call_without_a_stamp_is_refused(call_id: str | None) -> None:
-    with pytest.raises(executor._ApprovalMissing) as refusal:
-        _gate(_ASKING_CONFIG, _BOUND, call_id=call_id)
-    assert str(refusal.value) == (
+    assert _refused(_ASKING_CONFIG, _BOUND, call_id=call_id) == (
         "not run: this call's approval prompt left no record (approval_missing). "
         "Call the tool again so the approval prompt can ask."
     )
@@ -275,17 +290,14 @@ def test_an_unresolvable_state_directory_is_no_stamp(monkeypatch: pytest.MonkeyP
         raise RuntimeError("no state directory")
 
     monkeypatch.setattr(target_state, "state_dir", unresolvable)
-    with pytest.raises(executor._ApprovalMissing, match="left no record"):
-        _gate(_ASKING_CONFIG, _BOUND)
+    assert "left no record" in _refused(_ASKING_CONFIG, _BOUND)
 
 
 @pytest.mark.parametrize("field", ["approved_target"])
 def test_a_stamp_that_differs_from_the_call_is_refused(stamps: Path, field: str) -> None:
     _stamp(stamps, **{**_BOUND, field: "something-else"})
 
-    with pytest.raises(executor._ApprovalMissing) as refusal:
-        _gate(_ASKING_CONFIG, _BOUND)
-    assert str(refusal.value) == (
+    assert _refused(_ASKING_CONFIG, _BOUND) == (
         f"not run: `{field}` differs from what the approval prompt recorded "
         "(approval_missing). Call the tool again."
     )
@@ -295,29 +307,27 @@ def test_a_stamp_that_differs_from_the_call_is_refused(stamps: Path, field: str)
 def test_an_asking_call_missing_a_field_is_refused(stamps: Path, field: str) -> None:
     _stamp(stamps, **_BOUND)
 
-    with pytest.raises(executor._ApprovalMissing, match=f"`{field}` differs"):
-        _gate(_ASKING_CONFIG, {**_BOUND, field: None})
+    assert f"`{field}` differs" in _refused(_ASKING_CONFIG, {**_BOUND, field: None})
 
 
 def test_a_field_the_stamp_records_and_the_call_omits_is_not_compared(stamps: Path) -> None:
     _stamp(stamps, **_BOUND, approved_view_sha256="cd" * 32)
 
-    _gate(_ASKING_CONFIG, _BOUND)
+    assert _gate(_ASKING_CONFIG, _BOUND) is None
 
 
 def test_a_field_the_call_carries_and_the_stamp_lacks_is_refused(stamps: Path) -> None:
     _stamp(stamps, **_BOUND)
 
-    with pytest.raises(executor._ApprovalMissing, match="`approved_view_sha256` differs"):
-        _gate(_ASKING_CONFIG, {**_BOUND, "approved_view_sha256": "cd" * 32})
+    assert "`approved_view_sha256` differs" in _refused(
+        _ASKING_CONFIG, {**_BOUND, "approved_view_sha256": "cd" * 32}
+    )
 
 
 def test_a_call_approved_for_another_target_is_refused_before_spawn(stamps: Path) -> None:
     _stamp(stamps, **_BOUND)
 
-    with pytest.raises(executor._ApprovalMissing) as refusal:
-        _gate(_ASKING_CONFIG, _BOUND, control_target="va")
-    assert str(refusal.value) == (
+    assert _refused(_ASKING_CONFIG, _BOUND, control_target="va") == (
         "not run: this call was approved for target `live`; the run is on `va` "
         "(approval_missing). Call the tool again."
     )
@@ -402,7 +412,7 @@ def test_no_approved_field_reaches_any_sandbox(
 def test_a_readonly_call_is_not_checked(stamps: Path) -> None:
     _stamp(stamps, approved_target="va")
 
-    _gate(_ASKING_CONFIG, _BOUND, mode="readonly")
+    assert _gate(_ASKING_CONFIG, _BOUND, mode="readonly") is None
 
 
 #: Approval sections no reader can trust, each with the sentence that refuses it.
@@ -433,9 +443,10 @@ def test_a_non_bool_switch_runs_nothing(
     """A switch that is not true or false refuses the run, even with a matching stamp."""
     if stamped:
         _stamp(stamps, **_BOUND)
-    with pytest.raises(executor._ApprovalConfigInvalid) as refusal:
-        _gate(config, _BOUND)
-    assert str(refusal.value) == f"not run: {sentence} (approval_config_invalid)."
+    assert (
+        _refused(config, _BOUND, error_type=APPROVAL_CONFIG_INVALID)
+        == f"not run: {sentence} (approval_config_invalid)."
+    )
 
 
 @pytest.mark.parametrize(
@@ -445,7 +456,7 @@ def test_a_non_bool_switch_leaves_a_readonly_call_alone(
     stamps: Path, config: dict[str, Any]
 ) -> None:
     _stamp(stamps, **_BOUND)
-    _gate(config, _BOUND, mode="readonly")
+    assert _gate(config, _BOUND, mode="readonly") is None
 
 
 @pytest.mark.usefixtures("stamps")
@@ -523,14 +534,15 @@ _MEASURE_BOUND = {**_BOUND, "approved_view_sha256": "cd" * 32}
 def test_a_measurement_whose_stamp_agrees_on_both_fields_is_admitted(stamps: Path) -> None:
     _stamp(stamps, tool="mcp__python__pyaml_measure", **_MEASURE_BOUND)
 
-    _gate(_ASKING_CONFIG, _MEASURE_BOUND, tool="pyaml_measure")
+    assert _gate(_ASKING_CONFIG, _MEASURE_BOUND, tool="pyaml_measure") is None
 
 
 def test_an_asking_measurement_without_a_view_digest_is_refused(stamps: Path) -> None:
     _stamp(stamps, tool="mcp__python__pyaml_measure", **_MEASURE_BOUND)
 
-    with pytest.raises(executor._ApprovalMissing, match="`approved_view_sha256` differs"):
-        _gate(_ASKING_CONFIG, _BOUND, tool="pyaml_measure")
+    assert "`approved_view_sha256` differs" in _refused(
+        _ASKING_CONFIG, _BOUND, tool="pyaml_measure"
+    )
 
 
 @pytest.mark.parametrize(

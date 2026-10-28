@@ -42,7 +42,7 @@ def describe_active_target() -> dict[str, str] | None:
     """Identify the control-system target the deployment is on, or ``None``.
 
     A failure envelope that says "the write to ``SR:...:SP`` timed out" is a
-    materially different situation on the live machine than on the simulator,
+    materially different situation on the real machine than on the simulator,
     and the operator should not have to reconstruct which one it was from
     session memory. This resolves ``{name, label, endpoint}`` for the active
     target from the supervisor alone: its target of record, and the endpoint
@@ -82,7 +82,16 @@ LOOK_IT_UP = (
 
 
 def _target_clause(identity: dict[str, str] | None) -> str:
-    """The human half: `` (active target: LIVE MACHINE at 127.0.0.1:5064)``."""
+    """The human half: `` (active target: Real machine — writes move hardware at <endpoint>)``.
+
+    Renders the label the controls server published for the active target —
+    its machine kind's banner (``osprey_connectors.write_target.KIND_BANNERS``,
+    D4) — and never a word of its own, so a tool error names the machine in the
+    same words as the roster, the chip and the identity line: this deployment's
+    stand-in reads ``Rehearsal — nothing moves``, and a ``standin`` target
+    pointing anywhere else reads as the real machine. Total: no identity
+    renders ``""``.
+    """
     if not identity:
         return ""
     where = f" at {identity['endpoint']}" if identity.get("endpoint") else ""
@@ -220,8 +229,8 @@ async def connector_error_handler(
     carries the active target's identity — ``details["active_target"]`` with
     ``name``/``label`` (and ``endpoint`` where config knows one), plus a
     human clause in the message where the machine matters — so a dead-IOC
-    timeout on the live machine can never be mistaken for one on the
-    simulator. The archiver has no live/VA axis, so its envelopes carry none.
+    timeout on the real machine can never be mistaken for one on the
+    simulator. The archiver has no machine axis, so its envelopes carry none.
 
     A :class:`~osprey.mcp_server.errors.NothingAnsweredError` is answered with
     its cause's envelope, ``details.missing`` added, and with

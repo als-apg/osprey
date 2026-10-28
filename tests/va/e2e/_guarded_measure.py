@@ -111,8 +111,9 @@ def isolation_settings(port: int, pva_port: int, probe: str, *, approval: bool) 
     """The ``osprey set`` arguments of a deployment whose one machine is the simulator.
 
     The connector table is stated whole, so every block the preset carried is
-    replaced by one ``virtual_accelerator`` block on ``127.0.0.1:<port>``
-    armed for writes, and the stand-in is switched off. The build names both of
+    replaced by one ``virtual_accelerator`` block on ``127.0.0.1:<port>``,
+    and the stand-in is switched off. The write tier is not among them:
+    ``osprey set`` cannot raise it, so :func:`build` states it in the profile. The build names both of
     instance 1's protocol ports, Channel Access ``port`` and pvAccess
     ``pva_port``, which sit outside the deployment's port block, so two
     deployments on one host collide on neither. The approval block is
@@ -124,13 +125,11 @@ def isolation_settings(port: int, pva_port: int, probe: str, *, approval: bool) 
         "virtual_accelerator": {
             "gateways": {"read_only": gateway, "write_access": gateway},
             "probe_channel": probe,
-            "writes_enabled": True,
             "timeout_s": 30.0,
         }
     }
     return [
         "connector=virtual_accelerator",
-        "config.control_system.writes_enabled=true",
         f"config.control_system.connector={json.dumps(connector)}",
         f"virtual_accelerator.port={port}",
         f"virtual_accelerator.pva_port={pva_port}",
@@ -163,9 +162,35 @@ def set_measurement(repo: Path, model: str, **changes: Any) -> None:
     path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
 
 
+def allow_writes(repo: Path) -> None:
+    """State ``control_system.writes: allowed`` in the repo's profile, as a deployer does.
+
+    ``osprey set`` only ever lowers the write ceiling, so raising it is an edit to
+    the profile's ``config:`` block, which the build then renders. Any other
+    spelling of the leaf already there is removed, so the profile states it once.
+    """
+    from osprey_connectors.types import WRITES_KEY
+
+    path = repo / "profile.yml"
+    profile = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    config = profile.get("config")
+    if not isinstance(config, dict):
+        config = {}
+    section, leaf = WRITES_KEY.split(".", 1)
+    nested = config.get(section)
+    if isinstance(nested, dict):
+        nested.pop(leaf, None)
+        if not nested:
+            del config[section]
+    config[WRITES_KEY] = "allowed"
+    profile["config"] = config
+    path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
+
+
 def build(repo: Path, settings: Sequence[str]) -> None:
-    """Apply ``settings`` to ``repo`` and build it."""
+    """Apply ``settings`` to ``repo``, allow writes in its profile, and build it."""
     osprey("set", "--repo", str(repo), *settings)
+    allow_writes(repo)
     osprey("build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle")
 
 
@@ -414,11 +439,19 @@ def acting_in(
     Two sessions with different roots are two containers of one deployment:
     they share the repo's guarded-run directory and nothing else. Every stamp
     a session child must not inherit from this process is removed.
+
+    The session's switch is on for the simulator: a write needs the login tier
+    (``control_system.writes: allowed``, which :func:`build` states) AND the
+    switch on for its machine, and a fresh session's switch is off. The record
+    is written once per root, ownerless at generation 0 on the simulator, the
+    way a controls server's claim would start it; a root that already holds
+    one keeps it.
     """
     from osprey.audit.posture import POSTURE_SESSION_ENV_VAR
     from osprey.runtime import ENV_CONTROL_TARGET, ENV_CONTROL_TARGET_GENERATION
-    from osprey_connectors import posture_store
+    from osprey_connectors import control_context, posture_store
     from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors_tests._harness import write_control_context
 
     agent_data.mkdir(parents=True, exist_ok=True)
     values = {
@@ -445,11 +478,17 @@ def acting_in(
             patch.setenv(name, value)
         reset_config_cache()
         posture_store.invalidate_cache()
+        control_context.invalidate_cache()
+        if not control_context._record_path_under(agent_data).exists():
+            write_control_context(
+                agent_data, target=VA_TARGET, generation=0, owned_by=None, switch={VA_TARGET: "on"}
+            )
         try:
             yield
         finally:
             reset_config_cache()
             posture_store.invalidate_cache()
+            control_context.invalidate_cache()
 
 
 # ---------------------------------------------------------------------------

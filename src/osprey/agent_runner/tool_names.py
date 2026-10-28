@@ -4,7 +4,9 @@ This is where the names of Claude Code's own tools, and the ``permissions.deny``
 entries built from them, are defined. Each list is a separate policy and is
 written out in full, never derived from another, so a rename in one list fails
 a test instead of silently changing a second gate. The relations between them
-are pinned by tests, not by construction.
+are pinned by tests, not by construction. The one exception is
+:data:`SHELL_TOOLS`, which two gates read directly so that they always agree on
+what counts as a shell.
 """
 
 from __future__ import annotations
@@ -225,3 +227,17 @@ WRITE_CAPABLE_BUILTINS: tuple[str, ...] = (
 #: A *scoped* deny (``Bash(rm:*)``) constrains one command family and leaves the
 #: shell otherwise usable, so only this literal counts as "Bash is denied".
 BASH_DENY_ENTRY: str = "Bash"
+
+#: The built-ins that run shell commands: ``Bash`` is the shell itself and
+#: ``Monitor`` runs shell commands in the background. A render's agent has no
+#: shell only when its ``permissions.deny`` carries **every** entry here as an
+#: exact literal (a scoped deny constrains one command family, as
+#: :data:`BASH_DENY_ENTRY` explains), so a render that lifts ``Monitor`` alone
+#: still has an open shell.
+#:
+#: Unlike the lists above, this one set is read by two gates on purpose, so they
+#: can never disagree about what counts as a shell: the roster's launch-token
+#: guard (:func:`~osprey.deployment.web_terminals.roster.renders_with_open_shell`)
+#: and the write-tier build refusal in
+#: :func:`~osprey.cli.templates.claude_code._lint_write_tools_are_gated`.
+SHELL_TOOLS: tuple[str, ...] = (BASH_DENY_ENTRY, "Monitor")

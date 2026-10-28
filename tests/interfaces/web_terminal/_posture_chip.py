@@ -22,8 +22,12 @@ import yaml
 
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.identity import acting_identity
+from osprey_connectors.write_target import KIND_BANNERS
 from osprey_connectors_tests._harness import write_control_context, write_server_report
+from osprey_connectors_tests._harness._control_context_fixtures import SELF_OWNER
 from tests.interfaces._hub import LONG_LIVED_SHELL, hub_server
+from tests.interfaces.web_terminal._control_context import read_record
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -101,22 +105,46 @@ SWITCH_TARGET = "live"
 #: row whose named endpoint can be seen to move when a session gives up writes.
 ENDPOINT_TARGET = "live"
 
-#: The server's own labels. The controls server mints these once, and this
-#: render keeps them where the machine vocabulary now lives: on tooltips.
-LABELS = {
-    "live": "LIVE MACHINE",
-    "va": "virtual accelerator (simulation)",
-    "standin": "LIVE MACHINE (stand-in)",
+#: The machine kind each target reads as when no controls server vouches for
+#: anything (C-KIND): ``va`` is the simulator, ``live`` the real machine, and
+#: ``standin`` the real machine too — a stand-in is only the rehearsal once a
+#: live server's report says so (:data:`REHEARSAL_STANDIN`). The chip's
+#: ``data-target-kind`` speaks in these words, never in target names.
+KINDS = {
+    "live": "real",
+    "va": "simulator",
+    "standin": "real",
 }
 
-#: What the popover and the chip NAME each target: the kind's own word, since
-#: this render configures no ``control_system.target_display_names``. The
-#: confirm titles quote these — never the labels above.
+#: The server's own labels: each target's C-WORDS banner (D4,
+#: :data:`osprey_connectors.write_target.KIND_BANNERS`), read off its kind so
+#: the label and the published kind cannot describe different machines — the
+#: stand-in reads as the real machine until a live server vouches for it. The
+#: controls server mints these once, and this render keeps them where the
+#: machine vocabulary now lives: on tooltips.
+LABELS = {target: KIND_BANNERS[kind] for target, kind in KINDS.items()}
+
+#: What the popover and the chip NAME each target: the render's default display
+#: name per target, since this render configures no
+#: ``control_system.target_display_names``. A name is per TARGET and does not
+#: follow the kind — the stand-in is "Rehearsal" whether or not a live server
+#: vouches for it, while its ``data-target-kind`` (and so its colour and its
+#: confirm's waiver) follows :data:`KINDS`. The confirm titles quote these —
+#: never the labels above.
 NAMES = {
     "live": "Real machine",
     "va": "Simulator",
     "standin": "Rehearsal",
 }
+
+#: The per-target display block a live controls server publishes to make the
+#: stand-in the rehearsal (C-KIND). Planted by ``chip_hub(rehearsal=True)``.
+REHEARSAL_STANDIN = {POSTURE_TARGET: {"machine_kind": "rehearsal"}}
+
+#: Every configured target with this login's switch on. The default record:
+#: every row starts at ``writes on``, so a turn-off asks nothing and is the
+#: first gesture a test can make.
+ALL_ON = dict.fromkeys(KINDS, "on")
 
 
 # ---------------------------------------------------------------------------
@@ -124,8 +152,18 @@ NAMES = {
 # ---------------------------------------------------------------------------
 
 
-def write_config(path: Path, *, writes_enabled: bool = True) -> Path:
+def write_config(
+    path: Path,
+    *,
+    writes: str = "allowed",
+    login_tiers: dict[str, str] | None = None,
+) -> Path:
     """A render carrying all three control targets, with writes armed.
+
+    ``writes="never"`` is the app render: its tier never writes, so every
+    verdict answers ``tier_never`` before the record is read. *login_tiers*
+    lands at ``control_system.login_tiers`` verbatim — ``{login: "never"}`` is a
+    readonly login on an otherwise writable deployment.
 
     Mirrors the render ``test_posture_get_contract.py`` pins the route's own
     answers against: ``epics`` is the facility's own machine, ``live_standin``
@@ -148,14 +186,20 @@ def write_config(path: Path, *, writes_enabled: bool = True) -> Path:
     gateway = {"address": "gw", "port": READ_PORT, "use_name_server": True}
     write_gateway = {"address": "gw", "port": WRITE_PORT, "use_name_server": True}
     standin_gateway = {"address": "localhost", "port": STANDIN_PORT, "use_name_server": True}
+    section: dict[str, Any] = {
+        "type": "live_standin",
+        # The deployment's write tier (PR-3): only ``"allowed"`` arms.
+        "writes": writes,
+        "limits_checking": {"enabled": True, "mode": "exclusive"},
+        "target_switch": {"live_gateway_acknowledged": "operator@example"},
+    }
+    if login_tiers is not None:
+        section["login_tiers"] = dict(login_tiers)
     path.write_text(
         yaml.safe_dump(
             {
                 "control_system": {
-                    "type": "live_standin",
-                    "writes_enabled": writes_enabled,
-                    "limits_checking": {"enabled": True, "mode": "exclusive"},
-                    "target_switch": {"live_gateway_acknowledged": "operator@example"},
+                    **section,
                     "connector": {
                         "epics": {
                             "probe_channel": "SR:PROBE",
@@ -197,6 +241,11 @@ def chip_hub(
     monkeypatch: pytest.MonkeyPatch,
     *,
     ui_mode: str = "expert",
+    switch: dict[str, str] | None = None,
+    owned_by: Any = SELF_OWNER,
+    writes: str = "allowed",
+    login_tiers: dict[str, str] | None = None,
+    rehearsal: bool = False,
 ) -> Iterator[tuple[str, Any, Path]]:
     """Launch a real web-terminal hub wired for the control-target chip.
 
@@ -230,6 +279,21 @@ def chip_hub(
     the ``GET /`` handler reads per request; it is overridden post-startup, the
     same seam ``test_ui_mode_browser.py`` uses.
 
+    The keyword arguments are the states the chip criteria are about, all of
+    them planted before ``create_app`` so the lifespan's claim merges them:
+
+    * *switch* — this login's write switch, ``{target: "on"}``; ``None`` is
+      :data:`ALL_ON`, and ``{}`` every machine off. Written through the
+      production ``set_switch``, so the epoch is the one it stamps.
+    * *owned_by* — :data:`SELF_OWNER`, or an ``owner(...)`` naming a live
+      process that is not this one: a follower terminal, which may still turn
+      its login's switch but can no longer switch the target.
+    * *writes* / *login_tiers* — the app render and the readonly login
+      (:func:`write_config`).
+    * *rehearsal* — a live controls server (this process) publishes the
+      stand-in as the rehearsal, with a reachability sweep so the switch gate
+      still has something to read.
+
     Yields:
         (base_url, app, root) — the hub's address, its app (how a test reaches
         the PTY registry) and the stamped agent-data root (how a test plants a
@@ -239,13 +303,21 @@ def chip_hub(
     workspace.mkdir(exist_ok=True)
     root = tmp_path / "agent_data"
     (root / posture_store.STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
-    config = write_config(tmp_path / "config.yml")
+    config = write_config(tmp_path / "config.yml", writes=writes, login_tiers=login_tiers)
 
     monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
     reset_process_memos()
-    write_control_context(root, target=ACTIVE_TARGET, generation=RECORD_GENERATION)
+    write_control_context(
+        root,
+        target=ACTIVE_TARGET,
+        generation=RECORD_GENERATION,
+        owned_by=owned_by,
+        switch=ALL_ON if switch is None else switch,
+    )
+    if rehearsal:
+        publish_report(root, targets=REHEARSAL_STANDIN)
 
     try:
         with hub_server(
@@ -300,6 +372,7 @@ def publish_report(
     applied_generation: int | None = RECORD_GENERATION,
     last_switch: dict | None = None,
     server_pid: int | None = None,
+    targets: dict[str, Any] | None = None,
 ) -> Path:
     """Publish one controls server's report under the stamped root.
 
@@ -314,6 +387,9 @@ def publish_report(
     publishes a connector-host child for the same reason — the chip's wait is
     scoped to servers holding a connector, and a report bound at a generation
     with nothing serving would be passed over instead of waited on.
+
+    *targets* is the per-target display block (C-KIND):
+    :data:`REHEARSAL_STANDIN` is what makes the stand-in the rehearsal.
     """
     return write_server_report(
         root,
@@ -323,13 +399,83 @@ def publish_report(
         children=[4242],
         last_switch=last_switch,
         reachability=reachability_sweep(),
+        targets=targets,
     )
 
 
-def recorded_posture() -> dict[str, str]:
-    """The narrowings on disk, as the connector and the hook will read them."""
+def recorded_switch() -> dict[str, str]:
+    """This login's write switch on disk, as every write path reads it."""
+    record = read_record()
+    assert record is not None, "the control-context record disappeared"
+    return dict(record.switch)
+
+
+def render_section(app: Any) -> dict[str, Any]:
+    """The ``control_system`` section of the render this hub serves."""
+    config = yaml.safe_load(app.state.config_path.read_text(encoding="utf-8"))
+    return config["control_system"]
+
+
+def write_verdict_for(
+    app: Any, target: str, login: str | None = None
+) -> posture_store.WriteVerdict:
+    """The write verdict a new call by *login* to *target* meets, read fresh.
+
+    The same call the route makes for each row (``ignore_launch_pin``: the pin
+    is a fact about a run already going). *login* defaults to the signed-in
+    one, which is this process's acting identity — no test here pins another.
+    """
     posture_store.invalidate_cache()
-    return dict(posture_store.recorded_posture())
+    control_context.invalidate_cache()
+    return posture_store.write_verdict(
+        render_section(app),
+        target,
+        owner=acting_identity() if login is None else login,
+        ignore_launch_pin=True,
+    )
+
+
+def verdict_word(app: Any, target: str) -> str:
+    """The state word the server's own facts give *target*: ``on``/``off``/``locked``.
+
+    Derived here from the record and the verdict, not from anything the page
+    sent: ``on`` is a switch that is on and a write that would pass, ``off`` a
+    switch that is off, and ``locked`` a switch that is on and still refused —
+    or one nobody can read, which must never be shown as off.
+    """
+    control_context.invalidate_cache()
+    record, status = control_context.read_record_status()
+    if status == "unreadable":
+        return "locked"
+    on = record is not None and record.switch.get(target) == "on"
+    if not on:
+        return "off"
+    return "on" if write_verdict_for(app, target).allowed else "locked"
+
+
+def popover_machine(page: Page, target: str) -> Any:
+    """The popover node for *target*, card or row alike."""
+    return page.locator(f'{POPOVER} :is(.ctc-card, .ctc-row)[data-target="{target}"]')
+
+
+def assert_chip_matches_verdict(page: Page, app: Any) -> None:
+    """Every machine the popover shows says what the verdict says, and so does the chip.
+
+    The popover must be open. Each configured target's ``data-state`` is
+    compared with :func:`verdict_word` for it, and the chip's own
+    ``data-state`` with the word of the machine the card names — the chip
+    speaks for that one. A page that agreed with what it last POSTed rather
+    than with the server would drift here first.
+    """
+    for target in KINDS:
+        expect(popover_machine(page, target)).to_have_attribute(
+            "data-state", verdict_word(app, target), timeout=TIMEOUT
+        )
+    active = page.locator(CARD).get_attribute("data-target")
+    assert active in KINDS, active
+    expect(page.locator(CHIP)).to_have_attribute(
+        "data-state", verdict_word(app, active), timeout=TIMEOUT
+    )
 
 
 def popover_row(page: Page, target: str) -> Any:
@@ -343,12 +489,16 @@ def popover_row(page: Page, target: str) -> Any:
 
 
 def writes_toggle(page: Page, target: str) -> Any:
-    """The row's writes switch — ``aria-checked`` is the readout."""
-    return popover_row(page, target).locator(".ctc-toggle")
+    """The machine's writes switch, card or row — ``aria-checked`` is the readout."""
+    return popover_machine(page, target).locator(".ctc-toggle")
 
 
 def settled_chip(
-    browser: Browser, base_url: str, *, init_script: str | None = None
+    browser: Browser,
+    base_url: str,
+    *,
+    init_script: str | None = None,
+    enforceable: bool = True,
 ) -> tuple[Page, str]:
     """Open the hub and wait until the chip speaks for a writable deployment.
 
@@ -373,6 +523,9 @@ def settled_chip(
             installed after ``goto``: by then the module graph has already run
             and the thing it meant to count has already happened. Default
             ``None``, which is every call site that only wants a settled chip.
+        enforceable: The ``data-enforceable`` value to wait for. ``False`` for
+            a follower terminal, whose switches still work but whose target
+            switches would be refused.
 
     Returns:
         (page, session_id) — the id the owning surface settled on: the
@@ -388,7 +541,9 @@ def settled_chip(
     page.goto(base_url, wait_until="domcontentloaded")
 
     expect(page.locator(CHIP)).to_be_visible(timeout=TIMEOUT)
-    expect(page.locator(CHIP)).to_have_attribute("data-enforceable", "true", timeout=TIMEOUT)
+    expect(page.locator(CHIP)).to_have_attribute(
+        "data-enforceable", str(enforceable).lower(), timeout=TIMEOUT
+    )
 
     # The pointer is written by the surface that owns the session — the
     # terminal's own confirmation in the Expert view, the console's key in the

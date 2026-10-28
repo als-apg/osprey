@@ -142,6 +142,20 @@ class TestTemplateManager:
             )
 
 
+def _select_writes_check(project_dir):
+    """Stamp a manifest whose hook selection carries ``writes-check``.
+
+    A framework-default render pins writes ``never`` and enables python's
+    read/write-mixed exec tools, which only the writes-check hook refuses per
+    call, so a render selecting no hooks is refused by the write-gate lint.
+    These tests are about something else and select the one hook it demands.
+    """
+    (project_dir / ".osprey-manifest.json").write_text(
+        json.dumps({"artifacts": {"hooks": ["writes-check"]}}), encoding="utf-8"
+    )
+    return project_dir
+
+
 class TestBuildClaudeCodeContextHierarchy:
     """Tests for hierarchy embedding in build_claude_code_context."""
 
@@ -219,7 +233,7 @@ class TestBuildClaudeCodeContextHierarchy:
         }
         manager = TemplateManager()
         ctx = claude_code.build_claude_code_context(
-            manager.template_root, manager.jinja_env, tmp_path, config
+            manager.template_root, manager.jinja_env, _select_writes_check(tmp_path), config
         )
         assert ctx["channel_finder_hierarchy"] is None
 
@@ -233,7 +247,7 @@ class TestBuildClaudeCodeContextHierarchy:
         }
         manager = TemplateManager()
         ctx = claude_code.build_claude_code_context(
-            manager.template_root, manager.jinja_env, tmp_path, config
+            manager.template_root, manager.jinja_env, _select_writes_check(tmp_path), config
         )
         assert ctx["channel_finder_hierarchy"] is None
 
@@ -279,9 +293,13 @@ class TestBuildClaudeCodeContextPipelineMode:
         The paradigm rule only fires for a project that ships that agent, and
         the selection is read from the project's own ``.osprey-manifest.json``.
         A bare directory selects nothing, so the rule would never be reached.
+        The selection also carries ``writes-check``: the framework-default
+        render pins writes ``never`` with python's read/write-mixed tools on,
+        and the write-gate lint refuses such a render without that hook.
         """
         (tmp_path / ".osprey-manifest.json").write_text(
-            json.dumps({"artifacts": {"agents": ["channel-finder"]}}), encoding="utf-8"
+            json.dumps({"artifacts": {"agents": ["channel-finder"], "hooks": ["writes-check"]}}),
+            encoding="utf-8",
         )
         return tmp_path
 

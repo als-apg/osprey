@@ -31,7 +31,7 @@ stdin ──► Parse JSON
   Is this call a write, and is the deployment
   NOT armed for the target it would act on?
      │                    │
-    YES                  NO / no posture stated
+    YES                  NO
      │                    │
      ▼                    │
   EXIT, no decision       │
@@ -83,8 +83,9 @@ exits with NO decision at all, so that the layer which refuses it — the
 by an approval prompt. Posture is per target, so the same tool on the same
 deployment can defer on one target and prompt on the other; the operator's own
 per-target narrowing in the control-context record counts the same way as a
-config disarm, because `osprey_writes_check` reads the same record. A config
-that states no posture anywhere prompts exactly as it always has.
+config disarm, because `osprey_writes_check` reads the same record. A target
+whose write tier is not stated has the tier `never`, so its writes defer here
+like any other refusal; silence never means a prompt.
 
 ## Write-approval stamps
 
@@ -627,20 +628,39 @@ def _sanitize_label(text) -> str:
 _TARGET_BASELINE_LINE = "Target: deployment baseline (state unavailable)"
 
 
-def _real_machine_claim(meta):
-    """Whether *meta* CLAIMS a real machine: ``True``, ``False``, or ``None``.
+#: The words each machine kind is spoken of by on this prompt, keyed by the
+#: kind the twin's :func:`published_machine_kind` answers. A restated copy of
+#: ``osprey_connectors.write_target.KIND_BANNERS`` (C-WORDS, D4) — this hook is
+#: deployed standalone and cannot import it, so a test pins the two — and
+#: deliberately NOT the refusal words (``KIND_WORDS``), which complete a
+#: refusal sentence rather than name a machine.
+_KIND_WORDS = {
+    "real": "Real machine — writes move hardware",
+    "rehearsal": "Rehearsal — nothing moves",
+    "simulator": "Simulator — nothing moves",
+}
 
-    Three states, not two. A ``real_machine`` key that is absent, null, or not a
-    boolean is a record this hook cannot read — an older or newer writer, or a
-    truncated one — and coercing that to ``False`` would print "virtual
-    accelerator (simulation)" over a record that never said so. ``None`` sends
-    the caller to the explicit baseline line, which is the honest answer: the
-    identity is unknown, and unknown is not the same claim as simulated.
+#: The warning a switch toward the real machine carries, in the real machine's
+#: words: every write approved after it moves hardware.
+_REAL_SWITCH_WARNING = (
+    "⚠️  THIS SWITCH POINTS THE SESSION AT THE REAL MACHINE — every write "
+    "approved afterwards moves real hardware."
+)
+
+
+def _target_kind(target, hook_input=None):
+    """The kind of machine *target* is, from the twin's C-KIND reader only.
+
+    Never the ``real_machine`` claim and never the label string: a label is
+    display text a writer minted, and a claim is a second source that can
+    disagree with the one every other surface reads. The reader answers
+    ``rehearsal`` only while a live controls server publishes *target* as this
+    deployment's stand-in; every other answer — no live report, a ``standin``
+    pointing anywhere else, a name the reader does not know — is ``real``, so
+    the one direction a wrong answer can go is towards the louder words.
     """
-    if not isinstance(meta, dict):
-        return None
-    claim = meta.get("real_machine")
-    return claim if isinstance(claim, bool) else None
+    kind = _target_state.published_machine_kind(target, hook_input=hook_input)
+    return kind if kind in _KIND_WORDS else "real"
 
 
 #: "the caller did not pass a record", which is a different thing from a caller
@@ -1129,41 +1149,39 @@ def _session_state_record(hook_input=None):
     return state.read_target_view(hook_input)
 
 
-def _target_identity_phrase(record: dict | None, target: str) -> str | None:
+def _target_identity_phrase(record: dict | None, target: str, hook_input=None) -> str | None:
     """How one target is SPOKEN OF on this prompt, or ``None`` if it cannot be.
 
-    The single place the two identity phrasings live, because more than one
-    surface now names a target: the ``Target:`` line names the deployment's, and
-    the plan-lane lines name the target a lane is wired to. A second spelling of
-    "virtual accelerator (simulation)" would eventually drift from this one, and
-    two different phrasings for one machine on one prompt is exactly the
-    ambiguity the line exists to remove.
+    The single place the identity phrasings live, because more than one surface
+    names a target: the ``Target:`` line names the deployment's, and the
+    plan-lane lines name the target a lane is wired to. A second spelling of a
+    machine's words would eventually drift from this one, and two different
+    phrasings for one machine on one prompt is exactly the ambiguity the line
+    exists to remove.
 
-    ``None`` means no live server states a readable claim about *target* — the
-    tri-state of :func:`_real_machine_claim`, propagated rather than flattened,
-    so every caller renders its own explicit "unknown" instead of inheriting a
-    silent "simulation".
+    The words come from the machine KIND (:func:`_target_kind`), never from the
+    writer's label or its ``real_machine`` claim: the rehearsal reads "Rehearsal
+    — nothing moves" only while the stand-in really is this deployment's, and a
+    ``standin`` pointing anywhere else reads as the real machine.
+
+    ``None`` means no live server publishes anything about *target*, so every
+    caller renders its own explicit "unknown" instead of naming a machine no
+    running process stands behind.
     """
     if _target_state is None or record is None or not target:
         return None
     meta = _target_state.target_metadata(record, target)
-    claim = _real_machine_claim(meta)
-    if claim is None:
+    if not isinstance(meta, dict):
         return None
-    if claim:
-        # The endpoint is the role the writer selected under the session's
-        # effective posture, republished whenever that posture changes.
-        # Rendered verbatim: picking a role here would be a second opinion
-        # about which gateway this deployment actually holds.
-        endpoint = _sanitize_label(meta.get("endpoint") or "endpoint not recorded")
-        # The label is the writer's too, for the same reason the destination
-        # line below reads it rather than re-deriving one: a deployment may put
-        # a stand-in behind the live role, and only the writer knows that. The
-        # fallback covers a record from a writer that recorded no label at all;
-        # it never softens the claim, which stays `real_machine`'s to make.
-        label = _sanitize_label(meta.get("label") or "LIVE MACHINE")
-        return f"{label} ({endpoint})"
-    return "virtual accelerator (simulation)"
+    kind = _target_kind(target, hook_input)
+    label = _KIND_WORDS[kind]
+    if kind == "simulator":
+        return label
+    # The endpoint is the role the writer selected, republished whenever it
+    # changes, and rendered verbatim: picking a role here would be a second
+    # opinion about which gateway this deployment actually holds.
+    endpoint = _sanitize_label(meta.get("endpoint") or "endpoint not recorded")
+    return f"{label} ({endpoint})"
 
 
 def _target_line(hook_input=None, record=_UNREAD) -> str:
@@ -1188,7 +1206,7 @@ def _target_line(hook_input=None, record=_UNREAD) -> str:
             record = _session_state_record(hook_input)
         if record is None:
             return _TARGET_BASELINE_LINE
-        phrase = _target_identity_phrase(record, state.selected_target(record))
+        phrase = _target_identity_phrase(record, state.selected_target(record), hook_input)
         if phrase is None:
             return _TARGET_BASELINE_LINE
         return f"Target: {phrase}"
@@ -1202,8 +1220,8 @@ def _describe_control_target_set(
     """Render where a prospective target switch would leave the session.
 
     The identity line above names where the session is NOW; for a switch, where
-    it would be is the whole decision, so this names the destination's label,
-    the endpoint it would hold, and the channel the switch will probe to prove
+    it would be is the whole decision, so this names the destination's machine
+    kind in the identity line's words, the endpoint it would hold, and the channel the switch will probe to prove
     the destination is really there.
 
     Everything comes from the same control context as the identity line, and —
@@ -1239,21 +1257,14 @@ def _describe_control_target_set(
         ]
 
     lines = []
-    claim = _real_machine_claim(meta)
-    if claim is None:
-        # Same tri-state as the identity line: silence about a destination's
-        # nature must not read as "simulation". Saying so keeps the endpoint and
-        # probe lines below useful without attaching a safety claim to them.
-        lines.append(
-            "⚠️  No controls server records whether this destination is the real "
-            "machine — treat it as unknown."
-        )
-    elif claim:
-        lines.append(
-            "⚠️  THIS SWITCH POINTS THE SESSION AT THE LIVE MACHINE — every write "
-            "approved afterwards moves real hardware."
-        )
-    label = _sanitize_label(meta.get("label") or destination)
+    # The destination's words come from its kind, exactly as the identity
+    # line's do, so "where you are" and "where you would be" name one machine
+    # one way. Only the real machine carries the warning: the rehearsal moves
+    # nothing, and the simulator is not the alarming direction.
+    kind = _target_kind(destination, hook_input)
+    if kind == "real":
+        lines.append(_REAL_SWITCH_WARNING)
+    label = _KIND_WORDS[kind]
     endpoint = _sanitize_label(meta.get("endpoint") or "endpoint not recorded")
     lines.append(f"Destination: {label} ({endpoint})")
     probe = meta.get("probe_channel")
@@ -1962,6 +1973,7 @@ class _LaneSituation(TypedDict):
     record: dict | None
     control_target: str | None
     active: str | None
+    hook_input: dict | None
 
 
 def _lane_situation(config: dict, hook_input=None, read_record=None) -> _LaneSituation:
@@ -1969,7 +1981,8 @@ def _lane_situation(config: dict, hook_input=None, read_record=None) -> _LaneSit
 
     Keys: ``lanes`` (the rendered map), ``multi`` (whether there is anything to
     address at all), ``record`` (the deployment's control context, or ``None``),
-    ``control_target`` and ``active`` (the lane serving it, or ``None``).
+    ``control_target`` and ``active`` (the lane serving it, or ``None``), and
+    ``hook_input`` (the payload the machine kinds are resolved from).
 
     Never raises: an unreadable config is a single-lane deployment and an
     unreadable record is an unknown control target, which are the two
@@ -2004,6 +2017,7 @@ def _lane_situation(config: dict, hook_input=None, read_record=None) -> _LaneSit
         "record": record,
         "control_target": control_target,
         "active": matches[0] if len(matches) == 1 else None,
+        "hook_input": hook_input,
     }
 
 
@@ -2031,7 +2045,7 @@ def _lane_target_phrase(situation: _LaneSituation, lane_target) -> str:
     """
     if not lane_target:
         return "target unknown to this prompt"
-    phrase = _target_identity_phrase(situation["record"], lane_target)
+    phrase = _target_identity_phrase(situation["record"], lane_target, situation.get("hook_input"))
     if phrase:
         return phrase
     return f"{_sanitize_label(lane_target)} (identity not published by any live server)"
@@ -2781,45 +2795,32 @@ def _settle_review(stamp, outcome: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Write posture: is this deployment armed for the target THIS call would act on
+# Write posture: does the write verdict allow the machine THIS call writes to
 # ---------------------------------------------------------------------------
-# Posture is per target (`control_system.connector.<type>.writes_enabled` over
-# `control_system.writes_enabled`), so "are writes disabled here" is only
-# answerable once the call has been pointed at a target. The rules themselves
-# live in `osprey_target_state.writes_posture`, shared with `osprey_writes_check`
-# so the deny and the missing prompt can never disagree about one deployment.
-#
-# What this file owns is the TARGETING: which target a given call would act on.
-#
-# * every ordinary write tool follows the control target, from the record;
-# * a queue START binds to a plan lane instead, and the lane's target is
-#   render-time truth in the rendered config — the same map the prompt's lane
-#   lines read. A start naming no lane binds to the single rendered lane where
-#   there is only one, which is what the tool's own `_bind_lane` does;
-# * every other queue tool is left alone entirely.
+# Both questions are the stdlib twin's, asked exactly as `osprey_writes_check`
+# asks them, so the deny and the missing prompt can never disagree about one
+# call: `hook_write_target` places the call on a machine, and `write_verdict`
+# answers for that machine.
 #
 # THE RULE THIS FILE OBEYS: DEFER IS ONLY SAFE WHERE A REFUSAL IS GUARANTEED.
 # Deferring emits no decision, so the call proceeds unless some other layer
 # refuses it. There are exactly two guarantors, and they cover different tools:
 #
-# * `osprey_writes_check` denies the write tools that follow the control target.
-#   That deny is what makes a defer safe for them. On the pinned Claude Code it
-#   also holds over an "ask" from this hook: scenario (b) of
-#   tests/e2e/claude_code/test_chat_approval_gates_scripted.py shows no card and no run;
-# * `queue_start` refuses in-tool, before its bridge is called, whenever the
-#   bound lane's target is not armed. `writes_check` deliberately allows every
-#   lane-addressed tool, so for a start THAT gate is the only guarantor — and it
-#   only fires once the lane is placed. A start whose lane cannot be placed
-#   therefore keeps its prompt rather than deferring into a gap.
+# * `osprey_writes_check` denies every write tool it does not carve out by lane
+#   wherever the verdict refuses, and wherever the call cannot be placed. On the
+#   pinned Claude Code that deny also holds over an "ask" from this hook:
+#   scenario (b) of tests/e2e/claude_code/test_chat_approval_gates_scripted.py
+#   shows no card and no run;
+# * `queue_start` refuses in-tool, before its bridge is called, whenever its
+#   bound lane's verdict refuses. `writes_check` allows every lane-addressed
+#   tool, so for a start THAT gate is the only guarantor, and it only fires once
+#   the lane is placed. A start whose lane cannot be placed keeps its prompt.
 
-#: Queue tools are addressed by lane rather than by the recorded control target,
-#: and only a START names one. `queue_add` composes onto an idle queue and starts
-#: nothing
-#: (the server withholds the launch token, and the bridge refuses
-#: `launch_token_invalid` the moment the queue drains), and a plain stop is
-#: ungated everywhere by design. Neither has a target to resolve, and neither is
-#: ever short-circuited: a prompt that vanished on a tool nobody denies would be
-#: a gate removed rather than a gate applied.
+#: Queue tools are addressed by lane rather than by the session's target, and
+#: only a START is gated on its lane's verdict in-tool. `queue_add` stages work
+#: tokenless unless that verdict allows, and a plain stop is ungated everywhere by
+#: design; `writes_check` denies neither, so neither is ever deferred: a prompt
+#: that vanished on a tool nobody denies would be a gate removed.
 _QUEUE_TOOL_PREFIX = "queue_"
 _LANE_ADDRESSED_TOOL = "queue_start"
 
@@ -2827,8 +2828,8 @@ _LANE_ADDRESSED_TOOL = "queue_start"
 def _unanswerable_posture(short_name):
     """The posture to assume when the question could not be answered at all.
 
-    Not armed — a defer — wherever `osprey_writes_check` is guaranteed to deny,
-    so the two layers compose into a refusal rather than into a gap. The
+    Refused (a defer) wherever `osprey_writes_check` is guaranteed to deny, so
+    the two layers compose into a refusal rather than into a gap. The
     lane-addressed start is the exception: `writes_check` allows every
     lane-addressed tool, and the tool's own gate cannot fire on a lane nobody
     placed, so a defer there would be an allow with no prompt at all.
@@ -2836,80 +2837,19 @@ def _unanswerable_posture(short_name):
     return None if short_name == _LANE_ADDRESSED_TOOL else False
 
 
-def _lane_posture(config, section, tool_input):
-    """Posture for a queue start, or ``None`` when its lane cannot be placed.
-
-    The lane map is render-time truth from the config's `services.<lane>`
-    blocks. A start that names no lane still binds to the one lane a single-lane
-    deployment has — that is what `_bind_lane` does server-side, so it is the
-    lane the bridge will use and its posture is the honest answer. A start that
-    names no lane on a two-lane render, or one naming a lane this deployment
-    does not carry, is genuinely unplaced and keeps its prompt.
-    """
-    lanes = _rendered_lanes(config)
-    lane = tool_input.get("lane") if isinstance(tool_input, dict) else None
-    if not lane:
-        if len(lanes) != 1:
-            return None
-        target = lanes[0][1]
-    else:
-        target = next((declared for key, declared in lanes if key == lane), None)
-    if target not in (_TARGET_LIVE, _TARGET_VA, _TARGET_STANDIN):
-        # Includes the unplaced lane. A `services.<lane>.target` naming
-        # something else is a config this hook cannot read as a target, and
-        # `writes_posture` would answer it from the deployment-wide key — a
-        # posture for a machine nobody identified.
-        return None
-    return _target_state.writes_posture(section, target)
-
-
-def _session_posture(section, hook_input):
-    """Posture for the target this DEPLOYMENT is pointed at.
-
-    Two layers, composed in the narrowing's own direction — it only ever narrows:
-
-    * the DEPLOYMENT ceiling, from the rendered config. ``None`` (no posture
-      stated anywhere) survives untouched: with no ceiling there is no
-      guaranteed deny to defer into, so the prompt stays.
-    * the OPERATOR's narrowing of that target, from the control-context
-      record. ``osprey_writes_check`` reads the same record on the same shape
-      (its ``effective_writes_for`` call), so an armed target the operator
-      sandboxed is still a guaranteed deny — and keeping the prompt there
-      would ask the human to approve a write the next hook refuses.
-    """
-    result = _target_state.read_target(hook_input)
-    if _target_state.is_baseline(result):
-        # A baseline fallback still NAMES the deployment's baseline target, and
-        # answering for it would state a posture for a deployment that may have
-        # switched away from it. The posture every target this deployment could
-        # REACH agrees on is the only one that cannot become a guess in favour
-        # of hardware — the same call `osprey_writes_check` makes on the same
-        # shape, so the two cannot part company over an unidentified target.
-        target = None
-        ceiling = _target_state.most_restrictive_posture(section)
-    else:
-        target = result.get("target")
-        ceiling = _target_state.writes_posture(section, target)
-    if ceiling is not True:
-        return ceiling
-    if _target_state.target_sandboxed(hook_input, target):
-        return False
-    return True
-
-
 def _call_write_posture(config, tool_name, short_name, tool_input, hook_input):
-    """Whether writes are armed for what this call would touch. Never raises.
+    """Whether the write verdict allows what this call writes to. Never raises.
 
-    ``True`` armed, ``False`` explicitly not armed, and ``None`` for every shape
-    that must keep normal approval: a tool that is not a write, a readonly
-    execution, a queue tool this hook does not target, a start whose lane cannot
-    be placed, and a config that states no posture anywhere.
+    ``True`` allowed, ``False`` refused (``main`` defers), and ``None`` for every
+    shape that must keep normal approval: a tool that is not a write, a readonly
+    execution, a queue tool other than a start, and a start whose lane cannot be
+    placed.
 
-    Everything the answer depends on — the generated write-tool list, the config
-    section, the record, the lane map — sits inside one ``try``, and a
-    failure resolves the way :func:`_unanswerable_posture` describes rather than
-    propagating: an uncaught exception here would exit non-zero with no JSON and
-    let the call through with neither a prompt nor a decision.
+    Everything the answer depends on (the write-tool list, the config, the
+    record, the lane map) sits inside one ``try``, and a failure resolves the way
+    :func:`_unanswerable_posture` describes rather than propagating: an uncaught
+    exception here would exit non-zero with no JSON and let the call through
+    with neither a prompt nor a decision.
     """
     try:
         if not is_write_tool(tool_name, write_tools()):
@@ -2920,16 +2860,24 @@ def _call_write_posture(config, tool_name, short_name, tool_input, hook_input):
             return None
 
         if _target_state is None:
-            # The reader is also where the posture RULES live, so a render
-            # without it cannot answer this at all. The sibling is rendered
-            # beside this file by the same build, so this is theoretical rather
-            # than an upgrade path.
+            # The twin holds the classifier and the verdict, so a render
+            # without it cannot answer. It is rendered beside this file by the
+            # same build, so this is theoretical rather than an upgrade path.
             return _unanswerable_posture(short_name)
 
+        placed = _target_state.hook_write_target(config, tool_name, short_name, hook_input)
+        if placed is None:
+            return None
+        if placed is _target_state.UNRESOLVED:
+            # A write the twin cannot place is one `osprey_writes_check` denies
+            # (``posture_unknown`` when the record root was guessed, otherwise
+            # the verdict on no machine), so a prompt there would ask the human
+            # to approve a call the next hook refuses. A start whose lane cannot
+            # be placed (no lane named on a multi-lane render, a lane the render
+            # does not carry, a lane serving no known target) keeps its prompt.
+            return _unanswerable_posture(short_name)
         section = config.get("control_system") if isinstance(config, dict) else None
-        if short_name == _LANE_ADDRESSED_TOOL:
-            return _lane_posture(config, section, tool_input)
-        return _session_posture(section, hook_input)
+        return _target_state.write_verdict(section, placed, hook_input=hook_input).allowed
     except Exception:
         return _unanswerable_posture(short_name)
 
@@ -2999,6 +2947,78 @@ _APPROVAL_SECTION_INVALID_REASON = (
     "set approval.enabled to true or false in profile.yml and rebuild"
 )
 _APPROVAL_CONFIG_INVALID_AUDIT_REASON = "approval_config_invalid"
+
+# ---------------------------------------------------------------------------
+# Store-naming code: executor code that spells the posture store's path
+# ---------------------------------------------------------------------------
+# Executor code whose text contains a path spelling of the posture store runs
+# only on a person's approval. The python executor applies the same rule again
+# before it spawns (``executor._check_store_path``); both read the one marker
+# tuple, ``refusals.STORE_PATH_MARKERS``, which the twin restates.
+
+#: The executor tools whose code the store-path check reads. ``execute_file``
+#: carries a path, not code: the executor reads the file it is about to run.
+_STORE_PATH_TOOLS = frozenset({"execute"})
+
+#: The marker tuple when the twin is missing from an older render. Restated
+#: from ``refusals.STORE_PATH_MARKERS``; a test pins it equal.
+_FALLBACK_STORE_PATH_MARKERS = ("control_target", "control_context.json")
+
+#: The deny text for store-naming code no person can approve, word for word
+#: the executor's refusal (``executor.STORE_PATH_REFUSAL``).
+_STORE_PATH_REASON = (
+    "not run: this code names the posture store, which only a call a person "
+    "approves may touch, and no person is asked here (approval_missing). Remove "
+    "the store's name from the code, or run it where approval asks."
+)
+_STORE_PATH_AUDIT_REASON = "store_path"
+
+
+def _store_path_markers():
+    """The posture store's path spellings, from the twin when it is rendered."""
+    markers = getattr(_target_state, "STORE_PATH_MARKERS", None)
+    return tuple(markers) if markers else _FALLBACK_STORE_PATH_MARKERS
+
+
+def _names_store(code) -> bool:
+    """Whether *code* spells a path of the posture store, anywhere in its text.
+
+    A plain, case-sensitive substring match: a marker in a string literal or a
+    comment counts, and a path assembled at run time does not.
+    """
+    if not isinstance(code, str) or not code:
+        return False
+    return any(marker in code for marker in _store_path_markers())
+
+
+def _deny_store_path(hook_input, tool_name):
+    """Emit the store-path deny and exit 0. Does not return.
+
+    A refusal, not an answer to an ask, so it is filed as ``refused``. Both
+    filesystem touches are wrapped and happen before the exit: an unwritable
+    log or audit zone costs a record, never the decision.
+    """
+    # logging must never cost the deny
+    with contextlib.suppress(Exception):
+        log_hook("approval", hook_input, status="deny", detail=_STORE_PATH_AUDIT_REASON)
+    # the audit trail must never cost the deny
+    with contextlib.suppress(Exception):
+        emit_audit(
+            "approval",
+            hook_input,
+            decision=AUDIT_DECISION_REFUSED,
+            subject=tool_name,
+            reason=_STORE_PATH_AUDIT_REASON,
+        )
+    output = {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": _STORE_PATH_REASON,
+        }
+    }
+    json.dump(output, sys.stdout)
+    sys.exit(0)
 
 
 def _code_tokens(code):
@@ -3436,10 +3456,11 @@ def main():
     #   per-target deny IS the whole gate — for the lane-addressed queue tools
     #   writes_check skips, the bluesky tools' own lane-bound posture re-read is.
     #
-    # Three-way, and the third way is the point: a config that states no posture
-    # at all falls through to normal approval, so every deployment that predates
-    # the per-target key keeps exactly the prompt it has today. Only an explicit
-    # `False` defers, and only where a refusal is guaranteed — see
+    # Three-way: `True` prompts as usual, `False` defers, and `None` (a call
+    # that is not a write, or a start whose lane cannot be placed) keeps normal
+    # approval. A target with no stated write tier has the tier `never`, so its
+    # writes answer `False` and defer; silence is never an allow. Only `False`
+    # defers, and only where a refusal is guaranteed — see
     # `_call_write_posture`, which answers every part of that question.
     if _call_write_posture(config, tool_name, short_name, tool_input, hook_input) is False:
         log_hook(
@@ -3473,6 +3494,25 @@ def main():
             _APPROVAL_CONFIG_INVALID_REASON.format(value=approval_config["enabled"]),
         )
 
+    # Executor code that names the posture store runs only on a person's
+    # approval. Placed ahead of the `enabled` and `skip` allows and the
+    # selective-readonly allow, so none of them lets it through. A dispatch run
+    # has no person to ask, and a call whose policy asks nobody cannot be
+    # approved: both are denied. Where the policy asks, the call is forced into
+    # the ordinary ask below, whose stamp the executor reads back before it
+    # spawns. `execute_file` carries a path; the executor checks the file.
+    store_naming = short_name in _STORE_PATH_TOOLS and _names_store(tool_input.get("code"))
+    if store_naming:
+        store_policy = approval_config.get("tools", {}).get(
+            short_name, approval_config.get("default_policy", "always")
+        )
+        if (
+            os.environ.get("OSPREY_DISPATCH_RUN") == "1"
+            or approval_config.get("enabled", True) is False
+            or store_policy == "skip"
+        ):
+            _deny_store_path(hook_input, tool_name)
+
     # Global toggle — false means allow everything
     if approval_config.get("enabled", True) is False:
         log_hook("approval", hook_input, status="allow", detail="enabled=false")
@@ -3500,13 +3540,15 @@ def main():
             writes_detected = has_write_patterns(code, config)
             # The agent asking for write mode is itself the signal: approval must not
             # rest on the regex recognising the spelling of the write.
-            needs_approval = exec_mode == "readwrite" or writes_detected
+            needs_approval = exec_mode == "readwrite" or writes_detected or store_naming
             if needs_approval:
                 read_record = _record_reader(hook_input)
                 updated_input, binding = _guarded_call(hook_input, tool_input, read_record)
                 reason_parts = [f"Python execution (mode: {exec_mode or 'unspecified'})"]
                 if writes_detected:
                     reason_parts.append("Code contains control system write patterns.")
+                if store_naming:
+                    reason_parts.append("Code names the posture store.")
                 review_id = None
                 if code.strip():
                     gallery_link, review_id = _create_pre_execution_notebook(

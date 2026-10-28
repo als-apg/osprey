@@ -106,7 +106,7 @@ def test_delta_keeps_the_preset_comments() -> None:
     )
 
     unwrapped = _unwrapped_comments(text)
-    assert "it takes three keys rather than one" in unwrapped
+    assert "`never` wins over the deployment's own `allowed`" in unwrapped
     assert "Pared-down operator layout" in unwrapped
 
 

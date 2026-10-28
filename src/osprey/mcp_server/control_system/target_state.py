@@ -412,6 +412,12 @@ def record_pid(record: Mapping[str, Any], field: str) -> int | None:
 #: fabricated, so a reader can tell "not resolved" from "resolved as".
 _OPTIONAL_TARGET_KEYS = ("probe_channel", "selected_role")
 
+#: The key each target's published machine kind sits under, and the values it
+#: may carry (C-KIND). Read back by ``osprey_connectors.types.published_machine_kind``
+#: and its hook twin.
+_MACHINE_KIND_KEY = "machine_kind"
+_MACHINE_KINDS = frozenset({"real", "rehearsal", "simulator"})
+
 
 def _normalize_target_meta(value: Any) -> dict[str, Any]:
     """Coerce one target's display metadata to the shape readers expect.
@@ -433,6 +439,12 @@ def _normalize_target_meta(value: Any) -> dict[str, Any]:
         optional = meta.get(key)
         if isinstance(optional, str) and optional:
             normalized[key] = optional
+    # The published kind (C-KIND) passes through only when the writer stated
+    # one of the three: a reader that finds none reads ``standin`` as the real
+    # machine, so an invented value here would be the one claim that matters.
+    kind = meta.get(_MACHINE_KIND_KEY)
+    if isinstance(kind, str) and kind in _MACHINE_KINDS:
+        normalized[_MACHINE_KIND_KEY] = kind
     return normalized
 
 

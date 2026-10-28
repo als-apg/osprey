@@ -170,23 +170,25 @@ quirks worth knowing:
       * - Withdraw a pending stop
         - The launch token — it lets the queue keep draining.
 
-   The agent is held to a harder rule on top of this: where the project may
-   write to no control target at all, its ``queue_add`` and ``queue_start``
-   tools are denied outright — it cannot queue or start anything, even on an
-   idle queue. Its halts and its read tools are never taken away.
+   The agent is held to a harder rule on top of this: on a tier whose
+   ``control_system.writes`` is ``never``, its ``queue_add`` and
+   ``queue_start`` tools are denied outright — it cannot queue or start
+   anything, even on an idle queue. Its halts and its read tools are never
+   taken away.
 
-   Write posture is per control target, and each queue lane is bound at build
-   time to one target, so a deployment can arm the lane that drives the
-   simulator and leave the lane that drives the live machine unarmed. Nothing
-   is denied up front on such a deployment — the deny list is written once,
-   before a session picks a target — and ``queue_add`` and ``queue_start``
-   refuse per call instead, with ``writes_disabled``, naming the lane's machine.
+   On an ``allowed`` tier, each lane is bound at build time to one machine,
+   and the write verdict for that machine is asked on every call
+   (:ref:`write-safety-config`). With your switch for the lane's machine off,
+   ``queue_start`` is refused with ``writes_disabled`` and the verdict's
+   reason. ``queue_add`` still adds to an idle queue — the item is added
+   unarmed, with ``writes_refused`` and the reason in its result — and is
+   refused only where adding would mean executing.
 
    In a deployed control room the agent holds the launch token only where the
    deployment grants it, and it is granted **per lane**: to a tier whose
-   config arms writes for the machine that lane drives and that also runs the
-   bluesky MCP server. A tier can hold the simulator lane's token and none
-   for the live one. Where it is granted, the agent's
+   ``control_system.writes`` is ``allowed`` and that also runs the bluesky MCP
+   server. The token is a ceiling; your switch still decides each write.
+   Where it is granted, the agent's
    ``queue_start`` arms the queue itself, and your approval of that tool call
    is the arming decision. Where it is not, ``queue_start`` is refused with
    ``launch_token_invalid`` and the start stays with you, from the BLUESKY
@@ -211,17 +213,20 @@ quirks worth knowing:
    A plan is also bound to **whoever queued it**. Queued through one of
    OSPREY's named doors — the PLAN tab, the BLUESKY panel in its web-terminal
    tab, the agent's ``queue_add`` — onto a lane this deployment runs, a plan
-   carries that person's name, and its writes obey their own read-only
-   narrowing from the header chip (:doc:`/how-to/web-terminal/operate`)
-   wherever the plan runs.
+   carries that person's name, and its writes follow that person's tier and
+   write switch (:ref:`web-terminal-session-posture`) wherever the plan runs.
+   The lane reads the person's tier from the login→tier map the build renders
+   into its config; a name the map does not hold is refused.
 
    Not every route in is a named one. The same panel served at an address of
    its own is a service door rather than a terminal, and a login there names
    nobody. The queue server, in turn, is the facility's rather than OSPREY's,
    so a plan can reach it without passing an OSPREY door at all. Either way the
-   plan carries whatever name it claims, or none, and runs at the lane's
-   ceiling — what the deployment armed for that lane, with nobody's chip on
-   top. A lane whose plans run on the facility's own worker sits outside all of
+   plan carries whatever name it claims, or none. A claimed name binds that
+   person's switch; a plan with no name writes nothing, refused
+   ``owner_unknown`` — a breaking change from earlier releases, where it ran
+   at what the deployment armed for the lane. A lane whose plans run on the
+   facility's own worker sits outside all of
    this, and a name shown on one of its items is a label rather than a gate.
 
    On a two-lane deployment the BLUESKY panel carries a **lane picker** in its

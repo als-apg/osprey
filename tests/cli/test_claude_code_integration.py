@@ -16,6 +16,8 @@ from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.init_cmd import init
 from osprey.cli.templates.manager import TemplateManager
 from osprey.facility.views.facts import zero_source_facts
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.posture_store import STATE_DIR_NAME
 from osprey_connectors.workspace import (
     CHAT_UPLOADS_SUBDIR,
     RENDERED_CONFIG_RELPATH,
@@ -1490,6 +1492,34 @@ class TestFacilityPermissions:
         assert "Edit" in deny
         assert "WebFetch" in deny
 
+    @pytest.mark.parametrize("tool", ["Bash", "Monitor"])
+    def test_facility_remove_deny_of_a_shell_on_an_allowed_tier_is_refused(self, tmp_path, tool):
+        """PR-12: on a render whose ``control_system.writes`` is ``allowed``, a
+        ``remove_deny`` lifting ``Bash`` or ``Monitor`` is a build refusal — a
+        shell is an arming path there. Root and tier renders, and the ``never``
+        warning, are covered in tests/cli/test_bash_monitor_lift.py."""
+        manager = TemplateManager()
+        project_dir = create_project_with_manifest(
+            manager,
+            project_name="perms-shell-lift",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+            data_root=bundle_data_root("control_assistant"),
+        )
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        config.setdefault("control_system", {})["writes"] = "allowed"
+        config.setdefault("claude_code", {})["permissions"] = {"remove_deny": [tool]}
+        (project_dir / "config.yml").write_text(yaml.dump(config))
+
+        with pytest.raises(BuildProfileError) as excinfo:
+            manager.regenerate_claude_code(project_dir)
+
+        message = str(excinfo.value)
+        assert "arming path" in message
+        assert "control_system.writes: allowed" in message
+        assert repr(tool) in message
+
     def test_facility_extra_allow(self, tmp_path):
         """Extra allow entries from facility config appear in allow list."""
         data = self._settings(tmp_path, {"allow": ["Bash(echo *)"]})
@@ -1516,7 +1546,16 @@ class TestFacilityPermissions:
 
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
         deny = data["permissions"]["deny"]
-        assert deny == self.DEFAULT_DENY
+        # The framework defaults, then the control-context store's two file-tool
+        # rules (absolute and relative), which every render carries and no
+        # permissions config adds or lifts.
+        assert deny[: len(self.DEFAULT_DENY)] == self.DEFAULT_DENY
+        store_rules = deny[len(self.DEFAULT_DENY) :]
+        assert len(store_rules) == 2
+        assert all(
+            rule.startswith("Edit(") and rule.endswith(f"/{STATE_DIR_NAME}/**)")
+            for rule in store_rules
+        ), store_rules
 
 
 class TestDataVisualizationRuleGating:

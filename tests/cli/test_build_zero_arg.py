@@ -45,6 +45,8 @@ _EMPTY_PLAN = _ProjectVenvPlan(
     osprey_spec="osprey-framework",
     osprey_label="test",
     extra_deps=[],
+    uv_path=None,
+    member_requirements=[],
 )
 
 

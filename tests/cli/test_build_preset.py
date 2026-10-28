@@ -155,7 +155,9 @@ def test_set_with_a_list_value_replaces_the_presets_list(runner: CliRunner, tmp_
     The edit half of the rule at the CLI surface. An inheritance layer would
     union these and leave the operator unable to take a hook away, which is the
     narrowing the explicit-profile work exists to make expressible. Taking the
-    approval hook away means stating that nobody is asked.
+    approval hook away means stating that nobody is asked. ``writes-check``
+    stays in the stated list: the render pins writes off and mounts mixed
+    read/write tools, and that hook is what refuses their writes per call.
     """
     result = _materialize(
         runner,
@@ -163,7 +165,7 @@ def test_set_with_a_list_value_replaces_the_presets_list(runner: CliRunner, tmp_
         "smoke",
         "hello-world",
         "--set",
-        "hooks=[memory-guard]",
+        "hooks=[memory-guard, writes-check]",
         "--set",
         "config.approval.enabled=false",
     )
@@ -174,7 +176,7 @@ def test_set_with_a_list_value_replaces_the_presets_list(runner: CliRunner, tmp_
     import json
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert manifest["artifacts"]["hooks"] == ["memory-guard"]
+    assert manifest["artifacts"]["hooks"] == ["memory-guard", "writes-check"]
 
 
 def test_preset_control_assistant_ships_live_gateway_telemetry(
@@ -1279,7 +1281,7 @@ def test_render_exclusion_of_a_panel_switches_its_inherited_block_off(tmp_path: 
         "provider: anthropic\n"
         "model: claude-haiku-4-5\n"
         "channel_finder_mode: hierarchical\n"
-        "hooks: [memory-guard]\n"
+        "hooks: [memory-guard, writes-check]\n"
         "web_panels: [okf, lattice, grafana]\n"
         "config:\n" + _POSTURE_FLOOR_NO_APPROVAL_HOOK + "  web.panels.lattice.label: LATTICE\n"
         "  web.panels.grafana.label: GRAFANA\n"
@@ -1335,7 +1337,7 @@ def test_a_dotted_panel_id_is_projected_into_its_own_block(tmp_path: Path) -> No
         "provider: anthropic\n"
         "model: claude-haiku-4-5\n"
         "channel_finder_mode: hierarchical\n"
-        "hooks: [memory-guard]\n"
+        "hooks: [memory-guard, writes-check]\n"
         "web_panels: [okf, beam.viewer]\n"
         "config:\n" + _POSTURE_FLOOR_NO_APPROVAL_HOOK + "  web.panels:\n"
         "    beam.viewer:\n"

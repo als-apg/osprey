@@ -1,7 +1,7 @@
 """The repository text sweeps read the files their roots name, and only those.
 
 Every removal gate under ``tests/docs/`` and the top-level literal guards
-collect their files through :func:`tests._tree_scan.text_files`. A collector
+collect their files through :func:`tests._text_sweep.text_files`. A collector
 that silently dropped a file root or an extensionless template would leave each
 of them reporting a clean tree it never opened.
 """
@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from tests._tree_scan import EXTENSIONLESS_SHIPPED_NAMES, matching_lines, text_files
+from tests._text_sweep import EXTENSIONLESS_SHIPPED_NAMES, matching_lines, text_files
 
 
 def _plant(root: Path, relative: str, text: str = "x\n") -> None:

@@ -4,11 +4,12 @@
 the other half: ``POST /queue/abort`` stops the plan that is running right now,
 discarding the rest of its points and leaving the queue stopped.
 
-**Completely ungated, on purpose.** No ``control_system.writes_enabled``
-re-read, no launch token, at this tool and at the bridge — exactly the posture
-of a plain ``queue_stop``, and for the same reason: halting must never have a
-failure mode, so it must keep working when the kill switch has disabled writes,
-which is precisely when an operator is most likely to want a plan stopped. The
+**Completely ungated, on purpose.** No write-verdict check, no write-tier
+re-read, no launch token, at this tool and at the bridge — exactly as for a
+plain ``queue_stop``, and for the same reason: halting must never have a
+failure mode, so it must keep working when the lane's tier is ``never`` or the
+kill switch has disabled writes, which is precisely when an operator is most
+likely to want a plan stopped. The
 tool is approval-gated (registry ``permissions_ask``) so a human still sees
 every abort, and the approval hook's prompt states what an abort costs; the
 kill-switch hook must NEVER attach to it (pinned in

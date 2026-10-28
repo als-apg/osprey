@@ -28,7 +28,7 @@ from pathlib import Path
 
 import pytest
 
-from tests._tree_scan import EXTENSIONLESS_SHIPPED_NAMES, text_files
+from tests._text_sweep import EXTENSIONLESS_SHIPPED_NAMES, text_files
 
 #: "three" followed by up to four intervening tokens (or none, for the adjacent
 #: "three-zone" / "three zones" spellings) and then "zone"/"zones". Tokens are

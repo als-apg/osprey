@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from tests._tree_scan import EXTENSIONLESS_SHIPPED_NAMES, matching_lines, text_files
+from tests._text_sweep import EXTENSIONLESS_SHIPPED_NAMES, matching_lines, text_files
 
 # Spelled once. This file is not itself swept — the roots below are the shipped
 # package and the docs tree, not tests/ — so the literal is safe here.

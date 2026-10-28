@@ -104,7 +104,7 @@ def test_each_user_row_carries_rights_auth_and_port(exemplar_lines: list[str]) -
     band rather than at whatever the profile happened to spell.
     """
     alice = line_with(exemplar_lines, "alice")
-    assert "readwrite · live read-only · va rights approval-gated" in alice
+    assert "readwrite · rights approval-gated" in alice
     assert "password" in alice
     assert alice.rstrip().endswith(f":{_PORTS['web']}")
 
@@ -133,10 +133,8 @@ def test_the_card_shows_every_family_the_deployment_publishes(exemplar_lines: li
 
 
 def test_a_single_target_render_keeps_one_unqualified_write_right() -> None:
-    # A render that reaches one machine names no target on the rights item —
-    # a target-by-target posture needs a second half the render does not have.
-    # Every one of the exemplar's write tiers now reaches two machines, so the
-    # one-target reading is pinned at the renderer's own seam instead.
+    # A render that reaches one machine reads as it always has: one item when
+    # its tier allows writes, nothing when it does not.
     from types import SimpleNamespace
 
     from osprey.cli.profile_card import _write_rights
@@ -145,7 +143,7 @@ def test_a_single_target_render_keeps_one_unqualified_write_right() -> None:
         config={
             "control_system.type": "virtual_accelerator",
             "control_system.connector.virtual_accelerator.serving": "in_process",
-            "control_system.writes_enabled": True,
+            "control_system.writes": "allowed",
         }
     )
     cold = SimpleNamespace(
@@ -158,21 +156,21 @@ def test_a_single_target_render_keeps_one_unqualified_write_right() -> None:
     assert _write_rights(cold, {}, "readonly") == []
 
 
-def test_a_switch_capable_render_answers_per_target(exemplar_lines: list[str]) -> None:
-    # The readonly tier pins BOTH connector types off by name, which is also
-    # what makes its render switch-capable: two machines a session could be
-    # pointed at, so the card answers for each rather than once for the login.
+def test_a_switch_capable_render_answers_once_for_its_tier(exemplar_lines: list[str]) -> None:
+    # The tier is target-blind (PR-3): a login whose tier allows writes may
+    # write to every machine its render reaches, and the person's switch picks
+    # which one. So a render that reaches two machines still answers once, and
+    # the readonly tier's `never` answers with nothing.
     bob = line_with(exemplar_lines, "bob")
-    assert "readonly · live read-only · va read-only" in bob
+    assert "readonly" in bob
+    assert "rights approval-gated" not in bob
+    assert "read-only" not in bob
 
 
-def test_a_mixed_render_arms_only_the_target_its_own_block_names() -> None:
-    # Write posture is per connector type: `control_system.writes_enabled`
-    # answers only for a type whose own block says nothing. A render that
-    # says `false` deployment-wide and `true` under the simulator's block is
-    # armed on the simulator and read-only on the live machine — and the card
-    # has to show both halves, because which one carries the write path is
-    # the whole point of saying it.
+def test_a_render_arming_one_block_is_allowed_on_every_machine() -> None:
+    # A retired spelling that armed only the simulator's block is rewritten to
+    # `control_system.writes: allowed` (PR-3), and the tier allows writes for
+    # every machine — so the card no longer splits the login by target.
     profile = BuildProfile(
         name="mixed",
         config={
@@ -194,7 +192,8 @@ def test_a_mixed_render_arms_only_the_target_its_own_block_names() -> None:
 
     dana = line_with(format_profile_card(profile, deltas), "dana")
 
-    assert "va-write · live read-only · va rights approval-gated" in dana
+    assert "va-write · rights approval-gated" in dana
+    assert "read-only" not in dana
 
 
 def test_a_shared_app_is_not_a_roster_row(exemplar_lines: list[str]) -> None:
@@ -776,9 +775,11 @@ def test_card_rows_carry_the_layer_deltas_read_off_disk(
     assert {"alice", "bob"} <= set(roster)
     assert roster["alice"].startswith("readwrite")
     assert roster["bob"].startswith("readonly")
-    # The readonly tier pins both connectors read-only in its own file.
-    assert "read-only" in roster["bob"]
+    # The readonly tier states `never` in its own file; the host it is merged
+    # over allows writes, which is what bob reads as with no delta.
+    assert "rights approval-gated" not in roster["bob"]
     bare = {row["label"]: row["value"] for row in card_rows(profile, {})}
+    assert "rights approval-gated" in bare["bob"]
     assert bare["bob"] != roster["bob"]
 
 

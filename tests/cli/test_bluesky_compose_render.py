@@ -164,7 +164,7 @@ def _render(
         "system": {"timezone": "UTC"},
         "deployment": {},
         "deployed_services": deployed,
-        "control_system": {"writes_enabled": writes_enabled},
+        "control_system": {"writes": "allowed" if writes_enabled else "never"},
         "services": {"bluesky": bluesky, "virtual_accelerator": {"port": 5064}},
         "bluesky_devices": devices_present,
         # The layout at this context's base — empty ``deployment`` means the
@@ -1149,7 +1149,7 @@ def _lane_config(config_dir: Path, *, writes_enabled: bool) -> dict:
         },
         "control_system": {
             "type": "epics",
-            "writes_enabled": writes_enabled,
+            "writes": "allowed" if writes_enabled else "never",
             "limits_checking": {"enabled": True, "database_path": _LIMITS_RELPATH},
         },
     }

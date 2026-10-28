@@ -652,7 +652,7 @@ def test_seeded_archive_fits_the_disk_budget_with_the_declared_compressor(archiv
 
 
 def test_written_setpoint_appears_in_the_archive_within_the_recorder_budget(
-    archiver_world, monkeypatch
+    archiver_world, monkeypatch, tmp_path
 ):
     """Write to the machine, then read it back out of history.
 
@@ -663,18 +663,24 @@ def test_written_setpoint_appears_in_the_archive_within_the_recorder_budget(
     """
     from osprey_connectors import config as config_module
     from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
+    from osprey_connectors.types import TARGET_VA
+    from osprey_connectors_tests._write_fakes import arm_switch
 
-    # Writes are fail-closed, and the guard does NOT consult the config handed to
-    # the connector: `_writes_enabled` re-reads `control_system.writes_enabled`
-    # from the GLOBAL config every time (see
-    # osprey_connectors.control_system._base), which resolves from CONFIG_FILE or
-    # the working directory. Pytest runs from the repo root, which has no
-    # config.yml, so without this the guard fails closed and the write is
-    # refused — and the test then blames the recorder for a value that was never
-    # written. Arming it means pointing the guard at the DEPLOYED project, whose
-    # config.yml already declares the posture; the singletons are reset so the
-    # new CONFIG_FILE is the one that gets loaded. `monkeypatch` restores all
-    # three, and the autouse fixture in conftest clears them again after.
+    # Writes are fail-closed on two halves, and the guard does NOT consult the
+    # config handed to the connector. The tier (`control_system.writes`) is
+    # re-read from the GLOBAL config on every write (see
+    # osprey_connectors.control_system._base), which resolves from CONFIG_FILE
+    # or the working directory; pytest runs from the repo root, which has no
+    # config.yml, so CONFIG_FILE points the guard at the DEPLOYED project,
+    # whose preset already allows writes. The singletons are reset so that
+    # file is the one loaded. The switch is the other half: this login's
+    # switch is turned on for the simulator in a record of this test's own
+    # (arm_switch, through the person's gesture), and the connector is stamped
+    # with the machine it writes to, as a controls server's factory call stamps
+    # it. Without either the write is refused and the test would blame the
+    # recorder for a value that was never written. `monkeypatch` restores all of
+    # it, and the autouse fixture in conftest clears the singletons again after.
+    arm_switch(monkeypatch, tmp_path / "armed-data", TARGET_VA, stamp=False)
     monkeypatch.setenv("CONFIG_FILE", str(archiver_world.repo / "build" / "config.yml"))
     monkeypatch.setattr(config_module, "_default_config", None)
     monkeypatch.setattr(config_module, "_default_configurable", None)
@@ -690,7 +696,7 @@ def test_written_setpoint_appears_in_the_archive_within_the_recorder_budget(
     async def _write_a_new_setpoint() -> tuple[float, datetime, Any]:
         register_builtin_connectors()  # idempotent; must run before create
         control_system = await ConnectorFactory.create_control_system_connector(
-            archiver_world.config["control_system"]
+            archiver_world.config["control_system"], control_target=TARGET_VA
         )
         current = await control_system.read_channel(setpoint)
         target = float(current.value) + 0.05

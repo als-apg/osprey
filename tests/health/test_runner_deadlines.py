@@ -12,6 +12,13 @@ from osprey.health.runner import run_health_suite
 
 # --- Fixtures / helpers -----------------------------------------------------
 
+#: A deadline that only has to expire (every check left running hangs) can be short.
+_EXPIRES_S = 0.3
+#: A deadline a completing check must beat: room for an in-process probe to be
+#: scheduled and return on a host busy with a parallel suite, while the hung
+#: checks beside it still run until expiry.
+_COMPLETES_WITHIN_S = 2.0
+
 
 @pytest.fixture
 def runtime():
@@ -64,7 +71,7 @@ def _by_name(report):
 
 async def test_deadline_synthesizes_error_row(runtime) -> None:
     records = [_decl("c", [_check("slow", hang=True)])]
-    report = await run_health_suite(records, runtime=runtime, suite_timeout_s=0.3)
+    report = await run_health_suite(records, runtime=runtime, suite_timeout_s=_EXPIRES_S)
     assert report.deadline_hit is True
     row = report.results[0]
     assert row.status is Status.ERROR
@@ -74,7 +81,9 @@ async def test_deadline_synthesizes_error_row(runtime) -> None:
 async def test_row_count_invariant_under_deadline(runtime) -> None:
     # One check completes, two hang; every configured check still yields a row.
     checks = [_check("fast", result_status="ok"), _check("h1", hang=True), _check("h2", hang=True)]
-    report = await run_health_suite([_decl("c", checks)], runtime=runtime, suite_timeout_s=0.3)
+    report = await run_health_suite(
+        [_decl("c", checks)], runtime=runtime, suite_timeout_s=_COMPLETES_WITHIN_S
+    )
     by = _by_name(report)
     assert set(by) == {"fast", "h1", "h2"}
     assert by["fast"].status is Status.OK
@@ -95,7 +104,9 @@ async def test_deadline_hit_false_within_budget(runtime) -> None:
 async def test_deadline_A_still_running_B_skips(runtime) -> None:
     # A never completes; at expiry A → deadline error, B (requires A) → skip.
     checks = [_check("A", hang=True), _check("B", requires=["A"])]
-    report = await run_health_suite([_decl("c", checks)], runtime=runtime, suite_timeout_s=0.3)
+    report = await run_health_suite(
+        [_decl("c", checks)], runtime=runtime, suite_timeout_s=_EXPIRES_S
+    )
     by = _by_name(report)
     assert by["A"].status is Status.ERROR
     assert by["A"].message == "suite deadline exceeded"
@@ -112,7 +123,9 @@ async def test_deadline_A_already_failed_B_skips_requires_wins(runtime) -> None:
         _check("slow", hang=True),
         _check("B", requires=["A"]),
     ]
-    report = await run_health_suite([_decl("c", checks)], runtime=runtime, suite_timeout_s=0.3)
+    report = await run_health_suite(
+        [_decl("c", checks)], runtime=runtime, suite_timeout_s=_COMPLETES_WITHIN_S
+    )
     by = _by_name(report)
     assert by["A"].status is Status.ERROR
     assert "A" not in by["A"].message  # A is a real error, not a synthesized deadline row
@@ -124,7 +137,9 @@ async def test_deadline_A_already_failed_B_skips_requires_wins(runtime) -> None:
 
 async def test_synthesized_deadline_error_cascades_to_dependents(runtime) -> None:
     checks = [_check("A", hang=True), _check("B", requires=["A"]), _check("C", requires=["B"])]
-    report = await run_health_suite([_decl("c", checks)], runtime=runtime, suite_timeout_s=0.3)
+    report = await run_health_suite(
+        [_decl("c", checks)], runtime=runtime, suite_timeout_s=_EXPIRES_S
+    )
     by = _by_name(report)
     assert by["A"].status is Status.ERROR
     assert by["B"].status is Status.SKIP
@@ -140,7 +155,7 @@ async def test_callable_deadline_one_error_row(runtime) -> None:
         return []
 
     report = await run_health_suite(
-        [_call("mycat", _hang, timeout_s=30)], runtime=runtime, suite_timeout_s=0.3
+        [_call("mycat", _hang, timeout_s=30)], runtime=runtime, suite_timeout_s=_EXPIRES_S
     )
     assert len(report.results) == 1
     assert report.results[0].name == "mycat"
@@ -152,14 +167,14 @@ async def test_callable_deadline_one_error_row(runtime) -> None:
 
 
 async def test_poll_deadline_does_not_bound_on_demand(runtime) -> None:
-    # Poll category hangs (bounded by suite_timeout_s=0.3); on_demand category
+    # Poll category hangs (bounded by suite_timeout_s=_EXPIRES_S); on_demand category
     # completes because it has its own, generous budget.
     records = [
         _decl("poll_cat", [_check("p", hang=True)], cost=Cost.POLL),
         _decl("od_cat", [_check("d", sleep=0.5)], cost=Cost.ON_DEMAND),
     ]
     report = await run_health_suite(
-        records, runtime=runtime, full=True, suite_timeout_s=0.3, on_demand_timeout_s=5.0
+        records, runtime=runtime, full=True, suite_timeout_s=_EXPIRES_S, on_demand_timeout_s=5.0
     )
     by = _by_name(report)
     assert by["p"].status is Status.ERROR  # poll deadline synthesized
@@ -173,7 +188,7 @@ async def test_on_demand_deadline_does_not_bound_poll(runtime) -> None:
         _decl("od_cat", [_check("d", hang=True)], cost=Cost.ON_DEMAND),
     ]
     report = await run_health_suite(
-        records, runtime=runtime, full=True, suite_timeout_s=5.0, on_demand_timeout_s=0.3
+        records, runtime=runtime, full=True, suite_timeout_s=5.0, on_demand_timeout_s=_EXPIRES_S
     )
     by = _by_name(report)
     assert by["p"].status is Status.OK  # poll unaffected by on_demand deadline

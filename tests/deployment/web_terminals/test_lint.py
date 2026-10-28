@@ -4685,14 +4685,14 @@ def _write_posture_config(tmp_path, delta_config: dict, **profile_keys: object) 
     return config
 
 
-def test_lint_readonly_tier_inheriting_an_armed_connector_block_is_an_error(
+def test_lint_readonly_tier_over_an_armed_connector_block_is_closed_by_construction(
     tmp_path,
 ) -> None:
-    """The write hole this check exists for: the delta pins the flat key off, so
-    it reads as a read-only tier, while the profile it is merged over arms one
-    connector type — and a per-type key never falls back to the flat one, so the
-    render is armed. The message has to name the file that was written and the
-    inherited key, because those are the two things the author cannot see."""
+    """The write hole this check was written for — the delta pins the flat key
+    off while the profile it is merged over arms one connector type — no longer
+    opens. Each document's retired leaves are rewritten to `control_system.writes`
+    before any merge (PR-3), so the delta states `never`, the tier overrides the
+    root, and the render resolves `never`: nothing to report."""
     # Arrange
     config = _write_posture_config(
         tmp_path,
@@ -4704,12 +4704,7 @@ def test_lint_readonly_tier_inheriting_an_armed_connector_block_is_an_error(
     findings = lint_profile_config(config, profile_root=tmp_path)
 
     # Assert
-    holes = [f for f in _errors(findings) if f.code == _WRITE_HOLE_CODE]
-    assert len(holes) == 1, findings
-    message = holes[0].message
-    assert f"{TIERS_DIRNAME}/tier.yml" in message
-    assert "control_system.connector.epics.writes_enabled" in message
-    assert "control_system.writes_enabled" in message
+    assert [f for f in findings if f.code == _WRITE_HOLE_CODE] == []
 
 
 def test_lint_render_that_pins_the_inherited_block_itself_is_not_a_write_hole(
@@ -4795,10 +4790,10 @@ def test_lint_render_that_says_nothing_about_write_posture_is_not_a_write_hole(
     assert [f for f in findings if f.code == _WRITE_HOLE_CODE] == []
 
 
-def test_lint_write_hole_is_found_through_a_nested_spelling(tmp_path) -> None:
+def test_lint_write_hole_stays_closed_through_a_nested_spelling(tmp_path) -> None:
     """The inherited block may be written as a nested subtree rather than as one
-    dotted key. A guard that reads only one of two equivalent spellings is a
-    guard an author steps around without knowing there was one."""
+    dotted key; the rewrite reads every spelling, so the nested block is `allowed`
+    at the root and the delta's `never` still wins."""
     # Arrange
     config = _write_posture_config(
         tmp_path,
@@ -4810,9 +4805,7 @@ def test_lint_write_hole_is_found_through_a_nested_spelling(tmp_path) -> None:
     findings = lint_profile_config(config, profile_root=tmp_path)
 
     # Assert
-    holes = [f for f in _errors(findings) if f.code == _WRITE_HOLE_CODE]
-    assert len(holes) == 1, findings
-    assert "control_system.connector.epics.writes_enabled" in holes[0].message
+    assert [f for f in findings if f.code == _WRITE_HOLE_CODE] == []
 
 
 def test_lint_rendered_project_reports_no_write_hole(tmp_path) -> None:
@@ -4883,11 +4876,13 @@ def test_lint_shipped_write_posture_tiers_report_no_write_hole(tmp_path: Path, t
     assert [f.message for f in findings if f.code == _WRITE_HOLE_CODE] == []
 
 
-def test_lint_preset_render_inheriting_an_armed_block_is_an_error(tmp_path, monkeypatch) -> None:
-    """The same hole on the other authoring path: a catalog entry naming a
-    bundled preset, whose posture is split between the preset and the parent it
-    extends. Read after `extends` resolution the two files are indistinguishable
-    from one, which is why the preset is read a second time unresolved."""
+def test_lint_preset_render_over_an_armed_parent_is_closed_by_construction(
+    tmp_path, monkeypatch
+) -> None:
+    """The same shape on the other authoring path: a catalog entry naming a
+    bundled preset whose parent arms one connector block. The preset's own flat
+    `false` is `never` and overrides the parent's `allowed`, so the render
+    resolves `never` and there is no hole."""
     # Arrange
     from osprey.cli import build_profile_presets
 
@@ -4932,10 +4927,7 @@ def test_lint_preset_render_inheriting_an_armed_block_is_an_error(tmp_path, monk
     findings = lint_profile_config(config)
 
     # Assert
-    holes = [f for f in _errors(findings) if f.code == _WRITE_HOLE_CODE]
-    assert len(holes) == 1, findings
-    assert "facility-readonly" in holes[0].message
-    assert "control_system.connector.epics.writes_enabled" in holes[0].message
+    assert [f for f in findings if f.code == _WRITE_HOLE_CODE] == []
 
 
 def _shipped_preset_names() -> list[str]:
@@ -5941,8 +5933,9 @@ def test_lint_walled_mock_deployment_armed_for_writes_reports_nothing(tmp_path) 
     assert _live_writer_findings(findings) == []
 
 
-def test_lint_live_type_pinned_off_under_an_armed_flat_key_reports_nothing(tmp_path) -> None:
-    """A per-type `false` does not fall back to a flat `true`."""
+def test_lint_live_type_pinned_off_under_an_armed_flat_key_is_a_live_writer(tmp_path) -> None:
+    """The tier is target-blind (PR-3): any literal `true` rewrites to `allowed`,
+    and an `allowed` tier may write to `live` whatever its type's retired leaf says."""
     # Arrange
     config = _live_writer_config(
         tmp_path,
@@ -5957,7 +5950,7 @@ def test_lint_live_type_pinned_off_under_an_armed_flat_key_reports_nothing(tmp_p
     findings = lint_profile_config(config, profile_root=tmp_path)
 
     # Assert
-    assert _live_writer_findings(findings) == []
+    assert [f.severity for f in _live_writer_findings(findings)] == ["warn"], findings
 
 
 @pytest.mark.parametrize("auth", [{"method": "none"}, {"method": "token"}])
@@ -5995,6 +5988,50 @@ def test_lint_live_writer_rule_is_silent_on_the_shipped_preset() -> None:
 
     # Assert
     assert _live_writer_findings(findings) == []
+
+
+_SIMULATOR_BASELINE_DELTA = {
+    "control_system.type": "virtual_accelerator",
+    "control_system.writes": "allowed",
+    "control_system.connector.epics.timeout_s": 5.0,
+}
+
+
+def test_lint_unauthored_live_beside_a_simulator_baseline_is_not_reached(tmp_path) -> None:
+    """A `live` block with no gateways or probe_channel is never switched to, so
+    an `allowed` tier on a simulator baseline writes nothing there to attribute."""
+    # Arrange
+    config = _live_writer_config(tmp_path, dict(_SIMULATOR_BASELINE_DELTA))
+
+    # Act
+    findings = lint_profile_config(config, profile_root=tmp_path)
+
+    # Assert
+    assert _live_writer_findings(findings) == []
+
+
+def test_lint_switchable_live_beside_a_simulator_baseline_is_a_live_writer(tmp_path) -> None:
+    """Once `live` names its gateways and a probe_channel, the switch can move an
+    `allowed` session onto it, and the card must say who is writing."""
+    # Arrange
+    gateway = {"address": "gw.example.org", "port": 5064}
+    config = _live_writer_config(
+        tmp_path,
+        {
+            **_SIMULATOR_BASELINE_DELTA,
+            "control_system.connector.epics.probe_channel": "SR:DCCT",
+            "control_system.connector.epics.gateways": {
+                "read_only": dict(gateway),
+                "write_access": dict(gateway),
+            },
+        },
+    )
+
+    # Act
+    findings = lint_profile_config(config, profile_root=tmp_path)
+
+    # Assert
+    assert [f.severity for f in _live_writer_findings(findings)] == ["warn"], findings
 
 
 # --- profile altitude: the tiers/ and apps/ files are the renders -------------

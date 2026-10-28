@@ -638,16 +638,26 @@ def test_prune_removes_only_off_roster_resources(tmp_path, monkeypatch, fake_run
     ]
 
 
-def test_prune_retain_default_removes_container_not_volumes(
-    tmp_path, monkeypatch, fake_runtime_prune
-):
-    calls, listing = fake_runtime_prune
+def _orphaned_eve(tmp_path, monkeypatch, listing):
+    """An empty roster whose runtime still reports eve's container and both volumes.
+
+    Returns ``(config_path, eve_claude, eve_agent)``; *listing* is
+    ``fake_runtime_prune``'s discovery stub, populated in place.
+    """
     monkeypatch.chdir(tmp_path)
     config = _config([])
     config_path = _write_config(tmp_path, config)
     eve_claude, eve_agent = resolve_user_volume_names(config, "eve")
     listing["containers"] = ["demo-project-web-eve"]
     listing["volumes"] = [eve_claude, eve_agent]
+    return config_path, eve_claude, eve_agent
+
+
+def test_prune_retain_default_removes_container_not_volumes(
+    tmp_path, monkeypatch, fake_runtime_prune
+):
+    calls, listing = fake_runtime_prune
+    config_path, eve_claude, eve_agent = _orphaned_eve(tmp_path, monkeypatch, listing)
 
     lifecycle.prune_users(str(config_path), assume_yes=True)
 
@@ -657,12 +667,7 @@ def test_prune_retain_default_removes_container_not_volumes(
 
 def test_prune_purge_removes_volumes_after_confirmation(tmp_path, monkeypatch, fake_runtime_prune):
     calls, listing = fake_runtime_prune
-    monkeypatch.chdir(tmp_path)
-    config = _config([])
-    config_path = _write_config(tmp_path, config)
-    eve_claude, eve_agent = resolve_user_volume_names(config, "eve")
-    listing["containers"] = ["demo-project-web-eve"]
-    listing["volumes"] = [eve_claude, eve_agent]
+    config_path, eve_claude, eve_agent = _orphaned_eve(tmp_path, monkeypatch, listing)
     monkeypatch.setattr("builtins.input", lambda prompt="": "prune")
 
     lifecycle.prune_users(str(config_path), purge=True, assume_yes=False)
@@ -678,12 +683,7 @@ def test_prune_archive_tars_then_removes_each_volume_in_order(
     tmp_path, monkeypatch, fake_runtime_prune
 ):
     calls, listing = fake_runtime_prune
-    monkeypatch.chdir(tmp_path)
-    config = _config([])
-    config_path = _write_config(tmp_path, config)
-    eve_claude, eve_agent = resolve_user_volume_names(config, "eve")
-    listing["containers"] = ["demo-project-web-eve"]
-    listing["volumes"] = [eve_claude, eve_agent]
+    config_path, eve_claude, eve_agent = _orphaned_eve(tmp_path, monkeypatch, listing)
 
     lifecycle.prune_users(str(config_path), archive=True, assume_yes=True)
 
@@ -700,12 +700,7 @@ def test_prune_without_confirmation_leaves_everything_untouched(
     tmp_path, monkeypatch, fake_runtime_prune
 ):
     calls, listing = fake_runtime_prune
-    monkeypatch.chdir(tmp_path)
-    config = _config([])
-    config_path = _write_config(tmp_path, config)
-    eve_claude, eve_agent = resolve_user_volume_names(config, "eve")
-    listing["containers"] = ["demo-project-web-eve"]
-    listing["volumes"] = [eve_claude, eve_agent]
+    config_path, eve_claude, eve_agent = _orphaned_eve(tmp_path, monkeypatch, listing)
     monkeypatch.setattr("builtins.input", lambda prompt="": "")  # blank, non-matching response
 
     with pytest.raises(RuntimeError):
@@ -717,12 +712,7 @@ def test_prune_without_confirmation_leaves_everything_untouched(
 
 def test_prune_assume_yes_skips_prompt_and_proceeds(tmp_path, monkeypatch, fake_runtime_prune):
     calls, listing = fake_runtime_prune
-    monkeypatch.chdir(tmp_path)
-    config = _config([])
-    config_path = _write_config(tmp_path, config)
-    eve_claude, eve_agent = resolve_user_volume_names(config, "eve")
-    listing["containers"] = ["demo-project-web-eve"]
-    listing["volumes"] = [eve_claude, eve_agent]
+    config_path, eve_claude, eve_agent = _orphaned_eve(tmp_path, monkeypatch, listing)
     _assert_no_input_prompt(monkeypatch)
 
     lifecycle.prune_users(str(config_path), purge=True, assume_yes=True)
@@ -2492,11 +2482,11 @@ def test_passwd_recreate_argv_addresses_the_repos_web_stack_from_any_directory(
 def _conflicted_render_config(tmp_path, users, *, renders):
     """A roster whose render projects are really on disk under *tmp_path*.
 
-    `renders` maps a render name to `(writes_enabled, denies_bash)`, so a case
+    `renders` maps a render name to `(writes, denies_bash)`, so a case
     can pair the launch-token entitlement with either shipped permission state.
     Every project runs the bluesky server explicitly -- the server is opt-in in
     the registry, so omitting the key would leave no project entitled and no
-    conflict to refuse -- which leaves `writes_enabled` as the only tier switch.
+    conflict to refuse -- which leaves the `writes` tier as the only tier switch.
     """
     import json as _json
 
@@ -2508,7 +2498,7 @@ def _conflicted_render_config(tmp_path, users, *, renders):
             yaml.safe_dump(
                 {
                     "project_name": name,
-                    "control_system": {"writes_enabled": writes},
+                    "control_system": {"writes": "allowed" if writes else "never"},
                     "claude_code": {"servers": {"bluesky": {"enabled": True}}},
                 }
             ),
@@ -2564,7 +2554,7 @@ def _open_mode_roster_config(tmp_path, users, *, renders):
         project_dir = tmp_path / "profiles" / name
         (project_dir / ".claude").mkdir(parents=True)
         (project_dir / "config.yml").write_text(
-            yaml.safe_dump({"project_name": name, "control_system": {"writes_enabled": False}}),
+            yaml.safe_dump({"project_name": name, "control_system": {"writes": "never"}}),
             encoding="utf-8",
         )
         (project_dir / ".claude" / "settings.json").write_text(

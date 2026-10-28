@@ -267,22 +267,26 @@ def sessions_dir(tmp_path, monkeypatch) -> Path:
 
 @pytest.fixture
 def agent_data_root(tmp_path, monkeypatch) -> Iterator[Path]:
-    """Point every resolver at one throwaway agent-data root, with the record's state dir.
+    """Point every resolver at one throwaway agent-data root, verdict env clean.
 
     ``OSPREY_AGENT_DATA_ROOT`` is the single stamp the record reader and
     ``posture_store`` both prefer — the stamp this feature puts in every
     session child's environment. Patching ``resolve_shared_data_root`` instead
     would redirect only one of them: ``posture_store`` binds the resolver at
     import, so the other half would write into the repository's own
-    ``var/agent_data``. Both caches are dropped on the way in and out.
+    ``var/agent_data``. Every variable that changes a write verdict behind a
+    test's back — a stamped owner, a bound tree, a launch pin, a read-only run
+    — is cleared, so each case states the one it means. Both caches are
+    dropped on the way in and out.
     """
     from osprey_connectors import control_context, posture_store
-    from osprey_connectors_tests._harness import state_dir_under
+    from osprey_connectors_tests._harness import VERDICT_ENV_VARS, state_dir_under
 
     root = tmp_path / "agent_data"
     state_dir_under(root).mkdir(parents=True)
+    for name in VERDICT_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
-    monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     posture_store.invalidate_cache()
     control_context.invalidate_cache()
     yield root
@@ -309,6 +313,22 @@ def ledger() -> Iterator[list[dict]]:
 
     with patch.object(audit_writer, "record", side_effect=_record):
         yield records
+
+
+@pytest.fixture
+def readable_process_table(monkeypatch):
+    """Read the real process table through a wait for a readable one.
+
+    A real table that is momentarily unreadable, or does not yet hold a
+    just-spawned pid, makes the test wait, never decide: every
+    ``process_tree.snapshot`` call goes through
+    :func:`tests.interfaces.web_terminal._pty_child.readable_rows`. A test that
+    injects an unknown table patches ``snapshot`` after it.
+    """
+    from osprey.interfaces.web_terminal import process_tree
+    from tests.interfaces.web_terminal._pty_child import readable_rows
+
+    monkeypatch.setattr(process_tree, "snapshot", readable_rows)
 
 
 @pytest.fixture

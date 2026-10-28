@@ -303,13 +303,13 @@ def test_values_are_read_as_yaml(runner, lifecycle_repo):
     result = _invoke(
         runner,
         lifecycle_repo,
-        "config.control_system.writes_enabled=true",
+        "config.ariel.vocabulary.canonical_to_shorthand=true",
         "config.web.panels.events.health_timeout=30",
     )
 
     assert result.exit_code == 0, result.output
     after = _profile_text(lifecycle_repo)
-    assert "control_system.writes_enabled: true" in after
+    assert "ariel.vocabulary.canonical_to_shorthand: true" in after
     assert "web.panels.events.health_timeout: 30" in after
 
 

@@ -1231,7 +1231,7 @@ def _render_project(root: Path, name: str, *, writes: bool, denies_bash: bool) -
         yaml.safe_dump(
             {
                 "project_name": name,
-                "control_system": {"writes_enabled": writes},
+                "control_system": {"writes": "allowed" if writes else "never"},
                 "claude_code": {"servers": {"bluesky": {"enabled": True}}},
             }
         ),

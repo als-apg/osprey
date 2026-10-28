@@ -321,6 +321,8 @@ class TestBuildPhases:
                 osprey_spec="osprey-framework",
                 osprey_label="test",
                 extra_deps=[],
+                uv_path=None,
+                member_requirements=[],
             ),
         )
         monkeypatch.setattr(build_cmd, "_create_project_venv", lambda *a, **k: None)

@@ -196,24 +196,24 @@ The first part names the machine this deployment stands on, by what it **is**:
 - **Simulator** --- the virtual accelerator: a physics model with beam in it,
   served from its container or in process. Nothing moves.
 
-A deployment can put its own names on its machines
-(``control_system.target_display_names`` in ``config.yml`` --- *Example
-Research Facility storage ring* rather than *Real machine*); what the machine
-is stays behind the small ⓘ beside its name either way, and that tooltip
-also keeps the controls server's own technical label.
+A deployment can put its own names on its machines (*Example Research
+Facility storage ring* rather than *Real machine*); what the machine is stays
+behind the small ⓘ beside its name either way, and that tooltip also keeps the
+controls server's own technical label.
 
-The second part is the write state **on that machine**, for the whole
-deployment:
+The second part is **your login's** write switch for that machine, and what
+the next write would get:
 
-- **writes on** --- the agent may write there, under whatever write gates the
-  deployment configures.
-- **writes off** --- somebody turned writes off on that machine. Reads are
-  untouched: the agent keeps its full view of the control system and of the
-  project, and can still run analysis, plots and read-only Python. One click
-  turns writes back on.
-- **writes locked** --- the deployment does not arm writes on that target, or
-  the whole deployment is running read-only. Nothing in the browser lifts
-  this.
+- **writes on** --- your switch is on, and the next write passes, under
+  whatever write gates the deployment configures.
+- **writes off** --- your switch is off. Reads are untouched: the agent keeps
+  its full view of the control system and of the project, and can still run
+  analysis, plots and read-only Python. One click turns writes back on.
+- **writes locked** --- your switch is on, but something the chip cannot lift
+  refuses the write. The popover shows the phrase for it and who lifts it.
+
+A switch is one login's. Two logins on the same machine each have their own,
+and one login's on or off never changes the other's writes.
 
 Click the chip and a popover opens on **every** control target the deployment
 configures, not only the one you are standing on.
@@ -227,10 +227,10 @@ the actions. What writing to a machine means (*Writes move hardware*, or one
 of the *nothing moves* lines) sits with its endpoint and the server's own
 label behind the small ⓘ beside each name, on hover or keyboard focus:
 
-- **The writes switch** --- per machine, for every session of this login. The
-  switch position is the write state and clicking it is the gesture that
-  changes it; where writes are locked the switch is disabled, with the reason
-  on hover.
+- **The writes switch** --- per machine, for every session of this login. Its
+  position is the switch's state, and clicking it changes it. A switch that is
+  on always keeps its off control. A switch that is off and cannot be turned on
+  is disabled, with the reason on hover.
 - **Switch to** --- moves the deployment onto that machine. Where a switch is
   not available, the button's place is taken by a short phrase for the reason
   --- ``not set up``, ``needs gateway ack`` --- with the server's full
@@ -243,78 +243,74 @@ its name. A machine that answers says nothing about it. Endpoints, gateway
 roles and the age of the last probe stay on the tooltips and in the
 confirmation dialogs, where the decision is actually made.
 
-The foot has **Turn all writes off**, which takes writes away from every
-machine it can in one click.
+The foot has **Turn all writes off**: every switch of your login goes off in
+one click, a machine no longer configured included. It stops your login's
+writes only; other logins keep theirs. It is enabled while any of your
+switches is on.
 
-Take writes away, or give them back
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Turn writes off, or on
+~~~~~~~~~~~~~~~~~~~~~~
 
-The write state is **per machine**. Turn writes off on the real machine and
-work on the simulator carries on, which is the point: you put the machine you
-are worried about out of reach without giving up the one you are working on.
+The switch is **per machine**. Turn the real machine off and work on the
+simulator carries on, which is the point: you put the machine you are worried
+about out of reach without giving up the one you are working on.
 
-Taking writes away applies as you click --- it needs no ceremony. Turning
-writes back on asks you to confirm first, and the confirmation names the
-machine and the endpoint the agent would then be able to write to. Tick
-*Don't ask again for this machine* to skip the dialog from then on
-(Shift-click brings it back). The real machine always asks.
+**Off** applies as you click, and nothing refuses it --- no lock, no read-only
+run, no second terminal. If a stop cannot be recorded you are told plainly
+that it did not take effect and writes are still on; the chip never shows an
+off that was not recorded.
 
-**Nothing is restarted.** Every gate reads the write state at the moment of
-the write, so the change lands on every conversation that is already running:
-each agent obeys it on its very next write, and no turn in flight is
-interrupted. Taking writes away reaches a running notebook cell the same way,
-on its very next write; giving them back waits for the next cell, because a
-cell can never write more than it was allowed when it started
-(:doc:`notebooks`). One lag is worth knowing about: turn writes off on the
-machine the deployment is *on* and the change reaches the agent when the
-connector is rebuilt, which waits for a running execution to finish --- and
-the card says so rather than leaving a button that appears to have done
-nothing.
+**On** asks first. The confirmation names the machine and the endpoint the
+agent would then be able to write to. Tick *Don't ask again for this machine*
+to skip it from then on (Shift-click brings it back). The real machine always
+asks. If a stop lands while you are confirming, the turn-on does not take
+effect: the chip re-reads and you click again.
 
-**The chip only takes writes away.** What you set here tightens what the
-deployment permits; it can never hand out writes the deployment did not arm.
-Where the state is locked the button stays on screen, disabled, and the
-reason is on its tooltip:
+**Nothing is restarted.** Every gate reads the switch at the moment of the
+write. Off reaches every next write, runs already going included: the agent's
+next tool call, a running notebook cell's or Python run's next write. On
+reaches the agent's tool writes at their next call; a notebook cell or Python
+run already going keeps the state it started with, and the next one follows
+(:doc:`notebooks`). The confirmation says so.
+
+**What the chip cannot lift.** A write is refused for one reason, the first
+that holds, and locks no click lifts come before the switch. The chip shows
+that reason's phrase on the row, and the agent is refused in the same words.
+Each phrase ends by naming the machine --- *(Concerns the rehearsal
+machine.)*:
 
 .. list-table::
    :header-rows: 1
-   :widths: 35 65
+   :widths: 50 50
 
-   * - Reason (on the tooltip)
-     - What it means
-   * - *kept read-only by the deployment*
-     - This deployment does not arm writes on that machine at all. Only a
-       rebuild changes that, not a click.
-   * - *the whole deployment is running read-only*
-     - ``OSPREY_EXECUTION_MODE=readonly`` is set, which sits above any one
-       conversation.
-   * - *held by another terminal*, *held by the controls server*
-     - Something else holds the deployment's control context, and only the
-       holder writes to it: another web terminal running against the same
-       deployment data, or --- for the moment before this terminal has claimed
-       it --- the agent's own control-system server. The roster still renders,
-       and it is worth reading, but the buttons here govern nothing. A banner
-       across the top of the popover names the holder, with its port where
-       there is one, so you know where to go instead.
-   * - *changes cannot be recorded right now*
-     - The folder where the control context is recorded is missing or
-       unreadable, so there is nowhere to keep a setting the agent would read
-       back. Nothing was changed.
-   * - *no read-only endpoint configured*
-     - Read-only on this machine would route it through a gateway the
-       deployment has not configured, leaving the machine unusable. You are
-       told before you act, not after.
+   * - Phrase
+     - Who lifts it
+   * - *the deployment is running read-only*
+     - The deployment admin. The chip cannot.
+   * - *this login's write tier does not allow them*, *this login's write tier
+       is not known*
+     - The deployment admin.
+   * - *this scheduled or triggered job runs for no login*
+     - The deployment admin. No switch covers it.
+   * - *this machine's writes belong to another login*
+     - Only that login.
+   * - *the machine this connector writes to is not known*, *the write switch
+       cannot be read*, *the write gateway has not yet followed the switch*
+     - Retry, then the deployment admin.
+   * - *this run was started with writes held off*
+     - Run it again without the pin.
+   * - *Writes are off*, *a stop came after the turn-on began*
+     - You: turn it on from the chip.
 
-One more refusal can meet the click itself: you cannot turn writes back on
-while the agent is still running something. The run keeps the write state it
-started with, so wait for it to finish, or stop it, and try again.
+A login whose tier is lowered keeps its recorded on, inert, until the tier is
+restored.
 
 Switch the deployment to another machine
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 **Switch to** on a row moves the whole deployment onto that machine, after a
 confirmation that says where every control read and write goes next and
-whether writes are on or off there --- the write state is per machine, and it
+whether your switch is on or off there --- the switch is per machine, and it
 does not travel with you. This dialog too can be skipped with *Don't ask again
 for this machine*. The page that holds the control context runs the same
 checks the agent's own switch runs --- that the move is allowed, and that
@@ -333,6 +329,11 @@ Ask for a second switch while one is still landing and it is refused rather
 than queued, naming the servers still working. Wait for the chip to settle and
 ask again.
 
+**Switch to** is the one control a second web terminal of the same login does
+not hold: only the process holding the control context moves the deployment,
+and elsewhere the button's place names the holder. The writes switches work
+from either.
+
 What the switch itself is gated on --- the approval prompt, the limits
 posture, the archive --- is :doc:`../control-systems/switch-control-target`.
 
@@ -341,9 +342,9 @@ Where the control target and the write state live
 
 Both belong to **the login the terminal acts as**, not to any one session,
 and nothing is written to ``config.yml``. Every session, window and notebook
-kernel of that login sees the same machine and the same write states: turning
+kernel of that login sees the same machine and the same switches: turning
 writes off on a machine takes them away from all of them, and a switch made in
-one window applies in the other. That is the point --- a write state you can
+one window applies in the other. That is the point --- a switch you can
 only see from the page you happen to be on is not a safety control.
 
 Both are recorded together on disk, written as soon as you click and read back
@@ -362,9 +363,8 @@ user's writes.
 What refuses a write, and how firmly
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Turning writes off is not a single choke point --- each write route is
-refused by the layer that owns it. The difference between those layers is
-worth knowing, because one of them is best-effort rather than enforced:
+Each write route is refused by the layer that owns it. One of them is
+best-effort rather than enforced:
 
 .. list-table::
    :header-rows: 1
@@ -385,83 +385,36 @@ worth knowing, because one of them is best-effort rather than enforced:
        Bluesky queue's arming tools, where that server is enabled
      - The writes-check hook
      - **Best-effort.** It is the first hook in the chain and the only
-       state-aware layer those tools have; a hook that fails to run does not
+       switch-aware layer those tools have; a hook that fails to run does not
        refuse.
 
-Each layer says which gate refused, in its own words, so the message never
-sends you to the wrong control:
-
-- The hook --- *"WRITES OFF --- this deployment refuses control-system writes
-  to the <target> target. Turn writes back on from the control-target chip in
-  the header; config.yml is not the gate here."*
-- The connector --- *"Write to '<channel>' blocked: writes are off for the
-  '<target>' control target --- turned off from the control-target chip in the
-  header; applies to every session of this login. Turn writes back on for
-  '<target>' from the chip if the write is intended; config.yml is not the gate
-  here. The store answered narrowing."*
-- The executor --- *"Writes are off for the '<target>' control target ---
-  turned off from the control-target chip in the header; applies to every
-  session of this login."* --- offering a re-run as ``readonly``, and saying to turn
-  writes back on from the chip if the write is intended.
-
-Those three are what writes you turned off from the chip sound like, and the
-chip is where you turn them back on. A **deployment-wide read-only run** is a
-different story and says so, because no click lifts that one:
-
-- The connector --- *"Write to '<channel>' blocked: this deployment is running
-  in readonly execution mode (OSPREY_EXECUTION_MODE=readonly), which refuses
-  control-system writes for every session. The control-target chip in the
-  header cannot lift it."*
-- The executor --- *"This deployment is running in readonly execution mode,
-  which refuses control-system writes regardless of what the run asks for."*
-  --- offering the same re-run as ``readonly``, and saying that writes need
-  the deployment started without the variable.
-
-The chip shows the same thing: every button locked, with *the whole
-deployment is running read-only* as the reason.
-
-A writes-off refusal from the chip mentions no ``writes_enabled`` key,
-deliberately: changing one would not lift it, and a message that pointed at
-one would send an operator to rebuild a deployment when a single click was
-the remedy. A write refused because this target is not armed is the other way
-round --- it names the key that would arm it, and says nothing about the chip.
-
-A write refused because the recorded write state could not be read says so
-instead --- which folder or record could not be read, and what to do about
-it --- and says the chip does not lift it: nobody set that refusal, so no
-click undoes it.
-
-When more than one holds at once, the connector names every one, the
-deployment first: arming the chip alone would leave the write refused, and an
-operator who heard only about the key would rebuild and redeploy to be refused
-again. The same goes for a run that launched read-only or under a narrowed
-write state --- the reason that outlives the run is spoken first, then the
-run's own, then the chip's or the record's. A script that launched with writes
-off, and whose target has since been turned off from the chip, hears both:
-re-running it alone would meet the chip next.
+Every layer speaks the phrase from the table above, so a refusal never sends
+you to the wrong control. A switch you turned off sounds like *"Writes are
+off; turn it on from the chip in the web terminal. (Concerns the real
+machine.)"* --- and the chip is where you turn it on. A read-only run says the
+chip cannot lift it, and a refusal nobody set --- a switch that cannot be read
+--- says to retry, then ask the deployment admin.
 
 .. note::
 
    **The other surfaces.** Simple mode's chat and the operator websocket run
    their agent through the Agent SDK rather than a terminal, and notebook
-   kernels run no agent at all. All of them read the deployment's control
-   context at write time, so a write state you set and a switch you make reach
-   every one of them --- and the full chip works in both views, because what it
-   changes is the deployment's own record rather than anything belonging to the
-   window you are looking at.
+   kernels run no agent at all. All of them read your login's switches at
+   write time, so a switch you set and a move you make reach every one of
+   them --- and the full chip works in both views, because what it changes is
+   your login's record rather than anything belonging to the window you are
+   looking at.
 
-   A notebook kernel is the one surface where *when* is worth knowing. It takes
-   a narrowing at once --- turning writes off refuses the running cell's next
-   write --- and takes a widening, or a switch, on the next cell you run. See
-   :doc:`notebooks`.
+   A notebook kernel is the one surface where *when* is worth knowing. Off
+   refuses the running cell's next write; on, or a move to another machine,
+   reaches the next cell you run. See :doc:`notebooks`.
 
    .. _web-terminal-service-door:
 
    Where a deployment also serves a panel at an address of its own, that
    address is a **service door, not a terminal**. Log in there directly and the
-   deployment has no name to put on what you do, so nobody's chip applies to
-   it: a plan queued from that page runs at its lane's ceiling --- what the
-   deployment armed for that lane --- rather than under yours. Reaching the
+   deployment has no name to put on what you do, so no switch covers it: a
+   plan queued from that page writes nothing (``owner_unknown``). Reaching the
    same panel from its tab in the terminal is the named path, and the one the
    chip governs.
 

@@ -61,10 +61,12 @@ from typing import Any
 import pytest
 
 from osprey.services.bluesky_bridge.figure import rows_from_columnar
+from osprey_connectors import posture_store
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
 from tests.e2e._deploy_support import format_failure, wait_for_health
 from tests.e2e._volumes import remove_project_volumes
+from tests.e2e.sdk_helpers import arm_deployed_queue_owner
 
 pytestmark = [
     pytest.mark.e2e,
@@ -169,6 +171,9 @@ def deployed_grid_scan_stack(
     # The repo root's `.env` — the deployment's whole secret store, and the file
     # `osprey up` refuses to start without.
     _orm_stack.seed_repo_env(repo)
+    # The plans write, and the worker's writes follow the add's owner's switch:
+    # this login's switch on in the deployment's record, before `up`.
+    arm_deployed_queue_owner(repo)
 
     osprey_bin = _orm_stack.find_osprey_console_script()
 
@@ -260,6 +265,7 @@ def test_grid_scan_roundtrip_produces_a_well_formed_grid(
         "grid_scan",
         plan_args,
         token=token,
+        owner=posture_store.current_owner(),
         client_id="grid-scan-roundtrip-e2e",
         timeout=SCAN_TIMEOUT_SEC,
     )

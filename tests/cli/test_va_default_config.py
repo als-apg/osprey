@@ -35,9 +35,9 @@ from osprey.cli.set_cmd import set as set_cmd
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import (
     ConnectorFactory,
-    isolated_connector_registries,
     register_builtin_connectors,
 )
+from osprey_connectors_tests._harness import isolated_connector_registries
 from tests._builds import BuiltProject, copy_build
 from tests.cli._lifecycle_build import invoke_build, rendered_config
 from tests.facility.served_tree import in_process_config
