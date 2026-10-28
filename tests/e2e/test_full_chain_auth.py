@@ -2383,6 +2383,17 @@ def test_history_an_artifact_under_u_cannot_read_a_history_response(
             browser.close()
 
 
+def _history_page_statuses() -> list[int]:
+    """The status of every ``GET /history/`` the history page's nginx server logged, in order."""
+    result = _runtime_cli("logs", NGINX_C, timeout=30)
+    return [
+        int(match.group(1))
+        for match in re.finditer(
+            r'"GET /history/ HTTP/[0-9.]+" (\d{3}) ', result.stdout + result.stderr
+        )
+    ]
+
+
 def test_history_an_iframe_and_an_image_from_an_artifact_run_no_read(
     history_page: dict[str, Any],
 ) -> None:
@@ -2425,14 +2436,21 @@ def test_history_an_iframe_and_an_image_from_an_artifact_run_no_read(
                     else None
                 ),
             )
+            logged = len(_history_page_statuses())
             page.goto(_artifact_url(history_page, HEADER_USER, "embed"), wait_until="load")
-            embeds = _settled(lambda: sorted(answered), lambda seen: len(seen) >= 2)
+            _settled(lambda: sorted(sent), lambda seen: len(seen) >= 2)
             assert sorted(sent) == ["document", "image"], (
                 f"the artifact's iframe and image never reached /history/: sent {sent}"
             )
-            assert embeds == [("document", 403), ("image", 403)], (
-                f"an embed of /history/ was not refused before the page: {embeds}; "
-                f"failed in the browser: {failed}"
+            # What nginx answered each embed, from its own log: the 403 page's
+            # resource policy keeps the browser from handing a refused image's
+            # response to the page at all, so the browser cannot report it.
+            statuses = _settled(
+                lambda: _history_page_statuses()[logged:], lambda seen: len(seen) >= 2
+            )
+            assert statuses == [403, 403], (
+                f"an embed of /history/ was not refused before the page: nginx answered "
+                f"{statuses}; the browser saw {answered} and failed {failed}"
             )
 
             # The positive control: the same browser opening the page is
