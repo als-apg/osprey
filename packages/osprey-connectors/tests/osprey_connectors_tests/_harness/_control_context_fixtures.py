@@ -13,7 +13,7 @@ environment: a test that has not stamped ``OSPREY_AGENT_DATA_ROOT`` yet still
 has to be able to lay down the deployment it is about to point at.
 
 The ``<identity>`` hop is nobody's literal here either. Both writers reach it
-through :func:`~osprey_connectors.control_context.record_path_under`, the one
+through :func:`~osprey_connectors.control_context._record_path_under`, the one
 place the hops are spelled, and a suite that needs the directory itself asks
 :func:`state_dir_under` for it rather than joining the name again — a fixture
 that created one directory while the reader under test resolved another is a
@@ -30,13 +30,20 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
+import textwrap
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from osprey_connectors import control_context
+import pytest
+
+from osprey_connectors import control_context, posture_store
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from osprey_connectors.safety_file import atomic_replace
+from osprey_connectors.types import CONTROL_TARGETS
+from osprey_connectors_tests._paths import REPO_ROOT
 
 #: The target a record carries when a test does not care which one it is.
 DEFAULT_TARGET = "live"
@@ -60,7 +67,7 @@ def state_dir_under(root: Path) -> Path:
 
     For suites that need the directory rather than a file in it — one to create
     before a reader is aimed at it, one to list, one to hand a path seam. Taken
-    from :func:`~osprey_connectors.control_context.record_path_under` rather than
+    from :func:`~osprey_connectors.control_context._record_path_under` rather than
     joined here, so the identity hop has exactly one spelling in the tests as
     well as in the code: a suite that built this path itself would keep passing
     after the layout moved, against a directory no reader resolves.
@@ -68,7 +75,7 @@ def state_dir_under(root: Path) -> Path:
     Args:
         root: The agent-data root. Nothing is created.
     """
-    return control_context.record_path_under(Path(root)).parent
+    return control_context._record_path_under(Path(root)).parent
 
 
 def pin_identity(monkeypatch: Any, identity: str = FIXTURE_IDENTITY) -> str:
@@ -102,6 +109,39 @@ def pin_identity(monkeypatch: Any, identity: str = FIXTURE_IDENTITY) -> str:
     return identity
 
 
+#: The variables that change a write verdict behind a test's back: a stamped
+#: owner, a dispatch run, a bound tree or directory, a launch pin, a read-only run.
+VERDICT_ENV_VARS: tuple[str, ...] = (
+    posture_store.CONTROL_OWNER_ENV_VAR,
+    posture_store.DISPATCH_RUN_ENV_VAR,
+    posture_store.CONTROL_CONTEXT_TREE_ENV_VAR,
+    posture_store.CONTROL_CONTEXT_DIR_ENV_VAR,
+    posture_store.LAUNCH_POSTURE_ENV_VAR,
+    "OSPREY_EXECUTION_MODE",
+)
+
+
+def reset_verdict_state() -> None:
+    """No bound owner, and neither the posture store's nor the record's cache."""
+    posture_store._owner_var.set(posture_store.NO_OWNER)
+    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
+
+
+def isolate_verdict_environment(monkeypatch: Any, root: Path) -> None:
+    """A clean write-verdict environment with the host record under *root*.
+
+    Clears :data:`VERDICT_ENV_VARS`, points ``OSPREY_AGENT_DATA_ROOT`` at *root*,
+    pins the acting identity (:func:`pin_identity`) and calls
+    :func:`reset_verdict_state`. Nothing is written.
+    """
+    for name in VERDICT_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    pin_identity(monkeypatch)
+    reset_verdict_state()
+
+
 class _Self:
     """Sentinel: own this record with a live web terminal at this PID."""
 
@@ -121,7 +161,7 @@ def owner(
     """An owner record, defaulting to a live web terminal at this PID.
 
     Args:
-        kind: One of :data:`control_context.OWNER_KINDS`.
+        kind: One of :data:`control_context._OWNER_KINDS`.
         pid: The owning process. Defaults to this one, which is alive.
         port: The web terminal's port, or ``None``.
     """
@@ -136,6 +176,7 @@ def write_control_context(
     *,
     owned_by: Any = SELF_OWNER,
     last_switch: Mapping[str, Any] | None = None,
+    switch: Mapping[str, Any] | None = None,
 ) -> Path:
     """Write a control-context record under *root* and return its path.
 
@@ -154,6 +195,16 @@ def write_control_context(
             ``None`` for an ownerless record free to be claimed, or an
             :class:`control_context.Owner` built with :func:`owner`.
         last_switch: The terminus of the last switch request, verbatim.
+        switch: Which machines are switched on, ``{target: "on"}``. When
+            every value is ``"on"`` for a known target, and *posture* is a
+            mapping, this goes through the person's gesture
+            (:func:`control_context.set_switch`): targets on disk but not
+            named are turned off and the named ones on, so the epoch is the
+            one the production writer stamped or kept. Anything else — a
+            degraded value, an unknown key, a verbatim *posture* — is written
+            to the field VERBATIM on top of that epoch. ``None`` leaves the
+            switch to the production rule: :func:`control_context.write_record`
+            keeps the one on disk, which on a fresh root is empty.
 
     Returns:
         The path written.
@@ -166,14 +217,47 @@ def write_control_context(
         posture={} if verbatim else dict(posture or {}),
         last_switch=None if last_switch is None else dict(last_switch),
     )
-    path = control_context.record_path_under(root)
+    path = control_context._record_path_under(root)
     if verbatim:
         payload = record.to_payload()
         payload["posture"] = posture
+        if switch is not None:
+            payload["switch"] = dict(switch)
         return write_payload(path, payload)
     control_context.write_record(record, path=path)
     control_context.invalidate_cache()
+    if switch is not None:
+        if all(key in CONTROL_TARGETS and value == "on" for key, value in switch.items()):
+            _set_switch_to(path, set(switch))
+        else:
+            # Through the production writer first, so the epoch is the one it
+            # stamped or kept; the degraded switch lands verbatim on top.
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["switch"] = dict(switch)
+            write_payload(path, payload)
+    control_context.invalidate_cache()
     return path
+
+
+def _set_switch_to(path: Path, wanted: set[str]) -> None:
+    """Make the record's switch exactly *wanted* through the person's gesture.
+
+    Per-target turn-offs and turn-ons only: neither moves an existing epoch,
+    which a turn-off of every machine would.
+    """
+    current, _status = control_context.read_record_status(path=path)
+    stale = sorted(set(current.switch) - wanted) if current is not None else []
+    if stale:
+        control_context.set_switch(stale, "off", path=path)
+    if wanted:
+        control_context.invalidate_cache()
+        current = control_context.read_record(path=path)
+        epoch = current.switch_epoch if current is not None else None
+        try:
+            control_context.set_switch(sorted(wanted), "on", epoch=epoch or 0, path=path)
+        except control_context.StoppedSince as stamped:
+            # An epoch-less record: the refusal stamped one; retry with it.
+            control_context.set_switch(sorted(wanted), "on", epoch=stamped.epoch, path=path)
 
 
 def write_server_report(
@@ -225,7 +309,7 @@ def write_server_report(
         targets=dict(targets or {}),
         updated_at=updated_at,
     )
-    path = control_context.report_path_under(root, pid)
+    path = control_context._report_path_under(root, pid)
     write_payload(path, report.to_payload())
     return path
 
@@ -246,3 +330,91 @@ def write_payload(path: Path, payload: Any) -> Path:
     )
     control_context.invalidate_cache()
     return path
+
+
+# -- two real processes ------------------------------------------------------
+
+#: The repository root, the race children's working directory.
+_REPO = REPO_ROOT
+
+#: How long a race child waits for the other child's signal before it gives up.
+_SIGNAL_TIMEOUT_S = 60
+
+#: What every race child runs before its own body: its arguments (``mode``,
+#: ``signals``, ``wait_for``, ``hold``), ``wait(name)`` for the other child's
+#: signal file and ``mark(name)`` to leave one, with the imports the bodies use
+#: (``cc`` is :mod:`osprey_connectors.control_context`).
+_RACE_PRELUDE = """
+import json, os, sys, time
+from dataclasses import replace
+from pathlib import Path
+
+from osprey_connectors import control_context as cc
+
+mode, signals, wait_for = sys.argv[1], Path(sys.argv[2]), sys.argv[3]
+hold = float(sys.argv[4])
+
+def wait(name):
+    deadline = time.monotonic() + __TIMEOUT__
+    while not (signals / name).exists():
+        if time.monotonic() > deadline:
+            sys.exit(f"{mode}: timed out waiting for {name}")
+        time.sleep(0.005)
+
+def mark(name):
+    (signals / name).touch()
+
+""".replace("__TIMEOUT__", str(_SIGNAL_TIMEOUT_S))
+
+
+@pytest.fixture
+def data_root(tmp_path, monkeypatch):
+    """Stamp ``OSPREY_AGENT_DATA_ROOT`` at a scratch root, cache cleared."""
+    root = tmp_path / "root"
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
+    control_context.invalidate_cache()
+    yield root
+    control_context.invalidate_cache()
+
+
+def race_record_writers(
+    child: str, data_root: Path, tmp_path: Path, person: str, other: str, interleaved: bool
+) -> list[Any]:
+    """Run the person and the other writer against one record; their outputs.
+
+    *child* is the body of one child process, run after :data:`_RACE_PRELUDE`
+    with its mode as ``person`` or ``other``; each prints one JSON line last,
+    which is what this returns, person first. The person waits for ``read``;
+    the other writer waits for ``locked`` when *interleaved* — it writes while
+    the person holds the lock (for half a second), from a view read before the
+    person's change — and for ``done`` otherwise, from the same stale view.
+    """
+    source = _RACE_PRELUDE + textwrap.dedent(child)
+    signals = tmp_path / "signals"
+    signals.mkdir()
+    env = dict(os.environ)
+    env[posture_store.AGENT_DATA_ROOT_ENV_VAR] = str(data_root)
+    env.pop(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, None)
+    runs = [
+        (person, "read", 0.5 if interleaved else 0.0),
+        (other, "locked" if interleaved else "done", 0.0),
+    ]
+    procs = [
+        subprocess.Popen(
+            [sys.executable, "-c", source, mode, str(signals), wait_for, str(hold)],
+            cwd=_REPO,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        for mode, wait_for, hold in runs
+    ]
+    outputs = []
+    for proc in procs:
+        out, err = proc.communicate(timeout=_SIGNAL_TIMEOUT_S * 2)
+        assert proc.returncode == 0, err
+        outputs.append(json.loads(out.strip().splitlines()[-1]))
+    control_context.invalidate_cache()
+    return outputs

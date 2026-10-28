@@ -109,9 +109,12 @@ describe('setTheme()', () => {
       ThemeManager.initTheme({ role: 'hub' });
       ThemeManager.setTheme('light');
 
+      // '*' is the one sanctioned wildcard target: an opaque artifact frame
+      // or panel has origin "null", which no named targetOrigin reaches, and
+      // the message carries only a public theme id.
       expect(postMessage).toHaveBeenCalledWith(
         { type: 'osprey-theme-change', theme: 'light' },
-        window.location.origin
+        '*'
       );
     });
 

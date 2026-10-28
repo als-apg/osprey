@@ -43,9 +43,6 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("src/osprey/cli/build_cmd.py", "_render_container_project"): (
         "renames a rendered tree inside the staged image root"
     ),
-    ("src/osprey/cli/build_persistence.py", "ensure_profile_facility_rule"): (
-        "moves an existing tree"
-    ),
     ("src/osprey/cli/init_cmd.py", "_reinstate_held_source_zone"): (
         "moves a held entry back to its place"
     ),

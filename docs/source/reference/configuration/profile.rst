@@ -209,9 +209,9 @@ the framework reads and what it falls back to when no line spells it.
      # Control system: which backend the deployment talks to. Required — see
      # the posture floor below.
      control_system.type: virtual_accelerator
-     # The write posture every connector type inherits when it says nothing
-     # itself. Only a literal `true` arms writes, at either level.
-     control_system.writes_enabled: true
+     # The tier key: may this render write at all. `allowed` or `never`
+     # (silence is `never`); each login still turns a machine on from the chip.
+     control_system.writes: allowed
      # Limits checking. This pair is the deployment's, and every type
      # inherits it: `exclusive` = only channels in the limits file can be
      # written, `optional` = channels in the file are held to their limits and
@@ -240,11 +240,10 @@ the framework reads and what it falls back to when no line spells it.
 That is the shape ``osprey init --preset control-assistant`` writes, with the
 timezone changed and a per-type limits block added. Pointing the same deployment at a real machine
 (``control_system.type: epics``) is a larger edit than the one line, because
-two things the preset ships are scoped to the simulated baseline: the
-``va_archiver:`` block records a machine the deployment would no longer be
-baselined on, and any profile-level ``control_system.connector.<type>.writes_enabled:
-true`` has to agree with the read-only tier that inherits it. ``osprey
-build`` refuses each in turn rather than rendering it. See
+the ``va_archiver:`` block the preset ships records a machine the deployment
+would no longer be baselined on. ``osprey build`` refuses it rather than
+rendering it. The tier key needs no change: it is target-blind
+(:ref:`write-safety-config`). See
 :doc:`/how-to/control-systems/use-virtual-accelerator`.
 
 .. note::
@@ -381,11 +380,13 @@ Three rules follow from the catalog being the one home for these facts:
   place to declare the provider.
 - ``provider:`` naming an entry the file does not declare is refused, and the
   message lists the names it does declare.
-- A catalog that no longer matches the one OSPREY ships is reported as a note,
-  never a refusal — the comparison is with the catalog this OSPREY release
-  ships, not with the hash recorded under ``provenance:``.
-  ``osprey init --revalidate`` refreshes the entries OSPREY ships and keeps the
-  ones you added.
+- ``osprey validate`` compares each entry OSPREY ships with the one in the file,
+  key by key, as preset drift: a value you changed is a note, a key or model the
+  two disagree on having is refused unless a ``# DEVIATION:`` comment above it
+  claims it. Entries you added are not compared. The comparison is with the
+  catalog this OSPREY release ships, not with the hash under ``provenance:``.
+  ``osprey init --revalidate`` keeps every value in the file and adds the
+  entries and keys OSPREY ships that it lacks.
 
 .. _profile-posture-floor:
 
@@ -652,28 +653,26 @@ built from three sources, in this order:
    * - The write kill switch
      - Appended last and **never** filtered
 
-The third source is the one to know about. A profile that leaves **no** control
-target armed does not merely stop the write path at run time; it also puts the
-framework servers' write tools into the rendered deny list. Those entries are
+The third source is the one to know about. A profile whose tier is
+``control_system.writes: never`` does not merely stop the write path at run
+time; it also puts the framework servers' write tools into the rendered deny list. Those entries are
 generated, not authored, and no ``remove_deny`` reaches them. (Tools a profile
 lists under ``control_system.write_tools`` are a different mechanism: they
 never reach ``permissions.deny``, in any render, and are refused by the
-writes-check hook instead.) A profile that arms nothing and also writes
+writes-check hook instead.) A ``never`` profile that also writes
 ``remove_deny: ["mcp__controls__channel_write"]`` still renders that deny —
 which is the point. A read-only posture that a later edit could quietly lift
 would not be a posture at all.
 
-Arming *some* targets and not others renders differently, and the difference is
-worth knowing before you write such a profile. ``settings.json`` is rendered
-once, before any session has picked a target, so a tool that is legal on the
-simulator and refused on the machine cannot be denied there — and it cannot be
-left in ``ask`` either, or an operator would be prompted to approve a write the
-target's posture forbids. Such a profile therefore renders **neither**: the
-gated tools leave both lists, and the boundary is carried per call by the
-safety hook (which reads the session's active target) and by the connector
-behind it. The static deny is the stronger of the two, so reach for it — a
-profile that arms nothing — whenever the requirement is "this tier can never
-move anything".
+An ``allowed`` tier renders differently. The login's switch decides each write
+at run time, so nothing is denied up front. A write tool whose rule carries
+both the writes-check hook and an approval hook leaves ``ask``: with the switch
+off, writes-check refuses it before any operator is offered an approval for a
+write the switch forbids; with it on, the approval hook asks. A tool missing
+either hook keeps its static ``ask``. The boundary is carried per call by the
+safety hook and by the connector behind it (:ref:`write-safety-config`). The
+static deny is the stronger of the two, so reach for a ``never`` tier whenever
+the requirement is "this tier can never move anything".
 
 .. admonition:: Permission lists grow across ``extends``; taking an entry out is explicit
    :class: important
@@ -1080,9 +1079,8 @@ A profile that spells any of the seven in its own ``config:`` block is refused b
 name at build time rather than silently having the derived copy win: two homes
 for one fact are free to disagree, and an address left in ``config:`` reads as
 the endpoint the ``standin`` target dials while every session on it is somewhere
-else. The refusal is scoped to those leaves — a tier's own
-``control_system.connector.live_standin.writes_enabled`` says something the build
-has no opinion about, and is yours to write.
+else. The refusal is scoped to those leaves; the rest of the
+``control_system.connector.live_standin`` block is yours to write.
 
 **What the block does not decide.** Write posture, limits checking and the
 operator acknowledgment are the profile's, on a stand-in deployment exactly as on

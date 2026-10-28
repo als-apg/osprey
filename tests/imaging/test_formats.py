@@ -6,11 +6,6 @@ hand-built byte prefix: no image library is needed to produce or classify one.
 
 from __future__ import annotations
 
-import json
-import os
-import subprocess
-import sys
-from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
@@ -34,8 +29,7 @@ from osprey.imaging.formats import (
     sniff,
     viewable_sql,
 )
-
-_SRC = str(Path(__file__).resolve().parents[2] / "src")
+from tests._fresh_import import non_stdlib_added_by_import
 
 # Magic-byte prefixes padded past the 32-byte sniff window with filler, so a
 # classifier that read beyond its window would see bytes that are not part of
@@ -198,25 +192,15 @@ def test_classification_never_calls_pillow():
 
 
 def test_module_imports_nothing_outside_the_stdlib():
-    code = (
-        "import json, sys;"
-        "before = set(sys.modules);"
-        "import osprey.imaging.formats;"
-        "allowed = {'osprey', 'osprey.version', 'osprey._version', 'osprey.docs_links', "
-        "'osprey.imaging', 'osprey.imaging.formats'};"
-        "delta = set(sys.modules) - before - allowed;"
-        "print(json.dumps(sorted("
-        "m for m in delta if m.split('.')[0] not in sys.stdlib_module_names)))"
-    )
-    result = subprocess.run(
-        [sys.executable, "-c", code],
-        capture_output=True,
-        text=True,
-        env=dict(os.environ, PYTHONPATH=_SRC),
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout) == []
+    allowed = {
+        "osprey",
+        "osprey.version",
+        "osprey._version",
+        "osprey.docs_links",
+        "osprey.imaging",
+        "osprey.imaging.formats",
+    }
+    assert non_stdlib_added_by_import("osprey.imaging.formats", allowed) == []
 
 
 # -- rows and Pillow format sets -----------------------------------------------

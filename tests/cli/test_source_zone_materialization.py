@@ -166,7 +166,7 @@ def test_extends_chain_preset_materializes_flat(
         "# The child's own comment, carried onto its override.\n"
         "deploy_services: false\n"
         "config:\n"
-        "  control_system.writes_enabled: false\n",
+        "  control_system.writes: never\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(build_profile_presets, "_presets_dir", lambda: presets)
@@ -178,7 +178,7 @@ def test_extends_chain_preset_materializes_flat(
     text = (target / "profile.yml").read_text()
     assert not any(line.startswith("extends:") for line in text.splitlines()), text
     assert "deploy_services: false" in text
-    assert "control_system.writes_enabled: false" in text
+    assert "control_system.writes: never" in text
     assert "preset: ro-child" in text
     # Base content, with the base file's comments.
     assert "Which model answers" in text
@@ -1471,6 +1471,9 @@ def test_resolves_identical_to_the_preset(runner: CliRunner, tmp_path: Path, pre
         name: ({"build_profile": f"{TIERS_DIRNAME}/{name}.yml"} if rewrites else value)
         for name, value in preset_renders.items()
     }
+    # Init seeds the facility description into the profile and names it by its
+    # path: the profile's copy where the preset selects OSPREY's rule.
+    d_new["rules"] = ["facility" if rule == "rules/facility" else rule for rule in d_new["rules"]]
     assert d_new == d_preset
 
 

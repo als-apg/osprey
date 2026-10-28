@@ -160,7 +160,9 @@ def test_set_with_a_list_value_replaces_the_presets_list(runner: CliRunner, tmp_
     The edit half of the rule at the CLI surface. An inheritance layer would
     union these and leave the operator unable to take a hook away, which is the
     narrowing the explicit-profile work exists to make expressible. Taking the
-    approval hook away means stating that nobody is asked.
+    approval hook away means stating that nobody is asked. ``writes-check``
+    stays in the stated list: the render pins writes off and mounts mixed
+    read/write tools, and that hook is what refuses their writes per call.
     """
     result = _materialize(
         runner,
@@ -168,7 +170,7 @@ def test_set_with_a_list_value_replaces_the_presets_list(runner: CliRunner, tmp_
         "smoke",
         "hello-world",
         "--set",
-        "hooks=[memory-guard]",
+        "hooks=[memory-guard, writes-check]",
         "--set",
         "config.approval.enabled=false",
     )
@@ -179,7 +181,7 @@ def test_set_with_a_list_value_replaces_the_presets_list(runner: CliRunner, tmp_
     import json
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert manifest["artifacts"]["hooks"] == ["memory-guard"]
+    assert manifest["artifacts"]["hooks"] == ["memory-guard", "writes-check"]
 
 
 def test_preset_control_assistant_ships_live_gateway_telemetry(
@@ -691,7 +693,7 @@ def test_profile_md_files_registered_as_user_owned(runner: CliRunner, tmp_path: 
     profile = profile_dir / "profile.yml"
     profile.write_text(
         "extends: hello-world\nname: ConventionTest\nproject_name: repo\ndata: data\n"
-        "provider: anthropic\n"
+        "provider: anthropic\nrules: [rules/extra]\n"
     )
     result = _render_from(runner, str(profile))
     assert result.exit_code == 0, result.output
@@ -1237,7 +1239,7 @@ def test_render_exclusion_keeps_the_artifact_out_of_the_built_project(
     )
     (root / "profile.yml").write_text(
         "name: RootProfile\nproject_name: prof\nextends: hello-world\nprovider: anthropic\n"
-        "model: claude-sonnet-5\ndata: data\n"
+        "model: claude-sonnet-5\ndata: data\nagents: [agents/orbit-writer]\n"
     )
     (root / RETIRED_LAYER_DIRNAME / "narrow.yml").write_text(
         "name: Narrow\n"
@@ -1301,7 +1303,7 @@ def test_render_exclusion_of_a_panel_switches_its_inherited_block_off(
         "provider: anthropic\n"
         "model: claude-haiku-4-5\n"
         "channel_finder_mode: hierarchical\n"
-        "hooks: [memory-guard]\n"
+        "hooks: [memory-guard, writes-check]\n"
         "web_panels: [okf, lattice, grafana]\n"
         "config:\n" + _POSTURE_FLOOR_NO_APPROVAL_HOOK + "  web.panels.lattice.label: LATTICE\n"
         "  web.panels.grafana.label: GRAFANA\n"
@@ -1359,7 +1361,7 @@ def test_a_dotted_panel_id_is_projected_into_its_own_block(
         "provider: anthropic\n"
         "model: claude-haiku-4-5\n"
         "channel_finder_mode: hierarchical\n"
-        "hooks: [memory-guard]\n"
+        "hooks: [memory-guard, writes-check]\n"
         "web_panels: [okf, beam.viewer]\n"
         "config:\n" + _POSTURE_FLOOR_NO_APPROVAL_HOOK + "  web.panels:\n"
         "    beam.viewer:\n"

@@ -20,6 +20,8 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from tests.health._fakes import StubRegistry
+
 from osprey.health.models import Status
 from osprey.health.probes import ProbeContext, get_probe, provider_canary
 from osprey.health.probes.provider_canary import run
@@ -33,16 +35,6 @@ def _ctx(config: Any = None) -> ProbeContext:
     ``api.providers.<name>`` from when a spec omits ``api_key``/``base_url``.
     """
     return ProbeContext(runtime=HealthRuntime({}), config=config)
-
-
-class _StubRegistry:
-    """Duck-typed stand-in for ``ProviderRegistry`` with a name→class map."""
-
-    def __init__(self, mapping: dict[str, type]) -> None:
-        self._mapping = mapping
-
-    def get_provider(self, name: str) -> type | None:
-        return self._mapping.get(name)
 
 
 def _capturing_provider(captured: list[dict[str, Any]], result: tuple[bool, str]) -> type:
@@ -69,8 +61,8 @@ def _capturing_provider(captured: list[dict[str, Any]], result: tuple[bool, str]
     return _Fake
 
 
-def _registry(name: str, provider_cls: type) -> _StubRegistry:
-    return _StubRegistry({name: provider_cls})
+def _registry(name: str, provider_cls: type) -> StubRegistry:
+    return StubRegistry({name: provider_cls})
 
 
 async def test_success_is_ok() -> None:
@@ -105,7 +97,7 @@ async def test_unknown_provider_is_warning() -> None:
     result = await run(
         {"name": "made_up"},
         _ctx(),
-        registry=_StubRegistry({}),
+        registry=StubRegistry({}),
     )
 
     assert result.status is Status.WARNING
@@ -123,7 +115,7 @@ async def test_config_only_provider_is_skipped() -> None:
     result = await run(
         {"name": "house_gateway"},
         _ctx({"api": {"providers": {"house_gateway": {"base_url": "https://gw.example/v1"}}}}),
-        registry=_StubRegistry({}),
+        registry=StubRegistry({}),
     )
 
     assert result.status is Status.SKIP
@@ -136,7 +128,7 @@ async def test_empty_config_block_is_still_unknown() -> None:
     result = await run(
         {"name": "made_up"},
         _ctx({"api": {"providers": {"made_up": {}}}}),
-        registry=_StubRegistry({}),
+        registry=StubRegistry({}),
     )
 
     assert result.status is Status.WARNING
@@ -338,7 +330,7 @@ async def test_unknown_via_provider_param_uses_result_name() -> None:
     result = await run(
         {"name": "cborg_health", "provider": "made_up"},
         _ctx(),
-        registry=_StubRegistry({}),
+        registry=StubRegistry({}),
     )
 
     assert result.status is Status.WARNING

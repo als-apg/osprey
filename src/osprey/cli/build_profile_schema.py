@@ -172,6 +172,14 @@ class McpServerDef:
     # variant from this single value. Mutually exclusive with command;
     # compatible with url (a port hint for non-Claude consumers).
     port: int | None = None
+    # Hook presets the registry attaches to this server's tools:
+    # {"pre_tool_use": ["approval", ...]}. Persisted verbatim into
+    # claude_code.servers.<name>.hooks.
+    hooks: dict[str, list[str]] = field(default_factory=dict)
+    # The server's write tools as bare names (no mcp__ prefix, no pattern).
+    # None means the server declares no list; [] declares that none writes.
+    # Validated as written — the build never queries the server's tool list.
+    writes: list[str] | None = None
 
 
 @dataclass
@@ -622,6 +630,43 @@ def _dotted_leaves(mapping: Mapping[str, Any], prefix: str = "") -> dict[str, An
         else:
             leaves[dotted] = value
     return leaves
+
+
+#: The login→tier map the build stages into the shared containers' configs.
+LOGIN_TIERS_CONFIG_KEY = "control_system.login_tiers"
+
+
+def login_tiers_key_errors(config: Any) -> list[str]:
+    """Refuse a ``config:`` block that spells the login→tier map the build stages.
+
+    ``control_system.login_tiers`` is derived at build time from the roster and
+    each person's render, and is written only into the staged configs of the
+    shared containers (the Bluesky queue, the dispatch worker). A spelled copy
+    would be a second producer of one map — and in a terminal-served render, a
+    map that render was never meant to carry. Dotted and nested spellings are
+    the same key.
+
+    Args:
+        config: A profile's ``config:`` block, whatever shape it parsed as.
+
+    Returns:
+        One error naming the key when the block spells it; empty otherwise.
+    """
+    if not isinstance(config, Mapping):
+        return []
+    spelled = any(
+        isinstance(path, str)
+        and (path == LOGIN_TIERS_CONFIG_KEY or path.startswith(f"{LOGIN_TIERS_CONFIG_KEY}."))
+        for path in _dotted_leaves(config)
+    )
+    if not spelled:
+        return []
+    return [
+        f"config: {LOGIN_TIERS_CONFIG_KEY} is written by the build, which derives each "
+        f"login's tier from the roster in modules.web_terminals and that person's tier "
+        f"or app file, and stages it only for the shared containers. Delete "
+        f"{LOGIN_TIERS_CONFIG_KEY} from the profile."
+    ]
 
 
 def _tier_dirs(profile_dir: Path) -> list[Path]:

@@ -162,7 +162,6 @@ control_system:
   connector:
     epics:
       timeout_s: 5.0
-      writes_enabled: false
     live_standin:
       gateways:
         read_only:
@@ -184,7 +183,6 @@ control_system:
           use_name_server: true
       probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB
       timeout_s: 5.0
-      writes_enabled: false
   limits_checking:
     database_path: data/channel_limits.json
     enabled: true
@@ -195,7 +193,7 @@ control_system:
     probe_interval_s: 30
     probe_timeout_s: 5
   type: virtual_accelerator
-  writes_enabled: false
+  writes: never
 deploy:
   fqdn: 127.0.0.1
 deployed_services: []

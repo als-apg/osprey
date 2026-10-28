@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from tests._playwright import chromium_available
+
 REPO = Path(__file__).resolve().parents[2]
 INDEX = REPO / "docs" / "source" / "index.rst"
 CSS = REPO / "docs" / "source" / "_static" / "custom.css"
@@ -76,21 +78,9 @@ def test_the_default_speed_is_real_time() -> None:
 # --- in the browser -------------------------------------------------------------
 
 
-def _chromium_available() -> bool:
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        return False
-    p = sync_playwright().start()
-    try:
-        return Path(p.chromium.executable_path).exists()
-    finally:
-        p.stop()
-
-
 @pytest.fixture
 def site(tmp_path: Path):
-    if not _chromium_available():
+    if not chromium_available():
         pytest.skip("Playwright Chromium is not installed")
     from PIL import Image
 

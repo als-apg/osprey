@@ -39,7 +39,6 @@ from ruamel.yaml import YAML, CommentedMap, CommentedSeq
 from osprey import __version__
 from osprey.profiles.providers import (
     PROVIDERS_FILENAME,
-    compute_providers_hash,
     load_provider_catalog,
     packaged_catalog_path,
 )
@@ -86,15 +85,17 @@ NOTE_KINDS: frozenset[str] = frozenset({"value"})
 _NOTE_SEPARATOR = "\n  "
 
 
-def _catalog_note(root_dir: Path) -> str | None:
-    """One line when this repo's ``providers.yml`` is no longer the shipped one.
+def _compare_catalog(root_dir: Path, tag: str) -> tuple[list[DriftFinding], list[str]]:
+    """``providers.yml`` against the catalog OSPREY ships, entry by entry.
 
-    A NOTE and never a finding: the catalog is a file the operator owns and is
-    invited to add gateways to, so a difference from the packaged copy is
-    normally the feature working. What is worth saying is that the two have
-    parted, because the entries OSPREY ships stop reaching this repo the moment
-    it has a catalog of its own — and there is a verb that refreshes them
-    without touching the operator's.
+    The repo's catalog is the operator's the way ``profile.yml`` is, and ``osprey
+    init --revalidate`` never changes a value it states; it only adds what the
+    packaged catalog has and the file lacks. So the entries this OSPREY ships
+    are compared key by key, with the profile's own rules: a value the
+    facility turned is a note, a key or a list member one side has and the
+    other has not is a refusal, and a ``# <TAG>:`` comment claims either. An
+    entry the packaged catalog does not declare is the operator's own gateway
+    and is not compared.
 
     Silent for a repo with no catalog: the packaged copy IS what it resolves,
     so nothing has drifted from anything.
@@ -102,6 +103,10 @@ def _catalog_note(root_dir: Path) -> str | None:
     Args:
         root_dir: The deployment repo root, where a ``providers.yml`` sits
             beside ``profile.yml``.
+        tag: The deviation marker that claims a finding.
+
+    Returns:
+        ``(findings, stale markers)``, as for any other compared document.
 
     Raises:
         BuildProfileError: The repo's catalog does not parse. Left to surface
@@ -110,14 +115,28 @@ def _catalog_note(root_dir: Path) -> str | None:
             the broken file looked fine.
     """
     catalog = load_provider_catalog(root_dir)
-    if catalog.source != "repo":
-        return None
-    if compute_providers_hash(catalog.path) == compute_providers_hash(packaged_catalog_path()):
-        return None
-    return (
-        f"{PROVIDERS_FILENAME} is not the provider catalog OSPREY {__version__} ships — "
-        f"`osprey init --revalidate` refreshes the entries it ships and keeps yours"
+    if catalog.source != "repo" or catalog.path is None:
+        return [], []
+    shipped_path = packaged_catalog_path()
+    actual = _parse_profile_document(catalog.path.read_text(encoding="utf-8"), PROVIDERS_FILENAME)
+    shipped = _parse_profile_document(shipped_path.read_text(encoding="utf-8"), "packaged")
+    actual_entries = _mapping(_mapping(actual).get("providers"))
+    shipped_entries = _mapping(_mapping(shipped).get("providers"))
+    comparison = _Comparison(
+        PROVIDERS_FILENAME,
+        _Lines(catalog.path),
+        f"the catalog OSPREY {__version__} ships",
+        [_Lines(shipped_path)],
     )
+    comparison.compare(
+        {
+            "providers": {
+                name: actual_entries[name] for name in shipped_entries if name in actual_entries
+            }
+        },
+        {"providers": shipped_entries},
+    )
+    return _apply_markers(comparison.findings, catalog.path, root_dir, tag)
 
 
 # Top-level keys `osprey init` writes for the repo rather than copies from the
@@ -175,8 +194,7 @@ class DriftReport:
         preset: The bundled preset the profile's provenance names.
         note: The advisories about the comparison itself rather than about any
             one key — distinct from :attr:`notes`, which are findings. The preset has
-            moved on since materialization, is not bundled here, or the repo's
-            ``providers.yml`` is no longer the catalog OSPREY ships. One line
+            moved on since materialization, or is not bundled here. One line
             each, joined with the printer's own indent when both apply.
         findings: Every difference found, marked or not.
         stale_markers: Marker comments that silence nothing.
@@ -268,10 +286,10 @@ def preset_drift_report(profile_file: Path, provenance: ProfileProvenance | None
                     f"OSPREY {__version__} is {_short_hash(installed_hash)} — it has moved on "
                     f"since"
                 )
-            catalog_note = _catalog_note(root_dir)
-            if catalog_note is not None:
-                notes.append(catalog_note)
             if not is_delta:
+                findings_catalog, stale_catalog = _compare_catalog(root_dir, tag)
+                findings.extend(findings_catalog)
+                stale.extend(stale_catalog)
                 findings_root, stale_root = _compare_root(profile, preset, root_path, root_dir, tag)
                 findings.extend(findings_root)
                 stale.extend(stale_root)
@@ -461,11 +479,12 @@ class _Comparison:
                 else:
                     self._compare(actual[key], expected[key], sub)
         elif _is_name_list(actual) and _is_name_list(expected):
+            own, replaced = _own_entries(path, actual, expected)
             for member in expected:
-                if member not in actual:
+                if member not in actual and member not in replaced:
                     self._missing_member(path, member)
             for member in actual:
-                if member not in expected:
+                if member not in expected and member not in own:
                     self._extra_member(path, member)
         elif actual != expected:
             self.findings.append(
@@ -591,6 +610,12 @@ def _locate(node: Any, segments: list[str]) -> int | None:
             found = _locate(node[head], rest)
             if found is not None:
                 return found
+        # A block path the file spells only as dotted leaves (``control_system``
+        # under ``control_system.writes: never``) is cited at its first leaf.
+        prefix = ".".join(segments) + "."
+        for key in node:
+            if isinstance(key, str) and key.startswith(prefix):
+                return int(node.lc.key(key)[0]) + 1
         return None
     if isinstance(node, CommentedSeq) and len(segments) == 1:
         for index, item in enumerate(node):
@@ -699,6 +724,29 @@ def _emitted_version(profile_path: Path) -> str | None:
 
 def _mapping(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _own_entries(
+    path: tuple[str, ...], actual: list[str], expected: list[str]
+) -> tuple[set[str], set[str]]:
+    """The deployment's own entries in a top-level list, and the preset entries they replace.
+
+    A path entry (``skills/beam-check``) names a file the repo ships, which no
+    preset can carry, so it is the repo writing for itself rather than drift. A
+    path that names the deployment's copy of a library artifact the preset
+    selects (``rules/facility`` for ``facility``) stands in for that entry.
+
+    Returns:
+        ``(own, replaced)``: the path entries of *actual*, and the bare entries
+        of *expected* one of them replaces.
+    """
+    from .profile_conventions import library_entry_shadow, split_convention_selection
+
+    if len(path) != 1:
+        return set(), set()
+    own = set(split_convention_selection(path[0], actual)[1])
+    replaced = {member for member in expected if library_entry_shadow(path[0], member) in own}
+    return own, replaced
 
 
 def _is_name_list(value: Any) -> bool:

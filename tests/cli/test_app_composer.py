@@ -5,7 +5,8 @@ CLAUDE.md template and its channel-finder mode — and its own ``config:`` sits
 over the host's facts: the host's config minus the host's server switches and
 minus every write switch. Permissions are kept and unioned, so the host's floor
 deny survives into every app. Whatever the two say, an app render cannot write:
-the composer pins every write switch off and selects ``writes-check``. Every
+the composer pins ``control_system.writes: never``, keeps no retired
+``writes_enabled`` leaf, and selects ``writes-check``. Every
 other top-level key, the data bundle and the provenance are the host's.
 """
 
@@ -33,6 +34,8 @@ _DRAFT_CONCEPT = "mcp__osprey_facility_knowledge__draft_concept"
 _APP_RENDER_CODE = "web_terminals.app_render_holds_privilege"
 
 _BUNDLED_APPS = ("logbook", "knowledge", "channel-finder")
+
+_WRITES = "control_system.writes"
 
 _HOST = {
     "name": "Facility",
@@ -204,7 +207,12 @@ def test_writes_check_is_added_to_the_app_hooks(tmp_path: Path) -> None:
     raw = _resolve(_repo(tmp_path, _APP))
     assert raw["hooks"][:2] == ["hook-log", "target-state"]
     assert "writes-check" in raw["hooks"]
-    assert "approval" not in raw["hooks"]
+
+
+def test_every_host_guard_reaches_the_app_and_nothing_else_does(tmp_path: Path) -> None:
+    host = dict(_HOST, hooks=["hook-log", "approval", "turn-state"])
+    raw = _resolve(_repo(tmp_path, dict(_APP, hooks=["target-state"]), host=host))
+    assert raw["hooks"] == ["target-state", "approval", "writes-check"]
 
 
 def test_writes_check_is_not_duplicated(tmp_path: Path) -> None:
@@ -306,19 +314,19 @@ def test_permissions_are_unioned_in_one_spelling(tmp_path: Path, spelling: dict)
         {"control_system.connector": {"epics": {"writes_enabled": True}}},
         {"control_system.connector.tango.writes_enabled": True},
         {"control_system.connector": {"mypackage.Moat": {"writes_enabled": True}}},
+        {"control_system.writes": "allowed"},
+        {"control_system": {"writes": "allowed"}},
     ],
 )
 def test_host_write_switches_never_reach_an_app(tmp_path: Path, host_writes: dict) -> None:
     host = dict(_HOST, config={"web.ui_mode": "simple", **host_writes})
     leaves = _leaves(_resolve(_repo(tmp_path, _APP, host=host))["config"])
 
-    writes = {p: v for p, v in leaves.items() if p.endswith("writes_enabled")}
-    assert writes, "the composer pins the write switches"
-    assert all(value is False for value in writes.values()), writes
-    assert writes["control_system.writes_enabled"] is False
+    assert leaves[_WRITES] == "never"
+    assert not [p for p in leaves if p.endswith("writes_enabled")], leaves
 
 
-def test_an_app_that_arms_writes_is_pinned_off(tmp_path: Path) -> None:
+def test_an_old_key_app_that_arms_writes_renders_never(tmp_path: Path) -> None:
     app = dict(
         _APP,
         config={
@@ -328,14 +336,19 @@ def test_an_app_that_arms_writes_is_pinned_off(tmp_path: Path) -> None:
     )
     leaves = _leaves(_resolve(_repo(tmp_path, app))["config"])
 
-    assert leaves["control_system.writes_enabled"] is False
-    assert leaves["control_system.connector.epics.writes_enabled"] is False
-    assert not [p for p, v in leaves.items() if p.endswith("writes_enabled") and v is not False]
+    assert leaves[_WRITES] == "never"
+    assert not [p for p in leaves if p.endswith("writes_enabled")], leaves
 
 
-def test_a_connector_block_the_host_has_is_pinned(tmp_path: Path) -> None:
+def test_an_app_spelling_never_renders_never(tmp_path: Path) -> None:
+    app = dict(_APP, config={_WRITES: "never"})
+    leaves = _leaves(_resolve(_repo(tmp_path, app))["config"])
+    assert leaves[_WRITES] == "never"
+
+
+def test_a_connector_block_the_host_has_is_kept_without_a_pin(tmp_path: Path) -> None:
     leaves = _leaves(_resolve(_repo(tmp_path, _APP))["config"])
-    assert leaves["control_system.connector.epics.writes_enabled"] is False
+    assert "control_system.connector.epics.writes_enabled" not in leaves
     assert leaves["control_system.connector.epics.timeout_s"] == 5.0
 
 
@@ -345,7 +358,10 @@ def test_no_connector_block_is_created(tmp_path: Path, connector: str) -> None:
     assert not [p for p in leaves if p.startswith(f"control_system.connector.{connector}.")]
 
 
-def test_a_block_that_only_armed_writes_stays_a_pinned_block(tmp_path: Path) -> None:
+def test_no_retired_leaf_is_pinned_for_a_block_that_held_only_its_switch(
+    tmp_path: Path,
+) -> None:
+    """The tier key alone states an app's posture: no per-type pin keeps a block alive."""
     host = dict(
         _HOST,
         config={
@@ -355,7 +371,8 @@ def test_a_block_that_only_armed_writes_stays_a_pinned_block(tmp_path: Path) -> 
     )
     leaves = _leaves(_resolve(_repo(tmp_path, _APP, host=host))["config"])
     connector = {p: v for p, v in leaves.items() if p.startswith("control_system.connector.")}
-    assert connector == {"control_system.connector.virtual_accelerator.writes_enabled": False}
+    assert connector == {}
+    assert leaves[_WRITES] == "never"
 
 
 def test_a_dotted_custom_type_gets_no_per_type_pin(tmp_path: Path) -> None:
@@ -368,7 +385,8 @@ def test_a_dotted_custom_type_gets_no_per_type_pin(tmp_path: Path) -> None:
     )
     config = _resolve(_repo(tmp_path, _APP, host=host))["config"]
     assert not [k for k in config if k.startswith("control_system.connector.mypackage")]
-    assert config["control_system.writes_enabled"] is False
+    assert config[_WRITES] == "never"
+    assert "control_system.writes_enabled" not in config
 
 
 @pytest.mark.parametrize(
@@ -386,7 +404,7 @@ def test_a_dotted_custom_type_gets_no_per_type_pin(tmp_path: Path) -> None:
                 "type": "epics",
                 "connector": {
                     "epics": {"address_list": "10.0.0.1", "writes_enabled": True},
-                    "virtual_accelerator": {"writes_enabled": True},
+                    "virtual_accelerator": {"serving": "in_process"},
                 },
             }
         },
@@ -552,8 +570,7 @@ def test_lint_passes_a_pinned_render() -> None:
     render = {
         "hooks": ["target-state", "writes-check"],
         "config": {
-            "control_system.writes_enabled": False,
-            "control_system.connector": {"epics": {"writes_enabled": False}},
+            _WRITES: "never",
             "claude_code.permissions.deny": [_SETUP_PATCH],
             "web.config_panel.enabled": False,
             "web.scaffold_gallery.write_enabled": False,
@@ -563,9 +580,7 @@ def test_lint_passes_a_pinned_render() -> None:
 
 
 def test_lint_refuses_a_render_that_can_patch_its_setup() -> None:
-    findings = lint_app_render(
-        {"hooks": ["writes-check"], "config": {"control_system.writes_enabled": False}}
-    )
+    findings = lint_app_render({"hooks": ["writes-check"], "config": {_WRITES: "never"}})
     assert _codes(findings) == [_APP_RENDER_CODE]
     assert _SETUP_PATCH in findings[0].message
 
@@ -573,30 +588,50 @@ def test_lint_refuses_a_render_that_can_patch_its_setup() -> None:
 @pytest.mark.parametrize(
     "config",
     [
-        {"control_system.writes_enabled": True},
-        {"control_system": {"writes_enabled": True}},
+        {},
+        {_WRITES: "allowed"},
+        {"control_system": {"writes": "allowed"}},
+        {_WRITES: False},
+        {_WRITES: "Never"},
+        {_WRITES: "never", "control_system": {"writes": "allowed"}},
+        {"control_system": {"writes": "allowed"}, _WRITES: "never"},
+        {"control_system": "never"},
+        # The pre-PR-4 pin: retired leaves off, no tier key.
+        {"control_system.writes_enabled": False},
+        {_WRITES: "never", "control_system.writes_enabled": True},
+        {_WRITES: "never", "control_system": {"writes_enabled": True}},
+        {_WRITES: "never", "control_system.connector.epics.writes_enabled": True},
         {
-            "control_system.writes_enabled": False,
-            "control_system.connector.epics.writes_enabled": True,
-        },
-        {
-            "control_system.writes_enabled": False,
+            _WRITES: "never",
             "control_system.connector": {"mypackage.Moat": {"writes_enabled": "true"}},
         },
-        {"control_system": {"writes_enabled": True}, "control_system.writes_enabled": False},
         {
-            "control_system.writes_enabled": False,
+            _WRITES: "never",
             "control_system.connector": {"epics": {"writes_enabled": True}},
             "control_system.connector.epics.writes_enabled": False,
         },
-        {},
     ],
 )
 def test_lint_refuses_an_armed_or_unpinned_render(config: dict) -> None:
     config = {**config, "claude_code.permissions.deny": [_SETUP_PATCH]}
     findings = lint_app_render({"hooks": ["writes-check"], "config": config})
     assert _codes(findings) == [_APP_RENDER_CODE]
-    assert "writes_enabled" in findings[0].message
+    assert _WRITES in findings[0].message
+
+
+def test_lint_tolerates_a_retired_leaf_that_is_off() -> None:
+    """A retired leaf reading ``false`` arms no retired reader; the tier key still decides."""
+    render = {
+        "hooks": ["writes-check"],
+        "config": {
+            _WRITES: "never",
+            "control_system.connector": {"epics": {"writes_enabled": False}},
+            "claude_code.permissions.deny": [_SETUP_PATCH],
+            "web.config_panel.enabled": False,
+            "web.scaffold_gallery.write_enabled": False,
+        },
+    }
+    assert lint_app_render(render) == []
 
 
 def test_lint_refuses_a_render_without_writes_check() -> None:
@@ -604,7 +639,7 @@ def test_lint_refuses_a_render_without_writes_check() -> None:
         {
             "hooks": ["target-state"],
             "config": {
-                "control_system.writes_enabled": False,
+                _WRITES: "never",
                 "claude_code.permissions.deny": [_SETUP_PATCH],
             },
         }

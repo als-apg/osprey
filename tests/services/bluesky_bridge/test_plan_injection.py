@@ -54,15 +54,6 @@ def get_devices():
 '''
 
 
-@pytest.fixture(autouse=True)
-def _isolated_facility_plans(monkeypatch: pytest.MonkeyPatch):
-    """Every test gets a clean plan_loader cache and no leftover env var."""
-    monkeypatch.delenv(_ENV_VAR, raising=False)
-    plan_loader.reset_facility_plans()
-    yield
-    plan_loader.reset_facility_plans()
-
-
 @pytest.fixture
 def client() -> TestClient:
     return TestClient(app)

@@ -1624,10 +1624,11 @@ _EXPECTED_OPERATOR_ROUTES = [
     ("GET", "/api/mcp-servers"),
     ("GET", "/panel/events/"),
     ("POST", "/panel/events/api/thing"),
-    # The two panel-scoped static routes in ``routes/proxy.py``. Nothing under
-    # ``/panel/`` is exempt from the gate, so both sit at the same tier as every
-    # other panel path — the page importing them is one the operator is already
-    # logged in to. Pinned here so a later "make the Lab bar load without a
+    # The two panel-scoped static routes in ``routes/proxy.py``. Both sit at
+    # the same tier as every other panel path — the page importing them is one
+    # the operator is already logged in to. The C-ASSETS exemption lets a plain
+    # GET of the design-system file skip the login gate; it does not change the
+    # route's tier. Pinned here so a later "make the Lab bar load without a
     # session" cannot quietly move them into the panel tier.
     ("GET", "/panel/jupyter/design-system/css/tokens.css"),
     ("GET", "/panel/jupyter/terminal-static/js/control-target-chip.js"),

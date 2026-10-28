@@ -227,12 +227,6 @@ class TestPyatSpecialistAgentResolved:
 class TestPyatSpecialistAgentTemplate:
     """The agent template renders the exact frontmatter and body behaviors."""
 
-    @pytest.fixture()
-    def template_manager(self):
-        from osprey.cli.templates.manager import TemplateManager
-
-        return TemplateManager()
-
     def _full_ctx(self, enabled: bool = True, **overrides):
         ctx = _base_ctx(**overrides)
         claude_code_cfg = overrides.pop("_claude_code_config", {})
@@ -385,12 +379,6 @@ class TestPyatSpecialistAgentTemplate:
 
 class TestPyatSpecialistClaudeMd:
     """CLAUDE.md renders the roster bullet, delegation prohibition, and boundary."""
-
-    @pytest.fixture()
-    def template_manager(self):
-        from osprey.cli.templates.manager import TemplateManager
-
-        return TemplateManager()
 
     def _full_ctx(self, **overrides):
         ctx = _base_ctx(**overrides)

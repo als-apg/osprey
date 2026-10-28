@@ -300,19 +300,15 @@ def test_a_stock_catalog_draws_no_note(runner: CliRunner, tmp_path: Path) -> Non
     assert _drift(target).note is None
 
 
-def test_a_customized_catalog_is_a_note_and_not_a_finding(
-    runner: CliRunner, tmp_path: Path
-) -> None:
-    """Adding a gateway is the feature working, so it is never a refusal. What
-    is worth saying is that the packaged entries stop arriving on their own, and
-    which verb brings them back."""
+def test_an_added_gateway_is_not_drift(runner: CliRunner, tmp_path: Path) -> None:
+    """Adding a gateway is the feature working: only the entries OSPREY ships
+    are compared, and `osprey init --revalidate` adds the ones a later release
+    ships, so the catalog having its own entries says nothing."""
     target = tmp_path / "my-facility"
     assert _new(runner, target).exit_code == 0
     _add_gateway(target)
 
     report = _drift(target)
 
-    assert report.note is not None
-    assert PROVIDERS_FILENAME in report.note
-    assert "osprey init --revalidate" in report.note
-    assert report.unmarked == []
+    assert report.note is None
+    assert report.findings == []

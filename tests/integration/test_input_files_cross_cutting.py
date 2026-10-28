@@ -42,6 +42,7 @@ from osprey.agent_runner import ResultEvent, TextEvent
 from osprey.bridges.core.pipeline import (
     MAX_FILES,
     MAX_TOTAL_BYTES,
+    REINJECT_MAX_IMAGE_BYTES,
     REINJECT_MAX_IMAGES,
     REINJECT_MAX_TOTAL_BYTES,
 )
@@ -105,8 +106,11 @@ def test_input_files_combined_caps_sum_to_worker_total_ceiling():
     # The two per-batch count caps stay within the worker's ingest-file cap when
     # the new files are all ingested (re-injected images ride ingest=False).
     assert _BRIDGE_NEW_FILES_MAX_COUNT <= MAX_INGEST_FILES
-    # Each re-injected image is itself within the per-image cap.
+    # The re-injection total fits the count at the per-image cap...
     assert _BRIDGE_REINJECT_MAX_DECODED <= _BRIDGE_REINJECT_MAX_COUNT * MAX_IMAGE_BYTES
+    # ...but the total says nothing about one image: the bridge's own per-image cap is
+    # what keeps a single prior plot under the worker's, whose refusal is fatal.
+    assert REINJECT_MAX_IMAGE_BYTES == MAX_IMAGE_BYTES
 
 
 def test_input_files_worst_case_body_fits_request_limit_with_headroom():

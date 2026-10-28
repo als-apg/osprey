@@ -123,7 +123,8 @@ def test_retired_message_names_the_new_spelling():
 
 @pytest.fixture
 def builtin_connectors():
-    from osprey_connectors.factory import isolated_connector_registries, register_builtin_connectors
+    from osprey_connectors.factory import register_builtin_connectors
+    from osprey_connectors_tests._harness import isolated_connector_registries
 
     with isolated_connector_registries(clear=True):
         register_builtin_connectors()

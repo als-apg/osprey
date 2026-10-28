@@ -99,8 +99,7 @@ from .build_lifecycle import (
 )
 from .build_limits_check import limits_database_errors
 from .build_persistence import (
-    FACILITY_RULE_NAME,
-    FACILITY_RULE_RELPATH,
+    FACILITY_RULE_PATH_ENTRY,
     _apply_config_overrides,
     _apply_conventions,
     _persist_artifact_server,
@@ -108,7 +107,6 @@ from .build_persistence import (
     _profile_known_root_entries,
     _register_convention_artifacts,
     _resolve_context_roster,
-    ensure_profile_facility_rule,
 )
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 from .templates.manager import TemplateManager
@@ -1999,8 +1997,7 @@ def _render_project(
             caller names the ONE pass whose set it reports (``deployment`` does
             not identify it — the deployment's container copy renders with it
             set too).
-        repair: Whether the render may write into the profile: rescue the
-            facility description into ``rules/`` and seed a
+        repair: Whether the render may write into the profile: seed a
             ``web-terminal-context/<user>/`` directory for each roster user
             without one. ``False`` renders from the profile as it stands and
             writes nothing outside ``output_dir``.
@@ -2029,6 +2026,12 @@ def _render_project(
     from .build_profile_standin import (
         live_standin_config_overrides,
         live_standin_duplicate_key_errors,
+    )
+    from .profile_conventions import (
+        convention_selections,
+        library_selection,
+        profile_artifact_lists,
+        render_convention_selections,
     )
     from .validate_claude_artifacts import (
         agent_model_pin_errors,
@@ -2089,28 +2092,13 @@ def _render_project(
     # from the build's in-memory facility document.
     context["facility_name"] = _facility_display_name(shared.facility, project_name)
 
-    # The facility description is the profile's, not the render's. Ensured
-    # before the render so the framework's create-only copy is not what a
-    # deployment ends up editing, and while the outgoing build/ is still intact
-    # so a repo whose only copy is that render has its text rescued rather than
-    # re-rendered. Gated on the selection: a profile that does not select the
-    # facility rule has no description to keep.
-    selected = effective_artifacts or {}
-    if FACILITY_RULE_NAME in selected.get("rules", []):
-        if repair:
-            moved = ensure_profile_facility_rule(
-                repo_root,
-                build_dir=shared.build_dir,
-                enabled_agents=selected.get("agents", []),
-            )
-            if moved:
-                _report_fact(moved)
-            # Rendering it into build/ as well would give the operator two files
-            # and no way to tell which one the deployment reads; the convention
-            # copy below carries the profile's in.
-            context["profile_owns_facility_rule"] = True
-        else:
-            context["profile_owns_facility_rule"] = (repo_root / FACILITY_RULE_RELPATH).is_file()
+    # The facility description is the profile's when the render names its
+    # path, `rules/facility`: the convention copy carries the profile's file in
+    # (validation has made sure there is one) and the framework renders no
+    # second. A bare `facility` is OSPREY's rule, rendered from the template
+    # like any library artifact.
+    if FACILITY_RULE_PATH_ENTRY in convention_selections(profile_artifact_lists(build_profile)):
+        context["profile_owns_facility_rule"] = True
 
     # The profile's own tree is the only one there is: `data:` is required of
     # every profile file, so nothing falls back to a packaged bundle here.
@@ -2333,6 +2321,9 @@ def _render_project(
         # dispatch injector, and refusing before that would name a key the build
         # was about to write. The execution backend is read here for the same
         # reason: it is the render, not the profile, that a container loads.
+        # The hooks this render selects from the library, a replacing path
+        # counted as the artifact it replaces.
+        selected_hooks = library_selection("hooks", build_profile.hooks)
         unrunnable = [
             *_resolve_rendered_execution_method(render_dir),
             *reach_errors(_rendered_config(render_dir), repo_root=repo_root),
@@ -2342,7 +2333,7 @@ def _render_project(
             # app templates gone, a key the profile does not state is not a
             # template default any more — it is silence, and each of these six
             # has a reader that answers something regardless.
-            *missing_posture_errors(_rendered_config(render_dir), build_profile.hooks),
+            *missing_posture_errors(_rendered_config(render_dir), selected_hooks),
         ]
         # The render is what the approval hook reads, so it is the render that
         # is held to these rules. A guarded tool put to a human in a profile that does not select the
@@ -2351,7 +2342,7 @@ def _render_project(
         # An approval switch that is not true or false would turn every prompt
         # off, or on, by truthiness; the render states a bool or nothing.
         check_approval_enabled(_rendered_config(render_dir))
-        check_approval_hook_selected(_rendered_config(render_dir), build_profile.hooks)
+        check_approval_hook_selected(_rendered_config(render_dir), selected_hooks)
         if unrunnable:
             raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(unrunnable))
         # And the runtime, for the same reason once more: the verbs that stop,
@@ -2373,6 +2364,7 @@ def _render_project(
                 *extra_known,
             ],
             excluded=resolved.excluded_artifacts,
+            selected=render_convention_selections(build_profile),
         )
         if applied.copied:
             progress(
@@ -2704,6 +2696,7 @@ def _render_projects(
     project_name: str,
     *,
     host_profile: BuildProfile,
+    selections_out: set[str] | None = None,
 ) -> list[Path]:
     """Render ``build/<project_name>-<name>/`` for every file in ``tiers/`` and ``apps/``.
 
@@ -2722,10 +2715,13 @@ def _render_projects(
     decides which renders are *deployed*, ``tiers/`` and ``apps/`` decide which
     exist. See :func:`_layer_render` for how each one is named and resolved.
 
+    ``selections_out``, when given, collects every convention artifact a
+    render's lists select, for the build's report of the ones none does.
+
     Returns:
         The render directories, for the runtime-state prune.
     """
-    from .profile_conventions import unknown_root_entries
+    from .profile_conventions import render_convention_selections, unknown_root_entries
 
     layers = _layer_files(shared.repo_root)
     if not layers:
@@ -2742,6 +2738,8 @@ def _render_projects(
             shared, kind, layer, project_name=project_name, host_profile=host_profile
         )
         logger.debug("  Rendering %s %r → %s/", kind.value, layer.stem, project)
+        if selections_out is not None:
+            selections_out.update(render_convention_selections(resolved.profile))
         rendered.append(
             _render_project(
                 shared,
@@ -3172,7 +3170,7 @@ def _render_container_projects(
     same things the deployment's does.
 
     A tier's or app's needs are in fact sharper. Its render is the ONLY place
-    its ``config:`` exists (``control_system.writes_enabled`` among it), and an
+    its ``config:`` exists (``control_system.writes`` among it), and an
     image built from the deployment's render would come up with the
     deployment's config and none of its own, which is the difference between a
     read-only terminal and one that writes to hardware. Its ``.mcp.json`` names
@@ -3216,6 +3214,54 @@ def _render_container_projects(
             )
         )
     return contexts
+
+
+def _stage_tiered_dispatch_config(zones: _RenderZones, config: dict[str, Any]) -> Path | None:
+    """Stage a tiered dispatch worker's ``config.yml``: its tier's render plus the login→tier map.
+
+    The worker at a tier runs that tier's image, and the root flatten
+    (:func:`~osprey.deployment.compose_generator._stages_runtime_config`) would
+    hand it the root's posture. So its staged config is the tier's
+    container-rooted render, ``.image/<project>-<tier>/build/config.yml`` — which
+    exists only once :func:`_render_container_projects` has run — with
+    ``control_system.login_tiers`` added and nothing else changed. The compose
+    file mounts it over the image's baked copy
+    (``osprey_worker_stages_config``); a redeploy keeps it as it is.
+
+    Args:
+        zones: The render's paths; everything is read and written in the
+            staged tree.
+        config: The deploy config the compose render loaded.
+
+    Returns:
+        The staged file, or ``None`` when no worker runs at a tier.
+
+    Raises:
+        BuildProfileError: The tier's container render has no ``config.yml``.
+    """
+    from osprey.deployment.compose_generator import staged_login_tiers, with_login_tiers
+    from osprey.deployment.web_terminals.render_images import resolve_dispatch_tier
+    from osprey_connectors import yaml_loader
+
+    if "dispatch_worker" not in [str(name) for name in config.get("deployed_services") or []]:
+        return None
+    tier = resolve_dispatch_tier(config, strict=True)
+    if tier is None:
+        return None
+    source = zones.stage / IMAGE_DIR_NAME / str(tier["project"]) / BUILD_DIR_NAME / "config.yml"
+    if not source.is_file():
+        raise BuildProfileError(
+            f"The dispatch worker runs at tier {tier['render']!r}, but its container render "
+            f"has no config.yml at {source.relative_to(zones.stage)}; the worker's staged "
+            f"config cannot be written."
+        )
+    document = yaml_loader.safe_load(source.read_text(encoding="utf-8")) or {}
+    staged = with_login_tiers(document, staged_login_tiers(config, str(zones.stage)))
+    target = zones.stage / "services" / "dispatch_worker" / "config.yml"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("w", encoding="utf-8") as f:
+        yaml_loader.safe_dump(staged, f, default_flow_style=False, sort_keys=False)
+    return target
 
 
 def _build_repo(
@@ -3615,9 +3661,37 @@ def _build_repo(
             # their rendered config.yml files for its per-render grants (the
             # bluesky_web sidecar's roster secrets), and the start verbs are
             # as-built — a grant this pass misses reaches no container.
-            renders = _render_projects(shared, zones, name, host_profile=build_profile)
+            from .build_profile_merge import _selecting_list_field
+            from .profile_conventions import (
+                render_convention_selections,
+                replaces_library_artifact,
+                unselected_convention_artifacts,
+            )
+
+            selections = set(render_convention_selections(build_profile))
+            renders = _render_projects(
+                shared, zones, name, host_profile=build_profile, selections_out=selections
+            )
             if renders:
                 phase.step(f"{len(renders)} render(s)")
+            # A skill, agent, rule or output style renders only where a list
+            # names it, and a hook only where a declaration wires it (or a list
+            # names it as a replacement), so one nothing names is in no render.
+            # Advisory: the build is sound, the artifact is just unused.
+            for artifact in unselected_convention_artifacts(shared.repo_root, selections):
+                field = _selecting_list_field(artifact.partition("/")[0])
+                if field == "hooks" and not replaces_library_artifact(artifact):
+                    output.note(
+                        f"⚠ {artifact} reaches no render: no claude_code.hooks declaration "
+                        f"wires it. Declare it under claude_code.hooks.<event> in profile.yml, "
+                        f"or in the tier or app that should run it."
+                    )
+                    continue
+                output.note(
+                    f"⚠ {artifact} reaches no render: no list names it. Add it to the "
+                    f"{field}: list of profile.yml, or of the tier or app that should "
+                    f"carry it, or run `osprey init --revalidate`."
+                )
 
             # The telemetry credential files, before the compose files that
             # name them as `env_file`: every sender's login (the render
@@ -3647,6 +3721,10 @@ def _build_repo(
             )
             if image_renders:
                 phase.step(f"{len(image_renders)} image build context(s)")
+                # After the image contexts: a tiered worker's staged config is
+                # its tier's container render, which exists only now.
+                if config is not None:
+                    _stage_tiered_dispatch_config(zones, config)
 
         # Both remaining phases run against the staged tree, before the swap:
         # a profile whose own validation fails must not be able to replace a
@@ -3774,9 +3852,15 @@ def _collect_profile_artifacts(
     :param progress: Where the validation line goes — see
         :func:`_render_project`'s ``progress``.
     """
+    from .profile_conventions import library_selection
+
     artifacts: dict[str, list[str]] = {}
     for artifact_type in ("hooks", "rules", "skills", "agents", "output_styles"):
-        names = getattr(build_profile, artifact_type, [])
+        # A `skills/<name>`-style entry selects the profile's own artifact,
+        # which the convention copy renders. The library sees its own names,
+        # and a path that replaces one of its artifacts selects that artifact:
+        # the deployment's file supplies only the content at its destination.
+        names = library_selection(artifact_type, getattr(build_profile, artifact_type, []))
         if names:
             artifacts[artifact_type] = list(names)
 

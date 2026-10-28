@@ -47,6 +47,7 @@ from tests.interfaces.web_terminal._pty_child import (
 
 pytestmark = [
     pytest.mark.skipif(sys.platform == "win32", reason="no process groups on Windows"),
+    pytest.mark.usefixtures("readable_process_table"),
 ]
 
 
@@ -159,7 +160,9 @@ def _fail_first_reads(monkeypatch, failures: int) -> list[bool]:
 
     def flaky():
         reads.append(len(reads) >= failures)
-        return real() if reads[-1] else None
+        if not reads[-1]:
+            raise process_tree.ProcessTableUnreadable(OSError("process table"))
+        return real()
 
     monkeypatch.setattr(process_tree, "snapshot", flaky)
     return reads
@@ -187,7 +190,7 @@ async def test_stop_ends_what_the_agent_started_when_the_first_process_table_rea
         kill_quietly(pids)
 
 
-async def test_stop_warns_and_reports_an_unread_tree_when_the_process_table_never_reads(
+async def test_stop_warns_and_reports_an_unread_tree_when_the_table_stays_unreadable(
     tmp_path, monkeypatch, caplog
 ):
     factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
@@ -200,15 +203,17 @@ async def test_stop_warns_and_reports_an_unread_tree_when_the_process_table_neve
 
         def unreadable():
             reads.append(None)
-            return None
+            raise process_tree.ProcessTableUnreadable(OSError("process table"))
 
         monkeypatch.setattr(process_tree, "snapshot", unreadable)
+        monkeypatch.setattr(process_tree, "READ_WAIT_S", 0.3)
 
         with caplog.at_level(logging.WARNING, logger=operator_session.__name__):
             await session.stop()
 
         assert session.process_exited is True
-        assert len(reads) == process_tree.TREE_READ_ATTEMPTS
+        # Retried while the child lived, and given up on once the wait had passed.
+        assert len(reads) > 1
         warnings = [
             record.getMessage()
             for record in caplog.records
@@ -472,7 +477,6 @@ async def test_started_commands_lists_only_groups_of_their_own(tmp_path):
 
         commands = await asyncio.to_thread(session.started_commands)
 
-        assert commands is not None
         assert [c.label for c in commands] == ["magnet_scan.py"]
         assert commands[0].pgid == grandchild
         assert helper not in {pid for c in commands for pid, _ in c.members}

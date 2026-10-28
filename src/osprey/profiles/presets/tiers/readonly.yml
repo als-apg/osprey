@@ -7,10 +7,9 @@
 # never carries a deployment fact (services, data, ports); those stay the
 # deployment's, and every tier's render dials the deployment's services.
 #
-# This tier pins the write switch off for every machine the session can be
-# pointed at. Write posture is per connector type, so "off" is an answer the
-# resolver gives per target and not a single flag, which is why the block below
-# pins the types as well as the key they inherit from. The refusal is enforced
+# This tier pins writes off for every machine the session can be pointed at:
+# `control_system.writes: never` is one word for the whole render, and no
+# login's write switch can turn a machine on under it. The refusal is enforced
 # at every write surface: channel-write tools land in the rendered
 # settings.json deny list, the writes-check hook refuses with a clean "writes
 # disabled" message, and the connector's reference monitor blocks any write
@@ -25,18 +24,13 @@ name: Control Assistant (Read-Only)
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY, as in the deployment's own config: block.
 config:
-  # The axis this tier hard-pins, and it takes three keys rather than one.
-  # The flat key is the posture a connector type inherits when its own block
-  # says nothing, so on its own it is not a floor: a per-type `true` anywhere
-  # in the deployment's profile would arm that type over it. So the read-only
-  # tier pins every block off as well as the key they inherit from, and a type
-  # that arms writes here has to be added by name.
-  control_system.writes_enabled: false
-  control_system.connector.epics.writes_enabled: false
-  control_system.connector.virtual_accelerator.writes_enabled: false
+  # The axis this tier hard-pins. `never` wins over the deployment's own
+  # `allowed`, since a tier's key beats the root's, so no session of this
+  # tier writes to any machine the deployment configures.
+  control_system.writes: never
   # Pared-down operator layout: chat only, workspace hidden until the agent
   # puts something in it. Pinned on both sides of the tier boundary (readwrite
-  # pins `expert`), same rationale as writes_enabled.
+  # pins `expert`), same rationale as control_system.writes.
   #
   # This tier also has no EVENTS/BLUESKY panels, not by any key here, but
   # because only the write-capable tiers add them by name.

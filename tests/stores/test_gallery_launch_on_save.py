@@ -22,20 +22,6 @@ NPY_BYTES = b"\x93NUMPY-raw-payload"
 LAUNCHER = "osprey.infrastructure.server_launcher.ensure_web_server"
 
 
-@pytest.fixture
-def agent_data_root(tmp_path, monkeypatch):
-    """A workspace root under a real repo root, so ``data_file`` anchors resolve."""
-    repo_root = tmp_path / "repo"
-    (repo_root / "build").mkdir(parents=True)
-    config_path = repo_root / "build" / "config.yml"
-    config_path.write_text(
-        f"project_root: {repo_root}\nagent_data:\n  base_dir: state/agent\n",
-    )
-    monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
-    monkeypatch.chdir(repo_root)
-    return repo_root / "state" / "agent"
-
-
 def _save_file(store: ArtifactStore):
     return store.save_file(
         file_content=b"payload",

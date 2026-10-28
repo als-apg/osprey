@@ -15,17 +15,13 @@ the way ``test_redirects.py`` does: ``conf.py`` binds
 from __future__ import annotations
 
 import re
-import runpy
-import sys
 from pathlib import Path
-from typing import Any
 
 import pytest
 
-import osprey.version
+from tests.docs._conf import run_conf
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_CONF_PY = _REPO_ROOT / "docs" / "source" / "conf.py"
 
 #: Addresses a checker cannot reach from where the docs are built: the reader's own
 #: deployment, and pages that refuse an automated request.
@@ -51,23 +47,10 @@ CHECKED = [
 ]
 
 
-def _run_conf(monkeypatch) -> dict[str, Any]:
-    """Execute ``conf.py`` with a pinned version source and return its namespace."""
-    monkeypatch.setattr(osprey.version, "is_release", lambda: True)
-    monkeypatch.setattr(osprey.version, "get_running_version", lambda: "9.9.9")
-    monkeypatch.chdir(_CONF_PY.parent)
-
-    saved_path = list(sys.path)
-    try:
-        return runpy.run_path(str(_CONF_PY))
-    finally:
-        sys.path[:] = saved_path
-
-
 @pytest.fixture
 def patterns(monkeypatch) -> list[re.Pattern[str]]:
     """``linkcheck_ignore`` as sphinx compiles and applies it."""
-    value = _run_conf(monkeypatch)["linkcheck_ignore"]
+    value = run_conf(monkeypatch)["linkcheck_ignore"]
     assert value, "conf.py must define `linkcheck_ignore` as a non-empty list of patterns"
     return [re.compile(pattern) for pattern in value]
 

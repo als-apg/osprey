@@ -229,6 +229,46 @@ class TestProbeChannel:
 
 
 # ---------------------------------------------------------------------------
+# machine_kind round-tripping (C-KIND)
+# ---------------------------------------------------------------------------
+
+
+class TestMachineKindRoundTrip:
+    @pytest.fixture(autouse=True)
+    def _root(self, state_root):
+        pass
+
+    def test_each_published_kind_is_kept_exactly(self):
+        meta = {
+            name: {**TARGETS_META[name], "machine_kind": kind}
+            for name, kind in (("live", "real"), ("va", "simulator"), ("standin", "rehearsal"))
+        }
+        target_state.write_server_record(meta, server_pid=1234)
+
+        assert target_state.read(1234)["targets"] == meta
+
+    def test_an_absent_kind_is_not_invented(self):
+        """No key means "not stated", which every reader takes as the real machine."""
+        target_state.write_server_record(TARGETS_META, server_pid=1234)
+
+        assert target_state.read(1234)["targets"] == TARGETS_META
+
+    @pytest.mark.parametrize("bogus", ["", None, "Rehearsal", "stand-in", True, ["rehearsal"]])
+    def test_an_unknown_kind_is_dropped_never_stringified(self, bogus):
+        meta = {"standin": {**TARGETS_META["standin"], "machine_kind": bogus}}
+        target_state.write_server_record(meta, server_pid=1234)
+
+        assert "machine_kind" not in target_state.read(1234)["targets"]["standin"]
+
+    def test_the_kind_survives_a_switch(self):
+        meta = {"standin": {**TARGETS_META["standin"], "machine_kind": "rehearsal"}}
+        target_state.write_server_record(meta, server_pid=1234)
+        target_state.publish_switch("standin", 1, server_pid=1234)
+
+        assert target_state.read(1234)["targets"]["standin"]["machine_kind"] == "rehearsal"
+
+
+# ---------------------------------------------------------------------------
 # selected_role round-tripping
 # ---------------------------------------------------------------------------
 
@@ -661,21 +701,23 @@ class TestServerStartClaimsTheRecord:
         assert claimed.owner.pid == os.getpid()
         assert claimed.owner.port is None
 
-    def test_server_start_claim_keeps_the_posture_it_found(
+    def test_server_start_claim_keeps_the_switch_it_found(
         self, control_context_root, write_control_context
     ):
+        """The claim keeps the person's switch; ``posture`` is only its mirror."""
         write_control_context(
             control_context_root,
             target="va",
             generation=7,
-            posture={"va": "sandbox"},
+            switch={"va": "on"},
             owned_by=None,
         )
 
         claimed = server_context.claim_control_context(baseline="live")
 
         assert claimed is not None
-        assert claimed.posture == {"va": "sandbox"}
+        assert claimed.switch == {"va": "on"}
+        assert claimed.posture == control_context.posture_mirror({"va": "on"})
 
     def test_claim_moves_generation_zero_live_record_to_va(
         self, control_context_root, write_control_context
@@ -728,7 +770,7 @@ class TestServerStartClaimsTheRecord:
         from osprey_connectors_tests._harness import write_payload
 
         write_payload(
-            control_context.record_path_under(control_context_root),
+            control_context._record_path_under(control_context_root),
             {
                 "schema": 1,
                 "owner": "whoever",
@@ -783,17 +825,19 @@ class TestServerStartClaimsTheRecord:
         claimed = server_context.claim_control_context(baseline="live")
 
         assert claimed is not None
-        assert (claimed.target, claimed.generation, claimed.posture) == ("live", 0, {})
+        assert (claimed.target, claimed.generation, claimed.switch) == ("live", 0, {})
+        # No switch turned on: the mirror refuses every machine.
+        assert claimed.posture == control_context.posture_mirror({})
         assert claimed.owner is not None
         assert claimed.owner.kind == control_context.OWNER_CONTROLS_SERVER
-        assert control_context.record_path_under(control_context_root).exists()
+        assert control_context._record_path_under(control_context_root).exists()
 
     def test_server_start_writes_a_baseline_record_over_an_unreadable_one(
         self, control_context_root
     ):
         from osprey_connectors_tests._harness import write_payload
 
-        write_payload(control_context.record_path_under(control_context_root), ["not", "a record"])
+        write_payload(control_context._record_path_under(control_context_root), ["not", "a record"])
 
         claimed = server_context.claim_control_context(baseline="live")
 
@@ -852,7 +896,7 @@ class TestServerStartLaunchTarget:
         from osprey_connectors_tests._harness import write_payload
 
         write_payload(
-            control_context.record_path_under(control_context_root),
+            control_context._record_path_under(control_context_root),
             {"schema": 1, "target": "", "generation": 7},
         )
 

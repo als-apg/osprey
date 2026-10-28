@@ -849,9 +849,9 @@ def _build_env_production_subset(
     — an agent that holds it can put hardware in motion. Its entitlement
     predicate,
     :func:`osprey.deployment.web_terminals.roster.config_needs_launch_token`,
-    requires BOTH ``control_system.writes_enabled: true`` AND an enabled
+    requires BOTH ``control_system.writes: allowed`` AND an enabled
     ``bluesky`` MCP server in that render's own rendered config. A read-only
-    render is spelled ``writes_enabled: false``, so it cannot satisfy that pair
+    render is spelled ``writes: never``, so it cannot satisfy that pair
     and can never be handed the token. That guarantee exists only because the
     grant is per-render; a copy of the token in this file would hand it to
     exactly the renders the predicate is there to exclude.
@@ -860,7 +860,7 @@ def _build_env_production_subset(
     structural reason rather than the tier one. Neo4j has a single, write-capable
     account, so its predicate,
     :func:`osprey.deployment.web_terminals.roster.config_needs_graphdb_password`,
-    deliberately does NOT read ``writes_enabled``: the read-only tier is meant to
+    deliberately does NOT read ``control_system.writes``: the read-only tier is meant to
     search the graph, and read-only-ness is enforced by the ``graph`` MCP
     server's read transactions rather than by which render holds the password.
     It still stays out of this file, because a rosterwide copy would grant it to

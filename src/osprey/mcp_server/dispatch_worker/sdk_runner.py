@@ -48,7 +48,7 @@ from osprey.mcp_server.dispatch_worker.prior_answers import (
     format_run_ids,
     keep_run_ids,
 )
-from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR, NO_OWNER
+from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR, DISPATCH_RUN_ENV_VAR, NO_OWNER
 
 logger = logging.getLogger("osprey.mcp_server.dispatch_worker.sdk_runner")
 
@@ -320,10 +320,12 @@ async def run_dispatch(
         owner: The person the fire is attributed to, as the dispatcher put it
             on the wire. Exported to the agent (and every process it spawns) as
             ``OSPREY_CONTROL_OWNER``, the rung of the connector's owner ladder
-            that decides whose narrowing the run's control-system writes are
-            judged against. ``None`` — a fire nobody is attributed to, such as
-            cron — and the ``NO_OWNER`` sentinel both leave the variable unset,
-            and the run is held to the deployment ceiling only.
+            that decides whose switch, record and ``login_tiers`` rung the
+            run's control-system writes are judged against. ``None`` — a fire
+            nobody is attributed to, such as cron — and the ``NO_OWNER``
+            sentinel both leave the variable unset; with ``OSPREY_DISPATCH_RUN``
+            set the ladder then resolves no owner, and every control-system
+            write the run attempts is refused as ``owner_unscheduled``.
 
     Returns:
         dict with keys:
@@ -453,11 +455,15 @@ async def run_dispatch(
         )
         sdk_env["CLAUDE_CONFIG_DIR"] = fallback
 
-    # Marks this CLI session as a headless dispatch run for the project's own
-    # hooks: osprey_approval must not emit explicit allow decisions here (CLI
-    # hook aggregation is not deny-dominates, so an allow would override the
-    # trigger-allowlist hook below).
-    sdk_env["OSPREY_DISPATCH_RUN"] = "1"
+    # Marks this CLI session as a headless dispatch run. Two readers: the
+    # project's own hooks — osprey_approval must not emit explicit allow
+    # decisions here (CLI hook aggregation is not deny-dominates, so an allow
+    # would override the trigger-allowlist hook below) — and the write verdict,
+    # whose owner ladder resolves no owner on a dispatch run without
+    # ``OSPREY_CONTROL_OWNER`` and refuses its writes as ``owner_unscheduled``.
+    # The sandbox child-env allowlist passes it through, so a sandboxed write
+    # gets the same answer.
+    sdk_env[DISPATCH_RUN_ENV_VAR] = "1"
 
     # Attribute every artifact this run saves to the run, so the worker can
     # later report and serve exactly this run's plots. NOT OSPREY_SESSION_ID:
@@ -511,7 +517,8 @@ async def run_dispatch(
 
     # Hand the run its owner, so the connector's owner ladder resolves that
     # person and every control-system write the agent makes is judged against
-    # their narrowing rather than the deployment ceiling. This is the only place
+    # their switch and their ``login_tiers`` rung. Without it the write verdict
+    # refuses the run's writes as ``owner_unscheduled``. This is the only place
     # the variable is exported: everywhere else a child inherits an environment
     # whose own ladder already answers correctly, and a second exporter would be
     # a second answer to one question.
@@ -521,7 +528,7 @@ async def run_dispatch(
     # ``<no owner>`` so a warning line can name it, and a truthiness test would
     # stamp the run with an account of that name. An absent variable is what an
     # owner-less run is entitled to — the ladder falls through it, an empty
-    # value would be a name to resolve.
+    # value would be a name to resolve, and the absent one is refused.
     if owner is not NO_OWNER and owner is not None:
         sdk_env[CONTROL_OWNER_ENV_VAR] = owner
 

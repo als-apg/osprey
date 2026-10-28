@@ -160,13 +160,17 @@ def test_a_tier_render_is_stamped_with_the_deployment_preset(built, name):
     assert tier["build_args"]["profile_path"] == str(repo / "tiers" / f"{name}.yml")
 
 
+#: The write ceiling each bundled tier pins over the exemplar's ``allowed``.
+_TIER_WRITES = {"readonly": "never", "readwrite": "allowed", "admin": "allowed"}
+
+
 @pytest.mark.parametrize("name", TIERS)
 def test_tier_renders_keep_their_own_write_posture(built, name):
-    writes = _values_of(_config(_render(built["repo"], name)), "writes_enabled")
+    config = _config(_render(built["repo"], name))
 
-    assert writes, name
-    if name == "readonly":
-        assert not any(writes)
+    assert (config.get("control_system") or {}).get("writes") == _TIER_WRITES[name], name
+    # The retired leaves are gone from the render, so nothing else states a posture.
+    assert _values_of(config, "writes_enabled") == [], name
 
 
 # ---------------------------------------------------------------------------
@@ -198,10 +202,12 @@ def test_logbook_selects_the_graph_subagent_and_the_safety_rule(built):
 
 def test_logbook_writes_nothing(built):
     config = _config(_render(built["repo"], "logbook"))
-    writes = _values_of(config, "writes_enabled")
+    writes = _values_of(config, "writes")
 
     assert writes, "the logbook render states no write posture at all"
-    assert all(value is False for value in writes), writes
+    assert (config.get("control_system") or {}).get("writes") == "never", writes
+    assert all(value == "never" for value in writes), writes
+    assert _values_of(config, "writes_enabled") == []
 
 
 @pytest.mark.parametrize("server", LOGBOOK_ABSENT_SERVERS)

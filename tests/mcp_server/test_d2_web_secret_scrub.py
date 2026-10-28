@@ -52,13 +52,13 @@ widening or narrowing what the server keeps.
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 
 import pytest
 import yaml
 
 from osprey.utils.sensitive_env import SENSITIVE_ENV_EXACT, SENSITIVE_ENV_SUFFIXES
+from tests.mcp_server._env_probe import DUMP_ENV_CODE, extract_env_keys
 
 # --------------------------------------------------------------------------- #
 # Probe set and negative controls
@@ -222,57 +222,6 @@ def test_sdk_child_env_holds_no_sensitive_credential(sensitive_parent_env):
 # Spawn path: the python-executor sandbox (real subprocess)
 # --------------------------------------------------------------------------- #
 
-_DUMP_ENV_CODE = (
-    "import json, os\n"
-    "print('ENV_KEYS_JSON_START')\n"
-    "print(json.dumps(sorted(os.environ.keys())))\n"
-    "print('ENV_KEYS_JSON_END')\n"
-)
-
-
-def _extract_env_keys(stdout: str) -> list[str]:
-    """Pull the JSON-encoded sorted env key list out of a sandbox's stdout.
-
-    Mirrors the helper in ``test_executor_token_regression`` so both pins read
-    the same probe output the same way.
-
-    Args:
-        stdout: Captured standard output of a sandbox that ran
-            :data:`_DUMP_ENV_CODE`.
-
-    Returns:
-        The sorted environment variable names the sandboxed code could see.
-    """
-    start = stdout.index("ENV_KEYS_JSON_START") + len("ENV_KEYS_JSON_START")
-    end = stdout.index("ENV_KEYS_JSON_END")
-    return json.loads(stdout[start:end])
-
-
-@pytest.fixture
-def reset_config_caches(monkeypatch):
-    """Reset every config cache around a test that writes its own ``config.yml``.
-
-    The python executor resolves its execution method through the shared config
-    caches; a test that installs a temporary config must not inherit — or leave
-    behind — another test's cached configuration.
-    """
-    from osprey_connectors.workspace import reset_config_cache
-
-    reset_config_cache()
-
-    import osprey_connectors.config as _cfg
-
-    monkeypatch.setattr(_cfg, "_default_config", None)
-    monkeypatch.setattr(_cfg, "_default_configurable", None)
-    saved_cache = _cfg._config_cache.copy()
-    _cfg._config_cache.clear()
-
-    yield
-
-    reset_config_cache()
-    _cfg._config_cache.clear()
-    _cfg._config_cache.update(saved_cache)
-
 
 @pytest.mark.usefixtures("reset_config_caches")
 async def test_executor_sandbox_subprocess_sees_no_sensitive_credential(
@@ -301,10 +250,10 @@ async def test_executor_sandbox_subprocess_sees_no_sensitive_credential(
         )
     )
 
-    result = await execute_code(_DUMP_ENV_CODE, "readonly", "D2 env probe")
+    result = await execute_code(DUMP_ENV_CODE, "readonly", "D2 env probe")
 
     assert result.success, f"sandbox execution failed: {result.error_message}\n{result.stderr}"
-    env_keys = _extract_env_keys(result.stdout)
+    env_keys = extract_env_keys(result.stdout)
     _assert_no_sensitive_names(env_keys, sensitive_parent_env, "python_executor sandbox")
     # The executor child deliberately drops OSPREY_WEB_PORT (executor-local web-env
     # drop; the PTY child keeps it — pinned in test_env_drop.py), so PATH alone is
@@ -338,10 +287,10 @@ async def test_workspace_sandbox_subprocess_sees_no_sensitive_credential(
     execution_folder = tmp_path / "d2_execution"
     execution_folder.mkdir()
 
-    result = await execute_sandbox_code(_DUMP_ENV_CODE, execution_folder, timeout=120)
+    result = await execute_sandbox_code(DUMP_ENV_CODE, execution_folder, timeout=120)
 
     assert result.success, f"sandbox execution failed: {result.error_message}\n{result.stderr}"
-    env_keys = _extract_env_keys(result.stdout)
+    env_keys = extract_env_keys(result.stdout)
     _assert_no_sensitive_names(env_keys, sensitive_parent_env, "workspace sandbox")
     # Same override as the python_executor probe above, and for the same reason:
     # both sandbox children now build their environment with the shared

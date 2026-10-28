@@ -341,3 +341,17 @@ def test_a_person_given_an_app_render_as_tier_is_refused():
     lenient = resolve_cards(web_terminals, {}, strict=False)
     (alice,) = [entry for entry in lenient if entry["name"] == "alice"]
     assert alice["project"] is None
+
+
+def test_a_tier_file_carrying_its_top_level_knobs_builds(tmp_path: Path):
+    """B27: `extra_mounts`, `seed_base` and `image` at the top of a tier file —
+    where `osprey init --revalidate` moves them from the retired catalog — are
+    keys a tier file takes, so the build accepts them."""
+    repo = _with_readwrite_knobs(build_exemplar_repo(tmp_path / PROJECT))
+    with preserved_environ():
+        result = CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    assert result.exit_code == 0, result.output
+    assert (
+        render_projection(repo, PROJECT)["readwrite"]["extra_mounts"]
+        == (READWRITE_KNOBS["extra_mounts"])
+    )

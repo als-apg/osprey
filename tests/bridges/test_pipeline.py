@@ -39,6 +39,7 @@ from osprey.bridges.core.people import MENTION_RULE
 from osprey.bridges.core.pipeline import (
     EXPIRED_NOTE,
     OVER_BUDGET_REASON,
+    REINJECT_MAX_IMAGE_BYTES,
     SERVER_TOO_OLD_REASON,
     TOO_MANY_FILES_REASON,
     PipelineDeps,
@@ -974,6 +975,29 @@ def test_a_prior_whose_bytes_are_not_an_image_is_not_reinjected(tmp_path):
     assert "input_files" not in extra
     (turn,) = extra["conversation_so_far"]
     assert turn["artifacts"][0]["delivered_mime"] == "image/png"
+
+
+def test_a_prior_over_the_worker_image_cap_is_not_reinjected(tmp_path):
+    # A plot inside the re-injection total but over the worker's per-image cap would
+    # make the worker refuse the whole follow-up; the engine asks the fetch for no
+    # more than the cap and drops anything bigger a seam hands back anyway.
+    limits: list[int] = []
+
+    def fetch(_cfg, _rid, _desc, max_bytes):
+        limits.append(max_bytes)
+        return FetchedArtifact(data=b"x" * (REINJECT_MAX_IMAGE_BYTES + 1), content_type="image/png")
+
+    ops = RecordingChannelOps(parse_result=make_event())
+    deps = make_deps(tmp_path, ops, fetch_prior=fetch)
+    _seed_prior_image(deps)
+
+    assert handle_event({}, deps) == "handled"
+
+    assert limits == [REINJECT_MAX_IMAGE_BYTES]
+    extra = deps.dispatcher.calls[0]["extra"]
+    assert "input_files" not in extra
+    (turn,) = extra["conversation_so_far"]
+    assert turn["artifacts"][0]["note"] == EXPIRED_NOTE
 
 
 def test_a_reinjected_prior_is_labelled_with_the_served_type(tmp_path):

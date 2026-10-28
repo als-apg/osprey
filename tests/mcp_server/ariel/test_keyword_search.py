@@ -1,6 +1,7 @@
 """Tests for the keyword_search MCP tool."""
 
 import json
+from functools import partial
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -10,28 +11,13 @@ from tests.mcp_server.ariel.conftest import (
     attach_fake_attachment_reader,
     get_tool_fn,
     make_mock_entry,
+    make_search_result,
+    patch_ariel_service,
+    service_returning,
 )
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 
-
-def _make_search_result(entries, reasoning="", sources=(), diagnostics=(), expanded_terms=()):
-    """Build a mock ARIELSearchResult.
-
-    ``diagnostics`` and ``expanded_terms`` are set explicitly on every result:
-    a MagicMock auto-attribute is neither iterable nor JSON-serializable, so
-    leaving them unset would fail the envelope build rather than the assertion
-    under test.
-    """
-    result = MagicMock()
-    result.entries = tuple(entries)
-    result.answer = None
-    result.reasoning = reasoning
-    result.sources = tuple(sources)
-    result.search_modes_used = ("keyword",)
-    result.diagnostics = tuple(diagnostics)
-    result.expanded_terms = tuple(expanded_terms)
-    result.pipeline_details = None
-    return result
+_make_search_result = partial(make_search_result, mode="keyword")
 
 
 def _get_keyword_search():
@@ -40,16 +26,9 @@ def _get_keyword_search():
     return get_tool_fn(keyword_search)
 
 
-def _setup_registry(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    config = '{"ariel": {"database": {"uri": "postgresql://localhost/test"}}}'
-    (tmp_path / "config.yml").write_text(config)
-    initialize_ariel_context()
-
-
-async def test_keyword_search_basic(tmp_path, monkeypatch):
+async def test_keyword_search_basic(ariel_registry):
     """Basic keyword search returns matching entries."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     entries = [make_mock_entry(entry_id="e1", raw_text="Beam loss event")]
     mock_result = _make_search_result(entries, reasoning="Keyword: 1 result")
@@ -58,10 +37,7 @@ async def test_keyword_search_basic(tmp_path, monkeypatch):
     attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = mock_result
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_keyword_search()
         result = await fn(query="beam loss")
 
@@ -72,19 +48,16 @@ async def test_keyword_search_basic(tmp_path, monkeypatch):
     assert data["mode"] == "keyword"
 
 
-async def test_keyword_search_date_filtering(tmp_path, monkeypatch):
+async def test_keyword_search_date_filtering(ariel_registry):
     """Date strings are parsed and passed to service.search()."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     mock_result = _make_search_result([])
     mock_service = AsyncMock()
     attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = mock_result
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_keyword_search()
         await fn(
             query="test",
@@ -101,19 +74,16 @@ async def test_keyword_search_date_filtering(tmp_path, monkeypatch):
     assert end == datetime(2024, 1, 31, 23, 59, 59, 999999, tzinfo=ZoneInfo("UTC"))
 
 
-async def test_keyword_search_author_filtering(tmp_path, monkeypatch):
+async def test_keyword_search_author_filtering(ariel_registry):
     """Author filter is passed via advanced_params."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     mock_result = _make_search_result([])
     mock_service = AsyncMock()
     attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = mock_result
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_keyword_search()
         await fn(query="test", author="Jane")
 
@@ -121,9 +91,9 @@ async def test_keyword_search_author_filtering(tmp_path, monkeypatch):
     assert call_kwargs["advanced_params"]["author"] == "Jane"
 
 
-async def test_keyword_search_exclude_entry_ids(tmp_path, monkeypatch):
+async def test_keyword_search_exclude_entry_ids(ariel_registry):
     """exclude_entry_ids filters out entries from results."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     entries = [
         make_mock_entry(entry_id="e1", raw_text="First entry"),
@@ -136,10 +106,7 @@ async def test_keyword_search_exclude_entry_ids(tmp_path, monkeypatch):
     attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = mock_result
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_keyword_search()
         result = await fn(query="entry", exclude_entry_ids=["e1", "e3"])
 
@@ -161,18 +128,15 @@ async def test_keyword_search_empty_query():
     _exc_ctx["envelope"]
 
 
-async def test_keyword_search_service_error(tmp_path, monkeypatch):
+async def test_keyword_search_service_error(ariel_registry):
     """Service failure returns standard error format."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     mock_service = AsyncMock()
     attach_fake_attachment_reader(mock_service)
     mock_service.search.side_effect = RuntimeError("DB connection failed")
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_keyword_search()
         with assert_raises_error(error_type="internal_error") as _exc_ctx:
             await fn(query="test")
@@ -181,11 +145,11 @@ async def test_keyword_search_service_error(tmp_path, monkeypatch):
     assert "DB connection failed" in data["error_message"]
 
 
-async def test_vocabulary_error_names_config_key_and_remedy(tmp_path, monkeypatch):
+async def test_vocabulary_error_names_config_key_and_remedy(ariel_registry):
     """A broken facility vocabulary is a fixable config problem, not an internal error."""
     from osprey.services.ariel_search.exceptions import VocabularyError
 
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     mock_service = AsyncMock()
     attach_fake_attachment_reader(mock_service)
@@ -193,10 +157,7 @@ async def test_vocabulary_error_names_config_key_and_remedy(tmp_path, monkeypatc
         ["vocabulary.yml: duplicate term 'ts'"],
     )
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_keyword_search()
         with assert_raises_error(error_type="service_unavailable") as _exc_ctx:
             await fn(query="test")
@@ -214,14 +175,6 @@ async def test_vocabulary_error_names_config_key_and_remedy(tmp_path, monkeypatc
 
 TS_GROUP = {"original": "ts", "alternatives": ["troubleshoot", "timing system"]}
 TSLASH_GROUP = {"original": "t/s", "alternatives": ["troubleshoot"]}
-
-
-def _service_returning(mock_result):
-    """An ARIEL service mock whose search returns *mock_result*."""
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = mock_result
-    return mock_service
 
 
 def _keyword_descriptor(execute, query_parser):
@@ -246,57 +199,48 @@ def _keyword_descriptor(execute, query_parser):
 
 
 @pytest.mark.parametrize("value", [True, False])
-async def test_expand_query_is_forwarded_in_advanced_params(tmp_path, monkeypatch, value):
+async def test_expand_query_is_forwarded_in_advanced_params(value, ariel_registry):
     """An explicit expand_query reaches the service as an advanced parameter."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
-    mock_service = _service_returning(_make_search_result([]))
+    mock_service = service_returning(_make_search_result([]))
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_keyword_search()
         await fn(query="ts bpm", expand_query=value)
 
     assert mock_service.search.call_args.kwargs["advanced_params"]["expand_query"] is value
 
 
-async def test_expand_query_omitted_when_unset(tmp_path, monkeypatch):
+async def test_expand_query_omitted_when_unset(ariel_registry):
     """Leaving the argument alone must not override the configured default.
 
     Sending ``expand_query`` on every call would make the tool's silence look
     like an explicit choice, and the deployment's ``expand_by_default`` would
     never apply.
     """
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
-    mock_service = _service_returning(_make_search_result([]))
+    mock_service = service_returning(_make_search_result([]))
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_keyword_search()
         await fn(query="ts bpm")
 
     assert "expand_query" not in mock_service.search.call_args.kwargs["advanced_params"]
 
 
-async def test_envelope_reports_the_applied_expansion(tmp_path, monkeypatch):
+async def test_envelope_reports_the_applied_expansion(ariel_registry):
     """An ambiguous form is one group with both canonicals, not two groups."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     mock_result = _make_search_result(
         [make_mock_entry(entry_id="e1", raw_text="troubleshoot the timing system")],
         expanded_terms=[TS_GROUP],
     )
-    mock_service = _service_returning(mock_result)
+    mock_service = service_returning(mock_result)
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_keyword_search()
         result = await fn(query="ts fault", expand_query=True)
 
@@ -305,11 +249,11 @@ async def test_envelope_reports_the_applied_expansion(tmp_path, monkeypatch):
     assert data["expanded_terms"][0]["alternatives"] == ["troubleshoot", "timing system"]
 
 
-async def test_envelope_reports_diagnostics(tmp_path, monkeypatch):
+async def test_envelope_reports_diagnostics(ariel_registry):
     """Why expansion did nothing is visible without a second call."""
     from osprey.services.ariel_search.models import DiagnosticLevel, SearchDiagnostic
 
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     mock_result = _make_search_result(
         [],
@@ -322,12 +266,9 @@ async def test_envelope_reports_diagnostics(tmp_path, monkeypatch):
             )
         ],
     )
-    mock_service = _service_returning(mock_result)
+    mock_service = service_returning(mock_result)
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_keyword_search()
         result = await fn(query="ts AND bpm")
 
@@ -343,11 +284,11 @@ async def test_envelope_reports_diagnostics(tmp_path, monkeypatch):
     ]
 
 
-async def test_timeout_diagnostic_becomes_an_error_envelope(tmp_path, monkeypatch):
+async def test_timeout_diagnostic_becomes_an_error_envelope(ariel_registry):
     """A cancelled statement must not read as "nothing matched"."""
     from osprey.services.ariel_search.models import DiagnosticLevel, SearchDiagnostic
 
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     mock_result = _make_search_result(
         [],
@@ -361,12 +302,9 @@ async def test_timeout_diagnostic_becomes_an_error_envelope(tmp_path, monkeypatc
         ],
         expanded_terms=[TS_GROUP],
     )
-    mock_service = _service_returning(mock_result)
+    mock_service = service_returning(mock_result)
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_keyword_search()
         with assert_raises_error(error_type="search_timeout") as _exc_ctx:
             await fn(query="ts SR01C*")
@@ -377,7 +315,7 @@ async def test_timeout_diagnostic_becomes_an_error_envelope(tmp_path, monkeypatc
     assert data["details"]["diagnostics"][0]["category"] == "timeout"
 
 
-async def test_invalid_pattern_diagnostic_names_the_pattern(tmp_path, monkeypatch):
+async def test_invalid_pattern_diagnostic_names_the_pattern(ariel_registry):
     """The envelope names the rejected pattern and keeps the expansion.
 
     One unusable token costs the caller that token, not the meaning of the rest
@@ -386,7 +324,7 @@ async def test_invalid_pattern_diagnostic_names_the_pattern(tmp_path, monkeypatc
     """
     from osprey.services.ariel_search.models import DiagnosticLevel, SearchDiagnostic
 
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     mock_result = _make_search_result(
         [],
@@ -400,12 +338,9 @@ async def test_invalid_pattern_diagnostic_names_the_pattern(tmp_path, monkeypatc
         ],
         expanded_terms=[TSLASH_GROUP],
     )
-    mock_service = _service_returning(mock_result)
+    mock_service = service_returning(mock_result)
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_keyword_search()
         with assert_raises_error(error_type="invalid_pattern") as _exc_ctx:
             await fn(query="t/s /SR0[1-4/")
@@ -416,7 +351,7 @@ async def test_invalid_pattern_diagnostic_names_the_pattern(tmp_path, monkeypatc
     assert any("/regex/" in suggestion for suggestion in data["suggestions"])
 
 
-async def test_pattern_error_from_the_real_service_reaches_the_envelope(tmp_path, monkeypatch):
+async def test_pattern_error_from_the_real_service_reaches_the_envelope(tmp_path, ariel_registry):
     """End-to-end over the real service: exception in, error envelope out.
 
     Exercises ``ARIELSearchService.ainvoke``'s ``PatternError`` handler rather
@@ -428,7 +363,7 @@ async def test_pattern_error_from_the_real_service_reaches_the_envelope(tmp_path
     from osprey.services.ariel_search.search.keyword import parse_keyword_query
     from osprey.services.ariel_search.service import ARIELSearchService
 
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     vocabulary_path = tmp_path / "vocabulary.yml"
     vocabulary_path.write_text(
@@ -461,10 +396,7 @@ async def test_pattern_error_from_the_real_service_reaches_the_envelope(tmp_path
 
     with (
         patch("osprey.registry.get_registry", return_value=registry),
-        patch(
-            "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-            new=AsyncMock(return_value=service),
-        ),
+        patch_ariel_service(service),
     ):
         fn = _get_keyword_search()
         with assert_raises_error(error_type="invalid_pattern") as _exc_ctx:
@@ -493,15 +425,12 @@ _PNG = {"url": "https://elog.example/f/plot.png", "type": "image/png", "filename
 
 
 async def _run_keyword(mock_service, **kwargs):
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         return json.loads(await _get_keyword_search()(query="beam loss", **kwargs))
 
 
-async def test_a_ten_entry_search_reads_the_attachment_rows_once(tmp_path, monkeypatch):
-    _setup_registry(tmp_path, monkeypatch)
+async def test_a_ten_entry_search_reads_the_attachment_rows_once(ariel_registry):
+    ariel_registry()
     entries = [make_mock_entry(entry_id=f"e{i}", attachments=[_PNG]) for i in range(10)]
     mock_service = AsyncMock()
     reader = attach_fake_attachment_reader(mock_service)
@@ -513,8 +442,8 @@ async def test_a_ten_entry_search_reads_the_attachment_rows_once(tmp_path, monke
     reader.assert_awaited_once_with([f"e{i}" for i in range(10)])
 
 
-async def test_a_search_with_no_results_reads_no_attachment_rows(tmp_path, monkeypatch):
-    _setup_registry(tmp_path, monkeypatch)
+async def test_a_search_with_no_results_reads_no_attachment_rows(ariel_registry):
+    ariel_registry()
     mock_service = AsyncMock()
     reader = attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = _make_search_result([])
@@ -525,8 +454,8 @@ async def test_a_search_with_no_results_reads_no_attachment_rows(tmp_path, monke
     reader.assert_not_awaited()
 
 
-async def test_an_unmigrated_store_gives_the_fallback_summaries(tmp_path, monkeypatch):
-    _setup_registry(tmp_path, monkeypatch)
+async def test_an_unmigrated_store_gives_the_fallback_summaries(ariel_registry):
+    ariel_registry()
     mock_service = AsyncMock()
     attach_fake_attachment_reader(mock_service, unmigrated=True)
     mock_service.search.return_value = _make_search_result(
@@ -542,10 +471,10 @@ async def test_an_unmigrated_store_gives_the_fallback_summaries(tmp_path, monkey
     assert "attachment_id" not in summary
 
 
-async def test_a_failing_reader_keeps_the_entries_with_the_fallback(tmp_path, monkeypatch):
+async def test_a_failing_reader_keeps_the_entries_with_the_fallback(ariel_registry):
     from osprey.services.ariel_search.exceptions import DatabaseQueryError
 
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
     entries = [make_mock_entry(entry_id="e1", attachments=[_PNG])]
     unmigrated_service = AsyncMock()
     attach_fake_attachment_reader(unmigrated_service, unmigrated=True)
@@ -589,8 +518,8 @@ async def test_listing_attachments_zero_omits_summaries_and_keeps_the_count(tmp_
     assert "attachments" not in entry
 
 
-async def test_match_evidence_reaches_the_listing(tmp_path, monkeypatch):
-    _setup_registry(tmp_path, monkeypatch)
+async def test_match_evidence_reaches_the_listing(ariel_registry):
+    ariel_registry()
     entry = make_mock_entry(entry_id="e1", attachments=[_PNG])
     entry["_matched_attachment_ids"] = ["att-000000000000"]
     mock_service = AsyncMock()

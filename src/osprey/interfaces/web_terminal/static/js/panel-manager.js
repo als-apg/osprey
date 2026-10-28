@@ -32,12 +32,7 @@
  */
 
 import { fetchJSON } from './api.js';
-import {
-  sendThemeToIframe,
-  sendSessionToIframe,
-  sendModeToIframe,
-  buildEmbedSrc,
-} from './panel-iframe-sync.js';
+import { sendThemeToIframe, sendSessionToIframe, sendModeToIframe } from './panel-iframe-sync.js';
 import { renderEmptyState as renderEmptyStateInto } from './panel-empty-state.js';
 import { hiddenPanels, visiblePanelsExcept, standaloneUrl } from './panel-queries.js';
 import { applyPreset, wirePanelHeaderControls } from './panel-presets.js';
@@ -55,7 +50,7 @@ import {
   setServerVisiblePanels,
 } from './dock-iframe.js';
 import { initPanelPlacement, dropPanelAt } from './panel-placement.js';
-import { createPanelIframe } from './panel-iframe-factory.js';
+import { createPanelIframe, framePanel } from './panel-iframe-factory.js';
 import { PANELS, TERMINAL_RAIL_ID, DEFAULT_PANEL_FALLBACK } from './panel-catalog.js';
 import {
   initDockSync,
@@ -865,9 +860,16 @@ function navigatePanel(panelId, url) {
   // good page for an error page. The address waits in pendingUrl.
   if (!state.healthy) return;
 
-  // buildEmbedSrc preserves the already-server-prefixed root-relative url
-  // verbatim (never strip/re-add window.__OSPREY_PREFIX__ — see its docstring).
-  state.iframe.src = buildEmbedSrc(url);
+  // Through frame resolution, as at first load: an opaque panel is re-framed
+  // at a freshly minted cap (its old one may have lapsed), a first-party one
+  // at the plain url, which buildEmbedSrc keeps verbatim (already prefixed).
+  framePanel(
+    PANELS.find((p) => p.id === panelId),
+    panelId,
+    state.iframe,
+    url,
+    state.url ?? url
+  );
   state.pendingUrl = null;
 }
 

@@ -24,7 +24,7 @@ import numpy as np
 import pytest
 
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
-from osprey.stores.artifact_store import ArtifactStore, serialize_object
+from osprey.stores.artifact_store import serialize_object
 
 ARRAY = np.arange(12, dtype=np.uint16).reshape(3, 4)
 
@@ -48,20 +48,6 @@ def _no_server_launch(monkeypatch):
     import osprey.infrastructure.server_launcher as launcher
 
     monkeypatch.setattr(launcher, "ensure_web_server", lambda *a, **k: None)
-
-
-@pytest.fixture
-def store(tmp_path, monkeypatch) -> ArtifactStore:
-    """An ArtifactStore with a real repo root, so path anchors resolve."""
-    repo_root = tmp_path / "repo"
-    (repo_root / "build").mkdir(parents=True)
-    config_path = repo_root / "build" / "config.yml"
-    config_path.write_text(
-        f"project_root: {repo_root}\nagent_data:\n  base_dir: state/agent\n",
-    )
-    monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
-    monkeypatch.chdir(repo_root)
-    return ArtifactStore(workspace_root=repo_root / "state" / "agent")
 
 
 def _run_generated_save_artifact(exec_dir: Path, obj, **kwargs) -> dict:

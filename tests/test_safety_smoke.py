@@ -38,6 +38,7 @@ from osprey.stores.artifact_store import reset_artifact_store
 from osprey_connectors import posture_store
 from osprey_connectors.workspace import reset_config_cache
 from osprey_connectors_tests._harness import write_control_context
+from tests._approval_stamp_fixture import ApprovalStamps
 from tests.facility.served_tree import in_process_config, served_tree
 
 # ---------------------------------------------------------------------------
@@ -78,10 +79,11 @@ def smoke_env(tmp_path, monkeypatch):
       - channel_limits.json with test channels
       - a built tree serving every channel the scenarios read or write
       - _agent_data directory structure, stamped and carrying a control-context
-        record — the hooks refuse every write outright without one, so a
-        deployment that never wrote it would fail these scenarios at the first
-        hook in the chain rather than at the layer each one is about
-      - config variant with writes_enabled: false
+        record on the simulator with its switch on — the hooks and the tool
+        refuse every write while the switch is off, so a deployment that never
+        turned it on would fail these scenarios at the first layer rather than
+        at the one each is about
+      - config variant with writes: never
     """
     # Channel limits database
     limits_db = {
@@ -116,7 +118,7 @@ def smoke_env(tmp_path, monkeypatch):
         "control_system": {
             "type": "virtual_accelerator",
             "connector": {"virtual_accelerator": in_process_config(view)},
-            "writes_enabled": True,
+            "writes": "allowed",
             "limits_checking": {
                 "enabled": True,
                 "database_path": str(limits_path),
@@ -145,7 +147,7 @@ def smoke_env(tmp_path, monkeypatch):
     config_writes_off = config.copy()
     config_writes_off["control_system"] = {
         **config["control_system"],
-        "writes_enabled": False,
+        "writes": "never",
     }
     config_writes_off_path = tmp_path / "config_writes_off.yml"
     config_writes_off_path.write_text(yaml.dump(config_writes_off))
@@ -156,12 +158,13 @@ def smoke_env(tmp_path, monkeypatch):
         (ws / subdir).mkdir(parents=True)
 
     # The deployment this operator would be sitting in front of: a controls
-    # server is running and the deployment is on the baseline machine. The hooks
-    # read exactly this file to decide whether writes are on the table at all,
-    # and `_run_hook` copies the parent environment, so stamping the root here
-    # is what puts the subprocesses in the same deployment.
+    # server is running, the deployment is on its baseline machine (the
+    # simulator) and the operator has turned writes on for it. The hooks read
+    # exactly this file to decide whether writes are on the table at all, and
+    # `_run_hook` copies the parent environment, so stamping the root here is
+    # what puts the subprocesses in the same deployment.
     monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(ws))
-    write_control_context(ws, target="live", generation=1)
+    write_control_context(ws, target="va", generation=1, switch={"va": "on"})
 
     return {
         "tmp_path": tmp_path,
@@ -279,6 +282,26 @@ def _get_channel_write():
     return channel_write.fn if hasattr(channel_write, "fn") else channel_write
 
 
+def _approved_write(operations):
+    """The record an operator's approval leaves for *operations*, and the call bound to it.
+
+    Both stamps the approval hook files: the ask stamp, and the target stamp on
+    the binding the deployment is on now, which is what the prompt showed. The
+    tool runs the approval-hook half of scenarios 2, 3 and 5 only on that
+    record, as it does behind a real prompt.
+    """
+    from osprey.mcp_server.control_system import target_state
+    from osprey.mcp_server.control_system.tools import channel_write as cw
+
+    state = target_state.state_dir()
+    state.mkdir(parents=True, exist_ok=True)
+    binding = cw._read_target_binding()
+    target, generation = binding if binding is not None else (None, None)
+    return ApprovalStamps(state).approved(
+        "channel_write", operations=operations, target=target, generation=generation
+    )
+
+
 # ===========================================================================
 # SCENARIO 1: Read channel — passes through, no hooks fire
 # ===========================================================================
@@ -338,7 +361,9 @@ async def test_2_valid_write_tool_succeeds(smoke_env, monkeypatch):
     initialize_server_context()
 
     fn = _get_channel_write()
-    result = await fn(operations=[{"channel": "DIAG:TEMP:SP", "value": 50.0}])
+    operations = [{"channel": "DIAG:TEMP:SP", "value": 50.0}]
+    with _approved_write(operations):
+        result = await fn(operations=operations)
 
     data = json.loads(result)
     assert data["status"] == "success"
@@ -373,8 +398,9 @@ async def test_3_over_limit_write_tool_rejects(smoke_env, monkeypatch):
     from tests.mcp_server.conftest import assert_raises_error
 
     fn = _get_channel_write()
-    with assert_raises_error(error_type="limits_violation"):
-        await fn(operations=[{"channel": "MAG:HCM01:CURRENT:SP", "value": 999.0}])
+    operations = [{"channel": "MAG:HCM01:CURRENT:SP", "value": 999.0}]
+    with _approved_write(operations), assert_raises_error(error_type="limits_violation"):
+        await fn(operations=operations)
 
 
 # ===========================================================================
@@ -418,7 +444,9 @@ async def test_5_unlisted_channel_tool_succeeds(smoke_env, monkeypatch):
     initialize_server_context()
 
     fn = _get_channel_write()
-    result = await fn(operations=[{"channel": "SR:RANDOM:CHANNEL", "value": 42.0}])
+    operations = [{"channel": "SR:RANDOM:CHANNEL", "value": 42.0}]
+    with _approved_write(operations):
+        result = await fn(operations=operations)
 
     data = json.loads(result)
     assert data["status"] == "success"
@@ -481,7 +509,7 @@ def test_8_safe_python_hooks_pass_through(smoke_env):
 
 
 def test_9_writes_disabled_hooks_deny(smoke_env):
-    """With writes_enabled: false, the writes_check hook denies all writes."""
+    """With writes: never, the writes_check hook denies all writes."""
     result, blocked_by = _run_hook_chain(
         "mcp__controls__channel_write",
         {"operations": [{"channel": "MAG:HCM01:CURRENT:SP", "value": 5.0}]},
@@ -493,7 +521,7 @@ def test_9_writes_disabled_hooks_deny(smoke_env):
 
 
 def test_9_writes_disabled_python_readwrite_hooks_deny(smoke_env):
-    """With writes_enabled: false, execute tool in readwrite mode is also denied."""
+    """With writes: never, execute tool in readwrite mode is also denied."""
     result, blocked_by = _run_hook_chain(
         "mcp__python__execute",
         {"code": "caput('TEST:PV', 1.0)", "execution_mode": "readwrite"},

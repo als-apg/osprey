@@ -15,7 +15,6 @@ login.
 from __future__ import annotations
 
 import dataclasses
-import json
 import re
 from pathlib import Path
 from typing import Any
@@ -24,7 +23,6 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey.audit import writer
 from osprey.services.auth_sidecar import audit
 from osprey.services.auth_sidecar.app import create_app
 from osprey.services.auth_sidecar.passwords import hash_password
@@ -36,11 +34,8 @@ from osprey.services.auth_sidecar.sessions import (
     SessionCodec,
     UnlockedUser,
 )
-from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
-
-SESSION_SECRET = "session-secret-value"
-SESSION_LIFETIME = 3600
-EXTERNAL_ORIGIN = "https://terminals.example.org"
+from tests.services.auth_sidecar._helpers import SESSION_LIFETIME, SESSION_SECRET, ledger_records
+from tests.services.auth_sidecar._oidc import EXTERNAL_ORIGIN
 
 ALICE_PASSWORD = "alice-password"
 BOB_PASSWORD = "bob-password"
@@ -141,25 +136,6 @@ def _links(body: str) -> list[str]:
 def _inputs(body: str) -> list[str]:
     """Every ``<input>`` tag in the page, as raw markup."""
     return re.findall(r"<input[^>]*>", body, flags=re.IGNORECASE | re.DOTALL)
-
-
-@pytest.fixture
-def zone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """The sidecar's own bound audit subdirectory, as compose gives it."""
-    directory = tmp_path / "var" / "audit" / "sidecar"
-    directory.mkdir(parents=True)
-    monkeypatch.setenv(audit.AUDIT_DIR_ENV, str(directory))
-    monkeypatch.setenv(AUDIT_IDENTITY_ENV, "sidecar")
-    monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
-    return directory
-
-
-def _records(zone: Path) -> list[dict[str, Any]]:
-    """Every ledger record filed so far, in append order."""
-    path = zone / f"{audit.SURFACE}{writer.LEDGER_SUFFIX}"
-    if not path.exists():
-        return []
-    return [json.loads(line) for line in path.read_text("utf-8").splitlines() if line]
 
 
 def _throttle_window(client: TestClient, key: str) -> float:
@@ -277,7 +253,7 @@ def test_an_unknown_name_and_a_wrong_password_are_one_refusal(zone: Path) -> Non
     assert DENIAL_MESSAGE in unknown.text
     assert DENIAL_MESSAGE in wrong.text
     assert unknown.text.replace("mally", "alice") == wrong.text
-    assert [(record["subject"], record["reason"]) for record in _records(zone)] == [
+    assert [(record["subject"], record["reason"]) for record in ledger_records(zone)] == [
         ("mally", audit.REASON_BAD_CREDENTIAL),
         ("alice", audit.REASON_BAD_CREDENTIAL),
     ]
@@ -297,13 +273,13 @@ def test_a_throttled_attempt_is_not_evaluated(zone: Path) -> None:
     client = _client()
     assert _enter(client, password="not-it").status_code == 401
     window = _throttle_window(client, "alice")
-    filed = len(_records(zone))
+    filed = len(ledger_records(zone))
 
     response = _enter(client)
 
     assert response.status_code == 429
     assert response.headers["retry-after"]
-    assert len(_records(zone)) == filed
+    assert len(ledger_records(zone)) == filed
     assert _throttle_window(client, "alice") <= window
 
 
@@ -348,7 +324,9 @@ def test_an_over_long_username_is_never_looked_up(zone: Path) -> None:
     response = _enter(_client(), username=padded, password=ALICE_PASSWORD)
 
     assert response.status_code == 401
-    assert [record["subject"] for record in _records(zone)] == [padded[: entry.MAX_USERNAME_LENGTH]]
+    assert [record["subject"] for record in ledger_records(zone)] == [
+        padded[: entry.MAX_USERNAME_LENGTH]
+    ]
 
 
 def test_a_person_no_card_admits_is_refused_and_filed(zone: Path) -> None:
@@ -358,7 +336,7 @@ def test_a_person_no_card_admits_is_refused_and_filed(zone: Path) -> None:
     assert response.status_code == 403
     assert "No terminal for this account" in response.text
     assert "set-cookie" not in response.headers
-    assert [(record["subject"], record["reason"]) for record in _records(zone)] == [
+    assert [(record["subject"], record["reason"]) for record in ledger_records(zone)] == [
         ("alice", audit.REASON_NO_CARD)
     ]
     assert _throttle_window(client, "alice") == 0
@@ -373,7 +351,7 @@ def test_a_card_the_recheck_refuses_is_left_out_and_filed(
     assert response.status_code == 303
     assert response.headers["location"] == "/u/alice/"
     assert list(_entries(response)) == ["alice"]
-    records = [(record["subject"], record["reason"]) for record in _records(zone)]
+    records = [(record["subject"], record["reason"]) for record in ledger_records(zone)]
     assert ("carol", audit.REASON_UNSAFE_ROLE) in records
     assert ("alice", audit.REASON_PASSWORD_LOGIN) in records
     assert len(records) == 2
@@ -382,7 +360,7 @@ def test_a_card_the_recheck_refuses_is_left_out_and_filed(
 def test_success_is_filed_once_per_opened_card(zone: Path) -> None:
     assert _enter(_client(_access_env(carol="any"))).status_code == 200
 
-    records = _records(zone)
+    records = ledger_records(zone)
     assert [(record["subject"], record["reason"]) for record in records] == [
         ("alice", audit.REASON_PASSWORD_LOGIN),
         ("carol", audit.REASON_PASSWORD_LOGIN),

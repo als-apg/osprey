@@ -1,6 +1,6 @@
 """The framework modules the application SDK wraps, at the paths it imports.
 
-The SDK re-exports a small set of framework internals: the approval stamp
+The SDK re-exports a small set of framework internals: the approval record
 check, the module loader and the launch-token verifier, plus the run-lock
 action context. These tests pin that each one exists at its exact import
 path with the signature the SDK calls, so a move or a rename fails here
@@ -47,7 +47,7 @@ def _parameters(func) -> list[str]:
     [
         "osprey.utils.launch_token",
         "osprey.utils.module_loading",
-        "osprey.mcp_server.approval_stamp",
+        "osprey.mcp_server.approval_record",
         "osprey.runtime._run_state",
     ],
 )
@@ -55,28 +55,29 @@ def test_wrapped_module_imports_at_its_path(module):
     assert importlib.import_module(module).__name__ == module
 
 
-def test_approval_stamp_names_no_application_field():
-    from osprey.mcp_server import approval_stamp
+def test_approval_record_names_no_application_field():
+    from osprey.mcp_server import approval_record
 
-    for name in approval_stamp.APPROVED_FIELDS:
+    for name in approval_record.APPROVED_FIELDS:
         assert "trajectory" not in name
-    for tool, rule in approval_stamp.TOOL_REQUIRED_FIELDS.items():
+    for tool, fields in approval_record.TOOL_REQUIRED_FIELDS.items():
         assert "trajectory" not in tool
-        for name in rule.all_of:
+        for name in fields:
             assert "trajectory" not in name
 
 
-def test_unnamed_tool_requires_the_approved_target():
-    from osprey.mcp_server.approval_stamp import TOOL_REQUIRED_FIELDS, required_fields
+def test_unnamed_tool_requires_the_approved_target_under_a_guarded_run():
+    from osprey.mcp_server.approval_record import TOOL_REQUIRED_FIELDS, required_fields
 
     assert SYNTHETIC_TOOL not in TOOL_REQUIRED_FIELDS
-    assert required_fields(SYNTHETIC_TOOL).all_of == ("approved_target",)
+    assert required_fields(SYNTHETIC_TOOL, guarded_run=True) == ("approved_target",)
+    assert required_fields(SYNTHETIC_TOOL) == ()
 
 
-def test_stamp_check_signature():
-    from osprey.mcp_server.approval_stamp import check_asked_call
+def test_record_check_signature():
+    from osprey.mcp_server.approval_record import require_approval_record
 
-    assert _parameters(check_asked_call) == ["config", "tool", "approved"]
+    assert _parameters(require_approval_record) == ["tool", "config", "approved", "guarded_run"]
 
 
 def test_module_loader_signature():
@@ -114,11 +115,10 @@ def test_panel_validator_skips_vendor_builds(tmp_path: Path):
 
 
 @attest_base
-def test_required_fields_carries_all_of_only():
-    from osprey.mcp_server.approval_stamp import RequiredFields, required_fields
+def test_required_fields_is_a_flat_all_of_tuple():
+    from osprey.mcp_server.approval_record import required_fields
 
-    assert [field.name for field in dataclasses.fields(RequiredFields)] == ["all_of"]
-    assert required_fields(SYNTHETIC_TOOL) == RequiredFields(all_of=("approved_target",))
+    assert required_fields(SYNTHETIC_TOOL, guarded_run=True) == ("approved_target",)
 
 
 @attest_base

@@ -29,20 +29,6 @@ OTHER_CHANNEL = "SIM:CAM2:ArrayData"
 
 
 @pytest.fixture
-def store(tmp_path, monkeypatch) -> ArtifactStore:
-    """An ArtifactStore with a real repo root, so ``data_file`` anchors resolve."""
-    repo_root = tmp_path / "repo"
-    (repo_root / "build").mkdir(parents=True)
-    config_path = repo_root / "build" / "config.yml"
-    config_path.write_text(
-        f"project_root: {repo_root}\nagent_data:\n  base_dir: state/agent\n",
-    )
-    monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
-    monkeypatch.chdir(repo_root)
-    return ArtifactStore(workspace_root=repo_root / "state" / "agent")
-
-
-@pytest.fixture
 def delete_events():
     """Capture (entry, actor) for every delete listener call, then unregister."""
     events: list[tuple[str, str]] = []

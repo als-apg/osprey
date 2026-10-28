@@ -1,0 +1,158 @@
+"""Every ``package`` row of the write-verdict case table, through the package.
+
+The table (``_harness/fixtures/write_verdict_cases.json``) is shared with the
+hook's stdlib twin; this module drives its ``package`` rows through
+:func:`~osprey_connectors.posture_store.write_verdict` and
+:func:`~osprey_connectors.posture_store.backstop_verdict`, and pins the
+loader's own checks: a reason outside ``REASONS`` and a reason with no row
+both fail the load.
+"""
+
+from __future__ import annotations
+
+import copy
+import json
+
+import pytest
+
+from osprey_connectors.posture_store import backstop_verdict, write_verdict
+from osprey_connectors.refusals import REASONS
+from osprey_connectors_tests._harness._write_verdict_cases import (
+    CASES,
+    CASES_PATH,
+    LOGIN_TIERS_SHAPE_SOURCE,
+    UNCOVERED_REASONS,
+    Case,
+    CaseTableError,
+    case_environment,
+    cases_for,
+    login_tiers_shape,
+    owner_argument,
+    parse_cases,
+    stage,
+)
+
+__all__ = ["case_environment"]
+
+PACKAGE_CASES = cases_for("package")
+
+
+@pytest.mark.usefixtures("case_environment")
+@pytest.mark.parametrize("case", PACKAGE_CASES, ids=[case.id for case in PACKAGE_CASES])
+def test_package_verdict_matches_the_row(case: Case, monkeypatch, tmp_path):
+    stage(case, monkeypatch, tmp_path)
+
+    if case.verdict == "backstop":
+        verdict = backstop_verdict(case.section)
+        assert verdict.target is None
+        assert verdict.kind is None
+    else:
+        verdict = write_verdict(
+            case.section,
+            case.target,
+            ignore_launch_pin=case.ignore_launch_pin,
+            **owner_argument(case),
+        )
+        assert verdict.target == (case.target if isinstance(case.target, str) else None)
+
+    expect = case.expect
+    assert verdict.allowed is expect["allowed"]
+    assert verdict.reason == expect["reason"]
+    if not verdict.allowed:
+        assert verdict.reason in REASONS
+    if "target" in expect:
+        assert verdict.target == expect["target"]
+    if "kind" in expect:
+        assert verdict.kind == expect["kind"]
+
+
+# -- the table itself --------------------------------------------------------
+
+
+def _rows() -> list[dict]:
+    rows: list[dict] = json.loads(CASES_PATH.read_text(encoding="utf-8"))
+    return rows
+
+
+def test_every_reason_the_verdict_answers_has_a_row():
+    covered = {case.expect["reason"] for case in CASES}
+    assert covered - {None} == set(REASONS) - UNCOVERED_REASONS
+    assert None in covered
+
+
+def test_the_lock_reasons_have_no_row():
+    assert not {case.expect["reason"] for case in CASES} & UNCOVERED_REASONS
+
+
+def test_every_row_drives_the_package():
+    """No row is twin-only: the package is the reference the twin matches."""
+    assert {case.id for case in CASES} == {case.id for case in PACKAGE_CASES}
+
+
+def test_write_rows_drive_the_twin():
+    """Every write row is a parity row; only the backstop is package-only."""
+    for case in CASES:
+        if case.verdict == "write":
+            assert "twin" in case.applies_to, case.id
+
+
+def test_a_row_with_a_reason_outside_reasons_fails_the_load():
+    rows = _rows()
+    rows[0] = {**rows[0], "expect": {"allowed": False, "reason": "not_a_reason"}}
+    with pytest.raises(CaseTableError, match="not in REASONS"):
+        parse_cases(rows)
+
+
+def test_a_reason_with_no_row_fails_the_load():
+    rows = [row for row in _rows() if row["expect"]["reason"] != "launch_pinned"]
+    with pytest.raises(CaseTableError, match="launch_pinned"):
+        parse_cases(rows)
+
+
+@pytest.mark.parametrize("reason", sorted(UNCOVERED_REASONS))
+def test_a_row_for_a_lock_reason_fails_the_load(reason):
+    rows = _rows()
+    rows.append(
+        {**copy.deepcopy(rows[0]), "id": "lock", "expect": {"allowed": False, "reason": reason}}
+    )
+    with pytest.raises(CaseTableError, match="never answers"):
+        parse_cases(rows)
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ({"applies_to": ["elsewhere"]}, "applies_to"),
+        ({"verdict": "maybe"}, "verdict"),
+        ({"env": {"PATH": "/"}}, "env may set only"),
+        ({"surprise": 1}, "unknown keys"),
+        ({"expect": {"allowed": True, "reason": "switch_off"}}, "an allow has no reason"),
+        ({"record": {"status": "lost"}}, "record status"),
+        ({"tree": {"bind": "somewhere"}}, "tree bind"),
+    ],
+)
+def test_a_malformed_row_fails_the_load(change, message):
+    rows = _rows()
+    rows[0] = {**rows[0], **change}
+    with pytest.raises(CaseTableError, match=message):
+        parse_cases(rows)
+
+
+def test_a_repeated_id_fails_the_load():
+    rows = _rows()
+    rows.append(copy.deepcopy(rows[0]))
+    with pytest.raises(CaseTableError, match="repeated"):
+        parse_cases(rows)
+
+
+def test_the_shape_rows_agree_with_the_shape_fixture():
+    """The rows that load login_tiers_shape.json expect what its example states."""
+    lookups = {item["owner"]: item["reason"] for item in login_tiers_shape()["example"]["lookups"]}
+    shape_rows = [case for case in CASES if case.section_from == LOGIN_TIERS_SHAPE_SOURCE]
+    assert {case.owner for case in shape_rows} == set(lookups)
+    for case in shape_rows:
+        assert case.expect["reason"] == lookups[case.owner], case.id
+        assert (case.tree is not None) is login_tiers_shape()["example"]["tree_bound"]
+        assert (
+            case.section["login_tiers"] == login_tiers_shape()["example"]["section"]["login_tiers"]
+        )

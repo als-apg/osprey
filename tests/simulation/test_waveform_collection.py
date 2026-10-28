@@ -24,7 +24,7 @@ from osprey_connectors.simulation import archive
 from osprey_connectors.simulation.archive import (
     DATE_FIELD,
     EXPIRE_FIELD,
-    prepare_collection,
+    _prepare_collection,
     waveform_collection,
     waveform_document,
 )
@@ -141,7 +141,7 @@ class _IndexLog:
 def test_prepare_gives_the_waveform_collection_the_scalar_indexes():
     scalar, waveforms = _IndexLog(), _IndexLog()
 
-    prepare_collection(scalar, waveforms=waveforms)
+    _prepare_collection(scalar, waveforms=waveforms)
 
     assert waveforms.indexes == scalar.indexes
     assert (EXPIRE_FIELD, {"expireAfterSeconds": 0}) in waveforms.indexes
@@ -151,7 +151,7 @@ def test_prepare_gives_the_waveform_collection_the_scalar_indexes():
 def test_prepare_without_a_waveform_handle_touches_only_the_scalar_collection():
     scalar = _IndexLog()
 
-    prepare_collection(scalar)
+    _prepare_collection(scalar)
 
     assert scalar.indexes
 
@@ -196,7 +196,7 @@ def test_the_prepared_waveform_collection_carries_the_expiry_index(mongo_databas
     scalar.drop()
     waveforms.drop()
     try:
-        prepare_collection(scalar, waveforms=waveforms)
+        _prepare_collection(scalar, waveforms=waveforms)
 
         assert _ttl_indexes(waveforms) == _ttl_indexes(scalar) == {EXPIRE_FIELD: 0}
         assert any(

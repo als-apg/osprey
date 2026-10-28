@@ -17,10 +17,16 @@
  * - NO PROCESS CLAIMS: nothing rendered — rows, card, either confirm — states
  *   whether a write asks for approval or what limits apply, because that is
  *   deployment configuration the browser cannot see;
- * - the writes switch locks for each of the five reasons, in the documented order, and
- *   the reason reaches the `title` in operator words;
+ * - the writes switch is this login's switch (C-GET): a switch that is off
+ *   and cannot be turned on is disabled with the reason on its `title`; under
+ *   every lock a switch that is on keeps its off control and shows the
+ *   verdict's `write_phrase`;
  * - turning writes on raises a confirm and turning them off does NOT: only a
  *   gesture that can end with a write landing somewhere new asks;
+ * - every switch gesture posts C-POST `{session_id, target, state, epoch}`
+ *   carrying the `switch_epoch` the chip read; a stamped 409 is retried once
+ *   with its epoch, any other 409 re-reads and wants a new click, and a 503 on
+ *   a stop says the stop did not take effect while the machine still reads on;
  * - a confirmed change leaves the popover OPEN and re-renders in place, so an
  *   operator changing several machines never reopens it;
  * - Escape dismisses an open confirm BEFORE it closes the popover, and a click
@@ -32,8 +38,8 @@
  *   does not know renders verbatim;
  * - rows the route refuses offer no Switch and say why in its place, while
  *   their write switches stay live — writing is a separate question;
- * - `Turn all writes off` POSTs `all` and renders every target the store
- *   `skipped`;
+ * - `Turn all writes off` POSTs `all`/`off`, enabled exactly when `any_on`;
+ * - a waived turn-on shows the turn-on sentence once in the status line;
  * - ONE DOM for both `ui_mode`s: the same markup under `simple` and `expert`.
  *
  * Seams: `fetch` is stubbed the way the other suites here stub it, and
@@ -49,6 +55,12 @@ const SESSION = 'aaaaaaaa-1111-2222-3333-444444444444';
 const CHIP = '../../../src/osprey/interfaces/web_terminal/static/js/control-target-chip.js';
 const POPOVER = '../../../src/osprey/interfaces/web_terminal/static/js/control-target-popover.js';
 
+const FACTS = '../../../src/osprey/interfaces/web_terminal/static/js/control-target-facts.js';
+const { STOP_NOT_TAKEN_SENTENCE: STOP_NOT_TAKEN, TURN_ON_SENTENCE: TURN_ON } = await import(FACTS);
+/** What a turn-on a stop overtook reads on its row. */
+const STOPPED_SINCE =
+  'Writes were turned off after this turn-on began — nothing was turned on. Click again to turn them on.';
+
 /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/control-target-chip.js')} */
 let chipModule;
 /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/control-target-popover.js')} */
@@ -60,54 +72,97 @@ let popoverModule;
 const KINDS = {
   live: {
     target: 'live',
-    label: 'LIVE MACHINE',
+    label: 'Real machine — writes move hardware',
     short_label: 'LIVE',
-    kind: 'live machine',
+    machine_kind: 'real',
     display_name: '',
     endpoint: 'gw.example.org:5064',
     real_machine: true,
   },
   standin: {
     target: 'standin',
-    label: 'LIVE MACHINE (stand-in)',
+    label: 'Rehearsal — nothing moves',
     short_label: 'STAND-IN',
-    kind: 'stand-in',
+    machine_kind: 'rehearsal',
     display_name: '',
     endpoint: '127.0.0.1:10090',
     real_machine: true,
   },
   va: {
     target: 'va',
-    label: 'virtual accelerator (simulation)',
+    label: 'Simulator — nothing moves',
     short_label: 'VIRTUAL',
-    kind: 'virtual accelerator',
+    machine_kind: 'simulator',
     display_name: '',
     endpoint: '127.0.0.1:10064',
     real_machine: false,
   },
 };
 
+/** The verdict's sentence for a run started read-only (C-PHRASE). */
+const READONLY_PHRASE =
+  'Writes are refused because the deployment is running read-only; the chip cannot lift this — ask the deployment admin.';
+/** The verdict's sentence for a login whose tier never writes. */
+const TIER_NEVER_PHRASE =
+  "Writes are refused because this login's write tier does not allow them; ask the deployment admin.";
+
 /**
- * The three effective states in the route's columns. `read-only` and `sandbox`
- * are the same "no"; which one it is decides whether the switch can undo it.
+ * The states as C-GET's columns express them. `off` and `locked` are both
+ * "no", and which "no" it is decides what the switch offers. Each carries a
+ * legacy `posture` that DISAGREES with it, so a derivation that still read
+ * `posture` would fail here.
  */
 const STATES = {
-  writes: { effective: true, posture: 'writes' },
-  sandbox: { effective: false, posture: 'sandbox' },
-  'read-only': { effective: false, posture: 'writes', ceiling_writes: false },
+  on: {
+    switch: 'on',
+    write_allowed: true,
+    write_reason: null,
+    write_phrase: null,
+    posture: 'sandbox',
+  },
+  off: {
+    switch: 'off',
+    write_allowed: false,
+    write_reason: 'switch_off',
+    write_phrase: 'Writes are off; turn it on from the chip in the web terminal.',
+    posture: 'writes',
+  },
+  /** On, and still refused: the run was started read-only. */
+  locked: {
+    switch: 'on',
+    write_allowed: false,
+    write_reason: 'readonly_run',
+    write_phrase: READONLY_PHRASE,
+    posture: 'writes',
+  },
+  /** Off, and a turn-on could not lift it: the login's tier never writes. */
+  never: {
+    switch: 'off',
+    write_allowed: false,
+    write_reason: 'tier_never',
+    write_phrase: TIER_NEVER_PHRASE,
+    posture: 'writes',
+  },
+  /** A record nobody can read. */
+  unreadable: {
+    switch: null,
+    write_allowed: false,
+    write_reason: 'record_unavailable',
+    write_phrase:
+      'Writes are refused because the switch record cannot be read; ask the deployment admin.',
+    posture: 'writes',
+  },
 };
 
 /** @param {object} kind @param {object} [o] */
 const rowOf = (kind, o = {}) => ({
   ...kind,
-  ...STATES.writes,
+  ...STATES.on,
   active: false,
   is_baseline: false,
   available_now: true,
   reason: null,
   reason_detail: null,
-  ceiling_writes: true,
-  narrowing_refusal: null,
   reachability: {
     state: 'reached',
     role: 'write_access',
@@ -118,23 +173,31 @@ const rowOf = (kind, o = {}) => ({
   ...o,
 });
 
+/** The epoch the default roster's record carries. */
+// A decimal string, as the route sends it: nanoseconds with low digits that a
+// JSON number would round away.
+const EPOCH = '1793181592449148123';
+
 /** The roster a plain switch-capable deployment answers with. */
 const viewOf = (o = {}) => ({
   // The chip's read carries no session id, so the route echoes none back.
   session_id: null,
   control_target: 'standin',
   generation: 3,
-  // This terminal owns the control context, which is what makes its gestures
-  // writable at all; `self: false` is a terminal that FOLLOWS another.
+  // This terminal owns the control context, which is what makes its target
+  // switches writable at all; `self: false` is a terminal that FOLLOWS another.
   owner: { kind: 'web_terminal', pid: 1000, port: 8080, self: true },
   servers: [],
   store_available: true,
   readonly_run: false,
+  switch_epoch: EPOCH,
+  any_on: true,
+  locks: { readonly_run: false, tier: 'readwrite' },
   execution_in_flight: [],
   last_switch: null,
   last_posture_realign: null,
   targets: [
-    rowOf(KINDS.live, { ...STATES.sandbox }),
+    rowOf(KINDS.live, { ...STATES.off }),
     rowOf(KINDS.standin, {
       active: true,
       is_baseline: true,
@@ -262,6 +325,12 @@ const reasonEl = (target) =>
 /** @param {string} target */
 const outcomes = (target) =>
   [...(surfaceEl(target)?.querySelectorAll('.ctc-outcome') ?? [])].map((n) => n.textContent);
+/** The verdict sentence a surface shows at rest, or null. @param {string} target */
+const phraseEl = (target) =>
+  /** @type {HTMLElement|null} */ (surfaceEl(target)?.querySelector('.ctc-write-phrase') ?? null);
+/** The popover's status line, or null. */
+const statusEl = () => /** @type {HTMLElement|null} */ (document.querySelector('.ctc-status'));
+const allOffEl = () => /** @type {HTMLButtonElement} */ (document.querySelector('.ctc-all-off'));
 /** A confirm that is up — one on its way out carries `data-closing`. */
 const confirmEl = () =>
   /** @type {HTMLElement|null} */ (
@@ -291,7 +360,7 @@ beforeEach(async () => {
   // another's.
   localStorage.clear();
   document.documentElement.removeAttribute('data-ui-mode');
-  Reflect.deleteProperty(window, '__OSPREY_PREFIX__');
+  delete (/** @type {any} */ (window).__OSPREY_PREFIX__);
   chipModule = await import(CHIP);
   popoverModule = await import(POPOVER);
 });
@@ -366,9 +435,11 @@ describe('the card', () => {
     await bootOpen();
     const card = /** @type {HTMLElement} */ (cardEl());
     expect(card.dataset.target).toBe('standin');
-    expect(card.dataset.targetKind).toBe('standin');
-    expect(card.dataset.state).toBe('writes');
-    expect(card.dataset.real).toBe('true');
+    expect(card.dataset.targetKind).toBe('rehearsal');
+    expect(card.dataset.state).toBe('on');
+    // `data-real` is retired: the kind alone keys the colours, and the
+    // stand-in is not the real machine.
+    expect(card.dataset.real).toBeUndefined();
     expect(rowEl('standin')).toBeNull();
     expect(card.querySelector('.ctc-card-eyebrow')?.textContent).toBe('The agent is on');
   });
@@ -379,7 +450,7 @@ describe('the card', () => {
     expect(title.querySelector('.ctc-name')?.textContent).toBe('Rehearsal');
     // The implementation vocabulary lives on the ⓘ tooltip, never at rest.
     const tip = /** @type {HTMLElement} */ (cardEl()?.querySelector('.ctc-tip'));
-    expect(tip.textContent).toContain('LIVE MACHINE (stand-in)');
+    expect(tip.textContent).toContain('Rehearsal — nothing moves');
     expect(tip.textContent).toContain('127.0.0.1:10090');
     expect(tip.querySelector('.ctc-tip-what')?.textContent).toBe(
       "Copy of the real machine's controls · nothing moves"
@@ -394,9 +465,9 @@ describe('the card', () => {
     await bootOpen(
       viewOf({
         targets: [
-          rowOf(KINDS.live, { ...STATES.sandbox }),
+          rowOf(KINDS.live, { ...STATES.off }),
           rowOf(KINDS.standin, {
-            ...STATES.sandbox,
+            ...STATES.off,
             active: true,
             available_now: false,
             reason: 'already_active',
@@ -424,15 +495,15 @@ describe('names', () => {
     // inside the ⓘ tooltips.
     const atRest = /** @type {HTMLElement} */ (popEl()?.cloneNode(true));
     for (const tip of atRest.querySelectorAll('.ctc-tip')) tip.remove();
-    expect(atRest.textContent).not.toContain('LIVE MACHINE');
-    expect(atRest.textContent).not.toContain('virtual accelerator');
+    expect(atRest.textContent).not.toContain('Real machine — writes move hardware');
+    expect(atRest.textContent).not.toContain('Simulator — nothing moves');
   });
 
   test("the deployment's configured display_name wins over the default", async () => {
     await bootOpen(
       viewOf({
         targets: [
-          rowOf(KINDS.live, { ...STATES.sandbox, display_name: 'Example storage ring' }),
+          rowOf(KINDS.live, { ...STATES.off, display_name: 'Example storage ring' }),
           rowOf(KINDS.standin, { active: true, available_now: false, reason: 'already_active' }),
           rowOf(KINDS.va),
         ],
@@ -468,7 +539,7 @@ describe('names', () => {
       viewOf({
         targets: [
           rowOf(KINDS.live, {
-            ...STATES['read-only'],
+            ...STATES.off,
             available_now: false,
             reason: 'gateways_missing',
           }),
@@ -489,7 +560,7 @@ describe('names', () => {
       viewOf({
         targets: [
           rowOf(KINDS.live, {
-            ...STATES['read-only'],
+            ...STATES.off,
             available_now: false,
             reason: 'connector_not_switchable',
             reason_detail: "Target 'live' resolves to connector type 'doocs'.",
@@ -520,7 +591,7 @@ describe('reachability', () => {
       viewOf({
         targets: [
           rowOf(KINDS.live, {
-            ...STATES.sandbox,
+            ...STATES.off,
             reachability: { state: 'down', role: 'read_only', age_s: 12 },
           }),
           rowOf(KINDS.standin, { active: true, available_now: false, reason: 'already_active' }),
@@ -578,19 +649,19 @@ describe('the banner', () => {
   });
 
   test('a readonly run is named deployment-wide', async () => {
-    const readonly = { ceiling_writes: true, posture: 'writes', effective: false };
     await bootOpen(
       viewOf({
         readonly_run: true,
+        locks: { readonly_run: true, tier: 'readwrite' },
         targets: [
-          rowOf(KINDS.live, readonly),
+          rowOf(KINDS.live, { ...STATES.locked }),
           rowOf(KINDS.standin, {
-            ...readonly,
+            ...STATES.locked,
             active: true,
             available_now: false,
             reason: 'already_active',
           }),
-          rowOf(KINDS.va, readonly),
+          rowOf(KINDS.va, { ...STATES.locked }),
         ],
       })
     );
@@ -598,35 +669,28 @@ describe('the banner', () => {
     expect(bannerEl()?.dataset.tone).toBe('warn');
   });
 
-  test('a readonly run with one unarmed row is still named: the run is the widest fact', async () => {
-    const readonly = { ceiling_writes: true, posture: 'writes', effective: false };
+  test('the published lock alone names the run, whatever each row says first', async () => {
     await bootOpen(
       viewOf({
-        readonly_run: true,
+        locks: { readonly_run: true, tier: 'readwrite' },
         targets: [
-          rowOf(KINDS.live, { ...STATES['read-only'] }),
+          rowOf(KINDS.live, { ...STATES.off }),
           rowOf(KINDS.standin, {
-            ...readonly,
+            ...STATES.locked,
             active: true,
             available_now: false,
             reason: 'already_active',
           }),
-          rowOf(KINDS.va, readonly),
         ],
       })
     );
     expect(bannerEl()?.textContent).toBe('The whole deployment is running read-only.');
   });
 
-  test('a store that failed to resolve is not called a readonly run', async () => {
-    // Ceiling up, nothing narrowed, writes still off: the columns a failed
-    // store read leaves behind. Without the route saying `readonly_run`,
-    // that signature is not the deployment running read-only.
-    const unresolved = { ceiling_writes: true, posture: 'writes', effective: false };
+  test('rows refused for their own reasons are not called a readonly run', async () => {
     await bootOpen(
       viewOf({
-        readonly_run: false,
-        targets: [rowOf(KINDS.live, unresolved), rowOf(KINDS.va, unresolved)],
+        targets: [rowOf(KINDS.live, { ...STATES.never }), rowOf(KINDS.va, { ...STATES.never })],
       })
     );
     expect(bannerEl()).toBeNull();
@@ -635,7 +699,7 @@ describe('the banner', () => {
 
 /* ---- locks --------------------------------------------------------------- */
 
-describe('the verb locks, one reason at a time', () => {
+describe('the switch under a lock', () => {
   /** @param {any} view @param {string} target */
   async function lockOn(view, target) {
     await bootOpen(view);
@@ -644,14 +708,11 @@ describe('the verb locks, one reason at a time', () => {
   }
 
   test('an unrecordable store outranks everything else', async () => {
-    // A readonly run holding an armed row and a missing read-only endpoint
-    // are present too. The widest cause is the one the operator reads.
-    const heldByTheRun = { ceiling_writes: true, posture: 'writes', effective: false };
     const { toggle, reason } = await lockOn(
       viewOf({
         store_available: false,
-        readonly_run: true,
-        targets: [rowOf(KINDS.va, { ...heldByTheRun, narrowing_refusal: 'selected_role_missing' })],
+        locks: { readonly_run: true, tier: 'never' },
+        targets: [rowOf(KINDS.va, { ...STATES.never })],
       }),
       'va'
     );
@@ -659,59 +720,89 @@ describe('the verb locks, one reason at a time', () => {
     expect(reason).toBe('changes cannot be recorded right now');
   });
 
-  test('a context another terminal holds locks every row', async () => {
-    const { toggle, reason } = await lockOn(
-      viewOf({ owner: { kind: 'web_terminal', pid: 77, port: 8123, self: false } }),
-      'va'
+  test('a follower turns its login’s switch exactly as the holder does', async () => {
+    // Only target switching is the holder's: the switch is the person's.
+    await bootOpen(
+      viewOf({
+        owner: { kind: 'web_terminal', pid: 77, port: 8123, self: false },
+        targets: [
+          rowOf(KINDS.live, { ...STATES.off }),
+          rowOf(KINDS.standin, { active: true, available_now: false, reason: 'already_active' }),
+          rowOf(KINDS.va),
+        ],
+      })
     );
-    expect(toggle?.disabled).toBe(true);
-    expect(reason).toBe('held by another terminal');
+    expect(toggleEl('live')?.disabled).toBe(false);
+    expect(toggleEl('live')?.title).toBe('Turn writes on for Real machine — asks first');
+    expect(toggleEl('va')?.disabled).toBe(false);
     // And no row offers a Switch it knows would be refused; the reason word
     // stands where the button was.
     expect(document.querySelectorAll('.ctc-switch')).toHaveLength(0);
     expect(reasonEl('va')?.textContent).toBe('another terminal');
   });
 
-  test('a readonly run: the route says so, and every armed row is locked on it', async () => {
-    const readonly = { ceiling_writes: true, posture: 'writes', effective: false };
-    const { reason } = await lockOn(
+  test('a readonly run disables turning on, with the reason on hover', async () => {
+    const { toggle, reason } = await lockOn(
       viewOf({
-        readonly_run: true,
-        targets: [rowOf(KINDS.live, readonly), rowOf(KINDS.va, readonly)],
+        locks: { readonly_run: true, tier: 'readwrite' },
+        targets: [rowOf(KINDS.va, { ...STATES.off })],
       }),
       'va'
     );
-    expect(reason).toBe('the whole deployment is running read-only');
-  });
-
-  test('a store that failed to resolve does not lock the row on the run', async () => {
-    const unresolved = { ceiling_writes: true, posture: 'writes', effective: false };
-    const { toggle, reason } = await lockOn(
-      viewOf({ readonly_run: false, targets: [rowOf(KINDS.va, unresolved)] }),
-      'va'
-    );
-    expect(toggle?.disabled).toBe(false);
-    expect(reason).toBe('Turn writes on for Simulator — asks first');
-  });
-
-  test('a ceiling that never armed the target reads as the deployment holding it', async () => {
-    const { toggle, reason } = await lockOn(
-      viewOf({ targets: [rowOf(KINDS.va, { ...STATES['read-only'] })] }),
-      'va'
-    );
-    expect(reason).toBe('kept read-only by the deployment');
     expect(toggle?.disabled).toBe(true);
-    // The word says locked, not off: nothing this session did holds it.
-    expect(switchWord('va')?.textContent).toBe('locked');
-    expect(switchWord('va')?.title).toBe('kept read-only by the deployment');
+    expect(reason).toBe('the whole deployment is running read-only');
+    expect(switchWord('va')?.textContent).toBe('off');
   });
 
-  test('no read-only endpoint: narrowing would select a role nothing configures', async () => {
-    const { reason } = await lockOn(
-      viewOf({ targets: [rowOf(KINDS.va, { narrowing_refusal: 'selected_role_missing' })] }),
+  test('a tier that never writes holds an off switch, and its sentence is shown', async () => {
+    const { toggle, reason } = await lockOn(
+      viewOf({ any_on: false, targets: [rowOf(KINDS.va, { ...STATES.never })] }),
       'va'
     );
-    expect(reason).toBe('no read-only endpoint configured');
+    expect(toggle?.disabled).toBe(true);
+    expect(reason).toBe(TIER_NEVER_PHRASE);
+    expect(phraseEl('va')?.textContent).toBe(TIER_NEVER_PHRASE);
+  });
+
+  test('a machine that is on and refused reads locked, shows why, and keeps its off control', async () => {
+    await bootOpen(
+      viewOf({
+        locks: { readonly_run: true, tier: 'readwrite' },
+        targets: [
+          rowOf(KINDS.standin, { active: true, available_now: false, reason: 'already_active' }),
+          rowOf(KINDS.va, { ...STATES.locked }),
+        ],
+      })
+    );
+    const toggle = /** @type {HTMLButtonElement} */ (toggleEl('va'));
+    expect(rowEl('va')?.dataset.state).toBe('locked');
+    expect(switchWord('va')?.textContent).toBe('locked');
+    expect(phraseEl('va')?.textContent).toBe(READONLY_PHRASE);
+    expect(toggle.disabled).toBe(false);
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    expect(toggle.title).toBe('Turn writes off for Simulator — applies now');
+
+    toggle.click();
+    await flush();
+    expect(confirmEl()).toBeNull();
+    expect(posts()[0].body).toEqual({ session_id: null, target: 'va', state: 'off', epoch: EPOCH });
+  });
+
+  test('a switch nobody can read reads locked and still offers the stop', async () => {
+    await bootOpen(viewOf({ targets: [rowOf(KINDS.va, { ...STATES.unreadable })] }));
+    const toggle = /** @type {HTMLButtonElement} */ (toggleEl('va'));
+    expect(switchWord('va')?.textContent).toBe('locked');
+    expect(phraseEl('va')?.textContent).toBe(STATES.unreadable.write_phrase);
+    expect(toggle.disabled).toBe(false);
+    toggle.click();
+    await flush();
+    expect(posts()[0].body).toMatchObject({ target: 'va', state: 'off' });
+  });
+
+  test('a machine that is merely off shows no sentence: the switch already says so', async () => {
+    await bootOpen();
+    expect(phraseEl('live')).toBeNull();
+    expect(phraseEl('va')).toBeNull();
   });
 
   test('an unlocked switch stays live and names its outcome on hover', async () => {
@@ -722,6 +813,11 @@ describe('the verb locks, one reason at a time', () => {
     expect(toggle.title).toBe('Turn writes off for Simulator — applies now');
     expect(switchWord('va')?.textContent).toBe('on');
   });
+
+  test('no surface carries data-real any more', async () => {
+    await bootOpen();
+    expect(popEl()?.querySelectorAll('[data-real]')).toHaveLength(0);
+  });
 });
 
 /* ---- write-state gestures ------------------------------------------------ */
@@ -729,14 +825,14 @@ describe('the verb locks, one reason at a time', () => {
 describe('turning writes off and on', () => {
   test('turning writes off applies on click, with no confirm', async () => {
     await bootOpen();
-    postAnswers.push({ ok: true, body: { entry: { va: 'sandbox' }, skipped: [] } });
+    postAnswers.push({ ok: true, body: { target: 'va', state: 'off', switch_epoch: EPOCH } });
     toggleEl('va')?.click();
     await flush();
 
     expect(confirmEl()).toBeNull();
     expect(posts()).toHaveLength(1);
     expect(posts()[0].url).toContain('/api/terminal/posture');
-    expect(posts()[0].body).toEqual({ session_id: null, target: 'va', posture: 'sandbox' });
+    expect(posts()[0].body).toEqual({ session_id: null, target: 'va', state: 'off', epoch: EPOCH });
   });
 
   test('turning writes on raises a confirm and POSTs nothing until it is confirmed', async () => {
@@ -748,28 +844,21 @@ describe('turning writes off and on', () => {
     expect(posts()).toHaveLength(0);
     // The facility's own machine, and only it, carries the hardware notice.
     expect(confirmEl()?.querySelector('.posture-modal-live')?.textContent).toBe(
-      'Real machine — writes move hardware.'
+      'Real machine — writes move hardware'
     );
     expect(confirmBtn()?.dataset.live).toBe('true');
     expect(confirmBtn()?.textContent).toBe('Turn writes on');
   });
 
   test('the confirm body states scope and claims nothing about process or endpoint', async () => {
-    // Whether a write prompts for approval, and what limits apply, are
-    // deployment configuration the browser cannot see — the dialog must not
-    // state either as fact. The roster's endpoint is where reads go under the
-    // current posture, so it is not where this write will land: it stays out.
     await bootOpen();
     toggleEl('live')?.click();
     await flush();
 
     const body = inConfirm('.posture-modal-body').textContent ?? '';
-    expect(body).toContain('For every session on this deployment.');
-    expect(body).toContain('Takes effect at the next write — nothing restarts.');
+    expect(body).toContain('your login');
     expect(body).not.toMatch(/approval|asks you|limits/i);
     expect(body).not.toMatch(/[\w.-]+:\d+/);
-    // The title names the machine; the body's own sentences do not repeat it.
-    // (The hardware notice below them is the one deliberate exception.)
     const paragraphs = [...(confirmEl()?.querySelectorAll('.posture-modal-body p') ?? [])]
       .map((n) => n.textContent)
       .join(' ');
@@ -777,7 +866,7 @@ describe('turning writes off and on', () => {
   });
 
   test('the simulator turns on without the hardware notice', async () => {
-    await bootOpen(viewOf({ targets: [rowOf(KINDS.va, { ...STATES.sandbox })] }));
+    await bootOpen(viewOf({ targets: [rowOf(KINDS.va, { ...STATES.off })] }));
     toggleEl('va')?.click();
     await flush();
     expect(confirmTitle()).toBe('Turn writes on for Simulator?');
@@ -801,8 +890,6 @@ describe('turning writes off and on', () => {
     toggleEl('live')?.click();
     await flush();
 
-    // Parked, not flipped: a switch implies "now", and nothing has been
-    // applied until the dialog is answered.
     expect(toggleEl('live')?.dataset.pending).toBe('on');
     expect(toggleEl('live')?.getAttribute('aria-checked')).toBe('false');
 
@@ -812,12 +899,12 @@ describe('turning writes off and on', () => {
     expect(toggleEl('live')?.getAttribute('aria-checked')).toBe('false');
   });
 
-  test('confirming POSTs, keeps the popover open, and re-renders in place', async () => {
+  test('confirming POSTs the epoch read, keeps the popover open, and re-renders in place', async () => {
     await bootOpen();
     toggleEl('live')?.click();
     await flush();
 
-    postAnswers.push({ ok: true, body: { entry: {}, skipped: [] } });
+    postAnswers.push({ ok: true, body: { target: 'live', state: 'on', switch_epoch: EPOCH } });
     // The next read is the truth the row repaints from — never what this click
     // intended.
     served = viewOf({
@@ -835,80 +922,256 @@ describe('turning writes off and on', () => {
     confirmBtn()?.click();
     await flush();
 
-    expect(posts()[0].body).toEqual({ session_id: null, target: 'live', posture: 'writes' });
+    expect(posts()[0].body).toEqual({
+      session_id: null,
+      target: 'live',
+      state: 'on',
+      epoch: EPOCH,
+    });
     expect(confirmEl()).toBeNull();
     expect(isOpen()).toBe(true);
-    expect(rowEl('live')?.dataset.state).toBe('writes');
+    expect(rowEl('live')?.dataset.state).toBe('on');
     expect(switchWord('live')?.textContent).toBe('on');
+    // A confirmed turn-on said its sentence in the dialog; no status line.
+    expect(statusEl()).toBeNull();
   });
 
-  test('a refused narrowing keeps the server sentence on the row', async () => {
+  test('a record that carried no epoch is sent as null', async () => {
+    await bootOpen(viewOf({ switch_epoch: null }));
+    toggleEl('va')?.click();
+    await flush();
+    expect(posts()[0].body).toEqual({ session_id: null, target: 'va', state: 'off', epoch: null });
+  });
+
+  test('a stop that was not taken says so, and the machine keeps reading on', async () => {
     await bootOpen();
     postAnswers.push({
       ok: false,
-      status: 409,
-      body: { detail: { error: 'execution_in_flight', message: 'An execution is running.' } },
+      status: 503,
+      body: { detail: { reason: 'not_taken', taken: false, phrase: STOP_NOT_TAKEN } },
     });
     toggleEl('va')?.click();
     await flush();
 
-    expect(outcomes('va')).toContain('✗ An execution is running.');
+    expect(outcomes('va')).toContain(`✗ ${STOP_NOT_TAKEN}`);
+    // The re-read still says on, and nothing painted an off it does not hold.
+    expect(switchWord('va')?.textContent).toBe('on');
+    expect(toggleEl('va')?.getAttribute('aria-checked')).toBe('true');
+    expect(fetchCalls.filter((c) => c.method === 'GET').length).toBeGreaterThan(1);
   });
 
-  test('a refused turn-on keeps the dialog up carrying the reason', async () => {
+  test('a 503 on a stop with no phrase still reads as the stop sentence', async () => {
+    await bootOpen();
+    postAnswers.push({ ok: false, status: 503, body: null });
+    toggleEl('va')?.click();
+    await flush();
+    expect(outcomes('va')).toContain(`✗ ${STOP_NOT_TAKEN}`);
+  });
+
+  test('a refused turn-on keeps the dialog up carrying the route’s phrase', async () => {
     await bootOpen();
     toggleEl('live')?.click();
     await flush();
     postAnswers.push({
       ok: false,
       status: 403,
-      body: { detail: { error: 'ceiling', message: 'This render arms no writes there.' } },
+      body: { detail: { reason: 'tier_never', phrase: TIER_NEVER_PHRASE } },
     });
     confirmBtn()?.click();
     await flush();
 
-    // The dialog is where the operator is looking, and nothing was applied.
     expect(confirmEl()).not.toBeNull();
-    expect(confirmEl()?.querySelector('.posture-modal-error')?.textContent).toBe(
-      'This render arms no writes there.'
-    );
+    expect(confirmEl()?.querySelector('.posture-modal-error')?.textContent).toBe(TIER_NEVER_PHRASE);
     expect(confirmBtn()?.disabled).toBe(false);
     expect(isOpen()).toBe(true);
+  });
+
+  test('a turn-on 503 shows its phrase in the dialog', async () => {
+    await bootOpen();
+    toggleEl('live')?.click();
+    await flush();
+    const phrase =
+      'Writes are refused because the switch record cannot be read; ask the deployment admin.';
+    postAnswers.push({
+      ok: false,
+      status: 503,
+      body: { detail: { reason: 'record_unavailable', phrase } },
+    });
+    confirmBtn()?.click();
+    await flush();
+    expect(confirmEl()?.querySelector('.posture-modal-error')?.textContent).toBe(phrase);
+  });
+});
+
+describe('a stop that lands while a turn-on is asked', () => {
+  test('a stamped 409 is retried once, with the epoch it returned', async () => {
+    await bootOpen();
+    toggleEl('live')?.click();
+    await flush();
+    postAnswers.push(
+      {
+        ok: false,
+        status: 409,
+        body: { detail: { reason: 'stopped_since', epoch: '12', stamped: true } },
+      },
+      { ok: true, body: { target: 'live', state: 'on', switch_epoch: '12' } }
+    );
+    confirmBtn()?.click();
+    await flush();
+
+    expect(posts()).toHaveLength(2);
+    expect(posts()[0].body).toEqual({
+      session_id: null,
+      target: 'live',
+      state: 'on',
+      epoch: EPOCH,
+    });
+    expect(posts()[1].body).toEqual({ session_id: null, target: 'live', state: 'on', epoch: '12' });
+    expect(confirmEl()).toBeNull();
+    expect(outcomes('live')).toHaveLength(0);
+  });
+
+  test('the retry is made once only', async () => {
+    await bootOpen();
+    toggleEl('live')?.click();
+    await flush();
+    const stamped = { detail: { reason: 'stopped_since', epoch: '12', stamped: true } };
+    postAnswers.push(
+      { ok: false, status: 409, body: stamped },
+      {
+        ok: false,
+        status: 409,
+        body: { detail: { reason: 'stopped_since', epoch: '13', stamped: true } },
+      },
+      { ok: true, body: {} }
+    );
+    confirmBtn()?.click();
+    await flush();
+
+    expect(posts()).toHaveLength(2);
+    expect(outcomes('live')).toContain(`✗ ${STOPPED_SINCE}`);
+  });
+
+  test('a 409 that stamped nothing re-reads and wants a new click', async () => {
+    await bootOpen();
+    toggleEl('live')?.click();
+    await flush();
+    postAnswers.push({
+      ok: false,
+      status: 409,
+      body: { detail: { reason: 'stopped_since', epoch: '9', stamped: false } },
+    });
+    served = viewOf({ switch_epoch: '9', any_on: false });
+    confirmBtn()?.click();
+    await flush();
+
+    // Not retried: the turn-on never silently re-arms after a stop.
+    expect(posts()).toHaveLength(1);
+    expect(confirmEl()).toBeNull();
+    expect(outcomes('live')).toContain(`✗ ${STOPPED_SINCE}`);
+    expect(switchWord('live')?.textContent).toBe('off');
+
+    // The new click carries the epoch the re-read brought.
+    toggleEl('live')?.click();
+    await flush();
+    expect(confirmTitle()).toBe('Turn writes on for Real machine?');
+    postAnswers.push({ ok: true, body: { target: 'live', state: 'on', switch_epoch: '9' } });
+    confirmBtn()?.click();
+    await flush();
+    expect(posts()[1].body).toEqual({ session_id: null, target: 'live', state: 'on', epoch: '9' });
+    // The next gesture cleared the last one's note.
+    expect(outcomes('live')).toHaveLength(0);
+  });
+});
+
+describe('one gesture at a time', () => {
+  test('a second click while a POST is in flight sends nothing', async () => {
+    await bootOpen();
+    /** @type {(v: any) => void} */
+    let release = () => {};
+    const gate = new Promise((r) => {
+      release = r;
+    });
+    const stubbed = /** @type {any} */ (globalThis.fetch);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {any} */ url, /** @type {any} */ init) => {
+        if ((init?.method ?? 'GET') === 'POST') await gate;
+        return stubbed(url, init);
+      })
+    );
+    toggleEl('va')?.click();
+    allOffEl().click();
+    release(undefined);
+    await flush();
+    expect(posts()).toHaveLength(1);
+    expect(posts()[0].body).toMatchObject({ target: 'va', state: 'off' });
   });
 });
 
 describe('Turn all writes off', () => {
-  test('POSTs the all-targets narrowing and renders what the store skipped', async () => {
+  test('POSTs all/off with the epoch the chip read', async () => {
     await bootOpen();
-    postAnswers.push({
-      ok: true,
-      body: { entry: {}, skipped: [{ target: 'va', reason: 'selected_role_missing' }] },
-    });
-    /** @type {HTMLButtonElement} */ (document.querySelector('.ctc-all-off')).click();
+    postAnswers.push({ ok: true, body: { target: 'all', state: 'off', switch_epoch: EPOCH } });
+    allOffEl().click();
     await flush();
 
-    expect(posts()[0].body).toEqual({ session_id: null, target: 'all', posture: 'sandbox' });
-    // The skip reason is the store's machine code, rendered as its phrase.
-    expect(outcomes('va')).toContain('✗ no endpoint for role');
+    expect(posts()[0].body).toEqual({
+      session_id: null,
+      target: 'all',
+      state: 'off',
+      epoch: EPOCH,
+    });
+    expect(confirmEl()).toBeNull();
   });
 
-  test('it is disabled when there is nothing left to turn off', async () => {
+  test('it is enabled exactly when the read says some switch is on', async () => {
+    // A machine no longer configured can still be on: no row shows it, and the
+    // read's own answer is the one that counts.
     await bootOpen(
       viewOf({
-        targets: [rowOf(KINDS.live, { ...STATES.sandbox }), rowOf(KINDS.va, { ...STATES.sandbox })],
+        any_on: true,
+        targets: [rowOf(KINDS.live, { ...STATES.off }), rowOf(KINDS.va, { ...STATES.off })],
       })
     );
-    expect(/** @type {HTMLButtonElement} */ (document.querySelector('.ctc-all-off')).disabled).toBe(
-      true
+    expect(allOffEl().disabled).toBe(false);
+  });
+
+  test('it is disabled when nothing is on, whatever the rows say', async () => {
+    await bootOpen(viewOf({ any_on: false }));
+    expect(allOffEl().disabled).toBe(true);
+  });
+
+  test('it stays enabled under every lock', async () => {
+    await bootOpen(
+      viewOf({
+        store_available: true,
+        locks: { readonly_run: true, tier: 'never' },
+        targets: [rowOf(KINDS.va, { ...STATES.locked })],
+      })
     );
+    expect(allOffEl().disabled).toBe(false);
+  });
+
+  test('a stop of everything that was not taken says so under the list', async () => {
+    await bootOpen();
+    postAnswers.push({
+      ok: false,
+      status: 503,
+      body: { detail: { reason: 'not_taken', taken: false, phrase: STOP_NOT_TAKEN } },
+    });
+    allOffEl().click();
+    await flush();
+    const notes = [...document.querySelectorAll('.ctc-popover > .ctc-outcome')].map(
+      (n) => n.textContent
+    );
+    expect(notes).toContain(`✗ ${STOP_NOT_TAKEN}`);
+    expect(switchWord('va')?.textContent).toBe('on');
   });
 
   test('the foot states the popover’s scope, once', async () => {
-    // One control context per login identity, so a narrowing recorded here
-    // reaches every session, notebook kernel and hook of that login — not only
-    // the page it was made on.
     await bootOpen();
-    expect(document.querySelector('.ctc-all-off')?.textContent).toBe('Turn all writes off');
+    expect(allOffEl().textContent).toBe('Turn all writes off');
     expect(document.querySelector('.ctc-foot-note')?.textContent).toBe(
       'Applies to every session of this login'
     );
@@ -1014,7 +1277,7 @@ describe('switching', () => {
   });
 
   test('a machine arrived at with writes off promises reads only', async () => {
-    await bootOpen(viewOf({ targets: [rowOf(KINDS.va, { ...STATES.sandbox })] }));
+    await bootOpen(viewOf({ targets: [rowOf(KINDS.va, { ...STATES.off })] }));
     switchEl('va')?.click();
     await flush();
     const body = inConfirm('.posture-modal-body').textContent ?? '';
@@ -1023,12 +1286,12 @@ describe('switching', () => {
   });
 
   test('a locked machine promises reads only too', async () => {
-    await bootOpen(viewOf({ targets: [rowOf(KINDS.va, { ...STATES['read-only'] })] }));
+    await bootOpen(viewOf({ targets: [rowOf(KINDS.va, { ...STATES.locked })] }));
     switchEl('va')?.click();
     await flush();
     const body = inConfirm('.posture-modal-body').textContent ?? '';
     expect(body).toContain('All control reads go to 127.0.0.1:10064.');
-    expect(body).toContain('Writes are locked read-only there by the deployment.');
+    expect(body).toContain('Writes are locked there.');
   });
 
   test('switching onto the live machine with writes on carries the hardware notice', async () => {
@@ -1036,7 +1299,7 @@ describe('switching', () => {
     switchEl('live')?.click();
     await flush();
     expect(confirmEl()?.querySelector('.posture-modal-live')?.textContent).toBe(
-      'Real machine — writes move hardware.'
+      'Real machine — writes move hardware'
     );
   });
 
@@ -1058,7 +1321,7 @@ describe('switching', () => {
         age_s: 4,
       },
       targets: [
-        rowOf(KINDS.live, { ...STATES.sandbox }),
+        rowOf(KINDS.live, { ...STATES.off }),
         rowOf(KINDS.standin, { is_baseline: true }),
         rowOf(KINDS.va, { active: true, available_now: false, reason: 'already_active' }),
       ],
@@ -1166,7 +1429,7 @@ describe('switching', () => {
     await bootOpen(
       viewOf({
         targets: [
-          rowOf(KINDS.live, { ...STATES.sandbox, available_now: false, reason: 'unreachable' }),
+          rowOf(KINDS.live, { ...STATES.off, available_now: false, reason: 'unreachable' }),
           rowOf(KINDS.standin, { active: true, available_now: false, reason: 'already_active' }),
         ],
       })
@@ -1186,7 +1449,7 @@ describe('switching', () => {
         viewOf({
           targets: [
             rowOf(KINDS.live, {
-              ...STATES.sandbox,
+              ...STATES.off,
               available_now: false,
               reason: code,
               reason_detail: 'The epics block configures no gateways.',
@@ -1216,7 +1479,7 @@ describe('switching', () => {
       await bootOpen(
         viewOf({
           targets: [
-            rowOf(KINDS.live, { ...STATES.sandbox, available_now: false, reason: code }),
+            rowOf(KINDS.live, { ...STATES.off, available_now: false, reason: code }),
             rowOf(KINDS.standin, { active: true, available_now: false, reason: 'already_active' }),
           ],
         })
@@ -1232,7 +1495,7 @@ describe('switching', () => {
       viewOf({
         store_available: false,
         targets: [
-          rowOf(KINDS.live, { ...STATES.sandbox, reason: null }),
+          rowOf(KINDS.live, { ...STATES.off, reason: null }),
           rowOf(KINDS.standin, { active: true, available_now: false, reason: 'already_active' }),
         ],
       })
@@ -1348,21 +1611,47 @@ describe("don't ask again", () => {
     expect(localStorage.getItem('osprey-ctc-skip-confirm:switch:va')).toBeNull();
   });
 
-  test('a waived turn-on applies directly on a machine that moves nothing', async () => {
-    localStorage.setItem('osprey-ctc-skip-confirm:writes-on:va', '1');
-    await bootOpen(viewOf({ targets: [rowOf(KINDS.va, { ...STATES.sandbox })] }));
-    postAnswers.push({ ok: true, body: { entry: { va: 'writes' }, skipped: [] } });
+  test('a waived turn-on applies directly and says the turn-on sentence once', async () => {
+    localStorage.setItem('osprey-ctc-skip-confirm:writes-on:va:simulator', '1');
+    await bootOpen(viewOf({ targets: [rowOf(KINDS.va, { ...STATES.off })] }));
+    postAnswers.push({ ok: true, body: { target: 'va', state: 'on', switch_epoch: EPOCH } });
     toggleEl('va')?.click();
     await flush();
 
     expect(confirmEl()).toBeNull();
-    expect(posts()[0].body).toEqual({ session_id: null, target: 'va', posture: 'writes' });
+    expect(posts()[0].body).toEqual({ session_id: null, target: 'va', state: 'on', epoch: EPOCH });
+    // No dialog said it, so the status line does — and never beside the off
+    // control.
+    expect(statusEl()?.textContent).toBe(TURN_ON);
+    expect(surfaceEl('va')?.textContent ?? '').not.toContain(TURN_ON);
+
+    // It survives the poll's re-render, and the next gesture clears it.
+    await chipModule.refetch();
+    await flush();
+    expect(statusEl()?.textContent).toBe(TURN_ON);
+    allOffEl().click();
+    await flush();
+    expect(statusEl()).toBeNull();
+  });
+
+  test('a waived turn-on that is refused shows no turn-on sentence', async () => {
+    localStorage.setItem('osprey-ctc-skip-confirm:writes-on:va:simulator', '1');
+    await bootOpen(viewOf({ targets: [rowOf(KINDS.va, { ...STATES.off })] }));
+    postAnswers.push({
+      ok: false,
+      status: 403,
+      body: { detail: { reason: 'tier_never', phrase: TIER_NEVER_PHRASE } },
+    });
+    toggleEl('va')?.click();
+    await flush();
+    expect(statusEl()).toBeNull();
+    expect(outcomes('va')).toContain(`✗ ${TIER_NEVER_PHRASE}`);
   });
 
   test('turning writes on for the live machine offers no waiver and ignores a stale one', async () => {
     // The gesture after which hardware can move keeps asking, always — even a
     // hand-planted waiver key changes nothing.
-    localStorage.setItem('osprey-ctc-skip-confirm:writes-on:live', '1');
+    localStorage.setItem('osprey-ctc-skip-confirm:writes-on:live:real', '1');
     await bootOpen();
     toggleEl('live')?.click();
     await flush();
@@ -1451,10 +1740,15 @@ describe('rows the route refuses', () => {
     await bootOpen(refusedView());
     expect(toggleEl('live')?.disabled).toBe(false);
 
-    postAnswers.push({ ok: true, body: { entry: { live: 'sandbox' }, skipped: [] } });
+    postAnswers.push({ ok: true, body: { target: 'live', state: 'off', switch_epoch: EPOCH } });
     toggleEl('live')?.click();
     await flush();
-    expect(posts()[0].body).toEqual({ session_id: null, target: 'live', posture: 'sandbox' });
+    expect(posts()[0].body).toEqual({
+      session_id: null,
+      target: 'live',
+      state: 'off',
+      epoch: EPOCH,
+    });
   });
 });
 
@@ -1537,7 +1831,7 @@ describe('simple and expert are one DOM', () => {
         owner: { kind: 'web_terminal', pid: 77, port: 8123, self: false },
         targets: [
           rowOf(KINDS.live, {
-            ...STATES.sandbox,
+            ...STATES.off,
             reachability: { state: 'down', role: 'read_only', age_s: 8 },
           }),
           rowOf(KINDS.va, { is_baseline: true, active: true }),
@@ -1556,9 +1850,9 @@ describe('simple and expert are one DOM', () => {
 
 describe('request plumbing', () => {
   test('every request goes through the per-user mount prefix', async () => {
-    Object.assign(window, { __OSPREY_PREFIX__: '/u/alice' });
+    /** @type {any} */ (window).__OSPREY_PREFIX__ = '/u/alice';
     await bootOpen();
-    postAnswers.push({ ok: true, body: { entry: {}, skipped: [] } });
+    postAnswers.push({ ok: true, body: { target: 'va', state: 'off', switch_epoch: EPOCH } });
     toggleEl('va')?.click();
     await flush();
 

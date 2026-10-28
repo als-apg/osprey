@@ -29,13 +29,11 @@ from __future__ import annotations
 
 import json
 import logging
-from base64 import b64encode
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import httpx
-import itsdangerous
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -45,16 +43,13 @@ from osprey.audit.envelope import POSTURE_SOURCE_APP
 from osprey.deployment.web_terminals.roster import USERNAME_CHARSET_RE
 from osprey.services.auth_sidecar import audit
 from osprey.services.auth_sidecar.app import (
-    STATE_COOKIE_NAME,
     create_app,
     get_attempt_throttle,
     get_audit_throttle,
 )
 from osprey.services.auth_sidecar.passwords import hash_password
 from osprey.services.auth_sidecar.routes.oidc import (
-    CALLBACK_PATH,
     FOLDED_DETAIL_KEY,
-    PENDING_FLOW_SESSION_KEY,
     REASON_AMBIGUOUS_ROLE_CLAIM,
     REASON_IDENTITY_MISMATCH,
     REASON_MISSING_ROLE_CLAIM,
@@ -67,16 +62,21 @@ from osprey.services.auth_sidecar.routes.oidc import (
 from osprey.services.auth_sidecar.routes.recheck import RosterRoles
 from osprey.services.auth_sidecar.throttle import AttemptThrottle
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
-
-SESSION_SECRET = "session-secret-value"
-STATE_SECRET = "state-secret-value"
-SESSION_LIFETIME = 3600
-EXTERNAL_ORIGIN = "https://terminals.example.org"
-FLOW_STATE = "handshake-state-value"
+from tests.services.auth_sidecar._helpers import (
+    SESSION_LIFETIME,
+    SESSION_SECRET,
+    STATE_SECRET,
+    ledger_records,
+)
+from tests.services.auth_sidecar._oidc import (
+    ALICE_SUBJECT,
+    EXTERNAL_ORIGIN,
+    FakeOIDCClient,
+    callback,
+)
 
 ALICE_PASSWORD = "alice-password"
 ALICE_HASH = hash_password(ALICE_PASSWORD)
-ALICE_SUBJECT = "idp|alice"
 BOB_SUBJECT = "idp|bob"
 
 #: The identity the sidecar's container is given, and therefore the directory
@@ -117,32 +117,9 @@ OIDC_ENV = {
 # --- harness ----------------------------------------------------------------
 
 
-@pytest.fixture
-def zone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """The sidecar's own bound audit subdirectory, as compose gives it.
-
-    Also pins the identity ladder to what the sidecar's container env supplies,
-    so a developer's local account can never become the actor in an assertion.
-    """
-    directory = tmp_path / "var" / "audit" / SIDECAR_IDENTITY
-    directory.mkdir(parents=True)
-    monkeypatch.setenv(audit.AUDIT_DIR_ENV, str(directory))
-    monkeypatch.setenv(AUDIT_IDENTITY_ENV, SIDECAR_IDENTITY)
-    monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
-    return directory
-
-
 def _ledger(zone: Path) -> Path:
     """The one file the sidecar's records land in."""
     return zone / f"{audit.SURFACE}{writer.LEDGER_SUFFIX}"
-
-
-def _records(zone: Path) -> list[dict[str, Any]]:
-    """Every record stored so far, decoded in the order it was appended."""
-    path = _ledger(zone)
-    if not path.exists():
-        return []
-    return [json.loads(line) for line in path.read_text("utf-8").splitlines() if line]
 
 
 def _login(
@@ -161,32 +138,6 @@ def _password_client() -> TestClient:
     return TestClient(create_app(PASSWORD_ENV), base_url="https://testserver")
 
 
-class FakeOIDCClient:
-    """Stands in for Authlib's Starlette client at the route boundary."""
-
-    def __init__(self, *, userinfo: dict[str, Any] | None = None) -> None:
-        # The `id_token` is what the real client parsed `userinfo` from, and the
-        # callback refuses a token response without one — see
-        # ``test_claim_resolution.py``'s TestTheClaimsMustComeFromAnIdToken.
-        self.token = {
-            "id_token": "header.payload.signature",
-            "userinfo": userinfo if userinfo is not None else {"sub": ALICE_SUBJECT},
-        }
-
-    async def create_authorization_url(self, _redirect_uri: str | None = None) -> dict[str, Any]:
-        return {
-            "url": f"https://idp.example.org/authorize?state={FLOW_STATE}",
-            "state": FLOW_STATE,
-            "nonce": "nonce-value",
-        }
-
-    async def save_authorize_data(self, request: Any, **kwargs: Any) -> None:  # noqa: ARG002 - the OIDC client signature
-        return None
-
-    async def authorize_access_token(self, request: Any, **kwargs: Any) -> dict[str, Any]:  # noqa: ARG002 - the OIDC client signature
-        return self.token
-
-
 def _oidc_app(
     env: dict[str, str] | None = None,
     *,
@@ -200,23 +151,6 @@ def _oidc_app(
     return app
 
 
-def _pending(user: str) -> str:
-    """A forged state cookie carrying one in-flight handshake for ``user``."""
-    signer = itsdangerous.TimestampSigner(STATE_SECRET)
-    data = {PENDING_FLOW_SESSION_KEY: {"state": FLOW_STATE, "user": user, "next": f"/u/{user}/"}}
-    return signer.sign(b64encode(json.dumps(data).encode("utf-8"))).decode("utf-8")
-
-
-def _callback(app: FastAPI, user: str = "alice") -> httpx.Response:
-    with TestClient(app, base_url=EXTERNAL_ORIGIN) as client:
-        client.cookies.set(STATE_COOKIE_NAME, _pending(user))
-        return client.get(
-            CALLBACK_PATH,
-            params={"code": "auth-code", "state": FLOW_STATE},
-            follow_redirects=False,
-        )
-
-
 # --- where a record lands ---------------------------------------------------
 
 
@@ -227,7 +161,7 @@ class TestWhereARecordLands:
         with _password_client() as client:
             assert _login(client).status_code == 303
         assert _ledger(zone).exists()
-        assert len(_records(zone)) == 1
+        assert len(ledger_records(zone)) == 1
 
     def test_the_ledger_is_named_for_the_surface(self, zone: Path) -> None:
         """One file per surface inside the identity's directory — the same
@@ -251,7 +185,7 @@ class TestWhereARecordLands:
         monkeypatch.setattr("osprey_connectors.workspace.resolve_project_root", _explode)
         with _password_client() as client:
             assert _login(client).status_code == 303
-        assert len(_records(zone)) == 1
+        assert len(ledger_records(zone)) == 1
 
     def test_each_record_is_one_line(self, zone: Path) -> None:
         with _password_client() as client:
@@ -297,7 +231,7 @@ class TestASuccessfulLogin:
     def test_it_is_recorded_as_allowed(self, zone: Path) -> None:
         with _password_client() as client:
             _login(client)
-        record = _records(zone)[0]
+        record = ledger_records(zone)[0]
         assert record["decision"] == "allowed"
         assert record["reason"] == audit.REASON_PASSWORD_LOGIN
 
@@ -307,7 +241,7 @@ class TestASuccessfulLogin:
         under the service's directory and not under theirs."""
         with _password_client() as client:
             _login(client)
-        record = _records(zone)[0]
+        record = ledger_records(zone)[0]
         assert record["subject"] == "alice"
         assert record["actor"] == SIDECAR_IDENTITY
 
@@ -316,7 +250,7 @@ class TestASuccessfulLogin:
         reader of the leading columns finds: directly after ``session``."""
         with _password_client() as client:
             _login(client)
-        record = _records(zone)[0]
+        record = ledger_records(zone)[0]
         keys = list(record)
         assert record["on_behalf_of"] == "alice"
         assert keys.index("on_behalf_of") == keys.index("session") + 1
@@ -327,7 +261,7 @@ class TestASuccessfulLogin:
         spawns no session, so it stamps its own constant and says so."""
         with _password_client() as client:
             _login(client)
-        record = _records(zone)[0]
+        record = ledger_records(zone)[0]
         assert record["posture"] == audit.SIDECAR_POSTURE
         assert record["posture_source"] == POSTURE_SOURCE_APP
 
@@ -337,7 +271,7 @@ class TestASuccessfulLogin:
         present as null rather than dropped, so every line carries one shape."""
         with _password_client() as client:
             _login(client)
-        record = _records(zone)[0]
+        record = ledger_records(zone)[0]
         assert "session" in record
         assert record["session"] is None
 
@@ -354,8 +288,8 @@ class TestASuccessfulLogin:
             userinfo={"sub": ALICE_SUBJECT, GROUP_CLAIM: [OPERATOR_GROUP]},
             binding=RoleBinding(claim=GROUP_CLAIM, claim_map=CLAIM_MAP),
         )
-        assert _callback(app).status_code == 303
-        record = _records(zone)[0]
+        assert callback(app).status_code == 303
+        record = ledger_records(zone)[0]
         assert record["decision"] == "allowed"
         assert record["reason"] == audit.REASON_OIDC_LOGIN
         assert record["subject"] == "alice"
@@ -364,20 +298,20 @@ class TestASuccessfulLogin:
     def test_a_roleless_deployment_records_no_role(self, zone: Path) -> None:
         """Deny-safe by absence here too: no role means the key is omitted, not
         blank, so nobody reads an empty string as a role named ''."""
-        assert _callback(_oidc_app()).status_code == 303
-        assert "role" not in _records(zone)[0]
+        assert callback(_oidc_app()).status_code == 303
+        assert "role" not in ledger_records(zone)[0]
 
     def test_a_detail_is_carried_when_given(self, zone: Path) -> None:
         """A shared-card login names its opener in ``detail`` — identifiers
         only, on the same terms as a refusal's detail."""
         audit.record_login_success(user="alice", method="password", detail="opener=alice")
-        assert _records(zone)[0]["detail"] == "opener=alice"
+        assert ledger_records(zone)[0]["detail"] == "opener=alice"
 
     def test_no_detail_means_the_key_is_omitted(self, zone: Path) -> None:
         """Absent, not null: a record with nothing to add carries no key, so a
         reader never has to distinguish ``null`` from missing."""
         audit.record_login_success(user="alice", method="password")
-        assert "detail" not in _records(zone)[0]
+        assert "detail" not in ledger_records(zone)[0]
 
 
 # --- what a refused login records -------------------------------------------
@@ -398,7 +332,7 @@ class TestARefusedPasswordLogin:
     def test_every_refusal_is_recorded(self, zone: Path, user: str, password: str) -> None:
         with _password_client() as client:
             assert _login(client, user=user, password=password).status_code == 401
-        record = _records(zone)[0]
+        record = ledger_records(zone)[0]
         assert record["decision"] == "refused"
         assert record["reason"] == audit.REASON_BAD_CREDENTIAL
 
@@ -411,7 +345,9 @@ class TestARefusedPasswordLogin:
             _login(client, user="alice", password="wrong")
             _login(client, user="bob", password="wrong")
             _login(client, user="carol", password="wrong")
-        assert {record["reason"] for record in _records(zone)} == {audit.REASON_BAD_CREDENTIAL}
+        assert {record["reason"] for record in ledger_records(zone)} == {
+            audit.REASON_BAD_CREDENTIAL
+        }
 
     def test_the_recorded_subject_is_bounded(self, zone: Path) -> None:
         """The name the ledger names is the bounded one the page echoes, never
@@ -419,7 +355,7 @@ class TestARefusedPasswordLogin:
         whoever posted the form."""
         with _password_client() as client:
             _login(client, user="a" * 500, password="wrong")
-        assert len(_records(zone)[0]["subject"]) <= 256
+        assert len(ledger_records(zone)[0]["subject"]) <= 256
 
     def test_an_unevaluated_attempt_is_not_recorded(self, zone: Path) -> None:
         """A second attempt inside an open throttle window is refused without
@@ -430,7 +366,7 @@ class TestARefusedPasswordLogin:
         with _password_client() as client:
             assert _login(client, password="wrong").status_code == 401
             assert _login(client, password="wrong").status_code == 429
-        assert len(_records(zone)) == 1
+        assert len(ledger_records(zone)) == 1
 
 
 SHARED_ENV = {**PASSWORD_ENV, "OSPREY_AUTH_ROSTER_ACCESS_BOB": "any"}
@@ -461,7 +397,7 @@ class TestASharedCardInTheLedger:
     def test_a_success_names_its_opener(self, zone: Path) -> None:
         with TestClient(create_app(SHARED_ENV), base_url="https://testserver") as client:
             assert _shared_login(client, "alice").status_code == 303
-        record = _records(zone)[0]
+        record = ledger_records(zone)[0]
         assert record["decision"] == "allowed"
         assert record["reason"] == audit.REASON_PASSWORD_LOGIN
         assert record["subject"] == "bob"
@@ -474,7 +410,7 @@ class TestASharedCardInTheLedger:
         knocking."""
         with TestClient(create_app(SHARED_ENV), base_url="https://testserver") as client:
             assert _shared_login(client, "mally", password="a-guess").status_code == 401
-        record = _records(zone)[0]
+        record = ledger_records(zone)[0]
         assert record["decision"] == "refused"
         assert record["reason"] == audit.REASON_BAD_CREDENTIAL
         assert record["subject"] == "bob"
@@ -486,7 +422,7 @@ class TestASharedCardInTheLedger:
         — so that refusal carries no detail key at all."""
         with TestClient(create_app(SHARED_ENV), base_url="https://testserver") as client:
             assert _shared_login(client, "", password="a-guess").status_code == 401
-        record = _records(zone)[0]
+        record = ledger_records(zone)[0]
         assert record["decision"] == "refused"
         assert record["reason"] == audit.REASON_BAD_CREDENTIAL
         assert "detail" not in record
@@ -505,7 +441,7 @@ class TestAnUnevaluableCredential:
     def test_it_is_recorded_under_its_own_category(self, zone: Path) -> None:
         with TestClient(create_app(BROKEN_ALICE_ENV), base_url="https://testserver") as client:
             assert _login(client, user="alice", password=ALICE_PASSWORD).status_code == 401
-        records = _records(zone)
+        records = ledger_records(zone)
         assert len(records) == 1
         assert records[0]["decision"] == "refused"
         assert records[0]["reason"] == audit.REASON_CREDENTIAL_UNEVALUABLE
@@ -522,7 +458,7 @@ class TestAnUnevaluableCredential:
         with TestClient(create_app(BROKEN_ALICE_ENV), base_url="https://testserver") as client:
             assert _login(client, user="bob", password="wrong").status_code == 401
             assert _login(client, user="carol", password="wrong").status_code == 401
-        assert [record["reason"] for record in _records(zone)] == [
+        assert [record["reason"] for record in ledger_records(zone)] == [
             audit.REASON_BAD_CREDENTIAL,
             audit.REASON_BAD_CREDENTIAL,
         ]
@@ -539,7 +475,7 @@ class TestAnUnevaluableCredential:
         env = {**SHARED_ENV, "OSPREY_AUTH_PW_HASH_ALICE": BROKEN_HASH}
         with TestClient(create_app(env), base_url="https://testserver") as client:
             assert _shared_login(client, "alice").status_code == 401
-        record = _records(zone)[0]
+        record = ledger_records(zone)[0]
         assert record["reason"] == audit.REASON_CREDENTIAL_UNEVALUABLE
         assert record["subject"] == "bob"
         assert record["detail"] == "opener=alice"
@@ -555,20 +491,20 @@ class TestARefusedOidcLogin:
                 "/auth/oidc/login", params={"user": "alice"}, follow_redirects=False
             )
         assert response.status_code == 403
-        assert _records(zone)[0]["reason"] == REASON_UNMAPPED_USER
+        assert ledger_records(zone)[0]["reason"] == REASON_UNMAPPED_USER
 
     def test_a_mapped_identity_that_cannot_be_carried_is_recorded(self, zone: Path) -> None:
         env = {**OIDC_ENV, "OSPREY_AUTH_OIDC_SUBJECT_ALICE": "jörg@example.org"}
-        assert _callback(_oidc_app(env)).status_code == 403
-        assert _records(zone)[0]["reason"] == audit.REASON_NON_ASCII_SUBJECT
+        assert callback(_oidc_app(env)).status_code == 403
+        assert ledger_records(zone)[0]["reason"] == audit.REASON_NON_ASCII_SUBJECT
 
     def test_an_absent_asserted_identity_is_recorded(self, zone: Path) -> None:
-        assert _callback(_oidc_app(userinfo={})).status_code == 403
-        assert _records(zone)[0]["reason"] == REASON_NO_ASSERTED_IDENTITY
+        assert callback(_oidc_app(userinfo={})).status_code == 403
+        assert ledger_records(zone)[0]["reason"] == REASON_NO_ASSERTED_IDENTITY
 
     def test_an_identity_belonging_to_another_user_is_recorded(self, zone: Path) -> None:
-        assert _callback(_oidc_app(userinfo={"sub": BOB_SUBJECT})).status_code == 403
-        assert _records(zone)[0]["reason"] == REASON_IDENTITY_MISMATCH
+        assert callback(_oidc_app(userinfo={"sub": BOB_SUBJECT})).status_code == 403
+        assert ledger_records(zone)[0]["reason"] == REASON_IDENTITY_MISMATCH
 
     @pytest.mark.parametrize(
         ("groups", "claim_map", "reason"),
@@ -592,8 +528,8 @@ class TestARefusedOidcLogin:
         app = _oidc_app(
             userinfo=userinfo, binding=RoleBinding(claim=GROUP_CLAIM, claim_map=claim_map)
         )
-        assert _callback(app).status_code == 403
-        record = _records(zone)[0]
+        assert callback(app).status_code == 403
+        record = ledger_records(zone)[0]
         assert record["decision"] == "refused"
         assert record["reason"] == reason
         assert record["subject"] == "alice"
@@ -601,8 +537,8 @@ class TestARefusedOidcLogin:
     def test_exactly_one_record_per_refusal(self, zone: Path) -> None:
         """The refusal seam is one call wide: no category records twice, and a
         refused login never also files the success record."""
-        assert _callback(_oidc_app(userinfo={"sub": BOB_SUBJECT})).status_code == 403
-        assert len(_records(zone)) == 1
+        assert callback(_oidc_app(userinfo={"sub": BOB_SUBJECT})).status_code == 403
+        assert len(ledger_records(zone)) == 1
 
 
 class TestAnOidcLoginResolvedFromSeveralRoles:
@@ -618,16 +554,16 @@ class TestAnOidcLoginResolvedFromSeveralRoles:
         return app
 
     def test_the_success_record_names_the_mapped_roles(self, zone: Path) -> None:
-        assert _callback(self._app([OPERATOR_GROUP, OBSERVER_GROUP])).status_code == 303
-        records = _records(zone)
+        assert callback(self._app([OPERATOR_GROUP, OBSERVER_GROUP])).status_code == 303
+        records = ledger_records(zone)
         assert len(records) == 1
         assert records[0]["decision"] == "allowed"
         assert records[0]["role"] == "observer"
         assert records[0]["detail"] == "mapped_roles=observer,operator"
 
     def test_one_mapped_role_records_no_detail(self, zone: Path) -> None:
-        assert _callback(self._app([OBSERVER_GROUP])).status_code == 303
-        assert "detail" not in _records(zone)[0]
+        assert callback(self._app([OBSERVER_GROUP])).status_code == 303
+        assert "detail" not in ledger_records(zone)[0]
 
 
 # --- the emitter never costs the decision -----------------------------------
@@ -653,7 +589,7 @@ class TestTheEmitterNeverCostsTheDecision:
         blocked = tmp_path / "not-a-directory"
         blocked.write_text("", encoding="utf-8")
         monkeypatch.setenv(audit.AUDIT_DIR_ENV, str(blocked))
-        assert _callback(_oidc_app(userinfo={"sub": BOB_SUBJECT})).status_code == 403
+        assert callback(_oidc_app(userinfo={"sub": BOB_SUBJECT})).status_code == 403
 
     def test_a_missing_directory_is_created(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -665,7 +601,7 @@ class TestTheEmitterNeverCostsTheDecision:
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, SIDECAR_IDENTITY)
         with _password_client() as client:
             assert _login(client).status_code == 303
-        assert len(_records(zone)) == 1
+        assert len(ledger_records(zone)) == 1
 
     @pytest.mark.usefixtures("zone")
     def test_a_seam_that_raises_costs_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -675,14 +611,14 @@ class TestTheEmitterNeverCostsTheDecision:
         monkeypatch.setattr(audit, "write_envelope", _explode)
         with _password_client() as client:
             assert _login(client).status_code == 303
-        assert _callback(_oidc_app(userinfo={"sub": BOB_SUBJECT})).status_code == 403
+        assert callback(_oidc_app(userinfo={"sub": BOB_SUBJECT})).status_code == 403
 
     def test_a_record_that_cannot_be_built_costs_nothing(self, zone: Path) -> None:
         """An empty subject is a programming error in a caller, not a reason to
         raise into the decision it describes."""
         audit.record_login_refusal(user="", reason=audit.REASON_BAD_CREDENTIAL)
         audit.record_login_success(user="", method="password")
-        assert _records(zone) == []
+        assert ledger_records(zone) == []
 
 
 # --- the shared writer does the writing -------------------------------------
@@ -938,7 +874,7 @@ class TestTheRuleAdmissionCategories:
         self, zone: Path, reason: str
     ) -> None:
         audit.record_login_refusal(user="bob", reason=reason, detail="hd")
-        stored = _records(zone)
+        stored = ledger_records(zone)
         assert len(stored) == 1
         assert stored[0]["decision"] == "refused"
         assert stored[0]["reason"] == reason
@@ -983,7 +919,7 @@ class TestTheWriterShapesTheLine:
         audit.record_login_refusal(
             user="u" * 300, reason="r" * 300, detail="d" * 4096, role="R" * 300
         )
-        stored = _records(zone)
+        stored = ledger_records(zone)
         assert len(stored) == 1
         assert stored[0]["detail"] == writer.DETAIL_DROPPED
 
@@ -1004,7 +940,7 @@ class TestTheWriterShapesTheLine:
         audit.record_login_refusal(
             user="alice", reason=audit.REASON_MISSING_ROLE_CLAIM, detail="groups"
         )
-        assert _records(zone)[0]["detail"] == "groups"
+        assert ledger_records(zone)[0]["detail"] == "groups"
 
 
 # --- what bounds the ledger's growth ----------------------------------------
@@ -1051,8 +987,8 @@ class TestThePreExchangeRefusalsAreBounded:
         _with_movable_audit_window(app)
         for _ in range(50):
             assert _oidc_start(app, "bob").status_code == 403
-        assert len(_records(zone)) == 1
-        assert _records(zone)[0]["reason"] == REASON_UNMAPPED_USER
+        assert len(ledger_records(zone)) == 1
+        assert ledger_records(zone)[0]["reason"] == REASON_UNMAPPED_USER
 
     @pytest.mark.usefixtures("zone")
     def test_the_refusal_itself_is_unchanged(self) -> None:
@@ -1089,8 +1025,8 @@ class TestThePreExchangeRefusalsAreBounded:
         # callbacks happened to take on the machine running them.
         _with_movable_audit_window(app)
         for _ in range(20):
-            assert _callback(app, user="bob").status_code == 403
-        assert [record["reason"] for record in _records(zone)] == [reason]
+            assert callback(app, user="bob").status_code == 403
+        assert [record["reason"] for record in ledger_records(zone)] == [reason]
 
     def test_each_user_has_their_own_window(self, zone: Path) -> None:
         """Keyed on the roster user, like the password path's window, so one
@@ -1099,7 +1035,7 @@ class TestThePreExchangeRefusalsAreBounded:
         app = _oidc_app(env)
         _oidc_start(app, "alice")
         _oidc_start(app, "bob")
-        assert [record["subject"] for record in _records(zone)] == ["alice", "bob"]
+        assert [record["subject"] for record in ledger_records(zone)] == ["alice", "bob"]
 
     def test_a_post_exchange_refusal_is_recorded_every_time(self, zone: Path) -> None:
         """No throttle there, deliberately: reaching one costs a full IdP round
@@ -1107,8 +1043,10 @@ class TestThePreExchangeRefusalsAreBounded:
         actually authenticated."""
         app = _oidc_app(userinfo={"sub": BOB_SUBJECT})
         for _ in range(3):
-            assert _callback(app, user="alice").status_code == 403
-        assert [record["reason"] for record in _records(zone)] == [REASON_IDENTITY_MISMATCH] * 3
+            assert callback(app, user="alice").status_code == 403
+        assert [record["reason"] for record in ledger_records(zone)] == [
+            REASON_IDENTITY_MISMATCH
+        ] * 3
 
 
 class _MovableClock:
@@ -1169,7 +1107,7 @@ class TestTheLedgerWindowIsNotTheLoginThrottle:
         for _ in range(10):
             assert _oidc_start(app, "bob").status_code == 403
             clock.now += 60.0
-        assert len(_records(zone)) == 10
+        assert len(ledger_records(zone)) == 10
         login_window = get_attempt_throttle(SimpleNamespace(app=app))
         assert login_window.retry_after("bob") == 0.0
         assert len(login_window) == 0
@@ -1179,7 +1117,7 @@ class TestTheLedgerWindowIsNotTheLoginThrottle:
         app = _oidc_app(UNMAPPED_OIDC_ENV)
         for _ in range(8):
             _oidc_start(app, "bob")
-        assert len(_records(zone)) == 1
+        assert len(ledger_records(zone)) == 1
         assert get_audit_throttle(SimpleNamespace(app=app)).retry_after("bob") > 0
 
 
@@ -1202,7 +1140,7 @@ class TestAFoldedRefusalIsCountable:
         clock.now += 60.0
         assert _oidc_start(app, "bob").status_code == 403
 
-        records = _records(zone)
+        records = ledger_records(zone)
         assert len(records) == 2
         assert records[0].get("detail") is None
         assert records[1]["detail"] == f"{FOLDED_DETAIL_KEY}=4"
@@ -1216,7 +1154,7 @@ class TestAFoldedRefusalIsCountable:
         clock.now += 60.0
         assert _oidc_start(app, "bob").status_code == 403
 
-        assert [record.get("detail") for record in _records(zone)] == [None, None]
+        assert [record.get("detail") for record in ledger_records(zone)] == [None, None]
 
     def test_the_count_restarts_after_it_is_filed(self, zone: Path) -> None:
         """Each record names the folds since the PREVIOUS one, so the counts
@@ -1231,7 +1169,7 @@ class TestAFoldedRefusalIsCountable:
         clock.now += 60.0
         _oidc_start(app, "bob")
 
-        assert [record.get("detail") for record in _records(zone)] == [
+        assert [record.get("detail") for record in ledger_records(zone)] == [
             None,
             f"{FOLDED_DETAIL_KEY}=2",
             f"{FOLDED_DETAIL_KEY}=1",
@@ -1249,7 +1187,7 @@ class TestAFoldedRefusalIsCountable:
         clock.now += 60.0
         _oidc_start(app, "bob")
 
-        assert [(r["subject"], r.get("detail")) for r in _records(zone)] == [
+        assert [(r["subject"], r.get("detail")) for r in ledger_records(zone)] == [
             ("bob", None),
             ("alice", None),
             ("bob", f"{FOLDED_DETAIL_KEY}=3"),
@@ -1273,8 +1211,8 @@ class TestATokenWithNoIdToken:
     def test_it_is_recorded_under_its_own_category(self, zone: Path) -> None:
         app = _oidc_app()
         app.state.oidc_client.token = {"userinfo": {"sub": ALICE_SUBJECT}}
-        assert _callback(app).status_code == 502
-        assert [(r["decision"], r["reason"]) for r in _records(zone)] == [
+        assert callback(app).status_code == 502
+        assert [(r["decision"], r["reason"]) for r in ledger_records(zone)] == [
             ("refused", audit.REASON_UNVALIDATED_TOKEN)
         ]
 
@@ -1283,15 +1221,15 @@ class TestATokenWithNoIdToken:
         login, and the ledger entry does not move the status."""
         app = _oidc_app()
         app.state.oidc_client.token = {"access_token": "opaque"}
-        response = _callback(app)
+        response = callback(app)
         assert response.status_code == 502
-        assert _records(zone)[0]["subject"] == "alice"
+        assert ledger_records(zone)[0]["subject"] == "alice"
 
     @pytest.mark.usefixtures("zone")
     def test_no_session_is_minted(self) -> None:
         app = _oidc_app()
         app.state.oidc_client.token = {"userinfo": {"sub": ALICE_SUBJECT}}
-        response = _callback(app)
+        response = callback(app)
         assert not [
             header
             for header in response.headers.get_list("set-cookie")

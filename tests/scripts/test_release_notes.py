@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-import importlib.util
 from pathlib import Path
 
 import pytest
 
-_spec = importlib.util.spec_from_file_location(
+from tests._by_path import load_module
+
+notes = load_module(
     "release_notes", Path(__file__).resolve().parents[2] / "scripts" / "ci" / "release_notes.py"
 )
-assert _spec and _spec.loader
-notes = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(notes)
 
 CHANGELOG = """# Changelog
 
