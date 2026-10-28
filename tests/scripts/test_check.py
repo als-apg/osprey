@@ -1106,11 +1106,16 @@ def test_named_files_are_added_to_what_the_range_selects() -> None:
     got = selected(
         "quick",
         "tests/cli/test_main.py",
-        named=("tests/docs/test_shipped_identity_literals.py", TW + "toast.test.js"),
+        named=(
+            "tests/docs/test_shipped_identity_literals.py",
+            "tests/cli/test_main.py::test_x",
+            TW + "toast.test.js",
+        ),
     )
     assert got["pytest"].paths == (
         "tests/cli/test_main.py",
         "tests/docs/test_shipped_identity_literals.py",
+        "tests/cli/test_main.py::test_x",
     )
     assert got["vitest"].paths == (TW + "toast.test.js",)
     assert selected("quick", "uv.lock", named=("tests/cli/test_main.py",))["pytest"] == (
@@ -1121,6 +1126,49 @@ def test_named_files_are_added_to_what_the_range_selects() -> None:
 def test_a_named_path_that_is_not_a_test_file_is_refused() -> None:
     with pytest.raises(check.Refused, match="notes.txt"):
         selected("quick", named=("notes.txt",))
+
+
+def test_a_named_node_id_goes_to_pytest_as_given() -> None:
+    got = selected("quick", named=("tests/cli/test_main.py::test_x",))
+    assert got["pytest"] == check.Selection(check.PATHS, ("tests/cli/test_main.py::test_x",))
+    assert got["vitest"].state == check.NOT_TOUCHED
+
+
+def test_a_named_directory_goes_to_pytest_as_the_directory() -> None:
+    got = selected("quick", named=("tests/cli/",))
+    assert got["pytest"].paths == ("tests/cli",)
+    assert got["vitest"].state == check.NOT_TOUCHED
+
+
+def test_a_named_node_id_whose_file_is_absent_is_refused() -> None:
+    with pytest.raises(check.Refused, match="tests/cli/test_nope.py is not a file"):
+        selected("quick", named=("tests/cli/test_nope.py::test_x",))
+
+
+def test_a_node_id_of_a_file_whose_runner_takes_none_is_refused() -> None:
+    with pytest.raises(check.Refused, match="toast.test.js::t: only a .py file takes a node id"):
+        selected("quick", named=(TW + "toast.test.js::t",))
+
+
+def test_a_named_directory_without_a_pytest_file_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    (tmp_path / "notes").mkdir()
+    (tmp_path / "notes" / "notes.txt").write_text("")
+    monkeypatch.setattr(check, "ROOT", tmp_path)
+    with pytest.raises(check.Refused, match="notes: holds no pytest file"):
+        selected("quick", named=("notes",))
+
+
+def test_the_pytest_line_carries_a_named_node_id() -> None:
+    pytest_check = BY_ID["pytest"]
+    selection = check.Selection(check.PATHS, ("tests/cli/test_main.py::test_x",))
+    (line,) = check.commands(pytest_check, selection, check.Context(tier="quick"))
+    argv = line[line.index("--") + 1 :]
+    assert argv[: len(pytest_check.argv)] == list(pytest_check.argv)
+    rest = argv[len(pytest_check.argv) :]
+    first_ignore = next(i for i, arg in enumerate(rest) if arg.startswith("--ignore="))
+    assert rest[:first_ignore] == ["tests/cli/test_main.py::test_x"]
 
 
 @pytest.mark.parametrize(

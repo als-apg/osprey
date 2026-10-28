@@ -960,6 +960,8 @@ CHECKS: tuple[Check, ...] = (
         },
         empty_exit=5,
         named_suffixes=(".py",),
+        named_node_ids=True,
+        named_dirs=_is_pytest_file,
         selector=_select_pytest,
         command=_pytest_command,
         prepare=_prune_bytecode,
