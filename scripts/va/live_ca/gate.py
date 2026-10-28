@@ -49,9 +49,9 @@ treated as a failure, so a hard crash cannot be mistaken for a zero-count pass.
 **Each module runs under a wall-clock limit**, in a session of its own. When
 the limit expires the whole session is stopped -- the module and every process
 it started get SIGTERM, then SIGKILL -- and the module counts as one error, so
-a hang is a red result with a name on it rather than a run that never ends; a
-process still running after SIGKILL is named by pid on its timed-out line, or
-the line says the process table could not be read. ``--module-timeout=SECONDS``
+a hang is a red result with a name on it rather than a run that never ends;
+the timed-out line carries the stop's own account when the session was not
+proven gone. ``--module-timeout=SECONDS``
 or ``OSPREY_LIVE_CA_MODULE_TIMEOUT`` changes the limit.
 
 Run it directly (``scripts/va/live_ca/run_live_ca.sh``) rather than invoking
@@ -72,7 +72,7 @@ import tempfile
 
 import pytest
 
-from osprey.deployment.subprocess_capture import stop_group
+from osprey.deployment.subprocess_capture import StopOutcome, stop_child
 
 #: How long a timed-out module's session gets to exit on SIGTERM before it is
 #: killed: long enough for its servers to close their ports.
@@ -166,14 +166,15 @@ def _run_one(target: str) -> int:
     return status
 
 
-def _run_child(cmd: list[str], limit_s: float) -> tuple[str, str, int, bool, list[int] | None]:
+def _run_child(
+    cmd: list[str], limit_s: float
+) -> tuple[str, str, int, bool, StopOutcome[int] | None]:
     """Run ``cmd`` for at most ``limit_s`` seconds.
 
-    Returns ``(stdout, stderr, returncode, timed_out, survivors)``, where
-    ``survivors`` are the pids of the child's session still running after
-    SIGKILL, or ``None`` when the process table could not be read. The
-    output written so far is returned on every path, including the timed-out
-    one.
+    Returns ``(stdout, stderr, returncode, timed_out, outcome)``, where
+    ``outcome`` is the stop's outcome when the child timed out and ``None``
+    when nothing was stopped. The output written so far is returned on every
+    path, including the timed-out one.
 
     Output goes to files, not pipes. A reader on a pipe waits until every
     process holding the write end has closed it, and a server the module
@@ -189,7 +190,7 @@ def _run_child(cmd: list[str], limit_s: float) -> tuple[str, str, int, bool, lis
     modules that follow.
     """
     timed_out = False
-    survivors: list[int] | None = []
+    outcome: StopOutcome[int] | None = None
     with (
         tempfile.TemporaryFile(mode="w+", errors="replace") as out,
         tempfile.TemporaryFile(mode="w+", errors="replace") as err,
@@ -199,17 +200,17 @@ def _run_child(cmd: list[str], limit_s: float) -> tuple[str, str, int, bool, lis
             proc.wait(timeout=limit_s)
         except subprocess.TimeoutExpired:
             timed_out = True
-            survivors = stop_group(proc.pid, grace=_STOP_GRACE_S)
-            proc.wait()
+            outcome = stop_child(proc, grace=_STOP_GRACE_S)
         except BaseException:
             # The child is outside this process's group, so an interrupt at the
-            # terminal reaches the gate but not the child: end it here.
-            stop_group(proc.pid, grace=_STOP_GRACE_S)
-            proc.wait()
+            # terminal reaches the gate but not the child: end it here. The
+            # interrupted wait may have reaped a child that exited meanwhile.
+            if proc.returncode is None:
+                stop_child(proc, grace=_STOP_GRACE_S)
             raise
         out.seek(0)
         err.seek(0)
-        return (out.read(), err.read(), proc.returncode, timed_out, survivors)
+        return (out.read(), err.read(), proc.returncode, timed_out, outcome)
 
 
 def _run_module(target: str, limit_s: float) -> tuple[dict[str, int], int]:
@@ -226,7 +227,7 @@ def _run_module(target: str, limit_s: float) -> tuple[dict[str, int], int]:
     printed: a module that finished its tests and then hung on the way out did
     not finish.
     """
-    stdout, stderr, returncode, timed_out, survivors = _run_child(
+    stdout, stderr, returncode, timed_out, outcome = _run_child(
         [sys.executable, "-u", __file__, RUN_ONE_FLAG, target], limit_s
     )
     counts: dict[str, int] | None = None
@@ -248,12 +249,7 @@ def _run_module(target: str, limit_s: float) -> tuple[dict[str, int], int]:
         print(stderr, end="" if stderr.endswith("\n") else "\n")
 
     if timed_out:
-        if survivors is None:
-            still = ", the process table could not be read to name what is still running"
-        elif survivors:
-            still = ", still running: pids " + " ".join(str(pid) for pid in survivors)
-        else:
-            still = ""
+        still = f", {outcome.describe()}" if outcome is not None and not outcome.gone else ""
         print(
             f"  !! {target} timed out after {limit_s:g} s -- its process group was stopped"
             f"{still}; output so far is above."
