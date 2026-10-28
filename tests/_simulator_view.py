@@ -1,4 +1,4 @@
-"""Stage the scenarios of a render's simulator view, as the build writes them."""
+"""Stage a render's simulator view, its channel records and scenarios, as the build does."""
 
 from __future__ import annotations
 
@@ -80,6 +80,29 @@ def facility_scenarios(directory: Path) -> dict[str, dict[str, Any]]:
     }
 
 
+def view_channel(address: str, owner: str = "texture", **fields: Any) -> dict[str, Any]:
+    """One channel record, every field filled.
+
+    A readback by default, owned by ``owner``; a setpoint pairs with itself
+    unless ``pair`` says otherwise. Any other field in ``fields`` replaces its
+    default or is added to the record.
+    """
+    role = fields.pop("role", "readback")
+    return {
+        "address": address,
+        "role": role,
+        "pair": address if role == "setpoint" else None,
+        "value_type": "float",
+        "unit": None,
+        "description": None,
+        "writable": False,
+        "value_range": None,
+        "owner": owner,
+        "on": None,
+        **fields,
+    }
+
+
 #: The fields of a :func:`write_texture_view` channel that go to ``seeds.json``.
 _SEED_FIELDS = ("nominal", "noise", "drift", "clamp")
 
@@ -114,19 +137,14 @@ def write_texture_view(
         spec = dict(channels[address])
         role = spec.get("role", "readback")
         records.append(
-            {
-                "address": address,
-                "role": role,
-                "pair": address if role == "setpoint" else None,
-                "value_type": spec.get("value_type", "float"),
-                "unit": None,
-                "description": None,
-                "writable": role == "setpoint",
-                "value_range": None,
-                "owner": spec.get("owner", "texture"),
-                "on": None,
+            view_channel(
+                address,
+                spec.get("owner", "texture"),
+                role=role,
+                value_type=spec.get("value_type", "float"),
+                writable=role == "setpoint",
                 **({"options": spec["options"]} if "options" in spec else {}),
-            }
+            )
         )
         seed = {field: spec[field] for field in _SEED_FIELDS if field in spec}
         if seed:

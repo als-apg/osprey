@@ -12,11 +12,10 @@ signal the bridge probes for.
 
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 
 from osprey.runtime import ControlTargetChangedError, _run_async
+from tests.runtime._loop import inside_a_running_loop
 
 
 class SubclassedRuntimeError(RuntimeError):
@@ -31,23 +30,6 @@ async def answer(value):
 async def refuse(error):
     """A coroutine that raises *error*."""
     raise error
-
-
-def inside_a_running_loop(call):
-    """Run *call* synchronously from inside a coroutine on a fresh loop.
-
-    That is a notebook kernel's shape: the cell's synchronous code executes
-    while the kernel's own loop is running on the same thread.
-    """
-
-    async def driver():
-        return call()
-
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(driver())
-    finally:
-        loop.close()
 
 
 ERRORS = {

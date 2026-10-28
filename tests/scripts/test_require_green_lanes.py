@@ -9,16 +9,14 @@ hide the run that did the work.
 
 from __future__ import annotations
 
-import importlib.util
 from pathlib import Path
 
 import pytest
 
+from tests._by_path import load_module
+
 _MODULE_PATH = Path(__file__).resolve().parents[2] / "scripts" / "ci" / "require_green_lanes.py"
-_spec = importlib.util.spec_from_file_location("require_green_lanes", _MODULE_PATH)
-assert _spec and _spec.loader
-gate = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(gate)
+gate = load_module("require_green_lanes", _MODULE_PATH)
 
 REPO = "als-apg/osprey"
 TAG = "osprey-connectors-v2026.10.0"

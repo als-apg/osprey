@@ -14,6 +14,7 @@ import pytest
 from osprey.health.core import claude_cli as mod
 from osprey.health.core.claude_cli import claude_cli, claude_cli_pinned
 from osprey.health.models import Status
+from tests.health._fakes import FakeProc
 
 
 def _stub_run(monkeypatch, *, returncode=0, stdout="", stderr="", raises=None):
@@ -186,29 +187,9 @@ class TestClaudeCliPinned:
 # --------------------------------------------------------------------------- #
 
 
-class _FakeProc:
-    def __init__(self, stdout=b"", stderr=b"", returncode=0, hang=False):
-        self._stdout = stdout
-        self._stderr = stderr
-        self.returncode = returncode
-        self._hang = hang
-        self.killed = False
-
-    async def communicate(self):
-        if self._hang:
-            await asyncio.sleep(10)
-        return (self._stdout, self._stderr)
-
-    def kill(self):
-        self.killed = True
-
-    async def wait(self):
-        return self.returncode
-
-
 class TestRunVersionCommand:
     async def test_success_decodes_output(self, monkeypatch):
-        proc = _FakeProc(stdout=b"1.2.3\n", stderr=b"", returncode=0)
+        proc = FakeProc(stdout=b"1.2.3\n", stderr=b"", returncode=0)
 
         async def _fake_exec(*argv, **kwargs):
             return proc
@@ -220,7 +201,7 @@ class TestRunVersionCommand:
         assert err == ""
 
     async def test_timeout_kills_process(self, monkeypatch):
-        proc = _FakeProc(hang=True)
+        proc = FakeProc(hang=True)
 
         async def _fake_exec(*argv, **kwargs):
             return proc

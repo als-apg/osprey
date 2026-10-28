@@ -1326,12 +1326,6 @@ class TestResolveAgents:
 class TestTemplateRendering:
     """Tests that templates render valid JSON with the new data-driven approach."""
 
-    @pytest.fixture()
-    def template_manager(self):
-        from osprey.cli.templates.manager import TemplateManager
-
-        return TemplateManager()
-
     def _render(self, tm, template_path, ctx):
         template = tm.jinja_env.get_template(template_path)
         return template.render(**ctx)

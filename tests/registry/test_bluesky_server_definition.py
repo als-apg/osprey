@@ -16,19 +16,11 @@ subprocess), so both carry ``_APPROVAL`` only and must never be kill-switched.
 from pathlib import Path
 
 from osprey.registry.mcp import FRAMEWORK_SERVERS, resolve_servers
-
-
-def _base_ctx(**overrides):
-    ctx = {
-        "project_root": "/tmp/test-project",
-        "current_python_env": "/usr/bin/python3",
-    }
-    ctx.update(overrides)
-    return ctx
+from tests.registry._ctx import base_ctx
 
 
 def _resolve_bluesky(cfg=None, ctx=None):
-    servers = resolve_servers(cfg or {}, ctx or _base_ctx())
+    servers = resolve_servers(cfg or {}, ctx or base_ctx())
     matches = [s for s in servers if s["name"] == "bluesky"]
     assert len(matches) == 1
     return matches[0]
