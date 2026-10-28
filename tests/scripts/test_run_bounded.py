@@ -2,7 +2,7 @@
 
 The wrapper's ``main`` is only ever run as a subprocess, never called here: it
 installs signal handlers and exits the process, neither of which belongs in the
-test process. The group stop it calls, ``stop_group``, lives in the product's
+test process. The group stop it calls, ``stop_child``, lives in the product's
 ``osprey.deployment.subprocess_capture``; the stopped groups here are probed
 with that module's ``group_is_gone``.
 """
@@ -184,11 +184,11 @@ def test_a_survivor_of_the_stop_is_named_and_the_run_still_exits_124(tmp_path):
         f"""
         import runpy, sys
         from osprey.deployment import subprocess_capture
-        real = subprocess_capture.stop_group
-        def stop_group(pgid, **kwargs):
-            real(pgid, **kwargs)
-            return [999999]
-        subprocess_capture.stop_group = stop_group
+        real = subprocess_capture.stop_child
+        def stop_child(process, **kwargs):
+            real(process, **kwargs)
+            return subprocess_capture.StopOutcome(ended=(process.pid,), survivors=(999999,))
+        subprocess_capture.stop_child = stop_child
         sys.argv = [{str(SCRIPT)!r}, "--dump", "1", "--grace", "1", "3", "--",
                     {sys.executable!r}, "-c", {child!r}]
         runpy.run_path({str(SCRIPT)!r}, run_name="__main__")
@@ -199,7 +199,7 @@ def test_a_survivor_of_the_stop_is_named_and_the_run_still_exits_124(tmp_path):
     )
     assert result.returncode == 124
     assert marker.exists(), "the child was not ready inside the 3 s bound"
-    assert "run_bounded: still running after SIGKILL, pids: 999999" in result.stderr
+    assert "run_bounded: still running after SIGKILL: pid 999999" in result.stderr
 
 
 def test_a_stop_that_could_not_read_the_table_says_so_and_the_run_still_exits_124(tmp_path):
@@ -210,11 +210,11 @@ def test_a_stop_that_could_not_read_the_table_says_so_and_the_run_still_exits_12
         f"""
         import runpy, sys
         from osprey.deployment import subprocess_capture
-        real = subprocess_capture.stop_group
-        def stop_group(pgid, **kwargs):
-            real(pgid, **kwargs)
-            return None
-        subprocess_capture.stop_group = stop_group
+        real = subprocess_capture.stop_child
+        def stop_child(process, **kwargs):
+            real(process, **kwargs)
+            return subprocess_capture.StopOutcome(ended=(process.pid,), unknown=(process.pid,))
+        subprocess_capture.stop_child = stop_child
         sys.argv = [{str(SCRIPT)!r}, "--dump", "1", "--grace", "1", "3", "--",
                     {sys.executable!r}, "-c", {child!r}]
         runpy.run_path({str(SCRIPT)!r}, run_name="__main__")
@@ -225,7 +225,7 @@ def test_a_stop_that_could_not_read_the_table_says_so_and_the_run_still_exits_12
     )
     assert result.returncode == 124
     assert marker.exists(), "the child was not ready inside the 3 s bound"
-    assert "the process table could not be read" in result.stderr
+    assert "run_bounded: process table unreadable: group" in result.stderr
     assert "still running after SIGKILL" not in result.stderr
 
 
