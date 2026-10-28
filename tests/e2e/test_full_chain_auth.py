@@ -2416,13 +2416,23 @@ def test_history_an_iframe_and_an_image_from_an_artifact_run_no_read(
                     else None
                 ),
             )
+            failed: list[tuple[str, str | None]] = []
+            page.on(
+                "requestfailed",
+                lambda request: (
+                    failed.append((request.resource_type, request.failure))
+                    if request.url == reader_history
+                    else None
+                ),
+            )
             page.goto(_artifact_url(history_page, HEADER_USER, "embed"), wait_until="load")
             embeds = _settled(lambda: sorted(answered), lambda seen: len(seen) >= 2)
             assert sorted(sent) == ["document", "image"], (
                 f"the artifact's iframe and image never reached /history/: sent {sent}"
             )
             assert embeds == [("document", 403), ("image", 403)], (
-                f"an embed of /history/ was not refused before the page: {embeds}"
+                f"an embed of /history/ was not refused before the page: {embeds}; "
+                f"failed in the browser: {failed}"
             )
 
             # The positive control: the same browser opening the page is

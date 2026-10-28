@@ -48,12 +48,13 @@ import sys
 import time
 import urllib.request
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
 from osprey.agent_runner.tool_policy import PASSTHROUGH_TOOLS
-from tests.e2e._worker_record import WorkerRecord, worker_record
+from tests.e2e._worker_record import WORKER_IDENTITY, WorkerRecord, worker_record
 from tests.e2e.provider import E2E_MODEL, e2e_provider
 from tests.e2e.test_dispatch_tutorial import (
     HEALTH_TIMEOUT_SEC,
@@ -213,14 +214,22 @@ def _start_worker(repo: Path, record: WorkerRecord) -> tuple[subprocess.Popen, s
     return proc, url
 
 
+@dataclass(frozen=True)
+class Worker:
+    """A running worker and the record it records its runs in."""
+
+    url: str
+    record: WorkerRecord
+
+
 @pytest.fixture
-def worker(request, tmp_path: Path) -> Iterator[str]:
+def worker(request, tmp_path: Path) -> Iterator[Worker]:
     """Start a real worker, recording into its own record, on the repo fixture named by the param."""
     repo = request.getfixturevalue(request.param)
     with worker_record(tmp_path / "agent_record", repo) as record:
         proc, url = _start_worker(repo, record)
         try:
-            yield url
+            yield Worker(url, record)
         finally:
             _terminate(proc)
 
@@ -237,20 +246,42 @@ def _http_json(url: str, payload: dict | None = None) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def dispatch_and_wait(worker_url: str, prompt: str, allowed_tools: list[str]) -> dict:
-    """POST /dispatch and poll until the run leaves 'running'."""
+def dispatch_and_wait(worker: Worker, prompt: str, allowed_tools: list[str]) -> dict:
+    """POST /dispatch, poll until the run leaves 'running', and add its tool calls.
+
+    A run's status names its outcome and how many tool calls it made; the calls
+    themselves are its session's timeline in the record, read here under the
+    worker's own login as ``{"name", "result"}`` per MCP call, subagents' included.
+    """
     accepted = _http_json(
-        f"{worker_url}/dispatch",
+        f"{worker.url}/dispatch",
         {"prompt": prompt, "allowed_tools": allowed_tools, "max_turns": 15},
     )
     run_id = accepted["run_id"]
     deadline = time.monotonic() + RUN_TIMEOUT_SEC
     while time.monotonic() < deadline:
-        run = _http_json(f"{worker_url}/dispatch/{run_id}")
+        run = _http_json(f"{worker.url}/dispatch/{run_id}")
         if run.get("status") not in ("running", "pending"):
-            return run
+            return {**run, "tool_calls": _recorded_tool_calls(worker.record, run)}
         time.sleep(3.0)
     pytest.fail(f"dispatch run {run_id} did not finish within {RUN_TIMEOUT_SEC}s")
+
+
+def _recorded_tool_calls(record: WorkerRecord, run: dict) -> list[dict]:
+    """Every MCP tool call of *run*'s session, as the record holds it."""
+    from osprey.agent_record.client import RecordClient
+    from osprey.mcp_server import session as session_record
+
+    session = run.get("session_id")
+    assert session, f"the run names no session: {run}"
+    login, _, token = record.login(WORKER_IDENTITY).partition(":")
+    read = session_record.read_timeline(session, client=RecordClient(record.url, login, token))
+    assert read.record == session_record.RECORD_COMPLETE, read.reason
+    return [
+        {"name": event["full_tool_name"], "result": event["result_summary"]}
+        for event in session_record.session_events(read.nodes, session)
+        if event["type"] == "tool_call"
+    ]
 
 
 def _calls(run: dict, prefix: str) -> list[dict]:
