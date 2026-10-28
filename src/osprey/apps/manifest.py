@@ -28,7 +28,7 @@ from pydantic import (
 )
 from pydantic_core import PydanticCustomError
 
-from osprey.apps.errors import AppManifestError
+from osprey.apps.errors import AppManifestError, Violation
 
 APP_NAME_PATTERN = r"^[a-z0-9-]+$"
 
@@ -361,14 +361,16 @@ def parse_manifest(data: Any, *, app: str) -> AppManifest:
         app: The application's directory name, used in the refusal.
 
     Raises:
-        AppManifestError: The manifest is refused; the first violation is reported.
+        AppManifestError: The manifest is refused; it carries every violation.
     """
     if not isinstance(data, dict):
         raise AppManifestError(app, "", "mapping", "app.yml must be a mapping of keys")
     try:
         return AppManifest.model_validate(data)
     except ValidationError as exc:
-        error = exc.errors(include_url=False)[0]
-        ctx = error.get("ctx") or {}
-        field = ctx.get("at") or ".".join(str(part) for part in error["loc"])
-        raise AppManifestError(app, field, error["type"], error["msg"]) from None
+        violations = []
+        for error in exc.errors(include_url=False):
+            ctx = error.get("ctx") or {}
+            field = ctx.get("at") or ".".join(str(part) for part in error["loc"])
+            violations.append(Violation(app, field, error["type"], error["msg"]))
+        raise AppManifestError.from_violations(violations) from None

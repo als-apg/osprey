@@ -494,3 +494,21 @@ def test_refusal_carries_app_field_rule_and_message() -> None:
         "extra_forbidden",
     )
     assert "knob-demo" in str(err) and "containers.knob-demo.colour" in str(err)
+
+
+def test_refusal_carries_every_violation() -> None:
+    data = _with("containers.knob-demo.colour", 1)
+    data["panel"]["shade"] = 2
+    data["tools"]["shown_when"] = "sometimes"
+    err = _refusal(data)
+    fields = [v.field for v in err.violations]
+    assert fields == ["containers.knob-demo.colour", "panel.shade", "tools.shown_when"]
+    assert all(v.app == "knob-demo" for v in err.violations)
+    assert (err.field, err.rule) == ("containers.knob-demo.colour", "extra_forbidden")
+    assert "panel.shade" in str(err) and "tools.shown_when" in str(err)
+
+
+def test_a_single_refusal_carries_one_violation() -> None:
+    err = _refusal(_with("panel.colour", 1))
+    assert len(err.violations) == 1
+    assert err.violations[0].field == err.field == "panel.colour"
