@@ -465,9 +465,10 @@ def artifact_frame(page: Page, artifact_id: str) -> Frame:
 
     Under parallel load the preview can re-render while the first navigation is still in
     flight; that navigation then aborts (``net::ERR_ABORTED``) and a fresh iframe takes its
-    place. Only an aborted or detached navigation, or an iframe detached before its frame
-    could be read, is retried, against the iframe that replaced it; the frame must still
-    land on the artifact's own URL.
+    place. A re-render can also land just after the first load, detaching the frame that
+    loaded. Only an aborted or detached navigation, an iframe detached before its frame
+    could be read, or a frame detached before its first script ran, is retried, against
+    the iframe that replaced it; the frame must still land on the artifact's own URL.
     """
     from playwright.sync_api import Error as PlaywrightError
 
@@ -482,14 +483,17 @@ def artifact_frame(page: Page, artifact_id: str) -> Frame:
             continue
         try:
             frame.wait_for_url(f"**{artifact_id}**", timeout=TIMEOUT)
+            frame.wait_for_load_state("load", timeout=TIMEOUT)
+            # The loaded frame must answer a script before it is handed out.
+            frame.evaluate("() => 0")
         except PlaywrightError as error:
             # Both name a navigation cut short by the re-render: Chromium aborts it,
             # or Playwright reports the frame it was waiting on detached.
-            aborted = "ERR_ABORTED" in str(error) or "frame was detached" in str(error)
+            message = str(error).lower()
+            aborted = "err_aborted" in message or "frame was detached" in message
             if not aborted or attempt == 2:
                 raise
             continue
-        frame.wait_for_load_state("load", timeout=TIMEOUT)
         return frame
     raise AssertionError("unreachable")
 
