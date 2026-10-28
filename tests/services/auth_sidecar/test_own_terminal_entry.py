@@ -363,13 +363,16 @@ def test_a_card_the_recheck_refuses_is_left_out_and_filed(
 def test_success_is_filed_once_per_opened_card(zone: SidecarZone) -> None:
     assert _enter(_client(_access_env(carol="any"))).status_code == 200
 
-    records = _records(zone)
-    assert [(record["subject"], record["reason"]) for record in records] == [
-        ("alice", audit.REASON_PASSWORD_LOGIN),
-        ("carol", audit.REASON_PASSWORD_LOGIN),
-    ]
-    assert "detail" not in records[0]
-    assert records[1]["detail"] == "opener=alice"
+    # One request writes both within one clock tick, so the record holds them
+    # in no particular order: each is found by its subject.
+    records = {record["subject"]: record for record in _records(zone)}
+    assert len(_records(zone)) == 2
+    assert {s: r["reason"] for s, r in records.items()} == {
+        "alice": audit.REASON_PASSWORD_LOGIN,
+        "carol": audit.REASON_PASSWORD_LOGIN,
+    }
+    assert "detail" not in records["alice"]
+    assert records["carol"]["detail"] == "opener=alice"
 
 
 # --- Where the routes apply ---------------------------------------------------
