@@ -1904,12 +1904,13 @@ jobs:
           # azure.servicebus at module scope and this lane installs no `teams`
           # extra, so collecting them here is an ImportError, not a container
           # hazard. They run together in teams-bridge-e2e, which installs it.
-          # Ten more files leave for a fourth reason, and it is about price
-          # rather than about the runner: none of them calls a model, so this
-          # lane's label buys them nothing and costs them every unlabelled
-          # pull request. They run in e2e-no-model, which is this lane's
-          # directory sweep minus the gateway key — named there by path, and
-          # ignored here one by one so the two sets stay disjoint.
+          # The model-free tests leave for a fourth reason, and it is about
+          # price rather than about the runner: none of them calls a model, so
+          # this lane's label buys them nothing and costs them every unlabelled
+          # pull request. They carry the model_free marker and run in
+          # e2e-no-model, which sweeps this same directory with -m model_free;
+          # -m "not model_free" here is its exact complement, so the two lanes
+          # stay disjoint without either naming a file.
           # -n 4 --dist loadfile (pytest-xdist): this lane is ~18 min of
           # real-LLM round-trips at near-zero CPU, so four workers cut it to
           # roughly the slowest single file. loadfile (not load) keeps every
@@ -1925,7 +1926,7 @@ jobs:
           # so the stacks never contend for a host port.
           # --durations=30: which tests approach the step cap on their own —
           # the data for deciding where reruns=2 has to become reruns=1 (#824).
-          uv run pytest tests/e2e/ -v --tb=short --durations=30 -n 4 --dist loadfile \
+          uv run pytest tests/e2e/ -m "not model_free" -v --tb=short --durations=30 -n 4 --dist loadfile \
             --ignore=tests/e2e/test_preset_agentic.py \
             --ignore=tests/e2e/test_plan_stack_agentic.py \
             --ignore=tests/e2e/test_dispatch_deploy.py \
@@ -1962,22 +1963,6 @@ jobs:
             --ignore=tests/e2e/test_full_chain_auth.py \
             --ignore=tests/e2e/test_jupyter_panel_lifecycle.py \
             --ignore=tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py \
-            --ignore=tests/e2e/test_telemetry_store_e2e.py \
-            --ignore=tests/e2e/test_telemetry_access_e2e.py \
-            --ignore=tests/e2e/test_sdk_helpers.py \
-            --ignore=tests/e2e/test_scripted_model.py \
-            --ignore=tests/e2e/claude_code/test_safety_gates_scripted.py \
-            --ignore=tests/e2e/test_mcp_readiness.py \
-            --ignore=tests/e2e/test_dispatch_deploy_render.py \
-            --ignore=tests/e2e/web_terminals/test_scaffold_render_roundtrip.py \
-            --ignore=tests/e2e/web_terminals/test_skills_overlay_discovery.py \
-            --ignore=tests/e2e/web_terminals/test_loopback_chokepoint.py \
-            --ignore=tests/e2e/web_terminals/test_session_restart_e2e.py \
-            --ignore=tests/e2e/web_terminals/test_terminal_auth_e2e.py \
-            --ignore=tests/e2e/web_terminals/test_render_permissions_scripted.py \
-            --ignore=tests/e2e/claude_code/test_chat_approval_gates_scripted.py \
-            --ignore=tests/e2e/claude_code/test_chat_plan_mode_scripted.py \
-            --ignore=tests/e2e/claude_code/test_chat_attachment_read_scripted.py \
             --ignore=tests/e2e/tier2
         fi
     # On failure only: container logs, exit codes, `OOMKilled`, and runner
@@ -2150,43 +2135,38 @@ jobs:
     - name: Run the model-free E2E files
       timeout-minutes: 25
       run: |
-        # Named by path, not by marker: a path that stops existing exits
-        # pytest 4 and reds this step, whereas a marker that stops matching
-        # would select nothing and green it. Every test this step selects
-        # carries model_free, and the wiring test holds the two equal.
+        # Selected by the model_free marker over the whole directory, the
+        # exact complement of the shared lane's -m "not model_free", so no
+        # file is named here and a rename cannot strand the lane. Nothing
+        # leaves it silently: an empty selection exits pytest 5 and reds this
+        # step (and the skip gate below refuses a zero test count), and a test
+        # that forgets the marker stays in the shared lane, where a run that
+        # names no provider refuses it by name (tests/e2e/conftest.py).
         #
-        # The two telemetry modules are named first because they are the only
-        # ones that deploy a stack, and xdist hands the first files to the
-        # first workers; each has its own project name and port base.
+        # No file is named ahead of the directory for worker placement:
+        # pytest 9 merges an argument that overlaps a later directory into
+        # that directory's order, so naming the two stack-deploying telemetry
+        # modules first would not move them.
         # -n 4 --dist loadfile is the mode these files already run under in
-        # the shared lane: loadfile keeps a file's tests on one worker, and
-        # the three real-process web-terminal modules each bind an ephemeral
-        # port, so nothing here contends for a fixed one.
-        uv run pytest \
-          tests/e2e/test_telemetry_store_e2e.py \
-          tests/e2e/test_telemetry_access_e2e.py \
-          tests/e2e/test_sdk_helpers.py \
-          tests/e2e/test_scripted_model.py \
-          tests/e2e/claude_code/test_safety_gates_scripted.py \
-          tests/e2e/test_mcp_readiness.py \
-          tests/e2e/test_dispatch_deploy_render.py \
-          tests/e2e/web_terminals/test_scaffold_render_roundtrip.py \
-          tests/e2e/web_terminals/test_skills_overlay_discovery.py \
-          tests/e2e/web_terminals/test_loopback_chokepoint.py \
-          tests/e2e/web_terminals/test_session_restart_e2e.py \
-          tests/e2e/web_terminals/test_terminal_auth_e2e.py \
-          tests/e2e/web_terminals/test_render_permissions_scripted.py \
-          tests/e2e/claude_code/test_chat_approval_gates_scripted.py \
-          tests/e2e/claude_code/test_chat_plan_mode_scripted.py \
-          tests/e2e/claude_code/test_chat_attachment_read_scripted.py \
+        # the shared lane: loadfile keeps a file's tests on one worker, the
+        # two telemetry modules each have their own project name and port
+        # base, and the three real-process web-terminal modules each bind an
+        # ephemeral port, so nothing here contends for a fixed one.
+        # The Teams bridge module is the one --ignore: it importorskips
+        # azure.servicebus at module scope and this lane installs no `teams`
+        # extra, so a sweep would report its collection-time skip in the junit
+        # and the skip gate below would red the lane over a module it never
+        # runs. It holds no model_free test; it runs in teams-bridge-e2e.
+        uv run pytest tests/e2e -m model_free \
+          --ignore=tests/e2e/test_teams_bridge_e2e.py \
           -v --tb=short --durations=15 -n 4 --dist loadfile \
           --junitxml=junit-e2e-no-model.xml
 
     - name: Fail the lane on any skipped test
       run: |
-        # Every file above is named by path and every test in them runs
-        # without a credential, so a skip here is this lane being wrong about
-        # its own runner rather than an environment gap pytest had to respect
+        # Every test the marker selects runs without a credential, so a skip
+        # here is this lane being wrong about its own runner rather than an
+        # environment gap pytest had to respect
         # — and pytest's exit code cannot tell "everything passed" from
         # "everything was skipped". The junit report is read instead: zero
         # skips, and a non-zero test count so an empty selection cannot pass
