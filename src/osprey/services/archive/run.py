@@ -19,7 +19,7 @@ import os
 import re
 import stat
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -202,18 +202,11 @@ class ArchiveTree:
 
     def stage(self, chunks: Iterator[bytes]) -> tuple[Path, int, str]:
         """Write *chunks* to a new file in ``.incoming``; return it, its size and sha256."""
-        temp = self.incoming / uuid.uuid4().hex
-        digest = hashlib.sha256()
-        size = 0
+        temp = self.staging_path()
         fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, self.file_mode)
         try:
             os.fchmod(fd, self.file_mode)
-            for chunk in chunks:
-                digest.update(chunk)
-                size += len(chunk)
-                view = memoryview(chunk)
-                while view:
-                    view = view[os.write(fd, view) :]
+            size, sha = _size_and_sha256(chunks, on_chunk=lambda chunk: _write_all(fd, chunk))
             os.fsync(fd)
         except BaseException:
             os.close(fd)
@@ -221,7 +214,7 @@ class ArchiveTree:
             raise
         os.close(fd)
         self._own(temp)
-        return temp, size, digest.hexdigest()
+        return temp, size, sha
 
     def staging_path(self, suffix: str = "") -> Path:
         """A fresh path in ``.incoming`` for a writer that writes its file itself.
@@ -237,16 +230,11 @@ class ArchiveTree:
         """
         os.chmod(temp, self.file_mode)
         self._own(temp)
-        digest = hashlib.sha256()
-        size = 0
         fd = os.open(temp, os.O_RDONLY)
         try:
-            for chunk in _read_chunks(fd):
-                digest.update(chunk)
-                size += len(chunk)
+            return _size_and_sha256(_read_chunks(fd))
         finally:
             os.close(fd)
-        return size, digest.hexdigest()
 
     def discard(self, temp: Path) -> None:
         temp.unlink(missing_ok=True)
@@ -309,6 +297,27 @@ def file_record(
         **extra,
         "archived_at": _iso(_utcnow()),
     }
+
+
+def _size_and_sha256(
+    chunks: Iterable[bytes], on_chunk: Callable[[bytes], None] | None = None
+) -> tuple[int, str]:
+    """Return the total size and sha256 of *chunks*, handing each to *on_chunk* as it passes."""
+    digest = hashlib.sha256()
+    size = 0
+    for chunk in chunks:
+        digest.update(chunk)
+        size += len(chunk)
+        if on_chunk is not None:
+            on_chunk(chunk)
+    return size, digest.hexdigest()
+
+
+def _write_all(fd: int, chunk: bytes) -> None:
+    """Write all of *chunk* to *fd*, across short writes."""
+    view = memoryview(chunk)
+    while view:
+        view = view[os.write(fd, view) :]
 
 
 def _read_chunks(fd: int) -> Iterator[bytes]:
