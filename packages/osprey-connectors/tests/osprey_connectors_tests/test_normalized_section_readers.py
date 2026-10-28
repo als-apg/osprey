@@ -16,11 +16,11 @@ import pytest
 
 import osprey_connectors.control_system._base as connector_base
 import osprey_connectors.control_system._epics_connector as epics_connector_module
-from osprey_connectors import posture_store
 from osprey_connectors.control_system._base import ControlSystemConnector, WriteOutcome
 from osprey_connectors.control_system._epics_connector import EPICSConnector
-from osprey_connectors.ipc._verification import config_writes_enabled, derive_endpoints
-from osprey_connectors.types import EPICS, TARGET_LIVE, TARGET_VA, WRITES_KEY
+from osprey_connectors.ipc._verification import derive_endpoints
+from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.types import EPICS, TARGET_LIVE, WRITES_KEY
 from osprey_connectors_tests._epics_fakes import (  # noqa: F401 - fixtures, used by name
     FakeChannel,
     InlineCaLoop,
@@ -64,73 +64,73 @@ def aioca(monkeypatch):
     return install_fake_aioca(monkeypatch, {SP: FakeChannel()})
 
 
-# -- The reference monitor's deployment posture -------------------------------
+# -- The reference monitor's verdict --------------------------------------------
 
 
-@pytest.mark.parametrize("connector_type", [EPICS, None], ids=["typed", "untyped"])
-def test_an_allowed_render_arms_the_deployment_posture(monkeypatch, connector_type):
+def test_an_allowed_render_lets_the_monitor_pass_the_tier(monkeypatch, record_root):
     # Arrange
+    arm_switch(monkeypatch, record_root, ARMED_TARGET)
     _serve(monkeypatch, ALLOWED)
 
     # Act
-    arms, key = connector_base._deployment_posture(connector_type)
+    verdict = connector_base._monitor_verdict(ARMED_TARGET)
 
     # Assert
-    assert (arms, key) == (True, WRITES_KEY)
+    assert verdict.allowed, verdict.reason
 
 
-@pytest.mark.parametrize("connector_type", [EPICS, None], ids=["typed", "untyped"])
-def test_a_never_render_refuses_naming_the_tier_key(monkeypatch, connector_type):
-    # Arrange
-    _serve(monkeypatch, NEVER)
-
-    # Act
-    arms, key = connector_base._deployment_posture(connector_type)
-
-    # Assert
-    assert (arms, key) == (False, WRITES_KEY)
-
-
-def test_a_never_render_refusal_sends_the_operator_to_the_tier_key(monkeypatch, record_root):
-    """The remedy names the key the document carries, never a retired leaf."""
+@pytest.mark.parametrize("target", [ARMED_TARGET, None], ids=["stamped", "unstamped"])
+def test_a_never_render_refuses_on_the_tier(monkeypatch, record_root, target):
     # Arrange
     arm_switch(monkeypatch, record_root, ARMED_TARGET)
     _serve(monkeypatch, NEVER)
 
     # Act
-    result = connector_base._writes_disabled_result(
-        SP, 1.0, EPICS, ARMED_TARGET, store_verdict=posture_store.StoreVerdict.PERMITTED
-    )
+    verdict = connector_base._monitor_verdict(target)
+
+    # Assert
+    assert (verdict.allowed, verdict.reason) == (False, "tier_never")
+
+
+def test_a_never_render_refusal_speaks_the_tier_phrase(monkeypatch, record_root):
+    """The refusal is the contract's tier phrase and names no retired leaf."""
+    # Arrange
+    arm_switch(monkeypatch, record_root, ARMED_TARGET)
+    _serve(monkeypatch, NEVER)
+    verdict = connector_base._monitor_verdict(ARMED_TARGET)
+
+    # Act
+    result = connector_base._verdict_refusal(SP, 1.0, verdict)
 
     # Assert
     assert result.outcome is WriteOutcome.REFUSED
-    assert f"{WRITES_KEY}: allowed" in result.error_message
+    assert result.refusal_reason == "WRITES_DISABLED"
+    assert refusal_phrase("tier_never", verdict.kind) in result.error_message
     assert "writes_enabled" not in result.error_message
 
 
-def test_an_allowed_render_names_no_deployment_reason(monkeypatch, record_root):
-    """With the tier allowing, only the record's own reason is spoken."""
+def test_an_allowed_render_names_no_tier_reason(monkeypatch, record_root):
+    """With the tier allowing and the switch off, only the record's reason is spoken."""
     # Arrange
-    arm_switch(monkeypatch, record_root, ARMED_TARGET)
+    arm_switch(monkeypatch, record_root, None)
+    write_control_context(record_root, target=ARMED_TARGET, owned_by=None)
     _serve(monkeypatch, ALLOWED)
+    verdict = connector_base._monitor_verdict(ARMED_TARGET)
 
     # Act
-    result = connector_base._writes_disabled_result(
-        SP, 1.0, EPICS, ARMED_TARGET, store_verdict=posture_store.StoreVerdict.NARROWING
-    )
+    result = connector_base._verdict_refusal(SP, 1.0, verdict)
 
     # Assert
-    assert "writes are disabled by" not in result.error_message
+    assert result.outcome is WriteOutcome.REFUSED
+    assert verdict.reason not in (None, "tier_never")
+    assert refusal_phrase("tier_never", verdict.kind) not in result.error_message
     assert WRITES_KEY not in result.error_message
 
 
-# -- The IPC config reader ------------------------------------------------------
-
-
-@pytest.mark.parametrize("target", [TARGET_LIVE, TARGET_VA])
-def test_config_writes_enabled_answers_the_tier(target):
-    assert config_writes_enabled({"control_system": ALLOWED}, target) is True
-    assert config_writes_enabled({"control_system": NEVER}, target) is False
+# The IPC config reader of the tier is gone: it was ``tier_allows`` over the config's
+# ``control_system`` section, target-blind. ``test_tier_writes.py``
+# (``test_literal_allowed_arms``, ``test_any_other_value_of_the_new_key_is_never``)
+# pins that answer, and the case table's ``tier-*`` rows pin it through the verdict.
 
 
 # -- Gateway-role selection -----------------------------------------------------

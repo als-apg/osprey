@@ -65,16 +65,12 @@ def patch_writes_enabled(monkeypatch, enabled: bool, root: Any = None) -> None:
     one whose tier allows writes and turns the login's switch on for the
     simulator target under *root* (required then), stamping connectors built
     off the factory with it — see :func:`osprey_connectors_tests._write_fakes.arm_switch`.
-    The old deployment-wide key answers *enabled* too, for readers that still
-    ask it.
     """
     section = {"writes": "allowed" if enabled else "never"}
 
     def fake_get_config_value(key, default=None):
         if key == "control_system":
             return dict(section)
-        if key == "control_system.writes_enabled":
-            return enabled
         return default
 
     monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
