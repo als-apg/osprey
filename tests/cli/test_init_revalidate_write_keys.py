@@ -68,8 +68,10 @@ def test_the_previous_release_repo_revalidates_to_the_exemplar_and_then_rests(
     assert "Left for you to do by hand" not in first.output
     profile = (root / "profile.yml").read_text(encoding="utf-8")
     assert "writes_enabled:" not in profile
-    # The hooks-list end-of-line comment is not a stanza and stays as it was.
-    assert "while writes_enabled is false\n" in profile
+    # The hooks-list end-of-line comment is a stanza of its own (D7): it is
+    # brought to the switch wording, and the retired key leaves the comment too.
+    assert "while its machine's write switch is off\n" in profile
+    assert "writes_enabled" not in profile
 
     second = _revalidate(root)
 

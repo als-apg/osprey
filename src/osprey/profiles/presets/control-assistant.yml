@@ -48,7 +48,7 @@ channel_finder_mode: graph
 
 hooks:
   - approval          # Gate hardware-write tool calls on human approval prompt
-  - writes-check      # Kill switch: refuse every write while writes_enabled is false
+  - writes-check      # Kill switch: refuse every write while its machine's write switch is off
   - limits            # Enforce per-channel min/max limits before writes
   - error-guidance    # Post-error hook that surfaces remediation hints
   - memory-guard      # Gate Write to memory files, NotebookEdit to agent-data artifacts and notebooks
@@ -134,9 +134,9 @@ virtual_accelerator:
   # this key alone the build derives the target's connector block,
   # `control_system.connector.live_standin` — seven leaves, nothing else.
   # `control_target_set standin` points a session at it, and what an operator
-  # meets there is a real machine's behaviour — approval prompts, limit
-  # refusals, the LIVE MACHINE (stand-in) banner — on something that cannot
-  # move a magnet.
+  # meets there is a real machine's behaviour — the write switch, approval
+  # prompts, limit refusals — under the "Rehearsal — nothing moves" banner,
+  # on something that cannot move a magnet.
   # Delete the line on a laptop: the simulator image is amd64-only, so a
   # second emulated container on Apple Silicon doubles what QEMU has to run —
   # one more emulated soft-IOC for the life of the deployment.

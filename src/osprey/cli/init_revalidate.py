@@ -557,6 +557,25 @@ WRITE_STANZAS: tuple[WriteStanza, ...] = (
         1,
         "sha256:a8668b9914da648f2c88cf1cef503f5d2ef4ff64bd642957c7f2d0b594d6df1e",
     ),
+    # The writes-check hook's entry, which named the retired key; a stanza is
+    # compared line by line, so a list entry's own comment is one too.
+    WriteStanza(
+        "control-assistant",
+        "- limits            # Enforce per-channel min/max limits before writes",
+        1,
+        "sha256:e80aca8e8c01cb79c19c83637e2958d48b8e86843a5b865a4ea618be86d3806e",
+        1,
+        "sha256:8f18a376a22a4d0943887f7020bc7a6c0536d21039ee1f22ab541b117a133999",
+    ),
+    # The stand-in's comment, which named the banner the real machine wears.
+    WriteStanza(
+        "control-assistant",
+        "# Delete the line on a laptop: the simulator image is amd64-only, so a",
+        3,
+        "sha256:7557ddf3c86a9245e4d5b1dc31a72d46a89e8c2fd425b42702f6c42170e11afe",
+        3,
+        "sha256:24247dd971887136c2a7e38327cc656e7a5c6d9ee9b6bcaa6bb5fed6e8c0b477",
+    ),
     WriteStanza(
         "hello-world",
         "# write is refused before the limits check or the approval prompt is even",
@@ -800,7 +819,7 @@ def _rewrite_write_prose(text: str, rel: str, steps: list[str], *, rewrote: bool
     ``writes_enabled``, the comment above a dropped example, or (when
     *rewrote*) the comment above the tier key the rewrite wrote — is named in
     *steps* for a hand edit. A line that is not a whole comment (the end of a
-    ``hooks:`` entry, say) is never touched.
+    ``hooks:`` entry, say) is never named; only a stanza replaces one.
     """
     lines = text.splitlines(keepends=True)
     replacements: list[tuple[int, int, list[str]]] = []
