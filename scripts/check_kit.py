@@ -157,6 +157,11 @@ class Check:
     shards: tuple[str, ...] = field(default=(), compare=False, metadata=HOOK)
     #: The suffixes of the test files a caller may add to it after ``--``.
     named_suffixes: tuple[str, ...] = field(default=(), compare=False, metadata=HOOK)
+    #: A caller may add a node id (``file::node``) of such a file after ``--``.
+    named_node_ids: bool = field(default=False, compare=False, metadata=HOOK)
+    #: Whether a file name is one of its test files; a caller may then add,
+    #: after ``--``, a directory that holds one at any depth.
+    named_dirs: Callable[[str], bool] | None = field(default=None, compare=False, metadata=HOOK)
     #: Picks the tests a range selects; without one the check runs whole or
     #: not at all, by ``scope``. The selected paths follow ``argv``.
     selector: Selector | None = field(default=None, compare=False, metadata=HOOK)
