@@ -1136,7 +1136,13 @@ def _day_exported_on_host(stack: Stack, today: date) -> date:
 
     day_dir = stack.archive_root / today.isoformat()
     parquet = day_dir / EXPORT_SUBDIR / EXPORT_FILE
-    assert parquet.is_file(), f"no Parquet file for {today} on the host: {parquet}"
+    try:
+        exported = parquet.is_file()
+    except PermissionError:
+        exported = False
+    assert exported, (
+        f"no Parquet file for {today} the host can read: {parquet}\n{_listing(day_dir)}"
+    )
     lines = [json.loads(x) for x in (day_dir / MANIFEST_NAME).read_text().splitlines() if x]
     marks = [x for x in lines if x.get("kind") == "agent_record_day"]
     assert len(marks) == 1 and marks[0]["day"] == today.isoformat(), lines
@@ -1152,6 +1158,14 @@ def _day_exported_on_host(stack: Stack, today: date) -> date:
     assert rerun.status_code == 200, rerun.text
     assert rerun.json().get("exported") == [], f"a day was exported twice: {rerun.json()}"
     return today
+
+
+def _listing(directory: Path) -> str:
+    """``ls -lnaR`` of *directory* and the identity reading it, for a failure message."""
+    listed = subprocess.run(
+        ["ls", "-lnaR", str(directory)], capture_output=True, text=True, timeout=30
+    )
+    return f"read as uid {os.getuid()} groups {os.getgroups()}:\n{listed.stdout}{listed.stderr}"
 
 
 def _reset_keeps_then_purges(stack: Stack, day: date, *, reread: tuple[str, set[str]]) -> None:
