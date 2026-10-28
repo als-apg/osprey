@@ -182,7 +182,7 @@ def _build_in_memory(
         repo_root=repo_root,
         build_dir=build_dir,
         runtime_root=None,
-        project_deps=list(_plan_project_venv(build_profile).extra_deps),
+        project_deps=list(_plan_project_venv(build_profile, install=False).extra_deps),
         skip_deps=True,
         manager=TemplateManager(),
         graph_indexes={},

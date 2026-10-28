@@ -3744,8 +3744,9 @@ def _build_repo(
         # environment it describes must ship together. The plan is judged first
         # and in both modes, so a `--skip-deps` render's image installs what a
         # full build's venv does, and a plan that refuses the build leaves the
-        # existing venv exactly as it was.
-        plan = _plan_project_venv(build_profile)
+        # existing venv exactly as it was. Only an installing build judges the
+        # workspace-member spec, which only the venv install reads.
+        plan = _plan_project_venv(build_profile, install=not skip_deps)
         project_deps = plan.extra_deps
         if not skip_deps:
             # Reported on its own, not folded into the render below: it is the
