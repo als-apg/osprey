@@ -232,8 +232,10 @@ def test_a_kept_app_is_rewritten_to_never_whatever_it_spelled(tmp_path: Path) ->
 
     assert _revalidate(root).exit_code == 0
 
+    # The revalidation also gives the app the rules list it selects by path (#2002).
     assert app.read_text(encoding="utf-8") == (
-        "name: Extra\nconfig:\n  control_system.writes: never\n  web.ui_mode: expert\n"
+        "name: Extra\nrules:\n  - rules/facility\nconfig:\n"
+        "  control_system.writes: never\n  web.ui_mode: expert\n"
     )
 
 

@@ -25,11 +25,17 @@ is the hard deny above, ``allowed`` denies nothing and pulls from ``ask`` only
 the tools whose rule carries both writes-check and an approval hook (the arming
 pair's preflight approval included). Only the literal ``allowed`` arms, and the
 retired per-connector ``writes_enabled`` leaves no longer move the render once
-the tier is spelled. ``test_killswitch_on_tier.py`` covers the facility half.
+the tier is spelled — on a two-target deployment, on a one-target deployment,
+and on one carrying an armed block for a machine it never reaches. The tier is
+a ceiling for every machine, so which targets a session here can be pointed at
+never changes the render. ``test_killswitch_on_tier.py`` covers the facility
+half.
 """
 
+from collections.abc import Iterator
 from pathlib import Path
 
+import pytest
 import yaml
 
 from osprey import bluesky_tool_names as bsky
@@ -73,47 +79,61 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
     return project
 
 
-_PROJECT_COUNTER = 0
+#: The project every ``_build_ctx`` call reads, built once per module.
+_BASE_PROJECT: Path | None = None
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _base_project(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
+    """The render every test reads, made once; ``_build_ctx`` edits a copy of its config only."""
+    global _BASE_PROJECT
+    _BASE_PROJECT = _create_project(
+        TemplateManager(),
+        project_name="killswitch-bluesky-base",
+        output_dir=tmp_path_factory.mktemp("killswitch-base"),
+        data_bundle="control_assistant",
+        context={"channel_finder_mode": "hierarchical"},
+    )
+    yield _BASE_PROJECT
+    _BASE_PROJECT = None
 
 
 def _build_ctx(
-    tmp_path,
     *,
-    writes,
+    writes: str = "allowed",
     claude_code_overrides: dict | None = None,
     connector_writes: dict[str, bool] | None = None,
+    control_system_type: str | None = None,
+    drop_connectors: tuple[str, ...] = (),
 ):
-    """Create a project, apply config overrides, and return the built context.
+    """Apply config overrides to the base project's config and return the built context.
 
-    Each call gets a unique project name/output dir (TemplateManager refuses
-    to create a project in an already-existing directory), so callers can
-    invoke this helper more than once per test.
+    The context is built from the config dict it is handed, so each call edits
+    a fresh read of the base config and the project itself is never written;
+    callers can invoke this helper more than once per test.
 
     *writes* is the tier, ``control_system.writes``, the one key the kill
     switch reads. *connector_writes* sets the retired per-connector
     ``writes_enabled`` leaves, which the render must ignore once the tier is
-    spelled.
+    spelled. *control_system_type* sets the type the deployment actually builds
+    and *drop_connectors* removes connector blocks: together they shape which
+    targets a session here could be pointed at, and the render must not care.
     """
-    global _PROJECT_COUNTER
-    _PROJECT_COUNTER += 1
+    assert _BASE_PROJECT is not None, "the module's base project is built by _base_project"
     manager = TemplateManager()
-    project_dir = _create_project(
-        manager,
-        project_name=f"killswitch-bluesky-{_PROJECT_COUNTER}",
-        output_dir=tmp_path,
-        data_bundle="control_assistant",
-        context={"channel_finder_mode": "hierarchical"},
-    )
-    config = yaml.safe_load((project_dir / "config.yml").read_text())
+    config = yaml.safe_load((_BASE_PROJECT / "config.yml").read_text())
     config["control_system"]["writes"] = writes
+    if control_system_type is not None:
+        config["control_system"]["type"] = control_system_type
+    for connector_type in drop_connectors:
+        del config["control_system"]["connector"][connector_type]
     for connector_type, armed in (connector_writes or {}).items():
         config["control_system"]["connector"][connector_type]["writes_enabled"] = armed
     if claude_code_overrides is not None:
         config["claude_code"] = claude_code_overrides
-    (project_dir / "config.yml").write_text(yaml.dump(config))
 
     return claude_code.build_claude_code_context(
-        manager.template_root, manager.jinja_env, project_dir, config
+        manager.template_root, manager.jinja_env, _BASE_PROJECT, config
     )
 
 
@@ -132,9 +152,8 @@ def _ks_deny(ctx: dict) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def test_bluesky_arming_tools_denied_when_writes_off(tmp_path):
+def test_bluesky_arming_tools_denied_when_writes_off():
     ctx = _build_ctx(
-        tmp_path,
         writes="never",
         claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
     )
@@ -144,7 +163,7 @@ def test_bluesky_arming_tools_denied_when_writes_off(tmp_path):
         )
 
 
-def test_bluesky_arming_tools_not_denied_when_writes_on(tmp_path):
+def test_bluesky_arming_tools_not_denied_when_writes_on():
     """On ``allowed`` the arming pair is not denied, and leaves ``ask``.
 
     Its rule carries writes-check and the preflight approval variant: the
@@ -152,7 +171,6 @@ def test_bluesky_arming_tools_not_denied_when_writes_on(tmp_path):
     refuses the call before any prompt when it is off.
     """
     ctx = _build_ctx(
-        tmp_path,
         writes="allowed",
         claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
     )
@@ -163,7 +181,7 @@ def test_bluesky_arming_tools_not_denied_when_writes_on(tmp_path):
         assert f"mcp__bluesky__{tool}" not in perms.get("allow", [])
 
 
-def test_bluesky_disabled_server_contributes_nothing(tmp_path):
+def test_bluesky_disabled_server_contributes_nothing():
     """bluesky is opt-in (default_enabled=False) — an un-enabled bluesky server
     must not contribute a deny entry even when writes are off.
 
@@ -171,7 +189,6 @@ def test_bluesky_disabled_server_contributes_nothing(tmp_path):
     server, so leaving the key unstated would test the armed deployment.
     """
     ctx = _build_ctx(
-        tmp_path,
         writes="never",
         claude_code_overrides={"servers": {"bluesky": {"enabled": False}}},
     )
@@ -186,7 +203,7 @@ def test_bluesky_disabled_server_contributes_nothing(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_bluesky_stop_tools_never_denied_or_removed(tmp_path):
+def test_bluesky_stop_tools_never_denied_or_removed():
     """queue_stop and stop_run carry approval only (no _WRITES_CHECK).
 
     The kill switch must never block halting, on either tier —
@@ -199,7 +216,6 @@ def test_bluesky_stop_tools_never_denied_or_removed(tmp_path):
     """
     for writes in ("allowed", "never"):
         ctx = _build_ctx(
-            tmp_path,
             writes=writes,
             claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
         )
@@ -212,14 +228,13 @@ def test_bluesky_stop_tools_never_denied_or_removed(tmp_path):
             assert f"mcp__bluesky__{tool}" not in perms.get("remove_ask", [])
 
 
-def test_bluesky_queue_read_tools_never_denied(tmp_path):
+def test_bluesky_queue_read_tools_never_denied():
     """queue_list / queue_status are reads and stay reachable with writes off.
 
     Losing ``queue_status`` under writes-off would blind the agent to the very
     fact that the deployment cannot execute.
     """
     ctx = _build_ctx(
-        tmp_path,
         writes="never",
         claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
     )
@@ -235,13 +250,12 @@ def test_bluesky_queue_read_tools_never_denied(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_bluesky_authoring_tools_never_denied_or_removed(tmp_path):
+def test_bluesky_authoring_tools_never_denied_or_removed():
     """write_plan/validate_plan carry approval only (no
     _WRITES_CHECK) — like stop_run, the kill switch must never block them,
     on either tier, since neither reaches hardware."""
     for writes in ("allowed", "never"):
         ctx = _build_ctx(
-            tmp_path,
             writes=writes,
             claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
         )
@@ -257,13 +271,13 @@ def test_bluesky_authoring_tools_never_denied_or_removed(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_controls_channel_write_still_denied_when_writes_off(tmp_path):
-    ctx = _build_ctx(tmp_path, writes="never")
+def test_controls_channel_write_still_denied_when_writes_off():
+    ctx = _build_ctx(writes="never")
     assert "mcp__controls__channel_write" in _ks_deny(ctx)
 
 
-def test_python_execute_still_removed_from_ask_when_writes_off(tmp_path):
-    ctx = _build_ctx(tmp_path, writes="never")
+def test_python_execute_still_removed_from_ask_when_writes_off():
+    ctx = _build_ctx(writes="never")
     perms = ctx["facility_permissions"]
     assert "mcp__python__execute" in perms["remove_ask"]
     # Must not ALSO be hard-denied — python's execute has a legitimate
@@ -271,7 +285,7 @@ def test_python_execute_still_removed_from_ask_when_writes_off(tmp_path):
     assert "mcp__python__execute" not in _ks_deny(ctx)
 
 
-def test_python_execute_regranted_via_allow_for_requiring_agent_when_writes_off(tmp_path):
+def test_python_execute_regranted_via_allow_for_requiring_agent_when_writes_off():
     """A writes-off render keeps a python-requiring agent's compute path.
 
     ``mcp__python__execute`` is pulled from ``ask`` under writes-off (the kill
@@ -281,7 +295,7 @@ def test_python_execute_regranted_via_allow_for_requiring_agent_when_writes_off(
     path, still hook-guarded against write-access kernels. This is the readonly
     render case where an inherited compute agent meets writes-off.
     """
-    ctx = _build_ctx(tmp_path, writes="never")
+    ctx = _build_ctx(writes="never")
     assert any(a["name"] == "pyat-specialist" and a["enabled"] for a in ctx["agents"]), (
         "guard assumes pyat-specialist (a python-requiring agent) is enabled"
     )
@@ -294,8 +308,8 @@ def test_python_execute_regranted_via_allow_for_requiring_agent_when_writes_off(
     assert "mcp__python__execute" not in _ks_deny(ctx)
 
 
-def test_nothing_denied_when_writes_allowed(tmp_path):
-    ctx = _build_ctx(tmp_path, writes="allowed")
+def test_nothing_denied_when_writes_allowed():
+    ctx = _build_ctx(writes="allowed")
     assert _ks_deny(ctx) == []
     # execute carries writes-check and approval, so it leaves `ask` and the
     # agent that requires it keeps it through `allow`.
@@ -305,14 +319,56 @@ def test_nothing_denied_when_writes_allowed(tmp_path):
     assert "mcp__controls__channel_write" not in perms["allow"]
 
 
+def test_allowed_never_puts_a_pure_write_tool_in_allow():
+    """The rescue may re-grant read/write-mixed tools only, never pure writes.
+
+    On an ``allowed`` render every matcher carrying writes-check and approval
+    is pulled from ``ask``, so a rescue keyed on ``remove_ask`` would be free to
+    promote ``channel_write`` or the arming pair to ``allow`` — an
+    auto-approved control-system write with no prompt in front of it. The
+    rescue is keyed on the read/write-mixed set instead.
+    """
+    ctx = _build_ctx(
+        writes="allowed",
+        claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
+    )
+    allow = ctx["facility_permissions"].get("allow", [])
+    assert "mcp__controls__channel_write" not in allow
+    for tool in bsky.ARMING_TOOLS:
+        assert f"mcp__bluesky__{tool}" not in allow
+
+
+def test_allowed_regrants_python_execute_only_for_a_requiring_agent():
+    """python's execute reaches ``allow`` through the required-tool rescue alone.
+
+    With ``pyat-specialist`` enabled the tool is re-granted, exactly as on a
+    ``never`` render: it is the agent's only compute path, and an agent
+    declaring a tool that is in none of the permission lists fails build
+    validation. With that agent off, the ``allowed`` render leaves ``execute``
+    in no list at all and the two runtime hooks decide it per call.
+    """
+    with_agent = _build_ctx(writes="allowed")
+    assert any(a["name"] == "pyat-specialist" and a["enabled"] for a in with_agent["agents"])
+    assert "mcp__python__execute" in with_agent["facility_permissions"]["allow"]
+    assert "mcp__python__execute" not in _ks_deny(with_agent)
+
+    without_agent = _build_ctx(
+        writes="allowed",
+        claude_code_overrides={"agents": {"pyat-specialist": {"enabled": False}}},
+    )
+    perms = without_agent["facility_permissions"]
+    assert "mcp__python__execute" in perms["remove_ask"]
+    assert "mcp__python__execute" not in perms.get("allow", [])
+    assert "mcp__python__execute" not in _ks_deny(without_agent)
+
+
 # ---------------------------------------------------------------------------
 # Extends clone: rewritten-prefix matcher
 # ---------------------------------------------------------------------------
 
 
-def test_extends_clone_of_bluesky_denied_with_rewritten_prefix(tmp_path):
+def test_extends_clone_of_bluesky_denied_with_rewritten_prefix():
     ctx = _build_ctx(
-        tmp_path,
         writes="never",
         claude_code_overrides={"servers": {"bluesky2": {"extends": "bluesky"}}},
     )
@@ -330,14 +386,27 @@ def test_extends_clone_of_bluesky_denied_with_rewritten_prefix(tmp_path):
 # The tier alone: retired per-connector leaves no longer move the render
 # ---------------------------------------------------------------------------
 
+#: The connector block backing each control target on a switch-rendering
+#: deployment. Spelled out rather than resolved, so a preset that stopped
+#: configuring both targets fails these tests instead of quietly making them
+#: assert a render with one block fewer than they claim.
 _LIVE_CONNECTOR = "epics"
 _VA_CONNECTOR = "virtual_accelerator"
 
 
-def test_never_denies_even_with_every_connector_leaf_armed(tmp_path):
+def _switchable(**kwargs):
+    """A two-target deployment: the built type is the live one and both blocks exist.
+
+    The control-assistant preset builds a ``mock`` and carries the two blocks
+    already, so naming ``epics`` as the type is all it takes to make ``live``
+    and ``va`` both selectable — the deployment that used to render three ways.
+    """
+    return _build_ctx(control_system_type=_LIVE_CONNECTOR, **kwargs)
+
+
+def test_never_denies_even_with_every_connector_leaf_armed():
     """The tier is a ceiling: armed retired leaves cannot lift a ``never``."""
-    ctx = _build_ctx(
-        tmp_path,
+    ctx = _switchable(
         writes="never",
         connector_writes={_LIVE_CONNECTOR: True, _VA_CONNECTOR: True},
         claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
@@ -347,10 +416,26 @@ def test_never_denies_even_with_every_connector_leaf_armed(tmp_path):
         assert f"mcp__bluesky__{tool}" in _ks_deny(ctx)
 
 
-def test_allowed_denies_nothing_with_every_connector_leaf_disarmed(tmp_path):
+def test_never_denies_with_every_connector_leaf_disarmed():
+    """Retired leaves that AGREE with a ``never`` tier change nothing either.
+
+    The same hard deny as a deployment that spells the tier alone, with
+    ``execute`` pulled from ``ask`` as on every ``never`` render.
+    """
+    ctx = _switchable(
+        writes="never",
+        connector_writes={_LIVE_CONNECTOR: False, _VA_CONNECTOR: False},
+        claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
+    )
+    assert "mcp__controls__channel_write" in _ks_deny(ctx)
+    for tool in bsky.ARMING_TOOLS:
+        assert f"mcp__bluesky__{tool}" in _ks_deny(ctx)
+    assert "mcp__python__execute" in ctx["facility_permissions"]["remove_ask"]
+
+
+def test_allowed_denies_nothing_with_every_connector_leaf_disarmed():
     """The per-call decision is the runtime switch's, not a retired leaf's."""
-    ctx = _build_ctx(
-        tmp_path,
+    ctx = _switchable(
         writes="allowed",
         connector_writes={_LIVE_CONNECTOR: False, _VA_CONNECTOR: False},
         claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
@@ -358,13 +443,12 @@ def test_allowed_denies_nothing_with_every_connector_leaf_disarmed(tmp_path):
     assert _ks_deny(ctx) == []
 
 
-def test_disagreeing_connector_leaves_render_exactly_like_their_tier(tmp_path):
+def test_disagreeing_connector_leaves_render_exactly_like_their_tier():
     """No three-way render: disagreeing leaves change nothing the tier decides."""
     servers = {"servers": {"bluesky": {"enabled": True}}}
     for writes in ("allowed", "never"):
-        plain = _build_ctx(tmp_path, writes=writes, claude_code_overrides=servers)
-        split = _build_ctx(
-            tmp_path,
+        plain = _switchable(writes=writes, claude_code_overrides=servers)
+        split = _switchable(
             writes=writes,
             connector_writes={_LIVE_CONNECTOR: False, _VA_CONNECTOR: True},
             claude_code_overrides=servers,
@@ -374,11 +458,68 @@ def test_disagreeing_connector_leaves_render_exactly_like_their_tier(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# One-target deployments: the tier is a ceiling for every machine
+# ---------------------------------------------------------------------------
+
+
+def test_an_armed_block_for_an_unreachable_machine_keeps_the_hard_deny():
+    """A doocs deployment carrying an armed epics block stays on its ``never``.
+
+    The session runs the doocs connector; the epics block names a second real
+    machine no target reaches, and with no simulator block the deployment does
+    not render the switch. The tier is target-blind, so the stray armed leaf
+    is not a second opinion the render could weigh: writes are ``never``, and
+    ``channel_write`` and the arming pair are denied.
+    """
+    ctx = _build_ctx(
+        writes="never",
+        control_system_type="doocs",
+        drop_connectors=(_VA_CONNECTOR,),
+        connector_writes={_LIVE_CONNECTOR: True},
+        claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
+    )
+    assert "mcp__controls__channel_write" in _ks_deny(ctx)
+    for tool in bsky.ARMING_TOOLS:
+        assert f"mcp__bluesky__{tool}" in _ks_deny(ctx)
+
+
+def test_a_single_target_deployment_renders_exactly_its_tier():
+    """An epics deployment with no VA block reads the tier and nothing else.
+
+    One reachable target, its own retired leaf set against the tier each way:
+    ``never`` with the leaf armed is the hard deny, ``allowed`` with the leaf
+    disarmed renders nothing. A render that still counted targets would get
+    both backwards, and the dangerous one — an armed leaf lifting a ``never`` —
+    is the direction this pins first.
+    """
+    denied = _build_ctx(
+        writes="never",
+        control_system_type=_LIVE_CONNECTOR,
+        drop_connectors=(_VA_CONNECTOR,),
+        connector_writes={_LIVE_CONNECTOR: True},
+        claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
+    )
+    assert "mcp__controls__channel_write" in _ks_deny(denied)
+    for tool in bsky.ARMING_TOOLS:
+        assert f"mcp__bluesky__{tool}" in _ks_deny(denied)
+
+    armed = _build_ctx(
+        writes="allowed",
+        control_system_type=_LIVE_CONNECTOR,
+        drop_connectors=(_VA_CONNECTOR,),
+        connector_writes={_LIVE_CONNECTOR: False},
+        claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
+    )
+    assert _ks_deny(armed) == []
+    assert "mcp__controls__channel_write" not in armed["facility_permissions"].get("allow", [])
+
+
+# ---------------------------------------------------------------------------
 # Only the literal `allowed` arms writes
 # ---------------------------------------------------------------------------
 
 
-def test_a_value_other_than_allowed_renders_the_kill_switch(tmp_path):
+def test_a_value_other_than_allowed_renders_the_kill_switch():
     """``'Allowed'``, ``'true'``, ``True`` and ``1`` are not ``allowed``.
 
     A value nobody can be sure of lands on the side that costs an operator a
@@ -386,7 +527,6 @@ def test_a_value_other_than_allowed_renders_the_kill_switch(tmp_path):
     """
     for value in ("Allowed", "true", True, 1):
         ctx = _build_ctx(
-            tmp_path,
             writes=value,
             claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
         )

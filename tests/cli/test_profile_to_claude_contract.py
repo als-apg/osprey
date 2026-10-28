@@ -1192,11 +1192,11 @@ def test_remove_deny_still_subtracts_profile_authored_deny(
     assert "mcp__controls__channel_write" in deny
 
 
-def test_killswitch_deny_absent_when_writes_enabled(tmp_path, built_control_assistant_project):
-    """With writes ON there is no kill-switch deny to protect, and none renders.
+def test_killswitch_deny_absent_when_writes_allowed(tmp_path, built_control_assistant_project):
+    """On an ``allowed`` tier there is no kill-switch deny to protect, and none renders.
 
     Guards the split against the opposite failure: a ``killswitch_deny`` key
-    that leaked entries into a writes-enabled render would deny the control
+    that leaked entries into an ``allowed`` render would deny the control
     system's write tool on a deployment that is supposed to have it.
     """
     project = _killswitch_project(
@@ -1212,7 +1212,9 @@ def test_killswitch_deny_absent_when_writes_enabled(tmp_path, built_control_assi
 
 
 @pytest.mark.parametrize("writes", ["never", "allowed"], ids=["writes-off", "writes-on"])
-def test_the_write_floor_denies_monitor_and_enterworktree_in_either_posture(tmp_path, writes):
+def test_the_write_floor_denies_monitor_and_enterworktree_in_either_posture(
+    tmp_path, built_control_assistant_project, writes
+):
     """The read-only session refuses ``Monitor`` and ``EnterWorktree``, and so
     does a session with writes on, exactly as for ``Bash`` and ``Edit``.
 
@@ -1255,18 +1257,18 @@ def test_killswitch_dedupe_when_profile_also_denies(tmp_path, built_control_assi
 
 
 # ---------------------------------------------------------------------------
-# Per-target write posture: the third render shape
+# The tier alone: retired per-connector leaves no longer move the render
 # ---------------------------------------------------------------------------
 
-#: The connector blocks backing the two control targets, and the key that makes
-#: both selectable. The render counts only targets a session here can be pointed
-#: at, and a deployment has two of those only when it renders the switch — its
-#: own type is one of the targets and both have a configured block. The
-#: control-assistant preset builds a ``mock`` and already carries both blocks,
-#: so naming ``epics`` as the type is what opens the second target. Spelled out
-#: rather than resolved, so a preset that stopped configuring both targets fails
-#: these tests instead of quietly turning them into another copy of the
-#: writes-off case.
+#: The retired per-connector leaves of the two control targets, and the key that
+#: makes both selectable. The render used to count the targets a session here
+#: could be pointed at and render a third way when they disagreed; it now reads
+#: ``control_system.writes`` alone, and these spell the old keys so the tests
+#: below can prove they are inert. The control-assistant preset builds a
+#: ``mock`` and already carries both blocks, so naming ``epics`` as the type is
+#: what opens the second target. Spelled out rather than resolved, so a preset
+#: that stopped configuring both targets fails these tests instead of quietly
+#: turning them into another copy of the single-block case.
 _TYPE_KEY = "control_system.type"
 _LIVE_TYPE = "epics"
 _LIVE_WRITES = "control_system.connector.epics.writes_enabled"
@@ -1291,7 +1293,9 @@ def _rendered_permissions(project: Path) -> dict:
     ],
     ids=["flat-off-va-armed", "flat-armed-live-off", "both-blocks-armed-flat-off"],
 )
-def test_an_armed_retired_leaf_without_the_tier_key_keeps_the_kill_switch(tmp_path, fields):
+def test_an_armed_retired_leaf_without_the_tier_key_keeps_the_kill_switch(
+    tmp_path, built_control_assistant_project, fields
+):
     """A render spelling only retired leaves reads tier ``never``, whichever is ``true``.
 
     The build rewrites a retired leaf to the tier key; a ``config.yml`` edited
@@ -1301,10 +1305,13 @@ def test_an_armed_retired_leaf_without_the_tier_key_keeps_the_kill_switch(tmp_pa
     ``tier-absent-old-armed-connector``, ruling D2). So ``channel_write`` stays
     statically denied, in exactly the lists an explicit ``never`` tier puts it.
     """
-    project = _retired_posture_project(tmp_path, "posture-retired-armed", fields)
+    project = _retired_posture_project(
+        built_control_assistant_project, tmp_path, "posture-retired-armed", fields
+    )
     perms = _rendered_permissions(project)
     assert "mcp__controls__channel_write" in perms["deny"]
     explicit = _killswitch_project(
+        built_control_assistant_project,
         tmp_path,
         "posture-explicit-never",
         {_TYPE_KEY: _LIVE_TYPE, "control_system.writes": "never"},
@@ -1314,7 +1321,9 @@ def test_an_armed_retired_leaf_without_the_tier_key_keeps_the_kill_switch(tmp_pa
     ) == _permission_lists_holding(_rendered_permissions(explicit), "mcp__controls__channel_write")
 
 
-def test_mixed_posture_leaves_python_execute_unasked_and_undenied(tmp_path):
+def test_mixed_posture_leaves_python_execute_unasked_and_undenied(
+    tmp_path, built_control_assistant_project
+):
     """python's execute is pulled from ask on a retired-leaf (``never``) render, never denied.
 
     It reaches ``allow`` here only through the required-tool rescue, which the
@@ -1326,6 +1335,7 @@ def test_mixed_posture_leaves_python_execute_unasked_and_undenied(tmp_path):
     write-access kernel on a target whose posture forbids one.
     """
     project = _retired_posture_project(
+        built_control_assistant_project,
         tmp_path,
         "posture-mixed-execute",
         {_TYPE_KEY: _LIVE_TYPE, "control_system.writes_enabled": False, _VA_WRITES: True},
@@ -1445,7 +1455,9 @@ def test_execute_file_lands_in_the_same_permission_list_as_execute(
     )
 
 
-def test_all_write_posture_asks_for_both_python_exec_tools(tmp_path):
+def test_all_write_posture_asks_for_both_python_exec_tools(
+    tmp_path, built_control_assistant_project
+):
     """On an ``allowed`` tier both exec tools are approval-gated, not prompted.
 
     The parity test above would be satisfied by both tools being unlisted, which
@@ -1475,24 +1487,27 @@ def test_all_write_posture_asks_for_both_python_exec_tools(tmp_path):
         assert any("osprey_approval.py" in c for c in wired), (tool, wired)
 
 
-def _retired_posture_project(tmp_path, name: str, fields: dict) -> Path:
+def _retired_posture_project(base: Path, tmp_path, name: str, fields: dict) -> Path:
     """A built project whose posture is spelled in the retired leaves alone.
 
     The preset carries ``control_system.writes``, which alone decides when
     present, so it is removed before *fields* go on: the render then reads a
     section with no tier key, which ``tier_writes`` answers ``never`` whatever
-    the retired leaves say (ruling D2).
+    the retired leaves say (ruling D2). *base* is the module's shared build,
+    copied the same way ``_killswitch_project`` copies it.
     """
     from osprey.utils.config_writer import config_delete_field, config_update_fields
 
-    project = _killswitch_project(tmp_path, name, {})
+    project = _killswitch_project(base, tmp_path, name, {})
     assert config_delete_field(project / "config.yml", "control_system.writes")
     config_update_fields(project / "config.yml", fields)
     TemplateManager().regenerate_claude_code(project)
     return project
 
 
-def test_per_connector_keys_agreeing_with_the_global_key_still_kill_switch(tmp_path):
+def test_per_connector_keys_agreeing_with_the_global_key_still_kill_switch(
+    tmp_path, built_control_assistant_project
+):
     """Every retired leaf disarmed, no tier key: the hard deny is back.
 
     With ``control_system.writes`` absent the render's tier is ``never``, so
@@ -1500,6 +1515,7 @@ def test_per_connector_keys_agreeing_with_the_global_key_still_kill_switch(tmp_p
     already had.
     """
     project = _retired_posture_project(
+        built_control_assistant_project,
         tmp_path,
         "posture-both-disarmed",
         {
@@ -1512,7 +1528,9 @@ def test_per_connector_keys_agreeing_with_the_global_key_still_kill_switch(tmp_p
     assert "mcp__controls__channel_write" in _rendered_deny(project)
 
 
-def test_a_deployment_whose_only_target_is_disarmed_still_renders_the_deny(tmp_path):
+def test_a_deployment_whose_only_target_is_disarmed_still_renders_the_deny(
+    tmp_path, built_control_assistant_project
+):
     """One reachable target, on a ``never`` tier: the kill switch fires.
 
     This project builds ``epics`` and has no virtual-accelerator block, so it
