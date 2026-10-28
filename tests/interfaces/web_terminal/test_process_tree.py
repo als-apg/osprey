@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-import time
 
 import psutil
 import pytest
@@ -13,6 +12,7 @@ import pytest
 from osprey.interfaces.web_terminal import process_tree
 from osprey.interfaces.web_terminal.process_tree import ProcessGroup
 from osprey.interfaces.web_terminal.pty_manager import PtySession
+from tests._live import wait_until
 from tests.interfaces.web_terminal._chat_child import child_factory
 from tests.interfaces.web_terminal._pty_child import (
     CHILD_HANG_CEILING,
@@ -258,12 +258,11 @@ def test_still_running_drops_a_group_whose_members_are_unreaped_zombies():
         group = ProcessGroup(row.pgid, ((row.pid, row.started),), "python", row.command)
         assert proc.stdin is not None
         proc.stdin.close()
-        deadline = time.monotonic() + 10
-        state = ""
-        while state != psutil.STATUS_ZOMBIE:
-            assert time.monotonic() < deadline
-            time.sleep(0.05)
-            state = psutil.Process(proc.pid).status()
+        wait_until(
+            lambda: psutil.Process(proc.pid).status() == psutil.STATUS_ZOMBIE,
+            timeout=10,
+            what="the child to become a zombie",
+        )
 
         assert process_tree.still_running([group], readable_rows()) == []
     finally:
@@ -456,14 +455,11 @@ def test_describe_escapes_names():
 
 
 def _read_pids(path, count: int) -> list[int]:
-    deadline = time.monotonic() + CHILD_HANG_CEILING
-    while True:
-        if path.exists():
-            lines = path.read_text().split()
-            if len(lines) >= count:
-                return [int(line) for line in lines[:count]]
-        assert time.monotonic() < deadline, f"no {count} pid(s) in {path.name}"
-        time.sleep(0.05)
+    def pids() -> list[int] | None:
+        lines = path.read_text().split() if path.exists() else []
+        return [int(line) for line in lines[:count]] if len(lines) >= count else None
+
+    return wait_until(pids, timeout=CHILD_HANG_CEILING, what=f"{count} pid(s) in {path.name}")
 
 
 @pytest.mark.usefixtures("readable_process_table")

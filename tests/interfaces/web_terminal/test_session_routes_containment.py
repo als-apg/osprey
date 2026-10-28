@@ -5,13 +5,11 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
 
 from osprey.agent_runner.project_paths import CLAUDE_CONFIG_DIR_ENV, claude_project_dir
-from osprey.interfaces.web_terminal.app import create_app
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 
 def _ts(minute: int) -> str:
@@ -35,15 +33,10 @@ def client(tmp_path, transcripts):
     project, _ = transcripts
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
-    with patch(
-        "osprey.interfaces.web_terminal.app._load_web_config",
-        return_value={"watch_dir": str(workspace)},
-    ):
-        app = create_app(shell_command="echo", project_dir=project)
-        with TestClient(app) as c:
-            app.state.transcript_map = {}
-            app.state.transcript_map_provisional = False
-            yield c
+    with terminal_client(workspace, project_dir=project) as c:
+        c.app.state.transcript_map = {}
+        c.app.state.transcript_map_provisional = False
+        yield c
 
 
 def _plant_outside(tmp_path: Path, escaping: Path) -> str:

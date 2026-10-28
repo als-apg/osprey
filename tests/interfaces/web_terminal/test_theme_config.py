@@ -18,7 +18,6 @@ import logging
 from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
 
 from osprey.interfaces.design_system.generator.emit_js import ThemeManifestEntry
 from osprey.interfaces.design_system.theme_config import (
@@ -28,8 +27,7 @@ from osprey.interfaces.design_system.theme_config import (
     resolve_pinned_mode,
     resolve_theme_id,
 )
-from osprey.interfaces.web_terminal.app import create_app
-from tests.interfaces.web_terminal._started_app import started_client
+from tests.interfaces.web_terminal._started_app import started_client, terminal_client
 
 # A synthetic manifest mirroring the real baked tokens.js THEMES: the
 # `main` family (dark/light) plus a `high-contrast` family (dark/light).
@@ -89,13 +87,6 @@ class TestResolveWebThemeId:
 # ---- Render path: GET "/" server-renders the resolved data-theme ----
 
 
-@pytest.fixture
-def workspace_dir(tmp_path):
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
-    return ws
-
-
 class TestRenderedDataTheme:
     @pytest.mark.parametrize(
         ("env", "configured", "theme", "mode"),
@@ -135,17 +126,13 @@ class TestRenderedDataTheme:
 
     def test_missing_config_yml_fails_open_to_dark(self, workspace_dir):
         """No config.yml at all (FileNotFoundError from get_config_value) -> fallback 'dark'."""
-        with (
-            patch(
-                "osprey.interfaces.web_terminal.app._load_web_config",
-                return_value={"watch_dir": str(workspace_dir)},
-            ),
+        with terminal_client(
+            workspace_dir,
             patch(
                 "osprey_connectors.config.get_config_value",
                 side_effect=FileNotFoundError("no config.yml found"),
             ),
-            TestClient(create_app(shell_command=["echo"])) as client,
-        ):
+        ) as client:
             body = client.get("/").text
             assert 'data-theme="dark"' in body
 

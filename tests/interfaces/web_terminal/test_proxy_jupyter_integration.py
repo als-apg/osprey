@@ -33,7 +33,7 @@ from fastapi.testclient import TestClient
 
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces.common_middleware import compute_url_prefix
-from osprey.interfaces.web_terminal.app import UNIVERSAL_PANELS, create_app
+from osprey.interfaces.web_terminal.app import UNIVERSAL_PANELS
 from osprey.interfaces.web_terminal.jupyter_sidecar import (
     KERNELSPEC_NAME,
     STARTER_NOTEBOOK_NAME,
@@ -41,6 +41,7 @@ from osprey.interfaces.web_terminal.jupyter_sidecar import (
     kernel_notebook_path,
 )
 from osprey.interfaces.web_terminal.routes import proxy as proxy_module
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 #: Both halves of every test here spawn a process: the sidecar, then a kernel.
 pytestmark = pytest.mark.slow
@@ -138,11 +139,8 @@ def proxied(sidecar: JupyterSidecar, notebook_env: Path) -> Iterator[TestClient]
     """
     workspace = notebook_env / "_agent_data"
     workspace.mkdir(exist_ok=True)
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace)},
-        ),
+    with terminal_client(
+        workspace,
         patch(
             "osprey.interfaces.web_terminal.app._load_panel_config",
             return_value=(set(UNIVERSAL_PANELS), [], None),
@@ -162,12 +160,10 @@ def proxied(sidecar: JupyterSidecar, notebook_env: Path) -> Iterator[TestClient]
             "osprey.infrastructure.server_launcher.ensure_web_server",
             lambda key: None,
         ),
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as client:
-            app.state.jupyter_server_url = sidecar.url
-            app.state.panel_auth_headers = {"jupyter": dict(sidecar.auth_headers)}
-            yield client
+    ) as client:
+        client.app.state.jupyter_server_url = sidecar.url
+        client.app.state.panel_auth_headers = {"jupyter": dict(sidecar.auth_headers)}
+        yield client
 
 
 @pytest.fixture(scope="module")

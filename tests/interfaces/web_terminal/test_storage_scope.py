@@ -28,10 +28,9 @@ import re
 from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
 
 from osprey.interfaces.common_middleware import resolve_storage_scope
-from osprey.interfaces.web_terminal.app import create_app
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 #: The attribute under test.
 ATTR = "data-osprey-storage-scope"
@@ -43,14 +42,6 @@ _PAGES = [
     ("session", "/static/session.html"),
 ]
 _PAGE_IDS = [p[0] for p in _PAGES]
-
-
-@pytest.fixture
-def workspace_dir(tmp_path):
-    """Temporary workspace directory for the app to watch."""
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
-    return ws
 
 
 def _html_tag(body: str) -> str:
@@ -77,21 +68,16 @@ def _serve(workspace_dir, terminal_user: str | None):
         ``{page_id: response_body}`` for every page in :data:`_PAGES`.
     """
     env = {} if terminal_user is None else {"OSPREY_TERMINAL_USER": terminal_user}
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
+    with terminal_client(
+        workspace_dir,
         patch.dict("os.environ", env),
-    ):
-        app = create_app(shell_command=["echo"])
-        with TestClient(app) as client:
-            bodies = {}
-            for page_id, path in _PAGES:
-                response = client.get(path)
-                assert response.status_code == 200, f"{page_id} did not render"
-                bodies[page_id] = response.text
-            return bodies
+    ) as client:
+        bodies = {}
+        for page_id, path in _PAGES:
+            response = client.get(path)
+            assert response.status_code == 200, f"{page_id} did not render"
+            bodies[page_id] = response.text
+        return bodies
 
 
 class TestResolveStorageScope:

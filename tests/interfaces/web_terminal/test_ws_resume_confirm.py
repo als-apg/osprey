@@ -27,59 +27,22 @@ with ``_spawn_session`` patched to a ``FakePtySession``.
 from __future__ import annotations
 
 import sys
-import time
-import uuid as uuid_mod
-from unittest.mock import patch
 
 import pytest
 from starlette.testclient import TestClient
 
-from osprey.interfaces.web_terminal.app import create_app
-from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
-from tests.interfaces.web_terminal._fakes import FakePtySession
-from tests.interfaces.web_terminal._ws import json_frames_until, recv_frame, recv_json
+from tests._live import wait_until
+from tests.interfaces.web_terminal._ws import (
+    json_frames_until,
+    new_session_id,
+    patch_spawn,
+    recv_frame,
+    recv_json,
+    resume_url,
+    send_resize,
+)
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
-
-
-def _uuid() -> str:
-    return str(uuid_mod.uuid4())
-
-
-def _resume_url(session_id: str) -> str:
-    return f"/ws/terminal?session_id={session_id}&mode=resume"
-
-
-def _send_resize(ws, cols: int = 80, rows: int = 24):
-    """Send the initial resize the handler waits for before spawning."""
-    ws.send_json({"type": "resize", "cols": cols, "rows": rows})
-
-
-def _wait_for_spawn(spawned: list, timeout: float = 5.0) -> FakePtySession:
-    deadline = time.monotonic() + timeout
-    while not spawned and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert spawned, "handler never spawned a PTY"
-    return spawned[-1]
-
-
-@pytest.fixture()
-def app(tmp_path):
-    """Create a web terminal app pointed at a temp project dir."""
-    with patch(
-        "osprey.interfaces.web_terminal.app._load_web_config",
-        return_value={"watch_dir": str(tmp_path / "ws")},
-    ):
-        yield create_app(shell_command="fake-not-used", project_dir=str(tmp_path))
-
-
-@pytest.fixture()
-def sessions_dir(tmp_path):
-    """Point ``SessionDiscovery`` at an empty transcript directory."""
-    d = tmp_path / "claude_sessions"
-    d.mkdir()
-    with patch.object(SessionDiscovery, "_resolve_sessions_dir", lambda self: d):
-        yield d
 
 
 class _IdleChat:
@@ -150,27 +113,13 @@ class _ChatHoldingRegistry:
         pass
 
 
-def _patch_spawn(app):
-    """Replace ``_spawn_session`` so no real PTY is created."""
-    reg = app.state.pty_registry
-    spawned: list[FakePtySession] = []
-
-    def tracked_spawn(*_args, **_kwargs):
-        s = FakePtySession()
-        spawned.append(s)
-        return s
-
-    reg._spawn_session = tracked_spawn
-    return reg, spawned
-
-
 # ---------------------------------------------------------------------------
 # Warm session — confirmed synchronously
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.usefixtures("sessions_dir")
-def test_warm_session_without_transcript_is_reattached(app):
+def test_warm_session_without_transcript_is_reattached(ws_app):
     """A session opened and never prompted has a PTY but no transcript yet.
 
     Claude Code writes ``projects/<encoded>/<id>.jsonl`` on the first prompt,
@@ -178,14 +127,14 @@ def test_warm_session_without_transcript_is_reattached(app):
     on disk. The warm PTY is the session; the missing file must not be read
     as a missing transcript.
     """
-    with TestClient(app) as client:
-        reg, spawned = _patch_spawn(app)
+    with TestClient(ws_app) as client:
+        reg, spawned = patch_spawn(ws_app)
         with client.websocket_connect("/ws/terminal") as ws:
-            _send_resize(ws)
+            send_resize(ws)
             sid = recv_json(ws, "session_info")["session_id"]
 
-        with client.websocket_connect(_resume_url(sid)) as ws:
-            _send_resize(ws)
+        with client.websocket_connect(resume_url(sid)) as ws:
+            send_resize(ws)
             assert recv_json(ws, "session_info")["session_id"] == sid
 
         # Warm reuse under the confirmed id: nothing new spawned or pooled.
@@ -199,14 +148,14 @@ def test_warm_session_without_transcript_is_reattached(app):
 # ---------------------------------------------------------------------------
 
 
-def test_cold_resume_with_existing_file_confirms_immediately(app, sessions_dir):
+def test_cold_resume_with_existing_file_confirms_immediately(ws_app, sessions_dir):
     """A not-currently-warm resume whose transcript exists is trusted at once."""
-    sid = _uuid()
+    sid = new_session_id()
     (sessions_dir / f"{sid}.jsonl").write_text("")
-    with TestClient(app) as client:
-        _, spawned = _patch_spawn(app)
-        with client.websocket_connect(_resume_url(sid)) as ws:
-            _send_resize(ws)
+    with TestClient(ws_app) as client:
+        _, spawned = patch_spawn(ws_app)
+        with client.websocket_connect(resume_url(sid)) as ws:
+            send_resize(ws)
             assert recv_json(ws, "session_info")["session_id"] == sid
     assert len(spawned) == 1
 
@@ -217,7 +166,7 @@ def test_cold_resume_with_existing_file_confirms_immediately(app, sessions_dir):
 
 
 @pytest.mark.usefixtures("sessions_dir")
-def test_cold_resume_without_transcript_is_surfaced_not_spawned(app):
+def test_cold_resume_without_transcript_is_surfaced_not_spawned(ws_app):
     """No warm PTY and no ``.jsonl``: nothing to resume, so nothing is spawned.
 
     ``claude --resume <id>`` on such an id prints ``No conversation found``
@@ -225,11 +174,11 @@ def test_cold_resume_without_transcript_is_surfaced_not_spawned(app):
     knows before spawning; it says so and closes, and the client renders the
     state (terminal.js) instead of a doomed child.
     """
-    sid = _uuid()
-    with TestClient(app) as client:
-        reg, spawned = _patch_spawn(app)
-        with client.websocket_connect(_resume_url(sid)) as ws:
-            _send_resize(ws)
+    sid = new_session_id()
+    with TestClient(ws_app) as client:
+        reg, spawned = patch_spawn(ws_app)
+        with client.websocket_connect(resume_url(sid)) as ws:
+            send_resize(ws)
             msg = recv_json(ws, "transcript_missing")
             assert msg["session_id"] == sid
             # The server closes rather than holding a socket with no PTY.
@@ -244,7 +193,7 @@ def test_cold_resume_without_transcript_is_surfaced_not_spawned(app):
 # ---------------------------------------------------------------------------
 
 
-def test_resume_child_that_finds_no_conversation_is_surfaced(app, sessions_dir):
+def test_resume_child_that_finds_no_conversation_is_surfaced(ws_app, sessions_dir):
     """A ``--resume`` child that exits on ``No conversation found`` is surfaced.
 
     The pre-spawn check can be beaten (a transcript removed after the check,
@@ -254,14 +203,14 @@ def test_resume_child_that_finds_no_conversation_is_surfaced(app, sessions_dir):
     produces — not a bare ``exit`` the client would read as the operator
     ending a session.
     """
-    sid = _uuid()
+    sid = new_session_id()
     (sessions_dir / f"{sid}.jsonl").write_text("")
-    with TestClient(app) as client:
-        _, spawned = _patch_spawn(app)
-        with client.websocket_connect(_resume_url(sid)) as ws:
-            _send_resize(ws)
+    with TestClient(ws_app) as client:
+        _, spawned = patch_spawn(ws_app)
+        with client.websocket_connect(resume_url(sid)) as ws:
+            send_resize(ws)
             assert recv_json(ws, "session_info")["session_id"] == sid
-            child = _wait_for_spawn(spawned)
+            child = wait_until(lambda: spawned, timeout=5.0, what="the handler to spawn a PTY")[-1]
             child.emit(b"No conversation found with session ID:\r\n")
             child.emit(f"{sid}\r\n".encode())
             child.exit(1)
@@ -273,16 +222,16 @@ def test_resume_child_that_finds_no_conversation_is_surfaced(app, sessions_dir):
     assert "exit" not in [m["type"] for m in seen]
 
 
-def test_resume_child_exiting_for_another_reason_still_sends_exit(app, sessions_dir):
+def test_resume_child_exiting_for_another_reason_still_sends_exit(ws_app, sessions_dir):
     """Only the missing-transcript verdict is rewritten; other exits stay exits."""
-    sid = _uuid()
+    sid = new_session_id()
     (sessions_dir / f"{sid}.jsonl").write_text("")
-    with TestClient(app) as client:
-        _, spawned = _patch_spawn(app)
-        with client.websocket_connect(_resume_url(sid)) as ws:
-            _send_resize(ws)
+    with TestClient(ws_app) as client:
+        _, spawned = patch_spawn(ws_app)
+        with client.websocket_connect(resume_url(sid)) as ws:
+            send_resize(ws)
             assert recv_json(ws, "session_info")["session_id"] == sid
-            child = _wait_for_spawn(spawned)
+            child = wait_until(lambda: spawned, timeout=5.0, what="the handler to spawn a PTY")[-1]
             child.emit(b"Resumed. Goodbye.\r\n")
             child.exit(0)
 
@@ -298,7 +247,7 @@ def test_resume_child_exiting_for_another_reason_still_sends_exit(app, sessions_
 
 
 @pytest.mark.usefixtures("sessions_dir")
-def test_cold_resume_of_a_chat_held_key_is_not_refused(app):
+def test_cold_resume_of_a_chat_held_key_is_not_refused(ws_app):
     """An id only the chat pool holds resumes instead of being refused.
 
     The Simple view keys its pool on the same session key the terminal does,
@@ -308,14 +257,14 @@ def test_cold_resume_of_a_chat_held_key_is_not_refused(app):
     conversation they are looking at is gone. What happens instead is the
     hand-off: the chat is torn down and the terminal takes the key.
     """
-    sid = _uuid()
-    with TestClient(app) as client:
-        _, spawned = _patch_spawn(app)
+    sid = new_session_id()
+    with TestClient(ws_app) as client:
+        _, spawned = patch_spawn(ws_app)
         holder = _ChatHoldingRegistry(sid)
-        app.state.operator_registry = holder
+        ws_app.state.operator_registry = holder
 
-        with client.websocket_connect(_resume_url(sid)) as ws:
-            _send_resize(ws)
+        with client.websocket_connect(resume_url(sid)) as ws:
+            send_resize(ws)
             assert recv_json(ws, "session_info")["session_id"] == sid
 
     assert len(spawned) == 1
@@ -324,15 +273,15 @@ def test_cold_resume_of_a_chat_held_key_is_not_refused(app):
 
 
 @pytest.mark.usefixtures("sessions_dir")
-def test_cold_resume_of_a_key_no_surface_holds_is_refused(app):
+def test_cold_resume_of_a_key_no_surface_holds_is_refused(ws_app):
     """With a chat pool answering to some OTHER key, the refusal still stands."""
-    sid = _uuid()
-    with TestClient(app) as client:
-        reg, spawned = _patch_spawn(app)
-        app.state.operator_registry = _ChatHoldingRegistry(_uuid())
+    sid = new_session_id()
+    with TestClient(ws_app) as client:
+        reg, spawned = patch_spawn(ws_app)
+        ws_app.state.operator_registry = _ChatHoldingRegistry(new_session_id())
 
-        with client.websocket_connect(_resume_url(sid)) as ws:
-            _send_resize(ws)
+        with client.websocket_connect(resume_url(sid)) as ws:
+            send_resize(ws)
             assert recv_json(ws, "transcript_missing")["session_id"] == sid
             assert recv_frame(ws)["type"] == "websocket.close"
 
@@ -356,17 +305,19 @@ MALFORMED_KEYS = [
 
 
 @pytest.mark.parametrize("bad", MALFORMED_KEYS)
-def test_a_resume_outside_the_key_grammar_is_refused_even_with_a_transcript(app, sessions_dir, bad):
+def test_a_resume_outside_the_key_grammar_is_refused_even_with_a_transcript(
+    ws_app, sessions_dir, bad
+):
     """A transcript named after a non-key does not make it a key.
 
     The answer is the one an id naming no session gets: ``transcript_missing``
     and a close, with nothing spawned, pooled, reserved or attached.
     """
     (sessions_dir / f"{bad}.jsonl").write_text("")
-    with TestClient(app) as client:
-        reg, spawned = _patch_spawn(app)
-        with client.websocket_connect(_resume_url(bad)) as ws:
-            _send_resize(ws)
+    with TestClient(ws_app) as client:
+        reg, spawned = patch_spawn(ws_app)
+        with client.websocket_connect(resume_url(bad)) as ws:
+            send_resize(ws)
             assert recv_json(ws, "transcript_missing")["session_id"] == bad
             assert recv_frame(ws)["type"] == "websocket.close"
 
@@ -378,16 +329,16 @@ def test_a_resume_outside_the_key_grammar_is_refused_even_with_a_transcript(app,
 
 
 @pytest.mark.usefixtures("sessions_dir")
-def test_a_resume_outside_the_key_grammar_never_reaches_the_chat_pool(app):
+def test_a_resume_outside_the_key_grammar_never_reaches_the_chat_pool(ws_app):
     """A chat pool answering to a non-key is never asked, so no hand-off happens."""
     bad = "0" * 36
-    with TestClient(app) as client:
-        _, spawned = _patch_spawn(app)
+    with TestClient(ws_app) as client:
+        _, spawned = patch_spawn(ws_app)
         holder = _ChatHoldingRegistry(bad)
-        app.state.operator_registry = holder
+        ws_app.state.operator_registry = holder
 
-        with client.websocket_connect(_resume_url(bad)) as ws:
-            _send_resize(ws)
+        with client.websocket_connect(resume_url(bad)) as ws:
+            send_resize(ws)
             assert recv_json(ws, "transcript_missing")["session_id"] == bad
             assert recv_frame(ws)["type"] == "websocket.close"
 

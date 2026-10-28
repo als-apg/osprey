@@ -5,29 +5,15 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
 
-from osprey.interfaces.web_terminal.app import create_app
-
-
-@pytest.fixture
-def workspace_dir(tmp_path):
-    """An empty watched directory."""
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
-    return ws
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 
 @pytest.fixture
 def client(workspace_dir):
     """Create a test client with mocked config active through lifespan."""
-    with patch(
-        "osprey.interfaces.web_terminal.app._load_web_config",
-        return_value={"watch_dir": str(workspace_dir)},
-    ):
-        app = create_app(shell_command=["echo"])
-        with TestClient(app) as c:
-            yield c
+    with terminal_client(workspace_dir) as c:
+        yield c
 
 
 class TestProjectDir:
@@ -36,25 +22,15 @@ class TestProjectDir:
         project = tmp_path / "my-project"
         project.mkdir()
 
-        with patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ):
-            app = create_app(shell_command=["echo"], project_dir=str(project))
-            with TestClient(app):
-                assert app.state.project_cwd == str(project.resolve())
+        with terminal_client(workspace_dir, project_dir=str(project)) as c:
+            assert c.app.state.project_cwd == str(project.resolve())
 
     def test_default_project_cwd_is_cwd(self, workspace_dir):
         """Without project_dir, project_cwd defaults to os.getcwd()."""
-        with patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ):
-            app = create_app(shell_command=["echo"])
-            with TestClient(app):
-                from pathlib import Path
+        with terminal_client(workspace_dir) as c:
+            from pathlib import Path
 
-                assert app.state.project_cwd == str(Path.cwd().resolve())
+            assert c.app.state.project_cwd == str(Path.cwd().resolve())
 
 
 class TestHealthEndpoint:
@@ -155,23 +131,17 @@ class TestHeaderAppName:
     """web.app_name surfaces as an optional header badge for deployment ID."""
 
     def test_app_name_renders_when_set(self, workspace_dir):
-        cfg = {"watch_dir": str(workspace_dir)}
-        with (
-            patch(
-                "osprey.interfaces.web_terminal.app._load_web_config",
-                return_value=cfg,
-            ),
+        with terminal_client(
+            workspace_dir,
             patch(
                 "osprey.interfaces.web_terminal.app._load_web_ui_config",
                 return_value={"app_name": "Control Room A"},
             ),
-        ):
-            app = create_app(shell_command=["echo"])
-            with TestClient(app) as c:
-                assert app.state.app_name == "Control Room A"
-                body = c.get("/").text
-                assert "header-deployment" in body
-                assert "Control Room A" in body
+        ) as c:
+            assert c.app.state.app_name == "Control Room A"
+            body = c.get("/").text
+            assert "header-deployment" in body
+            assert "Control Room A" in body
 
     def test_app_name_absent_when_unset(self, client):
         # The shared `client` fixture supplies no `web` section.
@@ -181,19 +151,13 @@ class TestHeaderAppName:
     def test_env_var_overrides_config(self, workspace_dir):
         # OSPREY_WEB_APP_NAME wins over web.app_name so containers sharing one
         # baked config image can still be named individually.
-        cfg = {"watch_dir": str(workspace_dir)}
-        with (
-            patch(
-                "osprey.interfaces.web_terminal.app._load_web_config",
-                return_value=cfg,
-            ),
+        with terminal_client(
+            workspace_dir,
             patch(
                 "osprey.interfaces.web_terminal.app._load_web_ui_config",
                 return_value={"app_name": "From Config"},
             ),
             patch.dict("os.environ", {"OSPREY_WEB_APP_NAME": "From Env"}),
-        ):
-            app = create_app(shell_command=["echo"])
-            with TestClient(app) as c:
-                assert app.state.app_name == "From Env"
-                assert "From Env" in c.get("/").text
+        ) as c:
+            assert c.app.state.app_name == "From Env"
+            assert "From Env" in c.get("/").text
