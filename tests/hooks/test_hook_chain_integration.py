@@ -545,7 +545,7 @@ def test_plan_mode_channel_write_is_denied_once_and_asked_nowhere(tmp_path, hook
     """
     config = _make_chain_config(
         tmp_path,
-        writes_enabled=True,
+        writes="allowed",
         channels_db={"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}},
         approval_default_policy="always",
         approval_tools={"channel_write": "always"},

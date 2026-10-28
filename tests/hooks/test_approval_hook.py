@@ -2909,7 +2909,7 @@ PLAN_MODE_APPROVAL_CONFIG = {
         "default_policy": "always",
         "tools": {"channel_write": "always", "stop_run": "always"},
     },
-    "control_system": {"writes_enabled": True},
+    "control_system": {"writes": "allowed"},
 }
 
 PLAN_WRITE_INPUT = {"operations": [{"channel": "TEST:PV", "value": 1.0}]}
