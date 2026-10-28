@@ -1,7 +1,8 @@
 {
   "api_key_env_stripped": true,
-  "baseline_commit": "93415334267583c0c6b9a1c5e757143ab5d4a057",
-  "baseline_sha": "93415334267583c0c6b9a1c5e757143ab5d4a057",
+  "baseline_commit": "467c4c642a261dea878ccd71e6ce858b5321f998",
+  "baseline_sha": "467c4c642",
+  "build_account": "osprey-freeze-builder",
   "cells": [
     "hello-world/unset",
     "control-assistant/in_context",
@@ -11,7 +12,7 @@
   ],
   "completeness": {
     "control-assistant/graph": {
-      "build_configs_checked": 24,
+      "build_configs_checked": 25,
       "documents": [
         "admin.yml",
         "channel-finder.yml",
@@ -21,6 +22,7 @@
         "readwrite.yml",
         "root.yml"
       ],
+      "login_tiers": true,
       "renders": [
         "admin",
         "channel-finder",
@@ -31,7 +33,7 @@
       ]
     },
     "control-assistant/hierarchical": {
-      "build_configs_checked": 24,
+      "build_configs_checked": 25,
       "documents": [
         "admin.yml",
         "channel-finder.yml",
@@ -41,6 +43,7 @@
         "readwrite.yml",
         "root.yml"
       ],
+      "login_tiers": true,
       "renders": [
         "admin",
         "channel-finder",
@@ -51,7 +54,7 @@
       ]
     },
     "control-assistant/in_context": {
-      "build_configs_checked": 24,
+      "build_configs_checked": 25,
       "documents": [
         "admin.yml",
         "channel-finder.yml",
@@ -61,6 +64,7 @@
         "readwrite.yml",
         "root.yml"
       ],
+      "login_tiers": true,
       "renders": [
         "admin",
         "channel-finder",
@@ -71,7 +75,7 @@
       ]
     },
     "control-assistant/middle_layer": {
-      "build_configs_checked": 24,
+      "build_configs_checked": 25,
       "documents": [
         "admin.yml",
         "channel-finder.yml",
@@ -81,6 +85,7 @@
         "readwrite.yml",
         "root.yml"
       ],
+      "login_tiers": true,
       "renders": [
         "admin",
         "channel-finder",
@@ -95,6 +100,7 @@
       "documents": [
         "root.yml"
       ],
+      "login_tiers": false,
       "renders": []
     }
   },
