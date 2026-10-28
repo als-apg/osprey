@@ -16,7 +16,11 @@ objects, not ``MagicMock``s: a mock answers every attribute truthily, so a
 projection reading a field no connector populates would pass here and misreport
 in the field.
 
-Note: writes_enabled check is handled by the PreToolUse hook, not the tool itself.
+Every call here runs where the tool's own stage 1 lets it through: a write
+tier that allows, the session target's switch on in the record, and the ask
+stamp the approval hook would have filed for the call
+(``tests/_approval_stamp_fixture.py``). The stage-1 refusals themselves — the
+write verdict first, then the approval record — have their own section below.
 The tool does its own limits validation via LimitsValidator.
 """
 
@@ -29,7 +33,12 @@ import pytest
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.server_context import initialize_server_context
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
-from osprey_connectors_tests._harness import write_control_context
+from osprey_connectors_tests._harness import (
+    FIXTURE_IDENTITY,
+    isolate_verdict_environment,
+    write_control_context,
+)
+from tests._approval_stamp_fixture import ApprovalStamps
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,
@@ -101,14 +110,67 @@ def _get_channel_write():
     return get_tool_fn(channel_write)
 
 
-def _prepare(
-    tmp_path,
-    monkeypatch,
-    config="control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n",
-):
-    """Minimal project + server context the tool needs to run."""
+#: The project every test here writes from: the simulator in process, under a
+#: write tier that allows.
+_CONFIG = (
+    "control_system:\n  type: virtual_accelerator\n  writes: allowed\n"
+    "  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+)
+
+
+def _arm(tmp_path, monkeypatch, *, switch=True):
+    """The login's switch on for the simulator, in a record under *tmp_path*.
+
+    ``switch=False`` writes the same record with every switch off.
+    """
+    root = tmp_path / "agent_data"
+    isolate_verdict_environment(monkeypatch, root)
+    write_control_context(root, target="va", owned_by=None, switch={"va": "on"} if switch else None)
+    return root
+
+
+@contextmanager
+def _approved():
+    """Both stamps the approval hook files for an approved call, bound for the body.
+
+    The ask stamp is filed now. The write-approval stamp is keyed by the call's
+    operations, which the body passes to the tool, so it is filed when the tool
+    asks for it — on the binding the call entered on, as the hook renders it
+    just before the call — and then read back by the tool's own reader. The
+    approval window itself is ``test_write_target_binding``'s subject.
+
+    A test that already opened a call scope keeps it — its facts are what it
+    asserts on — and the stamp is filed for that call's tool-use id.
+    """
+    from osprey.audit.call import current_tool_use_id
+    from osprey.mcp_server.control_system.tools import channel_write as cw
+
+    state = target_state.state_dir()
+    state.mkdir(parents=True, exist_ok=True)
+    stamps = ApprovalStamps(state)
+    read = cw._read_approval_stamp
+
+    def rendered_then_read(operations, confirm):
+        binding = cw._read_target_binding()
+        target, generation = binding if binding is not None else (None, None)
+        stamps.write_approval(operations, confirm, target=target, generation=generation)
+        return read(operations, confirm)
+
+    with patch.object(cw, "_read_approval_stamp", rendered_then_read):
+        in_scope = current_tool_use_id()
+        if in_scope:
+            stamps.ask("channel_write", tool_use_id=in_scope)
+            yield
+            return
+        with stamps.approved("channel_write"):
+            yield
+
+
+def _prepare(tmp_path, monkeypatch, config=_CONFIG):
+    """Minimal project + server context the tool needs to run, armed."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text(config)
+    _arm(tmp_path, monkeypatch)
     initialize_server_context()
 
 
@@ -130,6 +192,7 @@ def _patched(connector, validator=None):
             "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
             return_value=validator,
         ),
+        _approved(),
     ):
         yield
 
@@ -192,9 +255,8 @@ async def test_channel_write_limits_violation(tmp_path, monkeypatch):
     from osprey_connectors.errors import ChannelLimitsViolationError
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(
-        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
-    )
+    (tmp_path / "config.yml").write_text(_CONFIG)
+    _arm(tmp_path, monkeypatch)
 
     from osprey_connectors.control_system._limits_validator import LimitsValidator
 
@@ -212,9 +274,12 @@ async def test_channel_write_limits_violation(tmp_path, monkeypatch):
         max_value=100.0,
     )
 
-    with patch(
-        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
-        return_value=mock_validator,
+    with (
+        patch(
+            "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
+            return_value=mock_validator,
+        ),
+        _approved(),
     ):
         fn = _get_channel_write()
         with assert_raises_error(error_type="limits_violation") as _exc_ctx:
@@ -358,10 +423,10 @@ async def test_channel_write_connector_limits_violation(tmp_path, monkeypatch):
 
 async def test_channel_write_empty_operations(tmp_path, monkeypatch):
     """Empty operations list returns validation error."""
-    monkeypatch.chdir(tmp_path)
+    _prepare(tmp_path, monkeypatch)
 
     fn = _get_channel_write()
-    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+    with _approved(), assert_raises_error(error_type="validation_error") as _exc_ctx:
         await fn(operations=[])
 
     _exc_ctx["envelope"]
@@ -369,14 +434,14 @@ async def test_channel_write_empty_operations(tmp_path, monkeypatch):
 
 async def test_channel_write_missing_channel_key(tmp_path, monkeypatch):
     """Operation missing 'channel' key returns validation error."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(
-        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
-    )
+    _prepare(tmp_path, monkeypatch)
 
-    with patch(
-        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
-        return_value=None,
+    with (
+        patch(
+            "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
+            return_value=None,
+        ),
+        _approved(),
     ):
         fn = _get_channel_write()
         with assert_raises_error(error_type="validation_error") as _exc_ctx:
@@ -1068,7 +1133,7 @@ async def test_oversize_observed_value_is_summarised(tmp_path, monkeypatch):
     _prepare(
         tmp_path,
         monkeypatch,
-        config="control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n  read_inline_max_elements: 4\n",
+        config=_CONFIG + "  read_inline_max_elements: 4\n",
     )
 
     result = _make_write_result(
@@ -1094,7 +1159,7 @@ async def test_observed_value_within_the_budget_stays_inline(tmp_path, monkeypat
     _prepare(
         tmp_path,
         monkeypatch,
-        config="control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n  read_inline_max_elements: 4\n",
+        config=_CONFIG + "  read_inline_max_elements: 4\n",
     )
 
     result = _make_write_result(
@@ -1117,7 +1182,7 @@ async def test_long_string_observed_value_stays_inline(tmp_path, monkeypatch):
     _prepare(
         tmp_path,
         monkeypatch,
-        config="control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n  read_inline_max_elements: 4\n",
+        config=_CONFIG + "  read_inline_max_elements: 4\n",
     )
 
     reading = "OPEN" * 50
@@ -1167,6 +1232,7 @@ async def test_emitted_key_is_the_constant_the_rules_name(tmp_path, monkeypatch)
 _SPLIT_POSTURE_CONFIG = """\
 control_system:
   type: {cs_type}
+  writes: allowed
   limits_checking:
     enabled: true
     mode: exclusive
@@ -1212,10 +1278,12 @@ def _prepare_split_posture(tmp_path, monkeypatch, target):
         config_text += "archiver:\n  type: mongodb_archiver\n"
     (tmp_path / "config.yml").write_text(config_text)
     root = tmp_path / "var" / "agent_data"
+    isolate_verdict_environment(monkeypatch, root)
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
     # The target the tool builds its validator from is the deployment's, read
     # off the control-context record; the report carries the display metadata.
-    write_control_context(root, target=target, generation=0)
+    # Its switch is on, so the write verdict lets the call reach the limits.
+    write_control_context(root, target=target, generation=0, switch={target: "on"})
     target_state.write_server_record(_SPLIT_POSTURE_TARGETS_META)
     initialize_server_context()
 
@@ -1247,7 +1315,7 @@ async def test_unlisted_write_passes_on_a_target_whose_block_allows_it(tmp_path,
     connector = AsyncMock()
     connector.write_channel.return_value = _make_write_result(channel="UNLISTED:PV", value=1.0)
 
-    with _real_validator(connector):
+    with _real_validator(connector), _approved():
         fn = _get_channel_write()
         raw = await fn(operations=[{"channel": "UNLISTED:PV", "value": 1.0}])
 
@@ -1271,7 +1339,7 @@ async def test_unlisted_write_is_refused_on_a_target_the_deployment_block_govern
     connector = AsyncMock()
     connector.write_channel.return_value = _make_write_result(channel="UNLISTED:PV", value=1.0)
 
-    with _real_validator(connector):
+    with _real_validator(connector), _approved():
         fn = _get_channel_write()
         with assert_raises_error(error_type="limits_violation") as _exc_ctx:
             await fn(operations=[{"channel": "UNLISTED:PV", "value": 1.0}])
@@ -1347,8 +1415,8 @@ async def test_old_values_are_read_before_the_window_check(tmp_path, monkeypatch
 
     connector.read_multiple_channels.side_effect = read
     connector.write_channel.return_value = _make_write_result(channel="TEST:PV", value=4.0)
-    with _patched(connector):
-        with call_scope("toolu_old", None) as call:
+    with call_scope("toolu_old", None) as call:
+        with _patched(connector):
             await _get_channel_write()(operations=[{"channel": "TEST:PV", "value": 4.0}])
 
     assert order == ["read", "window"]
@@ -1362,8 +1430,8 @@ async def test_an_unreadable_old_value_never_blocks_the_write(tmp_path, monkeypa
     connector = AsyncMock()
     connector.read_multiple_channels.side_effect = ConnectionError("dead IOC")
     connector.write_channel.return_value = _make_write_result(channel="TEST:PV", value=4.0)
-    with _patched(connector):
-        with call_scope("toolu_dead", None) as call:
+    with call_scope("toolu_dead", None) as call:
+        with _patched(connector):
             raw = await _get_channel_write()(operations=[{"channel": "TEST:PV", "value": 4.0}])
 
     assert extract_response_dict(raw)["status"] == "success"
@@ -1391,10 +1459,17 @@ async def test_the_verdict_and_old_values_need_no_setting(tmp_path, monkeypatch)
 # ---------------------------------------------------------------------------
 
 
-async def _stamped_facts(tmp_path, monkeypatch) -> dict:
+async def _stamped_facts(tmp_path, monkeypatch, owner: str | None = None) -> dict:
+    """The facts one approved write notes, with ``OSPREY_CONTROL_OWNER`` set to *owner*.
+
+    The variable is set after the deployment is armed, which clears it; ``None``
+    leaves it unset.
+    """
     from osprey.audit.call import call_scope
 
     _prepare(tmp_path, monkeypatch)
+    if owner is not None:
+        monkeypatch.setenv("OSPREY_CONTROL_OWNER", owner)
     with call_scope("toolu_stamp", None) as call:
         data, connector = await _run_single(_make_write_result(channel="TEST:PV", value=1.0))
     assert data["status"] == "success"
@@ -1407,7 +1482,6 @@ async def test_the_record_carries_the_writing_process_account_and_host(tmp_path,
     import pwd
     import socket
 
-    monkeypatch.delenv("OSPREY_CONTROL_OWNER", raising=False)
     facts = await _stamped_facts(tmp_path, monkeypatch)
 
     assert facts["ca_user"] == pwd.getpwuid(os.getuid()).pw_name
@@ -1415,34 +1489,32 @@ async def test_the_record_carries_the_writing_process_account_and_host(tmp_path,
 
 
 async def test_the_dispatch_owner_is_noted_from_the_env_var(tmp_path, monkeypatch):
-    monkeypatch.setenv("OSPREY_CONTROL_OWNER", "alice")
-    facts = await _stamped_facts(tmp_path, monkeypatch)
+    # The owner is the login the switch was armed under: any other is refused
+    # by the write verdict as foreign before anything is noted.
+    facts = await _stamped_facts(tmp_path, monkeypatch, owner=FIXTURE_IDENTITY)
 
-    assert facts["owner"] == "alice"
+    assert facts["owner"] == FIXTURE_IDENTITY
 
 
 @pytest.mark.parametrize("value", [None, "", "   "], ids=["unset", "empty", "blank"])
 async def test_no_owner_is_noted_without_the_env_var(tmp_path, monkeypatch, value):
-    if value is None:
-        monkeypatch.delenv("OSPREY_CONTROL_OWNER", raising=False)
-    else:
-        monkeypatch.setenv("OSPREY_CONTROL_OWNER", value)
-    facts = await _stamped_facts(tmp_path, monkeypatch)
+    facts = await _stamped_facts(tmp_path, monkeypatch, owner=value)
 
     assert "owner" not in facts
     assert "ca_user" in facts
 
 
 async def test_the_owner_ladder_is_never_consulted(tmp_path, monkeypatch):
-    """The ladder's last rung is the card's own identity; it must not attribute."""
+    """The ladder's last rung is the card's own identity; it must not attribute.
+
+    The write verdict asks the ladder whose switch governs the write, and the
+    ladder answers here with the armed login. That answer must not reach the
+    record as the write's owner: only the dispatch job's stamp does.
+    """
     from osprey_connectors import posture_store
 
-    monkeypatch.delenv("OSPREY_CONTROL_OWNER", raising=False)
-    monkeypatch.setattr(
-        posture_store,
-        "current_owner",
-        MagicMock(side_effect=AssertionError("current_owner must not be consulted")),
-    )
+    ladder = MagicMock(return_value=FIXTURE_IDENTITY)
+    monkeypatch.setattr(posture_store, "current_owner", ladder)
     facts = await _stamped_facts(tmp_path, monkeypatch)
 
     assert "owner" not in facts
@@ -1455,7 +1527,6 @@ async def test_an_unreadable_account_costs_the_stamp_not_the_write(tmp_path, mon
         raise KeyError("uid not in passwd")
 
     monkeypatch.setattr(pwd, "getpwuid", no_entry)
-    monkeypatch.delenv("OSPREY_CONTROL_OWNER", raising=False)
     facts = await _stamped_facts(tmp_path, monkeypatch)
 
     assert "ca_user" not in facts
@@ -1467,8 +1538,8 @@ async def test_the_stamps_reach_the_default_record_detail(tmp_path, monkeypatch)
     from osprey.audit.call import call_scope
     from osprey.mcp_server.audit_middleware import _call_detail
 
-    monkeypatch.setenv("OSPREY_CONTROL_OWNER", "alice")
     _prepare(tmp_path, monkeypatch)
+    monkeypatch.setenv("OSPREY_CONTROL_OWNER", FIXTURE_IDENTITY)
     with call_scope("toolu_detail", None) as call:
         await _run_single(_make_write_result(channel="TEST:PV", value=1.0))
         detail = _call_detail()
@@ -1476,4 +1547,233 @@ async def test_the_stamps_reach_the_default_record_detail(tmp_path, monkeypatch)
     assert detail is not None
     assert f"ca_user={call.facts['ca_user']}" in detail
     assert f"ca_host={call.facts['ca_host']}" in detail
-    assert "owner=alice" in detail
+    assert f"owner={FIXTURE_IDENTITY}" in detail
+
+
+# ---------------------------------------------------------------------------
+# Stage 1: the write verdict, then the approval record, before anything else
+# ---------------------------------------------------------------------------
+
+
+async def _unstamped_write(connector):
+    """One write with no ask stamp on disk and no call bound to one."""
+    with patch(
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
+        new_callable=AsyncMock,
+        return_value=connector,
+    ):
+        return await _get_channel_write()(operations=[{"channel": "TEST:PV", "value": 1.0}])
+
+
+async def test_a_write_the_prompt_left_no_record_of_is_refused(tmp_path, monkeypatch):
+    """Approval applies (no ``approval:`` section asks), and nothing was stamped."""
+    _prepare(tmp_path, monkeypatch)
+    connector = AsyncMock()
+
+    with assert_raises_error(error_type="approval_missing") as ctx:
+        await _unstamped_write(connector)
+
+    assert ctx["envelope"]["error_message"].startswith("not run:")
+    connector.write_channel.assert_not_awaited()
+
+
+async def test_a_stamp_for_another_tool_is_no_record_of_this_write(tmp_path, monkeypatch):
+    """The record names the tool it was asked for: a queue_start stamp vouches for nothing here."""
+    from osprey.audit.call import call_scope
+
+    _prepare(tmp_path, monkeypatch)
+    state = target_state.state_dir()
+    state.mkdir(parents=True, exist_ok=True)
+    ApprovalStamps(state).ask("queue_start", tool_use_id="toolu_other")
+    connector = AsyncMock()
+
+    with call_scope("toolu_other", None), assert_raises_error(error_type="approval_missing"):
+        await _unstamped_write(connector)
+
+    connector.write_channel.assert_not_awaited()
+
+
+async def test_the_write_runs_unchanged_with_approval_switched_off(tmp_path, monkeypatch):
+    """``approval.enabled: false``: no record is asked for, and the envelope is the usual one."""
+    _prepare(tmp_path, monkeypatch, config=_CONFIG + "approval:\n  enabled: false\n")
+    connector = AsyncMock()
+    connector.write_channel.return_value = _make_write_result(channel="TEST:PV", value=1.0)
+
+    with patch(
+        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
+        return_value=None,
+    ):
+        data = extract_response_dict(await _unstamped_write(connector))
+
+    assert data["status"] == "success"
+    assert _outcomes(data) == {"TEST:PV": "confirmed"}
+    connector.write_channel.assert_awaited_once()
+
+
+async def test_the_write_runs_without_a_record_where_its_policy_skips(tmp_path, monkeypatch):
+    """A tool whose policy does not ask needs no record."""
+    _prepare(
+        tmp_path,
+        monkeypatch,
+        config=_CONFIG + "approval:\n  enabled: true\n  tools:\n    channel_write: skip\n",
+    )
+    connector = AsyncMock()
+    connector.write_channel.return_value = _make_write_result(channel="TEST:PV", value=1.0)
+
+    with patch(
+        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
+        return_value=None,
+    ):
+        data = extract_response_dict(await _unstamped_write(connector))
+
+    assert data["status"] == "success"
+
+
+async def test_a_malformed_approval_switch_refuses_every_write(tmp_path, monkeypatch):
+    """An ``approval.enabled`` that is not a bool refuses even a stamped write."""
+    _prepare(tmp_path, monkeypatch, config=_CONFIG + "approval:\n  enabled: 'yes'\n")
+    connector = AsyncMock()
+
+    with _approved(), assert_raises_error(error_type="approval_config_invalid"):
+        await _unstamped_write(connector)
+
+    connector.write_channel.assert_not_awaited()
+
+
+async def test_the_verdict_refuses_before_the_record_is_asked_for(tmp_path, monkeypatch):
+    """Switch off and no record: the answer is the verdict's, in its own words."""
+    from osprey.mcp_server.control_system.tools import channel_write as cw
+    from osprey_connectors.refusals import refusal_phrase
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text(_CONFIG)
+    _arm(tmp_path, monkeypatch, switch=False)
+    initialize_server_context()
+    asked = MagicMock(side_effect=AssertionError("the record must not be asked for"))
+    monkeypatch.setattr(cw, "require_approval_record", asked)
+    connector = AsyncMock()
+
+    with assert_raises_error(error_type="writes_disabled") as ctx:
+        await _unstamped_write(connector)
+
+    envelope = ctx["envelope"]
+    assert envelope["details"] == {"reason": "switch_off", "target": "va"}
+    assert envelope["error_message"].startswith(refusal_phrase("switch_off", "simulator"))
+    assert "writes_enabled" not in envelope["error_message"]
+    asked.assert_not_called()
+    connector.write_channel.assert_not_awaited()
+
+
+async def test_the_verdict_refuses_a_stamped_write_too(tmp_path, monkeypatch):
+    """A record of the prompt does not arm a machine whose tier allows nothing."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text(_CONFIG.replace("writes: allowed", "writes: never"))
+    _arm(tmp_path, monkeypatch)
+    initialize_server_context()
+    connector = AsyncMock()
+
+    with _approved(), assert_raises_error(error_type="writes_disabled") as ctx:
+        await _unstamped_write(connector)
+
+    assert ctx["envelope"]["details"]["reason"] == "tier_never"
+    connector.write_channel.assert_not_awaited()
+
+
+async def test_a_record_naming_an_unknown_target_is_refused(tmp_path, monkeypatch):
+    """A record on a target this deployment cannot resolve refuses as ``target_unknown``."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text(_CONFIG)
+    root = tmp_path / "agent_data"
+    isolate_verdict_environment(monkeypatch, root)
+    write_control_context(root, target="live", owned_by=None, switch={"live": "on"})
+    initialize_server_context()
+    connector = AsyncMock()
+
+    with _approved(), assert_raises_error(error_type="writes_disabled") as ctx:
+        await _unstamped_write(connector)
+
+    assert ctx["envelope"]["details"] == {"reason": "target_unknown", "target": "live"}
+    connector.write_channel.assert_not_awaited()
+
+
+async def test_a_write_no_owner_can_be_named_for_is_refused(tmp_path, monkeypatch):
+    """The owner ladder yields nobody: ``owner_unknown``, even for a stamped write."""
+    from osprey_connectors import posture_store
+
+    _prepare(tmp_path, monkeypatch)
+    monkeypatch.setattr(posture_store, "current_owner", lambda *_a, **_k: posture_store.NO_OWNER)
+    connector = AsyncMock()
+
+    with _approved(), assert_raises_error(error_type="writes_disabled") as ctx:
+        await _unstamped_write(connector)
+
+    assert ctx["envelope"]["details"] == {"reason": "owner_unknown", "target": "va"}
+    connector.write_channel.assert_not_awaited()
+
+
+async def test_a_write_for_a_foreign_owner_is_refused(tmp_path, monkeypatch):
+    """A host holds only its own login's switch: another owner is ``owner_foreign``."""
+    _prepare(tmp_path, monkeypatch)
+    monkeypatch.setenv("OSPREY_CONTROL_OWNER", f"{FIXTURE_IDENTITY}-not")
+    connector = AsyncMock()
+
+    with _approved(), assert_raises_error(error_type="writes_disabled") as ctx:
+        await _unstamped_write(connector)
+
+    assert ctx["envelope"]["details"] == {"reason": "owner_foreign", "target": "va"}
+    connector.write_channel.assert_not_awaited()
+
+
+async def test_an_asked_write_without_its_target_stamp_is_refused(tmp_path, monkeypatch):
+    """Stage 1 passed on the ask stamp, but the prompt's target stamp is absent.
+
+    The hook files the two stamps one after the other; without the second the
+    target the operator was shown cannot be compared with the one the call
+    entered on, so a switch between them would go unseen. Refused.
+    """
+    _prepare(tmp_path, monkeypatch)
+    state = target_state.state_dir()
+    state.mkdir(parents=True, exist_ok=True)
+    connector = AsyncMock()
+
+    with (
+        ApprovalStamps(state).approved("channel_write"),
+        assert_raises_error(error_type="approval_missing") as ctx,
+    ):
+        await _unstamped_write(connector)
+
+    assert ctx["envelope"]["error_message"].startswith("not run:")
+    connector.write_channel.assert_not_awaited()
+
+
+async def test_an_asked_write_with_both_stamps_runs(tmp_path, monkeypatch):
+    """The ask stamp and the target stamp, filed by the fixture itself, let the write out."""
+    from osprey.mcp_server.control_system.tools import channel_write as cw
+
+    _prepare(tmp_path, monkeypatch)
+    state = target_state.state_dir()
+    state.mkdir(parents=True, exist_ok=True)
+    operations = [{"channel": "TEST:PV", "value": 1.0}]
+    binding = cw._read_target_binding()
+    assert binding is not None
+    connector = AsyncMock()
+    connector.write_channel.return_value = _make_write_result(channel="TEST:PV", value=1.0)
+
+    with (
+        ApprovalStamps(state).approved(
+            "channel_write", operations=operations, target=binding[0], generation=binding[1]
+        ),
+        patch(
+            "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
+            new_callable=AsyncMock,
+            return_value=connector,
+        ),
+        patch(
+            "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
+            return_value=None,
+        ),
+    ):
+        data = extract_response_dict(await _get_channel_write()(operations=operations))
+
+    assert data["status"] == "success"
+    connector.write_channel.assert_awaited_once()

@@ -231,6 +231,33 @@ volumes, which a redeploy never touches (:doc:`multi-user/index`), so
 notebooks are per user. There is no shared notebook folder in this release.
 Sharing a notebook means handing over the file.
 
+.. _notebooks-outputs-no-script:
+
+What a notebook output cannot run
+---------------------------------
+
+Output an agent or a kernel writes can no longer run script inside the
+console's JupyterLab. The page's policy admits only the scripts the terminal
+served itself, because script in an output would run on the console's origin
+and could switch writes on.
+
+No longer run:
+
+- ``IPython.display.Javascript`` and ``application/javascript`` outputs.
+- ``<script>`` in an HTML output, and inline handlers such as ``onerror``.
+- bokeh's in-notebook renderer (``output_notebook()``).
+- Vega and Altair outputs, whose renderer is disabled with
+  ``@jupyterlab/javascript-extension``.
+- Frontend code a kernel supplies for itself, which is unsupported.
+
+Still work: matplotlib, Plotly ``fig.show()``, standard ipywidgets, tables,
+markdown, math and images. Bokeh dashboards in the artifact gallery are
+unaffected.
+
+The policy keeps ``'unsafe-eval'``, because Plotly and JupyterLab's own
+settings need it. Script in outputs is blocked by the nonce, not by that
+keyword.
+
 .. _notebooks-theming:
 
 How the tab is themed

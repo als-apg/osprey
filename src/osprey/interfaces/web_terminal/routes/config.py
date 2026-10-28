@@ -440,7 +440,7 @@ def _changed_protected_keys(current: Mapping[str, Any], incoming: Mapping[str, A
     The view is keyed by *segment tuple*, never by a dotted string, and that is
     load-bearing rather than stylistic. A raw key may itself contain a ``.``, so
     a dotted view is not injective: a top-level key literally named
-    ``"control_system.writes_enabled"`` renders to the same string as the real
+    ``"control_system.writes"`` renders to the same string as the real
     nested key, and a document that dropped the nested one while adding the flat
     one would compare *equal* to the original -- the gate would wave through the
     removal of the write gate. Tuples cannot collide that way. Segments are

@@ -741,7 +741,109 @@ server {
         # would silently shrink if the base image's own default ever changes.
         client_max_body_size 4m;
     }
+{% if sidecar_active %}
+    # C-ASSETS for {{ svc.user }}: the first-party CSS, JavaScript and fonts an
+    # agent-authored document imports. That document runs at an OPAQUE origin
+    # (CSP `sandbox` without `allow-same-origin`), so the browser sends its
+    # module and font requests with `Origin: null` and WITHOUT the SameSite=Lax
+    # session cookie — the `auth_request` above would deny every one of them,
+    # and the page would lose its theme, its Plotly re-theming and its fonts.
+    #
+    # So these paths, and only these, skip the subrequest. They are the app's
+    # own unauthenticated static mounts (`/design-system/`, `/static/fonts/`)
+    # and the hub-local asset routes under `/panel/<id>/` (the shared design
+    # system and fonts for any panel id, and the artifacts panel's own `js/` and
+    # `css/` trees) — `STATIC_MOUNT_PREFIXES`, `PANEL_ASSET_SUBPATHS` and
+    # `FIRST_PARTY_PANEL_STATIC` in osprey.interfaces.common_middleware, which
+    # the app's gate exempts the same way. Nothing agent-writable is served
+    # under any of them: `/files/`, `/api/`, `/panel-static/`, a runtime
+    # panel's `/panel/<id>/static/` and Jupyter's `/panel/jupyter/files/` all
+    # stay in the gated location above.
+    #
+    # A regex location, so it wins over the plain prefix location above; nginx
+    # matches it against the NORMALISED URI, so a `..` cannot climb out of an
+    # asset path into a gated one. A regex location's `proxy_pass` cannot carry
+    # a URI, so the mount is stripped by the `rewrite` instead.
+    #
+    # Nothing unauthenticated may carry a credential upstream. No secret
+    # include, and `proxy_pass_request_headers off`: NONE of the client's
+    # headers travel, only the ones set below — which drops the operator-secret
+    # header without this conf ever spelling its name (the name lives in the
+    # per-user snippet alone). `Authorization`, the cookie jar and all four
+    # identity names are still claimed explicitly, as in every proxying
+    # location, with nothing to speak for: an asset needs no credential. GET
+    # only (HEAD comes with it), and no websocket upgrade.
+    location ~ ^{{ url_mount_root_pattern }}/{{ svc.user }}/(?:design-system/|static/fonts/|panel/[A-Za-z0-9][A-Za-z0-9._-]*/(?:design-system|static/fonts)/|panel/artifacts/static/(?:js|css)/) {
+        limit_except GET {
+            deny all;
+        }
+        rewrite ^{{ url_mount_root_pattern }}/{{ svc.user }}(/.*)$ $1 break;
+        proxy_pass http://{{ bind_host }}:{{ svc.web }};
+        proxy_http_version 1.1;
+        proxy_pass_request_headers off;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Authorization "";
+        proxy_set_header X-Osprey-Auth-Account "";
+        proxy_set_header X-Osprey-Auth-Subject "";
+        proxy_set_header X-Osprey-Auth-Role "";
+        proxy_set_header X-Osprey-Auth-Role-Source "";
+        proxy_set_header Cookie "";
+    }
 
+    # C-CAP for {{ svc.user }}: an agent-writable panel (a discovered bundle at
+    # `/panel-static/<id>/`, a runtime panel at `/panel/<id>/`) is framed at a
+    # capability path `/panel-static/<id>/~c/<cap>/…` or `/panel/<id>/~c/<cap>/…`.
+    # Its document is opaque, so its own module scripts, fetches and websocket
+    # arrive with `Origin: null` and no cookie, and the `auth_request` above
+    # would deny them. The cap in the path is the credential instead: the app
+    # validates it (HMAC over login, panel and expiry, under this user's own
+    # secret) and serves only that one panel. `is_panel_cap_path` in
+    # osprey.interfaces.common_middleware is the same predicate; a bare
+    # `…/~c/<cap>` without the trailing slash is not a cap path and stays gated.
+    #
+    # Nothing here carries a credential upstream: no secret include, and
+    # `proxy_pass_request_headers off`, so NONE of the client's headers travel
+    # but the ones set below — the operator-secret header is dropped without
+    # this conf spelling its name. What a panel's own requests and its
+    # websocket need is forwarded by name: the body's type, content
+    # negotiation, conditional and range requests, and the websocket handshake.
+    # `Authorization`, the cookie jar and the identity names are claimed by
+    # clearing them. All methods and the upgrade pass: the cap governs them all.
+    location ~ ^{{ url_mount_root_pattern }}/{{ svc.user }}/panel(?:-static)?/[A-Za-z0-9][A-Za-z0-9._-]*/~c/[A-Za-z0-9][A-Za-z0-9._-]*/ {
+        error_page 502 = @osprey_terminal_starting;
+        rewrite ^{{ url_mount_root_pattern }}/{{ svc.user }}(/.*)$ $1 break;
+        proxy_pass http://{{ bind_host }}:{{ svc.web }};
+        proxy_http_version 1.1;
+        proxy_pass_request_headers off;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Sec-WebSocket-Key $http_sec_websocket_key;
+        proxy_set_header Sec-WebSocket-Version $http_sec_websocket_version;
+        proxy_set_header Sec-WebSocket-Protocol $http_sec_websocket_protocol;
+        proxy_set_header Sec-WebSocket-Extensions $http_sec_websocket_extensions;
+        proxy_set_header Content-Type $content_type;
+        proxy_set_header Accept $http_accept;
+        proxy_set_header Range $http_range;
+        proxy_set_header If-None-Match $http_if_none_match;
+        proxy_set_header If-Modified-Since $http_if_modified_since;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Authorization "";
+        proxy_set_header X-Osprey-Auth-Account "";
+        proxy_set_header X-Osprey-Auth-Subject "";
+        proxy_set_header X-Osprey-Auth-Role "";
+        proxy_set_header X-Osprey-Auth-Role-Source "";
+        proxy_set_header Cookie "";
+        proxy_buffering off;
+        proxy_read_timeout 3600s;
+        client_max_body_size 4m;
+    }
+{% endif %}
     # Stable bookmark for {{ svc.user }} without a trailing slash.
     location = {{ url_mount_root }}/{{ svc.user }} {
         return 301 {{ url_mount_root }}/{{ svc.user }}/;

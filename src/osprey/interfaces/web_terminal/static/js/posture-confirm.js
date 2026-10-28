@@ -59,12 +59,17 @@ export function isConfirmUp() {
  *          body: (import('./control-target-facts.js').ConfirmRun)[][],
  *          live: string|null, confirmLabel: string,
  *          skipKeyBase?: string|null,
+ *          targetKind?: string|null,
  *          focus?: 'confirm'|'cancel',
  *          onConfirm: (ui: ConfirmUi) => void,
  *          onDismiss?: () => void}} spec
  *   `focus` names the button that has focus when the dialog opens:
  *   `'confirm'` (the default) or `'cancel'`, for a question whose safe answer
- *   is the one a stray Enter should give.
+ *   is the one a stray Enter should give. `targetKind` is the machine kind
+ *   the dialog is about (`real` | `rehearsal` | `simulator`), set on the
+ *   dialog as `data-target-kind` so the stylesheet tones its banner and its
+ *   confirm button — red for the real machine, amber for the rehearsal — from
+ *   the same attribute the chip keys on. A dialog about no machine has none.
  */
 export function showConfirm(spec) {
   dismissConfirm();
@@ -79,6 +84,7 @@ export function showConfirm(spec) {
   dialog.setAttribute('role', 'dialog');
   dialog.setAttribute('aria-modal', 'true');
   dialog.setAttribute('aria-labelledby', 'posture-modal-title');
+  if (spec.targetKind) dialog.dataset.targetKind = spec.targetKind;
 
   const heading = el('div', 'posture-modal-title', spec.title);
   heading.id = 'posture-modal-title';

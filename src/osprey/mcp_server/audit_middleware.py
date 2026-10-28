@@ -5,17 +5,30 @@ PreToolUse hook, which is a *client-side* layer: Claude Code runs it, it fails
 open by design (an uncaught exception exits non-zero and the tool proceeds), and
 nothing outside Claude Code consults it at all. This middleware is the
 server-side half. It sits on every framework MCP server a deployment launches,
-so the sandbox posture is enforced where the tool actually executes and every
-call — refused or not — leaves a record.
+so a write no tool should run is refused where the tool actually executes and
+every call — refused or not — leaves a record.
 
-**What it decides.** Under the sandbox posture
-(``OSPREY_EXECUTION_MODE=readonly``, matched by *value*, never by presence) a
-call whose fully-qualified name is in the clamp set is refused before the tool
-runs. The clamp set is the rendered ``hook_config.json``'s ``write_tools``
-*minus* its ``mixed_read_write_tools`` — the read/write tools, of which
-``mcp__python__execute`` is the framework's one, keep their own in-tool clamp
-because a *readonly* execution is exactly what a sandboxed session is for.
-Refusing them here would take the reads with the writes.
+**What it decides.** It is the BACKSTOP, not the write gate. A call whose
+fully-qualified name is in the clamp set is refused before the tool runs when
+:func:`~osprey_connectors.posture_store.backstop_verdict` refuses — a read-only
+run (``OSPREY_EXECUTION_MODE=readonly``) or a tier that allows no writes
+(``tier_never``) — and the refusal says so in
+:func:`~osprey_connectors.refusals.refusal_phrase`'s words. The backstop names
+no target and opens no record, so a switch that is off never refuses here: the
+tool's own write verdict and the connector's reference monitor own that, for
+the machine the write actually lands on. The clamp set is the rendered
+``hook_config.json``'s ``write_tools`` *minus* its ``mixed_read_write_tools`` —
+the read/write tools, of which ``mcp__python__execute`` is the framework's one,
+keep their own in-tool gate because a *readonly* execution is exactly what a
+read-only run is for. Refusing them here would take the reads with the writes.
+A facility server that declares ``writes:`` renders one exact
+``mcp__<srv>__<tool>`` per declared tool into ``write_tools`` and nothing for
+its other tools, so the clamp is those tools by construction; this module
+reads the list and classifies nothing itself.
+
+The ``posture`` every record carries is :func:`osprey.audit.posture.posture` —
+the write verdict for the recorded control target, in the record's words —
+computed once per call and reused for every record that call files.
 
 **Where it reads that from.** Exclusively from ``OSPREY_CONFIG``, which
 ``registry/mcp.py`` sets to ``<root>/build/config.yml`` for every framework
@@ -62,7 +75,7 @@ Without that, every fail-closed branch is a no-op for any server whose rendered
 name is not one the clamp entries happen to spell: an ``extends`` clone is
 launched with its own name as the prefix, so ``mcp__controls_ring__`` qualifies
 nothing the floor names. The cost is bounded over-refusal — a read tool sharing
-a bare name with some write tool — under the sandbox posture, in a state this
+a bare name with some write tool — under a refusing backstop, in a state this
 module already calls a framework bug.
 
 **The innermost recorder owns the decision.** A tool's own gates run inside
@@ -105,6 +118,9 @@ import json
 import logging
 import os
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -124,17 +140,20 @@ from osprey.audit.call import (
 from osprey.audit.dedup import decision_scope, mark_recorded, recorded_decision
 from osprey.audit.envelope import DECISION_ALLOWED, DECISION_REFUSED, utc_timestamp
 from osprey.audit.writer import record
-from osprey.mcp_server.approval_stamp import (
+from osprey.mcp_server.approval_record import (
     APPROVAL_ASK_PREFIX,
     APPROVAL_ASK_SUFFIX,
-    read_ask_stamp,
+    approval_ask_stamp,
 )
 from osprey.mcp_server.errors import make_error
 from osprey_connectors.identity import acting_identity
+from osprey_connectors.refusals import refusal_text
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import mcp.types as mt
     from fastmcp.tools.base import ToolResult
+
+    from osprey_connectors.posture_store import WriteVerdict
 
 logger = logging.getLogger(__name__)
 
@@ -246,12 +265,13 @@ SURFACE_UNPREFIXED: str = "mcp"
 
 #: Reasons, in the audit trail's short machine-ish vocabulary.
 #:
-#: :data:`REASON_POSTURE` is the one word three layers spell for the same
-#: refusal — this middleware, the executor's in-tool session clamp
+#: :data:`REASON_POSTURE` is the one word three layers spell for a verdict
+#: refusal — this middleware's backstop, the executor's in-tool gate
 #: (``_execution_gates``), and the client-side ``osprey_writes_check.py`` hook.
-#: Refusals under the sandbox posture must join on one spelling, or a search
-#: of an identity's ``audit`` entries for ``"reason": "posture"`` answers "what
-#: did the sandbox posture refuse?" with only the layer that happened to be asked.
+#: They must join on one spelling, or a search of an identity's ``audit``
+#: entries for ``"reason": "posture"`` answers "what did the write verdict
+#: refuse?" with only the layer that happened to be asked. The verdict's own
+#: reason rides the entry's ``detail`` as ``reason=<r> target=<t>``.
 #: A cross-layer test pins all three (the hook by AST, since it ships as a
 #: template file that imports nothing from ``osprey``).
 REASON_TOOL_CALL: str = "tool_call"
@@ -602,7 +622,7 @@ def _approval_answered(tool_use_id: str | None) -> tuple[str, str | None] | None
     ``PostToolUse`` owns the stamp's removal. ``None`` without a stamp, and on
     any error.
     """
-    stamp = read_ask_stamp(tool_use_id)
+    stamp = approval_ask_stamp(tool_use_id)
     if stamp is None:
         return None
     approver = stamp.get("approver")
@@ -697,7 +717,7 @@ def _file_tool_call(
         entry = tool_call.build_record(
             ts=utc_timestamp(),
             actor=acting_identity(),
-            posture=posture.posture(),
+            posture=_entry_posture(),
             posture_source=posture.posture_source(),
             session=posture.posture_session(),
             session_id=call.session_id if call is not None else None,
@@ -713,6 +733,23 @@ def _file_tool_call(
         writer.append_record(tool_call.SURFACE_TOOL_CALL, entry)
     except Exception:
         logger.warning("Could not file the tool_call record", exc_info=True)
+
+
+#: The record posture of the call in flight, computed once on entry so every
+#: record the call files carries the same answer (see :func:`_entry_posture`).
+_CALL_POSTURE: ContextVar[str | None] = ContextVar("osprey_audit_call_posture", default=None)
+
+
+def _entry_posture() -> str:
+    """The ``posture`` a record of the call in flight carries.
+
+    :func:`osprey.audit.posture.posture` reads the write verdict, so it is asked
+    once per call (:meth:`AuditMiddleware.on_call_tool`) and the answer reused
+    for both the default record and the full one. Outside a call it is asked
+    afresh.
+    """
+    computed = _CALL_POSTURE.get()
+    return computed if computed is not None else posture.posture()
 
 
 def _record(
@@ -731,7 +768,7 @@ def _record(
     """
     record(
         surface=surface,
-        posture=posture.posture(),
+        posture=_entry_posture(),
         posture_source=posture.posture_source(),
         session=posture.posture_session(),
         subject=subject,
@@ -746,67 +783,54 @@ def _record(
 # --------------------------------------------------------------------------
 
 
-def _posture_refusal_wording() -> tuple[str, list[str]]:
-    """Why this call is refused, and where the operator can do something about it.
+def _backstop() -> WriteVerdict:
+    """The backstop verdict for this call: read-only run, then tier, nothing else.
 
-    Three cells, because :func:`osprey.audit.posture.posture` says ``sandbox``
-    for reasons an operator acts on differently:
-
-    * the **deployment** is running in readonly execution mode. ``posture()``
-      short-circuits to that ENVIRONMENT answer before the store is read, so
-      this is the deployment's own switch, not the operator's chip narrowing —
-      and the control-target chip cannot lift it. Named all the same, because it
-      is the first place an operator looks.
-    * the **recorded posture for ONE control target** is read-only. The
-      operator's own narrowing, made from the chip, so the chip is where it
-      lifts — and the target is named, because narrowing one machine leaves the
-      deployment working normally on every other one.
-    * the same, but the **target cannot be named**. The store's rule with no
-      resolvable target is that the most restrictive entry decides, and which
-      one that was is not knowable here, so nothing is invented.
-
-    Which cell applies is not decided here: it is
-    :func:`~osprey.audit.posture.sandbox_cause`, shared with the executor clamp,
-    so two refusals for one posture cannot send an operator to two places. What
-    is this surface's own is the wording — a tool call has no ``execution_mode``
-    to re-run with, so the clamp's first suggestion has nothing to say here.
+    :func:`~osprey_connectors.posture_store.backstop_verdict` over the section
+    :func:`osprey.audit.posture.control_system_section` reads — ``None`` when
+    the config cannot be read, which the backstop answers ``tier_never``. It is
+    target-blind on purpose: whether the switch is on for a machine is the
+    tool's verdict and the connector's to decide, about the machine the write
+    lands on, and a clamp on every write tool of the server cannot know it.
     """
-    cause, target = posture.sandbox_cause()
-    if cause == posture.CAUSE_DEPLOYMENT_READONLY:
-        return (
-            "this deployment is running in readonly execution mode, which refuses "
-            "control-system writes for every session.",
-            [
-                "Writes need the deployment started without "
-                "OSPREY_EXECUTION_MODE=readonly; the control-target chip in the "
-                "header cannot lift a deployment-wide read-only run.",
-            ],
-        )
+    # Imported here, not at module scope: ``posture_store`` pulls in the
+    # connector package's control-context reader, and importing this module
+    # must stay cheap (a test pins that it reads nothing).
+    from osprey_connectors.posture_store import backstop_verdict
 
-    if target is None:
-        return (
-            "writes are off for at least one control target (this call's target "
-            "could not be identified, so the most restrictive decides) — turned "
-            "off from the control-target chip in the header.",
-            [
-                "Turn writes back on from the control-target chip in the header if "
-                "the write is intended; the deployment config is not the gate here.",
-            ],
-        )
+    return backstop_verdict(posture.control_system_section())
 
-    return (
-        f"writes are off for the '{target}' control target — turned off from the "
-        "control-target chip in the header; applies to every session of this login.",
-        [
-            f"Turn writes back on for '{target}' from the control-target chip in "
-            "the header if the write is intended; the deployment config is not "
-            "the gate here.",
-        ],
+
+def _refusal_detail(clamp_source: str, verdict: WriteVerdict) -> str | None:
+    """``clamp=<source> reason=<r> target=<t>`` for a backstop refusal.
+
+    The target is :func:`osprey.audit.posture.recorded_control_target`'s, the
+    resolver for record entries outside the executor; it is left off when it
+    cannot be named. Never raises.
+    """
+    try:
+        target = posture.recorded_control_target()
+    except Exception:  # the target is a word in a record; it must not cost one
+        target = None
+    return _detail(
+        clamp_source,
+        f"reason={verdict.reason}",
+        f"target={target}" if target else None,
     )
 
 
+@contextmanager
+def _posture_scope() -> Iterator[None]:
+    """Compute the call's record posture once on entry; drop it on the way out."""
+    token = _CALL_POSTURE.set(posture.posture())
+    try:
+        yield
+    finally:
+        _CALL_POSTURE.reset(token)
+
+
 class AuditMiddleware(Middleware):
-    """Audit every ``tools/call``, and clamp write tools under the sandbox posture.
+    """Audit every ``tools/call``, and clamp write tools when the backstop refuses.
 
     Constructed with no arguments: everything it needs is in the environment the
     registry launched this server with, so the wiring in
@@ -829,13 +853,17 @@ class AuditMiddleware(Middleware):
         context: MiddlewareContext[mt.CallToolRequestParams],
         call_next: CallNext[mt.CallToolRequestParams, ToolResult],
     ) -> ToolResult:
-        """Record the call, refuse it if the posture says so, else pass it on.
+        """Record the call, refuse it if the backstop says so, else pass it on.
 
         The whole call runs inside one :func:`~osprey.audit.call.call_scope`,
-        so every record filed for it names the harness's tool-use id.
+        so every record filed for it names the harness's tool-use id, and
+        carries the one record posture computed on entry.
         """
         meta = _request_meta(context)
-        with call_scope(valid_tool_use_id(meta.get(TOOL_USE_ID_META_KEY)), harness_session_id()):
+        with (
+            call_scope(valid_tool_use_id(meta.get(TOOL_USE_ID_META_KEY)), harness_session_id()),
+            _posture_scope(),
+        ):
             # The tool_call entry: filed at most once, whichever way the call ends.
             started = time.monotonic()
             binding = _control_binding()
@@ -858,29 +886,24 @@ class AuditMiddleware(Middleware):
         # lost record is not a lost decision; the decision itself fails closed
         # by costing the call, and a test pins that.
         clamp, clamp_source, verified = _clamp_for(_resolve_state(), prefix)
-        if posture.posture() == POSTURE_SANDBOX and _is_clamped(
-            clamp, subject, tool, verified=verified
-        ):
+        backstop = _backstop()
+        if not backstop.allowed and _is_clamped(clamp, subject, tool, verified=verified):
+            refused_for = backstop.reason or "tier_never"
             _record(
                 surface=surface,
                 subject=subject,
                 decision=DECISION_REFUSED,
                 reason=REASON_POSTURE,
-                detail=_call_detail(clamp_source),
+                detail=_call_detail(_refusal_detail(clamp_source, backstop)),
             )
             # `make_error` raises: fastmcp turns a raised ToolError into a
             # CallToolResult with isError=True and the message verbatim, which
             # returning a result directly does not.
             #
-            # `posture.posture()` answers `sandbox` for two different reasons
-            # and sends the operator to two different places, so the wording
-            # forks exactly as the executor's clamp does
-            # (`_execution_gates.enforce_posture_clamp`): a deployment-wide
-            # read-only run is answered from the ENVIRONMENT, short-circuiting
-            # before the store is read, and the chip cannot lift it — naming
-            # the chip there is a click that changes nothing on a chip that
-            # already reads writes.
-            reason, suggestions = _posture_refusal_wording()
+            # The words are the verdict's own: the backstop refuses only a
+            # read-only run or a tier that allows nothing, and the phrase says
+            # who can lift each.
+            suggestions: list[str] = []
             if clamp_source != CLAMP_SOURCE_LOADED:
                 # Off the verified path the match is by bare tool name, so a
                 # read tool sharing a name with some write tool lands here too.
@@ -892,7 +915,9 @@ class AuditMiddleware(Middleware):
                     "name; re-render with `osprey build`, and relaunch this server under "
                     "`osprey` if its name or launch changed."
                 )
-            make_error("safety_error", f"{tool} is refused: {reason}", suggestions)
+            make_error(
+                "safety_error", f"{tool} is refused: {refusal_text(refused_for)}", suggestions
+            )
 
         # One dedup scope per call: the innermost layer that recorded a
         # decision owns it, and this layer defers. Entering clears any marker

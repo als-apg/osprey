@@ -248,8 +248,11 @@ def _write_profile(
     make the profile buildable at all, not because these tests are about any of
     them: a repo profile must name a data tree, the channel-finder agent the
     default artifact set selects refuses to render without a paradigm, the
-    posture keys are the ones a build refuses to guess, and ``memory-guard`` is
-    what gates ``Write`` — a profile that could write with no gate is refused.
+    posture keys are the ones a build refuses to guess, ``memory-guard`` is
+    what gates ``Write`` — a profile that could write with no gate is refused —
+    and ``writes-check`` is what refuses the mixed read/write python tools'
+    writes per call under the ``never`` write posture, which a build also
+    refuses to render without.
     A caller stating one of them keeps its own value.
 
     Every tier the roster names gets its ``tiers/<name>.yml``, the file a
@@ -262,7 +265,7 @@ def _write_profile(
         "provider": "anthropic",
         "model": "claude-haiku-4-5",
         "channel_finder_mode": "hierarchical",
-        "hooks": ["memory-guard"],
+        "hooks": ["memory-guard", "writes-check"],
         "config": {**POSTURE_FLOOR, **config},
     }
     if deploy is not None:

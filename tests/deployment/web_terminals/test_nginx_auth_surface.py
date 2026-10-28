@@ -157,6 +157,26 @@ _HISTORY_ORIGIN_MARKER = "# The history page's origin.\n"
 _HISTORY_ORIGIN_PREFIX = "history: "
 
 
+def _asset_exemption_location(user: str) -> str:
+    """The header of a gated user's C-ASSETS exemption location: the static
+    module trees an opaque document imports without a credential, carved out of
+    `auth_request` and proxied on their own."""
+    return (
+        f"~ ^/u/{user}/(?:design-system/|static/fonts/|"
+        "panel/[A-Za-z0-9][A-Za-z0-9._-]*/(?:design-system|static/fonts)/|"
+        "panel/artifacts/static/(?:js|css)/)"
+    )
+
+
+def _cap_exemption_location(user: str) -> str:
+    """The header of a gated user's C-CAP exemption location: a panel framed at
+    its capability path, which carries its own credential, carved out of
+    `auth_request` and proxied on its own."""
+    return (
+        f"~ ^/u/{user}/panel(?:-static)?/[A-Za-z0-9][A-Za-z0-9._-]*/~c/[A-Za-z0-9][A-Za-z0-9._-]*/"
+    )
+
+
 def _locations(conf: str) -> dict[str, str]:
     """Every location block in the rendered fragment, keyed by its header text.
 
@@ -437,6 +457,10 @@ def test_every_proxying_location_claims_every_identity_header_with_auth_on() -> 
     assert set(proxying) == {
         "/u/alice/",
         "/u/bob/",
+        _asset_exemption_location("alice"),
+        _asset_exemption_location("bob"),
+        _cap_exemption_location("alice"),
+        _cap_exemption_location("bob"),
         "= /_osprey_auth/alice",
         "= /_osprey_auth/bob",
         "/auth/",

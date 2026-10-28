@@ -343,8 +343,8 @@ osprey-display-menu .display-menu-logout-icon {
    banner; the state it carries is what makes it worth looking at.
 
    Everything is keyed off four data attributes the chip module sets —
-   `data-target-kind` (live | standin | va), `data-state`
-   (writes | sandbox | read-only), `data-enforceable`, `data-pending` — so no
+   `data-target-kind` (real | rehearsal | simulator, GET's `machine_kind`),
+   `data-state` (on | off | locked), `data-enforceable`, `data-pending` — so no
    colour name and no state word lives in the JS.
 
    The popover is the identity menu's idiom (absolute, anchored under its
@@ -396,16 +396,16 @@ osprey-display-menu .display-menu-logout-icon {
   background: var(--bg-elevated);
 }
 
-/* The one loud cell in the whole matrix: the facility's own machine, with this
-   session able to write to it. Nothing else tints the border — a sandboxed
-   real machine is a safe state and must not shout, or the one state that
+/* The one loud cell in the whole matrix: the facility's own machine, with
+   writes on for this login. Nothing else tints the border — the real machine
+   with writes off is a safe state and must not shout, or the one state that
    should stops being distinguishable. */
-.control-target-chip[data-target-kind="live"][data-state="writes"] {
+.control-target-chip[data-target-kind="real"][data-state="on"] {
   border-color: var(--error-tint-40);
 }
 
-.control-target-chip[data-target-kind="live"][data-state="writes"]:hover,
-.control-target-chip[data-target-kind="live"][data-state="writes"][aria-expanded="true"] {
+.control-target-chip[data-target-kind="real"][data-state="on"]:hover,
+.control-target-chip[data-target-kind="real"][data-state="on"][aria-expanded="true"] {
   border-color: var(--color-error);
   background: var(--error-tint-08);
 }
@@ -439,13 +439,24 @@ osprey-display-menu .display-menu-logout-icon {
   color: var(--text-secondary);
 }
 
-/* Sandbox is the state an operator chose and can lift; it earns the warning
-   colour on the word, not on the border. */
-.control-target-chip[data-state="sandbox"] .ctc-state {
+/* The state word takes the kind's colour while writes are on — red on the
+   real machine, amber on the rehearsal, green on the simulator — the same
+   colour as the dot and the popover's switch, all keyed on the one
+   `data-target-kind` the module sets. Off is the resting position and stays
+   in the plain secondary tone; locked drops to muted. */
+.control-target-chip[data-target-kind="real"][data-state="on"]:not([data-pending="true"]) .ctc-state {
+  color: var(--color-error);
+}
+
+.control-target-chip[data-target-kind="rehearsal"][data-state="on"]:not([data-pending="true"]) .ctc-state {
   color: var(--color-warning);
 }
 
-.control-target-chip[data-state="read-only"] .ctc-state {
+.control-target-chip[data-target-kind="simulator"][data-state="on"]:not([data-pending="true"]) .ctc-state {
+  color: var(--color-success);
+}
+
+.control-target-chip[data-state="locked"] .ctc-state {
   color: var(--text-muted);
 }
 
@@ -466,9 +477,9 @@ osprey-display-menu .display-menu-logout-icon {
 
    Two channels, read together: colour is the consequence of a write landing
    here, shape is who is holding writes back. Filled = nobody, the agent can
-   write. Half = the operator sandboxed it for this session, and one click in
-   the popover lifts it. Hollow = the deployment never armed this target, so
-   there is nothing to lift from here.
+   write. Half = the switch is off, and one click in the popover turns it on.
+   Hollow = locked: the switch is on and still refused (or cannot be read), and
+   the row says who lifts it.
 
    The words beside the dot say the same thing, so colour is a second channel
    rather than the only one. */
@@ -484,40 +495,31 @@ osprey-display-menu .display-menu-logout-icon {
 
 /* Shape. The attribute may sit on the dot itself (a standalone dot) or on the
    chip or row that owns it, so both spellings resolve. */
-[data-state="sandbox"] > .ctc-dot,
-.ctc-dot[data-state="sandbox"] {
+[data-state="off"] > .ctc-dot,
+.ctc-dot[data-state="off"] {
   background: linear-gradient(90deg, var(--dot) 50%, transparent 50%);
 }
 
-[data-state="read-only"] > .ctc-dot,
-.ctc-dot[data-state="read-only"] {
+[data-state="locked"] > .ctc-dot,
+.ctc-dot[data-state="locked"] {
   background: transparent;
 }
 
-/* Colour. A stand-in soft-IOC is a real machine for this purpose — an operator
-   drives it the way they drive the facility's own — so it shares `live`'s
-   palette rather than getting a third one that would invite reading it as a
-   second simulator. */
-[data-target-kind="live"][data-state="writes"] > .ctc-dot,
-[data-target-kind="standin"][data-state="writes"] > .ctc-dot {
+/* Colour (C-WORDS) is the kind, whatever the switch says: the real machine
+   red, the rehearsal amber — nothing moves there, but it is driven the way
+   the real one is — and the simulator green. Shape alone carries on and off,
+   so a real machine with writes off is a red half-dot, never amber. Locked
+   stays muted: no write lands, so there is no consequence to colour. */
+[data-target-kind="real"]:not([data-state="locked"]) > .ctc-dot {
   --dot: var(--color-error);
 }
 
-[data-target-kind="live"][data-state="sandbox"] > .ctc-dot,
-[data-target-kind="standin"][data-state="sandbox"] > .ctc-dot {
+[data-target-kind="rehearsal"]:not([data-state="locked"]) > .ctc-dot {
   --dot: var(--color-warning);
 }
 
-[data-target-kind="va"][data-state="writes"] > .ctc-dot {
+[data-target-kind="simulator"]:not([data-state="locked"]) > .ctc-dot {
   --dot: var(--color-success);
-}
-
-/* Stand-in with writes armed: an outline, not a fill. It is a real machine —
-   the colour says so — but it is not the facility's own, and the open centre
-   is what separates the two at a glance in a header the eye only skims. */
-[data-target-kind="standin"][data-state="writes"] > .ctc-dot {
-  background: transparent;
-  border-width: 2px;
 }
 
 /* A switch request is out: the dot breathes until the answer lands. Motion is
@@ -745,7 +747,7 @@ osprey-display-menu .display-menu-logout-icon {
 
 /* A simulator is the unremarkable case: it drops to the secondary weight so
    the eye skips it. */
-.ctc-row[data-target-kind="va"] .ctc-name {
+.ctc-row[data-target-kind="simulator"] .ctc-name {
   color: var(--text-secondary);
   font-weight: var(--weight-regular);
 }
@@ -754,8 +756,9 @@ osprey-display-menu .display-menu-logout-icon {
 
    One widget instead of pill + verb: the position is the state, the word
    beside it is the glance copy, and the click is the gesture. On takes the
-   colour of what a write there would mean — the error tone on a real
-   machine, success on a simulator; off is the neutral resting position (a
+   colour of what a write there would mean, read from the card's or row's
+   `data-target-kind` — the error tone on the real machine, amber on the
+   rehearsal, success on the simulator; off is the neutral resting position (a
    toggle's off must read as resting, not as a warning). Locked keeps the
    switch on screen, disabled, with the reason on hover. While the turn-on
    confirm is up the knob parks mid-track behind a dashed outline
@@ -783,11 +786,15 @@ osprey-display-menu .display-menu-logout-icon {
   min-width: 38px;
 }
 
-.ctc-switchwrap[data-state="writes"][data-real="true"] .ctc-switch-state {
+[data-target-kind="real"] .ctc-switchwrap[data-state="on"] .ctc-switch-state {
   color: var(--color-error);
 }
 
-.ctc-switchwrap[data-state="writes"][data-real="false"] .ctc-switch-state {
+[data-target-kind="rehearsal"] .ctc-switchwrap[data-state="on"] .ctc-switch-state {
+  color: var(--color-warning);
+}
+
+[data-target-kind="simulator"] .ctc-switchwrap[data-state="on"] .ctc-switch-state {
   color: var(--color-success);
 }
 
@@ -827,15 +834,20 @@ osprey-display-menu .display-menu-logout-icon {
 
 .ctc-toggle[aria-checked="true"]::after {
   transform: translateX(14px);
-  background: #fff; /* hygiene-allow-color: knob on the saturated error/success track — white in every theme, like a native switch */
+  background: #fff; /* hygiene-allow-color: knob on the saturated error/warning/success track — white in every theme, like a native switch */
 }
 
-.ctc-toggle[aria-checked="true"][data-real="true"] {
+[data-target-kind="real"] .ctc-toggle[aria-checked="true"] {
   background: var(--color-error);
   border-color: var(--color-error);
 }
 
-.ctc-toggle[aria-checked="true"][data-real="false"] {
+[data-target-kind="rehearsal"] .ctc-toggle[aria-checked="true"] {
+  background: var(--color-warning);
+  border-color: var(--color-warning);
+}
+
+[data-target-kind="simulator"] .ctc-toggle[aria-checked="true"] {
   background: var(--color-success);
   border-color: var(--color-success);
 }
@@ -930,7 +942,7 @@ osprey-display-menu .display-menu-logout-icon {
 /* Switching onto a real machine hovers to the error tone: the confirm that
    follows is the safety gesture, and the button that opens it should already
    look like the one that does. */
-.ctc-row[data-real="true"] .ctc-switch:hover:not(:disabled) {
+.ctc-row[data-target-kind="real"] .ctc-switch:hover:not(:disabled) {
   border-color: var(--error-tint-40);
   background: var(--error-tint-08);
 }
@@ -954,8 +966,8 @@ osprey-display-menu .display-menu-logout-icon {
   border-top: 1px solid var(--border-default);
 }
 
-/* The one-gesture narrowing: it only ever removes reach, so it applies on
-   click without a confirm, and it hovers warning rather than error. */
+/* Turn all writes off: it only ever stops writes, so it applies on click
+   without a confirm, and it hovers warning rather than error. */
 .ctc-all-off {
   height: 22px;
   padding: 0 10px;
@@ -2089,13 +2101,12 @@ html[data-ui-mode="simple"] #terminal-container {
   margin-bottom: var(--space-3);
 }
 
-/* The one sentence that makes a confirm about the facility's own machine
-   different from every other confirm: arming writes there, or switching onto
-   it with writes already armed, means the next write moves hardware. Same box
-   as the error notice above — it is the same kind of thing to read before
-   clicking — but it sits under the body rather than above it, because it
-   qualifies what the operator is about to do rather than reporting what
-   already failed. */
+/* The machine banner a confirm carries (C-WORDS): "Real machine — writes move
+   hardware" in red, "Rehearsal — nothing moves" in amber, keyed on the
+   dialog's `data-target-kind`. Same box as the error notice above — it is the
+   same kind of thing to read before clicking — but it sits under the body
+   rather than above it, because it qualifies what the operator is about to do
+   rather than reporting what already failed. */
 .posture-modal-live {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
@@ -2108,9 +2119,15 @@ html[data-ui-mode="simple"] #terminal-container {
   margin: 10px 0 0;
 }
 
+.posture-modal[data-target-kind="rehearsal"] .posture-modal-live {
+  color: var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 15%, transparent);
+  border-color: color-mix(in srgb, var(--color-warning) 40%, transparent);
+}
+
 /* The "don't ask again" waiver. Quiet on purpose — secondary text, no box or
    tint: it is a convenience beside the decision, never part of it. Absent
-   entirely from the one dialog that must keep asking (writes on, live
+   entirely from the one dialog that must keep asking (writes on, real
    machine). */
 .posture-modal-skip {
   display: flex;
@@ -2171,16 +2188,27 @@ html[data-ui-mode="simple"] #terminal-container {
 }
 
 /* The confirm button takes the error tone only when the thing being confirmed
-   reaches the facility's own machine — the same single-loud-cell rule the chip
-   follows, so the colour still means one thing across the whole feature. */
-.posture-modal-confirm[data-live="true"] {
+   reaches the real machine — the same single-loud-cell rule the chip follows,
+   so red still means one thing across the whole feature — and the rehearsal's
+   amber when it reaches the rehearsal. */
+.posture-modal[data-target-kind="real"] .posture-modal-confirm[data-live="true"] {
   background: var(--error-tint-15);
   border-color: var(--error-tint-40);
 }
 
-.posture-modal-confirm[data-live="true"]:hover:not(:disabled) {
+.posture-modal[data-target-kind="real"] .posture-modal-confirm[data-live="true"]:hover:not(:disabled) {
   background: var(--error-tint-25);
   border-color: var(--color-error);
+}
+
+.posture-modal[data-target-kind="rehearsal"] .posture-modal-confirm[data-live="true"] {
+  background: color-mix(in srgb, var(--color-warning) 15%, transparent);
+  border-color: color-mix(in srgb, var(--color-warning) 40%, transparent);
+}
+
+.posture-modal[data-target-kind="rehearsal"] .posture-modal-confirm[data-live="true"]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-warning) 25%, transparent);
+  border-color: var(--color-warning);
 }
 
 .posture-modal-cancel:disabled,

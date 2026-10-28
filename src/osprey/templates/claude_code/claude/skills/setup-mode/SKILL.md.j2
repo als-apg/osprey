@@ -131,8 +131,7 @@ Expected subdirectories in `{{ agent_data_root }}/`:
 
 | Change | Type | Effect |
 |--------|------|--------|
-| `control_system.writes_enabled` | Cold | The posture a connector type inherits when its own block says nothing. Hooks re-read on each call, but the connector caches it at launch and `permissions.deny` is not regenerated — needs `osprey build` + restart |
-| `control_system.connector.<type>.writes_enabled` | Cold | Write posture for one connector type, which answers instead of the key above for that type — same rebuild and restart, and `permissions.deny` changes shape when the two targets stop agreeing |
+| `control_system.writes` | Cold | The tier's write ceiling, `allowed` or `never`, for every machine this deployment has. Hooks re-read on each call, but the connector caches it at launch and `permissions.deny` is not regenerated — needs `osprey build` + restart |
 | `control_system.limits_checking.enabled` | Hot | Hooks re-read on each call |
 | `control_system.limits_checking.mode` | Hot | Hooks re-read on each call |
 | `control_system.connector.<type>.limits_checking.*` | Hot | Per-connector-type limits-checking posture, which answers instead of the keys above for that type — hooks re-read on each call |
@@ -162,8 +161,8 @@ Switching control target is not a config change: `control_system.type` only sets
 
 ### 2. Writes Blocked
 **Symptoms**: `channel_write` rejected.
-**Check**: `setup_inspect` → `config.control_system.writes_enabled`, and `config.control_system.connector.<type>.writes_enabled` for the type the control target resolves to. The per-type key answers on its own where it is set: a type that carries one never falls back to the deployment-wide key, so writes can be armed on the virtual accelerator and refused on the live machine in the same project.
-**Fix**: `control_system.*` is a protected key — `setup_patch` refuses it and records the refusal. The change belongs to the deployment repo's profile: run `osprey set config.control_system.writes_enabled=true` to arm every type that says nothing, or `osprey set config.control_system.connector.virtual_accelerator.writes_enabled=true` to arm one type. Then `osprey build` and restart the agent (cold change: the connector and the enforced `permissions.deny` list still refuse writes until then). Only a literal `true` arms writes; the string `"true"` and `1` do not.
+**Check**: `setup_inspect` → `config.control_system.writes`. While it is `never`, every write is refused. While it is `allowed`, the login's own write switch for the machine the session is on decides each write; the operator sets it from the web terminal's control-target chip.
+**Fix**: `control_system.*` is a protected key — `setup_patch` refuses it and records the refusal. The change belongs to the deployment repo: write `control_system.writes: allowed` in the profile or tier file that renders this agent (`osprey set` only lowers it to `never`). Then `osprey build` and restart the agent (cold change: the connector and the enforced `permissions.deny` list still refuse writes until then).
 
 ### 3. Missing Safety Hooks
 **Symptoms**: Writes proceed without approval prompts.
@@ -197,6 +196,6 @@ Switching control target is not a config change: `control_system.type` only sets
 - Issues requiring changes to `.claude/settings.json` or hook scripts (use `osprey build`)
 
 **Always confirm before**:
-- Changing `control_system.writes_enabled` or any `control_system.connector.<type>.writes_enabled` (safety-critical)
+- Changing `control_system.writes` (safety-critical)
 - Modifying `.mcp.json` server entries (requires session restart)
 - Any change that could affect production control system access

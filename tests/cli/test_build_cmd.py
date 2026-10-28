@@ -41,6 +41,23 @@ def _create_project(manager, **kwargs) -> Path:
     return manager.create_project(**kwargs)
 
 
+def _stamp_bundle_selection(manager, project: Path, name: str, bundle: str) -> None:
+    """Stamp the manifest a real build writes right after the render.
+
+    The context build reads the hook selection back out of it. Unstamped, the
+    project selects no hooks, and a framework-default render (writes ``never``,
+    python's read/write-mixed exec tools on) is refused by the write-gate lint
+    for want of ``writes-check`` before the code under test is reached.
+    """
+    manager.generate_manifest(
+        project,
+        name,
+        bundle.replace("_", "-"),
+        {},
+        artifacts=manager._effective_artifacts(bundle, None),
+    )
+
+
 def materialize_data(profile_dir: Path, bundle: str = "control_assistant") -> Path:
     """Copy *bundle*'s packaged data tree to ``profile_dir/data``, as init does.
 
@@ -2242,6 +2259,7 @@ def test_build_context_warns_when_remove_ask_overrides_gated_tool(tmp_path: Path
         data_bundle="hello_world",
         data_root=bundle_data_root("hello_world"),
     )
+    _stamp_bundle_selection(manager, project, "remove-ask-warn", "hello_world")
 
     config = yaml.safe_load((project / "config.yml").read_text())
     cc = config.setdefault("claude_code", {})
@@ -2285,6 +2303,7 @@ def test_lint_rejects_ungated_write_tool_when_memory_guard_absent(tmp_path: Path
         data_bundle="hello_world",
         data_root=bundle_data_root("hello_world"),
     )
+    _stamp_bundle_selection(manager, project, "lint-no-guard", "hello_world")
 
     config = yaml.safe_load((project / "config.yml").read_text())
     ctx = claude_code.build_claude_code_context(

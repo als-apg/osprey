@@ -971,26 +971,23 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
     silently re-point the mount at a file that is not there.
 
     Refusals are gated on
-    :func:`~osprey_connectors.types.any_armed_target_requires_limits_database`:
-    a target needs this file only when it both arms writes and
-    :func:`~osprey_connectors.types.limits_database_required` answers yes for
-    it — limits checking on, and either a mode other than ``optional`` or a
-    path configured — so that pairing is what makes the file's absence a fault
-    rather than a posture. Both halves are read off the SAME
-    target, and the write half is a union over the targets a session here can
-    select rather than the flat key — the mount is rendered per Bluesky lane,
-    on each lane's own target posture (:func:`_bluesky_lane_write_posture`), so
-    a deployment whose deployment-wide key is ``false`` still mounts this file
-    into a lane whose ``control_system.connector.<type>.writes_enabled`` arms
-    it. Reading the flat key would let that config refuse nothing and then
-    render an armed lane binding a file that is not on the host, which the
-    container runtime creates as an empty directory.
+    :func:`~osprey_connectors.types.tier_limits_database_targets`: a target
+    needs this file only when the render's login tier allows writes
+    (``control_system.writes: allowed``) and that target's limits posture
+    :func:`~osprey_connectors.types.limits_database_required` — limits checking
+    on, and either a mode other than ``optional`` or a path configured — so
+    that pairing is what makes the file's absence a fault rather than a
+    posture. The tier is the same value every Bluesky lane's mount is rendered
+    on (:func:`_bluesky_lane_write_posture`), so the refusal and the mount
+    cannot disagree: a gate read any other way would let a config refuse
+    nothing and then render a lane binding a file that is not on the host,
+    which the container runtime creates as an empty directory.
 
     A limits database is therefore optional, exactly as it is at runtime. A
-    deployment with no armed target never opens it; neither does one that arms
-    writes with limits checking off for every armed target, where the connector
-    builds no validator and consults no database; nor does one whose armed
-    targets check limits in ``optional`` mode with no path configured, where the
+    ``never`` render never opens it; neither does an ``allowed`` one with
+    limits checking off for every reachable target, where the connector
+    builds no validator and consults no database; nor does one whose targets
+    check limits in ``optional`` mode with no path configured, where the
     connector checks every channel as unlisted against an empty database. All
     three leave an unset or
     not-yet-staged path a posture rather than a fault, and the render carries
@@ -1014,32 +1011,34 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
         will be read under; ``""`` for the repo root itself
     :type deployed_config_dir: str
     :return: ``{"source": ..., "target": ...}``, or ``None`` when the key names
-        no path at all and no armed target requires the database, or names
-        one that is not on this host and no armed target checks limits — there is nothing to mount either way, and a bind
-        source that is not there is worse than no bind at all
+        no path at all and no target the tier arms requires the database, or
+        names one that is not on this host and no target the tier arms checks
+        limits — there is nothing to mount either way, and a bind source that
+        is not there is worse than no bind at all
     :rtype: dict[str, str] or None
-    :raises DeploymentPreconditionError: Some target arms writes and requires
-        a limits database, and the key is unset or not a string (a mode other
-        than ``optional``), or names a file that is not on this host
+    :raises DeploymentPreconditionError: The tier allows writes and some
+        reachable target requires a limits database, and the key is unset or
+        not a string (a mode other than ``optional``), or names a file that is
+        not on this host
     """
-    from osprey_connectors.types import any_armed_target_requires_limits_database
+    from osprey_connectors.types import WRITES_KEY, tier_limits_database_targets
 
     control_system = config.get("control_system") or {}
     limits_checking = control_system.get("limits_checking") or {}
     raw = limits_checking.get("database_path")
-    limits_required = any_armed_target_requires_limits_database(
-        control_system, path_configured=isinstance(raw, str) and bool(raw.strip())
+    limits_required = bool(
+        tier_limits_database_targets(
+            control_system, path_configured=isinstance(raw, str) and bool(raw.strip())
+        )
     )
 
     if not isinstance(raw, str) or not raw.strip():
         if limits_required:
             raise DeploymentPreconditionError(
                 reason=(
-                    f"At least one control target arms writes_enabled (from "
-                    f"control_system.writes_enabled or a "
-                    f"control_system.connector.<type>.writes_enabled that "
-                    f"overrides it) AND has limits_checking.enabled on in a mode "
-                    f"other than optional, so the "
+                    f"The login tier allows writes ({WRITES_KEY}: allowed) AND "
+                    f"at least one control target has limits_checking.enabled "
+                    f"on in a mode other than optional, so the "
                     f"channel-limits database is mounted into the services that "
                     f"write — but {LIMITS_DATABASE_CONFIG_KEY} names no path "
                     f"(found: {raw!r}). There is nothing to mount, so those "
@@ -1051,15 +1050,13 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
                     f"{LIMITS_DATABASE_CONFIG_KEY}, which it renders from "
                     "data/facility/limits.yaml, whenever the profile states a limits "
                     "block.\n"
-                    "Or turn limits checking off for the armed target — "
+                    "Or turn limits checking off for that target — "
                     "limits_checking.enabled: false, deployment-wide or in that "
                     "target's control_system.connector.<type> block — which "
                     "needs no limits database; limits_checking.mode: optional "
                     "with no path checks every channel as unlisted and needs "
-                    "none either. Disarming every target "
-                    "(control_system.writes_enabled: false with no "
-                    "control_system.connector.<type>.writes_enabled: true "
-                    "overriding it) needs none either."
+                    "none either. A login tier that writes nowhere "
+                    f"({WRITES_KEY}: never) needs none either."
                 ),
             )
         # Unconfigured, and nothing here opens a limits database: nothing to
@@ -1089,10 +1086,9 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
         if limits_required:
             raise DeploymentPreconditionError(
                 reason=(
-                    f"At least one control target arms writes_enabled (from "
-                    f"control_system.writes_enabled or a "
-                    f"control_system.connector.<type>.writes_enabled that "
-                    f"overrides it) AND has limits_checking.enabled on, so the "
+                    f"The login tier allows writes ({WRITES_KEY}: allowed) AND "
+                    f"at least one control target has limits_checking.enabled "
+                    f"on, so the "
                     f"channel-limits database is mounted into the services that "
                     f"write — but {LIMITS_DATABASE_CONFIG_KEY} is {raw!r} and "
                     f"there is no file at {on_host}. A bind source that does not "
@@ -1105,7 +1101,7 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
                     "from data/facility/limits.yaml and names it as "
                     f"{LIMITS_DATABASE_CONFIG_KEY}, so a file absent here usually "
                     "means the build has not been re-run. To deploy without one, set limits_checking.enabled: false for "
-                    "the armed target — a target that checks no limits opens no "
+                    "that target — a target that checks no limits opens no "
                     "database."
                 ),
             )
@@ -1896,51 +1892,18 @@ def resolve_image_defaults(config):
     }
 
 
-def _lane_target(block, control_system):
-    """The control-system target one plan lane serves.
-
-    ``services.<lane>.target`` as the build injector wrote it, and the
-    deployment's own :func:`~osprey_connectors.types.baseline_target` for a lane
-    block that carries no target key — which is every single-lane render except
-    the stand-in's, whose injector writes the target because its baseline runs
-    two soft IOCs.
-
-    Only a non-empty STRING counts as a declared target, because that is the
-    test the worker applies to the same key
-    (:func:`~osprey.services.bluesky_bridge.queue_backend._declared_lane_target`).
-    On a hand-edited config a target of any other type would otherwise be a
-    lane this render resolves one way and the runtime another — a lane rendered
-    for a machine the worker does not come up on.
-
-    One spelling, because the answer decides what the lane is described as: the
-    template's write posture below reads it, and a lane resolved one way here
-    and another by the worker would render a machine the worker never comes up
-    on.
-
-    :param block: The lane's ``services.<lane>`` block
-    :type block: dict
-    :param control_system: The config's ``control_system:`` section
-    :return: The target this lane is bound to at render time
-    :rtype: str
-    """
-    from osprey_connectors.types import baseline_target
-
-    declared = block.get("target")
-    return declared if isinstance(declared, str) and declared else baseline_target(control_system)
-
-
 def _bluesky_lane_write_posture(services, control_system):
     """Whether writes are armed for each declared Bluesky lane, by lane key.
 
-    Write posture follows the control-system TARGET, and a Bluesky lane is bound
-    to one target at render time — so a deployment can arm writes on its virtual
-    accelerator lane while its live lane stays read-only. The template cannot
-    resolve a target to a connector type itself, so the answer is computed here
-    and read off the lane's own ``services.<lane>`` block.
-
-    A lane with no declared ``target`` — which is every single-lane render —
-    serves the deployment baseline, so its posture is the deployment-wide one it
-    has always been.
+    The render's login tier decides (:func:`~osprey_connectors.types.tier_allows`
+    over ``control_system.writes``), not the lane's target: the tier is a
+    ceiling, not a selection, so an ``allowed`` render arms every lane — each
+    lane mounts the limits database and the control-context tree its writes are
+    judged against — and a ``never`` render arms none. Which machine a write
+    actually reaches is the session's switch to decide at runtime, never the
+    render's. The answer is computed here, once, and read off each lane's own
+    ``services.<lane>`` block, because the template makes no posture decision
+    of its own.
 
     :param services: The config's ``services:`` mapping.
     :type services: dict
@@ -1948,13 +1911,10 @@ def _bluesky_lane_write_posture(services, control_system):
     :return: Lane service key to armed flag, for the lanes declared in *services*
     :rtype: dict[str, bool]
     """
-    from osprey_connectors.types import target_writes_enabled
+    from osprey_connectors.types import tier_allows
 
-    return {
-        key: target_writes_enabled(control_system, _lane_target(services[key], control_system))
-        for key in LANE_KEYS
-        if isinstance(services.get(key), dict)
-    }
+    armed = tier_allows(control_system)
+    return {key: armed for key in LANE_KEYS if isinstance(services.get(key), dict)}
 
 
 def project_label_values(config):
@@ -2147,8 +2107,12 @@ def _stages_runtime_config(config, source_dir):
     """Whether the build stages a flattened ``config.yml`` into *source_dir*'s output.
 
     Every service context gets one, except the dispatch worker at a tier: it
-    runs the tier's render with that render's baked ``build/config.yml``, and
-    its compose mounts nothing over it.
+    runs the tier's render, and the root flatten would carry the root's posture
+    rather than the tier's. Its staged ``config.yml`` is the tier's
+    container-rooted render plus the login→tier map, written by ``osprey build``
+    after the image contexts render
+    (:func:`osprey.cli.build_cmd._stage_tiered_dispatch_config`); a
+    redeploy keeps that copy as it finds it.
 
     :param config: Deploy config.
     :type config: dict
@@ -2161,6 +2125,89 @@ def _stages_runtime_config(config, source_dir):
     if os.path.basename(os.path.normpath(source_dir)) != "dispatch_worker":
         return True
     return dispatch_tier_name(config) is None
+
+
+#: Basenames of the service contexts whose staged ``config.yml`` carries the
+#: login→tier map: the tree-bound shared containers, which run one render for
+#: every login whose job they carry. Every other context — and every
+#: terminal-served, image and root render — carries none.
+LOGIN_TIERS_SERVICES = frozenset({"bluesky", "dispatch_worker"})
+
+
+def staged_login_tiers(config, layer_root=None):
+    """The ``control_system.login_tiers`` map this deployment's shared containers read.
+
+    The one call every staging path makes, so ``osprey build``, the tiered
+    dispatch copy and every redeploy stage the same map
+    (:func:`~osprey.deployment.web_terminals.login_tiers.build_login_tiers`).
+
+    :param config: The resolved deploy config.
+    :type config: dict
+    :param layer_root: Where a build in flight has rendered its renders;
+        ``None`` reads the published build zone.
+    :type layer_root: str or None
+    :rtype: dict[str, str]
+    """
+    from osprey.deployment.web_terminals.login_tiers import build_login_tiers
+
+    return build_login_tiers(config, resolve_repo_root(config), layer_root=layer_root)
+
+
+def with_login_tiers(document, login_tiers):
+    """A copy of config *document* carrying *login_tiers* at ``control_system.login_tiers``.
+
+    Nothing else in the document changes; a ``control_system`` that is not a
+    mapping is replaced by one holding the map alone.
+
+    :param document: A parsed ``config.yml``.
+    :type document: dict
+    :param login_tiers: The map (:func:`staged_login_tiers`).
+    :type login_tiers: dict[str, str]
+    :rtype: dict
+    """
+    from osprey.deployment.web_terminals.login_tiers import LOGIN_TIERS_KEY
+
+    staged = dict(document) if isinstance(document, dict) else {}
+    section = staged.get("control_system")
+    section = dict(section) if isinstance(section, dict) else {}
+    section[LOGIN_TIERS_KEY] = dict(login_tiers)
+    staged["control_system"] = section
+    return staged
+
+
+def _stage_login_tiers(config, source_dir, out_dir, login_tiers):
+    """Add the login→tier map to the ``config.yml`` staged into *out_dir*.
+
+    Applies to the Bluesky context and the untiered dispatch worker's, after
+    whichever branch staged the file — the root flatten or its verbatim-copy
+    fallback. The tiered worker's copy is not touched here: it is the tier's
+    render, written by ``osprey build``. A context with no staged file is left
+    alone.
+
+    :param config: Deploy config.
+    :type config: dict
+    :param source_dir: The service's source directory.
+    :type source_dir: str
+    :param out_dir: The service's output directory.
+    :type out_dir: str
+    :param login_tiers: The map, or ``None`` to stage nothing.
+    :type login_tiers: dict[str, str] or None
+    """
+    if login_tiers is None:
+        return
+    if os.path.basename(os.path.normpath(source_dir)) not in LOGIN_TIERS_SERVICES:
+        return
+    if not _stages_runtime_config(config, source_dir):
+        return
+    staged_path = os.path.join(out_dir, "config.yml")
+    if not os.path.isfile(staged_path):
+        return
+    with open(staged_path, encoding="utf-8") as f:
+        document = yaml_loader.safe_load(f) or {}
+    with open(staged_path, "w", encoding="utf-8") as f:
+        yaml_loader.safe_dump(
+            with_login_tiers(document, login_tiers), f, default_flow_style=False, sort_keys=False
+        )
 
 
 def _inject_project_metadata(config):
@@ -2299,9 +2346,17 @@ def _inject_project_metadata(config):
     # targets. A worker at a tier runs the tier's render as built — its image
     # bakes that render's project at ``/app/<p>-<tier>`` with its own
     # ``build/config.yml`` — so the root is the tier entry's, named by the same
-    # resolution that names the tier image, and nothing overlays the baked
-    # config (``osprey_worker_stages_config``). Untiered, it is this
-    # deployment's own project and the staged config overlays the image's.
+    # resolution that names the tier image. Untiered, it is this deployment's
+    # own project.
+    #
+    # Either way a staged ``config.yml`` overlays the image's
+    # (``osprey_worker_stages_config``): the worker is a shared container, and
+    # the login→tier map it reads (``control_system.login_tiers``) is staged
+    # beside the render, never baked into it. Untiered, the staged file is the
+    # root flatten plus the map (:func:`_stage_login_tiers`); at a tier, it is
+    # the tier's container-rooted render plus the map, written by ``osprey
+    # build`` once that render exists (the root flatten would carry the root's
+    # posture, not the tier's — see :func:`_stages_runtime_config`).
     worker_tier = _dispatch_worker_tier_entry(config)
     worker_project_dir = (
         PurePosixPath(worker_tier["container_project_dir"])
@@ -2309,7 +2364,7 @@ def _inject_project_metadata(config):
         else container_project_dir
     )
     config_with_labels["osprey_worker_project_dir"] = worker_project_dir.as_posix()
-    config_with_labels["osprey_worker_stages_config"] = worker_tier is None
+    config_with_labels["osprey_worker_stages_config"] = True
 
     # Read by the worker template alone, so it is joined onto the worker's
     # project directly.
@@ -4539,7 +4594,9 @@ def _stage_control_identity_module(config, source_dir, out_dir):  # noqa: ARG001
     return True
 
 
-def setup_build_dir(template_path, config, container_cfg, dev_mode=False, layer_root=None):
+def setup_build_dir(
+    template_path, config, container_cfg, dev_mode=False, layer_root=None, login_tiers=None
+):
     """Create complete build environment for service deployment.
 
     This function orchestrates the complete build directory setup process for
@@ -4570,6 +4627,10 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False, layer_
     :param layer_root: Where a build in flight has rendered its render
         projects, for the roster grant (:func:`_bluesky_panel_secret_env_vars`)
     :type layer_root: str or None
+    :param login_tiers: The login→tier map to stage into a shared container's
+        ``config.yml`` (:func:`_stage_login_tiers`); ``None`` stages none.
+        :func:`prepare_compose_files` computes it once per render.
+    :type login_tiers: dict[str, str] or None
     :return: Path to the rendered Docker Compose file
     :rtype: str
 
@@ -4632,6 +4693,17 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False, layer_
     # output directory can hold a previous render's stale files.
     renders_in_place = os.path.realpath(out_dir) == os.path.realpath(source_dir)
 
+    # The tiered dispatch worker's staged config is written by `osprey build`
+    # from the tier's render, which a redeploy does not re-render. Held across
+    # the clear below and put back unchanged, so a redeploy neither deletes it
+    # nor replaces it with a root flatten.
+    kept_tiered_config = None
+    if not _stages_runtime_config(config, source_dir):
+        kept_path = os.path.join(out_dir, "config.yml")
+        if os.path.isfile(kept_path) and not renders_in_place:
+            with open(kept_path, "rb") as f:
+                kept_tiered_config = f.read()
+
     if os.path.exists(out_dir) and not renders_in_place:
         try:
             shutil.rmtree(out_dir)
@@ -4649,11 +4721,20 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False, layer_
                     logger.warning(f"Could not remove {out_dir}, using incremental update approach")
                     # Use incremental update instead of full rebuild
                     return _incremental_setup_build_dir(
-                        template_path, config, container_cfg, out_dir, dev_mode, layer_root
+                        template_path,
+                        config,
+                        container_cfg,
+                        out_dir,
+                        dev_mode,
+                        layer_root,
+                        login_tiers=login_tiers,
                     )
             else:
                 raise
     os.makedirs(out_dir, exist_ok=True)
+    if kept_tiered_config is not None:
+        with open(os.path.join(out_dir, "config.yml"), "wb") as f:
+            f.write(kept_tiered_config)
 
     # Copy the service's own files (except templates) and stage the dev wheel
     # BEFORE rendering the compose template: the render context's dev_mode flag
@@ -4842,11 +4923,21 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False, layer_
                     shutil.copy2(config_yml_src, config_yml_dst)
                     logger.debug(f"Copied original config.yml to {config_yml_dst}")
 
+        # After both branches above: a shared container's staged config carries
+        # the login→tier map whichever of them wrote it.
+        _stage_login_tiers(config, source_dir, out_dir, login_tiers)
+
     return compose_filepath
 
 
 def _incremental_setup_build_dir(
-    template_path, config, service_config, out_dir, dev_mode=False, layer_root=None
+    template_path,
+    config,
+    service_config,
+    out_dir,
+    dev_mode=False,
+    layer_root=None,
+    login_tiers=None,
 ):
     """Setup build directory using incremental updates when full cleanup fails.
 
@@ -4862,6 +4953,9 @@ def _incremental_setup_build_dir(
         dev_mode (bool): Development mode, as in :func:`setup_build_dir`
         layer_root (str | None): Where a build in flight has rendered its
             render projects, as in :func:`setup_build_dir`
+        login_tiers (dict | None): The login→tier map, as in
+            :func:`setup_build_dir`; added to a shared container's
+            ``config.yml`` left in place from the previous render
 
     Returns:
         str: Path to the rendered docker-compose.yml file
@@ -4952,6 +5046,10 @@ def _incremental_setup_build_dir(
                     shutil.copytree(SRC_DIR, src_dst_path)
         except (OSError, shutil.Error) as e:
             logger.warning(f"Could not update source directory {src_dst_path}: {e}")
+
+    # The config.yml left in place carries the map this render computed, as in
+    # setup_build_dir.
+    _stage_login_tiers(config, source_dir, out_dir, login_tiers)
 
     return compose_filepath
 
@@ -5368,6 +5466,12 @@ def prepare_compose_files(
         top_template = render_template(top_template, config, out_dir)
         compose_files.append(top_template)
 
+    # The login→tier map the shared containers read, computed here — from the
+    # config and the renders this render reads — so every path through this
+    # function (`osprey build`, `deploy_up`, `deploy_down`, `deploy_restart`,
+    # `rebuild_deployment`) stages the same map and no caller hands one in.
+    login_tiers = staged_login_tiers(config, layer_root) if deployed_service_names else None
+
     # Create the service build directory for deployed services only
     for service_name in deployed_service_names:
         service_config, template_path = find_service_config(config, service_name)
@@ -5378,7 +5482,12 @@ def prepare_compose_files(
                 )
 
             out = setup_build_dir(
-                template_path, config, service_config, dev_mode, layer_root=layer_root
+                template_path,
+                config,
+                service_config,
+                dev_mode,
+                layer_root=layer_root,
+                login_tiers=login_tiers,
             )
             compose_files.append(out)
         else:

@@ -1172,6 +1172,321 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
         output.warn(summary, detail)
 
 
+#: The tier cell for a login whose tier the deployment's single sign-on decides:
+#: an OIDC card naming no role is granted the role its group claim maps to when
+#: the person signs in, so no file on this host can say which tier it will be.
+TIER_BY_ROLE_AT_SIGN_IN = "by role at sign-in"
+
+#: The tier cell for a record whose identity is neither a person in the roster
+#: nor a login the rendered map names — a sidecar, a login since removed. The
+#: write verdict refuses such an owner in a shared tree, so whatever its record
+#: says is not in force.
+TIER_NOT_IN_ROSTER = "not in the roster — cannot write"
+
+#: The writes cell for a record that exists and cannot be used. The verdict
+#: refuses every write it governs, so this is never shown as "off".
+RECORD_UNREADABLE = "record unreadable — writes refused"
+
+#: The suffix on a login's switched-on machines while its tier is ``never``:
+#: the "on" stays recorded and arms again only if the tier is lifted (O-3).
+INERT_UNDER_NEVER = "on — tier never, inert"
+
+
+def _staged_login_tiers(repo_root):
+    """The ``control_system`` section that carries the rendered login→tier map, or ``None``.
+
+    Read from the staged config of a tree-bound shared container
+    (``build/services/<svc>/config.yml``), the only place a build writes the
+    map; every copy carries the same one. ``None`` when no staged config
+    carries the leaf or none can be read.
+    """
+    from osprey.deployment.compose_generator import LOGIN_TIERS_SERVICES, SERVICES_DIR
+    from osprey.deployment.container_lifecycle import as_built_config_path
+    from osprey.deployment.web_terminals.login_tiers import LOGIN_TIERS_KEY
+    from osprey_connectors import yaml_loader
+
+    services = as_built_config_path(repo_root).parent / SERVICES_DIR
+    for service in sorted(LOGIN_TIERS_SERVICES):
+        path = services / service / "config.yml"
+        try:
+            if not path.is_file():
+                continue
+            document = yaml_loader.safe_load(path.read_text(encoding="utf-8"))
+        except Exception:
+            logger.debug("Could not read the staged config %s", path, exc_info=True)
+            continue
+        section = document.get("control_system") if isinstance(document, dict) else None
+        if isinstance(section, dict) and LOGIN_TIERS_KEY in section:
+            return section
+    return None
+
+
+def _mapped_tier(section, login):
+    """*login*'s entry in the staged map *section*: ``allowed``, ``never`` or ``unknown``.
+
+    Read as the write verdict reads it
+    (:func:`~osprey_connectors.posture_store.owner_tier_term`), so a malformed
+    map is unreadable as a whole; no staged map (*section* ``None``) is
+    ``unknown`` too.
+    """
+    from osprey_connectors.posture_store import owner_tier_term
+
+    if section is None:
+        return "unknown"
+    tier = owner_tier_term(section, login)
+    return tier if tier in ("allowed", "never") else "unknown"
+
+
+def _login_tiers(config, repo_root, section=None):
+    """``{login: tier cell}`` for every person in the roster, from the rendered map.
+
+    The map is the one the shared containers enforce (CC-3): status shows it,
+    never recomputes the roster, and flags no drift, so a roster edit shows
+    after the next build and deploy. :data:`TIER_BY_ROLE_AT_SIGN_IN` when
+    sign-in decides the card's tier, otherwise its entry
+    (:func:`_mapped_tier`); a card the map does not name, a malformed map, or
+    no staged map answers ``unknown`` rather than a guess. *section* is the
+    staged ``control_system`` (:func:`_staged_login_tiers`), read here when
+    not given.
+
+    A deployment without web terminals has no roster: every login there runs
+    the deployment's own config, so ``None`` is returned in place of a map and
+    the caller reads the tier off *config* itself.
+    """
+    from osprey.deployment.web_terminals.roster import authored_people, sign_in_decides_tier
+
+    modules_cfg = config.get("modules", {})
+    web_terminals = modules_cfg.get("web_terminals", {}) if isinstance(modules_cfg, dict) else {}
+    if not (isinstance(web_terminals, dict) and web_terminals.get("enabled")):
+        return None
+    if section is None:
+        section = _staged_login_tiers(repo_root)
+
+    tiers = {}
+    for entry in authored_people(web_terminals):
+        if isinstance(entry, str):
+            name = entry
+        elif isinstance(entry, dict) and isinstance(entry.get("name"), str):
+            name = entry["name"]
+        else:
+            continue
+        if sign_in_decides_tier(entry, web_terminals):
+            tiers[name] = TIER_BY_ROLE_AT_SIGN_IN
+        else:
+            tiers[name] = _mapped_tier(section, name)
+    return tiers
+
+
+def _recorded_identities(tree):
+    """Every identity directory under the control-context *tree*, sorted; ``[]`` for none."""
+    if tree is None:
+        return []
+    try:
+        if not tree.is_dir():
+            return []
+        return sorted(
+            child.name
+            for child in tree.iterdir()
+            if child.is_dir() and not child.is_symlink() and not child.name.startswith(".")
+        )
+    except OSError:
+        logger.debug("Could not list the control-context tree", exc_info=True)
+        return []
+
+
+def writes_rows(config, repo_root):
+    """The Writes section's rows: ``(login, tier, target, writes on)``, all strings.
+
+    One row per person in the roster (in roster order), then one per identity
+    that holds a record and is not in the roster (sorted): at its tier in the
+    rendered map when the map names it, else :data:`TIER_NOT_IN_ROSTER`. A deployment without
+    web terminals lists every identity that holds a record, each at the
+    deployment's own tier. Never raises on a malformed record: a record that
+    exists and cannot be used reads :data:`RECORD_UNREADABLE`, never ``off``.
+    """
+    from osprey.deployment.compose_generator import control_target_tree_dir
+    from osprey_connectors.control_context import RECORD_FILENAME, read_record_status
+    from osprey_connectors.types import tier_writes
+
+    try:
+        tree = control_target_tree_dir(config, repo_root)
+    except Exception:
+        tree = None
+
+    section = _staged_login_tiers(repo_root)
+    login_tiers = _login_tiers(config, repo_root, section)
+    recorded = _recorded_identities(tree)
+    if login_tiers is None:
+        own_tier = tier_writes(config.get("control_system"))
+        logins = [(name, own_tier) for name in recorded]
+    else:
+        logins = list(login_tiers.items())
+        for name in recorded:
+            if name in login_tiers:
+                continue
+            # A mapped login outside the roster (the build account) writes at its tier.
+            tier = _mapped_tier(section, name)
+            logins.append((name, TIER_NOT_IN_ROSTER if tier == "unknown" else tier))
+
+    rows = []
+    for login, tier in logins:
+        status = "missing"
+        record = None
+        if tree is not None:
+            record, status = read_record_status(path=tree / login / RECORD_FILENAME)
+        if status == "unreadable":
+            rows.append((login, tier, "?", RECORD_UNREADABLE))
+            continue
+        if record is None:
+            rows.append((login, tier, "—", "off"))
+            continue
+        on = sorted(target for target, state in record.switch.items() if state == "on")
+        if not on:
+            writes = "off"
+        elif tier == "never":
+            writes = f"{', '.join(on)} {INERT_UNDER_NEVER}"
+        else:
+            writes = ", ".join(on)
+        rows.append((login, tier, record.target, writes))
+    return rows
+
+
+#: How recently a controls server must have written its report for ``osprey
+#: status`` to believe it: three of the endpoint prober's default 30-second
+#: sweeps, each of which rewrites the report — the age at which the prober
+#: itself calls a row stale. Status runs on the host, where a server's PID (its
+#: report file's name) may belong to a container's PID namespace, so the
+#: report's own ``updated_at`` is the liveness signal here, never ``os.kill``.
+REPORT_FRESH_S = 90.0
+
+
+def _stamp_age_s(stamp, now):
+    """Seconds since the ISO-8601 *stamp*, or ``None`` when it cannot be read."""
+    from datetime import datetime
+
+    if not isinstance(stamp, str) or not stamp:
+        return None
+    try:
+        moment = datetime.fromisoformat(stamp)
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        return None
+    return (now - moment).total_seconds()
+
+
+def _fresh_standin_kind(state_dir, now):
+    """``standin``'s kind as the newest fresh report in *state_dir* states it.
+
+    ``rehearsal`` only when the most recently written report, written within
+    :data:`REPORT_FRESH_S` of *now* (and not in its future), says so for
+    ``standin``; no fresh report, no ``standin`` entry, or any other value is
+    ``real`` — the cautious words. Never raises.
+    """
+    from osprey_connectors import control_context
+
+    newest = None
+    newest_age = None
+    try:
+        paths = sorted(Path(state_dir).glob(control_context.REPORT_FILE_GLOB))
+    except (OSError, TypeError, ValueError):
+        return "real"
+    for path in paths:
+        try:
+            report = control_context.read_report(path)
+        except Exception:  # a report an operator cannot read states nothing
+            continue
+        if report is None:
+            continue
+        age = _stamp_age_s(report.updated_at, now)
+        if age is None or age < 0 or age > REPORT_FRESH_S:
+            continue
+        if newest_age is None or age < newest_age:
+            newest, newest_age = report, age
+    if newest is None:
+        return "real"
+    meta = newest.targets.get("standin")
+    if isinstance(meta, dict) and meta.get("machine_kind") == "rehearsal":
+        return "rehearsal"
+    return "real"
+
+
+def _target_cell(target, state_dir, *, now=None):
+    """The Target cell: the raw key, then the machine's words beside it (D4).
+
+    The words are the C-WORDS banner of the target's machine kind
+    (:data:`osprey_connectors.write_target.KIND_BANNERS`) — the words the chip
+    and the approval card use for the same machine. ``live`` and ``va`` answer
+    from the name table. ``standin`` is a rehearsal only when a controls
+    server's report in the login's own *state_dir* says so and was written
+    within :data:`REPORT_FRESH_S` (:func:`_fresh_standin_kind`); a login whose
+    directory cannot be named (*state_dir* ``None``), or one no fresh report
+    vouches for, reads as the real machine. A cell that names no target (``—``
+    for no record, ``?`` for an unreadable one) is left as it is.
+    """
+    from datetime import UTC, datetime
+
+    from osprey_connectors.types import CONTROL_TARGETS, TARGET_STANDIN, published_machine_kind
+    from osprey_connectors.write_target import KIND_BANNERS
+
+    if target not in CONTROL_TARGETS:
+        return target
+    if target != TARGET_STANDIN:
+        kind = published_machine_kind(target)
+    elif state_dir is None:
+        kind = "real"
+    else:
+        kind = _fresh_standin_kind(state_dir, now or datetime.now(UTC))
+    return f"{target} ({KIND_BANNERS[kind]})"
+
+
+def _login_state_dir(config, repo_root, login):
+    """*login*'s control-state directory on the host, or ``None`` when it cannot be named."""
+    from osprey.deployment.compose_generator import control_target_identity_dir
+
+    try:
+        return control_target_identity_dir(config, repo_root, login)
+    except Exception:
+        return None
+
+
+def _print_writes_section(config, repo_root):
+    """Print who may write, at which machine each login points, and what is on.
+
+    Read straight off each identity's control-context record; nothing is
+    written, and no record is created for a login that has none. The Target
+    column names the machine in the words every other surface uses, beside its
+    raw key (:func:`_target_cell`).
+    """
+    rows = writes_rows(config, repo_root)
+    output.report("")
+    output.section("Writes:", ())
+    if not rows:
+        output.note("No login holds a writes record yet: every machine's writes are off.")
+        return
+
+    table = data_table()
+    table.add_column("Login", style=Styles.ACCENT, no_wrap=True)
+    table.add_column("Tier", style=Styles.PRIMARY)
+    table.add_column("Target", style=Styles.INFO)
+    table.add_column("Writes on", style=Styles.PRIMARY)
+    for login, tier, target, writes in rows:
+        if writes == RECORD_UNREADABLE:
+            writes_cell = Text(writes, style=Styles.ERROR)
+        elif writes == "off":
+            writes_cell = Text(writes, style=Styles.DIM)
+        elif writes.endswith(INERT_UNDER_NEVER):
+            writes_cell = Text(writes, style=Styles.WARNING)
+        else:
+            writes_cell = Text(writes, style=Styles.SUCCESS)
+        tier_cell = Text(
+            tier, style=Styles.WARNING if tier in (TIER_NOT_IN_ROSTER, "unknown") else ""
+        )
+        target_cell = _target_cell(target, _login_state_dir(config, repo_root, login))
+        table.add_row(login, tier_cell, target_cell, writes_cell)
+    output.table(table)
+
+
 def show_repo_status(
     repo_root,
     *,
@@ -1182,7 +1497,7 @@ def show_repo_status(
     """Report what a deployment repo is doing and whether it still matches its source.
 
     The read-only counterpart to the start verbs, and deliberately the one place
-    that answers all four questions at once:
+    that answers all five questions at once:
 
     * **Build** — does ``build/`` still match ``profile.yml``, and which
       framework version rendered it. The same
@@ -1192,6 +1507,10 @@ def show_repo_status(
       ``com.osprey.repo-id`` label so another checkout's containers are named as
       another checkout's.
     * **Endpoints** — where this deployment's services are declared to answer.
+    * **Writes** — per login its tier, the target its record points at, and
+      which machines it has switched writes on for; an "on" its ``never`` tier
+      makes inert, an identity not in the roster, and a record that cannot be
+      read are each named as such.
     * **Agent** — the provider, whether its credential is findable, and whether
       the rendered agent artifacts still match the config.
 
@@ -1230,7 +1549,8 @@ def show_repo_status(
         # as a deployment that has no endpoints and no agent.
         output.report("")
         output.note(
-            "Endpoints and agent are read from build/config.yml, which this repo has none of yet."
+            "Endpoints, writes and agent are read from build/config.yml, which this repo has"
+            " none of yet."
         )
     else:
         compose_files = _absolute_compose_files(
@@ -1240,6 +1560,7 @@ def show_repo_status(
             _print_endpoints_section(config, compose_files, repo_root)
         if all_containers is not None:
             _show_web_terminal_users(config, all_containers, repo_root)
+        _print_writes_section(config, repo_root)
         _print_agent_section(repo_root, build_dir, config, show_agents=show_agents)
 
     output.report("")

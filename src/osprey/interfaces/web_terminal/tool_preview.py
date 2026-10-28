@@ -15,6 +15,11 @@ small however large the result was.
 
 The background-agent launch text opens with its mark (``Async agent launched``),
 and every cut keeps the head of a string and of plain text, so the mark survives.
+
+A refused write ends its text with the trailer ``[osprey-refusal: <reason>]``
+(``osprey_connectors.refusals.refusal_text``). The trailer sits at the END, which a
+head cut loses, so :func:`tool_result_refusal` reads it from the full text before
+any preview is cut, and both surfaces call it.
 """
 
 from __future__ import annotations
@@ -61,6 +66,13 @@ MAX_ENVELOPES = 4
 #: The cuts tried in turn while a JSON result is over budget, each tighter than the last.
 _CUTS = ((STRING_CHARS, MAX_ITEMS), (150, 10), (60, 5), (20, 2))
 
+#: The refusal trailer on a line of its own: ``\n[osprey-refusal: <reason>]``. It
+#: ends the refusal text; the CLI may wrap that text, so it need not end the result.
+_REFUSAL_TRAILER = re.compile(r"\r?\n\[osprey-refusal: ([a-z_]+)\][ \t]*(?=\r?\n|\Z)")
+
+#: The lead the CLI puts before a PreToolUse hook's deny reason in a tool result.
+_HOOK_ERROR_LEAD = re.compile(r"\APreToolUse:\S+ hook error: (?:\[[^\]\n]*\]: )?")
+
 
 def tool_result_text(content: str | list[Any] | None) -> str:
     """The text a tool result's content carries, as the chat reads it.
@@ -85,6 +97,78 @@ def tool_result_text(content: str | list[Any] | None) -> str:
             else:
                 parts.append(f"[{block.get('type') or 'block'}]")
     return "\n".join(parts)
+
+
+def tool_result_refusal(text: str, is_error: bool) -> tuple[dict[str, str] | None, str]:
+    """The refusal a tool result carries, and the text with its trailer stripped.
+
+    Returns ``({reason, phrase}, stripped)`` for an error result whose text ends
+    with the refusal trailer, and ``(None, text)`` for every other result. The
+    trailer is read from the full text, before any preview cut. It is found on
+    the text's own last line, or on the last line of a string inside a JSON
+    result (an MCP tool error carries its message in a JSON envelope, where the
+    line break is the two characters ``\\n``), the JSON possibly behind a
+    short lead. The *phrase* is the line the
+    trailer closes, less the CLI's ``PreToolUse:<tool> hook error:`` lead; it says
+    what stopped the write and who can lift it. Only
+    a reason in ``osprey_connectors.refusals.REASONS`` counts; a result that is
+    not an error is never a refusal, whatever it quotes.
+    """
+    if not is_error or "[osprey-refusal: " not in text:
+        return None, text
+    found = _trailer(text)
+    if found is not None:
+        return found
+    # A JSON result, possibly behind a short lead such as ``Error: ``.
+    start = text.find("{")
+    payload = _container(text[start:]) if start >= 0 else None
+    if payload is None:
+        return None, text
+    hit: list[dict[str, str]] = []
+    stripped_payload = _strip_trailers(payload, hit, depth=0)
+    if not hit:
+        return None, text
+    return hit[0], text[:start] + json.dumps(stripped_payload, ensure_ascii=False)
+
+
+def _trailer(text: str) -> tuple[dict[str, str], str] | None:
+    """``({reason, phrase}, text without the trailer)`` when *text* carries one.
+
+    The last trailer counts; a reason outside the closed set is no refusal.
+    """
+    from osprey_connectors.refusals import REASONS
+
+    matches = list(_REFUSAL_TRAILER.finditer(text))
+    if not matches or matches[-1].group(1) not in REASONS:
+        return None
+    match = matches[-1]
+    line = text[: match.start()].rsplit("\n", 1)[-1]
+    phrase = _HOOK_ERROR_LEAD.sub("", line).strip()
+    return {"reason": match.group(1), "phrase": phrase}, text[: match.start()] + text[match.end() :]
+
+
+def _strip_trailers(value: Any, hit: list[dict[str, str]], depth: int) -> Any:
+    """*value* with the first trailing refusal found in its strings stripped."""
+    if depth > MAX_DEPTH:
+        return value
+    if isinstance(value, str):
+        if hit:
+            return value
+        found = _trailer(value)
+        if found is not None:
+            hit.append(found[0])
+            return found[1]
+        inner = _container(value)
+        if inner is not None:
+            stripped = _strip_trailers(inner, hit, depth + 1)
+            if hit:
+                return json.dumps(stripped, ensure_ascii=False)
+        return value
+    if isinstance(value, list):
+        return [_strip_trailers(item, hit, depth + 1) for item in value]
+    if isinstance(value, dict):
+        return {key: _strip_trailers(item, hit, depth + 1) for key, item in value.items()}
+    return value
 
 
 def tool_result_preview(text: str) -> tuple[str, bool]:

@@ -47,6 +47,7 @@ from osprey.audit.protected import (
 )
 from osprey.interfaces.common_middleware import HTTP_MUTATION_SURFACE, HttpAuditMiddleware
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+from tests.audit._verdict_arming import arm_writes
 
 #: Two protected config keys, in two different blocks. Different blocks on
 #: purpose: a recorder that keyed on the top-level section would collapse two
@@ -183,8 +184,9 @@ class TestOneRecordPerSurfaceAndKey:
         assert len(_all_records(audit)) == len(PROTECTED_SURFACES)
         _assert_no_duplicates(_all_records(audit))
 
-    def test_the_record_carries_what_the_retired_ledger_carried(self, audit):
+    def test_the_record_carries_what_the_retired_ledger_carried(self, audit, monkeypatch, tmp_path):
         """Nothing the ``protected-writes`` record answered is unanswerable now."""
+        arm_writes(monkeypatch, tmp_path / "agent_data", identity="svc.terminal")
         protected.record_protected_refusal(
             surface=SURFACE_HTTP_CONFIG,
             target_file="config.yml",

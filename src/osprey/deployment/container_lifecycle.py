@@ -674,9 +674,9 @@ def _ensure_service_tokens(
     Minting is unconditional for every var a deployed service declares: these
     tokens authenticate *network callers* to a service's own HTTP boundary and
     are not a hardware-safety layer. Whether a plan or a write is permitted is
-    decided at the connector (``writes_enabled`` plus the per-put channel
-    limits), which every write path — agent-side and bridge-side alike — must
-    still clear. No deploy-time value is read here for safety semantics.
+    decided at the connector (the login tier's ``control_system.writes``, the
+    owner's switch, and the per-put channel limits), which every write path —
+    agent-side and bridge-side alike — must still clear. No deploy-time value is read here for safety semantics.
 
     A mint lands once and stays there. Nothing is copied anywhere afterwards:
     the file written here IS the deployment's one secret store, sitting at the

@@ -3,7 +3,9 @@ bluesky panel (task 4.3, bluesky-web-deploy-e2e) -- the gold-standard proof
 that the turn-key tutorial stack (Virtual Accelerator + Bluesky bridge + the
 queueserver RE Manager + Redis + co-deployed Tiled + the bluesky-web
 sidecar + its web panel) boots as real containers and drives a real plan end
-to end THROUGH THE SIDECAR, exactly as a browser would.
+to end THROUGH THE SIDECAR, exactly as a browser would. A plan added there
+names no owner, so its writes are refused ``owner_unknown``; the same plan
+completes through the bridge when the add names the login it runs for.
 
 That last clause is this module's subject and the thing no sibling e2e covers:
 the browser never talks to the bridge. Every call a panel makes goes through
@@ -84,9 +86,12 @@ from typing import Any
 
 import pytest
 
+from osprey.utils.owner_header import OWNER_HEADER
+from osprey_connectors import posture_store
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
 from tests.e2e._volumes import remove_project_volumes
+from tests.e2e.sdk_helpers import arm_deployed_queue_owner
 
 # Distinct from every sibling e2e module's pinned bridge port (_orm_stack.py's
 # 18102, test_bluesky_deploy.py's 18090, test_va_substrate_equivalence.py's
@@ -256,11 +261,16 @@ def _bridge_get(path: str) -> tuple[int, Any]:
     return _request(BRIDGE_URL, path, "GET")
 
 
-def _bridge_post(path: str, body: dict[str, Any], token: str | None = None) -> tuple[int, Any]:
+def _bridge_post(
+    path: str, body: dict[str, Any], token: str | None = None, owner: str | None = None
+) -> tuple[int, Any]:
     data = json.dumps(body).encode("utf-8")
     headers = {"Content-Type": "application/json"}
     if token:
         headers["X-Launch-Token"] = token
+    if owner:
+        # The login the plan runs for: the worker's writes follow its switch.
+        headers[OWNER_HEADER] = owner
     req = urllib.request.Request(f"{BRIDGE_URL}{path}", data=data, method="POST", headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=15.0) as resp:
@@ -466,6 +476,9 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # The repo root's `.env` — the deployment's whole secret store, and the file
     # `osprey up` refuses to start without.
     _orm_stack.seed_repo_env(repo)
+    # The plans write, and the worker's writes follow the add's owner's switch:
+    # this login's switch on in the deployment's record, before `up`.
+    arm_deployed_queue_owner(repo)
 
     # Force fresh --dev builds so the deployed containers run CURRENT source
     # (osprey up does not pass --build to compose, so it would otherwise
@@ -566,22 +579,109 @@ def test_sidecar_refuses_unauthenticated_requests() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 3. HEADLINE: a run driven entirely through the sidecar's relays
+# 3. HEADLINE: the operator flow through the sidecar's relays
 # ---------------------------------------------------------------------------
+#
+# A plan added through the sidecar runs for no named login: the sidecar's
+# deployment-wide secret names nobody, and the sidecar drops any inbound
+# ``X-Osprey-Owner``. Since the write-posture rule "no write without a named
+# person", that plan reaches the worker and every write it makes is refused
+# ``owner_unknown``. The test proves both halves: the owner-less add through the
+# sidecar is refused at the write, with a refusal that says who can lift it; and
+# the same writing plan completes through a route that names its owner.
+
+#: The refusal tag the connector appends to every write it refuses.
+_OWNER_UNKNOWN_TAG = "[osprey-refusal: owner_unknown]"
+#: Who the owner_unknown refusal names as able to lift it (refusals.py).
+_OWNER_UNKNOWN_LIFTER = "ask the deployment admin"
+
+
+def _sidecar_remove_item(uid: str) -> None:
+    """Withdraw one queue item through the sidecar's relay and prove it is gone.
+
+    A plan that fails is put back at the front of the queue, and every Start is
+    refused 409 ``interrupted_item_in_queue`` while that copy is queued, so the
+    refused run must be withdrawn before anything else can drain.
+    """
+    status, body = _request(
+        BLUESKY_WEB_URL, f"/queue/items/{uid}", "DELETE", headers=_auth_headers()
+    )
+    assert status == 200, f"DELETE /queue/items/{uid} (via sidecar) failed: {status} {body}"
+    status, queue_body = _sidecar_get("/queue")
+    assert status == 200, f"GET /queue (via sidecar) failed: {status} {queue_body}"
+    queued = [item.get("item_uid") for item in queue_body.get("items") or []]
+    assert uid not in queued, f"refused item {uid} still queued after removal: {queued}"
+
+
+def _run_plan_via_bridge_as_owner(deployed_stack: DeployedStack, client_id: str) -> None:
+    """Stage, enqueue as this login, drain and read back the writing plan via the bridge.
+
+    The named route: the caller holds the launch token and names the login the
+    plan runs for (``X-Osprey-Owner``), whose switch the fixture turned on in the
+    deployment's record. The plan must complete and produce rows.
+    """
+    token = _minted_token(deployed_stack.repo)
+    # Clear the shared draft first: a same-content PATCH is a no-op that keeps
+    # the consumed revision (409 draft_revision_already_launched otherwise).
+    _request(BRIDGE_URL, f"/draft?client_id={client_id}", "DELETE")
+    status, patched = _request(
+        BRIDGE_URL,
+        "/draft",
+        "PATCH",
+        {
+            "plan_name": deployed_stack.plan_name,
+            "plan_args_patch": deployed_stack.plan_args,
+            "client_id": client_id,
+        },
+    )
+    assert status == 200, f"PATCH /draft (bridge) failed: {status} {patched}"
+
+    status, body = _bridge_post(
+        "/queue/items",
+        {"draft_revision": patched["revision"]},
+        token=token,
+        owner=posture_store.current_owner(),
+    )
+    assert status == 200, f"POST /queue/items (bridge) failed: {status} {body}"
+    run_id = body["run_id"]
+
+    _queue_drive.start_draining(BRIDGE_URL, token, run_id)
+
+    deadline = time.monotonic() + SCAN_TIMEOUT_SEC
+    last_status_body: dict[str, Any] = {}
+    while time.monotonic() < deadline:
+        _, last_status_body = _bridge_get(f"/runs/{run_id}")
+        if last_status_body.get("status") in ("completed", "error", "stopped"):
+            break
+        time.sleep(1.0)
+
+    assert last_status_body.get("status") == "completed", (
+        f"run enqueued via the bridge for a named owner did not complete: {last_status_body}"
+    )
+
+    status, data = _bridge_get(f"/runs/{run_id}/data")
+    assert status == 200, f"GET /runs/{run_id}/data (bridge) failed: {status} {data}"
+    assert data.get("row_count", 0) > 0, f"expected real rows: {data}"
 
 
 @pytest.mark.flaky(reruns=1, only_rerun=["AssertionError"])
-def test_plan_via_sidecar_queue_completes(deployed_stack: DeployedStack) -> None:
-    """The whole operator flow through the sidecar, with NO credential in hand.
+def test_plan_via_sidecar_owner_less_is_refused_and_named_route_completes(
+    deployed_stack: DeployedStack,
+) -> None:
+    """The operator flow through the sidecar, with NO credential in hand.
 
     This is the browser's view: compose the draft, enqueue it at the pinned
-    revision, start the queue where it is stopped, watch the run, read the
-    results -- every call to the sidecar, never to the bridge. The launch token
-    is resolved by the sidecar in-process and attached to each queue WRITE;
-    this test never sends it and asserts, on every single response it reads,
-    that the token has not come back out. On the preset's armed queue the
-    enqueue is that write and the plan runs from it; a Start is sent only
-    where the manager reports the queue stopped.
+    revision, start the queue where it is stopped, watch the run -- every call
+    to the sidecar, never to the bridge. The launch token is resolved by the
+    sidecar in-process and attached to each queue WRITE; this test never sends
+    it and asserts, on every single response it reads, that the token has not
+    come back out.
+
+    (a) The add names no owner, so the plan's write is refused ``owner_unknown``
+    and the run ends in error with a refusal naming who can lift it. The refused
+    item is then withdrawn through the sidecar, so it cannot block later starts.
+    (b) The same writing plan completes through the named route: the bridge,
+    enqueued for this login.
     """
     token = _minted_token(deployed_stack.repo)
 
@@ -620,41 +720,53 @@ def test_plan_via_sidecar_queue_completes(deployed_stack: DeployedStack) -> None
     run_id = enqueued.get("run_id")
     assert run_id, f"no run_id in the enqueue response: {enqueued}"
 
-    # --- make sure it drains: the sidecar supplies the token we never sent --
-    # An armed queue (the preset's posture) ran the plan off the enqueue above;
-    # a stopped one needs the Start, and the sidecar attaches the token to
-    # that write too.
-    status, queue_body = _sidecar_get("/queue")
-    assert status == 200, f"GET /queue (via sidecar) failed: {status} {queue_body}"
-    _assert_no_token("queue snapshot", queue_body)
-    if not queue_body["status"].get("queue_autostart_enabled"):
-        status, started = _sidecar_post("/queue/start", {})
-        assert status == 200, (
-            "the sidecar must attach the launch token it resolved in-process, so a "
-            f"browser with no credential can still start the queue: {status} {started}"
-        )
-        _assert_no_token("queue-start response", started)
-
-    # --- watch it run, through the sidecar ---------------------------------
-    deadline = time.monotonic() + SCAN_TIMEOUT_SEC
-    last_status_body: dict[str, Any] = {}
-    while time.monotonic() < deadline:
-        _, queue_body = _sidecar_get("/queue")
+    refused_uid: str | None = None
+    try:
+        # --- make sure it drains: the sidecar supplies the token we never sent
+        status, queue_body = _sidecar_get("/queue")
+        assert status == 200, f"GET /queue (via sidecar) failed: {status} {queue_body}"
         _assert_no_token("queue snapshot", queue_body)
-        _, last_status_body = _sidecar_get(f"/runs/{run_id}")
-        _assert_no_token("run-status response", last_status_body)
-        if last_status_body.get("status") in ("completed", "error", "stopped"):
-            break
-        time.sleep(1.0)
+        if not queue_body["status"].get("queue_autostart_enabled"):
+            status, started = _sidecar_post("/queue/start", {})
+            assert status == 200, (
+                "the sidecar must attach the launch token it resolved in-process, so a "
+                f"browser with no credential can still start the queue: {status} {started}"
+            )
+            _assert_no_token("queue-start response", started)
 
-    assert last_status_body.get("status") == "completed", (
-        f"run driven through the sidecar did not complete: {last_status_body}"
-    )
+        # --- watch it run, through the sidecar -----------------------------
+        deadline = time.monotonic() + SCAN_TIMEOUT_SEC
+        last_status_body: dict[str, Any] = {}
+        while time.monotonic() < deadline:
+            _, queue_body = _sidecar_get("/queue")
+            _assert_no_token("queue snapshot", queue_body)
+            _, last_status_body = _sidecar_get(f"/runs/{run_id}")
+            _assert_no_token("run-status response", last_status_body)
+            if last_status_body.get("status") in ("completed", "error", "stopped"):
+                break
+            time.sleep(1.0)
+        refused_uid = last_status_body.get("item_uid")
 
-    ds, data = _sidecar_get(f"/runs/{run_id}/data")
-    assert ds == 200, f"GET /runs/{run_id}/data (via sidecar) failed: {ds} {data}"
-    _assert_no_token("data response", data)
-    assert data.get("row_count", 0) > 0, f"expected real rows: {data}"
+        # --- (a) the owner-less write is refused, naming who can lift it ---
+        assert last_status_body.get("status") == "error", (
+            "a plan added through the sidecar names no owner, so its write must be "
+            f"refused owner_unknown and the run must end in error: {last_status_body}"
+        )
+        error = str(last_status_body.get("error") or "")
+        assert _OWNER_UNKNOWN_TAG in error, (
+            f"the owner-less run must fail on the owner_unknown refusal: {error!r}"
+        )
+        assert _OWNER_UNKNOWN_LIFTER in error, (
+            f"the owner_unknown refusal must name who can lift it: {error!r}"
+        )
+    finally:
+        # Withdraw the refused copy the queue put back, so it cannot 409 every
+        # later start (interrupted_item_in_queue) -- here and in sibling tests.
+        if refused_uid:
+            _sidecar_remove_item(refused_uid)
+
+    # --- (b) the same writing plan completes through a named route ---------
+    _run_plan_via_bridge_as_owner(deployed_stack, "panels-deploy-e2e-named")
 
 
 # ---------------------------------------------------------------------------
@@ -669,50 +781,10 @@ def test_plan_direct_via_bridge(deployed_stack: DeployedStack) -> None:
     The isolation control for test 3: when that one fails, this says whether
     the sidecar's relay broke or the stack underneath it did. Here the caller
     holds the launch token itself -- the bridge gates every arming write (the
-    add, on the preset's armed queue; the Start, on a stopped one), and the
-    sidecar's only job is to hold that credential on the browser's behalf.
+    add, on the preset's armed queue; the Start, on a stopped one) -- and names
+    the login the plan runs for, the one route that may write.
     """
-    token = _minted_token(deployed_stack.repo)
-
-    # Clear the shared draft first — the sidecar test stages these same args,
-    # and a same-content PATCH is a no-op that keeps the consumed revision
-    # (409 draft_revision_already_launched on the enqueue otherwise).
-    _request(BRIDGE_URL, "/draft?client_id=panels-deploy-e2e-direct", "DELETE")
-    status, patched = _request(
-        BRIDGE_URL,
-        "/draft",
-        "PATCH",
-        {
-            "plan_name": deployed_stack.plan_name,
-            "plan_args_patch": deployed_stack.plan_args,
-            "client_id": "panels-deploy-e2e-direct",
-        },
-    )
-    assert status == 200, f"PATCH /draft (bridge) failed: {status} {patched}"
-
-    status, body = _bridge_post(
-        "/queue/items", {"draft_revision": patched["revision"]}, token=token
-    )
-    assert status == 200, f"POST /queue/items (bridge) failed: {status} {body}"
-    run_id = body["run_id"]
-
-    _queue_drive.start_draining(BRIDGE_URL, token, run_id)
-
-    deadline = time.monotonic() + SCAN_TIMEOUT_SEC
-    last_status_body: dict[str, Any] = {}
-    while time.monotonic() < deadline:
-        _, last_status_body = _bridge_get(f"/runs/{run_id}")
-        if last_status_body.get("status") in ("completed", "error", "stopped"):
-            break
-        time.sleep(1.0)
-
-    assert last_status_body.get("status") == "completed", (
-        f"run enqueued directly via the bridge did not complete: {last_status_body}"
-    )
-
-    status, data = _bridge_get(f"/runs/{run_id}/data")
-    assert status == 200, f"GET /runs/{run_id}/data (bridge) failed: {status} {data}"
-    assert data.get("row_count", 0) > 0, f"expected real rows: {data}"
+    _run_plan_via_bridge_as_owner(deployed_stack, "panels-deploy-e2e-direct")
 
 
 # ---------------------------------------------------------------------------

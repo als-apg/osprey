@@ -52,6 +52,7 @@ from typing import Any
 import pytest
 
 from osprey.interfaces._serving import free_port
+from osprey_connectors.types import TARGET_LIVE
 
 # ---------------------------------------------------------------------------
 # The image, and what it serves
@@ -343,15 +344,24 @@ def ca_op(
     a client-side refusal would mask the only refusal these suites care about --
     the one the control system itself issues.
     """
+    config = connector_config(port)
     spec = {
-        "connector_config": connector_config(port),
+        "connector_config": config,
         "config_overrides": {
-            "control_system.writes_enabled": writes_enabled,
+            # The connector's own type, so the section names the machine the
+            # write lands on and ``live`` resolves to it.
+            "control_system.type": config["type"],
+            # The write tier (ruling PR-3): only ``allowed`` arms anything.
+            "control_system.writes": "allowed" if writes_enabled else "never",
             "control_system.limits_checking.enabled": False,
         },
         "read": read,
         "write": write,
         "settle_read": settle_read,
+        # The tier alone arms nothing: the connector must know the machine it
+        # writes to, and the login's switch must be on for it. The script stamps
+        # and arms that target in a record of its own.
+        "arm_target": TARGET_LIVE if writes_enabled else None,
     }
     proc = subprocess.run(
         [sys.executable, str(CA_OP_SCRIPT), json.dumps(spec)],

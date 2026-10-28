@@ -13,6 +13,12 @@ import yaml
 from osprey.mcp_server.phoebus.server import mcp
 from osprey.mcp_server.phoebus.tools import bridge_tools
 from osprey.phoebus_agent_access import agent_access, drive_offered
+from osprey_connectors_tests._harness import (
+    isolate_verdict_environment,
+    reset_verdict_state,
+    write_control_context,
+)
+from tests._approval_stamp_fixture import use_stamp_dir
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,
@@ -37,10 +43,16 @@ def _drive():
     return get_tool_fn(bridge_tools.phoebus_drive)
 
 
-def _config(tmp_path, monkeypatch, phoebus):
-    """Write ``{"phoebus": phoebus}`` to a temp config.yml and point OSPREY_CONFIG at it."""
+def _config(tmp_path, monkeypatch, phoebus, control_system=None):
+    """Write ``{"phoebus": phoebus}`` to a temp config.yml and point OSPREY_CONFIG at it.
+
+    *control_system*, when given, is written as that section too.
+    """
+    config: dict = {"phoebus": phoebus}
+    if control_system is not None:
+        config["control_system"] = control_system
     config_file = tmp_path / "config.yml"
-    config_file.write_text(yaml.dump({"phoebus": phoebus}))
+    config_file.write_text(yaml.dump(config))
     monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
     monkeypatch.setenv("PHOEBUS_REQUIRE_HANDLE", "0")
     return config_file
@@ -120,7 +132,21 @@ async def test_read_refusal_precedes_argument_validation(tmp_path, monkeypatch):
 
 
 async def test_read_write_drive_reaches_the_bridge(tmp_path, monkeypatch):
-    _config(tmp_path, monkeypatch, {"agent_access": "read_write"})
-    with patch(f"{_MOD}._http_post_drive", return_value=(200, {"fired": True, "detail": "ok"})):
+    """Offered, with its machine switched on and the call stamped, the drive is sent."""
+    _config(
+        tmp_path,
+        monkeypatch,
+        {"agent_access": "read_write"},
+        control_system={"type": "epics", "writes": "allowed"},
+    )
+    isolate_verdict_environment(monkeypatch, tmp_path / "agent_data")
+    write_control_context(tmp_path / "agent_data", target="live", switch={"live": "on"})
+    reset_verdict_state()
+    stamps = use_stamp_dir(monkeypatch, tmp_path / "state")
+    with (
+        patch(f"{_MOD}._http_post_drive", return_value=(200, {"fired": True, "detail": "ok"})),
+        stamps.approved("phoebus_drive"),
+    ):
         result = await _drive()(widget="SetButton", verb="click")
+    reset_verdict_state()
     assert extract_response_dict(result)["status"] == "success"

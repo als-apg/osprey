@@ -182,7 +182,7 @@ The agent is offered ``phoebus_drive`` only where the build profile sets
 ``phoebus.agent_access: read_write``. Under the default, ``read``, the tool is
 left out of the agent's tool list and permissions, and the server refuses a
 call to it by the key's name. Under ``read_write`` every drive passes the
-writes kill switch (``control_system.writes_enabled``) and then the approval
+write verdict (:ref:`write-safety-config`) and then the approval
 prompt, is refused while the control target is switched away from the
 deployment's baseline (:doc:`switch-control-target`), and is audited as a tool
 call. The key is all or nothing, because a panel runs whatever its widgets are

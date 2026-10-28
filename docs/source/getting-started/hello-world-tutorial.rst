@@ -89,7 +89,7 @@ write-safety chain), three rules, and one output style:
      # system until all three agree. Remove any one of them and `osprey build`
      # refuses the render while writes are armed, naming the hook and the server
      # whose write tools it guarded. Only a read-only deployment may drop them.
-     - writes-check   # Kill switch: refuse every write while writes_enabled is false
+     - writes-check   # Kill switch: refuse every write to a machine whose writes are off
      - approval       # Gate hardware-write tool calls on human approval prompt
      - limits         # Enforce per-channel min/max limits, from data/facility/limits.yaml
 
@@ -108,10 +108,10 @@ per line:
      # and `osprey config --defaults` lists every shipped connector type.
      control_system.type: virtual_accelerator
      control_system.connector.virtual_accelerator.serving: in_process
-     # The FIRST guard in the write-safety chain: while false, every hardware
+     # The FIRST guard in the write-safety chain: while `never`, every hardware
      # write is refused before the limits check or the approval prompt is even
-     # consulted. Set it true, rebuild, and the two hooks below take over.
-     control_system.writes_enabled: false
+     # consulted. Set it `allowed`, rebuild, and the two hooks below take over.
+     control_system.writes: never
      # ...
      # The SECOND guard: every write is checked against the records in
      # data/facility/limits.yaml (per-channel min/max and writable flags).
@@ -124,7 +124,7 @@ per line:
      approval.enabled: true
      # ...
 
-That ``control_system.writes_enabled: false`` line is the one this tutorial
+That ``control_system.writes: never`` line is the one this tutorial
 comes back to in Step 7. For everything the profile can hold, see
 :doc:`../how-to/build-profiles`.
 
@@ -226,17 +226,18 @@ Now ask for a write:
 
 The write is refused before it reaches the control system: the agent reports
 that writes are disabled in this deployment. The exact wording is the agent's
-own, because the refusal happens a layer below it — with the switch off,
-``osprey build`` renders the write tool into the agent's denied permissions,
-so the tool call is blocked before it even executes.
+own, because the refusal happens a layer below it — with the tier at
+``never``, ``osprey build`` renders the write tool into the agent's denied
+permissions, so the tool call is blocked before it even executes.
 
 This is the first of **three guards** that every write must pass:
 
-1. **Master switch** (``writes-check`` hook) — ``control_system.writes_enabled``
-   is ``false`` by default, so all writes are refused outright. This is what
-   just fired: the build bakes the switch into the agent's denied permissions,
-   and the ``writes-check`` hook enforces the same switch again as defense in
-   depth.
+1. **Who may write** (``writes-check`` hook) — the tier key
+   ``control_system.writes`` is ``never`` here, so all writes are refused
+   outright. This is what just fired: the build bakes the tier into the agent's
+   denied permissions. Once the tier allows writes, the hook asks your login's
+   write switch for the machine on every call. See
+   :ref:`write-safety-config`.
 2. **Limits** (``limits`` hook) — the value is checked against per-channel
    bounds and writable flags in ``data/facility/limits.yaml``.
 3. **Approval** (``approval`` hook) — a write that passes both still pauses
@@ -247,18 +248,19 @@ Safety is not optional equipment here: the three hooks are declared in your
 while writes are armed, naming the hook and the server whose write tools it
 guarded. Only a read-only deployment may drop them.
 
-Step 7: Enable Writes — in profile.yml
----------------------------------------
+Step 7: Enable Writes — Tier, Rebuild, Chip
+--------------------------------------------
 
-Open ``profile.yml``, find the ``config:`` block from Step 2, and set one
-key to ``true``:
+Writes take two steps: the deployment allows them, then you turn them on.
+
+Open ``profile.yml``, find the ``config:`` block from Step 2, and allow writes:
 
 .. code-block:: yaml
 
    config:
      control_system.type: virtual_accelerator
      control_system.connector.virtual_accelerator.serving: in_process
-     control_system.writes_enabled: true   # ← was false
+     control_system.writes: allowed   # ← was never
 
 Then re-render and relaunch:
 
@@ -267,9 +269,13 @@ Then re-render and relaunch:
    osprey build
    osprey web
 
-Do **not** edit ``build/config.yml`` to flip this switch — that file is
-generated output, and your edit would vanish on the next build. The profile is
-where the change belongs, and the rebuild carries it into the render.
+Do **not** edit ``build/config.yml`` instead — that file is generated output,
+and your edit would vanish on the next build.
+
+The deployment now *may* write, but your switch is still off. Click the
+control-target chip in the header (``● Simulator · writes off``) and turn the
+simulator's writes on (:ref:`web-terminal-session-posture`). A write asked for
+with the switch off is refused with a line telling you to do exactly that.
 
 Step 8: Write with the Guards Watching
 ---------------------------------------
@@ -278,7 +284,7 @@ The limits file that ships with this preset, ``data/facility/limits.yaml``,
 holds three records: two writable quadrupole setpoints with bounds, and one
 read-only measurement. ``osprey build`` writes them into the render's limits
 database, ``build/data/channel_limits.json``, which is what the guards read.
-With writes enabled, all three remaining behaviors are now observable.
+With the simulator's writes on, all three remaining behaviors are now observable.
 
 **A write inside its limits** — pauses for your approval:
 

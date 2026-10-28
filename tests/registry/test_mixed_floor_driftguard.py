@@ -61,6 +61,8 @@ import inspect
 import re
 from pathlib import Path
 
+import pytest
+
 from osprey.mcp_server import audit_middleware as am
 from osprey.mcp_server.python_executor.tools import _execution_gates as gates
 from osprey.registry.mcp import (
@@ -203,9 +205,14 @@ class TestThePostureRefusalIsOneWord:
         """Pinned to the literal too, so all three cannot drift together."""
         assert am.REASON_POSTURE == "posture"
 
-    def test_the_posture_reason_is_not_the_kill_switch_reason(self):
-        """A different action lifts each, so they stay different words."""
-        assert _hook_literal("_WRITES_DISABLED_AUDIT_REASON") != am.REASON_POSTURE
+    def test_the_hook_records_no_second_word(self):
+        """Every hook refusal is a verdict refusal, recorded under the one word.
+
+        The stage-2 ``writes_disabled`` word was retired when the hook moved
+        onto the write verdict; a second word would split the grep again.
+        """
+        with pytest.raises(StopIteration):
+            _hook_literal("_WRITES_DISABLED_AUDIT_REASON")
 
 
 #: Where a session posture is lifted, spelled once. Every layer that refuses a
@@ -217,10 +224,16 @@ HEADER_CHIP_PHRASE = "control-target chip in the header"
 #: behind on the old surface while the others move.
 RETIRED_POSTURE_SURFACE = "terminal card"
 
-#: The three layers that tell an operator where to lift a posture. The hook
-#: says it too, but it ships as a copied-in template and is pinned where the
-#: template is owned (``tests/hooks/test_writes_check_hook.py``).
-_POSTURE_REFUSAL_LAYERS = (am, gates, connector_base)
+#: The layers that tell an operator where to lift a posture. The hook says it
+#: too, but it ships as a copied-in template and is pinned where the template
+#: is owned (``tests/hooks/test_writes_check_hook.py``). The MCP middleware is
+#: not one of them: it is the backstop, refusing only a read-only run and a
+#: tier that allows nothing, in ``refusal_phrase``'s words, and the chip lifts
+#: neither (``tests/mcp_server/test_audit_middleware.py`` pins its phrases).
+#: Nor is the executor's entry gate: it refuses with the write verdict's own
+#: phrase, which names the chip in ``refusal_phrase``'s words
+#: (``tests/services/python_executor/test_posture_clamp.py`` pins them).
+_POSTURE_REFUSAL_LAYERS = (connector_base,)
 
 
 def _prose(module) -> str:

@@ -22,6 +22,14 @@ so the mock must target the caller's namespace (e.g.
 not ``osprey.mcp_server.http``. The helper owns the thread-hop off the event
 loop; that property is pinned once in ``test_notify_agent_activity.py``, not
 per tool.
+
+Stage 1: a mutating tool runs only past its write verdict and approval record,
+so every call of one here is arranged the way the deployment would let it
+through — a tier that allows writes, the target's switch on in a control-context
+record under ``tmp_path`` and the ask stamp the approval hook files for the call
+(``tests/_approval_stamp_fixture.py``). A refusal under test that comes later in
+the tool is reached past stage 1 the same way; the stage-1 refusals themselves
+are each tool's own subject, not this file's.
 """
 
 import contextlib
@@ -32,6 +40,13 @@ import yaml
 
 from osprey.interfaces._serving import free_port
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
+from osprey_connectors_tests._harness import (
+    DEFAULT_GENERATION,
+    isolate_verdict_environment,
+    reset_verdict_state,
+    write_control_context,
+)
+from tests._approval_stamp_fixture import ApprovalStamps, use_stamp_dir
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,
@@ -49,6 +64,19 @@ _EXECUTE_FILE_MOD = "osprey.mcp_server.python_executor.tools.python_execute_file
 _LATTICE_MOD = "osprey.mcp_server.workspace.tools.lattice_tools"
 _SETUP_MOD = "osprey.mcp_server.workspace.tools.setup"
 _SCREEN_MOD = "osprey.mcp_server.workspace.tools.screen_capture"
+
+
+def _arm(tmp_path, monkeypatch, target: str, *, on: bool = True, **record) -> ApprovalStamps:
+    """*target*'s switch on (or every switch off) in a record under *tmp_path*.
+
+    Returns the stamps for the calls the test makes; *record* passes through to
+    ``write_control_context``.
+    """
+    root = tmp_path / "agent_data"
+    isolate_verdict_environment(monkeypatch, root)
+    write_control_context(root, target=target, switch={target: "on"} if on else {}, **record)
+    reset_verdict_state()
+    return use_stamp_dir(monkeypatch, tmp_path / "state")
 
 
 # ── channel_write ───────────────────────────────────────────────────────────
@@ -84,6 +112,20 @@ def _get_channel_write():
     return get_tool_fn(channel_write)
 
 
+#: The simulator in process, under a write tier that allows.
+_CW_CONFIG = (
+    "control_system:\n  type: virtual_accelerator\n  writes: allowed\n"
+    "  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+)
+
+
+def _cw_approved(stamps: ApprovalStamps, operations: list[dict]):
+    """Both stamps an approved ``channel_write`` of *operations* reads, on the armed record."""
+    return stamps.approved(
+        "channel_write", operations=operations, target="va", generation=DEFAULT_GENERATION
+    )
+
+
 def _channel_write_patches(mock_connector):
     return (
         patch(
@@ -103,9 +145,8 @@ async def test_channel_write_limits_violation_no_emit(tmp_path, monkeypatch):
     from osprey_connectors.errors import ChannelLimitsViolationError
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(
-        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
-    )
+    (tmp_path / "config.yml").write_text(_CW_CONFIG)
+    stamps = _arm(tmp_path, monkeypatch, "va", owned_by=None)
 
     from osprey_connectors.control_system._limits_validator import LimitsValidator
 
@@ -131,8 +172,9 @@ async def test_channel_write_limits_violation_no_emit(tmp_path, monkeypatch):
         patch(f"{_CW_MOD}.notify_agent_activity_async") as notify,
     ):
         fn = _get_channel_write()
-        with assert_raises_error(error_type="limits_violation"):
-            await fn(operations=[{"channel": "TEST:PV", "value": 9999.0}])
+        ops = [{"channel": "TEST:PV", "value": 9999.0}]
+        with _cw_approved(stamps, ops), assert_raises_error(error_type="limits_violation"):
+            await fn(operations=ops)
 
     notify.assert_not_called()
 
@@ -142,9 +184,8 @@ async def test_channel_write_partial_success_emits_executed_only(tmp_path, monke
     from osprey.mcp_server.control_system.server_context import initialize_server_context
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(
-        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
-    )
+    (tmp_path / "config.yml").write_text(_CW_CONFIG)
+    stamps = _arm(tmp_path, monkeypatch, "va", owned_by=None)
     initialize_server_context()
 
     results = [
@@ -163,12 +204,12 @@ async def test_channel_write_partial_success_emits_executed_only(tmp_path, monke
     conn_patch, validator_patch = _channel_write_patches(mock_connector)
     with conn_patch, validator_patch, patch(f"{_CW_MOD}.notify_agent_activity_async") as notify:
         fn = _get_channel_write()
-        result = await fn(
-            operations=[
-                {"channel": "SR01:HCM1:SP", "value": 1.0},
-                {"channel": "SR02:VCM3:SP", "value": 2.0},
-            ]
-        )
+        ops = [
+            {"channel": "SR01:HCM1:SP", "value": 1.0},
+            {"channel": "SR02:VCM3:SP", "value": 2.0},
+        ]
+        with _cw_approved(stamps, ops):
+            result = await fn(operations=ops)
 
     # Tool result itself unchanged: partial refusal is still a success envelope.
     data = extract_response_dict(result)
@@ -189,9 +230,8 @@ async def test_channel_write_all_blocked_no_emit(tmp_path, monkeypatch):
     from osprey.mcp_server.control_system.server_context import initialize_server_context
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(
-        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
-    )
+    (tmp_path / "config.yml").write_text(_CW_CONFIG)
+    stamps = _arm(tmp_path, monkeypatch, "va", owned_by=None)
     initialize_server_context()
 
     results = [
@@ -216,13 +256,9 @@ async def test_channel_write_all_blocked_no_emit(tmp_path, monkeypatch):
     conn_patch, validator_patch = _channel_write_patches(mock_connector)
     with conn_patch, validator_patch, patch(f"{_CW_MOD}.notify_agent_activity_async") as notify:
         fn = _get_channel_write()
-        with assert_raises_error(error_type="write_refused"):
-            await fn(
-                operations=[
-                    {"channel": "PV:A", "value": 1.0},
-                    {"channel": "PV:B", "value": 2.0},
-                ]
-            )
+        ops = [{"channel": "PV:A", "value": 1.0}, {"channel": "PV:B", "value": 2.0}]
+        with _cw_approved(stamps, ops), assert_raises_error(error_type="write_refused"):
+            await fn(operations=ops)
 
     notify.assert_not_called()
 
@@ -232,9 +268,8 @@ async def test_channel_write_full_success_single_emit(tmp_path, monkeypatch):
     from osprey.mcp_server.control_system.server_context import initialize_server_context
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(
-        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
-    )
+    (tmp_path / "config.yml").write_text(_CW_CONFIG)
+    stamps = _arm(tmp_path, monkeypatch, "va", owned_by=None)
     initialize_server_context()
 
     write_result = _make_write_result(channel="SR01:HCM1:SP", value=42.0)
@@ -244,7 +279,9 @@ async def test_channel_write_full_success_single_emit(tmp_path, monkeypatch):
     conn_patch, validator_patch = _channel_write_patches(mock_connector)
     with conn_patch, validator_patch, patch(f"{_CW_MOD}.notify_agent_activity_async") as notify:
         fn = _get_channel_write()
-        result = await fn(operations=[{"channel": "SR01:HCM1:SP", "value": 42.0}])
+        ops = [{"channel": "SR01:HCM1:SP", "value": 42.0}]
+        with _cw_approved(stamps, ops):
+            result = await fn(operations=ops)
 
     data = extract_response_dict(result)
     assert data["status"] == "success"
@@ -257,18 +294,28 @@ async def test_channel_write_full_success_single_emit(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def _bluesky_context(tmp_path, monkeypatch):
+def _bluesky_context(tmp_path, monkeypatch) -> ApprovalStamps:
+    """A project whose single lane serves the baseline ``live``, switched on.
+
+    Approval is unstated, so it asks: the yielded stamps file the record an
+    armed call needs, ``with _bluesky_context.approved("queue_start"):``.
+    """
     from osprey.mcp_server.bluesky.server_context import (
         initialize_server_context,
         reset_server_context,
     )
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(yaml.dump({"control_system": {"writes_enabled": True}}))
+    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+    (tmp_path / "config.yml").write_text(
+        yaml.dump({"control_system": {"type": "epics", "writes": "allowed"}})
+    )
+    stamps = _arm(tmp_path, monkeypatch, "live")
     monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "valid-token")
     initialize_server_context()
-    yield
+    yield stamps
     reset_server_context()
+    reset_verdict_state()
 
 
 def _get_queue_tool(name: str):
@@ -283,7 +330,8 @@ async def test_queue_add_success_emits_run_id(_bluesky_context):
         patch(f"{_QUEUE_MOD}._http_post_json", return_value=(200, body)),
         patch(f"{_QUEUE_MOD}.notify_agent_activity_async") as notify,
     ):
-        result = await _get_queue_tool("queue_add")(draft_revision=7)
+        with _bluesky_context.approved("queue_add"):
+            result = await _get_queue_tool("queue_add")(draft_revision=7)
 
     data = extract_response_dict(result)
     assert data["run_id"] == "abc123"
@@ -300,7 +348,10 @@ async def test_queue_add_failure_no_emit(_bluesky_context):
         ),
         patch(f"{_QUEUE_MOD}.notify_agent_activity_async") as notify,
     ):
-        with assert_raises_error(error_type="bluesky_bridge_error"):
+        with (
+            _bluesky_context.approved("queue_add"),
+            assert_raises_error(error_type="bluesky_bridge_error"),
+        ):
             await _get_queue_tool("queue_add")(draft_revision=7)
 
     notify.assert_not_called()
@@ -311,29 +362,34 @@ async def test_queue_start_success_emits(_bluesky_context):
         patch(f"{_QUEUE_MOD}._http_post_json", return_value=(200, {"started": True, "msg": ""})),
         patch(f"{_QUEUE_MOD}.notify_agent_activity_async") as notify,
     ):
-        await _get_queue_tool("queue_start")()
+        with _bluesky_context.approved("queue_start"):
+            await _get_queue_tool("queue_start")()
 
     assert notify.call_count == 1
     assert notify.call_args.args[:2] == ("queue_start", "run")
 
 
-async def test_queue_start_client_side_refusal_no_emit(_bluesky_context, monkeypatch):
+async def test_queue_start_client_side_refusal_no_emit(_bluesky_context, tmp_path):
     """A client-side refusal (kill switch off) never reaches the emit site.
 
     ``queue_start`` refuses before any HTTP call when the bound lane's target
     is not armed for writes, so neither the bridge nor the activity emitter is
-    touched.
+    touched. The call is approved, so the switch is the only thing refusing it.
     """
-    # Takes the bound lane's control target: write posture is resolved per
-    # target, so the stub has to accept the one `queue_start` passes it.
-    monkeypatch.setattr(f"{_QUEUE_MOD}._writes_enabled", lambda _lane_target: False)
+    write_control_context(tmp_path / "agent_data", target="live", switch={})
+    reset_verdict_state()
 
     with (
         patch(f"{_QUEUE_MOD}._http_post_json") as post,
         patch(f"{_QUEUE_MOD}.notify_agent_activity_async") as notify,
     ):
-        with assert_raises_error(error_type="writes_disabled"):
+        with (
+            _bluesky_context.approved("queue_start"),
+            assert_raises_error(error_type="writes_disabled") as refusal,
+        ):
             await _get_queue_tool("queue_start")()
+
+    assert refusal["envelope"]["details"]["reason"] == "switch_off"
 
     post.assert_not_called()
     notify.assert_not_called()
@@ -634,15 +690,29 @@ def _phoebus_active_display_allowed(monkeypatch):
 
 
 @pytest.fixture
-def _phoebus_drive_offered(tmp_path, monkeypatch):
-    """Point OSPREY_CONFIG at a config whose ``phoebus.agent_access`` is ``read_write``.
+def _phoebus_drive_offered(tmp_path, monkeypatch) -> ApprovalStamps:
+    """A deployment that offers the drive, with its machine switched on.
 
-    Without this the drive is refused before any emit path runs, because the
-    default access is ``read``; the switch itself is tested elsewhere.
+    OSPREY_CONFIG names a config whose ``phoebus.agent_access`` is
+    ``read_write`` and whose tier allows writes, and the baseline ``live`` is
+    switched on — without these the drive is refused before any emit path runs;
+    those refusals are tested elsewhere. Approval is unstated, so it asks: wrap
+    each drive in ``with _phoebus_drive_offered.approved("phoebus_drive"):``.
     """
+    stamps = _arm(tmp_path, monkeypatch, "live")
     config_file = tmp_path / "phoebus_drive_offered.yml"
-    config_file.write_text(yaml.dump({"phoebus": {"agent_access": "read_write"}}))
+    config_file.write_text(
+        yaml.dump(
+            {
+                "phoebus": {"agent_access": "read_write"},
+                "control_system": {"type": "epics", "writes": "allowed"},
+            }
+        )
+    )
     monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+    reset_verdict_state()
+    yield stamps
+    reset_verdict_state()
 
 
 def _get_phoebus_drive():
@@ -656,48 +726,53 @@ def _phoebus_bridge(status: int, body: dict):
     return patch(f"{_PHOEBUS_MOD}._http_post_drive", return_value=(status, body))
 
 
-@pytest.mark.usefixtures("_phoebus_drive_offered")
-async def test_phoebus_drive_click_fired_emits(_phoebus_active_display_allowed):
+async def test_phoebus_drive_click_fired_emits(
+    _phoebus_drive_offered, _phoebus_active_display_allowed
+):
     """A click that fired a control wrote to the machine — emit once, kind channel."""
     with (
         _phoebus_bridge(200, {"fired": True, "detail": "fired via ButtonBase.fire()"}),
         patch(f"{_PHOEBUS_MOD}.notify_agent_activity_async") as notify,
     ):
-        result = await _get_phoebus_drive()(widget="SetButton", verb="click")
+        with _phoebus_drive_offered.approved("phoebus_drive"):
+            result = await _get_phoebus_drive()(widget="SetButton", verb="click")
 
     assert extract_response_dict(result)["fired"] is True
     notify.assert_called_once_with("phoebus_drive", "channel", detail="click SetButton on active")
 
 
-@pytest.mark.usefixtures("_phoebus_drive_offered")
-async def test_phoebus_drive_synthetic_type_fired_emits():
+async def test_phoebus_drive_synthetic_type_fired_emits(_phoebus_drive_offered):
     """A synthetic type that fired echoes the normalized verb and the display ref."""
     with (
         _phoebus_bridge(200, {"fired": True, "detail": "committed 42"}),
         patch(f"{_PHOEBUS_MOD}.notify_agent_activity_async") as notify,
     ):
-        await _get_phoebus_drive()(widget="Setpoint", verb="TYPE", value="42", display="handle:d-3")
+        with _phoebus_drive_offered.approved("phoebus_drive"):
+            await _get_phoebus_drive()(
+                widget="Setpoint", verb="TYPE", value="42", display="handle:d-3"
+            )
 
     notify.assert_called_once_with("phoebus_drive", "channel", detail="type Setpoint on handle:d-3")
 
 
-@pytest.mark.usefixtures("_phoebus_drive_offered")
-async def test_phoebus_drive_synthetic_200_not_fired_no_emit(_phoebus_active_display_allowed):
+async def test_phoebus_drive_synthetic_200_not_fired_no_emit(
+    _phoebus_drive_offered, _phoebus_active_display_allowed
+):
     """Bridge contract: a synthetic 200 with fired=false resolved no control — no write."""
     with (
         _phoebus_bridge(200, {"fired": False, "detail": "no interactive control resolved"}),
         patch(f"{_PHOEBUS_MOD}.notify_agent_activity_async") as notify,
     ):
-        result = await _get_phoebus_drive()(widget="Readback", verb="type", value="42")
+        with _phoebus_drive_offered.approved("phoebus_drive"):
+            result = await _get_phoebus_drive()(widget="Readback", verb="type", value="42")
 
     assert extract_response_dict(result)["fired"] is False
     notify.assert_not_called()
 
 
-@pytest.mark.usefixtures("_phoebus_drive_offered")
 @pytest.mark.parametrize("verb,mode", [("type", "semantic"), ("TYPE", "SEMANTIC")])
 async def test_phoebus_drive_semantic_type_not_fired_emits(
-    verb, mode, _phoebus_active_display_allowed
+    _phoebus_drive_offered, verb, mode, _phoebus_active_display_allowed
 ):
     """Bridge contract: semantic type writes the PV directly and reports fired=false — emit.
 
@@ -709,24 +784,26 @@ async def test_phoebus_drive_semantic_type_not_fired_emits(
         _phoebus_bridge(200, {"fired": False, "detail": "wrote PV SR:CORR:SP"}),
         patch(f"{_PHOEBUS_MOD}.notify_agent_activity_async") as notify,
     ):
-        await _get_phoebus_drive()(widget="Setpoint", verb=verb, value="1.5", mode=mode)
+        with _phoebus_drive_offered.approved("phoebus_drive"):
+            await _get_phoebus_drive()(widget="Setpoint", verb=verb, value="1.5", mode=mode)
 
     notify.assert_called_once_with("phoebus_drive", "channel", detail="type Setpoint on active")
 
 
-@pytest.mark.usefixtures("_phoebus_drive_offered")
-async def test_phoebus_drive_semantic_click_bypass_no_emit(_phoebus_active_display_allowed):
+async def test_phoebus_drive_semantic_click_bypass_no_emit(
+    _phoebus_drive_offered, _phoebus_active_display_allowed
+):
     """Semantic mode bypasses click entirely — nothing was driven, so emit nothing."""
     with (
         _phoebus_bridge(200, {"fired": False, "detail": "semantic mode bypasses click"}),
         patch(f"{_PHOEBUS_MOD}.notify_agent_activity_async") as notify,
     ):
-        await _get_phoebus_drive()(widget="SetButton", verb="click", mode="semantic")
+        with _phoebus_drive_offered.approved("phoebus_drive"):
+            await _get_phoebus_drive()(widget="SetButton", verb="click", mode="semantic")
 
     notify.assert_not_called()
 
 
-@pytest.mark.usefixtures("_phoebus_drive_offered")
 @pytest.mark.parametrize(
     "kwargs",
     [
@@ -735,21 +812,23 @@ async def test_phoebus_drive_semantic_click_bypass_no_emit(_phoebus_active_displ
         {"widget": "0", "verb": "type"},
     ],
 )
-async def test_phoebus_drive_validation_refusal_no_emit(kwargs, _phoebus_active_display_allowed):
+async def test_phoebus_drive_validation_refusal_no_emit(
+    _phoebus_drive_offered, kwargs, _phoebus_active_display_allowed
+):
     """Argument validation refuses before the bridge is contacted — emit nothing."""
     with (
         patch(f"{_PHOEBUS_MOD}._http_post_drive") as post,
         patch(f"{_PHOEBUS_MOD}.notify_agent_activity_async") as notify,
     ):
         with assert_raises_error(error_type="validation_error"):
-            await _get_phoebus_drive()(**kwargs)
+            with _phoebus_drive_offered.approved("phoebus_drive"):
+                await _get_phoebus_drive()(**kwargs)
 
     post.assert_not_called()
     notify.assert_not_called()
 
 
-@pytest.mark.usefixtures("_phoebus_drive_offered")
-async def test_phoebus_drive_handle_required_refusal_no_emit(monkeypatch):
+async def test_phoebus_drive_handle_required_refusal_no_emit(_phoebus_drive_offered, monkeypatch):
     """Require-handle mode refuses implicit 'active' before any drive — emit nothing."""
     monkeypatch.setenv("PHOEBUS_REQUIRE_HANDLE", "1")
 
@@ -758,27 +837,31 @@ async def test_phoebus_drive_handle_required_refusal_no_emit(monkeypatch):
         patch(f"{_PHOEBUS_MOD}.notify_agent_activity_async") as notify,
     ):
         with assert_raises_error(error_type="phoebus_handle_required"):
-            await _get_phoebus_drive()(widget="SetButton", verb="click")
+            with _phoebus_drive_offered.approved("phoebus_drive"):
+                await _get_phoebus_drive()(widget="SetButton", verb="click")
 
     post.assert_not_called()
     notify.assert_not_called()
 
 
-@pytest.mark.usefixtures("_phoebus_drive_offered")
-async def test_phoebus_drive_bridge_rejected_no_emit(_phoebus_active_display_allowed):
+async def test_phoebus_drive_bridge_rejected_no_emit(
+    _phoebus_drive_offered, _phoebus_active_display_allowed
+):
     """A non-200 from the bridge means no widget was driven — emit nothing."""
     with (
         _phoebus_bridge(400, {"error": "Unknown widget '0'", "status": 400}),
         patch(f"{_PHOEBUS_MOD}.notify_agent_activity_async") as notify,
     ):
         with assert_raises_error(error_type="phoebus_rejected"):
-            await _get_phoebus_drive()(widget="0", verb="click")
+            with _phoebus_drive_offered.approved("phoebus_drive"):
+                await _get_phoebus_drive()(widget="0", verb="click")
 
     notify.assert_not_called()
 
 
-@pytest.mark.usefixtures("_phoebus_drive_offered")
-async def test_phoebus_drive_unreachable_no_emit(_phoebus_active_display_allowed):
+async def test_phoebus_drive_unreachable_no_emit(
+    _phoebus_drive_offered, _phoebus_active_display_allowed
+):
     """An unreachable bridge never drove anything — emit nothing."""
     import urllib.error
 
@@ -787,7 +870,8 @@ async def test_phoebus_drive_unreachable_no_emit(_phoebus_active_display_allowed
         patch(f"{_PHOEBUS_MOD}.notify_agent_activity_async") as notify,
     ):
         with assert_raises_error(error_type="phoebus_unreachable"):
-            await _get_phoebus_drive()(widget="SetButton", verb="click")
+            with _phoebus_drive_offered.approved("phoebus_drive"):
+                await _get_phoebus_drive()(widget="SetButton", verb="click")
 
     notify.assert_not_called()
 
@@ -889,11 +973,30 @@ def _execute_tool_call(tool_name: str, tmp_path):
     return _EXECUTE_FILE_MOD, call
 
 
-@contextlib.contextmanager
-def _execute_env(mod, tmp_path, *, exec_result=None, has_writes=True, writes_enabled=True):
-    """Patch every boundary the executor tools cross; yield ``(notify, execute_code)``."""
-    from osprey.services.python_executor.execution.control import ExecutionControlConfig
+#: The simulator under a write tier that allows; the run's baseline is ``va``.
+_EXECUTE_CONFIG = {
+    "control_system": {
+        "type": "virtual_accelerator",
+        "writes": "allowed",
+        "connector": {"virtual_accelerator": {"serving": "in_process"}},
+    }
+}
 
+_EXECUTE_TOOL_OF = {_EXECUTE_MOD: "execute", _EXECUTE_FILE_MOD: "execute_file"}
+
+
+@contextlib.contextmanager
+def _execute_env(
+    mod, tmp_path, monkeypatch, *, exec_result=None, has_writes=True, writes_enabled=True
+):
+    """Patch every boundary the executor tools cross; yield ``(notify, execute_code)``.
+
+    The project under *tmp_path* allows writes and the call is approved;
+    ``writes_enabled`` is the record's switch for the run's target, the
+    deployment kill switch the launch gate reads.
+    """
+    (tmp_path / "config.yml").write_text(yaml.dump(_EXECUTE_CONFIG))
+    stamps = _arm(tmp_path, monkeypatch, "va", on=writes_enabled, owned_by=None)
     exec_code = AsyncMock(return_value=exec_result if exec_result else _execute_result())
     with (
         patch(
@@ -905,12 +1008,9 @@ def _execute_env(mod, tmp_path, *, exec_result=None, has_writes=True, writes_ena
             ".detect_control_system_operations",
             return_value=_execute_patterns(has_writes),
         ),
-        patch(
-            "osprey.services.python_executor.execution.control.get_execution_control_config",
-            return_value=ExecutionControlConfig(control_system_writes_enabled=writes_enabled),
-        ),
         patch("osprey.mcp_server.python_executor.executor.execute_code", exec_code),
         patch(f"{mod}.notify_agent_activity_async") as notify,
+        stamps.approved(_EXECUTE_TOOL_OF[mod]),
     ):
         yield notify, exec_code
 
@@ -921,7 +1021,7 @@ async def test_execute_write_run_emits(tool_name, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     mod, call = _execute_tool_call(tool_name, tmp_path)
 
-    with _execute_env(mod, tmp_path) as (notify, _):
+    with _execute_env(mod, tmp_path, monkeypatch) as (notify, _):
         result = await call(execution_mode="readwrite")
 
     assert extract_response_dict(result)["has_errors"] is False
@@ -940,7 +1040,7 @@ async def test_execute_script_error_after_launch_still_emits(tool_name, tmp_path
         error_message="NameError: name 'undefined' is not defined",
     )
 
-    with _execute_env(mod, tmp_path, exec_result=failed) as (notify, _):
+    with _execute_env(mod, tmp_path, monkeypatch, exec_result=failed) as (notify, _):
         with assert_raises_error(error_type="execution_error"):
             await call(execution_mode="readwrite")
 
@@ -959,7 +1059,7 @@ async def test_execute_launch_failure_no_emit(tool_name, tmp_path, monkeypatch):
         error_message="Execution setup failed: no execution folder",
     )
 
-    with _execute_env(mod, tmp_path, exec_result=never_launched) as (notify, _):
+    with _execute_env(mod, tmp_path, monkeypatch, exec_result=never_launched) as (notify, _):
         with assert_raises_error(error_type="execution_error"):
             await call(execution_mode="readwrite")
 
@@ -978,7 +1078,7 @@ async def test_execute_readonly_gate_refusal_alerts_the_operator(tool_name, tmp_
     monkeypatch.chdir(tmp_path)
     mod, call = _execute_tool_call(tool_name, tmp_path)
 
-    with _execute_env(mod, tmp_path) as (notify, exec_code):
+    with _execute_env(mod, tmp_path, monkeypatch) as (notify, exec_code):
         with patch(f"{_GATES_MOD}.notify_agent_activity_async") as blocked:
             with assert_raises_error(error_type="safety_error"):
                 await call(execution_mode="readonly")
@@ -999,7 +1099,7 @@ async def test_execute_readonly_gate_refusal_is_audited(
     monkeypatch.chdir(tmp_path)
     mod, call = _execute_tool_call(tool_name, tmp_path)
 
-    with _execute_env(mod, tmp_path) as (_, exec_code):
+    with _execute_env(mod, tmp_path, monkeypatch) as (_, exec_code):
         with patch(f"{_GATES_MOD}.notify_agent_activity_async"):
             with assert_raises_error(error_type="safety_error"):
                 await call(execution_mode="readonly")
@@ -1033,7 +1133,10 @@ async def test_execute_runtime_refusal_alerts_and_audits(
         error_message=f"RuntimeError: {READONLY_REFUSAL}",
     )
 
-    with _execute_env(mod, tmp_path, exec_result=refused, has_writes=False) as (notify, _):
+    with _execute_env(mod, tmp_path, monkeypatch, exec_result=refused, has_writes=False) as (
+        notify,
+        _,
+    ):
         with patch(f"{_GATES_MOD}.notify_agent_activity_async") as blocked:
             with assert_raises_error(error_type="execution_error"):
                 await call(execution_mode="readonly")
@@ -1069,7 +1172,10 @@ async def test_execute_connector_refusal_is_reported_too(
         error_message=f"ChannelWriteBlockedError: {connector_message}",
     )
 
-    with _execute_env(mod, tmp_path, exec_result=refused, has_writes=False) as (_, _exec):
+    with _execute_env(mod, tmp_path, monkeypatch, exec_result=refused, has_writes=False) as (
+        _,
+        _exec,
+    ):
         with patch(f"{_GATES_MOD}.notify_agent_activity_async") as blocked:
             with assert_raises_error(error_type="execution_error"):
                 await call(execution_mode="readonly")
@@ -1094,7 +1200,10 @@ async def test_execute_ordinary_failure_is_not_reported_as_a_refusal(
         error_message="ZeroDivisionError: division by zero",
     )
 
-    with _execute_env(mod, tmp_path, exec_result=crashed, has_writes=False) as (notify, _):
+    with _execute_env(mod, tmp_path, monkeypatch, exec_result=crashed, has_writes=False) as (
+        notify,
+        _,
+    ):
         with patch(f"{_GATES_MOD}.notify_agent_activity_async") as blocked:
             with assert_raises_error(error_type="execution_error"):
                 await call(execution_mode="readonly")
@@ -1110,7 +1219,7 @@ async def test_execute_safety_check_refusal_no_emit(tool_name, tmp_path, monkeyp
     monkeypatch.chdir(tmp_path)
     mod, call = _execute_tool_call(tool_name, tmp_path)
 
-    with _execute_env(mod, tmp_path) as (notify, exec_code):
+    with _execute_env(mod, tmp_path, monkeypatch) as (notify, exec_code):
         with patch(
             "osprey.services.python_executor.analysis.safety_checks.quick_safety_check",
             return_value=(False, ["subprocess use is blocked"]),
@@ -1130,7 +1239,7 @@ async def test_execute_readwrite_without_write_patterns_emits_mode_detail(
     monkeypatch.chdir(tmp_path)
     mod, call = _execute_tool_call(tool_name, tmp_path)
 
-    with _execute_env(mod, tmp_path, has_writes=False) as (notify, exec_code):
+    with _execute_env(mod, tmp_path, monkeypatch, has_writes=False) as (notify, exec_code):
         await call(execution_mode="readwrite")
 
     exec_code.assert_called_once()
@@ -1148,7 +1257,7 @@ async def test_execute_uncanonical_write_mode_rejected_no_emit(tool_name, tmp_pa
     monkeypatch.chdir(tmp_path)
     mod, call = _execute_tool_call(tool_name, tmp_path)
 
-    with _execute_env(mod, tmp_path) as (notify, exec_code):
+    with _execute_env(mod, tmp_path, monkeypatch) as (notify, exec_code):
         with assert_raises_error(error_type="validation_error"):
             await call(execution_mode="READWRITE")
 
@@ -1162,7 +1271,7 @@ async def test_execute_deployment_writes_disabled_no_emit(tool_name, tmp_path, m
     monkeypatch.chdir(tmp_path)
     mod, call = _execute_tool_call(tool_name, tmp_path)
 
-    with _execute_env(mod, tmp_path, writes_enabled=False) as (notify, exec_code):
+    with _execute_env(mod, tmp_path, monkeypatch, writes_enabled=False) as (notify, exec_code):
         with assert_raises_error(error_type="safety_error"):
             await call(execution_mode="readwrite")
 
@@ -1625,9 +1734,8 @@ async def test_channel_write_result_unchanged_when_terminal_down(tmp_path, monke
     from osprey.mcp_server.control_system.server_context import initialize_server_context
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(
-        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
-    )
+    (tmp_path / "config.yml").write_text(_CW_CONFIG)
+    stamps = _arm(tmp_path, monkeypatch, "va", owned_by=None)
     initialize_server_context()
 
     write_result = _make_write_result(channel="TEST:PV", value=42.0)
@@ -1645,7 +1753,9 @@ async def test_channel_write_result_unchanged_when_terminal_down(tmp_path, monke
         ),
     ):
         fn = _get_channel_write()
-        result = await fn(operations=[{"channel": "TEST:PV", "value": 42.0}])
+        ops = [{"channel": "TEST:PV", "value": 42.0}]
+        with _cw_approved(stamps, ops):
+            result = await fn(operations=ops)
 
     data = extract_response_dict(result)
     assert data["status"] == "success"

@@ -472,11 +472,16 @@ def _chat_turns(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     transcript line's calls follow that line, as they did live.
 
     A ``tool_result`` event carries its call's ``decision`` when the session
-    shows one; see :func:`_replayed_decision`.
+    shows one; see :func:`_replayed_decision`. It carries ``refusal`` exactly as
+    the live stream does (:func:`~osprey.interfaces.web_terminal.tool_preview.tool_result_refusal`).
     """
     from osprey.interfaces.web_terminal.operator_session import format_tool_name
     from osprey.interfaces.web_terminal.routes.chat import clip_input
-    from osprey.interfaces.web_terminal.tool_preview import tool_result_preview, tool_result_text
+    from osprey.interfaces.web_terminal.tool_preview import (
+        tool_result_preview,
+        tool_result_refusal,
+        tool_result_text,
+    )
 
     main = [n for n in nodes if isinstance(n, dict) and not n.get("agent_id")]
     approved = _approved_call_ids(
@@ -505,14 +510,17 @@ def _chat_turns(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     def result_event(result: Mapping[str, Any], tool_use_id: str) -> dict[str, Any]:
         body = _node_body(result)
         text = tool_result_text(body.get("content"))
-        preview, truncated = tool_result_preview(text)
         is_error = bool(body.get("is_error"))
+        # Read before the preview cut, as the live stream does.
+        refusal, shown = tool_result_refusal(text, is_error)
+        preview, truncated = tool_result_preview(shown)
         return {
             "type": "tool_result",
             "tool_use_id": tool_use_id,
             "is_error": is_error,
             "preview": preview,
             "truncated": truncated,
+            "refusal": refusal,
             "decision": _replayed_decision(tool_use_id, text, is_error, approved),
         }
 

@@ -372,6 +372,35 @@ def fire(shell, error, tb_offset=None):
     return triple
 
 
+#: A deployment whose tier allows writes, on its real machine with the
+#: simulator beside it, so ``live`` and ``va`` each resolve. What a switch does
+#: is then the only thing left to decide a write.
+WRITABLE_SECTION = {
+    "type": "epics",
+    "writes": "allowed",
+    "connector": {
+        "epics": {"timeout_s": 1.0},
+        "virtual_accelerator": {"timeout_s": 9.0},
+    },
+}
+
+
+def serve_section(monkeypatch, section) -> None:
+    """Serve *section* as ``control_system`` to every reader in this process."""
+
+    def get_config_value(path, default=None, _config_path=None):
+        return section if path == "control_system" else default
+
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", get_config_value)
+
+
+@pytest.fixture
+def writable_deployment(monkeypatch):
+    """:data:`WRITABLE_SECTION`, served as the deployment's config."""
+    serve_section(monkeypatch, WRITABLE_SECTION)
+    return WRITABLE_SECTION
+
+
 #: One instance of each class the hook answers for, by the name a test reads.
 REFUSALS = {
     "write_blocked": lambda: ChannelWriteBlockedError("SR:MAG:1", "WRITES_DISABLED"),
@@ -805,27 +834,80 @@ class TestTheActionLine:
         assert "re-run the cell" in str(error)
 
     @pytest.mark.usefixtures("audit_records")
-    def test_a_cell_pinned_everywhere_asks_for_the_chip(self, shell, unstamped, capsys):
-        """``*=sandbox`` is what a cell the record could not route is pinned to."""
+    def test_a_cell_pinned_everywhere_asks_for_the_chip(
+        self,
+        shell,
+        unstamped,
+        capsys,
+        writable_deployment,
+        control_context_root,
+        write_control_context,
+    ):
+        """``*=sandbox`` is what a cell the record could not route is pinned to.
+
+        The switch is on for the baseline the unstamped cell writes to, so the
+        pin is the one term that refuses — ``launch_pinned``, which the next
+        cell's stamp turns around.
+        """
+        baseline = baseline_target(writable_deployment)
+        write_control_context(control_context_root, target=baseline, switch={baseline: "on"})
         unstamped.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "*=sandbox")
 
         fire(shell, REFUSALS["write_blocked"]())
 
         assert capsys.readouterr().out == jupyter_kernel.HINT_WRITES_OFF + "\n"
 
-    @pytest.mark.usefixtures("audit_records")
-    def test_a_cell_pinned_on_a_named_target_asks_for_the_chip_too(self, shell, unstamped, capsys):
+    @pytest.mark.usefixtures("audit_records", "writable_deployment")
+    def test_a_cell_pinned_on_a_named_target_asks_for_the_chip_too(
+        self, shell, unstamped, capsys, control_context_root, write_control_context
+    ):
         """Writes were off for that target when the cell opened."""
-        unstamped.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "accelerator=sandbox")
-        unstamped.setenv(posture.CONTROL_TARGET_ENV_VAR, "accelerator")
+        write_control_context(control_context_root, target="va", switch={"va": "on"})
+        unstamped.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "va=sandbox")
+        unstamped.setenv(posture.CONTROL_TARGET_ENV_VAR, "va")
 
         fire(shell, REFUSALS["write_blocked"]())
 
         assert capsys.readouterr().out == jupyter_kernel.HINT_WRITES_OFF + "\n"
 
-    @pytest.mark.usefixtures("audit_records", "unstamped")
-    def test_a_live_store_refusal_gets_no_line(self, shell, capsys):
-        """The pin permits, so the store refused — and its message already says so."""
+    @pytest.mark.usefixtures("audit_records", "writable_deployment")
+    def test_a_switched_off_target_asks_for_the_chip(
+        self, shell, unstamped, capsys, control_context_root, write_control_context
+    ):
+        """No pin at all: the switch itself is off, and the chip turns it on."""
+        write_control_context(control_context_root, target="va", switch={"live": "on"})
+        unstamped.setenv(posture.CONTROL_TARGET_ENV_VAR, "va")
+
+        fire(shell, REFUSALS["write_blocked"]())
+
+        assert capsys.readouterr().out == jupyter_kernel.HINT_WRITES_OFF + "\n"
+
+    @pytest.mark.usefixtures("audit_records")
+    def test_a_tier_that_allows_nothing_gets_no_line(
+        self, shell, unstamped, capsys, control_context_root, write_control_context
+    ):
+        """``tier_never`` is not turned on from the chip, so the chip is not named.
+
+        The switch is on and the cell is pinned sandboxed: the old reading of
+        the pin alone would have sent the operator to a chip that cannot help.
+        """
+        serve_section(unstamped, {**WRITABLE_SECTION, "writes": "never"})
+        write_control_context(control_context_root, target="va", switch={"va": "on"})
+        unstamped.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "*=sandbox")
+        unstamped.setenv(posture.CONTROL_TARGET_ENV_VAR, "va")
+
+        fire(shell, REFUSALS["write_blocked"]())
+
+        assert capsys.readouterr().out == ""
+
+    @pytest.mark.usefixtures("audit_records", "writable_deployment")
+    def test_a_live_store_refusal_gets_no_line(
+        self, shell, unstamped, capsys, control_context_root, write_control_context
+    ):
+        """The verdict allows now, so whatever refused — its message already says so."""
+        write_control_context(control_context_root, target="va", switch={"va": "on"})
+        unstamped.setenv(posture.CONTROL_TARGET_ENV_VAR, "va")
+
         fire(shell, REFUSALS["write_blocked"]())
 
         assert capsys.readouterr().out == ""
@@ -1026,10 +1108,10 @@ class TestTheCellStamp:
     the last one.
     """
 
-    @pytest.mark.usefixtures("kernel_env", "named_kernel", "resolvable")
+    @pytest.mark.usefixtures("kernel_env", "named_kernel", "resolvable", "writable_deployment")
     def test_a_settled_record_routes_the_cell(self, control_context_root, write_control_context):
-        """Target, generation, and the posture the record answers for it."""
-        write_control_context(control_context_root, target="va", generation=3)
+        """Target, generation, and the posture the write verdict answers for it."""
+        write_control_context(control_context_root, target="va", generation=3, switch={"va": "on"})
 
         jupyter_kernel.pre_run_cell()
 
@@ -1069,18 +1151,13 @@ class TestTheCellStamp:
         assert stamped(executor.ENV_CONTROL_TARGET) == "va"
         assert stamped(executor.ENV_CONTROL_TARGET_GENERATION) == "0"
 
-    @pytest.mark.usefixtures("kernel_env", "named_kernel", "resolvable")
-    def test_a_narrowed_target_pins_the_cell_sandboxed_on_it(
+    @pytest.mark.usefixtures("kernel_env", "named_kernel", "resolvable", "writable_deployment")
+    def test_a_switched_off_target_pins_the_cell_sandboxed_on_it(
         self, control_context_root, write_control_context
     ):
-        """The cell still reaches the target; its writes are refused there.
-
-        The pin is recomputed from the record every cell, so an operator who
-        turns writes back on is followed by the next cell rather than by the
-        next kernel.
-        """
+        """The cell still reaches the target; its writes are refused there."""
         write_control_context(
-            control_context_root, target="va", generation=3, posture={"va": "sandbox"}
+            control_context_root, target="va", generation=3, switch={"live": "on"}
         )
 
         jupyter_kernel.pre_run_cell()
@@ -1089,40 +1166,101 @@ class TestTheCellStamp:
         assert stamped(posture_store.LAUNCH_POSTURE_ENV_VAR) == "va=sandbox"
 
     @pytest.mark.usefixtures("kernel_env", "named_kernel", "resolvable")
-    def test_a_widened_record_widens_the_next_cell(
-        self, control_context_root, write_control_context
+    def test_a_tier_that_allows_nothing_pins_the_cell_sandboxed(
+        self, monkeypatch, control_context_root, write_control_context
+    ):
+        """A switch that is on is inert under a tier that allows no writes."""
+        serve_section(monkeypatch, {**WRITABLE_SECTION, "writes": "never"})
+        write_control_context(control_context_root, target="va", generation=3, switch={"va": "on"})
+
+        jupyter_kernel.pre_run_cell()
+
+        assert stamped(executor.ENV_CONTROL_TARGET) == "va"
+        assert stamped(posture_store.LAUNCH_POSTURE_ENV_VAR) == "va=sandbox"
+
+    @pytest.mark.usefixtures("kernel_env", "named_kernel", "resolvable")
+    def test_switching_on_reaches_the_next_cell(
+        self, writable_deployment, control_context_root, write_control_context
     ):
         """The pin the LAST cell wrote must not be what decides this one.
 
-        Inside an executor sandbox the launch pin is deliberately one-way:
-        ``store_permits`` ANDs ``launch_permits`` in, and that term reads the
-        very environment variable the process is carrying, so a run that
-        started narrow stays narrow even after the operator widens the record
-        under it. A run ends; a kernel does not. Deriving the cell's pin
-        through ``store_permits`` would therefore let a kernel narrow but never
-        widen — the operator turns writes back on from the chip and every
-        remaining cell of that kernel goes on refusing until it is restarted.
+        Inside an executor sandbox the launch pin is deliberately one-way: the
+        write verdict's last term reads the very environment variable the
+        process is carrying, so a run that started off stays off even after
+        the operator switches the machine on. A run ends; a kernel does not.
+        Deriving the cell's pin from the full verdict would therefore let a
+        kernel turn off but never on — every remaining cell would go on
+        refusing until the kernel was restarted.
 
-        The derivation reads the record's own posture entry for the record's
-        own target instead. Two cells around one widening is the only shape
-        that catches the difference: the first cell leaves ``va=sandbox`` in
-        the environment, which is exactly what the wrong derivation would read
-        back.
+        The derivation asks the verdict with the launch pin ignored instead.
+        Two cells around one switch-on is the only shape that catches the
+        difference: the first cell leaves ``va=sandbox`` in the environment,
+        which is exactly what the wrong derivation would read back.
         """
-        write_control_context(
-            control_context_root, target="va", generation=3, posture={"va": "sandbox"}
-        )
+        write_control_context(control_context_root, target="va", generation=3)
         jupyter_kernel.pre_run_cell()
         assert stamped(posture_store.LAUNCH_POSTURE_ENV_VAR) == "va=sandbox"
 
-        write_control_context(control_context_root, target="va", generation=3)
+        write_control_context(control_context_root, target="va", generation=3, switch={"va": "on"})
 
         jupyter_kernel.pre_run_cell()
 
         assert stamped(posture_store.LAUNCH_POSTURE_ENV_VAR) == "va=writes"
-        # The consequence, not just the string: the cell's writes are permitted
-        # again through the same rule every write surface asks.
-        assert posture_store.store_permits("va") is True
+        # The consequence, not just the string: the cell's writes are allowed
+        # by the very verdict the connector asks, launch pin included.
+        assert posture_store.write_verdict(writable_deployment, "va").allowed is True
+
+    @pytest.mark.usefixtures("kernel_env", "named_kernel", "resolvable")
+    def test_switching_off_refuses_the_next_write_of_a_running_cell(
+        self, shell, capsys, writable_deployment, control_context_root, write_control_context
+    ):
+        """Off needs no new cell: the next write of the running one is refused.
+
+        The pin is only the one-way half. The connector asks the verdict on
+        every write, so a cell stamped ``va=writes`` is refused as soon as the
+        switch goes off under it — and the line it is shown names the chip.
+        """
+        write_control_context(control_context_root, target="va", generation=3, switch={"va": "on"})
+        jupyter_kernel.pre_run_cell()
+        assert stamped(posture_store.LAUNCH_POSTURE_ENV_VAR) == "va=writes"
+        assert posture_store.write_verdict(writable_deployment, "va").allowed is True
+
+        write_control_context(control_context_root, target="va", generation=3, switch={})
+
+        refused = posture_store.write_verdict(writable_deployment, "va")
+        assert (refused.allowed, refused.reason) == (False, "switch_off")
+        assert stamped(posture_store.LAUNCH_POSTURE_ENV_VAR) == "va=writes"
+        jupyter_kernel._refusal_handler(shell, *raised(REFUSALS["write_blocked"]()))
+        assert capsys.readouterr().out == jupyter_kernel.HINT_WRITES_OFF + "\n"
+
+        jupyter_kernel.pre_run_cell()
+
+        assert stamped(posture_store.LAUNCH_POSTURE_ENV_VAR) == "va=sandbox"
+
+    @pytest.mark.usefixtures("kernel_env", "resolvable", "writable_deployment")
+    def test_a_stale_pin_in_the_environment_does_not_decide_the_cell(
+        self, control_context_root, write_control_context, named_kernel
+    ):
+        """A pin already in the environment is replaced, in either direction.
+
+        A ``va=sandbox`` the kernel was launched or last stamped with would,
+        if the verdict honoured it, refuse as ``launch_pinned`` and be written
+        straight back. A stale ``va=writes`` must not survive a switch that is
+        off.
+        """
+        named_kernel.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "va=sandbox")
+        write_control_context(control_context_root, target="va", generation=3, switch={"va": "on"})
+
+        jupyter_kernel.pre_run_cell()
+
+        assert stamped(posture_store.LAUNCH_POSTURE_ENV_VAR) == "va=writes"
+
+        named_kernel.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "va=writes")
+        write_control_context(control_context_root, target="va", generation=3, switch={})
+
+        jupyter_kernel.pre_run_cell()
+
+        assert stamped(posture_store.LAUNCH_POSTURE_ENV_VAR) == "va=sandbox"
 
     @pytest.mark.usefixtures("kernel_env", "named_kernel", "resolvable")
     def test_a_switch_in_flight_refuses_the_cell(
@@ -1357,6 +1495,9 @@ def stub_factory(monkeypatch):
     monkeypatch.setattr(
         "osprey_connectors.factory.ConnectorFactory.create_control_system_connector", create
     )
+    # An unstamped cell is built on the deployment baseline, which is read from
+    # the section; with no config.yml behind the test, one is served.
+    serve_section(monkeypatch, WRITABLE_SECTION)
     return built
 
 

@@ -1,217 +1,27 @@
 """Unit tests for :mod:`osprey.services.python_executor.execution.control`.
 
-This module is part of the write-safety surface: ``ExecutionControlConfig``
-carries the posture that decides whether generated code runs in a read-only or
-write-enabled sandbox, so its field set and its factory are pinned strictly here
-rather than sampled.
+The module now holds only :class:`ExecutionMode`. Its write-posture report (a
+config class and the factory that built it) is gone: no executor gate read it. The cases that pinned it are covered where the answer is
+now decided:
 
-``control_system_writes_enabled`` is the single authoritative write-gating field.
-Its default is ``False`` (fail-safe: writes disabled unless explicitly enabled),
-and write access is granted only when that field is ``True`` *and* the analysed
-code actually contains write operations — the gate itself reads the field
-directly. The legacy write-gating field has been removed entirely; the exact
-field set is pinned below so a reintroduction is a deliberate, reviewed change.
+- the tier's ``allowed``/``never`` reading, target-blind, and the tier key
+  winning over a retired leaf: ``test_tier_writes.py``
+  (``test_literal_allowed_arms``, ``test_any_other_value_of_the_new_key_is_never``,
+  ``test_new_key_decides_when_both_are_present``) and the ``tier-*`` rows of the
+  shared write-verdict case table;
+- an unnormalized render: ``test_tier_writes.py``
+  (``test_an_unrebuilt_render_reads_never``) and the table's
+  ``tier-absent-old-armed-*`` and ``backstop-legacy-armed`` rows;
+- the unset-type fallback to the simulator: ``tests/connectors/
+  test_factory_mock_default.py::TestFactoryTypeFallback``.
 """
 
 from __future__ import annotations
 
-import dataclasses
-
-import osprey.services.python_executor.execution.control as control_mod
-from osprey.services.python_executor.execution.control import (
-    ExecutionControlConfig,
-    ExecutionMode,
-    get_execution_control_config,
-)
+from osprey.services.python_executor.execution.control import ExecutionMode
 
 
 class TestExecutionModeEnum:
     def test_mode_values(self):
         assert ExecutionMode.READ_ONLY.value == "read_only"
         assert ExecutionMode.WRITE_ACCESS.value == "write_access"
-
-
-class TestConfigFields:
-    def test_defaults_are_safe(self):
-        cfg = ExecutionControlConfig()
-        # Fail-safe default: writes disabled unless explicitly enabled.
-        assert cfg.control_system_writes_enabled is False
-        # Fail-closed default: an unspecified type is the simulator in process,
-        # never a live system.
-        assert cfg.control_system_type == "virtual_accelerator"
-
-    def test_modern_field_is_honoured(self):
-        cfg = ExecutionControlConfig(control_system_writes_enabled=True)
-        assert cfg.control_system_writes_enabled is True
-
-    def test_field_set_is_exactly_the_modern_contract(self):
-        # The legacy write-gating field was removed with zero back-compat.
-        # Pinning the exact field set means reintroducing it (or any unexpected
-        # constructor kwarg) fails naturally as a TypeError and trips this test.
-        names = {f.name for f in dataclasses.fields(ExecutionControlConfig)}
-        assert names == {
-            "control_system_writes_enabled",
-            "control_system_type",
-            "active_target",
-            "writes_enabled_key",
-        }
-
-    def test_target_identity_defaults_to_unknown(self):
-        # A config built without reading a target names none, and the key it
-        # reports is the deployment-wide one — the posture such a config can
-        # only ever have come from.
-        cfg = ExecutionControlConfig()
-        assert cfg.active_target is None
-        assert cfg.writes_enabled_key == "control_system.writes_enabled"
-
-
-class TestValidate:
-    def test_no_warning_when_writes_disabled(self):
-        assert ExecutionControlConfig(control_system_writes_enabled=False).validate() == []
-
-    def test_warning_when_writes_enabled(self):
-        warnings = ExecutionControlConfig(control_system_writes_enabled=True).validate()
-        assert len(warnings) == 1
-        assert "writes_enabled=true" in warnings[0]
-
-
-class TestGetExecutionControlConfigFactory:
-    def test_reads_writes_enabled_true(self, monkeypatch):
-        def fake_get_config_value(path, _default=None, _config_path=None):
-            assert path == "control_system"
-            return {"writes_enabled": True, "type": "epics"}
-
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
-        cfg = get_execution_control_config()
-        assert cfg.control_system_writes_enabled is True
-        assert cfg.control_system_type == "epics"
-
-    def test_defaults_when_writes_key_missing(self, monkeypatch):
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value",
-            lambda path, default=None, config_path=None: {},
-        )
-        cfg = get_execution_control_config()
-        assert cfg.control_system_writes_enabled is False
-        # Type falls back to the simulator in process, not to a live control system.
-        assert cfg.control_system_type == control_mod.VIRTUAL_ACCELERATOR
-
-    def test_exception_falls_back_to_safe_defaults(self, monkeypatch):
-        def boom(_path, _default=None, _config_path=None):
-            raise RuntimeError("config unavailable")
-
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", boom)
-        cfg = get_execution_control_config()
-        # On any failure the factory must return a write-disabled config on a
-        # non-live control system.
-        assert cfg.control_system_writes_enabled is False
-        assert cfg.control_system_type == control_mod.VIRTUAL_ACCELERATOR
-
-
-class TestPerTargetPosture:
-    """The factory answers for one control target, and says which key answered.
-
-    The deployment below is the shape the feature exists for: a live machine
-    with writes refused, and a virtual accelerator on the same deployment with
-    writes armed. One deployment-wide answer would be wrong for one of them.
-    """
-
-    MIXED = {
-        "type": "epics",
-        "writes_enabled": False,
-        "connector": {
-            "epics": {},
-            "virtual_accelerator": {"writes_enabled": True},
-        },
-    }
-
-    @staticmethod
-    def _config(monkeypatch, section):
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value",
-            lambda path, default=None, config_path=None: section,
-        )
-
-    def test_va_target_reads_its_own_block(self, monkeypatch):
-        # Arrange
-        self._config(monkeypatch, self.MIXED)
-
-        # Act
-        cfg = get_execution_control_config(target="va")
-
-        # Assert
-        assert cfg.control_system_writes_enabled is True
-        assert cfg.active_target == "va"
-        assert (
-            cfg.writes_enabled_key == "control_system.connector.virtual_accelerator.writes_enabled"
-        )
-
-    def test_live_target_reads_the_live_block(self, monkeypatch):
-        # Arrange
-        self._config(monkeypatch, self.MIXED)
-
-        # Act
-        cfg = get_execution_control_config(target="live")
-
-        # Assert
-        assert cfg.control_system_writes_enabled is False
-        assert cfg.active_target == "live"
-        assert cfg.writes_enabled_key == "control_system.connector.epics.writes_enabled"
-
-    def test_no_target_answers_the_baseline(self, monkeypatch):
-        # An unstamped run builds the baseline connector, so the baseline
-        # target is the one its posture question is about.
-        self._config(monkeypatch, self.MIXED)
-
-        cfg = get_execution_control_config()
-
-        assert cfg.active_target == "live"
-        assert cfg.control_system_writes_enabled is False
-        assert cfg.writes_enabled_key == "control_system.connector.epics.writes_enabled"
-
-    def test_underivable_live_target_falls_back_to_the_deployment_wide_key(self, monkeypatch):
-        # A mock deployment has never named a real machine, so 'live' resolves
-        # to no type at all and the only posture it has ever had is the global
-        # one — which is also the key its refusal must name.
-        self._config(
-            monkeypatch,
-            {
-                "type": "virtual_accelerator",
-                "connector": {"virtual_accelerator": {"serving": "in_process"}},
-                "writes_enabled": True,
-            },
-        )
-
-        cfg = get_execution_control_config(target="live")
-
-        assert cfg.control_system_writes_enabled is True
-        assert cfg.writes_enabled_key == "control_system.writes_enabled"
-
-    def test_unknown_target_falls_back_to_the_deployment_wide_key(self, monkeypatch):
-        self._config(monkeypatch, self.MIXED)
-
-        cfg = get_execution_control_config(target="somewhere-else")
-
-        assert cfg.active_target == "somewhere-else"
-        assert cfg.control_system_writes_enabled is False
-        assert cfg.writes_enabled_key == "control_system.writes_enabled"
-
-    def test_a_block_that_says_nothing_inherits_the_deployment_wide_posture(self, monkeypatch):
-        # The compatibility story: a deployment that never wrote a per-type key
-        # keeps the posture it had when the global key was the only one.
-        self._config(
-            monkeypatch,
-            {"type": "epics", "writes_enabled": True, "connector": {"epics": {}}},
-        )
-
-        cfg = get_execution_control_config(target="live")
-
-        assert cfg.control_system_writes_enabled is True
-
-    def test_the_warning_names_the_key_that_armed_writes(self, monkeypatch):
-        self._config(monkeypatch, self.MIXED)
-
-        warnings = get_execution_control_config(target="va").validate()
-
-        assert len(warnings) == 1
-        assert "control_system.connector.virtual_accelerator.writes_enabled=true" in warnings[0]

@@ -563,31 +563,24 @@ account can read stay readable to it.
 Write posture
 -------------
 
-An operator can turn writes off on one control target from the control-target
-chip in the header (see :ref:`web-terminal-session-posture`). The setting is
-the deployment's, not one conversation's. This server reads it at the moment a
-run asks for writes --- not from the environment it was started with, so a
-change made mid-conversation applies to the next run --- and a ``readwrite``
-``execute`` on such a target is refused by the executor's own posture gate,
-whatever the deployment itself permits:
+A ``readwrite`` ``execute`` asks the write verdict (:ref:`write-safety-config`)
+when the run is requested --- the login's tier, then its switch for the run's
+control target, read fresh, so a flip made mid-conversation applies to the next
+run. A refused run gets the verdict's phrase and its trailer, for example::
 
-   Writes are off for the '<target>' control target --- turned off from the
-   control-target chip in the header; applies to every session of this login.
+   Writes are off; turn it on from the chip in the web terminal.
+   [osprey-refusal: switch_off]
 
-Where the run's target cannot be identified, the most restrictive state
-recorded for the deployment decides, and the message says so --- *"Writes are off
-for at least one control target (the run's target could not be identified, so
-the most restrictive decides) --- turned off from the control-target chip in
-the header."* --- rather than granting the run the most permissive answer.
-
-The agent is told to re-run as ``readonly`` --- reads are untouched --- or to
-turn writes back on from the chip. The deployment's ``config.yml`` is not the
-gate here and the message says so.
+A run whose target cannot be identified is refused ``target_unknown`` rather
+than granted the most permissive answer. The agent is told to re-run as
+``readonly`` --- reads are untouched --- or to ask the operator to turn writes
+on from the chip. The phrase names no config key: the deployment's
+``config.yml`` is not what the operator changes here.
 
 A run that has already started cannot be *widened*: it keeps the launch pin it
-started under, so a script cannot gain write access to a machine the operator
-took away from it while it was running. A narrowing that lands mid-run is
-honoured by the reference monitor inside the sandbox at the moment of the write.
+started under, and a write it attempts on a machine it was launched with writes
+held off for is refused ``launch_pinned``. A switch turned off mid-run is
+honoured by the connector inside the sandbox at the moment of the write.
 
 A run is also refused outright while a control-target switch has not yet
 reached every control-system server. The sandbox is stamped with the target and

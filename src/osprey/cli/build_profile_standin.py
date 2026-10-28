@@ -73,11 +73,11 @@ PROBE_CHANNEL_KEY = f"{_STANDIN_PREFIX}.probe_channel"
 #: set, one list so they cannot drift apart.
 #:
 #: Matched LEAF by leaf, never by prefix. A prefix over the stand-in's block
-#: would refuse a render's own
-#: ``control_system.connector.live_standin.writes_enabled``, which says
-#: something the build has no opinion about: *where* the stand-in is and *what
-#: proves it reachable* are these keys; whether a given login may write to it is
-#: the render's to state, exactly as it is for the ``epics`` block beside it.
+#: would refuse every other key a render writes under the stand-in's block,
+#: which says something the build has no opinion about: *where* the stand-in is
+#: and *what proves it reachable* are these keys; whether a given login may
+#: write to it is the render's tier (``control_system.writes``), exactly as it
+#: is for the ``epics`` block beside it.
 LIVE_STANDIN_DERIVED_KEYS: tuple[str, ...] = (
     f"{_STANDIN_PREFIX}.gateways.read_only.address",
     f"{_STANDIN_PREFIX}.gateways.read_only.port",

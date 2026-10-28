@@ -14,9 +14,8 @@
 # logbook. The app's own config keys below are laid over the deployment's.
 #
 # Every app render is read-only on the machine whatever its config says: the
-# build pins every write key off and adds the writes-check hook itself. The
-# write pins below say the same thing on purpose, so the file reads as what it
-# renders.
+# build pins writes never and adds the writes-check hook itself. The write pin
+# below says the same thing on purpose, so the file reads as what it renders.
 #
 # The other two bundled apps are `knowledge` and `channel-finder`.
 
@@ -102,11 +101,8 @@ config:
   # deployment's graph store). The event dispatcher renders only with the
   # EVENTS panel, which no app carries.
   #
-  # The write boundary, pinned on all three keys: the flat key every connector
-  # type inherits, and both hardware-shaped types by name.
-  control_system.writes_enabled: false
-  control_system.connector.epics.writes_enabled: false
-  control_system.connector.virtual_accelerator.writes_enabled: false
+  # The write boundary: `never`, the only value an app may spell.
+  control_system.writes: never
   # Creating a logbook entry is this agent's only write of any kind, and it is
   # approval-gated like every other write. Publishing is the half that reaches
   # the facility's logbook, so it is gated too.

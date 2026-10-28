@@ -108,9 +108,11 @@ import pytest
 
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.services.bluesky_bridge.figure import rows_from_columnar
+from osprey_connectors import posture_store
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
 from tests.e2e._volumes import remove_project_volumes
+from tests.e2e.sdk_helpers import arm_deployed_queue_owner
 
 pytestmark = [
     pytest.mark.e2e,
@@ -540,6 +542,9 @@ def deployed_bump_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
     # The repo root's `.env` — the deployment's whole secret store, and the file
     # `osprey up` refuses to start without.
     _orm_stack.seed_repo_env(repo)
+    # The plans write, and the worker's writes follow the add's owner's switch:
+    # this login's switch on in the deployment's record, before `up`.
+    arm_deployed_queue_owner(repo)
 
     osprey_bin = _orm_stack.find_osprey_console_script()
 
@@ -858,7 +863,12 @@ def test_orbit_bump_sweep_roundtrip_closes_a_local_bump(
 
     token = _orm_stack.minted_launch_token(stack.repo)
     run_id = _queue_drive.stage_and_enqueue(
-        BRIDGE_URL, "orbit_bump_sweep", plan_args, client_id="bump-roundtrip-e2e", token=token
+        BRIDGE_URL,
+        "orbit_bump_sweep",
+        plan_args,
+        client_id="bump-roundtrip-e2e",
+        token=token,
+        owner=posture_store.current_owner(),
     )
     _queue_drive.start_draining(BRIDGE_URL, token, run_id)
     status_body = _queue_drive.wait_for_terminal_status(

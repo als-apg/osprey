@@ -43,6 +43,11 @@ def _facts(render: Path) -> dict[str, Any]:
 
 
 def _context(render: Path, config: dict[str, Any]) -> dict[str, Any]:
+    # A framework-default render pins writes `never` with python's read/write
+    # tools on, which the write-gate lint refuses unless writes-check is selected.
+    (render / ".osprey-manifest.json").write_text(
+        json.dumps({"artifacts": {"hooks": ["writes-check"]}}), encoding="utf-8"
+    )
     manager = TemplateManager()
     return claude_code.build_claude_code_context(
         manager.template_root, manager.jinja_env, render, {"project_name": "demo", **config}

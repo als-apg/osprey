@@ -997,7 +997,9 @@ class TestMembershipIsNotReportedAsAccess:
         joined = [line for line in run.stderr.splitlines() if "joined osprey" in line]
         assert len(joined) == 1, run.stderr
         assert f"group osprey-mount-3000 (gid 3000) for {SPOOL_VAR}={spool}" in joined[0]
-        assert "write" not in joined[0], joined[0]
+        # The wording is judged, not the path: a temp root under a checkout whose
+        # name holds "write" would otherwise fail the claim it does not make.
+        assert "write" not in joined[0].replace(str(spool), ""), joined[0]
 
     def test_a_failed_join_does_not_silence_the_next_directory(self, sandbox: Sandbox):
         """The spool subdir and the bundle usually share the host gid. The gid

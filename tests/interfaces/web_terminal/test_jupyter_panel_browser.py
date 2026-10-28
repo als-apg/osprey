@@ -82,6 +82,7 @@ from osprey_connectors_tests._harness import write_control_context, write_server
 from tests.interfaces._browser import open_hub_page, rail_entry
 from tests.interfaces._panel_launch import DEFAULT_ARTIFACT_URL, publish_artifact_url
 from tests.interfaces.conftest import _apply_all, _run_app_server
+from tests.interfaces.web_terminal.test_logout_resume_browser import _nginx_stand_in
 
 # The control-target render, the chip's selectors and the waits are the sibling
 # browser suite's, imported rather than restated: two suites disagreeing about
@@ -96,6 +97,7 @@ from tests.interfaces.web_terminal.test_posture_toggle_browser import (
     NAMES,
     OPEN_MODAL,
     POPOVER,
+    POSTURE_TARGET,
     RECORD_GENERATION,
     SWITCH_TARGET,
     TIMEOUT,
@@ -115,7 +117,10 @@ try:
 except ImportError:  # pragma: no cover
     _PLAYWRIGHT_AVAILABLE = False
 
-pytestmark = [pytest.mark.browser, pytest.mark.slow]
+# One xdist worker for the whole module: every test here holds a real sidecar,
+# a real kernel and a real browser at once, and the gate's sweep runs under
+# ``-n auto --dist loadgroup``. Side by side they have OOM-killed the runner.
+pytestmark = [pytest.mark.browser, pytest.mark.slow, pytest.mark.xdist_group("jupyter_browser")]
 
 #: JupyterLab's own boot inside the panel iframe. The bundle is large and every
 #: byte of it crosses the terminal's panel proxy.
@@ -492,7 +497,11 @@ _RESTART_MS = 180_000
 
 @contextmanager
 def _control_target_lab(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    terminal_user: str = "",
+    notebook_files: dict[str, str] | None = None,
 ) -> Iterator[tuple[str, Any, Path]]:
     """A live hub with the JUPYTER panel AND a control context to switch.
 
@@ -519,6 +528,22 @@ def _control_target_lab(
       owned by this process, so the lifespan's claim is a merge and the Lab
       bar's chip comes up writable.
 
+    Args:
+        tmp_path: The test's own directory; everything this writes lives in it.
+        monkeypatch: Carries the environment the server and the kernel read.
+        terminal_user: A non-empty login puts the hub behind a per-user prefix,
+            ``/u/<login>``, the way a multi-user deployment serves it.
+            ``OSPREY_TERMINAL_USER`` is set before ``create_app`` (which reads
+            it into the prefix the pages, the panel proxy and the sidecar's
+            ``base_url`` are built from) and the server is wrapped in the
+            logout suite's nginx stand-in, which strips the prefix the way
+            nginx does. The yielded address carries the prefix.
+        notebook_files: Files to drop into the notebooks directory before the
+            sidecar starts, by name. A ``.py`` there is importable from a cell,
+            because a kernel starts in its notebook's directory; the starter
+            notebook is still seeded beside it, since only an ``.ipynb``
+            counts as the directory having notebooks.
+
     Yields:
         ``(base_url, app, root)`` — the hub's address, its app, and the
         agent-data root the record and the server reports live under.
@@ -539,6 +564,13 @@ def _control_target_lab(
     monkeypatch.setenv("OSPREY_WEB_THEME", "dark")
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
+    if terminal_user:
+        monkeypatch.setenv("OSPREY_TERMINAL_USER", terminal_user)
+
+    notebooks = root / "notebooks"
+    notebooks.mkdir(exist_ok=True)
+    for name, text in (notebook_files or {}).items():
+        (notebooks / name).write_text(text, encoding="utf-8")
 
     _reset_process_memos()
     write_control_context(root, target=ACTIVE_TARGET, generation=RECORD_GENERATION)
@@ -567,8 +599,13 @@ def _control_target_lab(
             from osprey.interfaces.web_terminal.app import create_app
 
             app = create_app(shell_command=list(_LONG_LIVED_SHELL), config_path=config)
-            with _run_app_server(app) as base_url:
-                yield base_url, app, root
+            if terminal_user:
+                prefix = f"/u/{terminal_user}"
+                with _run_app_server(_nginx_stand_in(app, prefix)) as server_url:
+                    yield f"{server_url}{prefix}", app, root
+            else:
+                with _run_app_server(app) as base_url:
+                    yield base_url, app, root
     finally:
         _reset_process_memos()
 
@@ -652,13 +689,34 @@ def _standalone_notebook(browser, base_url: str) -> Page:
     the hub. That is the whole arrangement these lanes are about: the operator
     has the notebook and nothing else on screen.
     """
+    page, _response = _popped_out_notebook(browser, base_url)
+    return page
+
+
+def _popped_out_notebook(
+    browser, base_url: str, *, init_script: str | None = None
+) -> tuple[Page, Any]:
+    """:func:`_standalone_notebook`, plus the page's own response and a probe.
+
+    Args:
+        browser: The function-scoped chromium fixture.
+        base_url: The hub's address, per-user prefix included.
+        init_script: Seeded at document start, before ``goto`` — a listener
+            that has to see the page's first events cannot be installed later.
+
+    Returns:
+        ``(page, response)`` — the response is the Lab page's own, whose
+        headers carry the policy the proxy put on it.
+    """
     page = browser.new_page(viewport=_VIEWPORT)
-    page.goto(
+    if init_script:
+        page.add_init_script(init_script)
+    response = page.goto(
         f"{base_url}/panel/jupyter/doc/tree/getting-started.ipynb",
         wait_until="domcontentloaded",
     )
     expect(page.locator(".jp-NotebookPanel")).to_be_visible(timeout=_LAB_BOOT_MS)
-    return page
+    return page, response
 
 
 def _run_next_cell(page: Page, code: str) -> Any:
@@ -845,3 +903,360 @@ def test_a_restarted_kernel_comes_back_on_the_same_target_with_no_hint(
             assert HINT_TARGET_CHANGED not in printed, printed
         finally:
             notebook.close()
+
+
+# ===========================================================================
+# Agent output on the Lab page: what renders, and what may not run
+# ===========================================================================
+#
+# Kernel output renders inside the Lab document, on the console's origin, with
+# the operator's session cookie. An agent writes cells, so an agent writes that
+# output — and a script it plants there would run as the operator, against the
+# hub's own write routes. The proxy's nonced ``script-src`` on Lab pages and
+# the disabled ``@jupyterlab/javascript-extension`` are what stop it (q-0001).
+# These lanes prove the stop in the browser, behind a per-user prefix and the
+# app's auth gate, and prove that the renderers an operator relies on survive
+# it: matplotlib, Plotly, an ipywidget, and a markdown cell with math.
+#
+# ``'unsafe-eval'`` is in the policy (the q-0001 fallback: JupyterLab's settings
+# registry compiles schemas with ``new Function``), so these lanes assert what
+# the policy says with it in: no inline script, no unlisted origin path.
+
+#: The login behind the per-user prefix every lane below runs under.
+_USER = "alice"
+_PREFIX = f"/u/{_USER}"
+
+#: The module the cells below import their outputs from. Kept in a file rather
+#: than typed into a cell: a cell is typed key by key into CodeMirror, which
+#: auto-closes brackets and quotes, and a script inside an HTML string inside a
+#: Python string would leave the assertion about the editor instead of Lab.
+_PROBE_MODULE = "osprey_output_probe"
+
+#: What an agent's script would do with the operator's session: turn writes on
+#: for a machine, through the hub's own route — reading the switch epoch first,
+#: as the chip does, because a turn-on that names none is refused once the
+#: record carries one. ``PROBE`` is replaced by a tag naming the output that
+#: carried it, so a request that does get out says which path let it through.
+#: The prefix is the real one — the payload is a working write, which the
+#: control at the end of the script lane proves.
+_PROBE_URL = f"{_PREFIX}/api/terminal/posture?probe=PROBE"
+_PAYLOAD = (
+    "window.__ospreyProbeRan = (window.__ospreyProbeRan || []).concat(['PROBE']);"
+    f"fetch('{_PROBE_URL}', {{credentials: 'include'}})"
+    ".then((r) => r.json())"
+    f".then((s) => fetch('{_PROBE_URL}', {{method: 'POST', credentials: 'include',"
+    " headers: {'Content-Type': 'application/json'},"
+    f" body: JSON.stringify({{target: '{POSTURE_TARGET}', state: 'on',"
+    " epoch: s.switch_epoch})}));"
+)
+
+_PROBE_SOURCE = f'''"""Outputs an agent's cell could display, for the Lab browser suite."""
+
+from IPython.display import HTML, Javascript, display
+
+PAYLOAD = {_PAYLOAD!r}
+
+
+def script_html():
+    """An HTML output carrying a script tag and an inline event handler."""
+    display(
+        HTML(
+            "<div id='osprey-probe-html'>agent html</div>"
+            "<script>" + PAYLOAD.replace("PROBE", "html-script") + "</script>"
+            "<img src='data:image/png;base64,AAAA' onerror=\\""
+            + PAYLOAD.replace("PROBE", "html-onerror")
+            + "\\">"
+        )
+    )
+
+
+def script_javascript():
+    """An application/javascript output."""
+    display(Javascript(PAYLOAD.replace("PROBE", "application-javascript")))
+
+
+def matplotlib_figure():
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots()
+    ax.plot([1, 3, 2])
+    display(fig)
+    plt.close(fig)
+
+
+def plotly_figure():
+    import plotly.graph_objects as go
+
+    go.Figure(go.Scatter(y=[1, 3, 2])).show(renderer="plotly_mimetype")
+
+
+def widget():
+    import ipywidgets
+
+    display(ipywidgets.IntSlider(value=3, description="probe"))
+'''
+
+#: Every CSP violation the document reports, kept on the window. Seeded at
+#: document start so nothing is missed between ``goto`` and the first check.
+_CSP_PROBE = """
+window.__ospreyCspViolations = [];
+document.addEventListener('securitypolicyviolation', (e) => {
+  window.__ospreyCspViolations.push({
+    directive: e.effectiveDirective, blocked: e.blockedURI, sample: e.sample,
+  });
+});
+"""
+
+
+def _import_cell(name: str) -> str:
+    return f"from {_PROBE_MODULE} import {name}; {name}()"
+
+
+def _violations(page: Page) -> list[dict]:
+    return page.evaluate("() => window.__ospreyCspViolations")
+
+
+def _switch_of(target: str) -> str | None:
+    """The record's writes switch for *target*: ``"on"``, or ``None`` for off."""
+    record = _record()
+    assert record is not None, "the deployment has no control-context record"
+    return dict(record.switch or {}).get(target)
+
+
+def _wait_for_switch(page: Page, target: str, state: str | None) -> None:
+    """Poll the record until *target*'s switch reads *state*.
+
+    The pause between reads is the PAGE's, not ``time.sleep``: the sync
+    Playwright API delivers a page's events (each ``request`` a test listens
+    for) only while one of its calls is running, so a sleep-based poll can see
+    the write land on disk before the request that made it has been reported.
+    """
+    deadline = time.monotonic() + TIMEOUT / 1000
+    while time.monotonic() < deadline:
+        if _switch_of(target) == state:
+            page.wait_for_timeout(200)
+            return
+        page.wait_for_timeout(200)
+    raise AssertionError(f"{target}'s switch is {_switch_of(target)!r}, expected {state!r}")
+
+
+def _run_markdown_cell(page: Page, text: str) -> Any:
+    """Append a markdown cell carrying *text* and render it.
+
+    ``Escape`` then ``b`` inserts a cell below, ``m`` makes it markdown, and
+    ``Enter`` opens its editor — JupyterLab's own keyboard path.
+    """
+    before = page.locator(".jp-MarkdownCell").count()
+    page.locator(".jp-CodeCell").last.locator(".cm-content").click()
+    page.keyboard.press("Escape")
+    page.keyboard.press("b")
+    page.keyboard.press("m")
+    expect(page.locator(".jp-MarkdownCell")).to_have_count(before + 1, timeout=TIMEOUT)
+    page.keyboard.press("Enter")
+    page.keyboard.type(text)
+    page.keyboard.press("Shift+Enter")
+    return page.locator(".jp-MarkdownCell").nth(before)
+
+
+def test_agent_script_in_an_output_makes_no_request_and_the_switch_stays_off(
+    tmp_path, monkeypatch, chromium_browser
+):
+    """A script an agent puts in a cell's output does not run as the operator.
+
+    Two outputs, the two shapes the script can take:
+
+    * an HTML output carrying a ``<script>`` and an ``onerror`` handler. Lab
+      renders trusted HTML and re-inserts its script tags so they execute; the
+      nonce is on the page's parser-inserted tags only, so both are refused,
+      and the document reports the refusal;
+    * an ``application/javascript`` output, which has no renderer at all once
+      ``@jupyterlab/javascript-extension`` is disabled.
+
+    Neither makes a request — not the probe's write, not any write to the
+    hub's API — and the record's switch for the target stays off. The check is
+    taken after a later cell has rendered, by which time everything the two
+    outputs will ever do has happened.
+
+    The control at the end runs the SAME payload from the page's own context,
+    where the policy does not apply, and the switch turns on. Without it, a
+    payload that was simply broken (a wrong path, a refused body) would pass
+    every assertion above for the wrong reason.
+    """
+    with _control_target_lab(
+        tmp_path,
+        monkeypatch,
+        terminal_user=_USER,
+        notebook_files={f"{_PROBE_MODULE}.py": _PROBE_SOURCE},
+    ) as (base_url, _app, _root):
+        page, response = _popped_out_notebook(chromium_browser, base_url, init_script=_CSP_PROBE)
+        sent: list[tuple[str, str]] = []
+        page.on("request", lambda request: sent.append((request.method, request.url)))
+        try:
+            # The policy is the proxy's, with the per-user prefix in its paths.
+            policy = response.headers.get("content-security-policy", "")
+            script_src = next(
+                (d.strip() for d in policy.split(";") if d.strip().startswith("script-src")), ""
+            )
+            assert "'nonce-" in script_src, policy
+            assert "'unsafe-inline'" not in script_src, policy
+            assert "'self'" not in script_src, policy
+            assert f"{_PREFIX}/panel/jupyter/static/" in script_src, policy
+            assert "/panel/jupyter/files/" not in script_src, policy
+
+            assert _switch_of(POSTURE_TARGET) is None
+            expect(page.locator(_LAB_CHIP)).to_have_attribute(
+                "data-enforceable", "true", timeout=_LAB_BOOT_MS
+            )
+            _wait_for_idle_kernel(base_url, _KERNEL_TIMEOUT)
+
+            html_cell = _run_next_cell(page, _import_cell("script_html"))
+            expect(html_cell.locator("#osprey-probe-html")).to_have_text(
+                "agent html", timeout=_EXEC_MS
+            )
+            # The block is the policy's: the document reports a script-src refusal.
+            page.wait_for_function(
+                "() => window.__ospreyCspViolations.some("
+                "(v) => v.directive.startsWith('script-src'))",
+                timeout=_EXEC_MS,
+            )
+
+            js_cell = _run_next_cell(page, _import_cell("script_javascript"))
+            expect(js_cell.locator(".jp-InputArea-prompt")).not_to_have_text(
+                "[ ]:", timeout=_EXEC_MS
+            )
+            expect(js_cell.locator(".jp-InputArea-prompt")).not_to_have_text(
+                "[*]:", timeout=_EXEC_MS
+            )
+
+            # A barrier: once a later cell has rendered, both outputs have done
+            # everything they will ever do.
+            tail = _run_next_cell(page, "1+1")
+            expect(tail.locator(".jp-OutputArea-output")).to_have_text("2", timeout=_EXEC_MS)
+
+            # Let any request either output made reach this side (see
+            # :func:`_wait_for_switch`) before reading what was sent.
+            page.wait_for_timeout(500)
+            assert page.evaluate("() => window.__ospreyProbeRan || []") == []
+            assert [url for _method, url in sent if "probe=" in url] == []
+            hub_writes = [
+                (method, url)
+                for method, url in sent
+                if method != "GET" and f"{_PREFIX}/api/" in url and "/panel/" not in url
+            ]
+            assert hub_writes == []
+            assert _switch_of(POSTURE_TARGET) is None
+
+            # The control: the same payload, from outside the policy, is a
+            # working credentialed write.
+            page.evaluate(f"() => {{ {_PAYLOAD.replace('PROBE', 'control')} }}")
+            _wait_for_switch(page, POSTURE_TARGET, "on")
+            control = f"{base_url}/api/terminal/posture?probe=control"
+            assert [(m, url) for m, url in sent if "probe=" in url] == [
+                ("GET", control),
+                ("POST", control),
+            ]
+        finally:
+            page.close()
+
+
+def test_the_renderers_an_operator_relies_on_survive_the_policy(
+    tmp_path, monkeypatch, chromium_browser
+):
+    """matplotlib, Plotly, an ipywidget and markdown with math all render.
+
+    Each one loads or runs code the policy has to admit: the inline backend's
+    PNG is plain markup, but Plotly and the widget manager are federated
+    extensions served from ``lab/extensions/`` and MathJax is in Lab's own
+    bundle. A path missing from the policy's list shows up here as an output
+    that never draws — and as a violation, which is asserted absent at the end
+    so a renderer that half-works still fails.
+    """
+    with _control_target_lab(
+        tmp_path,
+        monkeypatch,
+        terminal_user=_USER,
+        notebook_files={f"{_PROBE_MODULE}.py": _PROBE_SOURCE},
+    ) as (base_url, _app, _root):
+        page, _response = _popped_out_notebook(chromium_browser, base_url, init_script=_CSP_PROBE)
+        try:
+            _wait_for_idle_kernel(base_url, _KERNEL_TIMEOUT)
+
+            figure = _run_next_cell(page, _import_cell("matplotlib_figure"))
+            image = figure.locator(".jp-RenderedImage img")
+            expect(image).to_be_visible(timeout=_EXEC_MS)
+            assert image.evaluate("(img) => img.naturalWidth") > 0
+
+            plot = _run_next_cell(page, _import_cell("plotly_figure"))
+            expect(plot.locator(".js-plotly-plot .main-svg").first).to_be_visible(timeout=_EXEC_MS)
+            expect(plot.locator(".js-plotly-plot .scatterlayer .trace")).to_have_count(
+                1, timeout=_EXEC_MS
+            )
+
+            slider = _run_next_cell(page, _import_cell("widget"))
+            expect(slider.locator(".widget-slider")).to_be_visible(timeout=_EXEC_MS)
+            expect(slider.locator(".widget-label")).to_have_text("probe", timeout=_EXEC_MS)
+            expect(slider.locator(".widget-readout")).to_have_text("3", timeout=_EXEC_MS)
+
+            markdown = _run_markdown_cell(page, "# Probe heading\n\nEuler: $e^{i\\pi} + 1 = 0$")
+            rendered = markdown.locator(".jp-RenderedMarkdown")
+            expect(rendered.locator("h1")).to_contain_text("Probe heading", timeout=_EXEC_MS)
+            expect(rendered.locator("mjx-container").first).to_be_visible(timeout=_EXEC_MS)
+
+            assert _violations(page) == []
+        finally:
+            page.close()
+
+
+def test_the_lab_bar_mounts_on_a_popped_out_page_and_flips_a_switch(
+    tmp_path, monkeypatch, chromium_browser
+):
+    """Behind the per-user prefix, the bar mounts and its switch writes the record.
+
+    The popped-out page is its own window, so the injected module mounts the
+    bar. The switch is flipped on through the confirm a fresh browser always
+    shows, then off again, which applies at once; both land in the record. The
+    gestures post to the PREFIXED route — the stand-in passes a bare path
+    through untouched, so a chip that forgot the prefix would still reach the
+    app, and only the request URL can tell.
+    """
+    with _control_target_lab(tmp_path, monkeypatch, terminal_user=_USER) as (
+        base_url,
+        _app,
+        _root,
+    ):
+        page, _response = _popped_out_notebook(chromium_browser, base_url, init_script=_CSP_PROBE)
+        posts: list[str] = []
+        page.on(
+            "request",
+            lambda request: posts.append(request.url) if request.method == "POST" else None,
+        )
+        try:
+            expect(page.locator(f'script[src$="{_LAB_BAR_MODULE}"]')).to_have_attribute(
+                "src", f"{_PREFIX}/panel/jupyter/terminal-static/js/{_LAB_BAR_MODULE}"
+            )
+            expect(page.locator(_LAB_BAR)).to_be_visible(timeout=_LAB_BOOT_MS)
+            expect(page.locator(_LAB_CHIP)).to_have_attribute(
+                "data-enforceable", "true", timeout=TIMEOUT
+            )
+
+            page.locator(_LAB_CHIP).click()
+            expect(page.locator(POPOVER)).to_be_visible(timeout=TIMEOUT)
+            toggle = page.locator(f'{POPOVER} .ctc-row[data-target="{POSTURE_TARGET}"] .ctc-toggle')
+            expect(toggle).to_have_attribute("aria-checked", "false", timeout=TIMEOUT)
+
+            toggle.click()
+            expect(page.locator(MODAL_CONFIRM)).to_be_visible(timeout=TIMEOUT)
+            page.locator(MODAL_CONFIRM).click()
+            expect(page.locator(OPEN_MODAL)).to_have_count(0, timeout=TIMEOUT)
+            expect(toggle).to_have_attribute("aria-checked", "true", timeout=TIMEOUT)
+            _wait_for_switch(page, POSTURE_TARGET, "on")
+
+            toggle.click()
+            expect(toggle).to_have_attribute("aria-checked", "false", timeout=TIMEOUT)
+            _wait_for_switch(page, POSTURE_TARGET, None)
+
+            switch_posts = [url for url in posts if url.endswith("/api/terminal/posture")]
+            assert switch_posts == [f"{base_url}/api/terminal/posture"] * 2, posts
+            assert _violations(page) == []
+        finally:
+            page.close()

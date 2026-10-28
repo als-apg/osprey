@@ -239,18 +239,19 @@ SWITCH_RULE_MARKERS = (
 #: wrong if it is described as a mode of ``live``: it is a machine of its own,
 #: carrying a real machine's posture.
 #:
-#: The label clause is pinned as CONDITIONAL on purpose. ``_label`` drops the
-#: ``(stand-in)`` parenthesis when the target's endpoint is not this
-#: deployment's stand-in container, and the roster still carries the row (the
-#: switch refuses it as ``standin_not_deployed``). A rule promising the
-#: parenthesis unconditionally would have the agent treat a plain LIVE MACHINE
-#: label as proof it is somewhere it is not.
+#: The label clause is pinned as CONDITIONAL on purpose. The stand-in reads as
+#: the rehearsal only when its endpoint is this deployment's stand-in container;
+#: otherwise the roster still carries the row (the switch refuses it as
+#: ``standin_not_deployed``) and it reads as the real machine. A rule promising
+#: "nothing moves" unconditionally would have the agent treat a ``standin``
+#: that writes somewhere real as safe.
 THREE_MACHINE_MARKERS = (
     "**live** — the real accelerator",
     "**va** — the virtual accelerator",
     "**standin** — the live stand-in",
     "a soft IOC this deployment runs for itself",
-    "marked **(stand-in)** only while this deployment has actually stood the soft IOC up",
+    "**Rehearsal — nothing moves** only while this deployment has actually stood the soft IOC up",
+    "a `standin` it has not stood up shows as **Real machine — writes move hardware**",
 )
 
 

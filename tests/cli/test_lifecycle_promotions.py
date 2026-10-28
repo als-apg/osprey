@@ -1308,10 +1308,12 @@ def _offer_the_env_seed(monkeypatch: pytest.MonkeyPatch, *, answer: bool) -> Non
 def _stub_a_successful_wheel_build(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make ``python -m build`` produce a wheel without running a build.
 
-    The memo is reset on the way in: it is process-wide, so a stubbed wheel
-    left in it would be handed to whatever asks next.
+    The memo is process-wide, so the test gets its own, and monkeypatch puts
+    the process's back afterwards: the empty stub wheel left in a shared memo
+    would be handed to the next real ``--dev`` build on this worker.
     """
-    wheel_build._reset_wheel_build_cache()
+    monkeypatch.setattr(wheel_build, "_wheel_build_cache", {})
+    monkeypatch.setattr(wheel_build, "_wheel_cache_dir", None)
 
     def _fake_build(argv, **kwargs):
         outdir = Path(argv[argv.index("--outdir") + 1])

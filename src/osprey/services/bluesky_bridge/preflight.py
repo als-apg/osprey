@@ -5,7 +5,7 @@ catalog plan and ``session_upload.install_session_plan`` for a session one —
 build the same connector-mediated devices in the same worker process, and have
 the same things to say about a run: whether the channels it declares are alive,
 what this worker actually holds when a declared name does not resolve, and
-whose narrowing refused a write the run tried to make. One copy of each lives
+whose switch refused a write the run tried to make. One copy of each lives
 here so the two wrappers cannot answer an operator differently.
 
 The reachability half: ask the connector, before anything moves.
@@ -600,7 +600,7 @@ def warn_if_write_refused(
     This is the per-*refusal* seam, and both worker plan wrappers call it from
     the single handler that sees everything a run raises. A refusal mid-plan
     reaches the operator as the run record's error, which says what was refused
-    but nothing about *whose* narrowing refused it; this line is where that is
+    but nothing about *whose* write it refused; this line is where that is
     recorded. It is the whole of a wrapper's response — logging a refusal is
     not handling it, and there is no ledger entry to write, the monitor having
     already recorded its decision.
@@ -624,7 +624,7 @@ def warn_if_write_refused(
             wrappers; the text does not, deliberately, since that is the half
             they must not be able to spell differently.
         plan_name: The plan's name, as the line should name it.
-        owner: Whose narrowing the refusal was decided for, as the owner ladder
+        owner: Whose write the refusal was decided for, as the owner ladder
             answers it — not the raw bound value, so an owner-less run says
             what actually governed it.
         error: Whatever the run raised.
