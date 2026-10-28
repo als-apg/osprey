@@ -262,7 +262,7 @@ def _write_config(path: Path) -> Path:
             {
                 "control_system": {
                     "type": "live_standin",
-                    "writes_enabled": True,
+                    "writes": "allowed",
                     "limits_checking": {"enabled": True, "mode": "exclusive"},
                     "connector": {
                         "live_standin": {
@@ -461,16 +461,37 @@ def select_artifact(page: Page, title: str) -> None:
 
 
 def artifact_frame(page: Page, artifact_id: str) -> Frame:
-    """The preview iframe's frame for one artifact, once it has navigated."""
-    iframe = page.locator("#preview-content .preview-viewport iframe")
-    expect(iframe).to_have_count(1, timeout=TIMEOUT)
-    handle = iframe.element_handle()
-    assert handle is not None
-    frame = handle.content_frame()
-    assert frame is not None
-    frame.wait_for_url(f"**{artifact_id}**", timeout=TIMEOUT)
-    frame.wait_for_load_state("load", timeout=TIMEOUT)
-    return frame
+    """The preview iframe's frame for one artifact, once it has navigated.
+
+    Under parallel load the preview can re-render while the first navigation is still in
+    flight; that navigation then aborts (``net::ERR_ABORTED``) and a fresh iframe takes its
+    place. Only an aborted or detached navigation, or an iframe detached before its frame
+    could be read, is retried, against the iframe that replaced it; the frame must still
+    land on the artifact's own URL.
+    """
+    from playwright.sync_api import Error as PlaywrightError
+
+    for attempt in range(3):
+        iframe = page.locator("#preview-content .preview-viewport iframe")
+        expect(iframe).to_have_count(1, timeout=TIMEOUT)
+        handle = iframe.element_handle()
+        assert handle is not None
+        frame = handle.content_frame()
+        if frame is None:
+            assert attempt < 2, "the preview iframe never held a frame"
+            continue
+        try:
+            frame.wait_for_url(f"**{artifact_id}**", timeout=TIMEOUT)
+        except PlaywrightError as error:
+            # Both name a navigation cut short by the re-render: Chromium aborts it,
+            # or Playwright reports the frame it was waiting on detached.
+            aborted = "ERR_ABORTED" in str(error) or "frame was detached" in str(error)
+            if not aborted or attempt == 2:
+                raise
+            continue
+        frame.wait_for_load_state("load", timeout=TIMEOUT)
+        return frame
+    raise AssertionError("unreachable")
 
 
 def _stub_print(page: Page) -> None:

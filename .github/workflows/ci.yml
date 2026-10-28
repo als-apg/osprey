@@ -1216,8 +1216,10 @@ jobs:
           tests/interfaces/artifacts/test_gallery_interactions.py \
           tests/interfaces/artifacts/test_plot_theme_browser.py \
           tests/interfaces/artifacts/test_plot_export_browser.py \
+          tests/interfaces/artifacts/test_opaque_origin_browser.py \
           tests/docs/screenshots/test_video_probes_browser.py \
           tests/interfaces/web_terminal/test_panels_browser.py \
+          tests/interfaces/web_terminal/test_opaque_panel_browser.py \
           tests/interfaces/web_terminal/test_facility_time_browser.py \
           tests/interfaces/web_terminal/test_panels_collab_browser.py \
           tests/interfaces/web_terminal/test_jupyter_panel_browser.py \
