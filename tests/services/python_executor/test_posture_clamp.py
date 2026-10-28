@@ -29,6 +29,7 @@ from osprey_connectors_tests._harness import (
     reset_verdict_state,
     write_control_context,
 )
+from tests._audit_ledger import ledger_records
 
 #: A tier that allows writes, on a deployment whose live machine is real.
 ARMED = {"type": "epics", "writes": "allowed"}
@@ -91,12 +92,8 @@ def _refusal(tool: str = "execute") -> dict:
 def _executor_records(audit_root) -> list[dict]:
     """Every record on the executor surface, for the identity in force."""
     from osprey.audit.envelope import SURFACE_EXECUTOR
-    from osprey_connectors.identity import acting_identity
 
-    path = audit_root / acting_identity() / f"{SURFACE_EXECUTOR}.jsonl"
-    if not path.exists():
-        return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    return ledger_records(audit_root, SURFACE_EXECUTOR)
 
 
 # -- allowed ----------------------------------------------------------------

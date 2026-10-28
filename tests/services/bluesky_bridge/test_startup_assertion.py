@@ -77,7 +77,7 @@ class _InertBackend:
 
 
 @pytest.fixture(autouse=True)
-def _isolated_state(monkeypatch: pytest.MonkeyPatch):
+def _clean_env_and_inert_backend(monkeypatch: pytest.MonkeyPatch):
     """Every test starts from a clean env and an inert, pre-injected backend.
 
     The device-file/Tiled variables are cleared rather than set: the guard is no
@@ -166,25 +166,6 @@ def _valid_limits_db(tmp_path: Path) -> Path:
         json.dumps({"TEST:COR:01:SP": {"writable": True, "min_value": 0.0, "max_value": 10.0}})
     )
     return db
-
-
-def _spy_on_limits_probe(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """Record every `LimitsValidator._load_limits_database` call, still doing it.
-
-    The returned list staying empty is the assertion that a non-writable
-    posture never even reached for the database.
-    """
-    from osprey_connectors.control_system._limits_validator import LimitsValidator
-
-    probe_calls: list[str] = []
-    original_load = LimitsValidator._load_limits_database
-
-    def spy(db_path: str):
-        probe_calls.append(db_path)
-        return original_load(db_path)
-
-    monkeypatch.setattr(LimitsValidator, "_load_limits_database", staticmethod(spy))
-    return probe_calls
 
 
 # =========================================================================
@@ -298,7 +279,7 @@ def test_writable_with_relative_db_path_resolves_via_config_file_dir(
 
 
 def test_writable_with_an_unreadable_limits_leaf_refuses_startup(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, limits_probe_calls: list[str]
 ) -> None:
     """A leaf that is present but not a literal boolean is a startup refusal.
 
@@ -312,7 +293,6 @@ def test_writable_with_an_unreadable_limits_leaf_refuses_startup(
         section={"type": "epics", "writes": "allowed", "limits_checking": {"enabled": "true"}},
         db_path=str(_valid_limits_db(tmp_path)),
     )
-    probe_calls = _spy_on_limits_probe(monkeypatch)
 
     # Act
     with pytest.raises(RuntimeError) as excinfo:
@@ -325,7 +305,7 @@ def test_writable_with_an_unreadable_limits_leaf_refuses_startup(
     # An ABSENT deployment-wide leaf is unset, not unreadable, so it is not named.
     assert "control_system.limits_checking.mode" not in message
     assert "literal true or false" in message
-    assert probe_calls == []
+    assert limits_probe_calls == []
 
 
 def test_writable_with_limits_checking_disabled_starts_without_db(
@@ -339,9 +319,10 @@ def test_writable_with_limits_checking_disabled_starts_without_db(
         assert resp.status_code == 200
 
 
-def test_writable_optional_with_no_db_path_starts(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_writable_optional_with_no_db_path_starts(
+    monkeypatch: pytest.MonkeyPatch, limits_probe_calls: list[str]
+) -> None:
     """writes enabled + optional limits + no path: legal, nothing to load (q-0001/1, q-0002)."""
-    probe_calls = _spy_on_limits_probe(monkeypatch)
     _patch_config(
         monkeypatch,
         section={"writes_enabled": True, "limits_checking": {"mode": "optional"}},
@@ -352,7 +333,7 @@ def test_writable_optional_with_no_db_path_starts(monkeypatch: pytest.MonkeyPatc
     with TestClient(app) as client:
         resp = client.get("/health")
         assert resp.status_code == 200
-    assert probe_calls == []
+    assert limits_probe_calls == []
 
 
 def test_writable_exclusive_with_no_db_path_refuses_startup(
@@ -388,13 +369,11 @@ def test_writable_optional_with_missing_db_refuses_startup(
 
 
 def test_writes_disabled_starts_readonly_even_with_missing_db(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, limits_probe_calls: list[str]
 ) -> None:
     """Read-only posture starts regardless of limits readability, and never probes."""
     missing = tmp_path / "does_not_exist.json"
     _patch_config(monkeypatch, writes_allowed=False, limits_enabled=True, db_path=str(missing))
-
-    probe_calls = _spy_on_limits_probe(monkeypatch)
 
     with TestClient(app) as client:
         resp = client.get("/health")
@@ -402,7 +381,7 @@ def test_writes_disabled_starts_readonly_even_with_missing_db(
 
     # Writes disabled -> the guard returns before even resolving/probing the
     # database path; the readability probe must never run.
-    assert probe_calls == []
+    assert limits_probe_calls == []
 
 
 # =========================================================================
@@ -504,7 +483,7 @@ def test_live_lane_requires_limits_db_too_because_the_tier_is_target_blind(
 
 
 def test_a_degraded_lane_does_not_require_the_limits_db(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, limits_probe_calls: list[str]
 ) -> None:
     """A lane whose target this deployment cannot resolve can never write.
 
@@ -526,7 +505,6 @@ def test_a_degraded_lane_does_not_require_the_limits_db(
         limits_enabled=True,
         db_path=str(missing),
     )
-    probe_calls = _spy_on_limits_probe(monkeypatch)
 
     # Act
     with TestClient(app) as client:
@@ -534,11 +512,11 @@ def test_a_degraded_lane_does_not_require_the_limits_db(
 
     # Assert
     assert resp.status_code == 200
-    assert probe_calls == []
+    assert limits_probe_calls == []
 
 
 def test_readonly_run_never_requires_the_limits_db(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, limits_probe_calls: list[str]
 ) -> None:
     """A read-only run cannot write, so the armed lane needs no database either."""
     # Arrange
@@ -552,7 +530,6 @@ def test_readonly_run_never_requires_the_limits_db(
         limits_enabled=True,
         db_path=str(missing),
     )
-    probe_calls = _spy_on_limits_probe(monkeypatch)
 
     # Act
     with TestClient(app) as client:
@@ -560,7 +537,7 @@ def test_readonly_run_never_requires_the_limits_db(
 
     # Assert
     assert resp.status_code == 200
-    assert probe_calls == []
+    assert limits_probe_calls == []
 
 
 # =========================================================================

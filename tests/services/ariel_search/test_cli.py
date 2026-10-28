@@ -10,6 +10,7 @@ from click.testing import CliRunner
 
 from osprey.cli.ariel import ariel_group
 from osprey.services.ariel_search.database.repository import SchemaFacts
+from tests._text import flat
 
 #: A store without attachment copy state: ingest stores each entry with the
 #: plain upsert and fetches no pictures.
@@ -35,63 +36,45 @@ class TestARIELCLIGroup:
         assert result.exit_code == 0
         assert "ARIEL search service commands" in result.output
 
-    def test_status_command_exists(self, runner):
-        """status subcommand exists."""
-        result = runner.invoke(ariel_group, ["status", "--help"])
+    @pytest.mark.parametrize(
+        ("command", "summary"),
+        [
+            ("status", "ARIEL service status"),
+            ("migrate", "database migrations"),
+            ("search", "Search the logbook"),
+            ("sync", "Sync ARIEL database"),
+            ("reembed", "Re-embed entries"),
+            ("ingest", "source file"),
+            ("enhance", "enhancement modules"),
+            ("models", "embedding"),
+        ],
+    )
+    def test_subcommand_exists(self, runner, command, summary):
+        """Each subcommand answers ``--help`` with its summary."""
+        result = runner.invoke(ariel_group, [command, "--help"])
         assert result.exit_code == 0
-        assert "ARIEL service status" in result.output
+        assert summary in result.output
 
-    def test_migrate_command_exists(self, runner):
-        """migrate subcommand exists."""
-        result = runner.invoke(ariel_group, ["migrate", "--help"])
-        assert result.exit_code == 0
-        assert "database migrations" in result.output
-
-    def test_ingest_command_exists(self, runner):
-        """ingest subcommand exists."""
-        result = runner.invoke(ariel_group, ["ingest", "--help"])
-        assert result.exit_code == 0
-        assert "source file" in result.output.lower()
-
-    def test_enhance_command_exists(self, runner):
-        """enhance subcommand exists."""
-        result = runner.invoke(ariel_group, ["enhance", "--help"])
-        assert result.exit_code == 0
-        assert "enhancement modules" in result.output.lower()
-
-    def test_models_command_exists(self, runner):
-        """models subcommand exists."""
-        result = runner.invoke(ariel_group, ["models", "--help"])
-        assert result.exit_code == 0
-        assert "embedding" in result.output.lower()
-
-    def test_search_command_exists(self, runner):
-        """search subcommand exists."""
-        result = runner.invoke(ariel_group, ["search", "--help"])
-        assert result.exit_code == 0
-        assert "Search the logbook" in result.output
-
-    def test_sync_command_exists(self, runner):
-        """sync subcommand exists."""
-        result = runner.invoke(ariel_group, ["sync", "--help"])
-        assert result.exit_code == 0
-        assert "Sync ARIEL database" in result.output
-
-    def test_sync_has_limit_option(self, runner):
-        """sync has --limit option."""
-        result = runner.invoke(ariel_group, ["sync", "--help"])
-        assert "--limit" in result.output
+    @pytest.mark.parametrize(
+        ("command", "text"),
+        [
+            ("sync", "--limit"),
+            ("ingest", "file path or URL"),
+            ("reembed", "--dry-run"),
+            ("reembed", "--force"),
+            ("reembed", "--batch-size"),
+        ],
+    )
+    def test_help_mentions(self, runner, command, text):
+        """A subcommand's ``--help`` names the options and inputs it takes."""
+        result = runner.invoke(ariel_group, [command, "--help"])
+        assert text in result.output
 
     def test_ingest_requires_source(self, runner):
         """ingest command requires --source option."""
         result = runner.invoke(ariel_group, ["ingest"])
         assert result.exit_code != 0
         assert "Missing option" in result.output or "required" in result.output.lower()
-
-    def test_ingest_help_shows_url_support(self, runner):
-        """ingest --help mentions file path or URL."""
-        result = runner.invoke(ariel_group, ["ingest", "--help"])
-        assert "file path or URL" in result.output
 
     def test_ingest_adapter_choices(self, runner):
         """ingest command validates adapter choices."""
@@ -113,12 +96,6 @@ class TestARIELCLIGroup:
         assert "keyword" in result.output
         assert "semantic" in result.output
 
-    def test_reembed_command_exists(self, runner):
-        """reembed subcommand exists."""
-        result = runner.invoke(ariel_group, ["reembed", "--help"])
-        assert result.exit_code == 0
-        assert "Re-embed entries" in result.output
-
     def test_reembed_requires_model(self, runner):
         """reembed command requires --model option."""
         result = runner.invoke(ariel_group, ["reembed", "--dimension", "768"])
@@ -130,21 +107,6 @@ class TestARIELCLIGroup:
         result = runner.invoke(ariel_group, ["reembed", "--model", "nomic-embed-text"])
         assert result.exit_code != 0
         assert "Missing option" in result.output or "--dimension" in result.output
-
-    def test_reembed_has_dry_run_option(self, runner):
-        """reembed command has --dry-run option."""
-        result = runner.invoke(ariel_group, ["reembed", "--help"])
-        assert "--dry-run" in result.output
-
-    def test_reembed_has_force_option(self, runner):
-        """reembed command has --force option."""
-        result = runner.invoke(ariel_group, ["reembed", "--help"])
-        assert "--force" in result.output
-
-    def test_reembed_has_batch_size_option(self, runner):
-        """reembed command has --batch-size option."""
-        result = runner.invoke(ariel_group, ["reembed", "--help"])
-        assert "--batch-size" in result.output
 
     def test_ingest_tracks_runs(self, runner, tmp_path, monkeypatch):
         """ingest command calls start_ingestion_run and complete_ingestion_run."""
@@ -1040,11 +1002,6 @@ concepts:
 """
 
 
-def _flat(text: str) -> str:
-    """Collapse rich's wrapping and indentation so phrases can be asserted on."""
-    return " ".join(text.split())
-
-
 class TestVocabCheckCommand:
     """``osprey ariel vocab-check`` — the database-free vocabulary validator."""
 
@@ -1074,10 +1031,10 @@ class TestVocabCheckCommand:
     def test_vocab_check_help_documents_defaults_and_exit_codes(self, runner):
         result = runner.invoke(ariel_group, ["vocab-check", "--help"])
         assert result.exit_code == 0
-        flat = _flat(result.output)
-        assert "Validate a facility vocabulary file" in flat
-        assert "ariel.vocabulary.path" in flat
-        assert "Exit codes" in flat
+        text = flat(result.output)
+        assert "Validate a facility vocabulary file" in text
+        assert "ariel.vocabulary.path" in text
+        assert "Exit codes" in text
 
     @pytest.mark.usefixtures("no_config")
     def test_three_error_file_exits_one_listing_every_error(self, runner, tmp_path):
@@ -1086,11 +1043,11 @@ class TestVocabCheckCommand:
         result = runner.invoke(ariel_group, ["vocab-check", str(path)])
 
         assert result.exit_code == 1
-        flat = _flat(result.stderr)
-        assert "3 error(s)" in flat
-        assert "'canonical' must be a non-empty string" in flat
-        assert "unknown kind 'sideways'" in flat
-        assert "'forms' must be a non-empty list, got an empty list" in flat
+        text = flat(result.stderr)
+        assert "3 error(s)" in text
+        assert "'canonical' must be a non-empty string" in text
+        assert "unknown kind 'sideways'" in text
+        assert "'forms' must be a non-empty list, got an empty list" in text
 
     @pytest.mark.usefixtures("no_config")
     def test_warnings_only_file_exits_zero_and_prints_the_warning(self, runner, tmp_path):
@@ -1099,11 +1056,11 @@ class TestVocabCheckCommand:
         result = runner.invoke(ariel_group, ["vocab-check", str(path)])
 
         assert result.exit_code == 0
-        warning = _flat(result.stderr)
+        warning = flat(result.stderr)
         assert 'form "ts" is bound to 2 concepts' in warning
         assert "troubleshoot" in warning
         assert "timing system" in warning
-        assert "Vocabulary OK: 2 concepts" in _flat(result.stdout)
+        assert "Vocabulary OK: 2 concepts" in flat(result.stdout)
 
     @pytest.mark.usefixtures("no_config")
     def test_vocab_check_prints_edge_and_interior_warnings(self, runner, tmp_path):
@@ -1112,7 +1069,7 @@ class TestVocabCheckCommand:
         result = runner.invoke(ariel_group, ["vocab-check", str(path)])
 
         assert result.exit_code == 0
-        warning = _flat(result.stderr)
+        warning = flat(result.stderr)
         assert (
             'form "(BPM)" (concept "beam position monitor") is matched as "bpm" '
             "— edge punctuation (, . : ; ! ? ( ) [ ] \" ') is ignored in queries and entries"
@@ -1121,7 +1078,7 @@ class TestVocabCheckCommand:
             'form "vert. orbit" (concept "vertical orbit"): its interior punctuation is '
             "required — only text that breaks the same way matches"
         ) in warning
-        assert "Vocabulary OK: 2 concepts" in _flat(result.stdout)
+        assert "Vocabulary OK: 2 concepts" in flat(result.stdout)
 
     @pytest.mark.usefixtures("no_config")
     def test_vocab_check_canonical_empty_after_stripping(self, runner, tmp_path):
@@ -1132,7 +1089,7 @@ class TestVocabCheckCommand:
         result = runner.invoke(ariel_group, ["vocab-check", str(path)])
 
         assert result.exit_code == 1
-        assert "concepts[0] ('...'): 'canonical' must be a non-empty string" in _flat(result.stderr)
+        assert "concepts[0] ('...'): 'canonical' must be a non-empty string" in flat(result.stderr)
 
     @pytest.mark.usefixtures("no_config")
     def test_vocab_check_canonicals_colliding_after_stripping(self, runner, tmp_path):
@@ -1148,7 +1105,7 @@ class TestVocabCheckCommand:
         assert (
             "concepts[1] ('vert. orbit'): duplicate canonical 'vert orbit' after "
             "normalization — already defined by concepts[0]"
-        ) in _flat(result.stderr)
+        ) in flat(result.stderr)
 
     @pytest.mark.usefixtures("no_config")
     def test_clean_file_reports_the_concept_count(self, runner, tmp_path):
@@ -1162,21 +1119,21 @@ class TestVocabCheckCommand:
 
         assert result.exit_code == 0
         assert result.stderr.strip() == ""
-        assert "Vocabulary OK: 1 concepts" in _flat(result.stdout)
+        assert "Vocabulary OK: 1 concepts" in flat(result.stdout)
 
     @pytest.mark.usefixtures("no_config")
     def test_missing_file_is_a_vocabulary_error_not_a_usage_error(self, runner, tmp_path):
         result = runner.invoke(ariel_group, ["vocab-check", str(tmp_path / "absent.yml")])
 
         assert result.exit_code == 1
-        assert "vocabulary file not found" in _flat(result.stderr)
+        assert "vocabulary file not found" in flat(result.stderr)
 
     @pytest.mark.usefixtures("no_config")
     def test_no_path_and_no_config_explains_both_ways_to_name_one(self, runner):
         result = runner.invoke(ariel_group, ["vocab-check"])
 
         assert result.exit_code == 1
-        assert "pass PATH or set ariel.vocabulary.path" in _flat(result.stderr)
+        assert "pass PATH or set ariel.vocabulary.path" in flat(result.stderr)
 
     def test_explicit_path_needs_no_project_config(self, runner, tmp_path, monkeypatch):
         """Outside a project directory the config loader raises; PATH must still work."""
@@ -1190,7 +1147,7 @@ class TestVocabCheckCommand:
         result = runner.invoke(ariel_group, ["vocab-check", str(path)])
 
         assert result.exit_code == 0
-        assert "Vocabulary OK: 2 concepts" in _flat(result.stdout)
+        assert "Vocabulary OK: 2 concepts" in flat(result.stdout)
 
     def test_no_path_outside_a_project_still_reports_the_missing_config(self, runner, monkeypatch):
         def _no_project(_key, _default=None):
@@ -1201,7 +1158,7 @@ class TestVocabCheckCommand:
         result = runner.invoke(ariel_group, ["vocab-check"])
 
         assert result.exit_code != 0
-        assert "config.yml" in _flat(result.output) or isinstance(
+        assert "config.yml" in flat(result.output) or isinstance(
             result.exception, FileNotFoundError
         )
 
@@ -1217,7 +1174,7 @@ class TestVocabCheckCommand:
         result = runner.invoke(ariel_group, ["vocab-check"])
 
         assert result.exit_code == 0
-        assert "Vocabulary OK: 2 concepts" in _flat(result.stdout)
+        assert "Vocabulary OK: 2 concepts" in flat(result.stdout)
 
     @pytest.mark.usefixtures("no_config")
     def test_json_emits_one_document_and_still_exits_one_on_errors(self, runner, tmp_path):
@@ -1291,7 +1248,7 @@ class TestStatusVocabularyLine:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        assert "Vocabulary: INVALID (1 errors). Run: osprey ariel vocab-check" in _flat(
+        assert "Vocabulary: INVALID (1 errors). Run: osprey ariel vocab-check" in flat(
             result.stdout
         )
 
@@ -1308,7 +1265,7 @@ class TestStatusVocabularyLine:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        assert "Vocabulary: OK (20 concepts)" in _flat(result.stdout)
+        assert "Vocabulary: OK (20 concepts)" in flat(result.stdout)
 
     def test_disabled_vocabulary_says_so(self, runner, monkeypatch):
         self._patch_status(
@@ -1323,7 +1280,7 @@ class TestStatusVocabularyLine:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        assert "Vocabulary: disabled" in _flat(result.stdout)
+        assert "Vocabulary: disabled" in flat(result.stdout)
 
     def test_json_document_carries_the_vocabulary_key(self, runner, monkeypatch):
         import json as json_mod
@@ -1387,7 +1344,7 @@ class TestStatusCaptionLines:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        text = _flat(result.stdout)
+        text = flat(result.stdout)
         assert (
             "image_caption: 5 pictures past "
             "ariel.enhancement_modules.image_caption.max_images_per_entry have no caption."
@@ -1400,7 +1357,7 @@ class TestStatusCaptionLines:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        text = _flat(result.stdout)
+        text = flat(result.stdout)
         assert "image_caption: 3 captions made with an older prompt." in text
         assert "osprey ariel enhance --module image_caption --refresh-stale" in text
 
@@ -1419,7 +1376,7 @@ class TestStatusCaptionLines:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        text = _flat(result.stdout)
+        text = flat(result.stdout)
         assert "older prompt" not in text
         assert "image_caption: 2 captions are waiting to be made again" in text
         assert ("image_caption: 1 captions could not be made again and keep their old text") in text
@@ -1430,7 +1387,7 @@ class TestStatusCaptionLines:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        assert "image_caption: 7 captions record no prompt; --refresh-stale leaves them" in _flat(
+        assert "image_caption: 7 captions record no prompt; --refresh-stale leaves them" in flat(
             result.stdout
         )
 
@@ -1462,7 +1419,7 @@ class TestEnhanceRefreshStale:
         result = runner.invoke(ariel_group, ["enhance", "--refresh-stale", *args])
 
         assert result.exit_code == 1
-        assert "--refresh-stale needs --module image_caption" in _flat(result.output)
+        assert "--refresh-stale needs --module image_caption" in flat(result.output)
         assert called == []
 
     def test_refresh_stale_reaches_run_enhance(self, runner, monkeypatch):
@@ -1524,9 +1481,9 @@ class TestModuleConfigRefusal:
         assert result.exit_code == 1, result.output
         assert isinstance(result.exception, SystemExit)
         assert "Traceback" not in result.output
-        flat = " ".join(result.stderr.split())
+        printed = flat(result.stderr)
         for text in expected:
-            assert text in flat, result.stderr
+            assert text in printed, result.stderr
 
     @pytest.fixture
     def quiet_pre_step(self, monkeypatch):
@@ -1752,7 +1709,7 @@ class TestStatusEmbeddingBuilds:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        text = _flat(result.stdout)
+        text = flat(result.stdout)
         assert (
             "text_embedding nomic-embed-text: 12 entries embedded without entry expansion. "
             + self._REEMBED
@@ -1781,7 +1738,7 @@ class TestStatusEmbeddingBuilds:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        text = _flat(result.stdout)
+        text = flat(result.stdout)
         assert (
             "text_embedding nomic-embed-text: 2 entries embedded with a different input rule."
             in text
@@ -1825,7 +1782,7 @@ class TestStatusEmbeddingBuilds:
         assert (
             "text_embedding nomic-embed-text: cannot check how 7 entries were embedded: "
             "the vocabulary does not load. Run: osprey ariel vocab-check"
-        ) in _flat(result.stdout)
+        ) in flat(result.stdout)
         assert "reembed" not in result.output
 
     def test_embedding_builds_vocabulary_disabled_prints_causes_without_the_command(
@@ -1845,7 +1802,7 @@ class TestStatusEmbeddingBuilds:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        text = _flat(result.stdout)
+        text = flat(result.stdout)
         assert "text_embedding nomic-embed-text: 6 entries embedded with entry expansion." in text
         assert "reembed" not in result.output
 
@@ -1865,7 +1822,7 @@ class TestStatusEmbeddingBuilds:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        assert _flat(result.stdout).count("schema behind code: run osprey ariel migrate") == 1
+        assert flat(result.stdout).count("schema behind code: run osprey ariel migrate") == 1
 
     def test_embedding_builds_schema_note_prints_once_when_both_are_behind(
         self, runner, monkeypatch
@@ -1887,7 +1844,7 @@ class TestStatusEmbeddingBuilds:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        assert _flat(result.stdout).count("schema behind code: run osprey ariel migrate") == 1
+        assert flat(result.stdout).count("schema behind code: run osprey ariel migrate") == 1
 
 
 class TestStatusReportVocabularyExpansion:
@@ -1930,7 +1887,7 @@ class TestStatusReportVocabularyExpansion:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        assert "Vocabulary: OK (20 concepts, entries expanded, key e1:ab12cd34ef56ab78)" in _flat(
+        assert "Vocabulary: OK (20 concepts, entries expanded, key e1:ab12cd34ef56ab78)" in flat(
             result.stdout
         )
 
@@ -1948,7 +1905,7 @@ class TestStatusReportVocabularyExpansion:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        assert "Vocabulary: OK (20 concepts)" in _flat(result.stdout)
+        assert "Vocabulary: OK (20 concepts)" in flat(result.stdout)
         assert "entries expanded" not in result.output
 
     def test_report_vocabulary_disabled_with_the_key_on_warns_on_stderr(self, runner, monkeypatch):
@@ -1965,12 +1922,12 @@ class TestStatusReportVocabularyExpansion:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        assert "Vocabulary: disabled" in _flat(result.stdout)
+        assert "Vocabulary: disabled" in flat(result.stdout)
         assert "has no effect" not in result.stdout
         assert (
             "ariel.vocabulary.expand_entries is on and has no effect while "
             "ariel.vocabulary.enabled is false"
-        ) in _flat(result.stderr)
+        ) in flat(result.stderr)
 
     def test_report_vocabulary_disabled_with_the_key_off_does_not_warn(self, runner, monkeypatch):
         self._vocabulary(
@@ -1986,5 +1943,5 @@ class TestStatusReportVocabularyExpansion:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        assert "Vocabulary: disabled" in _flat(result.stdout)
+        assert "Vocabulary: disabled" in flat(result.stdout)
         assert "expand_entries" not in result.output

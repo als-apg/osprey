@@ -12,6 +12,7 @@ or containers are available.
 import json
 import re
 import subprocess
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -19,6 +20,7 @@ import pytest
 
 from osprey.mcp_server.python_executor.executor import ExecutionResult
 from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from tests.mcp_server._execute_code import mock_execute_code
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,
@@ -69,41 +71,26 @@ def _get_python_execute():
     return get_tool_fn(execute)
 
 
-def _mock_execute_code(
-    success=True,
-    stdout="",
-    stderr="",
-    figures=None,
-    execution_method_used="subprocess",
-):
-    """Build an AsyncMock for execute_code returning a configured ExecutionResult."""
-    result = ExecutionResult(
-        success=success,
-        stdout=stdout,
-        stderr=stderr,
-        figures=figures or [],
-        execution_method_used=execution_method_used,
-        execution_time_seconds=0.1,
-    )
-    return AsyncMock(return_value=result)
+@contextmanager
+def _patched_run(mock_exec):
+    """Detect no control-system patterns and replace ``execute_code`` with ``mock_exec``."""
+    with (
+        patch(
+            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
+            return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
+        ),
+        patch("osprey.mcp_server.python_executor.executor.execute_code", mock_exec),
+    ):
+        yield
 
 
 async def test_python_execute_readonly(tmp_path, monkeypatch):
     """Readonly execution runs code and returns stdout in summary."""
     monkeypatch.chdir(tmp_path)
 
-    mock_exec = _mock_execute_code(success=True, stdout="42\n")
+    mock_exec = mock_execute_code(success=True, stdout="42\n")
 
-    with (
-        patch(
-            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
-            return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
-        ),
-        patch(
-            "osprey.mcp_server.python_executor.executor.execute_code",
-            mock_exec,
-        ),
-    ):
+    with _patched_run(mock_exec):
         fn = _get_python_execute()
         result = await fn(
             code="print(6 * 7)",
@@ -145,20 +132,13 @@ async def test_python_execute_execution_error(tmp_path, monkeypatch):
     """Code execution error raises ToolError with execution_error envelope."""
     monkeypatch.chdir(tmp_path)
 
-    mock_exec = _mock_execute_code(
+    mock_exec = mock_execute_code(
         success=False,
         stderr="NameError: name 'undefined_var' is not defined",
     )
 
     with (
-        patch(
-            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
-            return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
-        ),
-        patch(
-            "osprey.mcp_server.python_executor.executor.execute_code",
-            mock_exec,
-        ),
+        _patched_run(mock_exec),
         assert_raises_error(error_type="execution_error") as ctx,
     ):
         fn = _get_python_execute()
@@ -179,18 +159,9 @@ async def test_python_execute_data_file_saving(tmp_path, monkeypatch):
     """Execution saves output to artifact store data file."""
     monkeypatch.chdir(tmp_path)
 
-    mock_exec = _mock_execute_code(success=True, stdout="42\n")
+    mock_exec = mock_execute_code(success=True, stdout="42\n")
 
-    with (
-        patch(
-            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
-            return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
-        ),
-        patch(
-            "osprey.mcp_server.python_executor.executor.execute_code",
-            mock_exec,
-        ),
-    ):
+    with _patched_run(mock_exec):
         fn = _get_python_execute()
         result = await fn(
             code="x = 42\nprint(x)",
@@ -212,18 +183,9 @@ async def test_python_execute_no_saving(tmp_path, monkeypatch):
     """save_output=False returns inline result without data file."""
     monkeypatch.chdir(tmp_path)
 
-    mock_exec = _mock_execute_code(success=True, stdout="hello\n")
+    mock_exec = mock_execute_code(success=True, stdout="hello\n")
 
-    with (
-        patch(
-            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
-            return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
-        ),
-        patch(
-            "osprey.mcp_server.python_executor.executor.execute_code",
-            mock_exec,
-        ),
-    ):
+    with _patched_run(mock_exec):
         fn = _get_python_execute()
         result = await fn(
             code="print('hello')",
@@ -244,7 +206,7 @@ async def test_python_execute_readwrite_mode(tmp_path, monkeypatch):
     """readwrite mode allows code with write patterns."""
     monkeypatch.chdir(tmp_path)
 
-    mock_exec = _mock_execute_code(success=True, stdout="write mode\n")
+    mock_exec = mock_execute_code(success=True, stdout="write mode\n")
 
     with (
         patch(
@@ -298,7 +260,7 @@ async def test_python_execute_write_activity_follows_the_run_mode(
                 "detected_patterns": {"caput": ["caput('TEST:PV', 1.0)"]} if has_writes else {},
             },
         ),
-        patch("osprey.mcp_server.python_executor.executor.execute_code", _mock_execute_code()),
+        patch("osprey.mcp_server.python_executor.executor.execute_code", mock_execute_code()),
         patch(
             "osprey.mcp_server.python_executor.tools.python_execute.notify_agent_activity_async"
         ) as notify,
@@ -328,7 +290,7 @@ async def test_python_execute_rejects_unknown_execution_mode(tmp_path, monkeypat
     """
     monkeypatch.chdir(tmp_path)
 
-    mock_exec = _mock_execute_code()
+    mock_exec = mock_execute_code()
 
     with (
         patch(
@@ -371,7 +333,7 @@ async def test_python_execute_pattern_detection_import_error(tmp_path, monkeypat
     """Pattern detection import failure falls back to allowing execution."""
     monkeypatch.chdir(tmp_path)
 
-    mock_exec = _mock_execute_code(success=True, stdout="fallback\n")
+    mock_exec = mock_execute_code(success=True, stdout="fallback\n")
 
     with (
         patch(
@@ -404,18 +366,9 @@ async def test_python_execute_uses_adapter(tmp_path, monkeypatch):
     """Tool calls execute_code adapter instead of bare exec()."""
     monkeypatch.chdir(tmp_path)
 
-    mock_exec = _mock_execute_code(success=True, stdout="adapter called\n")
+    mock_exec = mock_execute_code(success=True, stdout="adapter called\n")
 
-    with (
-        patch(
-            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
-            return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
-        ),
-        patch(
-            "osprey.mcp_server.python_executor.executor.execute_code",
-            mock_exec,
-        ),
-    ):
+    with _patched_run(mock_exec):
         fn = _get_python_execute()
         result = await fn(
             code="print('hello')",
@@ -439,7 +392,7 @@ async def test_safety_checks_run_before_adapter(tmp_path, monkeypatch):
     """quick_safety_check() blocks BEFORE adapter is called."""
     monkeypatch.chdir(tmp_path)
 
-    mock_exec = _mock_execute_code()
+    mock_exec = mock_execute_code()
 
     with (
         patch(
@@ -469,7 +422,7 @@ async def test_pattern_detection_runs_before_adapter(tmp_path, monkeypatch):
     """Write pattern detection blocks readonly mode BEFORE adapter is called."""
     monkeypatch.chdir(tmp_path)
 
-    mock_exec = _mock_execute_code()
+    mock_exec = mock_execute_code()
 
     with (
         patch(
@@ -502,22 +455,13 @@ async def test_adapter_result_maps_to_tool_response(tmp_path, monkeypatch):
     """Adapter's ExecutionResult correctly maps to the JSON response."""
     monkeypatch.chdir(tmp_path)
 
-    mock_exec = _mock_execute_code(
+    mock_exec = mock_execute_code(
         success=True,
         stdout="output line 1\noutput line 2\n",
         execution_method_used="subprocess",
     )
 
-    with (
-        patch(
-            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
-            return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
-        ),
-        patch(
-            "osprey.mcp_server.python_executor.executor.execute_code",
-            mock_exec,
-        ),
-    ):
+    with _patched_run(mock_exec):
         fn = _get_python_execute()
         result = await fn(
             code="print('test')",
@@ -535,20 +479,13 @@ async def test_adapter_error_returns_tool_error(tmp_path, monkeypatch):
     """When adapter returns failed result, tool raises ToolError with envelope."""
     monkeypatch.chdir(tmp_path)
 
-    mock_exec = _mock_execute_code(
+    mock_exec = mock_execute_code(
         success=False,
         stderr="RuntimeError: something broke",
     )
 
     with (
-        patch(
-            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
-            return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
-        ),
-        patch(
-            "osprey.mcp_server.python_executor.executor.execute_code",
-            mock_exec,
-        ),
+        _patched_run(mock_exec),
         assert_raises_error(error_type="execution_error") as ctx,
     ):
         fn = _get_python_execute()
@@ -569,21 +506,12 @@ async def test_notebook_artifact_created_from_adapter_result(tmp_path, monkeypat
     """Post-execution notebook uses stdout/stderr from adapter result."""
     monkeypatch.chdir(tmp_path)
 
-    mock_exec = _mock_execute_code(
+    mock_exec = mock_execute_code(
         success=True,
         stdout="notebook output\n",
     )
 
-    with (
-        patch(
-            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
-            return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
-        ),
-        patch(
-            "osprey.mcp_server.python_executor.executor.execute_code",
-            mock_exec,
-        ),
-    ):
+    with _patched_run(mock_exec):
         fn = _get_python_execute()
         result = await fn(
             code="print('notebook output')",
@@ -606,22 +534,13 @@ async def test_figure_artifacts_created_post_execution(tmp_path, monkeypatch):
     fig_file = fig_dir / "plot.png"
     fig_file.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)  # minimal PNG header
 
-    mock_exec = _mock_execute_code(
+    mock_exec = mock_execute_code(
         success=True,
         stdout="plot created\n",
         figures=[fig_file],
     )
 
-    with (
-        patch(
-            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
-            return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
-        ),
-        patch(
-            "osprey.mcp_server.python_executor.executor.execute_code",
-            mock_exec,
-        ),
-    ):
+    with _patched_run(mock_exec):
         fn = _get_python_execute()
         result = await fn(
             code="import matplotlib; ...",
@@ -678,22 +597,13 @@ async def test_data_context_saves_adapter_result(tmp_path, monkeypatch):
     """ArtifactStore.save_data() receives full result including execution_method."""
     monkeypatch.chdir(tmp_path)
 
-    mock_exec = _mock_execute_code(
+    mock_exec = mock_execute_code(
         success=True,
         stdout="context test\n",
         execution_method_used="subprocess",
     )
 
-    with (
-        patch(
-            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
-            return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
-        ),
-        patch(
-            "osprey.mcp_server.python_executor.executor.execute_code",
-            mock_exec,
-        ),
-    ):
+    with _patched_run(mock_exec):
         fn = _get_python_execute()
         result = await fn(
             code="print('context test')",
@@ -824,7 +734,7 @@ async def test_save_artifact_registered_in_gallery(tmp_path, monkeypatch):
     art_file = art_dir / "abc123_test_data.json"
     art_file.write_bytes(b'{"key": "value"}')
 
-    mock_exec = _mock_execute_code(
+    mock_exec = mock_execute_code(
         success=True,
         stdout="ok\n",
     )
@@ -839,16 +749,7 @@ async def test_save_artifact_registered_in_gallery(tmp_path, monkeypatch):
         }
     ]
 
-    with (
-        patch(
-            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
-            return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
-        ),
-        patch(
-            "osprey.mcp_server.python_executor.executor.execute_code",
-            mock_exec,
-        ),
-    ):
+    with _patched_run(mock_exec):
         fn = _get_python_execute()
         result = await fn(
             code="save_artifact({'key': 'value'}, title='Test Data')",
@@ -1442,7 +1343,7 @@ ALIASED_CAPUT = "from epics import caput as _w\n_w('SR:MAG:QF:01:CURRENT:SP', 15
 async def test_python_execute_readonly_refuses_epics_import(tmp_path, monkeypatch):
     """An aliased caput evades every write regex; the import itself is refused."""
     monkeypatch.chdir(tmp_path)
-    mock_exec = _mock_execute_code(success=True, stdout="")
+    mock_exec = mock_execute_code(success=True, stdout="")
 
     with patch("osprey.mcp_server.python_executor.executor.execute_code", mock_exec):
         fn = _get_python_execute()
@@ -1458,7 +1359,7 @@ async def test_python_execute_readonly_refuses_epics_import(tmp_path, monkeypatc
 async def test_python_execute_readwrite_allows_epics_import(tmp_path, monkeypatch):
     """The denylist is a readonly gate only; readwrite runs are approved by a human."""
     monkeypatch.chdir(tmp_path)
-    mock_exec = _mock_execute_code(success=True, stdout="")
+    mock_exec = mock_execute_code(success=True, stdout="")
 
     with (
         patch("osprey.mcp_server.python_executor.executor.execute_code", mock_exec),

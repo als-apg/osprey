@@ -13,16 +13,15 @@ real module with its vision call replaced by a fake.
 
 from __future__ import annotations
 
-import socket
 import threading
 import time
-from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any
 
 import psycopg
 import pytest
 
+from osprey.interfaces._serving import free_port
 from osprey.models.providers.health import HealthResult
 from osprey.services.ariel_search import cli_operations as ops
 from osprey.services.ariel_search.attachments import attachment_id_for
@@ -33,8 +32,9 @@ from osprey.services.ariel_search.enhancement import _offload, availability
 from osprey.services.ariel_search.enhancement.image_caption import module as caption_mod
 from osprey.services.ariel_search.enhancement.image_embedding.module import ImageEmbeddingModule
 from osprey.services.ariel_search.enhancement.vision_errors import EmptyReplyError
-from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 from osprey.services.ariel_search.ingestion.ingest import ingest_one
+from tests.services.ariel_search.fake_adapters import HttpStubAdapter
+from tests.services.ariel_search.integration._support import migrated_repository
 from tests.services.ariel_search.llama_stub import MODEL as LLAMA_MODEL
 
 # xdist_group("docker"): every container-starting test file shares one worker, so a
@@ -46,7 +46,6 @@ TABLE = image_table_name(LLAMA_MODEL, DIMS)
 EMBED = "image_embedding"
 CAPTION = "image_caption"
 CAPTION_MODEL = "vis-caption-1"
-ORIGINS = frozenset({("https", "h.example", 443)})
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n" + b"\x00" * 40
 RENDITION = CopyRendition(data=b"png", mime_type="image/png", width=1, height=1, sha256="cd" * 32)
 TS = datetime(2026, 9, 1, tzinfo=UTC)
@@ -54,21 +53,6 @@ REPLY = "Klystron arc trace on the scope.\nVisible text: KLY-3"
 
 
 # --- helpers -----------------------------------------------------------------------
-
-
-class _Adapter(FacilityAdapter):
-    """An http source whose pictures live on ``h.example``."""
-
-    @property
-    def source_system_name(self) -> str:
-        return "Stub"
-
-    def attachment_origins(self) -> frozenset:
-        return ORIGINS
-
-    async def fetch_entries(self, *_args, **_kwargs) -> AsyncIterator:  # type: ignore[override]
-        for entry in ():
-            yield entry
 
 
 def _config_dict(uri: str, *, embed_url: str | None = None, caption: bool = False) -> dict:
@@ -125,7 +109,7 @@ async def _seed(repo, cfg: dict, entry_id: str, copied: list[str], pending: tupl
         "metadata": {},
         "enhancement_status": {},
     }
-    await ingest_one(entry, _Adapter(config), repo, [], config, None)
+    await ingest_one(entry, HttpStubAdapter(config), repo, [], config, None)
     for name in copied:
         written = await repo.apply_copy_outcome(
             entry_id,
@@ -165,9 +149,7 @@ def _captions(uri: str, entry_id: str) -> dict[str, Any]:
 
 
 def _closed_url() -> str:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return f"http://127.0.0.1:{sock.getsockname()[1]}"
+    return f"http://127.0.0.1:{free_port()}"
 
 
 @pytest.fixture(autouse=True)
@@ -192,17 +174,9 @@ def stub(llama_stub):
 @pytest.fixture
 async def repo(scratch_database, stub):
     """An ``ARIELRepository`` on a fresh scratch database, the image table migrated."""
-    from osprey.services.ariel_search.database import ARIELRepository
-    from osprey.services.ariel_search.database.connection import create_connection_pool
-    from osprey.services.ariel_search.database.migrations import run_migrations
-
     cfg = ARIELConfig.from_dict(_config_dict(scratch_database, embed_url=stub.url, caption=True))
-    pool = await create_connection_pool(cfg.database)
-    try:
-        await run_migrations(pool, cfg)
-        yield ARIELRepository(pool, cfg)
-    finally:
-        await pool.close()
+    async with migrated_repository(cfg) as repository:
+        yield repository
 
 
 # --- the drain of image_embedding ----------------------------------------------------

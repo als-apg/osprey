@@ -13,10 +13,9 @@ from pathlib import Path
 
 import pytest
 from tests.services.channel_finder.graph_index import corpora
+from tests.services.channel_finder.graph_index._index import corpus_meta
 
 from osprey.services.channel_finder.graph_index.builder import (
-    CALLER_META_KEYS,
-    ParsedCorpus,
     build_from_rows,
     parse_corpus,
 )
@@ -40,22 +39,6 @@ BADGE_KEYS = {
 }
 
 
-def _meta(parsed: ParsedCorpus, **overrides: object) -> dict:
-    """The ``meta`` mapping a corpus build states for *parsed*."""
-    values = {
-        "corpus_sha256": "c" * 64,
-        "corpus_filename": "facility.ttl",
-        "binding_count": len(parsed.binding_rows),
-        "device_count": len({row.device_uri for row in parsed.binding_rows}),
-        "class_count": len(parsed.class_rows),
-        "signal_count": parsed.signal_count,
-        "section_count": len(parsed.section_codes),
-    }
-    values.update(overrides)
-    assert set(values) == set(CALLER_META_KEYS)
-    return values
-
-
 def _open(text: str, index_path: Path, **overrides: object) -> GraphIndex:
     """Build an index over *text* and open it read-only."""
     parsed = parse_corpus(text)
@@ -63,7 +46,7 @@ def _open(text: str, index_path: Path, **overrides: object) -> GraphIndex:
         parsed.binding_rows,
         parsed.class_rows,
         index_path,
-        _meta(parsed, **overrides),
+        corpus_meta(parsed, **overrides),
     )
     index = open_graph_index(index_path)
     assert isinstance(index, GraphIndex), index

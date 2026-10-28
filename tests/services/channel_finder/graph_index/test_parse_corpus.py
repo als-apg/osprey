@@ -16,7 +16,6 @@ import textwrap
 from pathlib import Path
 
 import pytest
-from tests._builds import BuiltProject
 from tests.services.channel_finder.graph_index import corpora
 
 from osprey.services.channel_finder.core.exceptions import GraphIndexBuildError
@@ -61,12 +60,6 @@ def _rows_by_pv(parsed: ParsedCorpus) -> dict[str, BindingRow]:
 
 def _classes_by_name(parsed: ParsedCorpus) -> dict[str, ClassRow]:
     return {row.name: row for row in parsed.class_rows}
-
-
-@pytest.fixture(scope="module")
-def demo_path(built_control_assistant: BuiltProject) -> Path:
-    """The graph view the control-assistant build writes."""
-    return built_control_assistant.build_dir / "data" / "graph" / "facility.ttl"
 
 
 @pytest.fixture(scope="module")

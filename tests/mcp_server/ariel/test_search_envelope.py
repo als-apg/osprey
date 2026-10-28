@@ -10,7 +10,7 @@ from osprey.mcp_server.ariel.tools.search_envelope import (
     serialize_entries,
 )
 from osprey.services.ariel_search.models import DEFAULT_LISTING_TEXT_CHARS
-from tests.mcp_server.ariel.conftest import make_mock_entry
+from tests.mcp_server.ariel.conftest import make_mock_entry, patch_ariel_service
 
 _PNG = {"url": "https://elog.example/f/plot.png", "type": "image/png", "filename": "plot.png"}
 _PDF = {"url": "https://elog.example/f/report.pdf", "type": "application/pdf", "filename": "r.pdf"}
@@ -282,18 +282,14 @@ def test_select_without_matched_via_is_the_plain_window():
 
 
 def _search_result(entries, sources):
-    from unittest.mock import MagicMock
+    from tests.mcp_server.ariel.conftest import make_search_result
 
-    result = MagicMock()
-    result.entries = tuple(entries)
-    result.answer = None
-    result.reasoning = f"Hybrid search: {len(entries)} results"
-    result.sources = tuple(sources)
-    result.search_modes_used = ("hybrid",)
-    result.diagnostics = ()
-    result.expanded_terms = ()
-    result.pipeline_details = None
-    return result
+    return make_search_result(
+        entries,
+        mode="hybrid",
+        reasoning=f"Hybrid search: {len(entries)} results",
+        sources=sources,
+    )
 
 
 async def _run_hybrid_tool(tmp_path, monkeypatch, result, **kwargs):
@@ -310,10 +306,7 @@ async def _run_hybrid_tool(tmp_path, monkeypatch, result, **kwargs):
     service = AsyncMock()
     attach_fake_attachment_reader(service)
     service.search.return_value = result
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=service),
-    ):
+    with patch_ariel_service(service):
         response = await get_tool_fn(hybrid_search)(**kwargs)
     return extract_response_dict(response)
 

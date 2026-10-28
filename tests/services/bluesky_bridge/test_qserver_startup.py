@@ -45,7 +45,6 @@ from osprey_connectors_tests._harness import (
 from tests.facility.served_tree import served_tree
 
 _PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
-_PLAN_MODULE_ENV = "BLUESKY_PLAN_MODULE"
 
 _CORRECTOR_ENTRY = {
     "name": "corrector_01",
@@ -126,16 +125,6 @@ class FakeRunEngine:
     def subscribe(self, callback: Any) -> int:
         self.subscriptions.append(callback)
         return len(self.subscriptions)
-
-
-@pytest.fixture(autouse=True)
-def _isolated_plan_loader(monkeypatch: pytest.MonkeyPatch):
-    """Every test gets a clean loader cache and no leftover layer env vars."""
-    monkeypatch.delenv(_PLAN_DIRS_ENV, raising=False)
-    monkeypatch.delenv(_PLAN_MODULE_ENV, raising=False)
-    plan_loader.reset_facility_plans()
-    yield
-    plan_loader.reset_facility_plans()
 
 
 def _plan_source(name: str) -> str:

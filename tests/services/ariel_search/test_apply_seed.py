@@ -51,11 +51,8 @@ def _restore_schema_after(integration_ariel_config, database_url):
             run_migrations,
         )
 
-        pool = await create_connection_pool(DatabaseConfig(uri=database_url))
-        try:
+        async with await create_connection_pool(DatabaseConfig(uri=database_url)) as pool:
             await run_migrations(pool, integration_ariel_config)
-        finally:
-            await pool.close()
 
     asyncio.run(_remigrate())
 
@@ -79,13 +76,10 @@ async def _fetch(database_url: str) -> dict[str, datetime]:
     from osprey.services.ariel_search.config import DatabaseConfig
     from osprey.services.ariel_search.database import create_connection_pool
 
-    pool = await create_connection_pool(DatabaseConfig(uri=database_url))
-    try:
+    async with await create_connection_pool(DatabaseConfig(uri=database_url)) as pool:
         async with pool.connection() as conn, conn.cursor() as cur:
             await cur.execute("SELECT entry_id, timestamp FROM enhanced_entries")
             rows = await cur.fetchall()
-    finally:
-        await pool.close()
     return {entry_id: ts.astimezone(UTC) for entry_id, ts in rows}
 
 
@@ -146,8 +140,7 @@ async def _embedding_tables(database_url: str) -> set[str]:
     from osprey.services.ariel_search.database import create_connection_pool
     from osprey.services.ariel_search.database.repository import image_embedding_table_names
 
-    pool = await create_connection_pool(DatabaseConfig(uri=database_url))
-    try:
+    async with await create_connection_pool(DatabaseConfig(uri=database_url)) as pool:
         async with pool.connection() as conn, conn.cursor() as cur:
             await cur.execute(
                 "SELECT table_name FROM information_schema.tables "
@@ -155,8 +148,6 @@ async def _embedding_tables(database_url: str) -> set[str]:
             )
             tables = {row[0] for row in await cur.fetchall()}
             tables.update(await image_embedding_table_names(cur))
-    finally:
-        await pool.close()
     return tables
 
 
@@ -198,14 +189,11 @@ async def _pictures(database_url: str, entry_id: str) -> tuple[list, list, list]
     from osprey.services.ariel_search.database.repository import ARIELRepository
 
     config = ARIELConfig.from_dict({"database": {"uri": database_url}})
-    pool = await create_connection_pool(config.database)
-    try:
+    async with await create_connection_pool(config.database) as pool:
         repository = ARIELRepository(pool, config)
         entry = await repository.get_entry(entry_id)
         rows = await repository.get_copy_rows(entry_id)
         renditions = [await repository.get_rendition(row["attachment_id"]) for row in rows]
-    finally:
-        await pool.close()
     assert entry is not None, f"{entry_id} was not seeded"
     return list(entry["attachments"]), rows, renditions
 
@@ -217,11 +205,8 @@ async def _original(database_url: str, attachment_id: str) -> bytes:
     from osprey.services.ariel_search.database.repository import ARIELRepository
 
     config = ARIELConfig.from_dict({"database": {"uri": database_url}})
-    pool = await create_connection_pool(config.database)
-    try:
+    async with await create_connection_pool(config.database) as pool:
         original = await ARIELRepository(pool, config).get_attachment_original(attachment_id)
-    finally:
-        await pool.close()
     assert original is not None, f"{attachment_id} has no stored original"
     return bytes(original["data"])
 

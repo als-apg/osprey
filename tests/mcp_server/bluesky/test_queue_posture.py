@@ -49,7 +49,10 @@ from osprey_connectors_tests._harness import (
     write_control_context,
 )
 from osprey_connectors_tests._harness._write_verdict_cases import _stage_tree
+from tests.mcp_server._bluesky import headers_without_owner
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
+
+pytestmark = pytest.mark.usefixtures("silence_queue_activity_emit")
 
 _MOD = "osprey.mcp_server.bluesky.tools.queue"
 
@@ -137,12 +140,6 @@ def _stop_fn():
     return get_tool_fn(queue.queue_stop)
 
 
-def _headers_without_owner(m) -> dict[str, str]:
-    """The headers one forwarded request carried, minus the owner stamp."""
-    headers = m.call_args.kwargs["headers"] or {}
-    return {name: value for name, value in headers.items() if name != OWNER_HEADER}
-
-
 def _refusal(code: str, detail: str, **extras) -> dict:
     return {"detail": {"code": code, "detail": detail, **extras}}
 
@@ -169,9 +166,8 @@ async def _add_unarmed(reason: str, kind: str | None):
     """Add a draft, asserting it went out unarmed with the verdict's phrase."""
     body = {"run_id": "r1", "revision": 3, "item": {"item_uid": "u1"}}
     with patch(f"{_MOD}._http_post_json", return_value=(200, body)) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            result = await _add_fn()(draft_revision=3)
-    assert _headers_without_owner(m) == {}
+        result = await _add_fn()(draft_revision=3)
+    assert headers_without_owner(m) == {}
     refused = extract_response_dict(result)["writes_refused"]
     assert refused["reason"] == reason
     assert refusal_phrase(reason, kind) in refused["message"]
@@ -249,15 +245,13 @@ async def test_an_on_lane_target_adds_armed_and_starts(tmp_path, monkeypatch):
 
     body = {"run_id": "abc", "revision": 7, "item": {"item_uid": "u1"}}
     with patch(f"{_MOD}._http_post_json", return_value=(200, body)) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            result = await _add_fn()(draft_revision=7)
-    assert _headers_without_owner(m) == {"X-Launch-Token": _TOKEN}
+        result = await _add_fn()(draft_revision=7)
+    assert headers_without_owner(m) == {"X-Launch-Token": _TOKEN}
     assert "writes_refused" not in extract_response_dict(result)
 
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _start_fn()()
-    assert _headers_without_owner(m) == {"X-Launch-Token": _TOKEN}
+        await _start_fn()()
+    assert headers_without_owner(m) == {"X-Launch-Token": _TOKEN}
 
 
 async def test_a_switch_turned_off_reaches_the_next_start(tmp_path, monkeypatch):
@@ -265,8 +259,7 @@ async def test_a_switch_turned_off_reaches_the_next_start(tmp_path, monkeypatch)
     _configure(tmp_path, monkeypatch, lane_target="standin")
     _switch(tmp_path, "standin")
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True})):
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _start_fn()()
+        await _start_fn()()
 
     _switch(tmp_path)
     await _start_refused("switch_off", "real")
@@ -287,14 +280,12 @@ async def test_a_simulator_lane_runs_while_the_real_machine_is_off(tmp_path, mon
     _switch(tmp_path, "va")
 
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r"})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _add_fn()(draft_revision=7)
-    assert _headers_without_owner(m) == {"X-Launch-Token": _TOKEN}
+        await _add_fn()(draft_revision=7)
+    assert headers_without_owner(m) == {"X-Launch-Token": _TOKEN}
 
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _start_fn()()
-    assert _headers_without_owner(m) == {"X-Launch-Token": _TOKEN}
+        await _start_fn()()
+    assert headers_without_owner(m) == {"X-Launch-Token": _TOKEN}
 
 
 async def test_another_targets_switch_does_not_arm_this_lane(tmp_path, monkeypatch):
@@ -365,8 +356,7 @@ async def test_an_owned_item_writes_through_its_owners_switch(tmp_path, monkeypa
     reset_verdict_state()
 
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _start_fn()()
+        await _start_fn()()
     assert m.call_args.kwargs["headers"] == {"X-Launch-Token": _TOKEN, OWNER_HEADER: "alice"}
 
 
@@ -434,11 +424,10 @@ async def test_withdrawing_a_halt_posts_while_the_halted_lanes_machine_is_on(tmp
     _switch(tmp_path, "standin")
 
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"stop_pending": False})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _stop_fn()(cancel=True)
+        await _stop_fn()(cancel=True)
 
     assert m.call_args.args[1] == {"cancel": True}
-    assert _headers_without_owner(m) == {"X-Launch-Token": _TOKEN}
+    assert headers_without_owner(m) == {"X-Launch-Token": _TOKEN}
 
 
 async def test_withdrawing_a_halt_with_no_lane_found_is_refused(tmp_path, monkeypatch):
@@ -464,8 +453,7 @@ async def test_a_plain_halt_is_never_gated_by_the_verdict(tmp_path, monkeypatch)
     _switch(tmp_path)
 
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"stopped": True})):
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            result = await _stop_fn()(cancel=False)
+        result = await _stop_fn()(cancel=False)
 
     assert extract_response_dict(result)["stopped"] is True
 
