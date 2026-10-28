@@ -16,14 +16,14 @@ child. Contract:
   a fatal signal. Only the fatal-signal handler is installed; nothing samples
   a live process.
 * A command still running after ``SECONDS`` is stopped as a group by
-  ``stop_group``: SIGABRT first, so each Python process prints its stacks and
+  ``stop_child``: SIGABRT first, so each Python process prints its stacks and
   the stop names what was holding the run; then, if any process of the group
   is still running after ``--dump`` seconds (default 5), SIGTERM; then
   SIGKILL to whatever is left after ``--grace`` seconds (default 15), and a
   last wait for the group to be gone. Every wait is on the whole group, not
-  only the command's own process, and any process still running after SIGKILL
-  is named by pid on stderr, or the wrapper says the process table could not
-  be read. The wrapper exits 124, the coreutils ``timeout``
+  only the command's own process, the stop reaps the command, and the
+  wrapper prints the stop's own account on stderr when the group was not
+  proven gone. The wrapper exits 124, the coreutils ``timeout``
   convention, so a caller can tell a bound from a failure.
 * SIGINT, SIGTERM and SIGHUP delivered to the wrapper are forwarded to the
   group. After a forwarded SIGINT the wrapper dies of SIGINT itself once the
@@ -49,7 +49,7 @@ import subprocess
 import sys
 from types import FrameType
 
-from osprey.deployment.subprocess_capture import stop_group
+from osprey.deployment.subprocess_capture import stop_child
 
 #: The exit status of a command stopped by its bound.
 TIMEOUT_EXIT = 124
@@ -115,22 +115,9 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
             flush=True,
         )
-        survivors = stop_group(child.pid, dump=args.dump, grace=args.grace)
-        child.wait()
-        if survivors is None:
-            print(
-                "run_bounded: the process table could not be read; "
-                f"group {child.pid} may still be running",
-                file=sys.stderr,
-                flush=True,
-            )
-        elif survivors:
-            print(
-                "run_bounded: still running after SIGKILL, pids: "
-                + " ".join(str(pid) for pid in survivors),
-                file=sys.stderr,
-                flush=True,
-            )
+        outcome = stop_child(child, dump=args.dump, grace=args.grace)
+        if not outcome.gone:
+            print(f"run_bounded: {outcome.describe()}", file=sys.stderr, flush=True)
         return TIMEOUT_EXIT
 
     if last_forwarded and last_forwarded[-1] == signal.SIGINT:
