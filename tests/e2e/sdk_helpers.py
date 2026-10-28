@@ -38,7 +38,10 @@ import yaml
 from osprey.agent_runner.claude_state import is_untrusted_allow_rules_notice, seed_claude_state
 from osprey.facility.views.simulator import withdraw_scenarios
 from osprey.port_layout import BLOCK_SIZE
+from osprey_connectors import control_context
+from osprey_connectors.identity import acting_identity
 from osprey_connectors.simulation.view import SimulatorView
+from osprey_connectors.types import WRITES_KEY, baseline_target
 from osprey_connectors_tests._harness import ci_diagnostics
 from tests.e2e.profile_edits import set_pairs
 from tests.e2e.provider import build_model, build_provider
@@ -556,67 +559,255 @@ def _run_osprey(verb: str, args: list[str], *, timeout: int) -> None:
     )
 
 
-def _flip_writes_enabled(text: str) -> str:
-    """Set the real ``writes_enabled`` key to true, leaving comments alone.
+#: The one tier value that lets a login's switch arm anything (D9). Spelled
+#: here rather than imported: the connectors package keeps it private, and the
+#: profile a deployer writes spells exactly this word.
+WRITES_TIER_ALLOWED = "allowed"
 
-    Returns the text unchanged when no such key line exists, which the caller
-    treats as an error.
+
+def set_writes_tier(repo: Path, tier: str = WRITES_TIER_ALLOWED) -> None:
+    """Spell ``control_system.writes: <tier>`` in the repo's profile and rebuild.
+
+    Takes the REPO ROOT. The edit lands in the SOURCE zone (``profile.yml``'s
+    ``config:`` block, under the dotted :data:`~osprey_connectors.types.WRITES_KEY`
+    the presets use), and ``osprey build`` then renders it — the same two steps
+    a deployer takes, so the render, its ``settings.json`` and the hook config
+    all read one tier. Any other spelling of the same leaf already in the block
+    (the dotted key, or ``writes`` inside a nested ``control_system:`` mapping)
+    is removed first, so the profile states the tier once. A profile still
+    carrying an older posture key is not rewritten here: the build refuses the
+    mix, which is the failure such a fixture deserves.
     """
-    lines = text.splitlines(keepends=True)
-    for i, line in enumerate(lines):
-        code = line.split("#", 1)[0]
-        if "writes_enabled:" in code and "false" in code:
-            lines[i] = line.replace("false", "true", 1)
-            return "".join(lines)
-    return text
+    profile_path = Path(repo) / "profile.yml"
+    profile = yaml.safe_load(profile_path.read_text(encoding="utf-8")) or {}
+    config = profile.get("config")
+    if not isinstance(config, dict):
+        config = {}
+    section, leaf = WRITES_KEY.split(".", 1)
+    config.pop(WRITES_KEY, None)
+    nested = config.get(section)
+    if isinstance(nested, dict):
+        nested.pop(leaf, None)
+        if not nested:
+            del config[section]
+    config[WRITES_KEY] = tier
+    profile["config"] = config
+    profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
+    _run_osprey(
+        "build",
+        ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
+        timeout=300,
+    )
 
 
-def enable_writes_in_project(repo: Path) -> None:
-    """Ensure ``control_system.writes_enabled`` is true in the rendered config.
+def _render_config(repo: Path) -> dict[str, Any]:
+    """The render's parsed ``config.yml`` — what the servers read."""
+    loaded = yaml.safe_load((render_dir(repo) / "config.yml").read_text(encoding="utf-8"))
+    return loaded if isinstance(loaded, dict) else {}
 
-    Takes the REPO ROOT; the flip lands in the render's ``config.yml``, which is
-    what the MCP servers read (``CONFIG_FILE=<repo>/build/config.yml``).
 
-    Required for tests that exercise the approval-hook path: the
-    ``osprey_writes_check.py`` PreToolUse hook denies before
-    ``osprey_approval.py`` gets to return ``ask``, so the SDK's
-    ``can_use_tool`` callback never fires when writes are disabled.
+def switch_record_path(repo: Path, owner: str) -> Path:
+    """Where *owner*'s control-context record lives for the deployment at *repo*.
 
-    The kill-switch hard-block in ``cli/templates/claude_code.py`` bakes
-    ``mcp__controls__channel_write`` into ``settings.json``'s ``permissions.deny``
-    at build time when ``writes_enabled`` is false (so Claude Code's permissions
-    layer short-circuits before the PreToolUse hook chain runs). Flipping
-    ``config.yml`` alone leaves the rendered ``settings.json`` stale, so after the
-    flip we regenerate the Claude Code artifacts — exactly what a fresh
-    ``osprey build`` (and the web + CLI auto-regen) does, rather than a
-    hand-patch.
-
-    Idempotent: presets like ``control_assistant`` already ship with
-    ``writes_enabled: true``; only ``hello_world`` defaults to false.
-
-    Both the "already enabled?" check and the flip read the parsed value and
-    skip comments. A whole-file substring test cannot tell the live key from
-    the same characters quoted in a comment, and the hello_world config
-    comments quote ``control_system.writes_enabled: true`` to tell the reader
-    what to uncomment in their profile — which would otherwise read as "writes
-    are already on" and silently skip the flip.
+    Resolved through the deployment's one seam for the control tree
+    (:func:`osprey.deployment.compose_generator.control_target_identity_dir`),
+    which anchors the render's ``agent_data.base_dir`` at the repo and refuses
+    an *owner* outside the username charset, so the file written here is the
+    file the verdict reads for that login, in process or bound into a container.
     """
-    render = render_dir(repo)
-    config_path = render / "config.yml"
-    text = config_path.read_text(encoding="utf-8")
-    parsed = yaml.safe_load(text) or {}
-    if not (parsed.get("control_system") or {}).get("writes_enabled"):
-        updated = _flip_writes_enabled(text)
-        if updated == text:
-            raise RuntimeError(
-                f"Could not enable writes in {config_path}: no writes_enabled key found."
-            )
-        config_path.write_text(updated, encoding="utf-8")
+    from osprey.deployment.compose_generator import control_target_identity_dir
 
-    # Re-render artifacts so the stale settings.json deny entry is dropped.
-    from osprey.cli.templates.manager import TemplateManager
+    directory = control_target_identity_dir(_render_config(repo), Path(repo), owner)
+    return directory / control_context.RECORD_FILENAME
 
-    TemplateManager().regen_if_drift(render)
+
+def _default_switch_targets(repo: Path) -> list[str]:
+    """The machine a fresh session on *repo* sits on: its baseline target."""
+    section = _render_config(repo).get("control_system") or {}
+    return [baseline_target(section)]
+
+
+def switch_on_in_record(
+    repo: Path, *, owner: str, targets: list[str] | None = None
+) -> control_context.ControlContext:
+    """Turn *owner*'s switch on for *targets* by writing the record directly.
+
+    The record fixture of D9, for lanes whose subject is not the chip. It goes
+    through the production writers rather than a hand-rolled payload: a missing
+    or unreadable record is first written ownerless, pointed at the baseline
+    target, by :func:`control_context.write_record` (which stamps a fresh epoch),
+    and the switch is then moved by :func:`control_context.set_switch` — the
+    person's gesture, compare-and-swap on the epoch read just before. An
+    epoch-less record is stamped by the first attempt and armed by the retry,
+    the same one retry the chip makes.
+
+    *targets* defaults to the deployment's baseline target. Returns the record
+    as stored.
+    """
+    names = sorted(targets) if targets is not None else _default_switch_targets(repo)
+    path = switch_record_path(repo, owner)
+    control_context.invalidate_cache()
+    current, status = control_context.read_record_status(path=path)
+    if current is None:
+        baseline = _default_switch_targets(repo)[0]
+        control_context.write_record(
+            control_context.ControlContext(target=baseline, generation=1), path=path
+        )
+        control_context.invalidate_cache()
+        current = control_context.read_record(path=path)
+    epoch = (current.switch_epoch if current is not None else None) or 0
+    try:
+        stored = control_context.set_switch(names, "on", epoch=epoch, path=path)
+    except control_context.StoppedSince as refused:
+        if not refused.stamped or refused.epoch is None:
+            raise
+        stored = control_context.set_switch(names, "on", epoch=refused.epoch, path=path)
+    control_context.invalidate_cache()
+    assert stored is not None, f"the switch for {owner!r} was not stored at {path} ({status})"
+    return stored
+
+
+#: The header chip's write route: ``POST {target, state, epoch}`` (C-POST).
+CHIP_POSTURE_PATH = "/api/terminal/posture"
+
+
+@dataclass(frozen=True)
+class ChipRoute:
+    """How to reach one login's web terminal, to arm through its header chip.
+
+    The owner the chip arms is whoever that terminal acts as — the route reads
+    the login server-side and never from the request — so a lane that arms
+    through the chip names the owner by choosing which terminal to POST to.
+
+    Attributes:
+        base_url: The terminal's origin, ``http://127.0.0.1:<port>``.
+        session_id: The browser session the gesture is filed under, or ``None``
+            for the session-less Lab-bar gesture.
+        headers: Whatever the terminal's own gate needs on top (its secret).
+    """
+
+    base_url: str
+    session_id: str | None = None
+    headers: dict[str, str] = field(default_factory=dict)
+
+
+def switch_on_through_chip(chip: ChipRoute, target: str) -> dict[str, Any]:
+    """Turn the switch on for *target* the way the header chip does; return the 200 body.
+
+    Reads ``switch_epoch`` off ``GET`` first and sends it back with
+    ``state: "on"``. A ``409 stopped_since`` that just ``stamped`` an epoch-less
+    record is retried once with the epoch it carries — the chip's own single
+    retry; any other refusal fails here with its body, so a lane learns the
+    reason (``tier_never``, ``record_unavailable`` ...) rather than a later
+    refused write.
+    """
+    from tests.e2e._queue_drive import request
+
+    query = "" if chip.session_id is None else f"?session_id={chip.session_id}"
+    status, body = request(chip.base_url, CHIP_POSTURE_PATH + query, "GET", headers=chip.headers)
+    assert status == 200, f"GET {CHIP_POSTURE_PATH} failed: {status} {body}"
+    epoch = body.get("switch_epoch") if isinstance(body, dict) else None
+    for _attempt in range(2):
+        payload = {"session_id": chip.session_id, "target": target, "state": "on", "epoch": epoch}
+        status, body = request(
+            chip.base_url, CHIP_POSTURE_PATH, "POST", payload, headers=chip.headers
+        )
+        detail = body.get("detail") if isinstance(body, dict) else None
+        if status == 409 and isinstance(detail, dict) and detail.get("stamped"):
+            epoch = detail.get("epoch")
+            continue
+        break
+    assert status == 200, f"the chip did not turn {target!r} on: {status} {body}"
+    return body
+
+
+@dataclass(frozen=True)
+class ArmedWrites:
+    """What :func:`arm_writes` armed: whose switch, for which machines, and how."""
+
+    owner: str
+    targets: list[str]
+    via: str
+    switch_epoch: int | None
+
+
+def arm_writes(
+    repo: Path,
+    *,
+    owner: str,
+    targets: list[str] | None = None,
+    chip: ChipRoute | None = None,
+) -> ArmedWrites:
+    """The one e2e arming helper (D9): tier ``allowed``, rebuilt, switch on for *owner*.
+
+    A write is allowed only when the login's tier allows it AND that login's
+    switch is on for the machine written, so arming is both halves, in order:
+    :func:`set_writes_tier` spells ``control_system.writes: allowed`` and
+    rebuilds, and then the switch is turned on for *owner* —
+
+    * through the header chip's ``POST`` (:func:`switch_on_through_chip`) when
+      *chip* is given: lanes whose subject is the chip arm this way, and the
+      terminal behind *chip* must act as *owner*;
+    * otherwise through the record fixture (:func:`switch_on_in_record`),
+      written where the verdict reads *owner*'s record.
+
+    *targets* defaults to the deployment's baseline target. A queue add that
+    is meant to write names the same *owner* (``_queue_drive.enqueue(...,
+    owner=...)``): an ownerless add has no switch to follow.
+    """
+    set_writes_tier(repo)
+    names = sorted(targets) if targets is not None else _default_switch_targets(repo)
+    if chip is not None:
+        epoch = None
+        for name in names:
+            epoch = switch_on_through_chip(chip, name).get("switch_epoch")
+        return ArmedWrites(owner=owner, targets=names, via="chip", switch_epoch=epoch)
+    stored = switch_on_in_record(repo, owner=owner, targets=names)
+    return ArmedWrites(owner=owner, targets=names, via="record", switch_epoch=stored.switch_epoch)
+
+
+def enable_writes_in_project(repo: Path, *, owner: str | None = None) -> ArmedWrites:
+    """Arm writes for an in-process run of *repo*: :func:`arm_writes` through the record.
+
+    Takes the REPO ROOT. *owner* defaults to the identity this process acts as
+    (:func:`~osprey_connectors.identity.acting_identity`), which is the login
+    the controls server the agent spawns resolves too — it inherits this
+    environment — so the switch turned on is the one its writes read.
+
+    Required for tests that exercise the approval-hook path: with the tier at
+    ``never`` the build bakes the write tools into ``permissions.deny`` and the
+    PreToolUse write check refuses before the approval hook can ask, so the
+    SDK's ``can_use_tool`` callback never fires. Idempotent: arming an armed
+    repo rebuilds and finds the switch already on.
+    """
+    return arm_writes(repo, owner=owner if owner is not None else acting_identity())
+
+
+def arm_deployed_queue_owner(repo: Path, targets: list[str] | None = None) -> str:
+    """Turn this process's login's switch on in a DEPLOYED stack's record; return the login.
+
+    For lanes that drive a deployed bridge queue over HTTP. The bridge worker's
+    writes follow the add's owner (``X-Osprey-Owner``, sent by
+    ``_queue_drive.enqueue(..., owner=...)``), read from the control tree the
+    deploy binds into the worker, so an ownerless add, or an owner whose switch
+    is off, fails its first write. The tier half is the deployment's own
+    (``control_system.writes: allowed`` in the preset); this is the switch half,
+    through :func:`switch_on_in_record`, after the identity directory is
+    provisioned the way the deploy provisions it. Call it after ``osprey build``
+    and before ``osprey up``.
+
+    The login is :func:`~osprey_connectors.posture_store.current_owner`, the
+    same ladder an in-process tool walks. *targets* defaults to the deployment's
+    baseline target.
+    """
+    from osprey.deployment.compose_generator import ensure_control_target_dir
+    from osprey_connectors import posture_store
+
+    owner = posture_store.current_owner()
+    assert isinstance(owner, str) and owner, f"this process names no owner: {owner!r}"
+    ensure_control_target_dir(_render_config(repo), repo, owner, relative_to=repo)
+    switch_on_in_record(repo, owner=owner, targets=targets)
+    return owner
 
 
 def activate_scenario(repo: Path, scenario: str) -> None:
