@@ -684,7 +684,7 @@ describe('fetchHistory', () => {
 
     const got = await chat.fetchHistory('k');
     expect(got).toEqual(turns);
-    expect(got[1].events.filter((e) => e.type === 'thinking').map((e) => e.content)).toEqual([
+    expect(got[1].events?.filter((e) => e.type === 'thinking').map((e) => e.content)).toEqual([
       'reasoning',
       '',
     ]);
