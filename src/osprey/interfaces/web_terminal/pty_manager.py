@@ -311,19 +311,22 @@ class PtySession:
         running.
 
         The child's group is reported gone, its survivors are named, or the
-        process table is named as unreadable; the child is not waited for when
-        the group stop did not prove it gone. Returning is therefore not
-        proof of death: :attr:`is_alive` is, and it is the probe anything that
-        needs to *know* the child is gone must poll. What became of the started
-        processes is in the log line this method writes.
+        process table is named as unreadable. The child is reaped by the stop
+        and by nothing else; a child still running after SIGKILL is not waited
+        for. Returning is therefore not proof of death: :attr:`is_alive` is,
+        and it is the probe anything that needs to *know* the child is gone
+        must poll. What became of the started processes is in the log line
+        this method writes.
         """
         # Taken before the hang-up: a process the agent started in a session
         # of its own keeps its parent link only until the agent exits.
         groups: list[process_tree.ProcessGroup] = []
         process = self._process
-        if process is not None and process.poll() is None:
+        if process is not None and subprocess_capture.observe_exit(process) is None:
             try:
-                rows = process_tree.read_while_alive(lambda: process.poll() is None)
+                rows = process_tree.read_while_alive(
+                    lambda: subprocess_capture.observe_exit(process) is None
+                )
             except process_tree.ProcessTableUnreadable as exc:
                 logger.warning(
                     "Could not read the process table while the PTY child %d was alive (%s); "
@@ -343,39 +346,16 @@ class PtySession:
                 os.close(self._master_fd)
             self._master_fd = None
 
-        if self._process is not None:
+        if self._process is not None and self._process.returncode is None:
             # Give the SIGHUP from PTY close a moment to propagate.
-            with contextlib.suppress(subprocess.TimeoutExpired):
-                self._process.wait(timeout=2)
-
-            if self._process.poll() is None:
-                # The child called setsid, so its pid names its group. The stop
-                # assumes the leader is unreaped, but ``is_alive`` polls (and so
-                # can reap) it concurrently: an emptied group then reads as gone
-                # at the next look, and its id could be reused within the stop's
-                # seconds. The end state is one stop that owns the child's reap
-                # while every probe only observes the exit.
-                pgid = self._process.pid
-                still_running = subprocess_capture.stop_group(pgid, grace=3.0)
-                # The group stop is the authority on the child's own group.
-                groups = [group for group in groups if group.pgid != pgid]
-                if still_running == []:
-                    self._process.wait()
-                else:
-                    self._process.poll()
-                    if still_running is None:
-                        logger.warning(
-                            "PTY child %d: process table unreadable: group %d may still be running",
-                            pgid,
-                            pgid,
-                        )
-                    else:
-                        logger.warning(
-                            "PTY child %d: its process group is still running after SIGKILL: "
-                            "pids %s",
-                            pgid,
-                            " ".join(str(pid) for pid in still_running),
-                        )
+            subprocess_capture.observe_exit(self._process, within=2.0)
+            # The child called setsid, so its pid names its group; the stop is
+            # the authority on that group and the one reaper of the child.
+            pid = self._process.pid
+            outcome = subprocess_capture.stop_child(self._process, grace=3.0)
+            groups = [group for group in groups if group.pgid != pid]
+            if not outcome.gone:
+                logger.warning("PTY child %d: %s", pid, outcome.describe())
 
         if groups and self._process is not None:
             ending = process_tree.end_groups(groups)
@@ -412,9 +392,11 @@ class PtySession:
                 be read while the child was alive: what it started is unknown.
         """
         process = self._process
-        if process is None or process.poll() is not None:
+        if process is None or subprocess_capture.observe_exit(process) is not None:
             return []
-        return process_tree.started_groups(process.pid, lambda: process.poll() is None)
+        return process_tree.started_groups(
+            process.pid, lambda: subprocess_capture.observe_exit(process) is None
+        )
 
     @property
     def pid(self) -> int | None:
@@ -436,18 +418,20 @@ class PtySession:
         """Whether the subprocess is still running.
 
         The public death probe: :meth:`terminate` can return with the child
-        alive, so a caller that must observe the process gone polls this.
+        alive, so a caller that must observe the process gone polls this. It
+        never reaps, so a stop running on another thread keeps the child's
+        group id pinned.
         """
         if self._process is None:
             return False
-        return self._process.poll() is None
+        return subprocess_capture.observe_exit(self._process) is None
 
     @property
     def exit_code(self) -> int | None:
         """Return exit code if process has terminated, else None."""
         if self._process is None:
             return None
-        return self._process.poll()
+        return subprocess_capture.observe_exit(self._process)
 
 
 class PtyRegistry:
@@ -535,8 +519,9 @@ class PtyRegistry:
                 self._sessions.move_to_end(session_key)
                 existing.resize(rows, cols)
                 return existing, True
-            # Dead — remove silently, respawn below.
+            # Dead — remove it and reap it through its stop, respawn below.
             self.pop_session(session_key)
+            existing.terminate()
 
         # Evict if at capacity
         self._evict_lru()

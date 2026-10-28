@@ -349,19 +349,36 @@ class TestPtySession:
             session.terminate()
             kill_quietly(pids)
 
-    def test_terminate_of_a_dead_child_looks_for_nothing(self, monkeypatch):
+    def test_terminate_of_a_dead_child_looks_for_nothing_it_started(self, monkeypatch):
         session = PtySession(["/bin/sh", "-c", "exit 0"])
         session.start()
         wait_for_exit(session)
         calls: list[None] = []
 
-        def spy() -> None:
+        def spy(*_args, **_kwargs) -> None:
             calls.append(None)
             return None
 
-        monkeypatch.setattr(process_table, "snapshot", spy)
+        monkeypatch.setattr(process_tree, "read_while_alive", spy)
         session.terminate()
         assert calls == []
+        assert session.exit_code == 0
+
+    def test_is_alive_never_reaps_the_child(self):
+        session = PtySession([sys.executable, "-c", "pass"])
+        session.start()
+        try:
+            assert wait_for_exit(session) == 0
+            pid = session.pid
+            assert pid is not None
+            look = os.WEXITED | os.WNOHANG | os.WNOWAIT
+            assert subprocess_capture._waitid(pid, look) is not None, "the probe reaped the child"
+            session.terminate()
+            assert session.exit_code == 0
+            with pytest.raises(ChildProcessError):
+                subprocess_capture._waitid(pid, look)
+        finally:
+            session.terminate()
 
     def test_terminate_stops_the_childs_own_group_including_a_member_that_ignores_the_hang_up(
         self, tmp_path
@@ -379,19 +396,19 @@ class TestPtySession:
             session.terminate()
 
     def test_terminate_names_the_survivors_of_its_own_group(self, tmp_path, monkeypatch, caplog):
-        real_stop = subprocess_capture.stop_group
+        real_stop = subprocess_capture.stop_child
         real_end = process_tree.end_groups
         ended: list[int] = []
 
-        def stop_reporting_a_survivor(pgid, **kwargs):
-            real_stop(pgid, **kwargs)
-            return [4242]
+        def stop_reporting_a_survivor(process, **kwargs):
+            real_stop(process, **kwargs)
+            return subprocess_capture.StopOutcome(ended=(process.pid,), survivors=(4242,))
 
         def end_spy(groups):
             ended.extend(group.pgid for group in groups)
             return real_end(groups)
 
-        monkeypatch.setattr(subprocess_capture, "stop_group", stop_reporting_a_survivor)
+        monkeypatch.setattr(subprocess_capture, "stop_child", stop_reporting_a_survivor)
         monkeypatch.setattr(process_tree, "end_groups", end_spy)
         session, (child, _) = _stubborn_session(tmp_path)
         try:
@@ -407,12 +424,13 @@ class TestPtySession:
             session.terminate()
 
     def test_terminate_says_the_table_was_unreadable_not_a_pid(self, tmp_path, monkeypatch, caplog):
-        real_stop = subprocess_capture.stop_group
+        real_stop = subprocess_capture.stop_child
 
-        def stop_that_could_not_look(pgid, **kwargs):
-            real_stop(pgid, **kwargs)
+        def stop_that_could_not_look(process, **kwargs):
+            real_stop(process, **kwargs)
+            return subprocess_capture.StopOutcome(ended=(process.pid,), unknown=(process.pid,))
 
-        monkeypatch.setattr(subprocess_capture, "stop_group", stop_that_could_not_look)
+        monkeypatch.setattr(subprocess_capture, "stop_child", stop_that_could_not_look)
         session, (child, _) = _stubborn_session(tmp_path)
         try:
             with caplog.at_level(logging.WARNING):
@@ -511,6 +529,7 @@ class TestPtySession:
             assert session.started_commands() == []
             assert calls == []
         finally:
+            monkeypatch.undo()
             session.terminate()
 
     def test_started_commands_raises_when_the_table_cannot_be_read(self, monkeypatch):
@@ -625,6 +644,25 @@ class TestPtyRegistry:
 
             assert session_2.is_alive
             assert registry.get_session("default") is session_2
+        finally:
+            registry.cleanup_all()
+
+    @pytest.mark.filterwarnings("error::ResourceWarning")
+    def test_a_dead_session_found_at_reattach_is_reaped(self):
+        registry = PtyRegistry()
+        try:
+            dead, _ = registry.get_or_create_session("default", ["/bin/sh", "-c", "exit 0"])
+            wait_for_exit(dead)
+            pid = dead.pid
+            assert pid is not None
+
+            replacement, reused = registry.get_or_create_session("default", "/bin/sh")
+
+            assert reused is False
+            assert replacement is not dead
+            assert dead.exit_code == 0
+            with pytest.raises(ChildProcessError):
+                subprocess_capture._waitid(pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
         finally:
             registry.cleanup_all()
 
