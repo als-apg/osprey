@@ -10,7 +10,16 @@
    - approval          # Gate hardware-write tool calls on human approval prompt
    - writes-check      # Kill switch: refuse every write while writes_enabled is false
    - limits            # Enforce per-channel min/max limits before writes
-@@ -1122,7 +1125,7 @@
+@@ -70,7 +73,7 @@
+   - safety              # Core safety rules: never write without approval
+   - error-handling      # Standard error handling and retry guidance
+   - artifacts           # Rules for saving diagnostic and tuning artifacts
+-  - rules/facility      # Facility-level conventions (naming, units, logbook)
++  - facility            # Facility-level conventions (naming, units, logbook)
+   - workflows           # Approved workflow patterns (scan, ramp, restore)
+   - timezone            # Always localise timestamps to facility timezone
+   - python-execution    # Rules governing Python executor sandbox usage
+@@ -1127,7 +1130,7 @@
      # To override one port rather than move the block, name it here:
      #   nginx_port: 18000         # the landing page everyone opens first
      #   web_base_port: 18100      # first per-user web-terminal port
@@ -19,7 +28,7 @@
      # Every terminal below asks for a login (user alice: password alice, and
      # so on — set in this repo's .env; rotate with `osprey users passwd`).
      auth:
-@@ -1182,22 +1185,37 @@
+@@ -1187,22 +1190,37 @@
            # to your terminal" button, so the page lists nobody. It needs the
            # login wall above (auth.method password or oidc).
            # names: shown
@@ -63,7 +72,7 @@
        # The one login that can change this deployment's configuration — the web
        # Config panel, the scaffold gallery's editors, and the agent's own setup
        # tool. Behind the login wall like every other person on this page: an
-@@ -1205,15 +1223,31 @@
+@@ -1210,15 +1228,31 @@
        # it.
        - name: carol
          index: 2
@@ -98,7 +107,7 @@
        - channel-finder   # Channel Finder: channel addresses from the hierarchy
 
    # ── Health checks ──────────────────────────────────────────────────────────
-@@ -1317,14 +1351,14 @@
+@@ -1322,14 +1356,14 @@
      OSPREY_AUTH_PW_CAROL: carol
  data: data
  # Minimum OSPREY release that understands this profile's keys. Builds below it abort.
@@ -110,7 +119,7 @@
  # preset that no `# DEVIATION: <why>` comment above the line claims (tag set
  # by `deviation_marker:`). This profile is the source of truth either way.
  # `providers_hash` is the same record for providers.yml beside this file;
--# `osprey init --revalidate` refreshes the packaged entries in it.
+-# `osprey init --revalidate` adds the packaged entries and keys it lacks.
 +# `osprey profile expand --providers` refreshes the packaged entries in it.
  provenance:
    preset: control-assistant

@@ -220,7 +220,7 @@ def test_a_patch_that_no_longer_applies_names_its_hunk(tmp_path: Path) -> None:
     assert base.count("default_tier: readonly") == 1
     moved = base.replace("default_tier: readonly", "default_tier: operator")
 
-    with pytest.raises(pytest.fail.Exception, match=r"profile\.yml:1122"):
+    with pytest.raises(pytest.fail.Exception, match=r"profile\.yml:1127"):
         _apply_profile_patch(moved, tmp_path / "als-exemplar")
 
 
