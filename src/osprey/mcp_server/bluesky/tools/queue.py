@@ -214,14 +214,15 @@ _REFUSAL_HINTS: dict[str, list[str]] = {
         "which this agent does not hold here — this deployment either withholds it "
         "or the token this agent holds does not match the bridge's.",
         "Hand the action to the operator: they can arm the queue from the BLUESKY "
-        "queue panel. Never edit config.yml, .env, or settings to obtain a token.",
+        "queue panel. A launch token reaches this agent only from the operator; "
+        "do not go looking for one.",
     ],
     LAUNCH_TOKEN_REQUIRED: [
         "This operation arms hardware motion, and the bridge has no launch token "
         "configured at all, so nobody can arm it through this route.",
         "Hand the action to the operator: they can arm the queue from the BLUESKY "
         "queue panel. Setting a launch token for the deployment is operator work, "
-        "not yours — never edit config.yml, .env, or settings to obtain one.",
+        "not yours — do not go looking for one.",
     ],
     "stale_draft_revision": [
         "The draft changed after you pinned this revision; re-read it with get_draft "
@@ -514,7 +515,7 @@ def _refuse_unarmed(tool: str) -> NoReturn:
         [
             f"Ask the operator to perform this from the BLUESKY queue panel — "
             f"{tool} is an arming action reserved for the launch-token holder.",
-            "Do not edit config.yml or environment files to obtain a token.",
+            "A launch token reaches this agent only from the operator; do not go looking for one.",
         ],
         details={"code": LAUNCH_TOKEN_INVALID},
     )

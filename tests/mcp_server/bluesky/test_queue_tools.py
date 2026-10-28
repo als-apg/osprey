@@ -36,6 +36,7 @@ import json
 import logging
 import re
 import time
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -802,6 +803,64 @@ async def test_queue_start_unconfigured_bridge_relays_launch_token_required(tmp_
 
     assert ctx["envelope"]["details"]["code"] == "launch_token_required"
     assert any("no launch token configured" in s for s in ctx["envelope"]["suggestions"])
+
+
+#: Words that point an agent at a place a token could be dug out of. A token
+#: refusal names the operator and the panel; naming the files is a map.
+_CONFIG_SURFACES = re.compile(r"config\.ya?ml|\.env\b|environment file|settings", re.I)
+
+
+async def _bridge_refuses(code: str, status: int, tmp_path, monkeypatch) -> dict:
+    _armed(tmp_path, monkeypatch)
+    with patch(f"{_MOD}._http_post_json", return_value=(status, _refusal(code, "refused"))):
+        with assert_raises_error(error_type=code) as ctx:
+            await _start_fn()()
+    return ctx["envelope"]
+
+
+async def _local_refuses(tmp_path, monkeypatch) -> dict:
+    _configure(tmp_path, monkeypatch, writes=True, token=None)
+    with patch(f"{_MOD}._http_post_json"):
+        with assert_raises_error(error_type="launch_token_invalid") as ctx:
+            await _stop_fn()(cancel=True)
+    return ctx["envelope"]
+
+
+@pytest.mark.parametrize(
+    "refuse",
+    [
+        pytest.param(lambda t, m: _bridge_refuses("launch_token_invalid", 403, t, m), id="invalid"),
+        pytest.param(
+            lambda t, m: _bridge_refuses("launch_token_required", 503, t, m), id="required"
+        ),
+        pytest.param(_local_refuses, id="local-unarmed"),
+    ],
+)
+async def test_a_token_refusal_names_the_operator_and_no_config_file(refuse, tmp_path, monkeypatch):
+    envelope = await refuse(tmp_path, monkeypatch)
+    text = " ".join([envelope["error_message"], *envelope["suggestions"]])
+
+    assert not _CONFIG_SURFACES.search(text), _CONFIG_SURFACES.findall(text)
+    assert "operator" in text and "BLUESKY queue panel" in text
+
+
+@pytest.mark.parametrize("code", sorted(queue._REFUSAL_HINTS))
+def test_no_refusal_hint_names_a_config_file(code):
+    text = " ".join(queue._REFUSAL_HINTS[code])
+
+    assert not _CONFIG_SURFACES.search(text), (code, _CONFIG_SURFACES.findall(text))
+
+
+def test_the_skill_on_token_refusals_names_no_config_file():
+    skill = (
+        Path(queue.__file__).resolve().parents[3]
+        / "templates/claude_code/claude/skills/operating-bluesky-plans/SKILL.md"
+    ).read_text()
+    entry = re.search(r"^- \*\*`launch_token_invalid`\*\*.*?(?=^- \*\*)", skill, re.M | re.S)
+    assert entry is not None, "the skill has no launch_token_invalid entry"
+
+    assert not _CONFIG_SURFACES.search(entry.group(0)), _CONFIG_SURFACES.findall(entry.group(0))
+    assert "operator" in entry.group(0)
 
 
 async def test_queue_start_environment_unavailable_is_relayed_as_retryable(tmp_path, monkeypatch):
