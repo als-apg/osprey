@@ -451,7 +451,18 @@ def pty_env(stub_runtime: StubRuntime) -> dict[str, str]:
         base.pop(key, None)
     env = stub_runtime.env(base)
     env["TERM"] = "xterm-256color"
+    # Every deployment that runs its own stack builds the project image (the
+    # agent record runs on it), and a checkout's version is never a released
+    # one, so without a pin of its own the start would refuse before the
+    # runtime is reached. The stub's build is a transcript and installs nothing,
+    # so the spec only has to be one the start accepts.
+    env["OSPREY_PIP_SPEC"] = PTY_PIP_SPEC
     return env
+
+
+#: The framework spec the scenarios' project-image build is handed. Any spec the
+#: start accepts would do: the stub runtime never runs the install it names.
+PTY_PIP_SPEC = "osprey-framework"
 
 
 #: Seconds of latency the unhurried runtime wrapper adds to each runtime call.
@@ -557,7 +568,7 @@ def _move_configured_port(config_path: Path, service: str, old: int, new: int) -
 
 
 @pytest.fixture
-def startable_repo(exemplar_copy: Path) -> Path:
+def startable_repo(exemplar_copy: Path, stub_runtime: StubRuntime) -> Iterator[Path]:
     """An ``exemplar_copy`` whose published ports are free on this host.
 
     The start verb's host-port preflight is a real socket probe and refuses the
@@ -571,9 +582,10 @@ def startable_repo(exemplar_copy: Path) -> Path:
 
     A service the deploy also dials (the agent record's service, which
     ``osprey up`` waits on over HTTP) has its configured port moved with it, in
-    the rendered config. Nothing listens on the free port, so every run meets
-    the same refused connection instead of whatever service this host runs at
-    the rendered default.
+    the rendered config, so no run dials whatever service this host runs at the
+    rendered default. What answers there is :class:`StackRecordStandIn`: the
+    stack's agent-record as the stub runtime's ``compose up`` would have started
+    it, so the start's wait for it ends the way it does against a real stack.
 
     Rendered output only: nothing in ``profile.yml`` changes, so the build
     fingerprint still matches and the start is not a stale one.
@@ -592,6 +604,7 @@ def startable_repo(exemplar_copy: Path) -> Path:
         f"no published host ports were parsed out of {compose_files}; the rewrite below "
         f"would be a no-op and the scenarios would depend on this host's free ports"
     )
+    record_port: int | None = None
     for binding, port in zip(bindings, _free_host_ports(len(bindings)), strict=True):
         path = Path(binding.compose_file)
         text = path.read_text(encoding="utf-8")
@@ -605,4 +618,108 @@ def startable_repo(exemplar_copy: Path) -> Path:
             assert _move_configured_port(config_path, binding.service, binding.host_port, port), (
                 f"could not move {binding.service}'s configured port in {config_path}"
             )
-    return exemplar_copy
+            if configured_port_block(binding.service) == ("agent_record",):
+                record_port = port
+    if record_port is None:
+        yield exemplar_copy
+        return
+    with StackRecordStandIn(record_port, stub_runtime.log_path):
+        yield exemplar_copy
+
+
+class StackRecordStandIn:
+    """The stack's agent-record, answering on its port while a stub start has it running.
+
+    The stub runtime starts nothing, so without this the start's wait for the
+    stack's agent-record (``STACK_RECORD_HEALTH_WAIT_S``) would run to its
+    bound on every ``osprey up`` a scenario drives. A watcher follows the stub's
+    invocation log. A start opens it with ``docker --version``; the first
+    ``compose up`` after that opens a listener on the record's port, which
+    answers the start's probe ready and then closes. It also closes when the
+    next start opens: that start's host-port preflight must find the port as
+    free as the stub's ``ps``, which publishes nothing, says it is.
+    """
+
+    #: Seconds between reads of the stub's invocation log.
+    POLL_S = 0.05
+
+    def __init__(self, port: int, log_path: Path) -> None:
+        import threading
+
+        self.port = port
+        self.log_path = log_path
+        self._stop = threading.Event()
+        self._watcher = threading.Thread(target=self._watch, daemon=True)
+        self._server: Any = None
+        self._answered = threading.Event()
+
+    def __enter__(self) -> StackRecordStandIn:
+        self._watcher.start()
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self._stop.set()
+        self._watcher.join()
+
+    def _calls(self, seen: int) -> tuple[int, list[dict[str, Any]]]:
+        """``(lines read, the stub invocations logged after line *seen*)``."""
+        try:
+            lines = self.log_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return seen, []
+        calls = []
+        for line in lines[seen:]:
+            try:
+                calls.append(json.loads(line))
+            except ValueError:
+                continue
+        return len(lines), calls
+
+    def _watch(self) -> None:
+        seen, armed = 0, False
+        try:
+            while not self._stop.wait(self.POLL_S):
+                seen, calls = self._calls(seen)
+                for call in calls:
+                    args = call.get("args", [])
+                    if args == ["--version"]:
+                        self._close()
+                        armed = True
+                    elif armed and call.get("compose") and "up" in args:
+                        self._open()
+                        armed = False
+                if self._answered.is_set():
+                    self._close()
+        finally:
+            self._close()
+
+    def _open(self) -> None:
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        answered = self._answered
+        answered.clear()
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                body = b'{"ready": true}' if self.path == "/health" else b"{}"
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                if self.path == "/health/sources":
+                    answered.set()
+
+            def log_message(self, *_args: object) -> None:
+                return
+
+        self._server = ThreadingHTTPServer(("127.0.0.1", self.port), Handler)
+        threading.Thread(target=self._server.serve_forever, daemon=True).start()
+
+    def _close(self) -> None:
+        if self._server is not None:
+            self._server.shutdown()
+            self._server.server_close()
+            self._server = None
+        self._answered.clear()
