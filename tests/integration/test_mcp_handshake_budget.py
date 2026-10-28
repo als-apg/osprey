@@ -43,6 +43,24 @@ pytestmark = [
     pytest.mark.filterwarnings("error::pytest.PytestUnraisableExceptionWarning"),
 ]
 
+
+@pytest.fixture(autouse=True)
+def _earlier_garbage_swept() -> None:
+    """Finalize what earlier tests on this worker left for the collector, unreported.
+
+    The tests here run ``gc.collect()`` so that a pipe or process the helper
+    leaks fails them. The same call also finalizes any cycle an earlier test on
+    the worker left behind (an unclosed event loop, say) and would blame it on
+    the helper; sweeping first leaves only what the test itself made.
+    """
+    previous = sys.unraisablehook
+    sys.unraisablehook = lambda _report: None
+    try:
+        gc.collect()
+    finally:
+        sys.unraisablehook = previous
+
+
 #: A stub MCP server. With ``phases`` above zero it reports that many startup
 #: phases to stderr in the framework's own ``[STARTUP-TIMING]`` shape, one every
 #: ``gap`` seconds, closes with ``total_startup``, then speaks JSON-RPC. With
