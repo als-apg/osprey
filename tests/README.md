@@ -47,7 +47,10 @@ the parallel invocation, so you normally just run a tier:
 The check bounds its pytest runs with `scripts/run_bounded.py`, which exits
 124 when a run passes its bound, after naming any process of its group that
 SIGKILL did not end, or saying the process table could not be read. A run stopped by its bound prints every
-process's Python stacks before it is killed. Every pytest process the suite
+process's Python stacks before it is killed. `Popen.wait()` and `poll()` report
+exit status 0 for a child something else reaped, so a child OSPREY owns is
+reaped only by its stop (`stop_child`); every liveness question asks
+`observe_exit`. Every pytest process the suite
 starts carries an exit report (the harness's `_live_threads.py`): after its last test it
 names the non-daemon threads and child processes keeping it alive, and a slow
 final garbage collection (`SLOW_CLEANUP_SECONDS`). A serial run or the xdist
