@@ -9,19 +9,23 @@ error, a control-system denial or a connection failure.
 
 from __future__ import annotations
 
-import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
 import yaml
 
-from osprey.mcp_server.control_system.error_handling import ToolError, connector_error_handler
+from osprey.mcp_server.control_system.error_handling import connector_error_handler
 from osprey.mcp_server.control_system.server_context import initialize_server_context
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.errors import ChannelNotFoundError
-from tests.connectors.test_mock_connector import _config_with_writes_enabled
+from tests._config_lookup import writes_enabled_lookup
 from tests.facility.served_tree import in_process_config, served_tree
-from tests.mcp_server.conftest import extract_response_dict, get_tool_fn, hook_error_class_map
+from tests.mcp_server.conftest import (
+    assert_raises_error,
+    extract_response_dict,
+    get_tool_fn,
+    hook_error_class_map,
+)
 
 UNKNOWN = "NO:SUCH:CHANNEL"
 
@@ -46,7 +50,7 @@ async def served(tmp_path, monkeypatch):
     }
     (tmp_path / "config.yml").write_text(yaml.safe_dump({"control_system": control_system}))
     initialize_server_context()
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", _config_with_writes_enabled)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_lookup)
 
     connector = VAInProcessConnector()
     await connector.connect(in_process_config(view, response_delay_ms=0))
@@ -77,16 +81,12 @@ async def _write(operations: list[dict]):
     return await get_tool_fn(channel_write)(operations=operations)
 
 
-def _envelope(excinfo: pytest.ExceptionInfo[ToolError]) -> dict:
-    return json.loads(str(excinfo.value))
-
-
 @pytest.mark.usefixtures("served")
 async def test_a_read_of_an_unknown_address_is_not_found():
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         await _read([UNKNOWN])
 
-    assert _envelope(excinfo) == {
+    assert raised["envelope"] == {
         "error": True,
         "error_type": "not_found",
         "error_message": (
@@ -116,10 +116,10 @@ async def test_a_mixed_read_lists_the_unknown_address_with_its_type():
 
 @pytest.mark.usefixtures("served")
 async def test_a_write_to_an_unknown_address_is_not_found():
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         await _write([{"channel": UNKNOWN, "value": 1.5}])
 
-    envelope = _envelope(excinfo)
+    envelope = raised["envelope"]
     assert envelope == {
         "error": True,
         "error_type": "not_found",
@@ -148,11 +148,11 @@ async def test_a_mixed_write_reports_the_unknown_row_and_keeps_the_written_one()
 
 
 async def test_a_history_read_of_an_unknown_address_is_not_found():
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         async with connector_error_handler("archiver_read", "archiver"):
             raise ChannelNotFoundError("X")
 
-    assert _envelope(excinfo) == {
+    assert raised["envelope"] == {
         "error": True,
         "error_type": "not_found",
         "error_message": "Unknown channel during archiver_read: X is not a channel of this facility",

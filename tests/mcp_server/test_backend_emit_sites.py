@@ -25,13 +25,14 @@ per tool.
 """
 
 import contextlib
-import socket
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import yaml
 
+from osprey.interfaces._serving import free_port
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
+from tests._audit_ledger import ledger_records
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,
@@ -49,13 +50,6 @@ _EXECUTE_FILE_MOD = "osprey.mcp_server.python_executor.tools.python_execute_file
 _LATTICE_MOD = "osprey.mcp_server.workspace.tools.lattice_tools"
 _SETUP_MOD = "osprey.mcp_server.workspace.tools.setup"
 _SCREEN_MOD = "osprey.mcp_server.workspace.tools.screen_capture"
-
-
-def _free_port() -> int:
-    """Reserve a localhost port and release it (nothing will be listening)."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
 
 
 # ── channel_write ───────────────────────────────────────────────────────────
@@ -835,15 +829,9 @@ def _audit_to(root):
 
 def _audit_records(root):
     """Every executor refusal recorded under *root*, or ``[]`` when none were."""
-    import json
-
     from osprey.audit.envelope import SURFACE_EXECUTOR
-    from osprey_connectors.identity import acting_identity
 
-    path = root / "var" / "audit" / acting_identity() / f"{SURFACE_EXECUTOR}.jsonl"
-    if not path.is_file():
-        return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    return ledger_records(root / "var" / "audit", SURFACE_EXECUTOR)
 
 
 def _execute_patterns(has_writes: bool) -> dict:
@@ -1614,7 +1602,7 @@ async def test_focus_result_unchanged_when_terminal_down(tmp_path, monkeypatch):
 
     from osprey.mcp_server.workspace.tools.focus_tools import artifact_focus
 
-    port = _free_port()
+    port = free_port()
     # Gallery acknowledges the POST (a gallery failure is a tool error by
     # contract); only the TERMINAL is down here — the notify half under test.
     with (
@@ -1649,7 +1637,7 @@ async def test_channel_write_result_unchanged_when_terminal_down(tmp_path, monke
     mock_connector = AsyncMock()
     mock_connector.write_channel.return_value = write_result
 
-    port = _free_port()
+    port = free_port()
     conn_patch, validator_patch = _channel_write_patches(mock_connector)
     with (
         conn_patch,

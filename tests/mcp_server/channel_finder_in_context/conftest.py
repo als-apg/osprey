@@ -21,10 +21,3 @@ def _reset_registry():
     reset_cf_ic_context()
     reset_config_cache()
     _cfg._config_cache.clear()
-
-
-def get_tool_fn(tool_or_fn):
-    """Extract raw function from FastMCP FunctionTool."""
-    if hasattr(tool_or_fn, "fn"):
-        return tool_or_fn.fn
-    return tool_or_fn

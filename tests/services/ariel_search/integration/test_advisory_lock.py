@@ -60,11 +60,8 @@ def probe_database(scratch_database: str) -> str:
 
 @pytest.fixture
 async def probe_pool(probe_database: str):
-    pool = await create_connection_pool(DatabaseConfig(uri=probe_database))
-    try:
+    async with await create_connection_pool(DatabaseConfig(uri=probe_database)) as pool:
         yield pool
-    finally:
-        await pool.close()
 
 
 @pytest.fixture

@@ -49,28 +49,6 @@ from osprey.services.bluesky_bridge import app as app_module
 from osprey.services.bluesky_bridge.app import app
 from osprey.services.bluesky_bridge.live_rows import LiveRowRecorder
 
-_TILED_URI_ENV = "BLUESKY_TILED_URI"
-_TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
-
-
-@pytest.fixture(autouse=True)
-def _isolated_state(monkeypatch: pytest.MonkeyPatch):
-    """Every test in this file monkeypatches `app_module._from_tiled` directly
-    rather than relying on the real one, so none is *currently* sensitive to
-    ambient Tiled env — but clearing both vars here too means a future test
-    that forgets to mock `_from_tiled` fails loudly (wrong branch exercised)
-    rather than passing by accident against whatever happens to be unset in
-    the ambient environment. See `test_read_bounded.py`'s matching fixture
-    for the concrete failure mode this guards against.
-    """
-    live_rows._clear()
-    analysis._clear()
-    monkeypatch.delenv(_TILED_URI_ENV, raising=False)
-    monkeypatch.delenv(_TILED_API_KEY_ENV, raising=False)
-    yield
-    live_rows._clear()
-    analysis._clear()
-
 
 @pytest.fixture
 def client() -> TestClient:

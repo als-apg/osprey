@@ -74,6 +74,21 @@ def _write_transcript(path: Path, entries: list[dict]) -> None:
     path.write_text("\n".join(json.dumps(e) for e in entries) + "\n")
 
 
+def _read_one_call(
+    tmp_path: Path, name: str, content: str, *, tool_input: dict | None = None, is_error=False
+) -> list[dict]:
+    """Read back a transcript holding one tool call and its result."""
+    transcript = tmp_path / "session.jsonl"
+    entries = [
+        _make_assistant_entry(_ts(0), [{"id": "tu-1", "name": name, "input": tool_input or {}}]),
+        _make_user_entry(
+            _ts(1), [{"tool_use_id": "tu-1", "content": content, "is_error": is_error}]
+        ),
+    ]
+    _write_transcript(transcript, entries)
+    return TranscriptReader(tmp_path).read_session(transcript)
+
+
 @pytest.fixture
 def transcript_dir(tmp_path):
     """Create a project dir with Claude Code transcript directory structure.
@@ -468,17 +483,7 @@ class TestReadSession:
     def test_tool_name_with_double_underscore_keeps_full_tool(self, tmp_path):
         """Only the first ``__``-pair after ``mcp__`` delimits the server; a
         ``__`` inside the tool name belongs to the tool."""
-        transcript = tmp_path / "session.jsonl"
-        entries = [
-            _make_assistant_entry(
-                _ts(0),
-                [{"id": "tu-1", "name": "mcp__srv__group__action", "input": {}}],
-            ),
-            _make_user_entry(_ts(1), [{"tool_use_id": "tu-1", "content": "ok", "is_error": False}]),
-        ]
-        _write_transcript(transcript, entries)
-
-        events = TranscriptReader(tmp_path).read_session(transcript)
+        events = _read_one_call(tmp_path, "mcp__srv__group__action", "ok")
 
         assert len(events) == 1
         assert events[0]["server"] == "srv"
@@ -486,137 +491,49 @@ class TestReadSession:
 
     def test_error_detection_native(self, tmp_path):
         """Detects is_error from native tool_result flag."""
-        transcript = tmp_path / "session.jsonl"
-        entries = [
-            _make_assistant_entry(
-                _ts(0),
-                [
-                    {
-                        "id": "tu-1",
-                        "name": "mcp__controls__channel_read",
-                        "input": {"channels": ["BAD:PV"]},
-                    },
-                ],
-            ),
-            _make_user_entry(
-                _ts(1),
-                [
-                    {
-                        "tool_use_id": "tu-1",
-                        "content": "Connection refused",
-                        "is_error": True,
-                    },
-                ],
-            ),
-        ]
-        _write_transcript(transcript, entries)
-
-        reader = TranscriptReader(tmp_path)
-        events = reader.read_session(transcript)
+        events = _read_one_call(
+            tmp_path,
+            "mcp__controls__channel_read",
+            "Connection refused",
+            tool_input={"channels": ["BAD:PV"]},
+            is_error=True,
+        )
 
         assert len(events) == 1
         assert events[0]["is_error"] is True
 
     def test_error_detection_osprey_envelope(self, tmp_path):
         """Detects is_error from OSPREY error envelope in result."""
-        transcript = tmp_path / "session.jsonl"
         error_payload = json.dumps(
             {"error": True, "error_type": "validation_error", "error_message": "bad"}
         )
-        entries = [
-            _make_assistant_entry(
-                _ts(0),
-                [
-                    {
-                        "id": "tu-1",
-                        "name": "mcp__osprey_workspace__memory_save",
-                        "input": {"key": "test"},
-                    },
-                ],
-            ),
-            _make_user_entry(
-                _ts(1),
-                [
-                    {
-                        "tool_use_id": "tu-1",
-                        "content": error_payload,
-                        "is_error": False,
-                    },
-                ],
-            ),
-        ]
-        _write_transcript(transcript, entries)
-
-        reader = TranscriptReader(tmp_path)
-        events = reader.read_session(transcript)
+        events = _read_one_call(
+            tmp_path,
+            "mcp__osprey_workspace__memory_save",
+            error_payload,
+            tool_input={"key": "test"},
+        )
 
         assert len(events) == 1
         assert events[0]["is_error"] is True
 
     def test_result_truncation_success(self, tmp_path):
         """Success results are truncated to MAX_RESULT_LENGTH."""
-        transcript = tmp_path / "session.jsonl"
         long_result = "x" * (MAX_RESULT_LENGTH + 100)
-        entries = [
-            _make_assistant_entry(
-                _ts(0),
-                [
-                    {
-                        "id": "tu-1",
-                        "name": "mcp__controls__channel_read",
-                        "input": {"channels": ["TEST"]},
-                    },
-                ],
-            ),
-            _make_user_entry(
-                _ts(1),
-                [
-                    {
-                        "tool_use_id": "tu-1",
-                        "content": long_result,
-                        "is_error": False,
-                    },
-                ],
-            ),
-        ]
-        _write_transcript(transcript, entries)
-
-        reader = TranscriptReader(tmp_path)
-        events = reader.read_session(transcript)
+        events = _read_one_call(
+            tmp_path,
+            "mcp__controls__channel_read",
+            long_result,
+            tool_input={"channels": ["TEST"]},
+        )
 
         assert len(events[0]["result_summary"]) == MAX_RESULT_LENGTH + 3  # +3 for "..."
         assert events[0]["result_summary"].endswith("...")
 
     def test_result_truncation_error(self, tmp_path):
         """Error results get the longer MAX_ERROR_RESULT_LENGTH limit."""
-        transcript = tmp_path / "session.jsonl"
         error_json = json.dumps({"error": True, "error_type": "x", "error_message": "y" * 3000})
-        entries = [
-            _make_assistant_entry(
-                _ts(0),
-                [
-                    {
-                        "id": "tu-1",
-                        "name": "mcp__controls__channel_write",
-                        "input": {},
-                    },
-                ],
-            ),
-            _make_user_entry(
-                _ts(1),
-                [
-                    {
-                        "tool_use_id": "tu-1",
-                        "content": error_json,
-                        "is_error": False,
-                    },
-                ],
-            ),
-        ]
-        _write_transcript(transcript, entries)
-
-        reader = TranscriptReader(tmp_path)
-        events = reader.read_session(transcript)
+        events = _read_one_call(tmp_path, "mcp__controls__channel_write", error_json)
 
         assert events[0]["is_error"] is True
         assert len(events[0]["result_summary"]) == MAX_ERROR_RESULT_LENGTH + 3

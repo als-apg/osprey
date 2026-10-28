@@ -30,9 +30,7 @@ shared ``llama_stub``.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
-from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -49,11 +47,14 @@ from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.enhancement import _offload, availability
 from osprey.services.ariel_search.enhancement.image_caption import module as caption_mod
 from osprey.services.ariel_search.enhancement.qmd_export.writer import encode_entry_id
-from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 from osprey.services.ariel_search.ingestion.ingest import ingest_one
 from osprey.services.ariel_search.search import qmd as qmd_module
-from osprey.services.qmd import QMDSearchResult
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
+from tests.services.ariel_search.fake_adapters import ORIGINS, HttpStubAdapter
+from tests.services.ariel_search.integration._support import (
+    FakeQMDClient,
+    fake_prepare_as_own_rendition,
+)
 from tests.services.ariel_search.llama_stub import FIXTURES
 from tests.services.ariel_search.llama_stub import MODEL as LLAMA_MODEL
 
@@ -66,7 +67,6 @@ EMBED = "image_embedding"
 CAPTION = "image_caption"
 PICTURE_MODULES = (CAPTION, EMBED)
 CAPTION_MODEL = "vis-caption-1"
-ORIGINS = frozenset({("https", "h.example", 443)})
 TS = datetime(2026, 9, 1, tzinfo=UTC)
 ENTRY_ID = "combo-1"
 RAW_TEXT = "beam lost at 14:02"
@@ -80,49 +80,6 @@ ATTACHMENT_KEYS = {"attachments", "attachment_count", "matched_attachment_ids"}
 
 
 # --- fakes -------------------------------------------------------------------------
-
-
-class _Adapter(FacilityAdapter):
-    """An http source whose pictures live on ``h.example``."""
-
-    @property
-    def source_system_name(self) -> str:
-        return "Stub"
-
-    def attachment_origins(self) -> frozenset:
-        return ORIGINS
-
-    async def fetch_entries(self, *_args, **_kwargs) -> AsyncIterator:  # type: ignore[override]
-        for entry in ():
-            yield entry
-
-
-class _FakeQMDClient:
-    """qmd faked at its client boundary: the seeded entry, titled ``Entry <entry_id>``."""
-
-    is_configured = True
-    base_url = "http://127.0.0.1:8180"
-
-    def __init__(self) -> None:
-        self.queries = 0
-
-    def is_available(self) -> bool:
-        return True
-
-    def query(self, collection: str | None, _text: str, **kwargs: Any) -> list[QMDSearchResult]:
-        self.queries += 1
-        hits = [
-            QMDSearchResult(
-                docid="#000000",
-                file=f"2024/06/{encode_entry_id(ENTRY_ID)}.md",
-                collection=collection or "ariel",
-                title=f"Entry {ENTRY_ID}",
-                score=0.9,
-                line=1,
-                snippet=f"1: {RAW_TEXT}",
-            )
-        ]
-        return hits[: kwargs.get("limit", len(hits))]
 
 
 class _FakeVision:
@@ -208,24 +165,6 @@ def _entry() -> dict[str, Any]:
         "metadata": {},
         "enhancement_status": {},
     }
-
-
-def _fake_prepare(monkeypatch) -> None:
-    """Every fetched picture is its own rendition; no render worker starts."""
-    from osprey.services.ariel_search.attachments import prepare as prepare_mod
-
-    async def _prepare(data, **_kwargs):
-        return prepare_mod.PreparedPicture(
-            mime_type="image/png",
-            skip_reason=None,
-            rendition_bytes=bytes(data),
-            rendition_mime="image/png",
-            rendition_w=1,
-            rendition_h=1,
-            rendition_sha256=hashlib.sha256(data).hexdigest(),
-        )
-
-    monkeypatch.setattr(prepare_mod, "prepare_picture", _prepare)
 
 
 def _enhancement_status(uri: str) -> dict[str, Any]:
@@ -341,13 +280,15 @@ async def test_every_module_combination_runs(
     stub = llama_stub()
     vision = _FakeVision()
     monkeypatch.setattr(caption_mod, "_chat_completion", vision)
-    qmd_client = _FakeQMDClient()
+    qmd_client = FakeQMDClient(
+        f"2024/06/{encode_entry_id(ENTRY_ID)}.md", f"Entry {ENTRY_ID}", RAW_TEXT
+    )
     monkeypatch.setattr(qmd_module, "_resolve_client", lambda client: (qmd_client, True))
     copies = copy_on_ingest == "images"
     picture_search = embedding and hybrid
     if copies:
         attachment_fetch.respond(lambda url, *_a, **_k: FetchOutcome(data=_picture_bytes(url)))
-        _fake_prepare(monkeypatch)
+        fake_prepare_as_own_rendition(monkeypatch)
 
     raw = _config_dict(
         scratch_database,
@@ -361,16 +302,13 @@ async def test_every_module_combination_runs(
     config = ARIELConfig.from_dict(raw)
 
     # -- ingest one two-picture entry --------------------------------------------
-    pool = await create_connection_pool(config.database)
-    try:
+    async with await create_connection_pool(config.database) as pool:
         await run_migrations(pool, config)
         repository = ARIELRepository(pool, config)
-        adapter = _Adapter(config)
+        adapter = HttpStubAdapter(config)
         await ingest_one(
             _entry(), adapter, repository, [], config, copy_mod.CopyRun(adapter, ORIGINS)
         )
-    finally:
-        await pool.close()
 
     rows = _copy_rows(scratch_database)
     assert set(rows) == {_id(n) for n in PICTURES}

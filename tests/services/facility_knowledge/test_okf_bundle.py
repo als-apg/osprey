@@ -269,9 +269,18 @@ class TestReadConcept:
 
     # --- path-traversal containment (security regression) ---
 
-    def test_dotdot_traversal_raises(self, tmp_path: Path):
-        """concept_id with .. must raise OKFBundleError, not read outside root."""
-        secret = tmp_path.parent / "secret.md"
+    @pytest.mark.parametrize(
+        ("secret_name", "concept_id"),
+        [
+            pytest.param("secret", "../secret", id="dotdot"),
+            pytest.param("secret2", "/../secret2", id="leading_slash_dotdot"),
+            # Embedded // + .. traversal must be caught after path resolution.
+            pytest.param("secret3", "subdir/../../secret3", id="double_slash_dotdot"),
+        ],
+    )
+    def test_traversal_raises(self, tmp_path: Path, secret_name: str, concept_id: str):
+        """A concept_id resolving outside the root raises OKFBundleError, reading nothing."""
+        secret = tmp_path.parent / f"{secret_name}.md"
         secret.write_text("---\ntype: secret\n---\nshould not be readable\n", encoding="utf-8")
 
         bundle_root = tmp_path / "bundle"
@@ -279,40 +288,7 @@ class TestReadConcept:
         bundle = OKFBundle(bundle_root)
 
         with pytest.raises(OKFBundleError, match="escapes bundle root"):
-            bundle.read_concept("../secret")
-
-    def test_leading_slash_dotdot_traversal_raises(self, tmp_path: Path):
-        """concept_id '/../secret' must also be blocked."""
-        secret = tmp_path.parent / "secret2.md"
-        secret.write_text("---\ntype: secret\n---\nshould not be readable\n", encoding="utf-8")
-
-        bundle_root = tmp_path / "bundle"
-        bundle_root.mkdir()
-        bundle = OKFBundle(bundle_root)
-
-        with pytest.raises(OKFBundleError, match="escapes bundle root"):
-            bundle.read_concept("/../secret2")
-
-    def test_double_slash_dotdot_traversal_raises(self, tmp_path: Path):
-        """Embedded // + .. traversal must be caught after path resolution."""
-        secret = tmp_path.parent / "secret3.md"
-        secret.write_text("---\ntype: secret\n---\nshould not be readable\n", encoding="utf-8")
-
-        bundle_root = tmp_path / "bundle"
-        bundle_root.mkdir()
-        bundle = OKFBundle(bundle_root)
-
-        # concept_id that, after resolve(), points outside the root.
-        with pytest.raises(OKFBundleError, match="escapes bundle root"):
-            bundle.read_concept("subdir/../../secret3")
-
-    def test_normal_nested_concept_still_works_after_containment_fix(self, tmp_path: Path):
-        """Legitimate nested IDs must still resolve correctly."""
-        _make_bundle(tmp_path)
-        bundle = OKFBundle(tmp_path)
-        doc = bundle.read_concept("tables/beam_params")
-
-        assert doc.frontmatter["title"] == "Beam Parameters"
+            bundle.read_concept(concept_id)
 
 
 # ---------------------------------------------------------------------------
@@ -323,19 +299,21 @@ class TestReadConcept:
 class TestSearch:
     """search matches across frontmatter values and body text."""
 
-    def test_search_matches_body_text(self, tmp_path: Path):
+    @pytest.mark.parametrize(
+        ("query", "concept_id"),
+        [
+            pytest.param("synchrotron", "accelerator_overview", id="body_text"),
+            pytest.param("epics", "tables/beam_params", id="frontmatter_value"),
+            # Tags are a YAML list; search must reach into them.
+            pytest.param("beam", "tables/beam_params", id="tag_in_frontmatter_list"),
+        ],
+    )
+    def test_search_matches(self, tmp_path: Path, query: str, concept_id: str):
         _make_bundle(tmp_path)
         bundle = OKFBundle(tmp_path)
-        results = bundle.search("synchrotron")
+        results = bundle.search(query)
 
-        assert "accelerator_overview" in _ids(results)
-
-    def test_search_matches_frontmatter_value(self, tmp_path: Path):
-        _make_bundle(tmp_path)
-        bundle = OKFBundle(tmp_path)
-        results = bundle.search("epics")
-
-        assert "tables/beam_params" in _ids(results)
+        assert concept_id in _ids(results)
 
     def test_search_is_case_insensitive(self, tmp_path: Path):
         _make_bundle(tmp_path)
@@ -367,14 +345,6 @@ class TestSearch:
         ids = _ids(results)
         assert "index" not in ids
         assert "tables/index" not in ids
-
-    def test_search_matches_tag_in_frontmatter_list(self, tmp_path: Path):
-        """Tags are a YAML list; search must reach into them."""
-        _make_bundle(tmp_path)
-        bundle = OKFBundle(tmp_path)
-        results = bundle.search("beam")
-
-        assert "tables/beam_params" in _ids(results)
 
     def test_fallback_results_are_unscored_and_unsnippeted(self, tmp_path: Path):
         """The substring backend does not rank, and says so with ``None``."""

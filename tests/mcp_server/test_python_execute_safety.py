@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from tests._audit_ledger import ledger_records
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 
@@ -289,15 +290,9 @@ def test_readonly_imports_syntax_error_is_not_an_issue_here():
 
 
 def _audit_records(root):
-    import json
-
     from osprey.audit.envelope import SURFACE_EXECUTOR
-    from osprey_connectors.identity import acting_identity
 
-    path = root / "var" / "audit" / acting_identity() / f"{SURFACE_EXECUTOR}.jsonl"
-    if not path.is_file():
-        return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    return ledger_records(root / "var" / "audit", SURFACE_EXECUTOR)
 
 
 async def test_denied_import_is_recorded_with_its_source(tmp_path, monkeypatch):

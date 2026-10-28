@@ -31,33 +31,11 @@ from osprey_connectors.control_system._limits_validator import (
     LimitsValidator,
 )
 from osprey_connectors.errors import ChannelLimitsViolationError
+from tests.services.python_executor.execution._write_targets import resolve_target
 
 # ---------------------------------------------------------------------------
 # Restoration
 # ---------------------------------------------------------------------------
-
-
-def _resolve_target(dotted):
-    """Resolve a write-surface row to the object that carries its attributes.
-
-    A copy of the resolver the emitted guard uses, kept for the same reason
-    ``test_readonly_guard.py`` keeps one: the guard has to be self-contained —
-    it runs before user code in a subprocess that may not be able to import
-    OSPREY at all — so there is no function to share.
-    """
-    parts = dotted.split(".")
-    for cut in range(len(parts), 0, -1):
-        try:
-            obj = importlib.import_module(".".join(parts[:cut]))
-        except ImportError:
-            continue
-        for attr in parts[cut:]:
-            try:
-                obj = getattr(obj, attr)
-            except AttributeError:
-                return None
-        return obj
-    return None
 
 
 @pytest.fixture(autouse=True)
@@ -77,7 +55,7 @@ def _restore_patched_targets():
     """
     saved = []
     for dotted, attrs in _CLIENT_WRITE_TARGETS:
-        target = _resolve_target(dotted)
+        target = resolve_target(dotted)
         if target is None:
             continue
         for attr in attrs:
@@ -464,33 +442,21 @@ def test_scalar_put_within_limits_reaches_the_client(monkeypatch):
     assert ctxt.puts == [("TEST:MAG:SP", 5.0)]
 
 
-def test_scalar_put_out_of_bounds_raises_before_any_network_call(monkeypatch):
+@pytest.mark.parametrize(
+    ("channel", "value"),
+    [
+        pytest.param("TEST:MAG:SP", 99.0, id="out-of-bounds"),
+        pytest.param("TEST:NOT:IN:DB", 1.0, id="unlisted-channel"),
+        pytest.param("TEST:RO", 1.0, id="read-only-channel"),
+    ],
+)
+def test_a_refused_scalar_put_raises_before_any_network_call(monkeypatch, channel, value):
     classes = _install_fake_p4p(monkeypatch)
     _run_monkeypatch(monkeypatch)
 
     ctxt = classes["thread"]()
     with pytest.raises(ChannelLimitsViolationError):
-        ctxt.put("TEST:MAG:SP", 99.0)
-    assert ctxt.puts == []
-
-
-def test_scalar_put_to_unlisted_channel_is_blocked(monkeypatch):
-    classes = _install_fake_p4p(monkeypatch)
-    _run_monkeypatch(monkeypatch)
-
-    ctxt = classes["thread"]()
-    with pytest.raises(ChannelLimitsViolationError):
-        ctxt.put("TEST:NOT:IN:DB", 1.0)
-    assert ctxt.puts == []
-
-
-def test_scalar_put_to_read_only_channel_is_blocked(monkeypatch):
-    classes = _install_fake_p4p(monkeypatch)
-    _run_monkeypatch(monkeypatch)
-
-    ctxt = classes["thread"]()
-    with pytest.raises(ChannelLimitsViolationError):
-        ctxt.put("TEST:RO", 1.0)
+        ctxt.put(channel, value)
     assert ctxt.puts == []
 
 
