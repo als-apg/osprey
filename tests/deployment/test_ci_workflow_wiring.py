@@ -178,25 +178,6 @@ TEAMS_SKIP_GATE_STEP = "Fail the lane on any skipped test"
 NO_MODEL_JOB = "e2e-no-model"
 NO_MODEL_RUN_STEP = "Run the model-free E2E files"
 NO_MODEL_SKIP_GATE_STEP = "Fail the lane on any skipped test"
-#: The files the model-free lane names, in the order its run step names them.
-NO_MODEL_TEST_FILES = (
-    "tests/e2e/test_telemetry_store_e2e.py",
-    "tests/e2e/test_telemetry_access_e2e.py",
-    "tests/e2e/test_sdk_helpers.py",
-    "tests/e2e/test_scripted_model.py",
-    "tests/e2e/claude_code/test_safety_gates_scripted.py",
-    "tests/e2e/test_mcp_readiness.py",
-    "tests/e2e/test_dispatch_deploy_render.py",
-    "tests/e2e/web_terminals/test_scaffold_render_roundtrip.py",
-    "tests/e2e/web_terminals/test_skills_overlay_discovery.py",
-    "tests/e2e/web_terminals/test_loopback_chokepoint.py",
-    "tests/e2e/web_terminals/test_session_restart_e2e.py",
-    "tests/e2e/web_terminals/test_terminal_auth_e2e.py",
-    "tests/e2e/web_terminals/test_render_permissions_scripted.py",
-    "tests/e2e/claude_code/test_chat_approval_gates_scripted.py",
-    "tests/e2e/claude_code/test_chat_plan_mode_scripted.py",
-    "tests/e2e/claude_code/test_chat_attachment_read_scripted.py",
-)
 SAME_REPO_CLAUSE = "github.event.pull_request.head.repo.full_name == github.repository"
 
 ALS_APG_BASE_URL_ENV = "ALS_APG_BASE_URL"
@@ -3653,71 +3634,6 @@ def test_all_checks_passed_needs_teams_bridge__mutation_drops_check_pr_lane_line
 # ---------------------------------------------------------------------------
 
 
-def _model_free_selected_paths(wf: dict[str, Any]) -> list[str]:
-    """The paths the model-free lane's run step hands pytest to collect."""
-    run_text = _find_named_step(wf, NO_MODEL_JOB, NO_MODEL_RUN_STEP)["run"]
-    return [token for token in run_text.split() if token.startswith("tests/")]
-
-
-def _collected_ids(args: list[str]) -> set[str]:
-    """The node ids pytest collects for ``args``, from the repo root.
-
-    ``--collect-only`` is exempt from the e2e provider refusal, so no provider
-    has to be named.
-    """
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "pytest",
-            "--collect-only",
-            "-q",
-            "-o",
-            "addopts=",
-            "-p",
-            "no:cacheprovider",
-            *args,
-        ],
-        cwd=CI_YML.parents[2],
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    return {line.strip() for line in result.stdout.splitlines() if "::" in line}
-
-
-def test_the_model_free_marker_equals_the_model_free_lane_selection(
-    workflow: dict[str, Any],
-) -> None:
-    """A run that names no provider may select only ``model_free`` tests, and
-    the lane is where those tests run. A test the lane runs without the marker
-    would be refused in a run with no provider; a marked test the lane leaves
-    out claims a lane that never runs it."""
-    paths = _model_free_selected_paths(workflow)
-    marked = _collected_ids([*paths, "-m", "model_free"])
-    selected = _collected_ids(paths)
-    assert marked == selected, (
-        f"marked model_free but not run by '{NO_MODEL_JOB}': {sorted(marked - selected)}; "
-        f"run by '{NO_MODEL_JOB}' but not marked model_free: {sorted(selected - marked)}"
-    )
-
-
-def test_only_the_model_free_lane_files_carry_the_marker(workflow: dict[str, Any]) -> None:
-    """The equality above collects only the lane's own files; a marked module
-    anywhere else under ``tests/e2e/`` is read from source instead of from a
-    whole-directory collection."""
-    root = CI_YML.parents[2]
-    lane = set(_model_free_selected_paths(workflow))
-    stray = sorted(
-        path.relative_to(root).as_posix()
-        for path in (root / "tests" / "e2e").rglob("test_*.py")
-        if "mark.model_free" in path.read_text(encoding="utf-8")
-        and path.relative_to(root).as_posix() not in lane
-    )
-    assert stray == [], f"marked model_free but not named in '{NO_MODEL_RUN_STEP}': {stray}"
-
-
 def test_model_free_lane_exists(workflow: dict[str, Any]) -> None:
     assert NO_MODEL_JOB in _jobs(workflow)
 
@@ -3727,6 +3643,78 @@ def test_model_free_lane_exists__mutation_drops_job() -> None:
     del mutated["jobs"][NO_MODEL_JOB]
     with pytest.raises(AssertionError):
         assert NO_MODEL_JOB in _jobs(mutated)
+
+
+#: ``-m model_free`` as one marker expression, not the shared lane's complement.
+MODEL_FREE_SELECTION = re.compile(r"""-m\s+["']?model_free["']?(?=\s|$)""")
+#: ``-m "not model_free"``, quoted or not.
+MODEL_FREE_EXCLUSION = re.compile(r"""-m\s+["']not model_free["']""")
+
+
+def test_model_free_lane_selects_by_the_marker(workflow: dict[str, Any]) -> None:
+    """The lane sweeps ``tests/e2e`` and keeps what carries ``model_free``, so
+    the marker is the whole selection: no file list to fall behind a rename,
+    and an empty selection exits pytest 5 instead of passing."""
+    step = _find_named_step(workflow, NO_MODEL_JOB, NO_MODEL_RUN_STEP)
+    run_text = "\n".join(_uncommented_lines(step["run"]))
+    assert MODEL_FREE_SELECTION.search(run_text), (
+        f"'{NO_MODEL_RUN_STEP}' does not select with -m model_free"
+    )
+    assert re.search(r"\btests/e2e/?(?=\s)", run_text), (
+        f"'{NO_MODEL_RUN_STEP}' does not sweep the tests/e2e directory"
+    )
+
+
+def test_model_free_lane_selects_by_the_marker__mutation_drops_the_marker() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, NO_MODEL_JOB, NO_MODEL_RUN_STEP)
+    step["run"] = "\n".join(
+        MODEL_FREE_SELECTION.sub("", line) for line in _uncommented_lines(step["run"])
+    )
+    with pytest.raises(AssertionError, match="does not select"):
+        test_model_free_lane_selects_by_the_marker(mutated)
+
+
+def test_shared_lane_excludes_the_model_free_marker(workflow: dict[str, Any]) -> None:
+    """The handover is the marker's complement: the shared lane sweeps the
+    same directory with ``-m "not model_free"``, so the two lanes divide it
+    without either naming a file, and no test runs in both."""
+    step = _find_named_step(workflow, E2E_TESTS_JOB, "Run E2E tests")
+    run_text = "\n".join(_uncommented_lines(step["run"]))
+    assert MODEL_FREE_EXCLUSION.search(run_text), (
+        f"'{E2E_TESTS_JOB}' does not carry -m \"not model_free\" — the model-free tests "
+        f"would run in both lanes, paying the label for work that needs no label"
+    )
+
+
+def test_shared_lane_excludes_the_model_free_marker__mutation_drops_the_exclusion() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
+    step["run"] = "\n".join(
+        MODEL_FREE_EXCLUSION.sub("", line) for line in _uncommented_lines(step["run"])
+    )
+    with pytest.raises(AssertionError, match="does not carry"):
+        test_shared_lane_excludes_the_model_free_marker(mutated)
+
+
+def test_model_free_lane_ignores_the_teams_module(workflow: dict[str, Any]) -> None:
+    """The sweep would collect the Teams bridge module, which importorskips
+    ``azure.servicebus`` at module scope; this lane installs no ``teams``
+    extra, so the collection-time skip lands in the junit and the skip gate
+    reds the lane over a module that holds no ``model_free`` test."""
+    step = _find_named_step(workflow, NO_MODEL_JOB, NO_MODEL_RUN_STEP)
+    run_text = "\n".join(_uncommented_lines(step["run"]))
+    assert f"--ignore={TEAMS_TEST_FILE}" in run_text, (
+        f"'{NO_MODEL_RUN_STEP}' sweeps {TEAMS_TEST_FILE} without the `{TEAMS_EXTRA}` extra"
+    )
+
+
+def test_model_free_lane_ignores_the_teams_module__mutation_drops_the_ignore() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, NO_MODEL_JOB, NO_MODEL_RUN_STEP)
+    step["run"] = step["run"].replace(f"--ignore={TEAMS_TEST_FILE}", "")
+    with pytest.raises(AssertionError, match="without the"):
+        test_model_free_lane_ignores_the_teams_module(mutated)
 
 
 def test_model_free_lane_runs_on_fork_pull_requests(workflow: dict[str, Any]) -> None:
@@ -3766,38 +3754,6 @@ def test_model_free_lane_runs_on_fork_pull_requests__mutation_re_adds_the_same_r
     assert FULL_CI_LABEL_CLAUSE not in job["if"]  # the other half survives untouched
     with pytest.raises(AssertionError, match="fork pull requests too"):
         test_model_free_lane_runs_on_fork_pull_requests(mutated)
-
-
-def test_model_free_lane_names_every_file_it_owns(workflow: dict[str, Any]) -> None:
-    """Named by path rather than by marker because a path that stops existing
-    exits pytest non-zero and reds the step, while a marker that stops matching
-    selects nothing and greens it — and the on-disk half is what makes the
-    first half mean something, since a renamed file would otherwise leave the
-    lane asserting about a string."""
-    missing = [f for f in NO_MODEL_TEST_FILES if f not in _model_free_selected_paths(workflow)]
-    assert missing == [], (
-        f"'{NO_MODEL_RUN_STEP}' does not name: {missing} — a file the lane owns and nothing runs"
-    )
-    absent = [f for f in NO_MODEL_TEST_FILES if not (CI_YML.parents[2] / f).is_file()]
-    assert absent == [], (
-        f"the lane names file(s) no longer on disk: {absent} — pytest exits non-zero on "
-        f"a path it cannot collect, so the step reds until the list is corrected"
-    )
-
-
-def test_model_free_lane_names_every_file_it_owns__mutation_drops_a_file_from_the_run_step() -> (
-    None
-):
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, NO_MODEL_JOB, NO_MODEL_RUN_STEP)
-    lines = step["run"].splitlines(keepends=True)
-    kept = [line for line in lines if "tests/e2e/test_telemetry_store_e2e.py" not in line]
-    assert len(kept) == len(lines) - 1, "expected exactly one line dropped"
-    step["run"] = "".join(kept)
-    # the neighbour survives, so the mutation is one file wide
-    assert "tests/e2e/test_sdk_helpers.py" in _model_free_selected_paths(mutated)
-    with pytest.raises(AssertionError, match="does not name"):
-        test_model_free_lane_names_every_file_it_owns(mutated)
 
 
 def test_model_free_lane_declares_no_gateway_key(workflow: dict[str, Any]) -> None:
@@ -3923,87 +3879,6 @@ def test_all_checks_passed_needs_the_model_free_lane__mutation_drops_check_pr_la
     assert NO_MODEL_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the needs entry survives
     with pytest.raises(AssertionError):
         test_all_checks_passed_needs_the_model_free_lane(mutated)
-
-
-def _e2e_files_the_shared_lane_sweeps(wf: dict[str, Any]) -> set[str]:
-    """The ``tests/e2e/**/test_*.py`` paths the shared lane's directory sweep
-    still collects, repo-relative and POSIX.
-
-    Derived from disk rather than from a list, so a module added to the tree is
-    in this set the moment it exists — the sweep names a directory, and what
-    leaves it leaves by an ``--ignore``.
-    """
-    run_text = _find_named_step(wf, E2E_TESTS_JOB, "Run E2E tests")["run"]
-    ignored = set(re.findall(r"--ignore=(\S+)", run_text))
-    repo_root = CI_YML.parents[2]
-    swept = {path.relative_to(repo_root).as_posix() for path in _e2e_test_sources()}
-    return swept - ignored
-
-
-def test_shared_lane_hands_over_every_model_free_file(workflow: dict[str, Any]) -> None:
-    """The handover is one ``--ignore`` per file: the shared lane names a
-    directory, so a file only stops being swept when it is named."""
-    missing = _run_step_ignores_all(workflow, list(NO_MODEL_TEST_FILES))
-    assert missing == [], (
-        f"model-free e2e file(s) still swept by the '{E2E_TESTS_JOB}' lane: {missing} — "
-        f"they would run in both lanes, paying the label for work that needs no label"
-    )
-
-
-def test_shared_lane_hands_over_every_model_free_file__mutation_drops_the_telemetry_ignore() -> (
-    None
-):
-    telemetry = "tests/e2e/test_telemetry_store_e2e.py"
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
-    step["run"] = _drop_ignore_line(step["run"], telemetry)
-    others = [f for f in NO_MODEL_TEST_FILES if f != telemetry]
-    assert _run_step_ignores_all(mutated, others) == []  # the other nine survive
-    with pytest.raises(AssertionError, match="still swept"):
-        test_shared_lane_hands_over_every_model_free_file(mutated)
-
-
-def test_shared_lane_hands_over_every_model_free_file__mutation_drops_the_terminal_auth_ignore() -> (
-    None
-):
-    """The neighbouring ``--ignore`` names ``test_terminal_auth_multiuser_e2e.py``,
-    which does not contain this file's path as a substring — so exactly one
-    line goes and the mutation stays one file wide."""
-    terminal_auth = "tests/e2e/web_terminals/test_terminal_auth_e2e.py"
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
-    step["run"] = _drop_ignore_line(step["run"], terminal_auth)
-    others = [f for f in NO_MODEL_TEST_FILES if f != terminal_auth]
-    assert _run_step_ignores_all(mutated, others) == []  # the other nine survive
-    with pytest.raises(AssertionError, match="still swept"):
-        test_shared_lane_hands_over_every_model_free_file(mutated)
-
-
-def test_no_end_to_end_file_runs_in_both_lanes(workflow: dict[str, Any]) -> None:
-    """The two lanes divide one directory, and the division is the claim — a
-    file in both is paid for twice, and the set is computed from what is on
-    disk rather than from the lists, so it also sees a file that returns to the
-    sweep under a path neither list spells the same way."""
-    swept = _e2e_files_the_shared_lane_sweeps(workflow)
-    assert swept, (
-        f"the '{E2E_TESTS_JOB}' sweep was computed as empty — the discovery broke, and "
-        f"an empty set makes the disjointness below vacuous"
-    )
-    both = sorted(set(NO_MODEL_TEST_FILES) & swept)
-    assert both == [], (
-        f"file(s) in both end-to-end lanes: {both} — each is collected twice, once "
-        f"behind the label and once without it"
-    )
-
-
-def test_no_end_to_end_file_runs_in_both_lanes__mutation_returns_a_file_to_the_sweep() -> None:
-    render = "tests/e2e/web_terminals/test_scaffold_render_roundtrip.py"
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
-    step["run"] = _drop_ignore_line(step["run"], render)
-    assert set(NO_MODEL_TEST_FILES) & _e2e_files_the_shared_lane_sweeps(mutated) == {render}
-    with pytest.raises(AssertionError, match="in both end-to-end lanes"):
-        test_no_end_to_end_file_runs_in_both_lanes(mutated)
 
 
 # ---------------------------------------------------------------------------
