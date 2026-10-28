@@ -170,7 +170,8 @@ async def test_terminate_returns_the_reaped_code():
         "import os\nprint('exiting', flush=True)\nos._exit(3)\n",
         stdout=asyncio.subprocess.PIPE,
     )
-    assert (await asyncio.wait_for(exited.stdout.readline(), 10.0)).strip() == b"exiting"
+    # The pipe closes only when the child dies, so terminate meets an exited child.
+    assert await asyncio.wait_for(exited.stdout.read(), 10.0) == b"exiting\n"
     assert await terminate(exited, 0.5) == 3
 
     sleeping = await asyncio.create_subprocess_exec(
