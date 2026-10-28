@@ -422,7 +422,7 @@ class TestCorrectBeforeAnySwitch:
         assert {row["writes_reason"] for row in rows.values()} == {"owner_unknown"}
 
         del raw["control_system"]["login_tiers"]
-        control_context.record_path_under(state_root).write_text("{not json", encoding="utf-8")
+        control_context._record_path_under(state_root).write_text("{not json", encoding="utf-8")
         control_context.invalidate_cache()
         install_context(make_manager(raw=raw), monkeypatch)
 

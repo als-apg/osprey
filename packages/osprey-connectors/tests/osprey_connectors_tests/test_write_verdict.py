@@ -219,7 +219,7 @@ def test_mapped_never_is_tier_never(root):
 
 
 def test_corrupt_host_record_is_record_unavailable(root):
-    path = control_context.record_path_under(root)
+    path = control_context._record_path_under(root)
     write_payload(path, "{not json")
     path.write_text("{not json", encoding="utf-8")
     control_context.invalidate_cache()
@@ -241,7 +241,7 @@ def test_unresolvable_host_root_is_record_unavailable(monkeypatch):
 
 
 def test_missing_host_record_is_switch_off(root):
-    assert not control_context.record_path_under(root).exists()
+    assert not control_context._record_path_under(root).exists()
     _refused(write_verdict(LIVE, "live"), "switch_off")
 
 
@@ -319,13 +319,13 @@ def test_order_target_beats_owner():
 
 
 def test_order_owner_beats_the_rung_and_the_record(root):
-    write_payload(control_context.record_path_under(root), "{not json")
+    write_payload(control_context._record_path_under(root), "{not json")
     section = {**LIVE, "login_tiers": {"alice": "never"}}
     _refused(write_verdict(section, "live", owner=NO_OWNER), "owner_unknown")
 
 
 def test_order_mapped_never_beats_the_record(root):
-    write_payload(control_context.record_path_under(root), "{not json")
+    write_payload(control_context._record_path_under(root), "{not json")
     section = {**LIVE, "login_tiers": {ME: "never"}}
     _refused(write_verdict(section, "live", owner=ME), "tier_never")
 
@@ -336,13 +336,13 @@ def test_order_owner_unknown_beats_the_foreign_owner(root):
 
 
 def test_order_foreign_owner_beats_the_rung_and_the_record(root):
-    write_payload(control_context.record_path_under(root), "{not json")
+    write_payload(control_context._record_path_under(root), "{not json")
     section = {**LIVE, "login_tiers": {"alice": "never"}}
     _refused(write_verdict(section, "live", owner="alice"), "owner_foreign")
 
 
 def test_order_record_beats_the_pin(root, monkeypatch):
-    write_payload(control_context.record_path_under(root), "{not json")
+    write_payload(control_context._record_path_under(root), "{not json")
     monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "live=sandbox")
     _refused(write_verdict(LIVE, "live"), "record_unavailable")
 

@@ -22,11 +22,12 @@ import pytest
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system import _base as connector_base
 from osprey_connectors.control_system._base import WriteOutcome
-from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
+from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.refusals import REASONS, refusal_phrase
 from osprey_connectors.types import TARGET_LIVE, TARGET_STANDIN, TARGET_VA, VIRTUAL_ACCELERATOR
 from osprey_connectors_tests._harness import (
     REFUSAL_BAN_LIST,
+    isolated_connector_registries,
     write_control_context,
     write_payload,
 )
@@ -42,9 +43,6 @@ ALLOWED: dict[str, Any] = {"type": "epics", "writes": "allowed"}
 
 #: The same deployment with the tier at ``never``.
 NEVER: dict[str, Any] = {"type": "epics", "writes": "never"}
-
-#: The phrase a switched-off real machine is refused with.
-SWITCH_OFF_LIVE = refusal_phrase("switch_off", "real")
 
 
 @pytest.fixture(autouse=True)
@@ -170,7 +168,7 @@ class TestTheSwitchDecides:
         assert (await connector.write_channel("A:SP", 1.0)).outcome is WriteOutcome.CONFIRMED
 
         control_context.set_switch(
-            [TARGET_LIVE], "off", path=control_context.record_path_under(root)
+            [TARGET_LIVE], "off", path=control_context._record_path_under(root)
         )
         control_context.invalidate_cache()
         result = await connector.write_channel("A:SP", 2.0)
@@ -302,7 +300,7 @@ class TestTheEarlierTermsRefuseFirst:
     @pytest.mark.asyncio
     async def test_an_unreadable_record_is_refused_as_unavailable(self, tier, root):
         tier(ALLOWED)
-        write_payload(control_context.record_path_under(root), "not a record")
+        write_payload(control_context._record_path_under(root), "not a record")
         connector = _built(TARGET_LIVE)
 
         result = await connector.write_channel("A:SP", 1.0)

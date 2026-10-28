@@ -27,7 +27,7 @@ import json
 import pytest
 import yaml
 
-from osprey_connectors.control_context import record_path_under
+from osprey_connectors.control_context import _record_path_under
 from osprey_connectors_tests._harness import (
     pin_identity,
     state_dir_under,
@@ -131,7 +131,7 @@ def _write_record(root, record):
     if record is None:
         return
     if record == _CORRUPT:
-        path = record_path_under(root)
+        path = _record_path_under(root)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("{not json", encoding="utf-8")
         return

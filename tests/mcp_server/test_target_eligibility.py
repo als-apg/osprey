@@ -1252,7 +1252,7 @@ def test_an_owner_the_login_map_does_not_name_refuses_as_owner_unknown(verdict_r
 
 def test_an_unreadable_record_refuses_as_record_unavailable(verdict_root) -> None:
     _switch_on(verdict_root, VA)
-    control_context.record_path_under(verdict_root).write_text("{not json", encoding="utf-8")
+    control_context._record_path_under(verdict_root).write_text("{not json", encoding="utf-8")
     control_context.invalidate_cache()
     section = _tier_config("allowed")["control_system"]
 

@@ -667,7 +667,7 @@ def test_an_undecodable_record_is_unreadable_on_both_sides(tmp_path, monkeypatch
     # Act / Assert — both answer, and both refuse
     assert reader.read_record({}) is None
     assert reader.read_record_status({}) == (None, "unreadable")
-    path = control_context.record_path_under(root)
+    path = control_context._record_path_under(root)
     assert control_context.read_record_status(path=path)[1] == "unreadable"
     posture_store.invalidate_cache()
 

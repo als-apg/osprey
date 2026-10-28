@@ -385,7 +385,7 @@ def _writes_armed() -> Iterator[None]:
         os.environ.pop(name, None)
     with tempfile.TemporaryDirectory(prefix="osprey-ca-driver-") as scratch:
         os.environ["OSPREY_AGENT_DATA_ROOT"] = scratch
-        path = control_context.record_path_under(Path(scratch))
+        path = control_context._record_path_under(Path(scratch))
         control_context.write_record(
             control_context.ControlContext(
                 target=_ARMED_TARGET, generation=1, owner=None, posture={}, last_switch=None

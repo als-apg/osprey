@@ -4,5 +4,5 @@ old narrowing and store readers: `effective_writes`, `store_permits`,
 `StoreVerdict`, `StoreVerdictDetail`, `recorded_posture`, `target_posture`,
 `launch_permits`, `launch_narrowed_target` and `parse_launch_posture`. Ask
 `write_verdict(section, target)` instead — its `allowed` and `reason` replace
-the bool and the verdict member — and `launch_pin_term(target)` for the
-launch pin.
+the bool and the verdict member, and a run whose launch pin refuses answers
+`reason == "launch_pinned"`.

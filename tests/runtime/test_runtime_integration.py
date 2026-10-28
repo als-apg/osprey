@@ -231,7 +231,9 @@ def test_turning_the_switch_off_mid_script_refuses_the_next_write(switch_on):
     write_channel("TEST:PV1", 1.0)
     connector = runtime._runtime_connector
 
-    control_context.set_switch([BASELINE], "off", path=control_context.record_path_under(switch_on))
+    control_context.set_switch(
+        [BASELINE], "off", path=control_context._record_path_under(switch_on)
+    )
 
     with pytest.raises(ChannelWriteBlockedError) as exc:
         write_channel("TEST:PV2", 2.0)

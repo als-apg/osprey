@@ -1376,7 +1376,7 @@ def test_an_unreadable_record_shows_the_refusal_and_never_off(
     """
     with _chip_hub(tmp_path, monkeypatch) as (base_url, app, root):
         page, _session_id = _settled_chip(chromium_browser, base_url)
-        record_path = control_context.record_path_under(root)
+        record_path = control_context._record_path_under(root)
         try:
             write_payload(record_path, "not a control context")
             record_path.parent.chmod(0o500)

@@ -1690,7 +1690,7 @@ def _names_the_record(nodes) -> bool:
             if isinstance(sub, ast.Call):
                 func = sub.func
                 name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
-                if name in {"record_path", "record_path_under"}:
+                if name in {"record_path", "_record_path_under"}:
                     return True
     return False
 

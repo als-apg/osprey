@@ -496,7 +496,7 @@ def acting_in(
         reset_config_cache()
         posture_store.invalidate_cache()
         control_context.invalidate_cache()
-        if not control_context.record_path_under(agent_data).exists():
+        if not control_context._record_path_under(agent_data).exists():
             write_control_context(
                 agent_data, target=VA_TARGET, generation=0, owned_by=None, switch={VA_TARGET: "on"}
             )
