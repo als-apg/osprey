@@ -1053,7 +1053,7 @@ class TestProjectPyproject:
         monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
         monkeypatch.setenv("UV", "/usr/bin/uv")
 
-        _create_project_venv(project_path, _plan_project_venv(profile))
+        _create_project_venv(project_path, _plan_project_venv(profile, install=True))
         return tomllib.loads((project_path / "pyproject.toml").read_text())
 
     def test_records_profile_deps(self, monkeypatch, tmp_path: Path):
@@ -1226,7 +1226,8 @@ class TestCreateProjectVenv:
         monkeypatch.setenv("UV", "/home/user/.local/bin/uv")
 
         _create_project_venv(
-            tmp_path, _plan_project_venv(self._make_profile(["numpy>=1.24", "pandas"]))
+            tmp_path,
+            _plan_project_venv(self._make_profile(["numpy>=1.24", "pandas"]), install=True),
         )
 
         assert len(calls) == 2
@@ -1258,7 +1259,9 @@ class TestCreateProjectVenv:
         monkeypatch.delenv("UV", raising=False)
         monkeypatch.setattr("shutil.which", lambda name: None)
 
-        _create_project_venv(tmp_path, _plan_project_venv(self._make_profile(["numpy>=1.24"])))
+        _create_project_venv(
+            tmp_path, _plan_project_venv(self._make_profile(["numpy>=1.24"]), install=True)
+        )
 
         assert len(calls) == 2
         # First call: python -m venv
@@ -1283,7 +1286,9 @@ class TestCreateProjectVenv:
         monkeypatch.setenv("UV", "/usr/bin/uv")
 
         with pytest.raises(BuildProfileError, match="Failed to create project venv"):
-            _create_project_venv(tmp_path, _plan_project_venv(self._make_profile(["pkg"])))
+            _create_project_venv(
+                tmp_path, _plan_project_venv(self._make_profile(["pkg"]), install=True)
+            )
 
     def test_raises_on_install_failure(self, monkeypatch, tmp_path):
         """Should raise BuildProfileError when pip install fails."""
@@ -1307,7 +1312,7 @@ class TestCreateProjectVenv:
 
         with pytest.raises(BuildProfileError, match="Failed to install project dependencies"):
             _create_project_venv(
-                tmp_path, _plan_project_venv(self._make_profile(["nonexistent-xyz"]))
+                tmp_path, _plan_project_venv(self._make_profile(["nonexistent-xyz"]), install=True)
             )
 
 
