@@ -7516,10 +7516,12 @@ def test_inject_project_metadata_passes_config_dir_keys_through(tmp_path: Path) 
 # `build/`, and a build rendering from a staging tree that becomes it.
 #
 # A limits database is optional. Refusals ride on the login tier allowing
-# writes (`control_system.writes: allowed`) while some configured target has
-# `limits_checking.enabled` on (`tier_checks_limits`), because that pairing is
-# what opens the file: a target that checks no limits builds no validator and
-# reads no database. The tier is target-blind -- `allowed` lets a session write
+# writes (`control_system.writes: allowed`) while some configured target's
+# limits posture requires the database (`tier_limits_database_targets`: limits
+# checking on, and either a mode other than `optional` or a path configured),
+# because that pairing is what opens the file: a target that checks no limits
+# builds no validator and reads no database, and one in `optional` mode with
+# no path checks every channel as unlisted against an empty one. The tier is target-blind -- `allowed` lets a session write
 # to every configured target. The config read here is a rendered one, so the
 # tier key is all that arms: a retired `writes_enabled` leaf was rewritten to
 # `writes` by the build's normalizer and is not read at run time (D2). Where

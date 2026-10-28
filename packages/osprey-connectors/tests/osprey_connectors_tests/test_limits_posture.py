@@ -37,9 +37,10 @@ from osprey_connectors.types import (
     VIRTUAL_ACCELERATOR,
     LimitsPosture,
     incomplete_limits_blocks,
+    limits_database_required,
     most_restrictive_limits_posture,
     target_limits_posture,
-    tier_limits_targets,
+    tier_limits_database_targets,
     type_limits_posture,
 )
 
@@ -920,11 +921,85 @@ class TestMostRestrictive:
 # The old armed-target limits fold is gone, and its cases with it: they armed
 # targets through the retired ``writes_enabled`` leaves, which no run-time reader
 # consults any more. Its question — does some writable target check limits — is
-# now asked of the render's tier by ``tier_limits_targets``/``tier_checks_limits``
-# and pinned in tests/deployment/test_bluesky_limits_mount.py
+# now asked of the render's tier by ``tier_limits_database_targets`` (the
+# ``TestTierLimitsDatabaseTargets`` cases below) and pinned in
+# tests/deployment/test_bluesky_limits_mount.py
 # (``test_the_tier_arms_limits_for_every_reachable_target``,
 # ``test_nothing_that_never_opens_the_database_refuses_its_absence``,
 # ``test_a_never_render_mounts_neither``) and tests/deployment/test_compose_generator.py.
+
+
+class TestLimitsDatabaseRequired:
+    """The one predicate every caller asks before it demands the database."""
+
+    @pytest.mark.parametrize(
+        ("enabled", "mode", "path_configured", "required"),
+        [
+            (True, "exclusive", True, True),
+            (True, "exclusive", False, True),
+            (True, "optional", True, True),
+            (True, "optional", False, False),
+            (True, None, False, True),
+            (False, "exclusive", True, False),
+            (False, "optional", False, False),
+            (None, None, True, False),
+        ],
+    )
+    def test_the_posture_matrix(
+        self, enabled: Any, mode: Any, path_configured: bool, required: bool
+    ) -> None:
+        """Enabled and (mode is not optional or a path is configured)."""
+        posture = LimitsPosture(enabled=enabled, mode=mode, connector_type=None)
+        assert limits_database_required(posture, path_configured=path_configured) is required
+
+
+class TestTierLimitsDatabaseTargets:
+    """The deployment-level fold: the tier's write half over each target's limits half."""
+
+    def test_a_never_render_arms_no_target(self) -> None:
+        section = {**_va_baseline_deployment(), "writes": "never"}
+        assert tier_limits_database_targets(section, path_configured=True) == []
+        assert tier_limits_database_targets(section, path_configured=False) == []
+
+    def test_an_unstated_tier_arms_no_target(self) -> None:
+        assert tier_limits_database_targets(_va_baseline_deployment(), path_configured=True) == []
+
+    def test_an_allowed_optional_target_with_no_path_needs_no_database(self) -> None:
+        """Optional mode with no path checks every channel as unlisted."""
+        section = {
+            "type": VIRTUAL_ACCELERATOR,
+            "writes": "allowed",
+            LIMITS_CHECKING_LEAF: _block(True, "optional"),
+            "connector": {VIRTUAL_ACCELERATOR: {"gateway_address": "va.example"}},
+        }
+        assert tier_limits_database_targets(section, path_configured=False) == []
+        assert tier_limits_database_targets(section, path_configured=True) == [TARGET_VA]
+
+    def test_an_allowed_exclusive_target_with_no_path_still_needs_one(self) -> None:
+        """Exclusive mode refuses every unlisted channel, so it needs the file.
+
+        The tier is target-blind: ``allowed`` arms the relaxed simulator and the
+        strict machine alike, and only the machine's posture asks for the file.
+        """
+        section = {**_va_baseline_deployment(), "writes": "allowed"}
+        without_path = tier_limits_database_targets(section, path_configured=False)
+        assert TARGET_LIVE in without_path
+        assert TARGET_VA not in without_path
+        with_path = tier_limits_database_targets(section, path_configured=True)
+        assert TARGET_VA in with_path and TARGET_LIVE in with_path
+
+    def test_the_list_follows_the_configured_target_order(self) -> None:
+        from osprey_connectors.types import configured_targets
+
+        section = {**_va_baseline_deployment(), "writes": "allowed"}
+        assert tier_limits_database_targets(section, path_configured=True) == configured_targets(
+            section
+        )
+
+    def test_a_target_that_checks_no_limits_is_not_listed(self) -> None:
+        section = {**_va_baseline_deployment(), "writes": "allowed"}
+        section["connector"][VIRTUAL_ACCELERATOR][LIMITS_CHECKING_LEAF] = _block(False, "optional")
+        assert TARGET_VA not in tier_limits_database_targets(section, path_configured=True)
 
 
 def _missing(connector_type: str, leaf: str) -> str:
@@ -1215,10 +1290,10 @@ def _resolve_every_target(section: dict[str, Any]) -> None:
         _resolve_every_type,
         _resolve_every_target,
         most_restrictive_limits_posture,
-        tier_limits_targets,
+        lambda section: tier_limits_database_targets(section, path_configured=False),
         incomplete_limits_blocks,
     ],
-    ids=["type", "target", "most-restrictive", "tier-limits-targets", "incomplete-blocks"],
+    ids=["type", "target", "most-restrictive", "tier-limits-database-targets", "incomplete-blocks"],
 )
 def test_resolvers_do_not_mutate_the_section(resolve: Any) -> None:
     """Resolvers read a shared, once-loaded config; none of them may write to it."""

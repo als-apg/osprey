@@ -325,7 +325,7 @@ def test_writable_optional_with_no_db_path_starts(
     """writes enabled + optional limits + no path: legal, nothing to load (q-0001/1, q-0002)."""
     _patch_config(
         monkeypatch,
-        section={"writes_enabled": True, "limits_checking": {"mode": "optional"}},
+        section={"writes": "allowed", "limits_checking": {"mode": "optional"}},
         limits_enabled=True,
         db_path=None,
     )
@@ -342,7 +342,7 @@ def test_writable_exclusive_with_no_db_path_refuses_startup(
     """Exclusive mode needs the database to know what is writable at all."""
     _patch_config(
         monkeypatch,
-        section={"writes_enabled": True, "limits_checking": {"mode": "exclusive"}},
+        section={"writes": "allowed", "limits_checking": {"mode": "exclusive"}},
         limits_enabled=True,
         db_path=None,
     )
@@ -358,7 +358,7 @@ def test_writable_optional_with_missing_db_refuses_startup(
     """A configured path must load whatever the mode."""
     _patch_config(
         monkeypatch,
-        section={"writes_enabled": True, "limits_checking": {"mode": "optional"}},
+        section={"writes": "allowed", "limits_checking": {"mode": "optional"}},
         limits_enabled=True,
         db_path=str(tmp_path / "does_not_exist.json"),
     )
