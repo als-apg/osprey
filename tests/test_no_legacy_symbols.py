@@ -266,12 +266,18 @@ SELF_ALLOWLIST = {
 
 
 def _scan_roots(repo_root: Path = _REPO_ROOT, roots: tuple[str, ...] = ROOTS) -> list[Path]:
-    return text_files(
-        repo_root,
-        roots,
-        suffixes=SCAN_SUFFIXES,
-        skip=lambda path: path.resolve() in SELF_ALLOWLIST or ".bak" in path.name,
-    )
+    def skip(path: Path) -> bool:
+        return (
+            path.resolve() in SELF_ALLOWLIST
+            or ".bak" in path.name
+            or bool(SKIP_DIRS.intersection(path.relative_to(repo_root).parts))
+        )
+
+    if roots is not ROOTS:
+        return text_files(repo_root, roots, suffixes=SCAN_SUFFIXES, skip=skip)
+    # The repository's own scan names ``ROOTS`` at the walk, so check.py's
+    # tree-reader detector sees that this module reads the whole tests tree.
+    return text_files(repo_root, ROOTS, suffixes=SCAN_SUFFIXES, skip=skip)
 
 
 def _identifier(name: str) -> re.Pattern[str]:
