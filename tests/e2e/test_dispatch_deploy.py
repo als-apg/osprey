@@ -1850,7 +1850,8 @@ def test_a_chip_toggle_lands_the_owners_own_record_on_the_host_tree(
     record = json.loads(record_path.read_text(encoding="utf-8"))
     reported = json.loads(answer["body"])
     assert (reported.get("target"), reported.get("state")) == ("all", "off"), reported
-    assert reported.get("switch_epoch") == record.get("switch_epoch"), (
+    on_disk = record.get("switch_epoch")
+    assert reported.get("switch_epoch") == (None if on_disk is None else str(on_disk)), (
         f"the chip answered epoch {reported.get('switch_epoch')} but the host record "
         f"carries {record.get('switch_epoch')}: the toggle did not land on this file: {record}"
     )

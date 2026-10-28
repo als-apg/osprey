@@ -261,6 +261,12 @@ def epoch_now():
     return None if record is None else record.switch_epoch
 
 
+def wire_now():
+    """The record's epoch as the route carries it: a decimal string, or ``None``."""
+    epoch = epoch_now()
+    return None if epoch is None else str(epoch)
+
+
 def make_epochless():
     """Rewrite the record with no ``switch_epoch``, as a file from before epochs."""
     path = control_context.record_path()
@@ -272,7 +278,7 @@ def make_epochless():
 
 def post_switch(client, *, session_id=SESSION_A, target="standin", state="on", epoch="read"):
     """POST C-POST's body. ``epoch="read"`` sends the record's epoch, as the chip does."""
-    body = {"target": target, "state": state, "epoch": epoch_now() if epoch == "read" else epoch}
+    body = {"target": target, "state": state, "epoch": wire_now() if epoch == "read" else epoch}
     if session_id is not None:
         body["session_id"] = session_id
     return client.post("/api/terminal/posture", json=body)
@@ -352,10 +358,15 @@ class TestGrammar:
         assert response.status_code == 422
         assert isinstance(response.json()["detail"], list)
 
-    @pytest.mark.parametrize("bad", [True, "5", 1.5])
-    def test_the_epoch_is_an_integer_or_null(self, client, bad):
-        """Strict: a ``true`` is never taken for epoch ``1``."""
-        assert post_switch(client, epoch=bad).status_code == 422
+    @pytest.mark.parametrize(
+        "bad", [True, 5, 1.5, [], "", "-1", "+1", "01", "1e3", " 5", "5 ", "0x1f", "1" * 21]
+    )
+    def test_the_epoch_is_a_decimal_string_or_null(self, client, bad):
+        """Never coerced: a number, ``true`` or any other spelling is a 422 that says so."""
+        response = post_switch(client, epoch=bad)
+        assert response.status_code == 422, response.text
+        assert websocket_routes.EPOCH_FORMAT_PHRASE in response.text
+        assert switch_now() == {}
 
     def test_the_old_posture_body_is_422(self, client):
         response = client.post(
@@ -398,9 +409,9 @@ class TestTheGesture:
         assert response.json() == {
             "target": "standin",
             "state": "on",
-            "switch_epoch": epoch_now(),
+            "switch_epoch": wire_now(),
         }
-        assert isinstance(response.json()["switch_epoch"], int)
+        assert isinstance(response.json()["switch_epoch"], str)
         assert switch_now() == {"standin": "on"}
 
     def test_off_disarms_only_that_machine(self, client):
@@ -410,7 +421,7 @@ class TestTheGesture:
         response = post_switch(client, target="standin", state="off")
 
         assert response.status_code == 200, response.text
-        assert response.json() == {"target": "standin", "state": "off", "switch_epoch": epoch_now()}
+        assert response.json() == {"target": "standin", "state": "off", "switch_epoch": wire_now()}
         assert switch_now() == {"va": "on"}
 
     def test_all_off_clears_every_machine_and_moves_the_epoch(self, client):
@@ -641,8 +652,8 @@ class TestEpoch:
         assert set(detail) == {"reason", "epoch", "stamped"}
         assert detail["reason"] == "stopped_since"
         assert detail["stamped"] is True
-        assert isinstance(detail["epoch"], int)
-        assert detail["epoch"] == epoch_now()
+        assert isinstance(detail["epoch"], str)
+        assert detail["epoch"] == wire_now()
         assert switch_now() == {}
 
         second = post_switch(client, epoch=detail["epoch"])
@@ -653,10 +664,10 @@ class TestEpoch:
         on_disk = epoch_now()
         assert on_disk is not None
         assert_envelope(
-            post_switch(client, epoch=on_disk - 1),
+            post_switch(client, epoch=str(on_disk - 1)),
             409,
             reason="stopped_since",
-            epoch=on_disk,
+            epoch=str(on_disk),
             stamped=False,
         )
         assert switch_now() == {}
@@ -667,13 +678,13 @@ class TestEpoch:
             post_switch(client, epoch=None),
             409,
             reason="stopped_since",
-            epoch=epoch_now(),
+            epoch=wire_now(),
             stamped=False,
         )
 
     def test_a_turn_on_that_raced_a_stop_leaves_nothing_on(self, client):
         """The chip read an epoch; a stop of everything landed; the turn-on stays off."""
-        seen = epoch_now()
+        seen = wire_now()
         assert post_switch(client, target="all", state="off").status_code == 200
 
         response = post_switch(client, epoch=seen)
@@ -681,6 +692,29 @@ class TestEpoch:
         assert response.status_code == 409
         assert response.json()["detail"]["stamped"] is False
         assert switch_now() == {}
+
+    def test_a_nanosecond_epoch_round_trips_from_the_read_to_the_turn_on(self, client, monkeypatch):
+        """An epoch with nanosecond digits comes back from the read exactly as stored.
+
+        Above 2**53 a JSON number reaches a browser rounded, and the turn-on
+        it sends back no longer matches: every gesture answered 409. A clock
+        with non-zero low digits, as on Linux, pins the string on every host.
+        """
+        ns = 4102444800123456789
+        assert int(float(ns)) != ns, "the pin needs an epoch a double cannot hold"
+        monkeypatch.setattr(control_context.time, "time_ns", lambda: ns)
+        assert post_switch(client, target="all", state="off").status_code == 200
+        assert epoch_now() == ns
+
+        read = client.get("/api/terminal/posture", params={"session_id": SESSION_A})
+        assert read.status_code == 200, read.text
+        assert read.json()["switch_epoch"] == str(ns)
+
+        response = post_switch(client, epoch=read.json()["switch_epoch"])
+
+        assert response.status_code == 200, response.text
+        assert response.json()["switch_epoch"] == str(ns)
+        assert switch_now() == {"standin": "on"}
 
     def test_the_server_never_retries(self, client, monkeypatch):
         calls = []
@@ -717,7 +751,7 @@ class TestNoUsableRecord:
     @pytest.mark.parametrize("which", ["missing", "unreadable"])
     def test_on_answers_record_unavailable(self, request, which):
         client = request.getfixturevalue(which)
-        for epoch in (None, 0, 12345):
+        for epoch in (None, "0", "12345"):
             assert_envelope(
                 post_switch(client, epoch=epoch),
                 503,
@@ -836,7 +870,7 @@ class TestAudit:
         [
             ({"target": "all", "state": "on"}, 400, "bulk_on_refused"),
             ({"target": "banana", "state": "on"}, 400, "unknown_target"),
-            ({"epoch": 1}, 409, "stopped_since"),
+            ({"epoch": "1"}, 409, "stopped_since"),
         ],
     )
     def test_each_refusal_files_one_refused_line(self, client, ledger, kwargs, status, reason):

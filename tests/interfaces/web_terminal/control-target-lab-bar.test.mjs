@@ -95,7 +95,9 @@ const FACTS = '../../../src/osprey/interfaces/web_terminal/static/js/control-tar
 const { STOP_NOT_TAKEN_SENTENCE, TURN_ON_SENTENCE } = await import(FACTS);
 
 /** The epoch the roster's switch record carries (C-GET `switch_epoch`). */
-const EPOCH = 7;
+// A decimal string, as the route sends it: nanoseconds with low digits that a
+// JSON number would round away.
+const EPOCH = '1793181592449148123';
 
 /** C-GET's columns for a switch that is on, and one that is off. */
 const ON = { switch: 'on', write_allowed: true, write_reason: null, write_phrase: null };
@@ -588,12 +590,12 @@ describe("the chip's words and gestures", () => {
       {
         ok: false,
         status: 409,
-        body: { detail: { reason: 'stopped_since', epoch: 12, stamped: true } },
+        body: { detail: { reason: 'stopped_since', epoch: '12', stamped: true } },
       },
       {
         ok: false,
         status: 409,
-        body: { detail: { reason: 'stopped_since', epoch: 13, stamped: true } },
+        body: { detail: { reason: 'stopped_since', epoch: '13', stamped: true } },
       },
       { ok: true, body: {} }
     );
@@ -602,7 +604,7 @@ describe("the chip's words and gestures", () => {
 
     expect(posts().map((p) => p.body)).toEqual([
       { session_id: null, target: 'live', state: 'on', epoch: EPOCH },
-      { session_id: null, target: 'live', state: 'on', epoch: 12 },
+      { session_id: null, target: 'live', state: 'on', epoch: '12' },
     ]);
   });
 

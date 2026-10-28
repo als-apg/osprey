@@ -173,7 +173,7 @@ const viewOf = (o = {}) => ({
   servers: [serverOf()],
   store_available: true,
   readonly_run: false,
-  switch_epoch: 1,
+  switch_epoch: '1',
   any_on: true,
   locks: { readonly_run: false, tier: 'allowed' },
   execution_in_flight: [],
@@ -1157,7 +1157,7 @@ describe('popover API', () => {
   });
 
   test('a stamped 409 keeps the epoch it returned', async () => {
-    const detail = { reason: 'stopped_since', epoch: 12, stamped: true };
+    const detail = { reason: 'stopped_since', epoch: '12', stamped: true };
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => ({ ok: false, status: 409, json: async () => ({ detail }) }))
@@ -1190,7 +1190,7 @@ describe('popover API', () => {
       close: false,
     });
     // A stop that overtook the gesture closes the dialog it asked from.
-    expect(switchRefusal(refused(409, { reason: 'stopped_since', epoch: 3 }), 'on')).toEqual({
+    expect(switchRefusal(refused(409, { reason: 'stopped_since', epoch: '3' }), 'on')).toEqual({
       message: STOPPED_SINCE_SENTENCE,
       close: true,
     });
@@ -1217,6 +1217,51 @@ describe('popover API', () => {
     const err = await chipModule.targetRequest('/api/terminal/posture').catch((e) => e);
     expect(err.status).toBe(500);
     expect(err.detail).toBeNull();
+  });
+});
+
+/* ---- the switch epoch on the wire ------------------------------------- */
+
+describe('postSwitch epoch', () => {
+  /**
+   * A nanosecond epoch with non-zero low digits: above 2**53, so as a JSON
+   * number it would come back rounded (…148000 or …148128), and the route
+   * would answer every turn-on 409 `stopped_since`.
+   */
+  const NS_EPOCH = '1793181592449148123';
+  const STAMPED_EPOCH = '1793181592449148987';
+
+  /** Answer each POST with the next `[status, bodyText]`, recording the raw request bodies. */
+  function stubPosts(/** @type {[number, string][]} */ answers) {
+    const sent = /** @type {string[]} */ ([]);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ _url, /** @type {RequestInit} */ init) => {
+        sent.push(String(init.body));
+        const [status, text] = /** @type {[number, string]} */ (answers.shift());
+        return { ok: status < 400, status, json: async () => JSON.parse(text) };
+      })
+    );
+    return sent;
+  }
+
+  test('posts back the exact string it read', async () => {
+    const sent = stubPosts([[200, `{"target":"live","state":"on","switch_epoch":"${NS_EPOCH}"}`]]);
+    const answer = await chipModule.postSwitch(null, 'live', 'on', NS_EPOCH);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain(`"epoch":"${NS_EPOCH}"`);
+    expect(answer.switch_epoch).toBe(NS_EPOCH);
+  });
+
+  test('a stamped 409 is retried with the exact string it carried', async () => {
+    const sent = stubPosts([
+      [409, `{"detail":{"reason":"stopped_since","epoch":"${STAMPED_EPOCH}","stamped":true}}`],
+      [200, `{"target":"live","state":"on","switch_epoch":"${STAMPED_EPOCH}"}`],
+    ]);
+    await chipModule.postSwitch(null, 'live', 'on', null);
+    expect(sent).toHaveLength(2);
+    expect(JSON.parse(sent[0]).epoch).toBeNull();
+    expect(sent[1]).toContain(`"epoch":"${STAMPED_EPOCH}"`);
   });
 });
 

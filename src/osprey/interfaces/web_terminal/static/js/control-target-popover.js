@@ -28,7 +28,8 @@
  * stays on screen, disabled, with the reason on hover.
  *
  * **The epoch the chip read.** Every switch gesture carries the
- * `switch_epoch` of the payload the operator was shown. A stop that landed
+ * `switch_epoch` of the payload the operator was shown, as the decimal string
+ * it was read as — never a number, which would round it. A stop that landed
  * since refuses a turn-on (409 `stopped_since`): the popover re-reads and the
  * operator clicks again — a turn-on never silently re-arms after a stop. The
  * one exception is a 409 that says it just STAMPED the record's first epoch,
@@ -768,7 +769,7 @@ function plainRefusal(err) {
  * @returns {Promise<void>}
  */
 function setSwitch(target, to, state, ui, waived = false) {
-  const epoch = typeof state.switch_epoch === 'number' ? state.switch_epoch : null;
+  const epoch = typeof state.switch_epoch === 'string' ? state.switch_epoch : null;
   return postGesture(
     () => postSwitch(state.session_id ?? null, target, to, epoch),
     target,

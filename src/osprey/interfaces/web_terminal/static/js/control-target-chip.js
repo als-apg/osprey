@@ -138,8 +138,10 @@ import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
  *             age_s: number|null}[]} execution_in_flight
  * @property {LastSwitch|null} last_switch
  * @property {{state: string, at?: string}|null} last_posture_realign
- * @property {number|null} switch_epoch  the login's switch epoch as read; a
- *   turn-on carries it back so a stop that landed since refuses it (C-POST)
+ * @property {string|null} switch_epoch  the login's switch epoch as read, a
+ *   decimal string kept opaque (nanoseconds exceed a JS number's exact range);
+ *   a turn-on carries it back unchanged so a stop that landed since refuses it
+ *   (C-POST)
  * @property {boolean} any_on  whether any machine's switch is on for this
  *   login — what enables "Turn all writes off"
  * @property {{readonly_run?: boolean, tier?: string}} [locks]  the locks no
@@ -462,7 +464,8 @@ export const STOPPED_SINCE_SENTENCE =
 
 /**
  * POST one switch gesture: `{session_id, target, state, epoch}`, where `epoch`
- * is the `switch_epoch` the chip read (`null` when it read none).
+ * is the `switch_epoch` string the chip read (`null` when it read none), sent
+ * back exactly as read: it is never turned into a number.
  *
  * A 409 that says it just STAMPED the record's first epoch is retried once
  * with that epoch — the route never retries itself. Any other 409 is a stop
@@ -471,12 +474,12 @@ export const STOPPED_SINCE_SENTENCE =
  * @param {string|null} sessionId
  * @param {string} target  a configured target name, or `all` (off only)
  * @param {'on'|'off'} state
- * @param {number|null} epoch
+ * @param {string|null} epoch
  * @returns {Promise<any>} the route's `{target, state, switch_epoch}`
  * @throws {TargetRequestError} the refusal, after at most one retry
  */
 export async function postSwitch(sessionId, target, state, epoch) {
-  /** @param {number|null} at */
+  /** @param {string|null} at */
   const send = (at) =>
     targetRequest('/api/terminal/posture', {
       method: 'POST',
@@ -490,7 +493,7 @@ export async function postSwitch(sessionId, target, state, epoch) {
       err instanceof TargetRequestError &&
       err.status === 409 &&
       detail?.stamped === true &&
-      typeof detail.epoch === 'number';
+      typeof detail.epoch === 'string';
     if (!stamped) throw err;
     return send(detail.epoch);
   }

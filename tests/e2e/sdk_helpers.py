@@ -695,7 +695,7 @@ def switch_on_through_chip(chip: ChipRoute, target: str) -> dict[str, Any]:
     """Turn the switch on for *target* the way the header chip does; return the 200 body.
 
     Reads ``switch_epoch`` off ``GET`` first and sends it back with
-    ``state: "on"``. A ``409 stopped_since`` that just ``stamped`` an epoch-less
+    ``state: "on"``, as the decimal string it was read as. A ``409 stopped_since`` that just ``stamped`` an epoch-less
     record is retried once with the epoch it carries — the chip's own single
     retry; any other refusal fails here with its body, so a lane learns the
     reason (``tier_never``, ``record_unavailable`` ...) rather than a later
@@ -761,7 +761,9 @@ def arm_writes(
         epoch = None
         for name in names:
             epoch = switch_on_through_chip(chip, name).get("switch_epoch")
-        return ArmedWrites(owner=owner, targets=names, via="chip", switch_epoch=epoch)
+        # The route carries the epoch as a decimal string; the record holds an int.
+        switch_epoch = None if epoch is None else int(epoch)
+        return ArmedWrites(owner=owner, targets=names, via="chip", switch_epoch=switch_epoch)
     stored = switch_on_in_record(repo, owner=owner, targets=names)
     return ArmedWrites(owner=owner, targets=names, via="record", switch_epoch=stored.switch_epoch)
 

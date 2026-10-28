@@ -174,7 +174,9 @@ const rowOf = (kind, o = {}) => ({
 });
 
 /** The epoch the default roster's record carries. */
-const EPOCH = 7;
+// A decimal string, as the route sends it: nanoseconds with low digits that a
+// JSON number would round away.
+const EPOCH = '1793181592449148123';
 
 /** The roster a plain switch-capable deployment answers with. */
 const viewOf = (o = {}) => ({
@@ -1010,9 +1012,9 @@ describe('a stop that lands while a turn-on is asked', () => {
       {
         ok: false,
         status: 409,
-        body: { detail: { reason: 'stopped_since', epoch: 12, stamped: true } },
+        body: { detail: { reason: 'stopped_since', epoch: '12', stamped: true } },
       },
-      { ok: true, body: { target: 'live', state: 'on', switch_epoch: 12 } }
+      { ok: true, body: { target: 'live', state: 'on', switch_epoch: '12' } }
     );
     confirmBtn()?.click();
     await flush();
@@ -1024,7 +1026,7 @@ describe('a stop that lands while a turn-on is asked', () => {
       state: 'on',
       epoch: EPOCH,
     });
-    expect(posts()[1].body).toEqual({ session_id: null, target: 'live', state: 'on', epoch: 12 });
+    expect(posts()[1].body).toEqual({ session_id: null, target: 'live', state: 'on', epoch: '12' });
     expect(confirmEl()).toBeNull();
     expect(outcomes('live')).toHaveLength(0);
   });
@@ -1033,13 +1035,13 @@ describe('a stop that lands while a turn-on is asked', () => {
     await bootOpen();
     toggleEl('live')?.click();
     await flush();
-    const stamped = { detail: { reason: 'stopped_since', epoch: 12, stamped: true } };
+    const stamped = { detail: { reason: 'stopped_since', epoch: '12', stamped: true } };
     postAnswers.push(
       { ok: false, status: 409, body: stamped },
       {
         ok: false,
         status: 409,
-        body: { detail: { reason: 'stopped_since', epoch: 13, stamped: true } },
+        body: { detail: { reason: 'stopped_since', epoch: '13', stamped: true } },
       },
       { ok: true, body: {} }
     );
@@ -1057,9 +1059,9 @@ describe('a stop that lands while a turn-on is asked', () => {
     postAnswers.push({
       ok: false,
       status: 409,
-      body: { detail: { reason: 'stopped_since', epoch: 9, stamped: false } },
+      body: { detail: { reason: 'stopped_since', epoch: '9', stamped: false } },
     });
-    served = viewOf({ switch_epoch: 9, any_on: false });
+    served = viewOf({ switch_epoch: '9', any_on: false });
     confirmBtn()?.click();
     await flush();
 
@@ -1073,10 +1075,10 @@ describe('a stop that lands while a turn-on is asked', () => {
     toggleEl('live')?.click();
     await flush();
     expect(confirmTitle()).toBe('Turn writes on for Real machine?');
-    postAnswers.push({ ok: true, body: { target: 'live', state: 'on', switch_epoch: 9 } });
+    postAnswers.push({ ok: true, body: { target: 'live', state: 'on', switch_epoch: '9' } });
     confirmBtn()?.click();
     await flush();
-    expect(posts()[1].body).toEqual({ session_id: null, target: 'live', state: 'on', epoch: 9 });
+    expect(posts()[1].body).toEqual({ session_id: null, target: 'live', state: 'on', epoch: '9' });
     // The next gesture cleared the last one's note.
     expect(outcomes('live')).toHaveLength(0);
   });

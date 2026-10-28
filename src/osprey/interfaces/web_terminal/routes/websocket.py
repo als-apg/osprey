@@ -7,6 +7,7 @@ import copy
 import json
 import logging
 import os
+import re
 import uuid
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
@@ -18,7 +19,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 import yaml  # type: ignore[import-untyped]
 from fastapi import APIRouter, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel, StrictInt
+from pydantic import BaseModel, field_validator
 from starlette.concurrency import run_in_threadpool
 
 from osprey.agent_runner.launcher import NoConversationWatch, build_session_argv
@@ -85,14 +86,32 @@ router = APIRouter()
 SWITCH_ON = "on"
 
 
+#: The one spelling of a switch epoch on the wire: a canonical decimal string.
+_WIRE_EPOCH = re.compile(r"0|[1-9][0-9]{0,19}")
+
+#: What a turn-on whose ``epoch`` is not that spelling is told (422).
+EPOCH_FORMAT_PHRASE = "epoch must be the switch_epoch string the posture read returned, or null"
+
+
+def wire_epoch(epoch: int | None) -> str | None:
+    """A record's ``switch_epoch`` as the posture API carries it: a decimal string.
+
+    The record keeps integer nanoseconds, which exceed the 2**53 a browser's
+    JSON numbers hold exactly; a number would come back rounded and every
+    turn-on would read as overtaken by a stop. A string travels unchanged.
+    """
+    return None if epoch is None else str(epoch)
+
+
 class PostureRequest(BaseModel):
     """Body of ``POST /api/terminal/posture`` (C-POST): the person's switch gesture.
 
     ``state`` is a ``Literal`` so an unknown value is a 422 naming the field
     before any handler code runs: it decides whether a machine moves, and a
     silent coercion would be the worst failure here. ``epoch`` is the
-    ``switch_epoch`` the chip read, or ``null`` when it read none; strict, so a
-    ``true`` is never taken for ``1``.
+    ``switch_epoch`` the chip read, or ``null`` when it read none, as the
+    decimal string the read returned (see :func:`wire_epoch`): a number is a
+    422, never coerced.
 
     ``target`` names one configured control target, or :data:`ALL_TARGETS`
     (only with ``off``). A plain string for the reason given on
@@ -102,7 +121,14 @@ class PostureRequest(BaseModel):
     session_id: str | None = None
     target: str
     state: Literal["on", "off"]
-    epoch: StrictInt | None = None
+    epoch: str | None = None
+
+    @field_validator("epoch", mode="before")
+    @classmethod
+    def _epoch_is_a_decimal_string(cls, value: Any) -> Any:
+        if value is None or (isinstance(value, str) and _WIRE_EPOCH.fullmatch(value)):
+            return value
+        raise ValueError(EPOCH_FORMAT_PHRASE)
 
 
 class TargetRequest(BaseModel):
@@ -2093,7 +2119,12 @@ async def set_terminal_posture(body: PostureRequest, request: Request):
       epoch is not the record's. A null epoch is sent as ``0``, so an
       epoch-less record is stamped and the chip retries once with ``epoch``.
       The server never retries.
+    * **422** — ``epoch`` is neither null nor a decimal string
+      (:data:`EPOCH_FORMAT_PHRASE`).
     * **200** ``{target, state, switch_epoch}``.
+
+    Every epoch on this route, in and out, is a decimal string
+    (:func:`wire_epoch`); it is compared as an integer only here.
 
     Every outcome files one audit line naming the login, the machine(s), the
     state and the outcome; a session-less gesture is the Lab bar's surface.
@@ -2143,7 +2174,7 @@ async def set_terminal_posture(body: PostureRequest, request: Request):
     )
     # A chip that read no epoch sends null; 0 is never a record's epoch, so the
     # sentinel reaches ``set_switch``'s stamping branch on an epoch-less record.
-    epoch = 0 if body.epoch is None else body.epoch
+    epoch = 0 if body.epoch is None else int(body.epoch)
     try:
         stored = await run_in_threadpool(
             partial(control_context.set_switch, targets, body.state, epoch=epoch)
@@ -2160,7 +2191,7 @@ async def set_terminal_posture(body: PostureRequest, request: Request):
             status_code=409,
             gesture=gesture,
             reason=exc.reason,
-            epoch=exc.epoch,
+            epoch=wire_epoch(exc.epoch),
             stamped=exc.stamped,
         ) from exc
     except ValueError as exc:  # a name the switch vocabulary does not know
@@ -2188,7 +2219,11 @@ async def set_terminal_posture(body: PostureRequest, request: Request):
         detail=f"{gesture} outcome=switch_set on={on}",
     )
     logger.info("Switch %s for %s by %s; on now: %s", body.state, body.target, login, on)
-    return {"target": body.target, "state": body.state, "switch_epoch": stored.switch_epoch}
+    return {
+        "target": body.target,
+        "state": body.state,
+        "switch_epoch": wire_epoch(stored.switch_epoch),
+    }
 
 
 # ── The control-target roster the header chip renders ────────────────────────
@@ -2897,7 +2932,7 @@ def _posture_view(app: Any, config_path: Path | None) -> dict[str, Any]:
         # ``write_reason``: an operator must not be told the deployment is
         # read-only when a record simply failed to resolve.
         "readonly_run": readonly_run,
-        "switch_epoch": None if record is None else record.switch_epoch,
+        "switch_epoch": None if record is None else wire_epoch(record.switch_epoch),
         # What enables "Turn all off": any machine on in this login's record,
         # configured here or not — a machine a later render dropped is still on.
         "any_on": record is not None
@@ -2974,8 +3009,9 @@ async def get_terminal_posture(request: Request, session_id: str | None = None):
       all.
     * ``readonly_run`` — the whole deployment was started read-only. Stated
       outright, so a client never has to infer it from the rows' reasons.
-    * ``switch_epoch`` — the record's epoch, which the chip sends back with a
-      turn-on (C-POST); ``null`` for no record or an epoch-less one.
+    * ``switch_epoch`` — the record's epoch as a decimal string, which the chip
+      sends back unchanged with a turn-on (C-POST); ``null`` for no record or an
+      epoch-less one.
     * ``any_on`` — whether any machine is on in this login's record,
       configured here or not; it enables "Turn all off".
     * ``locks`` — ``{readonly_run, tier}``: the two locks no chip gesture

@@ -1280,12 +1280,13 @@ class TestTheWriteColumns:
             assert get_posture(client)["any_on"] is False
 
     def test_the_switch_epoch_is_the_records(self, make_client, tmp_path, agent_data_root):
+        """As a decimal string: integer nanoseconds exceed a browser's exact range."""
         with make_client(armed(tmp_path)) as client:
             switch_on(agent_data_root, "va")
             payload = get_posture(client)
         record = control_context.read_record()
         assert record is not None and record.switch_epoch is not None
-        assert payload["switch_epoch"] == record.switch_epoch
+        assert payload["switch_epoch"] == str(record.switch_epoch)
 
     def test_a_demoted_logins_on_stays_recorded_and_inert(
         self, make_client, tmp_path, agent_data_root

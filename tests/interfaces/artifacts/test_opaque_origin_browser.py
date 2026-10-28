@@ -400,7 +400,7 @@ def _switch(page: Page, base_url: str) -> str | None:
     raise AssertionError(f"no {TARGET!r} row in {json.dumps(view)[:2000]}")
 
 
-def _first_party_turn_on(page: Page, epoch: int | None) -> dict:
+def _first_party_turn_on(page: Page, epoch: str | None) -> dict:
     """POST the attack's own request from the gallery's first-party page."""
     return page.evaluate(
         """async ([target, epoch]) => {

@@ -797,7 +797,7 @@ def test_the_chip_arm_sends_the_epoch_it_read_and_retries_a_stamp_once():
         if method == "GET":
             return 200, {"switch_epoch": None}
         if body["epoch"] is None:
-            return 409, {"detail": {"reason": "stopped_since", "epoch": 42, "stamped": True}}
+            return 409, {"detail": {"reason": "stopped_since", "epoch": "42", "stamped": True}}
         return 200, {"target": body["target"], "state": "on", "switch_epoch": body["epoch"]}
 
     with _FakeTerminal(answers) as terminal:
@@ -806,11 +806,11 @@ def test_the_chip_arm_sends_the_epoch_it_read_and_retries_a_stamp_once():
         )
         reply = sdk_helpers.switch_on_through_chip(chip, "va")
 
-    assert reply == {"target": "va", "state": "on", "switch_epoch": 42}
+    assert reply == {"target": "va", "state": "on", "switch_epoch": "42"}
     posts = [entry for entry in terminal.seen if entry[0] == "POST"]
     assert [body for *_rest, body in posts] == [
         {"session_id": "sess-1", "target": "va", "state": "on", "epoch": None},
-        {"session_id": "sess-1", "target": "va", "state": "on", "epoch": 42},
+        {"session_id": "sess-1", "target": "va", "state": "on", "epoch": "42"},
     ]
     assert all(entry[1] == sdk_helpers.CHIP_POSTURE_PATH for entry in posts)
     assert terminal.seen[0][1] == f"{sdk_helpers.CHIP_POSTURE_PATH}?session_id=sess-1"
@@ -820,7 +820,7 @@ def test_the_chip_arm_sends_the_epoch_it_read_and_retries_a_stamp_once():
 def test_the_chip_arm_fails_with_the_refusal_it_was_given():
     def answers(method, _path, _body):
         if method == "GET":
-            return 200, {"switch_epoch": 5}
+            return 200, {"switch_epoch": "5"}
         return 403, {"detail": {"reason": "tier_never", "phrase": "WRITES OFF"}}
 
     with _FakeTerminal(answers) as terminal:
@@ -841,7 +841,7 @@ def _arming_steps(monkeypatch) -> list[tuple]:
 
     def chip(route, target):
         steps.append(("chip", route.base_url, target))
-        return {"target": target, "state": "on", "switch_epoch": 11}
+        return {"target": target, "state": "on", "switch_epoch": "11"}
 
     monkeypatch.setattr(sdk_helpers, "switch_on_in_record", record)
     monkeypatch.setattr(sdk_helpers, "switch_on_through_chip", chip)
