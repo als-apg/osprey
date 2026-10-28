@@ -18,7 +18,7 @@ import time
 from collections.abc import Iterable
 from queue import Empty, Queue
 
-from osprey.deployment.subprocess_capture import stop_group
+from osprey.deployment.subprocess_capture import observe_exit, stop_child
 
 #: One completed startup phase, as ``osprey.mcp_server.startup.run_mcp_server``
 #: reports it on stderr: ``[STARTUP-TIMING] <server> | <phase>: <n>ms``. The
@@ -116,15 +116,13 @@ def list_mcp_tools(
             proc.stdin.flush()
         except BrokenPipeError as exc:
             stderr_drain.join(timeout=_DRAIN_JOIN_S)
-            try:
-                proc.wait(timeout=_DRAIN_JOIN_S)
-            except subprocess.TimeoutExpired:
+            rc = observe_exit(proc, within=_DRAIN_JOIN_S)
+            if rc is None:
                 raise MCPHandshakeError(
                     f"server closed its stdin before reading id={msg.get('id')}{_stderr_suffix()}"
                 ) from exc
             raise MCPHandshakeError(
-                f"server exited rc={proc.returncode} before reading id={msg.get('id')}"
-                f"{_stderr_suffix()}"
+                f"server exited rc={rc} before reading id={msg.get('id')}{_stderr_suffix()}"
             ) from exc
 
     stderr_seen: list[str] = []
@@ -182,11 +180,11 @@ def list_mcp_tools(
             remaining = _deadline() - time.monotonic()
             if remaining <= 0:
                 raise MCPHandshakeError(f"timeout waiting for id={target_id}{_stderr_suffix()}")
-            if proc.poll() is not None:
+            rc = observe_exit(proc)
+            if rc is not None:
                 stderr_drain.join(timeout=_DRAIN_JOIN_S)
                 raise MCPHandshakeError(
-                    f"server exited rc={proc.returncode} before responding to id={target_id}"
-                    f"{_stderr_suffix()}"
+                    f"server exited rc={rc} before responding to id={target_id}{_stderr_suffix()}"
                 )
             try:
                 line = stdout_q.get(timeout=min(0.25, remaining))
@@ -239,23 +237,17 @@ def list_mcp_tools(
     finally:
         with contextlib.suppress(OSError):
             proc.stdin.close()
-        survivors = stop_group(proc.pid, grace=_STOP_GRACE_S)
-        proc.wait()
+        outcome = stop_child(proc, grace=_STOP_GRACE_S)
         stdout_drain.join(timeout=_DRAIN_JOIN_S)
         stderr_drain.join(timeout=_DRAIN_JOIN_S)
-        if survivors is None:
-            left = "may still be running after stop: process table unreadable"
-        elif survivors:
-            left = f"still running after stop: pids {survivors}"
-        else:
-            left = None
-        if left is not None:
+        if not outcome.gone:
+            left = f"server group {proc.pid}: {outcome.describe()}"
             if failure is not None:
                 raise MCPHandshakeError(f"{failure}; {left}") from failure
             if other is not None:
-                other.add_note(f"server group {proc.pid} {left}")
+                other.add_note(left)
             else:
-                raise MCPHandshakeError(f"server group {proc.pid} {left}")
+                raise MCPHandshakeError(left)
 
 
 def assert_tools_superset(

@@ -179,7 +179,8 @@ def test_a_server_dead_before_the_first_message_reports_its_exit_code_and_traceb
 
     def popen_after_exit(*args, **kwargs):
         proc = real_popen(*args, **kwargs)
-        proc.wait(timeout=30)
+        # Observed, not reaped: the helper's stop is the one reaper of its server.
+        assert subprocess_capture.observe_exit(proc, within=30.0) is not None
         return proc
 
     monkeypatch.setattr(subprocess, "Popen", popen_after_exit)
@@ -303,14 +304,19 @@ def test_a_server_whose_child_holds_its_pipes_leaves_no_group_behind(
                 os.kill(grandchild, signal.SIGKILL)
 
 
-def _stop_reporting(answer: list[int] | None, stopped: list[int]):
-    """A ``stop_group`` that really stops the group, then answers ``answer``."""
-    real = subprocess_capture.stop_group
+def _stop_reporting(unproven: str, stopped: list[int]):
+    """A ``stop_child`` that really stops the child, then answers it left ``unproven``.
 
-    def stop(pgid: int, **kwargs) -> list[int] | None:
-        stopped.append(pgid)
-        real(pgid, **kwargs)
-        return answer
+    ``unproven`` is ``"survivors"`` (pid 424242 outlived SIGKILL) or
+    ``"unknown"`` (the process table could not be read for the group).
+    """
+    real = subprocess_capture.stop_child
+
+    def stop(process: subprocess.Popen, **kwargs) -> subprocess_capture.StopOutcome[int]:
+        stopped.append(process.pid)
+        real(process, **kwargs)
+        held = (424242,) if unproven == "survivors" else (process.pid,)
+        return subprocess_capture.StopOutcome(ended=(process.pid,), **{unproven: held})
 
     return stop
 
@@ -320,7 +326,7 @@ def test_a_survivor_is_named_in_the_handshake_error(
 ) -> None:
     """A group still running after the stop is added to the error that ended the handshake."""
     stopped: list[int] = []
-    monkeypatch.setattr(_mcp_handshake, "stop_group", _stop_reporting([424242], stopped))
+    monkeypatch.setattr(_mcp_handshake, "stop_child", _stop_reporting("survivors", stopped))
     script = tmp_path / "dying_server.py"
     script.write_text(_DYING_STUB.format(marker=_DYING_MARKER))
 
@@ -329,7 +335,7 @@ def test_a_survivor_is_named_in_the_handshake_error(
 
     assert "rc=1" in message
     assert _DYING_MARKER in message
-    assert message.endswith("; still running after stop: pids [424242]")
+    assert message.endswith(f"; server group {stopped[0]}: still running after SIGKILL: pid 424242")
     assert len(stopped) == 1
 
 
@@ -338,13 +344,13 @@ def test_a_survivor_after_a_good_handshake_fails_the_call(
 ) -> None:
     """A handshake that answered still fails when the server's group outlives the stop."""
     stopped: list[int] = []
-    monkeypatch.setattr(_mcp_handshake, "stop_group", _stop_reporting([424242], stopped))
+    monkeypatch.setattr(_mcp_handshake, "stop_child", _stop_reporting("survivors", stopped))
     command, *args = _stub(tmp_path)
 
     message = _handshake_failure(command, args)
     gc.collect()
 
-    assert message == f"server group {stopped[0]} still running after stop: pids [424242]"
+    assert message == f"server group {stopped[0]}: still running after SIGKILL: pid 424242"
 
 
 def test_an_unreadable_process_table_after_the_stop_fails_the_call(
@@ -352,12 +358,13 @@ def test_an_unreadable_process_table_after_the_stop_fails_the_call(
 ) -> None:
     """A stop that could not look is never read as a group that is gone."""
     stopped: list[int] = []
-    monkeypatch.setattr(_mcp_handshake, "stop_group", _stop_reporting(None, stopped))
+    monkeypatch.setattr(_mcp_handshake, "stop_child", _stop_reporting("unknown", stopped))
     command, *args = _stub(tmp_path)
 
     message = _handshake_failure(command, args)
     gc.collect()
 
     assert message == (
-        f"server group {stopped[0]} may still be running after stop: process table unreadable"
+        f"server group {stopped[0]}: "
+        f"process table unreadable: group {stopped[0]} may still be running"
     )
