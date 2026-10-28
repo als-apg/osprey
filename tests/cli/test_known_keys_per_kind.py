@@ -54,6 +54,7 @@ _DEPLOYMENT_KEYS = frozenset(
 _EXPECTED_APP_KEYS = frozenset(
     {
         "name",
+        "model",
         "hooks",
         "rules",
         "skills",
@@ -153,7 +154,7 @@ def test_a_deployment_key_in_a_tier_is_refused_naming_the_tier_keys(key: str) ->
     assert f" {key}," not in listed and not listed.rstrip(".").endswith(f" {key}")
 
 
-@pytest.mark.parametrize("key", ["provider", "model", "dispatch", "extends", "services"])
+@pytest.mark.parametrize("key", ["provider", "dispatch", "extends", "services"])
 def test_a_host_key_in_an_app_is_refused_naming_the_app_keys(key: str) -> None:
     with pytest.raises(BuildProfileError) as excinfo:
         reject_unknown_kind_keys({"name": "logbook", key: "x"}, ProfileKind.APP, "apps/lb.yml")
@@ -312,7 +313,7 @@ def test_validate_refuses_a_host_key_in_an_app_file(tmp_path: Path) -> None:
     from osprey.cli.validate_cmd import validate
 
     repo = _repo(tmp_path)
-    layer = _write_yaml(repo / "apps" / "lb.yml", {"name": "lb", "model": "x"})
+    layer = _write_yaml(repo / "apps" / "lb.yml", {"name": "lb", "provider": "x"})
 
     result = CliRunner().invoke(validate, [str(layer)])
 
