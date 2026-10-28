@@ -123,12 +123,13 @@ from osprey_connectors.types import (
     TARGET_LIVE,
     TARGET_STANDIN,
     TARGET_VA,
-    target_writes_enabled,
+    tier_allows,
 )
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._mcp_sse import any_answer_succeeded, sse_payloads, tool_result
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
+from tests.e2e.sdk_helpers import switch_on_in_record
 
 #: This deploy's own thousand-port block, chosen so the whole stack — the
 #: dispatcher, nginx and every panel family — coexists with a live
@@ -1137,12 +1138,12 @@ def _layer_dir(repo: Path, render_project: str) -> Path:
     return layer_dir
 
 
-def _write_posture(render: Path) -> dict[str, bool]:
-    """Whether the render arms writes, per control target, read the way the
-    connector and the settings render read it."""
+def _write_posture(render: Path) -> bool:
+    """Whether the render's login tier allows writes, read the way the write
+    verdict reads it: ``control_system.writes``, target-blind (the session's
+    switch picks the machine)."""
     config = yaml.safe_load((render / "config.yml").read_text(encoding="utf-8"))
-    section = config.get("control_system") or {}
-    return {target: target_writes_enabled(section, target) for target in CONTROL_TARGETS}
+    return tier_allows(config.get("control_system") or {})
 
 
 def _permissions(render: Path) -> dict:
@@ -1205,9 +1206,7 @@ def test_readonly_tier_denies_writes(deployed_stack: Path) -> None:
     assert (config.get("claude_code") or {}).get("provider") == "als-apg", (
         "the deployment's `--set provider=als-apg` did not reach the rendered tier project"
     )
-    assert _write_posture(readonly_dir) == dict.fromkeys(CONTROL_TARGETS, False), (
-        f"readonly tier must arm writes for no target: {_write_posture(readonly_dir)}"
-    )
+    assert _write_posture(readonly_dir) is False, "readonly tier must not allow writes"
     perms = _permissions(readonly_dir)
     assert CHANNEL_WRITE_TOOL in perms.get("deny", []), (
         f"readonly tier must deny {CHANNEL_WRITE_TOOL!r} in rendered settings.json, "
@@ -1224,11 +1223,19 @@ def test_readwrite_render_arms_writes(deployed_stack: Path) -> None:
     tool (one would prompt for a write the live target refuses); the
     per-call writes check and the approval hook gate it instead."""
     readwrite_dir = _layer_dir(deployed_stack, READWRITE_PROJECT)
-    assert _write_posture(readwrite_dir) == {
-        TARGET_LIVE: False,
-        TARGET_VA: True,
-        TARGET_STANDIN: False,
-    }, f"readwrite tier must arm writes on the simulator only: {_write_posture(readwrite_dir)}"
+    assert _write_posture(readwrite_dir) is True, "readwrite tier must allow writes"
+    # The tier allowing writes never makes the real machine writable by itself:
+    # which machine a write may reach is the login's switch, and a read-write
+    # login's switch is off for live and the stand-in until a gesture turns it on.
+    record_path = _host_record_path(deployed_stack, READWRITE_USER)
+    record = json.loads(record_path.read_text(encoding="utf-8")) if record_path.is_file() else {}
+    armed = {
+        target: (record.get("switch") or {}).get(target) for target in (TARGET_LIVE, TARGET_STANDIN)
+    }
+    assert all(state != "on" for state in armed.values()), (
+        f"{READWRITE_USER}'s switch is on for a real machine with no gesture: {armed} "
+        f"(record {record_path})"
+    )
     perms = _permissions(readwrite_dir)
     assert CHANNEL_WRITE_TOOL not in perms.get("deny", []), (
         f"readwrite tier must not deny {CHANNEL_WRITE_TOOL!r}, but deny list is: "
@@ -1248,7 +1255,7 @@ def test_readwrite_render_arms_writes(deployed_stack: Path) -> None:
 
 def test_tiers_share_identical_mcp_surface(deployed_stack: Path) -> None:
     """T4: both render projects declare the IDENTICAL control-system server
-    set — that tier boundary is enforcement (``writes_enabled``), never a
+    set — that tier boundary is enforcement (``control_system.writes``), never a
     quietly different tool surface.
 
     The dispatcher wire is the one entry that differs, and it must: it follows
@@ -1276,7 +1283,7 @@ def test_tiers_share_identical_mcp_surface(deployed_stack: Path) -> None:
     )
     assert readonly_keys == readwrite_keys - {DISPATCHER_MCP_SERVER}, (
         "apart from the dispatcher wire the two tiers must declare the identical MCP "
-        "server set (the boundary is writes_enabled, not tool absence): "
+        "server set (the boundary is the writes tier, not tool absence): "
         f"readonly={sorted(readonly_keys)} readwrite={sorted(readwrite_keys)}"
     )
 
@@ -1736,7 +1743,7 @@ out = {"status": 0, "body": "(no port variable set in this container)"}
 for port_name, port in candidates:
     req = urllib.request.Request(
         "http://127.0.0.1:%s/api/terminal/posture" % port,
-        data=json.dumps({"target": "all", "posture": "sandbox"}).encode("utf-8"),
+        data=json.dumps({"target": "all", "state": "off", "epoch": None}).encode("utf-8"),
         method="POST",
         headers={"Content-Type": "application/json", "X-Osprey-Terminal-Secret": secret},
     )
@@ -1789,12 +1796,15 @@ def test_a_chip_toggle_lands_the_owners_own_record_on_the_host_tree(
     """O5: the chip writes the record a lane reads, per user, group-readable.
 
     The toggle is made inside the READ-ONLY user's own terminal container,
-    through the endpoint the header chip posts to, and the record appears on the
-    HOST tree under that user's name. That tier is the honest place for it: the
-    fixture already seeded the read-write user's record with ``write_record``
-    before the deploy, so a toggle there could not tell a working chip from a
-    no-op, and narrowing is the one posture gesture no tier gates — only
-    ``writes`` is answered ``writes_disabled``.
+    through the endpoint the header chip posts to (``{target: "all", state:
+    "off"}``, the stop), and the record appears on the HOST tree under that
+    user's name. That tier is the honest place for it: the fixture already
+    seeded the read-write user's record with ``write_record`` before the
+    deploy, and a stop is the one switch gesture no tier gates — a turn-on
+    by a ``never`` login is answered ``tier_never``. A fresh session's switch
+    is off, so the row first turns the user's switch on in the record for the
+    simulator; a stop that left it on is the failure, and one landing on an
+    all-off record could not tell a working chip from a no-op.
 
     The mode is the assertion, not decoration. The record is written 0640
     because the dispatch worker drops to uid 1000 and reads this file across
@@ -1817,17 +1827,15 @@ def test_a_chip_toggle_lands_the_owners_own_record_on_the_host_tree(
     before = other.read_bytes() if other.is_file() else None
 
     # Non-vacuity. A record this toggle did not move would satisfy every
-    # assertion below, so the state it starts from is asserted rather than
-    # assumed: nothing has narrowed this user yet on a fresh deploy.
+    # assertion below, so the state it starts from is set and asserted: the
+    # user's switch on for the simulator, written where the terminal reads it.
     record_path = _host_record_path(deployed_stack, READONLY_USER)
-    if record_path.is_file():
-        seed = json.loads(record_path.read_text(encoding="utf-8"))
-        assert not all(
-            (seed.get("posture") or {}).get(target) == POSTURE_SANDBOX for target in CONTROL_TARGETS
-        ), (
-            f"{READONLY_USER} was already narrowed on every target before the toggle, so "
-            f"this row cannot tell a working chip from a no-op: {seed}"
-        )
+    switch_on_in_record(deployed_stack, owner=READONLY_USER, targets=[TARGET_VA])
+    seed = json.loads(record_path.read_text(encoding="utf-8"))
+    assert (seed.get("switch") or {}).get(TARGET_VA) == "on", (
+        f"{READONLY_USER}'s switch is not on for {TARGET_VA} before the toggle, so this "
+        f"row cannot tell a working chip from a no-op: {seed}"
+    )
 
     answer = _toggle_the_chip_in(READONLY_USER)
     assert answer["status"] == 200, (
@@ -1840,19 +1848,15 @@ def test_a_chip_toggle_lands_the_owners_own_record_on_the_host_tree(
         f"{_docker_capture(['docker', 'logs', '--tail', '200', _web_container(READONLY_USER)])}"
     )
     record = json.loads(record_path.read_text(encoding="utf-8"))
-    posture = record.get("posture") or {}
-    # ``all`` means "narrow whatever can be narrowed" and reports the rest in
-    # ``skipped`` rather than refusing, so a target left armed is a failure only
-    # when the terminal did not say why it stayed that way.
     reported = json.loads(answer["body"])
-    skipped = {str(row.get("target")) for row in (reported.get("skipped") or [])}
-    armed = [target for target in CONTROL_TARGETS if posture.get(target) != POSTURE_SANDBOX]
-    assert not [target for target in armed if target not in skipped], (
-        f"a [ Sandbox everything ] toggle left {sorted(armed)} armed with no reason "
-        f"given for it; the terminal reported skipped={sorted(skipped)}: {record}"
+    assert (reported.get("target"), reported.get("state")) == ("all", "off"), reported
+    assert reported.get("switch_epoch") == record.get("switch_epoch"), (
+        f"the chip answered epoch {reported.get('switch_epoch')} but the host record "
+        f"carries {record.get('switch_epoch')}: the toggle did not land on this file: {record}"
     )
-    assert len(armed) < len(CONTROL_TARGETS), (
-        f"the toggle narrowed nothing at all — every target is still armed: {record}"
+    still_on = sorted(t for t, state in (record.get("switch") or {}).items() if state == "on")
+    assert not still_on, (
+        f"a stop-everything toggle left {READONLY_USER}'s switch on for {still_on}: {record}"
     )
     mode = stat.S_IMODE(record_path.stat().st_mode)
     assert mode == 0o640, (
