@@ -35,6 +35,7 @@ from check_kit import (
     FULL,
     NOT_TOUCHED,
     PATHS,
+    UV_RUN,
     WHOLE,
     Check,
     Context,
@@ -424,8 +425,7 @@ def _package_command(*_run: object) -> list[list[str]]:
 
 #: Prints the keys of the documentation's ``redirects`` table, space separated.
 REDIRECT_KEYS_PROBE = (
-    "uv",
-    "run",
+    *UV_RUN,
     "python",
     "-c",
     "import os, runpy; os.chdir('docs/source'); "
@@ -495,7 +495,7 @@ def _check_tracked_ignored(_context: Context) -> int:
 
 
 #: Run in the documentation directory; needs the docs extra, as the build does.
-DOCS_CLEAN = ("uv", "run", "make", "clean")
+DOCS_CLEAN = (*UV_RUN, "make", "clean")
 
 
 def _prune_bytecode(_context: Context) -> int:
@@ -525,17 +525,15 @@ def _clean_docs_build(_context: Context) -> int:
 # Needs and venues
 
 #: Importable only in a venv synced with the docs extra.
-DOCS_EXTRA_PROBE = ("uv", "run", "python", "-c", "import myst_parser")
+DOCS_EXTRA_PROBE = (*UV_RUN, "python", "-c", "import myst_parser")
 
 #: Importable only in a venv synced with the virtual-accelerator extra, on its
 #: platform. The modules are the ones the live gate requires.
-LIVE_CA_PROBE = ("uv", "run", "python", "-c", "import pcaspy, p4p, lume_pva_apg")
+LIVE_CA_PROBE = (*UV_RUN, "python", "-c", "import pcaspy, p4p, lume_pva_apg")
 
 #: Prints the directory whose ``claude`` reports the pin, or the product's
-#: refusal on stderr. ``--frozen``: the need probes run before the lockfile
-#: check, and a plain ``uv run`` would re-lock a stale lockfile and hand that
-#: check a current one.
-CLAUDE_PIN_PROBE = ("uv", "run", "--frozen", "python", "scripts/pinned_claude.py")
+#: refusal on stderr.
+CLAUDE_PIN_PROBE = (*UV_RUN, "python", "scripts/pinned_claude.py")
 
 #: The compare of ``node_modules`` with ``package-lock.json``, stdlib only.
 JS_DEPS_CURRENT = Path(__file__).resolve().with_name("js_deps_current.py")
@@ -543,9 +541,7 @@ JS_DEPS_CURRENT = Path(__file__).resolve().with_name("js_deps_current.py")
 #: Runs only in a venv synced with the dev extra. actionlint disables its
 #: shellcheck rule without a word when shellcheck is absent and still exits 0, so
 #: this probe is what keeps the check from passing over unread ``run:`` blocks.
-#: ``--frozen``: the need probes run before the lockfile check, and a plain
-#: ``uv run`` would re-lock a stale lockfile and hand that check a current one.
-WORKFLOW_LINT_PROBE = ("uv", "run", "--frozen", "shellcheck", "--version")
+WORKFLOW_LINT_PROBE = (*UV_RUN, "shellcheck", "--version")
 
 
 def _need_uv() -> str | None:
@@ -684,24 +680,24 @@ CHECKS: tuple[Check, ...] = (
         "ruff",
         "invariant",
         BOTH,
-        ("uv", "run", "ruff", "check", "."),
+        (*UV_RUN, "ruff", "check", "."),
         needs=("uv",),
-        fix=(("uv", "run", "ruff", "check", ".", "--fix"),),
+        fix=((*UV_RUN, "ruff", "check", ".", "--fix"),),
         annotate=GITHUB_FORMAT,
     ),
     Check(
         "ruff-format",
         "invariant",
         BOTH,
-        ("uv", "run", "ruff", "format", "--check", "."),
+        (*UV_RUN, "ruff", "format", "--check", "."),
         needs=("uv",),
-        fix=(("uv", "run", "ruff", "format", "."),),
+        fix=((*UV_RUN, "ruff", "format", "."),),
     ),
     Check(
         "config-keys",
         "invariant",
         BOTH,
-        ("uv", "run", "python", "scripts/check_config_keys.py", "--back-test"),
+        (*UV_RUN, "python", "scripts/check_config_keys.py", "--back-test"),
         needs=("uv", "history"),
     ),
     Check(
@@ -753,7 +749,7 @@ CHECKS: tuple[Check, ...] = (
         "invariant-tests",
         "invariant",
         BOTH,
-        ("uv", "run", "pytest", *INVARIANT_TESTS),
+        (*UV_RUN, "pytest", *INVARIANT_TESTS),
         needs=("uv",),
         report="junit-pytest",
     ),
@@ -761,7 +757,7 @@ CHECKS: tuple[Check, ...] = (
         "mypy",
         "static",
         BOTH,
-        ("uv", "run", "python", "scripts/mypy_gate.py"),
+        (*UV_RUN, "python", "scripts/mypy_gate.py"),
         scope=("*.py", "pyproject.toml", "uv.lock"),
         needs=("uv",),
     ),
@@ -769,7 +765,7 @@ CHECKS: tuple[Check, ...] = (
         "import-contracts",
         "static",
         BOTH,
-        ("uv", "run", "lint-imports"),
+        (*UV_RUN, "lint-imports"),
         scope=("*.py", "pyproject.toml", "uv.lock"),
         needs=("uv",),
     ),
@@ -777,7 +773,7 @@ CHECKS: tuple[Check, ...] = (
         "private-imports",
         "static",
         BOTH,
-        ("uv", "run", "ruff", "check", "--preview", "--select=PLC2701", "."),
+        (*UV_RUN, "ruff", "check", "--preview", "--select=PLC2701", "."),
         scope=("*.py", "pyproject.toml"),
         needs=("uv",),
         annotate=GITHUB_FORMAT,
@@ -804,7 +800,7 @@ CHECKS: tuple[Check, ...] = (
         "actionlint",
         "static",
         BOTH,
-        ("uv", "run", "actionlint"),
+        (*UV_RUN, "actionlint"),
         scope=(".github/workflows/**",),
         needs=("uv", "workflow-linters"),
     ),
@@ -815,7 +811,7 @@ CHECKS: tuple[Check, ...] = (
         "pytest",
         "tests",
         BOTH,
-        ("uv", "run", "pytest"),
+        (*UV_RUN, "pytest"),
         needs=("uv", "claude-pin"),
         bound_s=5400,
         report="junit-pytest",
@@ -835,7 +831,7 @@ CHECKS: tuple[Check, ...] = (
         "pytest-pty",
         "tests",
         FULL,
-        ("uv", "run", "pytest", "tests/pty/", "-m", "pty"),
+        (*UV_RUN, "pytest", "tests/pty/", "-m", "pty"),
         scope=("tests/pty/**", "src/osprey/cli/**"),
         needs=("uv",),
         bound_s=600,
@@ -850,7 +846,7 @@ CHECKS: tuple[Check, ...] = (
         "pytest-wallclock",
         "tests",
         FULL,
-        ("uv", "run", "pytest", "tests/integration", "-m", "wallclock"),
+        (*UV_RUN, "pytest", "tests/integration", "-m", "wallclock"),
         scope=("tests/integration/**", "*.py", "pyproject.toml", "uv.lock"),
         needs=("uv",),
         bound_s=900,
@@ -867,8 +863,7 @@ CHECKS: tuple[Check, ...] = (
         "tests",
         FULL,
         (
-            "uv",
-            "run",
+            *UV_RUN,
             "--isolated",
             "--python",
             "3.14",
@@ -888,7 +883,7 @@ CHECKS: tuple[Check, ...] = (
         "live-ca",
         "tests",
         FULL,
-        ("uv", "run", "python", "scripts/va/live_ca/gate.py", "--pva"),
+        (*UV_RUN, "python", "scripts/va/live_ca/gate.py", "--pva"),
         scope=(
             "tests/va/test_apply_fault.py",
             "tests/va/test_lume_pva_seam.py",
@@ -933,7 +928,7 @@ CHECKS: tuple[Check, ...] = (
         "docs",
         "build",
         FULL,
-        ("uv", "run", "make", "html", "SPHINXOPTS=-W --keep-going"),
+        (*UV_RUN, "make", "html", "SPHINXOPTS=-W --keep-going"),
         scope=("docs/**", "*.rst", "*.md"),
         needs=("uv", "docs-extra", "graphviz"),
         workdir=DOCS_DIR,
@@ -946,7 +941,7 @@ CHECKS: tuple[Check, ...] = (
         "linkcheck",
         "build",
         FULL,
-        ("uv", "run", "make", "linkcheck"),
+        (*UV_RUN, "make", "linkcheck"),
         scope=("docs/**",),
         needs=("uv", "docs-extra"),
         workdir=DOCS_DIR,
