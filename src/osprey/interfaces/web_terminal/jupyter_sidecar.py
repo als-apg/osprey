@@ -655,15 +655,15 @@ class JupyterSidecar:
         logger.info("%s launched (pid %s)", _NAME, self._process.pid)
 
     def _watch_exit(self, process: subprocess.Popen[bytes], tail: _StderrTail) -> None:
-        """Reap *process*; report an exit that :meth:`stop` did not cause.
+        """Observe *process*'s exit without reaping it; report one :meth:`stop` did not cause.
 
-        The stderr pipe is inherited by every kernel, so its end of stream
-        cannot stand in for the exit: an orphaned kernel keeps it open.
-        ``wait()`` is what says the sidecar is gone. The report is skipped
-        while the sidecar was still coming up, because :meth:`wait_ready`
-        raises with the same tail and its caller logs that.
+        :meth:`stop` reaps. The stderr pipe is inherited by every kernel, so
+        its end of stream cannot stand in for the exit: an orphaned kernel
+        keeps it open. The observed exit is what says the sidecar is gone. The
+        report is skipped while the sidecar was still coming up, because
+        :meth:`wait_ready` raises with the same tail and its caller logs that.
         """
-        status = process.wait()
+        status = subprocess_capture.observe_exit(process, within=None)
         if self._stopping.is_set():
             return
         tail.join(timeout=1)
@@ -718,7 +718,7 @@ class JupyterSidecar:
         while True:
             if self._stopping.is_set():
                 raise RuntimeError(f"{_NAME} was stopped before it was ready")
-            status = process.poll()
+            status = subprocess_capture.observe_exit(process)
             if status is not None:
                 if self._tail is not None:
                     self._tail.join(timeout=1)
@@ -743,28 +743,11 @@ class JupyterSidecar:
         runtime_dir = self._runtime_dir
         process, self._process = self._process, None
         if process is not None:
-            if process.poll() is None:
-                # The sidecar leads its group, so its pid names it. The stop
-                # assumes the leader is unreaped, but ``_watch_exit`` waits on
-                # (and so can reap) it concurrently: an emptied group then reads
-                # as gone at the next look, and its id could be reused within the
-                # stop's seconds. The end state is one stop that owns the child's
-                # reap while every watcher only observes the exit.
-                survivors = subprocess_capture.stop_group(process.pid, grace=_STOP_GRACE)
-                if survivors == []:
-                    process.wait()
-                elif survivors is None:
-                    logger.warning(
-                        "%s: process table unreadable: group %d may still be running",
-                        _NAME,
-                        process.pid,
-                    )
-                else:
-                    logger.warning(
-                        "%s: its process group is still running after SIGKILL: pids %s",
-                        _NAME,
-                        " ".join(str(pid) for pid in survivors),
-                    )
+            # The sidecar leads its group, so its pid names it; the stop is the
+            # one reaper of the sidecar, whether it is running or has exited.
+            outcome = subprocess_capture.stop_child(process, grace=_STOP_GRACE)
+            if not outcome.gone:
+                logger.warning("%s: %s", _NAME, outcome.describe())
             # The stderr pipe is left to the tail thread: closing it here
             # blocks on the reader, and a kernel the group signal did not
             # reach (kernels start their own session) can hold the write end
