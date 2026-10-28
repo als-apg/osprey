@@ -12,6 +12,7 @@ writing under ``<sources>``, and a symlink in a source is never followed.
 
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import hashlib
 import logging
@@ -147,6 +148,7 @@ class ArchiveTree:
         self.dir_mode = stat.S_IMODE(st.st_mode)
         self.file_mode = self.dir_mode & 0o666
         self._owner = (st.st_uid, st.st_gid) if os.geteuid() == 0 else None
+        self._group = st.st_gid
         self.incoming = dest / INCOMING_DIRNAME
         self._lock_fd: int | None = None
         try:
@@ -173,8 +175,18 @@ class ArchiveTree:
         return self.day_dir if day is None else self.dest / day
 
     def _own(self, path: Path) -> None:
+        """Hand *path* to the root's owner (as root) or, otherwise, to the root's group.
+
+        The group is set outright rather than left to the setgid bit, which a
+        directory another writer made may have lost: the second writer, under
+        another uid, joined the root's group, and the deploying account reads
+        through it.
+        """
         if self._owner is not None:
             os.chown(path, *self._owner, follow_symlinks=False)
+        elif os.lstat(path).st_gid != self._group:
+            with contextlib.suppress(PermissionError):
+                os.chown(path, -1, self._group, follow_symlinks=False)
 
     def _mkdir(self, path: Path) -> None:
         if path.is_dir():

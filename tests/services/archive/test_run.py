@@ -330,3 +330,31 @@ def test_a_directory_handed_to_the_roots_owner_keeps_the_setgid_bit(tmp_path, mo
             assert stat.S_IMODE(directory.stat().st_mode) == 0o2770, oct(directory.stat().st_mode)
     finally:
         tree.close()
+
+
+def test_a_writer_that_is_not_root_hands_what_it_makes_to_the_roots_group(tmp_path, monkeypatch):
+    """A parent another writer left without setgid would give a new directory
+    the writer's own group; the root's group is set on it outright."""
+    dest = tmp_path / "archive"
+    dest.mkdir()
+    tree = archive_run.ArchiveTree(dest, DAY1)
+    try:
+        calls: list[tuple[str, int, int]] = []
+        monkeypatch.setattr(tree, "_owner", None)
+        monkeypatch.setattr(tree, "_group", os.getgid() + 1)
+        monkeypatch.setattr(
+            archive_run.os,
+            "chown",
+            lambda path, uid, gid, *, follow_symlinks=True: calls.append(
+                (Path(path).name, uid, gid)
+            ),
+        )
+
+        tree.makedirs(dest / "2026-01-01" / "agent_record")
+
+        assert calls == [
+            ("2026-01-01", -1, os.getgid() + 1),
+            ("agent_record", -1, os.getgid() + 1),
+        ]
+    finally:
+        tree.close()
