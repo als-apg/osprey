@@ -709,10 +709,10 @@ class TestObserveExit:
         proc = subprocess.Popen([sys.executable, "-c", "pass"])
         try:
             assert observe_exit(proc, within=5.0) == 0
-            assert os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is not None
+            assert observe_exit(proc) == 0
             assert proc.returncode is None
         finally:
-            proc.wait()
+            assert proc.wait() == 0
 
     def test_observe_exit_answers_none_while_the_child_runs(self):
         proc = subprocess.Popen(["sleep", "60"])
@@ -746,11 +746,52 @@ class TestObserveExit:
 
     def test_observe_exit_raises_when_something_else_reaped_the_child(self, monkeypatch):
         proc = subprocess.Popen([sys.executable, "-c", "pass"])
-        os.waitid(os.P_PID, proc.pid, os.WEXITED)
+        os.waitpid(proc.pid, 0)
         monkeypatch.setattr(subprocess_capture, "_REAP_SETTLE_S", 0.2)
         with pytest.raises(RuntimeError, match=f"pid {proc.pid} was reaped by something other"):
             observe_exit(proc)
         proc.returncode = 0  # the foreign reap took the status; keep Popen.__del__ quiet
+
+
+# The kernel facts the probe rests on, read through each way this interpreter
+# can call waitid(2): CPython's binding where it has one, and the C library
+# directly on macOS, where CPython 3.11 and 3.12 bind none.
+_READERS = [subprocess_capture._waitid] + (
+    [subprocess_capture._libc_waitid] if sys.platform == "darwin" else []
+)
+_LOOK = os.WEXITED | os.WNOWAIT
+
+
+@pytest.mark.parametrize("reader", _READERS, ids=lambda r: r.__name__)
+class TestWaitidReader:
+    def test_a_running_child_reads_none(self, reader):
+        proc = subprocess.Popen(["sleep", "60"])
+        try:
+            assert reader(proc.pid, _LOOK | os.WNOHANG) is None
+        finally:
+            proc.kill()
+            proc.wait()
+
+    def test_an_exited_child_reads_its_status_twice_and_stays_unreaped(self, reader):
+        proc = subprocess.Popen([sys.executable, "-c", "raise SystemExit(7)"])
+        first = reader(proc.pid, _LOOK)
+        second = reader(proc.pid, _LOOK)
+        assert first == second
+        assert (first.si_pid, first.si_code, first.si_status) == (proc.pid, os.CLD_EXITED, 7)
+        assert proc.wait() == 7
+
+    def test_a_sigtermed_child_reads_killed_with_its_signal(self, reader):
+        proc = subprocess.Popen(["sleep", "60"])
+        proc.terminate()
+        state = reader(proc.pid, _LOOK)
+        assert (state.si_code, state.si_status) == (os.CLD_KILLED, signal.SIGTERM)
+        assert proc.wait() == -signal.SIGTERM
+
+    def test_a_reaped_child_is_not_a_child(self, reader):
+        proc = subprocess.Popen([sys.executable, "-c", "pass"])
+        proc.wait()
+        with pytest.raises(ChildProcessError):
+            reader(proc.pid, _LOOK | os.WNOHANG)
 
 
 # ---------------------------------------------------------------------------
@@ -759,7 +800,7 @@ class TestObserveExit:
 def _exited_unreaped_leader() -> subprocess.Popen:
     """A group leader that has exited and that nobody has reaped yet."""
     leader = subprocess.Popen([sys.executable, "-c", "pass"], process_group=0)
-    os.waitid(os.P_PID, leader.pid, os.WEXITED | os.WNOWAIT)
+    observe_exit(leader, within=None)
     return leader
 
 
@@ -951,7 +992,7 @@ class TestProcessGroupStop:
 
     def test_a_stop_that_could_not_read_the_table_says_so(self, monkeypatch, caplog):
         proc = subprocess.Popen([sys.executable, "-c", "pass"], process_group=0)
-        os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOWAIT)
+        observe_exit(proc, within=None)
         monkeypatch.setattr(subprocess_capture, "stop_group", lambda *_a, **_k: None)
         with caplog.at_level(logging.WARNING):
             subprocess_capture._stop(proc, own_group=True)
