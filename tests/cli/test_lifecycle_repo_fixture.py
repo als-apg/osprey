@@ -274,12 +274,12 @@ def test_layer_delta_resolves_over_the_repo_profile(lifecycle_repo: Path, render
     assert profile_dir == lifecycle_repo
     assert profile.name == f"Als Exemplar ({render})"
     assert profile.deploy_services is False
-    # readwrite and admin are armed on the simulator alone; every tier pins the
-    # flat key off, so only the simulator's own block separates them.
-    assert profile.config["control_system.writes_enabled"] is False
-    assert profile.config.get(
-        "control_system.connector.virtual_accelerator.writes_enabled", False
-    ) is (render in ("readwrite", "admin"))
+    # readwrite and admin allow writes; readonly pins them off. One key states
+    # the tier's ceiling, and no retired leaf survives beside it.
+    assert profile.config["control_system.writes"] == (
+        "allowed" if render in ("readwrite", "admin") else "never"
+    )
+    assert not [key for key in profile.config if key.endswith("writes_enabled")]
 
 
 def test_render_catalog_names_only_each_renders_source(lifecycle_repo: Path) -> None:

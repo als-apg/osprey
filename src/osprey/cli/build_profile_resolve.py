@@ -41,7 +41,7 @@ from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.safety_file import atomic_replace
 
-from .build_profile_document import _read_profile_document
+from .build_profile_document import _read_profile_document, normalize_retired_write_keys
 from .build_profile_load import (
     CONNECTOR_CONFIG_KEY,
     CONNECTOR_PROFILE_KEY,
@@ -51,7 +51,12 @@ from .build_profile_load import (
     _apply_port_base_shorthand,
     _parse_profile,
 )
-from .build_profile_merge import _deep_merge, _resolve_extends, resolve_profile_document
+from .build_profile_merge import (
+    _deep_merge,
+    _resolve_extends,
+    resolve_profile_document,
+    seal_app_render,
+)
 from .build_profile_model import BuildProfile
 from .build_profile_presets import _load_preset_raw
 
@@ -208,6 +213,22 @@ def _shadowed_config_keys(config: Mapping[str, Any], stated: Sequence[tuple[str,
     return shadowed
 
 
+def _strip_stated_leaves(value: dict[str, Any], rests: list[tuple[str, ...]]) -> dict[str, Any]:
+    """A copy of a mapping value with each stated sub-path *rests* removed.
+
+    A mapping value is assigned whole and its keys are written literally, so
+    each segment is one key here (no dot splitting).
+    """
+    stripped = copy.deepcopy(value)
+    for rest in rests:
+        node: Any = stripped
+        for segment in rest[:-1]:
+            node = node.get(segment) if isinstance(node, dict) else None
+        if isinstance(node, dict):
+            node.pop(rest[-1], None)
+    return stripped
+
+
 def _drop_shadowed_config_keys(
     raw: dict[str, Any], stated: list[tuple[str, ...]]
 ) -> dict[str, Any]:
@@ -221,10 +242,17 @@ def _drop_shadowed_config_keys(
     ``approval.tools.channel_read`` is exactly that pair.
 
     An edit is the last word, so the key it names wins the whole subtree
-    beneath it: every key BENEATH a stated path (segment-prefix match, so
-    ``approval.tools`` claims ``approval.tools.channel_read`` and not
-    ``approval.tools_extra``) is dropped, and the value the operator just gave
-    is the one that renders. A stated path itself is never dropped.
+    beneath it, and wins over any spelling of it above:
+
+    * every key BENEATH a stated path (segment-prefix match, so
+      ``approval.tools`` claims ``approval.tools.channel_read`` and not
+      ``approval.tools_extra``) is dropped;
+    * a mapping-valued key ABOVE a stated path loses the stated sub-path
+      (``control_system: {writes: never}`` beside an edit of
+      ``control_system.writes``), since the mapping is assigned whole and
+      would otherwise put the old value back.
+
+    A stated path itself is never dropped.
 
     This is the first half of an edit and runs BEFORE the edit's own leaves are
     written (:func:`apply_cli_edits`, :func:`write_back_cli_overrides`): a
@@ -245,17 +273,32 @@ def _drop_shadowed_config_keys(
     if not stated or not isinstance(config, dict):
         return raw
     shadowed = _shadowed_config_keys(config, stated)
-    if not shadowed:
+    claimed = set(stated)
+    pruned: dict[str, Any] = {}
+    changed = bool(shadowed)
+    for key, value in config.items():
+        if key in shadowed:
+            continue
+        path = tuple(key.split(".")) if isinstance(key, str) else None
+        if path is not None and path not in claimed and isinstance(value, dict):
+            rests = [
+                below[len(path) :]
+                for below in stated
+                if len(path) < len(below) and below[: len(path)] == path
+            ]
+            if rests:
+                value = _strip_stated_leaves(value, rests)
+                changed = True
+        pruned[key] = value
+    if not changed:
         return raw
-    logger.debug(
-        "Dropped %d config key(s) shadowed by a CLI override: %s",
-        len(shadowed),
-        ", ".join(sorted(shadowed)),
-    )
-    return {
-        **raw,
-        _CONFIG_SET_PREFIX: {key: value for key, value in config.items() if key not in shadowed},
-    }
+    if shadowed:
+        logger.debug(
+            "Dropped %d config key(s) shadowed by a CLI override: %s",
+            len(shadowed),
+            ", ".join(sorted(shadowed)),
+        )
+    return {**raw, _CONFIG_SET_PREFIX: pruned}
 
 
 def _literal_control_system_type(layer: dict[str, Any]) -> Any:
@@ -314,6 +357,10 @@ def _reject_connector_type_conflict(layers: list[dict[str, Any]]) -> None:
     )
 
 
+#: How the ``--set`` layer is named in warnings and refusals.
+_CLI_LAYER_SOURCE = "--set"
+
+
 def cli_edit_layer(set_pairs: tuple[str, ...]) -> dict[str, Any]:
     """The edit a command line's ``--set`` pairs make, as one profile fragment.
 
@@ -323,12 +370,20 @@ def cli_edit_layer(set_pairs: tuple[str, ...]) -> dict[str, Any]:
     so what an edit states is the literal key a reader of the profile would
     edit, never a shorthand that silently outranks the block printed beside it.
 
+    The pairs are a document too, so the retired write-posture keys are
+    rewritten here exactly as at the parse point
+    (:func:`~osprey.cli.build_profile_document.normalize_retired_write_keys`,
+    as a root named ``--set``): a retired-key pair states a
+    ``control_system.writes`` value, and pairs spelling both forms are refused.
+
     Raises:
         BuildProfileError: On an unparseable pair, an invalid ``connector``
-            value, or pairs naming both ``connector`` and
-            ``config.control_system.type``.
+            value, pairs naming both ``connector`` and
+            ``config.control_system.type``, or pairs spelling both a retired
+            write-posture key and ``config.control_system.writes``.
     """
     layer = _parse_set_pairs(set_pairs)
+    normalize_retired_write_keys(layer, _CLI_LAYER_SOURCE)
     _reject_connector_type_conflict([layer])
     return _apply_port_base_shorthand(_apply_connector_shorthand(layer))
 
@@ -348,8 +403,9 @@ def apply_cli_edits(resolved: dict[str, Any], set_pairs: tuple[str, ...]) -> dic
 
     A ``config.*`` key the edit names wins the whole subtree beneath it: the
     inherited keys under that path go first (:func:`_drop_shadowed_config_keys`),
-    then the edit's own leaves land, so ``config.approval.tools={…}`` leaves
-    exactly the ``approval.tools.*`` entries it spelled and none of the preset's.
+    and so does the inherited key itself, then the edit's own leaves land last,
+    so ``config.approval.tools={…}`` leaves exactly the ``approval.tools.*``
+    entries it spelled and none of the preset's.
     The prune is done here, as part of the edit, because the edit is the only
     place the provenance exists — afterwards an edited key is indistinguishable
     from an inherited one.
@@ -371,8 +427,23 @@ def apply_cli_edits(resolved: dict[str, Any], set_pairs: tuple[str, ...]) -> dic
     if not set_pairs:
         return folded
     layer = cli_edit_layer(set_pairs)
-    claimed = _drop_shadowed_config_keys(folded, _stated_config_paths(layer))
-    return _replace_leaves(claimed, _flatten_override_layer(layer))
+    stated = _stated_config_paths(layer)
+    claimed = _drop_shadowed_config_keys(folded, stated)
+    return _replace_leaves(_release_stated_keys(claimed, stated), _flatten_override_layer(layer))
+
+
+def _release_stated_keys(raw: dict[str, Any], stated: list[tuple[str, ...]]) -> dict[str, Any]:
+    """A copy of ``raw`` without the ``config:`` keys the edit restates.
+
+    ``config_update_fields`` applies keys in order, so an edit written back at
+    an inherited key's position would still lose to a mapping key after it;
+    re-inserted by the edit, the key lands last.
+    """
+    config = raw.get(_CONFIG_SET_PREFIX)
+    if not stated or not isinstance(config, dict):
+        return raw
+    names = {".".join(path) for path in stated}
+    return {**raw, _CONFIG_SET_PREFIX: {k: v for k, v in config.items() if k not in names}}
 
 
 def _replace_leaves(
@@ -540,6 +611,10 @@ def resolve_build_document(
         # merged — because only here does the whole picture an edit outranks
         # exist: every literal dotted key any layer contributes.
         raw = apply_cli_edits(raw, set_pairs)
+        # The edit lands after the app composer pinned the render, so an app
+        # is sealed again: no edit arms it or opens a deployment-edit door.
+        if document.app_rel is not None and set_pairs:
+            raw = seal_app_render(raw, document.app_rel)
 
     profile = _parse_profile(raw)
     profile.inherited_preset = inherited_preset

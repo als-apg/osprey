@@ -3,7 +3,7 @@ public API. `config.get_framework_service_config` and `log_filter.LoggerFilter`
 are removed. These are now private: `config.RUNTIME_STATE_DIR`,
 `control_context.OWNER_KINDS`, `live_report_payloads`, `record_path_under`,
 `report_path` and `report_path_under`, `logger.QUIET_THIRD_PARTY_LOGGERS`,
-`log_filter.suppress_logger_level`, `posture_store.parse_launch_posture`,
+`log_filter.suppress_logger_level`,
 `process.REAP_WINDOW_S`, `standin.ARCHIVER_RECORDER_BLOCK_KEY` and
 `archive_recorder_configured`, `types.ARCHIVER_SETTINGS_LEAF`,
 `LIMITS_BLOCK_LEAVES` and `ONE_REAL_MACHINE`, `yaml_loader.safe_dumper`,

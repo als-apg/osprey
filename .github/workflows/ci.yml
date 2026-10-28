@@ -1323,6 +1323,15 @@ jobs:
     - name: Install dependencies
       run: uv sync --extra dev
 
+    # The artifact pages are served opaque, and the suites that prove it run
+    # with OSPREY_OFFLINE=1 so every vendor library comes through the proxy's
+    # cookie-less asset routes rather than a CDN. The vendor trees are
+    # gitignored; this writes them, each file checked against its manifest
+    # SHA256.
+    - name: Fetch vendor assets
+      timeout-minutes: 5
+      run: uv run osprey vendor fetch --quiet
+
     # `--with-deps` apt-installs ~140 MB of system debs (WebKit's gstreamer and
     # codec stack is most of it), and the runner's default mirror,
     # azure.archive.ubuntu.com, some days serves them at 30-100 kB/s: the
@@ -1419,8 +1428,10 @@ jobs:
           tests/interfaces/artifacts/test_gallery_interactions.py \
           tests/interfaces/artifacts/test_plot_theme_browser.py \
           tests/interfaces/artifacts/test_plot_export_browser.py \
+          tests/interfaces/artifacts/test_opaque_origin_browser.py \
           tests/docs/screenshots/test_video_probes_browser.py \
           tests/interfaces/web_terminal/test_panels_browser.py \
+          tests/interfaces/web_terminal/test_opaque_panel_browser.py \
           tests/interfaces/web_terminal/test_facility_time_browser.py \
           tests/interfaces/web_terminal/test_panels_collab_browser.py \
           tests/interfaces/web_terminal/test_jupyter_panel_browser.py \

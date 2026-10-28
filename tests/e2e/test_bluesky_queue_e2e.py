@@ -600,7 +600,48 @@ def _draft_snapshot() -> dict[str, Any]:
 
 
 def _enqueue(revision: int, *, token: str | None = None) -> tuple[int, Any]:
-    return _post("/queue/items", {"draft_revision": revision}, token=token)
+    """Add the draft at *revision* for :func:`_queue_owner`, whose switch the stack armed.
+
+    The worker's writes follow the add's owner's switch: an ownerless add has
+    no switch to follow and its first write is refused ``owner_unknown``.
+    """
+    from osprey.utils.owner_header import OWNER_HEADER
+
+    return _post(
+        "/queue/items",
+        {"draft_revision": revision},
+        token=token,
+        extra_headers={OWNER_HEADER: _queue_owner()},
+    )
+
+
+def _queue_owner() -> str:
+    """The login every queue add of this module names (``X-Osprey-Owner``)."""
+    from osprey_connectors import posture_store
+
+    owner = posture_store.current_owner()
+    assert isinstance(owner, str) and owner, f"this process names no owner: {owner!r}"
+    return owner
+
+
+def _arm_queue_owner(repo: Path) -> None:
+    """Turn :func:`_queue_owner`'s switch on for the simulator in the deployment's record.
+
+    The preset's tier already allows writes (``control_system.writes:
+    allowed``); the switch is the other half. Written through the production
+    writers into the control tree the deploy provisions, before ``up`` so the
+    worker reads it.
+    """
+    import yaml
+
+    from osprey.deployment.compose_generator import ensure_control_target_dir
+    from osprey_connectors.types import TARGET_VA
+    from tests.e2e.sdk_helpers import render_dir, switch_on_in_record
+
+    config = yaml.safe_load((render_dir(repo) / "config.yml").read_text(encoding="utf-8"))
+    owner = _queue_owner()
+    ensure_control_target_dir(config, repo, owner, relative_to=repo)
+    switch_on_in_record(repo, owner=owner, targets=[TARGET_VA])
 
 
 def _enqueue_ok(revision: int, *, token: str | None = None) -> str:
@@ -871,6 +912,7 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
     # reach the worker as the device file the build staged (read back below from
     # the render).
     _orm_stack.seed_repo_env(repo)
+    _arm_queue_owner(repo)
 
     # Force fresh --dev builds so the deployed containers run CURRENT source
     # (`osprey up` does not pass --build to compose, so it would otherwise
@@ -1410,9 +1452,7 @@ def _stage_the_queue_tools(
     from osprey_connectors.workspace import reset_config_cache
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(
-        "control_system:\n  writes_enabled: true\n", encoding="utf-8"
-    )
+    (tmp_path / "config.yml").write_text("control_system:\n  writes: allowed\n", encoding="utf-8")
     # The builder caches the config it loaded, and the tools load theirs on the
     # first gate they run -- clear it so the posture they read is the one this
     # line just wrote.
@@ -1426,7 +1466,52 @@ def _stage_the_queue_tools(
         monkeypatch.setenv(f"{prefix}_LAUNCH_TOKEN", token)
     monkeypatch.setenv(POSTURE_SESSION_ENV_VAR, _MCP_SESSION)
     monkeypatch.setenv(CONTROL_CONTEXT_DIR_ENV_VAR, str(tmp_path / "control_target"))
+    _switch_on_for_this_login()
     initialize_server_context()
+
+
+def _switch_on_for_this_login() -> None:
+    """Turn this login's switch on for the baseline target, in the record the tools read.
+
+    The tier above allows writes; the switch is the other half of the verdict
+    the queue tools ask before they relay a start. Written through the
+    production writers the chip uses -- the record first, then the gesture
+    against the epoch it was stamped with -- into the control-state directory
+    :func:`_stage_the_queue_tools` bound for this test alone.
+    """
+    from osprey_connectors import control_context
+    from osprey_connectors.types import baseline_target
+
+    target = baseline_target({"writes": "allowed"})
+    control_context.invalidate_cache()
+    path = control_context.record_path()
+    assert path is not None, "the control-context record path did not resolve"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    control_context.write_record(control_context.ControlContext(target=target, generation=1))
+    control_context.invalidate_cache()
+    current = control_context.read_record(path=path)
+    epoch = (current.switch_epoch if current is not None else None) or 0
+    try:
+        control_context.set_switch([target], "on", epoch=epoch, path=path)
+    except control_context.StoppedSince as refused:
+        if not refused.stamped or refused.epoch is None:
+            raise
+        control_context.set_switch([target], "on", epoch=refused.epoch, path=path)
+    control_context.invalidate_cache()
+
+
+def _approved_call(tool: str):
+    """The ask stamp the approval hook files for an approved *tool* call, bound.
+
+    Stage 1 of approval: where the deployment's policy asks about *tool*, the
+    tool runs only on the record the hook left for the call. This is the human's
+    yes, filed in the directory the tool reads (``target_state.state_dir()``).
+    Stage 2, the queue binding, is :func:`_write_start_approval_stamp`.
+    """
+    from osprey.mcp_server.control_system import target_state
+    from tests._approval_stamp_fixture import ApprovalStamps
+
+    return ApprovalStamps(target_state.state_dir()).approved(tool)
 
 
 def _write_start_approval_stamp(uid: str) -> Path:
@@ -1512,7 +1597,10 @@ async def test_3_the_queue_tool_names_its_approved_queue_on_the_wire(
         _stage_the_queue_tools(tmp_path, monkeypatch, hop.url, token=stack.token)
         _write_start_approval_stamp(_UID_NO_MANAGER_MINTED)
         try:
-            with assert_raises_error(error_type="queue_changed_since_approval") as ctx:
+            with (
+                _approved_call("queue_start"),
+                assert_raises_error(error_type="queue_changed_since_approval") as ctx,
+            ):
                 await get_tool_fn(queue_tools.queue_start)()
         finally:
             # A refusal that failed to refuse leaves the queue ARMED, and it
@@ -1575,7 +1663,10 @@ async def test_3_an_unbound_queue_tool_start_names_no_queue_at_all(
     with _recording_bridge_hop() as hop:
         _stage_the_queue_tools(tmp_path, monkeypatch, hop.url, token=None)
         try:
-            with assert_raises_error(error_type="launch_token_invalid"):
+            with (
+                _approved_call("queue_start"),
+                assert_raises_error(error_type="launch_token_invalid"),
+            ):
                 await get_tool_fn(queue_tools.queue_start)()
         finally:
             # Same blast radius as the row above: an unbound start that was not

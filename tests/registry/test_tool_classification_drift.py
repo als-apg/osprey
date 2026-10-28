@@ -183,3 +183,114 @@ def test_ariel_gates_both_halves_of_a_logbook_write():
     gated = {rule.matcher for rule in ariel.hooks_pre}
     assert "mcp__ariel__entry_create" in gated
     assert "mcp__ariel__entry_publish" in gated
+
+
+# ---------------------------------------------------------------------------
+# A facility server's declared writes, through a real render
+# ---------------------------------------------------------------------------
+
+#: A facility server that declares two of its four tools as writes. The other
+#: two are plain reads: allowed, not in ``permissions.ask``, no destructive
+#: marker in the name, so nothing but the declaration decides their class.
+_DECLARED_WRITES = ("set_value", "ramp_value")
+_DECLARING_READS = ("get_value", "list_values")
+_DECLARING_SERVER = {
+    "plc": {
+        "command": "node",
+        "args": ["plc.js"],
+        "writes": list(_DECLARED_WRITES),
+        "permissions": {"allow": [*_DECLARING_READS, *_DECLARED_WRITES]},
+    },
+}
+
+
+@pytest.fixture(scope="module")
+def declaring_render(tmp_path_factory):
+    """A control-assistant project regenerated with :data:`_DECLARING_SERVER`.
+
+    The regeneration is the render that ships, so its ``hook_config.json`` is
+    what the writes-check hook and the audit middleware actually read.
+    """
+    import yaml
+
+    from osprey.cli.build_profile import resolve_build_profile
+    from osprey.cli.templates.manager import TemplateManager
+    from osprey.utils.config_writer import config_update_fields
+    from tests._preset_data import bundle_data_root
+
+    tmp_path = tmp_path_factory.mktemp("declaring-render")
+    manager = TemplateManager()
+    profile, _ = resolve_build_profile(None, preset="control-assistant")
+    project = manager.create_project(
+        project_name="declaring-render",
+        output_dir=tmp_path,
+        data_bundle="control_assistant",
+        data_root=bundle_data_root(),
+        context={"channel_finder_mode": "hierarchical"},
+        force=True,
+    )
+    config_update_fields(project / "config.yml", profile.config)
+    manager.generate_manifest(
+        project,
+        "declaring-render",
+        "control-assistant",
+        {},
+        artifacts=manager._effective_artifacts("control_assistant", None),
+    )
+    config_file = project / "config.yml"
+    config = yaml.safe_load(config_file.read_text())
+    config.setdefault("claude_code", {})["servers"] = _DECLARING_SERVER
+    config_file.write_text(yaml.dump(config))
+    manager.regenerate_claude_code(project)
+    return project
+
+
+def _rendered_hook_config(project) -> dict:
+    import json
+
+    return json.loads((project / ".claude" / "hooks" / "hook_config.json").read_text())
+
+
+def test_every_declared_tool_classifies_as_a_write_in_the_render(declaring_render):
+    """Each declared tool is in the write set and the facility set, never mixed."""
+    rendered = _rendered_hook_config(declaring_render)
+
+    for tool in _DECLARED_WRITES:
+        name = f"mcp__plc__{tool}"
+        assert name in rendered["write_tools"], name
+        assert name in rendered["facility_write_tools"], name
+        assert name not in rendered["mixed_read_write_tools"], name
+
+
+def test_a_declaring_servers_other_tools_are_not_writes_in_the_render(declaring_render):
+    """No whole-server matcher, and no read tool, rides in with the declaration."""
+    rendered = _rendered_hook_config(declaring_render)
+    classified = {*rendered["write_tools"], *rendered["facility_write_tools"]}
+
+    assert "mcp__plc__.*" not in classified
+    for tool in _DECLARING_READS:
+        assert f"mcp__plc__{tool}" not in classified, tool
+
+
+def test_the_audit_clamp_of_the_render_is_exactly_the_declared_tools(declaring_render, monkeypatch):
+    """The middleware's clamp, read from the same file, agrees with the render.
+
+    The clamp is ``write_tools`` minus ``mixed_read_write_tools``; for the
+    declaring server that must be the declared tools and nothing else, on the
+    verified path the server is launched on.
+    """
+    from osprey.mcp_server import audit_middleware as am
+
+    monkeypatch.setenv(am.CONFIG_ENV, str(declaring_render / "config.yml"))
+    am.reset_audit_state()
+    try:
+        state = am._resolve_state()
+        clamp, source, verified = am._clamp_for(state, "plc")
+    finally:
+        am.reset_audit_state()
+
+    assert (source, verified) == (am.CLAMP_SOURCE_LOADED, True)
+    plc_clamped = {name for name in clamp if name.startswith("mcp__plc__")}
+    assert plc_clamped == {f"mcp__plc__{tool}" for tool in _DECLARED_WRITES}
+    for tool in _DECLARING_READS:
+        assert not am._is_clamped(clamp, f"mcp__plc__{tool}", tool, verified=True), tool

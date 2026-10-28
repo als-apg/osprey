@@ -4,6 +4,8 @@ Verifies that the markdown rendered endpoint returns a standalone HTML page
 with CDN links, proper escaping, and correct error responses.
 """
 
+import pytest
+
 
 class TestMarkdownRenderedAPI:
     """Tests for the markdown rendered endpoint."""
@@ -105,3 +107,49 @@ class TestMarkdownRenderedAPI:
         resp = app_client.get(f"/api/markdown/{entry.id}/rendered")
         assert resp.status_code == 404
         assert "not found on disk" in resp.json()["detail"]
+
+
+class TestMarkdownPageIsOpaque:
+    """The rendered page shows agent-written markdown, so it runs on an opaque
+    origin, loads the sanitizer md-render.js needs, and carries C-MSG."""
+
+    @pytest.fixture
+    def page(self, app_client):
+        entry = app_client.app.state.artifact_store.save_file(
+            file_content=b"# hi\n\n<script>fetch('/api/x')</script>",
+            filename="hi.md",
+            artifact_type="markdown",
+            title="hi",
+            description="",
+            mime_type="text/markdown",
+            tool_source="test",
+        )
+        return app_client.get(f"/api/markdown/{entry.id}/rendered")
+
+    def test_the_rendered_page_carries_the_opaque_sandbox(self, page):
+        from osprey.interfaces.opaque_origin import OPAQUE_CSP
+
+        assert page.status_code == 200
+        assert page.headers["content-security-policy"] == OPAQUE_CSP
+        assert page.headers["x-content-type-options"] == "nosniff"
+
+    def test_the_sanitizer_loads_before_the_renderer(self, page):
+        body = page.text
+        assert "purify.min.js" in body
+        assert body.index("purify.min.js") < body.index("/static/js/md-render.js")
+
+    def test_the_sanitizer_is_the_local_copy_offline(self, monkeypatch):
+        from osprey.interfaces.artifacts.app import _build_markdown_page
+
+        monkeypatch.setenv("OSPREY_OFFLINE", "1")
+        assert '<script src="/static/js/vendor/purify.min.js"></script>' in (
+            _build_markdown_page("x", "t")
+        )
+
+    def test_the_page_carries_the_listener_and_the_theme_follower(self, page):
+        body = page.text
+        assert "osprey-artifact-ready" in body
+        assert "osprey-artifact-print" in body
+        assert "window.opener || window.parent" in body
+        assert "from '/design-system/js/theme-manager.js'" in body
+        assert "initTheme({ role: 'follower' })" in body

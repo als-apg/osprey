@@ -22,6 +22,12 @@ read from (the two control-state binds, ``OSPREY_CONTROL_CONTEXT_TREE`` and
 hand a plan another user's chip — or aim the read at a directory holding no
 record at all, which reads as "nothing narrowed".
 
+The dispatch marker (``OSPREY_DISPATCH_RUN``) says a process is a dispatch job,
+which owns no narrowing: the owner resolution answers "no owner" for it and an
+owned write is refused. A spec that could set it could make a server look like
+a dispatch run, or present a dispatch run's ownerless answer where an owner's
+narrowing should have been read.
+
 The set is spelled off its sources, not off a hand-picked list: two of the
 containment tests below exist because the first cut listed four markers and
 missed both the ladder's WINNING rung (a spec pinning ``OSPREY_TERMINAL_USER``
@@ -60,6 +66,7 @@ from osprey.registry.mcp import (
     CONTROL_CONTEXT_DIR_ENV,
     CONTROL_CONTEXT_TREE_ENV,
     CONTROL_OWNER_ENV,
+    DISPATCH_RUN_ENV,
     FRAMEWORK_SERVERS,
     NON_PINNABLE_AUDIT_MARKERS,
     POSTURE_SESSION_ENV,
@@ -84,6 +91,9 @@ _OWNER_MARKER_LITERALS = (
     "OSPREY_CONTROL_CONTEXT_TREE",
     "OSPREY_CONTROL_CONTEXT_DIR",
 )
+
+#: The dispatch-run marker, spelled out for the same reason as the owner side.
+_DISPATCH_MARKER_LITERAL = "OSPREY_DISPATCH_RUN"
 
 
 def _spec_for_path(path: str, marker: str) -> dict:
@@ -128,6 +138,7 @@ class TestMarkerSpellings:
             "OSPREY_CONTROL_OWNER",
             "OSPREY_CONTROL_CONTEXT_TREE",
             "OSPREY_CONTROL_CONTEXT_DIR",
+            "OSPREY_DISPATCH_RUN",
         )
 
     def test_the_terminal_session_marker_is_the_envelope_spelling(self):
@@ -169,6 +180,15 @@ class TestMarkerSpellings:
         assert CONTROL_CONTEXT_DIR_ENV is posture_store.CONTROL_CONTEXT_DIR_ENV_VAR
         assert CONTROL_CONTEXT_DIR_ENV == "OSPREY_CONTROL_CONTEXT_DIR"
         assert CONTROL_CONTEXT_DIR_ENV in NON_PINNABLE_AUDIT_MARKERS
+
+    def test_the_dispatch_run_marker_is_the_posture_store_spelling(self):
+        """It makes a process a dispatch job, which owns no narrowing, so a pin
+        could present the ownerless answer where an owner's chip should be read.
+        Pinned by identity against the module that reads it.
+        """
+        assert DISPATCH_RUN_ENV is posture_store.DISPATCH_RUN_ENV_VAR
+        assert DISPATCH_RUN_ENV == _DISPATCH_MARKER_LITERAL
+        assert DISPATCH_RUN_ENV in NON_PINNABLE_AUDIT_MARKERS
 
     def test_the_agent_data_root_is_non_pinnable(self):
         """The directory the posture answer is READ OUT OF, not only the answer.
@@ -316,6 +336,31 @@ class TestRemovedOnEveryLaunchPath:
             resolve_servers({"servers": {"site-tools": spec}}, render_ctx())
         assert marker in caplog.text
         assert "site-tools" in caplog.text
+        assert "removed after the spec env merge" in caplog.text
+
+    @pytest.mark.parametrize("path", ["framework-override", "extends-clone", "custom-spec"])
+    def test_the_dispatch_marker_is_stripped_by_literal(self, path):
+        """Named as a LITERAL, like the owner side: a spec pinning
+        ``OSPREY_DISPATCH_RUN=1`` must not make its server a dispatch run.
+        """
+        name = _PATH_SERVER[path]
+        spec = _spec_for_path(path, _DISPATCH_MARKER_LITERAL)
+        spec["env"][_DISPATCH_MARKER_LITERAL] = "1"
+        srv = resolve_one({"servers": {name: spec}}, name)
+        assert _DISPATCH_MARKER_LITERAL not in srv["env"], (
+            f"{_DISPATCH_MARKER_LITERAL} survived the {path} path with value "
+            f"{srv['env'].get(_DISPATCH_MARKER_LITERAL)!r}"
+        )
+
+    @pytest.mark.parametrize("path", ["framework-override", "extends-clone", "custom-spec"])
+    def test_the_dispatch_marker_warns_as_removed(self, caplog, path):
+        """The operator hears the dispatch pin was ignored, on every path."""
+        name = _PATH_SERVER[path]
+        spec = _spec_for_path(path, _DISPATCH_MARKER_LITERAL)
+        with caplog.at_level("WARNING"):
+            resolve_servers({"servers": {name: spec}}, render_ctx())
+        assert _DISPATCH_MARKER_LITERAL in caplog.text
+        assert name in caplog.text
         assert "removed after the spec env merge" in caplog.text
 
     def test_framework_override_spec_env_never_merges(self):

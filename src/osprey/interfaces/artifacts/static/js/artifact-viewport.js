@@ -46,7 +46,7 @@
 
 import { getTheme } from '/design-system/js/theme-manager.js';
 import { fileUrl } from './state.js';
-import { escapeHtml, hasTimeseriesData, withTheme } from './types.js';
+import { escapeHtml, hasTimeseriesData, sandboxAttr, withTheme } from './types.js';
 import { renderMarkdownView, renderJsonView } from './preview-content.js';
 
 /**
@@ -70,7 +70,9 @@ function embedSrc(url) {
  * timeseries data renders as a chart regardless of the `artifact_type` it was
  * saved under (archiver data is routinely a `plot_html` or `image` with a
  * sidecar data file, and the live chart beats the frozen render). Types the
- * browser can't display inline fall back to a download link.
+ * browser can't display inline fall back to a download link. Every iframe
+ * takes its `sandbox` from {@link sandboxAttr}: the C-OPAQUE tokens when the
+ * server serves the page opaque, none for an inert type (PDF, text).
  *
  * Returns a string rather than nodes so `renderPreview` can interpolate it
  * into its one-shot header+meta+viewport `innerHTML`. Callers must follow up
@@ -89,9 +91,9 @@ export function artifactViewportHtml(a) {
     case 'table_html':
     case 'dashboard_html':
     case 'html':
-      return `<iframe src="${embedSrc(fileUrl(a))}" class="preview-iframe-light" sandbox="allow-scripts allow-same-origin"></iframe>`;
+      return `<iframe src="${embedSrc(fileUrl(a))}" class="preview-iframe-light"${sandboxAttr(a)}></iframe>`;
     case 'notebook':
-      return `<iframe src="${embedSrc(`/api/notebooks/${encodeURIComponent(a.id)}/rendered`)}" class="preview-iframe-light" sandbox="allow-scripts allow-same-origin"></iframe>`;
+      return `<iframe src="${embedSrc(`/api/notebooks/${encodeURIComponent(a.id)}/rendered`)}" class="preview-iframe-light"${sandboxAttr(a)}></iframe>`;
     case 'plot_png':
     case 'image':
       return `<img src="${fileUrl(a)}" alt="${escapeHtml(a.title)}" />`;
@@ -100,10 +102,10 @@ export function artifactViewportHtml(a) {
     case 'json':
       return `<div class="json-viewer"></div>`;
     case 'text':
-      return `<iframe src="${fileUrl(a)}" class="preview-iframe-dark"></iframe>`;
+      return `<iframe src="${fileUrl(a)}" class="preview-iframe-dark"${sandboxAttr(a)}></iframe>`;
     default:
       if (a.mime_type === 'application/pdf') {
-        return `<iframe src="${fileUrl(a)}" class="preview-iframe-light"></iframe>`;
+        return `<iframe src="${fileUrl(a)}" class="preview-iframe-light"${sandboxAttr(a)}></iframe>`;
       }
       return `<div class="preview-download">
         <a href="${fileUrl(a)}" target="_blank" class="btn btn-secondary">

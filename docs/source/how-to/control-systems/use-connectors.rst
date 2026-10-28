@@ -56,9 +56,10 @@ Everything below is configuration only — which machine sits behind that API.
 
 .. note::
 
-   Write operations require explicit opt-in, per connector type.
-   See :ref:`write-safety-config` in :doc:`/reference/contracts/connectors` for
-   the ``writes_enabled`` settings that control write permissions.
+   Writes are off until the login's tier allows them
+   (``control_system.writes: allowed``) and the person turns a machine on from
+   the chip. See :ref:`write-safety-config` in
+   :doc:`/reference/contracts/connectors`.
 
 Pick a control system
 ---------------------

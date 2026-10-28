@@ -148,8 +148,9 @@ describes:
 - **standin** — the live stand-in: a soft IOC this deployment runs for itself.
   It carries a real machine's posture — the same limits, the same approval
   prompts — because it is operated as one, not because a write reaches the
-  facility. It shows as **LIVE MACHINE**, marked **(stand-in)** only while
-  this deployment has actually stood the soft IOC up; read the label the
+  facility. It shows as **Rehearsal — nothing moves** only while this
+  deployment has actually stood the soft IOC up; a `standin` it has not stood
+  up shows as **Real machine — writes move hardware**. Read the label the
   roster gives you rather than assuming which form you will see.
 
 One of them is active at a time, and every approval prompt names the active
@@ -240,9 +241,9 @@ for a plan that is not.
 Starting a queue moves accelerator hardware. Arming a start needs the lane's
 launch token, which a render is granted per lane: only when its config arms
 writes for the machine that lane drives **and** runs the `bluesky` MCP server.
-Write posture is per connector type — `control_system.writes_enabled` is what a
-type inherits, and a `control_system.connector.<type>.writes_enabled` block
-answers for that type instead — so a deployment armed for the simulator alone
+Write posture is per machine — `control_system.writes: allowed` is the tier's
+ceiling, and the owner's switch, turned on per machine from the chip, picks
+which machine may write — so a deployment armed for the simulator alone
 holds a token for the simulator's lane and none for the live one. A read-only
 tier never holds one at all.
 

@@ -333,7 +333,7 @@ def test_browser_session_survives_a_server_restart(tmp_path: Path) -> None:
         "  connector:\n"
         "    virtual_accelerator:\n"
         "      serving: in_process\n"
-        "  writes_enabled: false\n",
+        "  writes: never\n",
         encoding="utf-8",
     )
 

@@ -908,7 +908,7 @@ def is_protected_key_path(target_file: str, key_path: Sequence[str]) -> bool:
             the final component is consulted, so a writer that already holds an
             absolute target does not have to shorten it first.
         key_path: The key as a sequence of segments, e.g.
-            ``("control_system", "writes_enabled")``.
+            ``("control_system", "writes")``.
 
     Returns:
         ``True`` when some pattern in :data:`PROTECTED_CONFIG_KEYS` covers the
@@ -942,7 +942,7 @@ def is_protected_key(target_file: str, dotted: str) -> bool:
 
     Args:
         target_file: The file the key lives in (see :func:`is_protected_key_path`).
-        dotted: Dotted key path, e.g. ``control_system.writes_enabled``.
+        dotted: Dotted key path, e.g. ``control_system.writes``.
 
     Returns:
         ``True`` when some pattern in :data:`PROTECTED_CONFIG_KEYS` covers the key.

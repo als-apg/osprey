@@ -49,7 +49,7 @@ hooks:
   # system until all three agree. Remove any one of them and `osprey build`
   # refuses the render while writes are armed, naming the hook and the server
   # whose write tools it guarded. Only a read-only deployment may drop them.
-  - writes-check   # Kill switch: refuse every write while writes_enabled is false
+  - writes-check   # Kill switch: refuse every write to a machine whose writes are off
   - approval       # Gate hardware-write tool calls on human approval prompt
   - limits         # Enforce per-channel min/max limits, from data/facility/limits.yaml
   - memory-guard   # Gate Write to memory files, NotebookEdit to agent-data artifacts and notebooks
@@ -130,10 +130,10 @@ config:
   # and `osprey config --defaults` lists every shipped connector type.
   control_system.type: virtual_accelerator
   control_system.connector.virtual_accelerator.serving: in_process
-  # The FIRST guard in the write-safety chain: while false, every hardware
+  # The FIRST guard in the write-safety chain: while `never`, every hardware
   # write is refused before the limits check or the approval prompt is even
-  # consulted. Set it true, rebuild, and the two hooks below take over.
-  control_system.writes_enabled: false
+  # consulted. Set it `allowed`, rebuild, and the two hooks below take over.
+  control_system.writes: never
   # Extra tools the kill switch refuses while writes are off. Framework write
   # tools are covered automatically; list your own servers' write tools here.
   # control_system.write_tools: [mcp__my_server__dangerous_write]

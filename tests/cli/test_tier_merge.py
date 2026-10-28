@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey.cli.build_profile_document import _read_profile_document
 from osprey.cli.build_profile_merge import (
     _deep_merge,
     merge_layer_delta,
@@ -93,7 +94,10 @@ def test_tier_merge_matches_deep_merge_except_attachment(tmp_path: Path) -> None
     path = _repo(tmp_path, "tiers/readonly.yml", tier)
     raw = _resolve(path).raw
 
-    expected = _deep_merge(_ROOT, tier)
+    # The root as the pipeline reads it: its retired posture leaf is rewritten
+    # to ``control_system.writes`` at the parse point.
+    root = _read_profile_document(tmp_path / "repo" / "profile.yml")
+    expected = _deep_merge(root, tier)
     for key in ("deploy_services", "services"):
         raw.pop(key)
         expected.pop(key)
@@ -145,7 +149,7 @@ def test_attachment_without_a_root_config_block(tmp_path: Path) -> None:
     # What remains is only the app composer's pins: writes off, setup tool
     # denied, Config panel and gallery writes off.
     assert config == {
-        "control_system.writes_enabled": False,
+        "control_system.writes": "never",
         "claude_code.permissions.deny": ["mcp__osprey_workspace__setup_patch"],
         "web.config_panel.enabled": False,
         "web.scaffold_gallery.write_enabled": False,

@@ -82,7 +82,10 @@ import yaml
 
 from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS, lane_control_identity
 from osprey.cli.build_profile_schema import SECOND_LANE_PORT_STRIDE
-from osprey.deployment.compose_generator import BLUESKY_DEVICES_FILENAME
+from osprey.deployment.compose_generator import (
+    BLUESKY_DEVICES_FILENAME,
+    ensure_control_target_dir,
+)
 from osprey.mcp_server.bluesky import lanes as lanes_module
 from osprey.mcp_server.bluesky.server_context import (
     initialize_server_context,
@@ -92,11 +95,14 @@ from osprey.mcp_server.bluesky.tools import queue as queue_tools
 from osprey.mcp_server.control_system import target_state
 from osprey.services.bluesky_bridge.devices._specs_from_file import specs_from_file
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.types import TARGET_VA
 from osprey_connectors.workspace import reset_config_cache
 from osprey_connectors_tests._harness import write_control_context
+from tests._approval_stamp_fixture import ApprovalStamps
 from tests.e2e._orm_stack import VA_PVA_PORT
 from tests.e2e._queue_drive import wait_for_worker_environment
 from tests.e2e.profile_edits import set_pairs
+from tests.e2e.sdk_helpers import switch_on_in_record
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 from tests.va.e2e import conftest as e2e_conftest
 
@@ -674,6 +680,12 @@ def session_state(tmp_path, monkeypatch):
     ``target_state``'s own root helper, the record through the
     ``OSPREY_AGENT_DATA_ROOT`` stamp. Stamping one and not the other leaves the
     lane tools reading whatever record this machine was last left pointed at.
+
+    The login's switch is on for the simulator whichever machine the record
+    points at. The preset arms autostart, so an add is an arming action, and
+    ``queue_add`` attaches the lane's launch token only while the write verdict
+    allows writes to the machine the bound lane serves: the tier allows them
+    (the preset's ``control_system.writes: allowed``) and the switch must too.
     """
     root = tmp_path / "var" / "agent_data"
     (root / target_state.STATE_DIR_NAME).mkdir(parents=True)
@@ -682,7 +694,7 @@ def session_state(tmp_path, monkeypatch):
     control_context.invalidate_cache()
 
     def switch_session_to(target: str, *, generation: int = 0) -> None:
-        write_control_context(root, target=target, generation=generation)
+        write_control_context(root, target=target, generation=generation, switch={TARGET_VA: "on"})
 
     yield switch_session_to
     target_state.delete_on_shutdown(server_pid=os.getpid())
@@ -718,12 +730,31 @@ def bluesky_tools(stack: LaneStack, monkeypatch):
     # loader at the deployment, so the cache has to be dropped on the way in
     # AND on the way out or a later test reads this deployment's config.
     reset_config_cache()
+    # The plan runs later, in the lane's worker, for the owner the tools stamp
+    # on every add (``current_owner`` here); its writes follow THAT owner's
+    # switch, read from the deployment's control tree. On for the simulator,
+    # so an armed add executes rather than failing its first write.
+    owner = posture_store.current_owner()
+    assert isinstance(owner, str) and owner, f"this process names no owner: {owner!r}"
+    config = yaml.safe_load(stack.config_path.read_text(encoding="utf-8"))
+    ensure_control_target_dir(config, stack.repo, owner, relative_to=stack.repo)
+    switch_on_in_record(stack.repo, owner=owner, targets=[TARGET_VA])
     initialize_server_context()
     try:
         yield queue_tools
     finally:
         reset_server_context()
         reset_config_cache()
+
+
+def _approved(tool: str):
+    """The ask stamp the approval hook files for an approved *tool* call, bound.
+
+    An add to a queue that runs by itself arms the machine, so the deployment's
+    approval policy asks before it, and the tool runs only on the record the
+    hook left for the call: this is the human's yes, filed where the tool reads.
+    """
+    return ApprovalStamps(target_state.state_dir()).approved(tool)
 
 
 def _tool_result(raw: str) -> dict:
@@ -993,7 +1024,8 @@ async def test_queue_add_binds_the_item_to_the_active_lane_only(
     runs_before = {lane: set(_run_records(lane)) for lane in BRIDGE_URLS}
 
     revision = _patch_draft(LANE_VA, _plan_args(stack, LANE_VA))
-    result = _tool_result(await get_tool_fn(bluesky_tools.queue_add)(revision))
+    with _approved("queue_add"):
+        result = _tool_result(await get_tool_fn(bluesky_tools.queue_add)(revision))
     item_uid = result["item"]["item_uid"]
 
     assert result["lane"] == LANE_VA, f"queue_add bound the item to the wrong lane: {result}"
@@ -1041,11 +1073,15 @@ async def test_queue_start_refuses_the_lane_the_session_left(
     live_runs_before = set(_run_records(LANE_LIVE))
 
     revision = _patch_draft(LANE_VA, _plan_args(stack, LANE_VA))
-    added = _tool_result(await get_tool_fn(bluesky_tools.queue_add)(revision))
+    with _approved("queue_add"):
+        added = _tool_result(await get_tool_fn(bluesky_tools.queue_add)(revision))
     assert added["lane"] == LANE_VA, f"queue_add bound the item to the wrong lane: {added}"
 
     session_state("live")
-    with assert_raises_error(error_type=lanes_module.REASON_LANE_MISMATCH) as refusal:
+    with (
+        _approved("queue_start"),
+        assert_raises_error(error_type=lanes_module.REASON_LANE_MISMATCH) as refusal,
+    ):
         await get_tool_fn(bluesky_tools.queue_start)(LANE_VA)
 
     details = refusal["envelope"].get("details", {})
@@ -1079,7 +1115,8 @@ async def test_the_bound_lane_is_the_lane_that_executes(
     runs_before = {lane: set(_run_records(lane)) for lane in BRIDGE_URLS}
 
     revision = _patch_draft(LANE_VA, _plan_args(stack, LANE_VA))
-    added = _tool_result(await get_tool_fn(bluesky_tools.queue_add)(revision))
+    with _approved("queue_add"):
+        added = _tool_result(await get_tool_fn(bluesky_tools.queue_add)(revision))
     assert added["lane"] == LANE_VA, added
     item_uid = added["item"]["item_uid"]
 

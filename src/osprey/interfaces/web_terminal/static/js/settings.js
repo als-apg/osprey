@@ -61,6 +61,8 @@ const APPROVAL_TOOL_PREFIX = 'approval.tools.';
 const ENUM_FIELDS = {
   'claude_code.effort': ['low', 'medium', 'high', 'max'],
   'approval.default_policy': APPROVAL_POLICIES,
+  // The write ceiling: one of two words, never a boolean.
+  'control_system.writes': ['allowed', 'never'],
 };
 
 /**
@@ -79,7 +81,6 @@ function enumOptionsFor(fullKey) {
 // (see createInputForValue), so this set only matters for unset keys.
 const BOOLEAN_FIELDS = new Set([
   'approval.enabled',
-  'control_system.writes_enabled',
   'ariel.enabled',
   'artifact_server.auto_launch',
 ]);

@@ -99,7 +99,7 @@ async def test_sim_apply_flips_the_monitor_sign_within_two_ticks(
     va_container: e2e_conftest.VaProject,
 ) -> None:
     project = va_container
-    with e2e_conftest.patched_config(**{"control_system.writes_enabled": True}):
+    with e2e_conftest.patched_config(**{"control_system.writes": "allowed"}):
         connector = await e2e_conftest.connect_va()
         try:
             _apply(project, e2e_conftest.KICK_SCENARIO_NAME)

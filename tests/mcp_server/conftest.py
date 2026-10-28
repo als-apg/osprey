@@ -289,7 +289,7 @@ def mock_config(tmp_path):
                 "control_system": {
                     "type": "virtual_accelerator",
                     "connector": {"virtual_accelerator": {"serving": "in_process"}},
-                    "writes_enabled": True,
+                    "writes": "allowed",
                     "limits_checking": {"enabled": False},
                 },
                 "archiver": {"type": "mock"},

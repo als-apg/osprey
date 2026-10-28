@@ -1,37 +1,26 @@
-"""The hook's restated posture rule against the module it restates.
+"""The hook's stdlib record readers against the modules they restate.
 
-``osprey_connectors.posture_store`` is the canonical reader of the control
-context's recorded posture; the PreToolUse hooks cannot import it — they run
-outside the osprey venv — so ``osprey_target_state.effective_writes_for``
-restates its rules in stdlib terms. Two implementations of one safety rule
-drift silently, and the drift is only ever visible at a write, so this module
-is the table that pins them together: for every cell of {ceiling} x {recorded
-posture} x {readonly run} x {target}, the hook's answer is the connector
-module's answer.
+``osprey_connectors.posture_store`` and ``osprey_connectors.control_context`` are
+the canonical readers of the control-context record; the PreToolUse hooks cannot
+import them — they run outside the osprey venv — so ``osprey_target_state``
+restates the parts a hook needs in stdlib terms. Two implementations of one
+reader drift silently, and the drift is only ever visible at a write, so this
+module pins them together: the posture-field parsers agree shape for shape, the
+four resolvers of the record's directory land on one path, both sides read a
+corrupt, unreadable or undecodable record as unreadable, and the switch
+predicate is decided alike.
 
-Both are exercised IN PROCESS. The connector module is imported here and only
-here — a test may import what the code under test may not, and comparing the
-hook against a second hand-written expectation would only pin the hook to this
-file's opinion of the rule.
+The write decision itself is not compared here. ``write_verdict`` is the one
+verdict on both sides, and ``tests/hooks/test_write_verdict_twin.py`` drives the
+shared case table through the twin and the package row by row.
 
-One difference between them is deliberate, stated in the hook's module
-docstring and expressed literally by :func:`expected_answer` below: with no
-resolvable target, ``posture_store.effective_writes`` takes the UNION of the
-deployment's configured targets (right for a roster describing a deployment)
-while the hook takes the INTERSECTION (right for a gate, which must not be
-handed the more permissive of two answers it cannot choose between). The
-recorded half, the read-only half and every target-resolvable cell are
-identical, and the intersection implies the union, so the two are pinned as::
-
-    hook(None) == intersection AND posture_store.effective_writes(..., None)
-
-which is an equality, not a weakening: the only freedom it leaves the hook is
-the ceiling it is deliberately stricter about.
+Both sides are exercised IN PROCESS. The connector modules are imported here and
+only here — a test may import what the code under test may not.
 
 The second thing pinned here is :func:`osprey_target_state.posture_unknown`,
 whose fail-closed rule has no counterpart in the canonical module at all — a
 process the web terminal never stamped is refused until the deployment's
-record exists, and permitted on the deployment's own terms afterwards.
+record exists, and answered by that record afterwards.
 """
 
 from __future__ import annotations
@@ -45,7 +34,7 @@ import pytest
 
 import osprey.templates.claude_code.claude.hooks.osprey_target_state as reader
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.types import session_posture, switch_capable
+from osprey_connectors.types import switch_capable
 from osprey_connectors_tests._harness import (
     pin_identity,
     state_dir_under,
@@ -53,99 +42,8 @@ from osprey_connectors_tests._harness import (
     write_payload,
 )
 
-# ---------------------------------------------------------------------------
-# the four axes
-# ---------------------------------------------------------------------------
-
-#: A deployment with one reachable target (``live``), armed.
-ARMED_SINGLE = {"type": "epics", "writes_enabled": True}
-
-#: The same deployment, unarmed.
-UNARMED_SINGLE = {"type": "epics", "writes_enabled": False}
-
-#: A deployment that states no posture anywhere — the shape every deployment had
-#: before the per-type key existed. The hook calls that a third state (``None``);
-#: neither implementation may read silence as permission.
-SILENT_SINGLE = {"type": "epics"}
-
-#: A switch-capable deployment armed for BOTH of its targets.
-ARMED_BOTH = {
-    "type": "epics",
-    "writes_enabled": True,
-    "connector": {
-        "epics": {"prefix": "RING:"},
-        "virtual_accelerator": {"prefix": "VA:"},
-    },
-}
-
-#: A switch-capable deployment armed for its simulator and NOT for its ring —
-#: the shape the per-type key exists for, and the one where the union and the
-#: intersection over configured targets disagree.
-MIXED = {
-    "type": "epics",
-    "writes_enabled": True,
-    "connector": {
-        "epics": {"prefix": "RING:", "writes_enabled": False},
-        "virtual_accelerator": {"prefix": "VA:", "writes_enabled": True},
-    },
-}
-
-#: A three-target deployment — ring, virtual accelerator and the live stand-in —
-#: armed everywhere. ``standin`` is a machine in its own right, reachable only
-#: through its own target, so a sweep without one never exercises the third slot
-#: either reader resolves.
-THREE_TARGETS_ARMED = {
-    "type": "epics",
-    "writes_enabled": True,
-    "connector": {
-        "epics": {"prefix": "RING:"},
-        "virtual_accelerator": {"prefix": "VA:"},
-        "live_standin": {"prefix": "SIM:"},
-    },
-}
-
-#: The same three, with the ring alone disarmed: the shape where the union and
-#: the intersection disagree AND a third target has to be folded into both.
-THREE_TARGETS_MIXED = {
-    "type": "epics",
-    "writes_enabled": True,
-    "connector": {
-        "epics": {"prefix": "RING:", "writes_enabled": False},
-        "virtual_accelerator": {"prefix": "VA:", "writes_enabled": True},
-        "live_standin": {"prefix": "SIM:", "writes_enabled": True},
-    },
-}
-
-#: ``(name, section)`` for the ceiling axis.
-CEILINGS = [
-    ("armed-single", ARMED_SINGLE),
-    ("unarmed-single", UNARMED_SINGLE),
-    ("silent-single", SILENT_SINGLE),
-    ("armed-both", ARMED_BOTH),
-    ("mixed", MIXED),
-    ("three-targets-armed", THREE_TARGETS_ARMED),
-    ("three-targets-mixed", THREE_TARGETS_MIXED),
-]
-
-#: ``(name, recorded posture)`` for the posture axis. The two bare strings are
-#: the legacy shapes the session-wide posture wrote before targets existed; the
-#: unknown leaf and the unknown bare string are the hand-edit and future-version
-#: shapes both readers must DROP rather than honour.
-POSTURES = [
-    ("absent", {}),
-    ("legacy-bare-sandbox", "sandbox"),
-    ("legacy-bare-writes", "writes"),
-    ("unknown-bare-string", "locked"),
-    ("live-sandboxed", {"live": "sandbox"}),
-    ("va-sandboxed", {"va": "sandbox"}),
-    ("standin-sandboxed", {"standin": "sandbox"}),
-    ("both-sandboxed", {"live": "sandbox", "va": "sandbox"}),
-    ("unknown-leaf", {"live": "locked"}),
-    ("empty-map", {}),
-]
-
-#: The target axis. ``None`` is the call whose target could not be identified.
-TARGETS = ["live", "va", "standin", None]
+#: Every machine the record can switch on.
+ALL_ON = {"live": "on", "va": "on", "standin": "on"}
 
 
 # ---------------------------------------------------------------------------
@@ -161,16 +59,13 @@ def stamped_root(tmp_path, monkeypatch):
     the two implementations answer about one file rather than two. The unstamped
     derivation is pinned separately by the path test at the bottom.
 
-    ``OSPREY_LAUNCH_POSTURE`` is cleared with the other two because it is a term
-    the canonical module has and the hook deliberately does not — see
-    :func:`test_the_launch_pin_is_the_one_term_the_hook_does_not_restate`. A
-    stamp inherited from the environment this suite runs in would make the
-    canonical reader refuse where the hook permits, in cells that are otherwise
-    about the record.
+    ``OSPREY_LAUNCH_POSTURE`` is cleared with the other two because a stamp
+    inherited from the environment this suite runs in would pin the canonical
+    reader in tests that are otherwise about the record.
 
     The container bind is cleared for a blunter reason: it outranks the stamp on
-    both sides, so a suite run inside a bound container would put every cell in
-    this table against that deployment's own record rather than the one the test
+    both sides, so a suite run inside a bound container would put every test
+    here against that deployment's own record rather than the one the test
     wrote. The directory itself comes from :func:`state_dir_under`, which is
     where every resolver below lands, identity hop included.
     """
@@ -186,98 +81,37 @@ def stamped_root(tmp_path, monkeypatch):
     posture_store.invalidate_cache()
 
 
-def write_record(root, posture):
-    """Write the record both readers will read, carrying *posture* verbatim."""
-    return write_control_context(root, posture=posture)
+def write_record(root, posture, switch=None):
+    """Write the record both readers will read: *switch*, and *posture* verbatim.
 
-
-def expected_answer(section, target):
-    """What the connector module says the hook must answer.
-
-    Built from the canonical module's own public surface, never from a second
-    hand-written copy of the rule. The intersection term is the one deliberate
-    difference (see the module docstring); it is applied only where the caller
-    holds no target, which is the only place the two ceilings can differ.
+    The production writer stores the mirror of the switch in ``posture``, so an
+    old narrowing is staged by overwriting that field afterwards — the shape a
+    file written before the mirror still has on disk.
     """
-    canonical = posture_store.effective_writes(section, target)
-    if target is not None:
-        return canonical
-    intersection = all(session_posture(section).values())
-    return bool(intersection and canonical)
-
-
-# ---------------------------------------------------------------------------
-# the table
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("readonly_run", [False, True], ids=["run-readwrite", "run-readonly"])
-@pytest.mark.parametrize(
-    "target", TARGETS, ids=["target-live", "target-va", "target-standin", "target-none"]
-)
-@pytest.mark.parametrize("_posture_name,posture", POSTURES)
-@pytest.mark.parametrize("_ceiling_name,section", CEILINGS)
-def test_the_hook_answers_what_the_connector_module_answers(
-    stamped_root,
-    monkeypatch,
-    _ceiling_name,
-    section,
-    _posture_name,
-    posture,
-    target,
-    readonly_run,
-):
-    """Every cell of the truth table, both implementations, one answer."""
-    # Arrange
-    write_record(stamped_root, posture)
-    if readonly_run:
-        monkeypatch.setenv(reader.EXECUTION_MODE_ENV_VAR, reader.SANDBOX_MODE)
-
-    # Act
-    answer = reader.effective_writes_for({}, section, target)
-
-    # Assert
-    assert answer is expected_answer(section, target)
-
-
-@pytest.mark.parametrize(
-    "target", TARGETS, ids=["target-live", "target-va", "target-standin", "target-none"]
-)
-@pytest.mark.parametrize("_ceiling_name,section", CEILINGS)
-def test_the_narrowing_reaches_a_process_that_carries_no_session_key(
-    stamped_root, monkeypatch, _ceiling_name, section, target
-):
-    """The narrowing is the deployment's, so nothing has to be addressed.
-
-    A bare ``claude``, a dispatch worker and a CLI run carry no session of their
-    own. Each of them writes to the same machine an operator took away, so each
-    of them reads the same record and is refused by it — on both sides.
-    """
-    # Arrange
-    write_record(stamped_root, {"live": "sandbox", "va": "sandbox", "standin": "sandbox"})
-    monkeypatch.delenv(reader.POSTURE_SESSION_ENV_VAR, raising=False)
-
-    # Act / Assert
-    assert reader.effective_writes_for({}, section, target) is expected_answer(section, target)
-    assert reader.effective_writes_for({}, section, target) is False
+    path = write_control_context(root, switch=switch)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["posture"] = posture
+    write_payload(path, payload)
+    posture_store.invalidate_cache()
+    return path
 
 
 def test_a_blank_session_key_is_no_session_key(stamped_root, monkeypatch):
     """Whitespace is not a key. It attributes a stamp; it narrows nothing."""
     # Arrange
-    write_record(stamped_root, {})
+    write_record(stamped_root, {}, ALL_ON)
     monkeypatch.setenv(reader.POSTURE_SESSION_ENV_VAR, "   ")
 
     # Act / Assert
     assert reader.session_key() is None
-    assert reader.effective_writes_for({}, ARMED_BOTH, "live") is True
 
 
-def test_a_corrupt_record_is_an_unnarrowed_record_on_both_sides(stamped_root):
-    """A record nobody can repair from the browser must not wedge every write.
+def test_a_corrupt_record_is_unreadable_on_both_sides(stamped_root):
+    """A record that is there and cannot be parsed is unreadable, never missing.
 
-    Losing narrowings an operator can set again is the lesser harm, and it is
-    the harm the canonical module chose; the hook may not choose the other one.
+    The canonical reader fails closed on an unreadable record — it cannot tell
+    which machines the owner turned on — and the hook may not choose the other
+    answer. The verdict that follows is the case table's ``record-corrupt``.
     """
     # Arrange
     path = control_context._record_path_under(stamped_root)
@@ -286,11 +120,8 @@ def test_a_corrupt_record_is_an_unnarrowed_record_on_both_sides(stamped_root):
 
     # Act / Assert
     assert reader.read_record({}) is None
-    assert reader.recorded_posture({}) == posture_store.recorded_posture() == {}
-    assert reader.effective_writes_for({}, ARMED_BOTH, "live") is expected_answer(
-        ARMED_BOTH, "live"
-    )
-    assert reader.effective_writes_for({}, ARMED_BOTH, "live") is True
+    assert reader.read_record_status({}) == (None, "unreadable")
+    assert control_context.read_record_status(path=path)[1] == "unreadable"
 
 
 def test_a_non_string_target_is_dropped_by_both_parsers():
@@ -551,66 +382,28 @@ def test_the_retired_per_session_store_is_read_by_neither_side(stamped_root):
     # Arrange — the retired file says sandbox for everything; the record does not
     retired = state_dir_under(stamped_root) / "session-postures.json"
     retired.write_text(json.dumps({"k": {"live": "sandbox", "va": "sandbox"}}), encoding="utf-8")
-    write_record(stamped_root, {})
+    write_record(stamped_root, {}, ALL_ON)
 
     # Act / Assert
-    assert reader.recorded_posture({}) == posture_store.recorded_posture() == {}
-    assert reader.effective_writes_for({}, ARMED_BOTH, "live") is True
-    assert reader.effective_writes_for({}, ARMED_BOTH, "va") is True
-
-
-def test_a_narrowing_in_the_record_holds_with_nothing_at_the_retired_location(stamped_root):
-    """The safety property the retirement must not disturb.
-
-    A target narrowed in the record stays narrowed when the retired location
-    holds nothing at all — the absence of an old file is not a permissive
-    default, on either side.
-    """
-    # Arrange
-    write_record(stamped_root, {"va": "sandbox"})
-
-    # Act / Assert
-    assert not (stamped_root / reader.STATE_DIR_NAME / "session-postures.json").exists()
-    assert reader.recorded_posture({}) == posture_store.recorded_posture() == {"va": "sandbox"}
-    assert reader.effective_writes_for({}, ARMED_BOTH, "va") is False
-    assert reader.effective_writes_for({}, ARMED_BOTH, "live") is True
-
-
-def test_the_target_blind_ceiling_is_deliberately_stricter(stamped_root):
-    """The one difference, isolated so it can never become an accident.
-
-    ``MIXED`` arms the simulator and not the ring. Asked with no target, the
-    canonical reader answers for a caller that holds none at all and takes the
-    union — one of these machines is armed. The hook is a gate: it takes the
-    intersection, because a call it cannot attribute to a machine must not be
-    granted the more permissive of the two answers, and one of them is hardware.
-    """
-    # Arrange
-    write_record(stamped_root, {})
-
-    # Assert — the two ceilings genuinely disagree on this section
-    posture = session_posture(MIXED)
-    assert any(posture.values()) is True
-    assert all(posture.values()) is False
-
-    # Act / Assert — and the hook takes the stricter one
-    assert posture_store.effective_writes(MIXED, None) is True
-    assert reader.effective_writes_for({}, MIXED, None) is False
-
-    # Where both ceilings agree, so do the two implementations.
-    assert reader.effective_writes_for({}, ARMED_BOTH, None) is posture_store.effective_writes(
-        ARMED_BOTH, None
-    )
+    record, status = reader.read_record_status({})
+    assert status == "ok"
+    assert record["switch"] == ALL_ON
+    assert reader.read_record({})["posture"] == {}
 
 
 # ---------------------------------------------------------------------------
-# the union ceiling stays unreachable from a write path
+# every write-path verdict names its machine
 # ---------------------------------------------------------------------------
 
 #: Directories scanned for production calls of the canonical rule. Tests are
 #: excluded: this file itself compares the two ceilings on purpose, and so may
 #: any other test that documents the difference.
 _PRODUCTION_ROOTS = ("packages", "src")
+
+#: The posture store's write-path question, taking the target the write lands
+#: on as its second argument. A caller that hands it no target has stopped
+#: naming the machine it writes to.
+_TARGETED_RULES = ("write_verdict",)
 
 
 def _production_python_files():
@@ -623,8 +416,8 @@ def _production_python_files():
             yield path
 
 
-def _effective_writes_calls(path):
-    """``(lineno, call)`` for every ``effective_writes(...)`` in *path*."""
+def _verdict_calls(path):
+    """``(lineno, call)`` for every call of a :data:`_TARGETED_RULES` name in *path*."""
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"))
     except (OSError, SyntaxError):  # pragma: no cover - an unreadable file is not a caller
@@ -633,18 +426,18 @@ def _effective_writes_calls(path):
         if not isinstance(node, ast.Call):
             continue
         func = node.func
-        if isinstance(func, ast.Attribute) and func.attr == "effective_writes":
+        if isinstance(func, ast.Attribute) and func.attr in _TARGETED_RULES:
             yield node.lineno, node
-        elif isinstance(func, ast.Name) and func.id == "effective_writes":
+        elif isinstance(func, ast.Name) and func.id in _TARGETED_RULES:
             yield node.lineno, node
 
 
 def _names_a_target(call):
-    """Whether *call* hands ``effective_writes`` a target that is not ``None``.
+    """Whether *call* hands ``write_verdict`` a target that is not ``None``.
 
     Positionally, ``target`` is the second argument. As a keyword it must not be
     the literal ``None`` — a caller spelling ``target=None`` has explicitly
-    asked for the union ceiling, which is what this pin forbids on a write path.
+    declined to name the machine, which is what this pin forbids on a write path.
     A keyword whose value is a variable passes: the guard cannot see through it,
     and treating that as a violation would only teach people to launder the
     argument through a local.
@@ -658,16 +451,8 @@ def _names_a_target(call):
     return False
 
 
-def test_no_production_caller_takes_the_union_ceiling():
-    """The one divergence is unreachable from any write path, and stays so.
-
-    ``posture_store.effective_writes`` with no target answers the UNION over the
-    deployment's configured targets; the hook answers the intersection. That is
-    safe only because nothing on a write path asks the question without a target
-    — the roster and the popover do, and they describe rather than decide. This
-    guard is what keeps it true: a future caller that dropped the target would
-    silently write under the more permissive of two ceilings, and the hook
-    denying the same call would look like the bug.
+def test_no_production_caller_decides_a_write_without_its_target():
+    """Every production ``write_verdict`` call names the machine it writes to.
 
     It fails in CI rather than at a write, which is the whole point.
     """
@@ -675,14 +460,14 @@ def test_no_production_caller_takes_the_union_ceiling():
     offenders = [
         f"{path}:{lineno}"
         for path in _production_python_files()
-        for lineno, call in _effective_writes_calls(path)
+        for lineno, call in _verdict_calls(path)
         if not _names_a_target(call)
     ]
 
     # Assert
     assert offenders == [], (
-        "these callers of posture_store.effective_writes pass no target, so they "
-        "take the UNION ceiling the hook deliberately does not: "
+        "these callers of posture_store.write_verdict pass no target, so they "
+        "decide a write without naming its machine: "
         + ", ".join(offenders)
         + ". Pass the target the write lands on, or move the call off the write path."
     )
@@ -691,11 +476,11 @@ def test_no_production_caller_takes_the_union_ceiling():
 def test_the_guard_can_see_a_violation():
     """A guard is only worth having if it would actually catch one."""
     module = ast.parse(
-        "posture_store.effective_writes(section)\n"
-        "posture_store.effective_writes(section, target=None)\n"
-        "posture_store.effective_writes(section, target)\n"
-        "posture_store.effective_writes(section, target=t)\n"
-        "posture_store.effective_writes(section, None, connector_type='epics')\n"
+        "posture_store.write_verdict(section)\n"
+        "posture_store.write_verdict(section, target=None)\n"
+        "posture_store.write_verdict(section, target)\n"
+        "posture_store.write_verdict(section, target=t)\n"
+        "posture_store.write_verdict(section, None, owner='alice')\n"
     )
     calls = [node for node in ast.walk(module) if isinstance(node, ast.Call)]
     assert [_names_a_target(call) for call in calls] == [False, False, True, True, True]
@@ -707,12 +492,17 @@ def test_the_guard_actually_scans_the_callers_that_exist():
     A guard that silently matched nothing — a moved directory, a renamed
     function — would pass forever while the thing it protects rots.
     """
+    repo_root = Path(__file__).resolve().parents[2]
     found = [
-        f"{path.name}:{lineno}"
+        (path.relative_to(repo_root).parts[0], path.name)
         for path in _production_python_files()
-        for lineno, _call in _effective_writes_calls(path)
+        for _lineno, _call in _verdict_calls(path)
     ]
     assert found, "the reachability guard found no callers at all; its scan has gone stale"
+    # Both roots are really scanned: the package's own write path and the
+    # framework's connector write tool each ask the verdict.
+    assert ("packages", "_pool.py") in found, found
+    assert ("src", "channel_write.py") in found, found
 
 
 # ---------------------------------------------------------------------------
@@ -795,11 +585,12 @@ def test_an_unstamped_process_with_a_readable_record_is_answered_by_it(tmp_path,
     reset_config_cache()
 
     try:
-        write_control_context(tmp_path / "var" / "agent_data", posture={"live": "sandbox"})
+        write_control_context(tmp_path / "var" / "agent_data", switch={"va": "on"})
 
         assert reader.posture_unknown({}) is False
-        assert reader.effective_writes_for({}, ARMED_BOTH, "live") is False
-        assert reader.effective_writes_for({}, ARMED_BOTH, "va") is True
+        record, status = reader.read_record_status({})
+        assert status == "ok"
+        assert record["switch"] == {"va": "on"}
     finally:
         reset_config_cache()
         posture_store.invalidate_cache()
@@ -809,8 +600,8 @@ def test_a_stamped_process_is_never_posture_unknown(stamped_root):
     """The stamp is the deployment handing the directory over.
 
     A stamped process was told where to look, so an empty directory there means
-    exactly what it says — nothing is narrowed — and nothing is refused on the
-    record's account.
+    exactly what it says — no record, every switch off — and is not refused as
+    an unknown posture on top of that.
     """
     assert reader.posture_unknown({}) is False
 
@@ -823,14 +614,15 @@ def test_a_stamped_process_is_never_posture_unknown(stamped_root):
 # ---------------------------------------------------------------------------
 
 
-def test_an_unreadable_record_is_an_unnarrowed_record_on_both_sides(stamped_root):
-    """A record that exists but cannot be read narrows nothing, on both sides.
+def test_an_unreadable_record_is_unreadable_on_both_sides(stamped_root):
+    """A record that exists but cannot be read is unreadable, on both sides.
 
-    The divergence this pins would surface only as one layer refusing a write
+    Even one whose switch was on: an unreadable record cannot say so. The
+    divergence this pins would surface only as one layer refusing a write
     another allowed, which is the failure mode least likely to be noticed.
     """
     # Arrange
-    path = write_record(stamped_root, {"va": "sandbox"})
+    path = write_record(stamped_root, {}, ALL_ON)
     path.chmod(0o000)
     posture_store.invalidate_cache()
 
@@ -838,42 +630,14 @@ def test_an_unreadable_record_is_an_unnarrowed_record_on_both_sides(stamped_root
     try:
         if os.access(path, os.R_OK):  # pragma: no cover - root can read anything
             pytest.skip("this user can read a mode-000 file; the rule is untestable here")
-        assert reader.recorded_posture({}) == posture_store.recorded_posture() == {}
-        assert reader.effective_writes_for({}, ARMED_BOTH, "va") is True
+        assert reader.read_record_status({}) == (None, "unreadable")
+        assert control_context.read_record_status(path=path)[1] == "unreadable"
     finally:
         path.chmod(0o600)
         posture_store.invalidate_cache()
 
 
-def test_the_launch_pin_is_the_one_term_the_hook_does_not_restate(stamped_root, monkeypatch):
-    """The premise the fixture's third ``delenv`` rests on, pinned rather than assumed.
-
-    ``OSPREY_LAUNCH_POSTURE`` is stamped by the executor into a sandbox child's
-    environment and by nothing else, so no hook process ever carries one: the
-    PreToolUse hooks run in the Claude Code process, above every sandbox. That
-    is why the hook's restatement has three terms where the canonical module has
-    four, and why the table above clears the stamp instead of teaching the hook
-    about it.
-
-    With the stamp set, the two answers legitimately diverge — which is what
-    makes this an executor-only term rather than a drift. If a hook ever DID run
-    somewhere the stamp exists, this test failing is the signal that the
-    restatement has to grow the term.
-    """
-    # Arrange — nothing narrowed in the record at all; only the run is pinned.
-    write_record(stamped_root, {})
-    monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "live=sandbox")
-
-    # Act / Assert — the canonical reader refuses, the hook permits.
-    assert posture_store.effective_writes(ARMED_BOTH, "live") is False
-    assert reader.effective_writes_for({}, ARMED_BOTH, "live") is True
-
-    # And the divergence is the STAMP, not the target: every other cell agrees.
-    assert posture_store.effective_writes(ARMED_BOTH, "va") is True
-    assert reader.effective_writes_for({}, ARMED_BOTH, "va") is True
-
-
-def test_an_undecodable_record_is_an_unnarrowed_record_on_both_sides(tmp_path, monkeypatch):
+def test_an_undecodable_record_is_unreadable_on_both_sides(tmp_path, monkeypatch):
     """Nothing may raise on a record that is not UTF-8 — in a hook or anywhere.
 
     ``UnicodeDecodeError`` is a ``ValueError``, so it slips past the ``OSError``
@@ -883,8 +647,8 @@ def test_an_undecodable_record_is_an_unnarrowed_record_on_both_sides(tmp_path, m
     unhandled one exits non-zero with no JSON, which PreToolUse reads as "no
     opinion" — the opposite of what an unreadable record must mean), and the
     in-process readers are on the write path, where one mis-encoded file would
-    raise into every posture lookup. Both now answer the unnarrowed record, the
-    same way both already answer it for a truncated one.
+    raise into every posture lookup. Both now answer without raising, and the
+    answer is the one both give a truncated record: unreadable, so refused.
     """
     # Arrange
     root = tmp_path / "var" / "agent_data"
@@ -900,13 +664,11 @@ def test_an_undecodable_record_is_an_unnarrowed_record_on_both_sides(tmp_path, m
     control_context._record_path_under(root).write_bytes(b"\xff\xfe{\x00schema\x00: 1}")
     posture_store.invalidate_cache()
 
-    # Act / Assert — both answer, and the deployment ceiling stays in charge
+    # Act / Assert — both answer, and both refuse
     assert reader.read_record({}) is None
-    assert reader.recorded_posture({}) == posture_store.recorded_posture() == {}
-    assert reader.effective_writes_for({}, ARMED_BOTH, "live") is expected_answer(
-        ARMED_BOTH, "live"
-    )
-    assert reader.effective_writes_for({}, ARMED_BOTH, "live") is True
+    assert reader.read_record_status({}) == (None, "unreadable")
+    path = control_context._record_path_under(root)
+    assert control_context.read_record_status(path=path)[1] == "unreadable"
     posture_store.invalidate_cache()
 
 
@@ -917,7 +679,7 @@ def test_the_degradation_hatch_writes_a_record_neither_side_honours(stamped_root
     )
 
     assert reader.read_record({}) is None
-    assert reader.recorded_posture({}) == posture_store.recorded_posture() == {}
+    assert reader.read_record_status({}) == (None, "unreadable")
 
 
 # ---------------------------------------------------------------------------
