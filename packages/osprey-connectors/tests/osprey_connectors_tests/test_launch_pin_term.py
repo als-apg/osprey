@@ -2,10 +2,9 @@
 
 :func:`~osprey_connectors.posture_store.launch_pin_term` reads the executor's
 launch stamp and says, for one target, whether the run was pinned read-only at
-launch. Unlike :func:`~osprey_connectors.posture_store.parse_launch_posture`,
-which treats an unparseable stamp as inert, the term fails closed: a stamp that
-is present but cannot be read is ``unreadable`` for every target, and the
-verdict refuses it as ``launch_pinned`` exactly as it refuses ``pinned``.
+launch. The term fails closed: a stamp that is present but cannot be read is
+``unreadable`` for every target, and the verdict refuses it as
+``launch_pinned`` exactly as it refuses ``pinned``.
 """
 
 from __future__ import annotations
@@ -113,8 +112,8 @@ def test_an_unreadable_stamp_is_unreadable_for_every_target(stamp, value):
 
 
 def test_an_unknown_target_is_unreadable_even_for_a_named_known_target(stamp):
-    # Regression guard: parse_launch_posture keeps an unknown target as a
-    # narrowing of that name, which would leave every real target "none".
+    # Regression guard: a tolerant reading would keep an unknown target as a
+    # pin of that name only, which would leave every real target "none".
     stamp("mars=sandbox")
     assert posture_store.launch_pin_term("live") == "unreadable"
 
@@ -124,16 +123,6 @@ def test_the_term_is_read_on_every_call(stamp):
     assert posture_store.launch_pin_term("live") == "pinned"
     stamp(None)
     assert posture_store.launch_pin_term("live") == "none"
-
-
-def test_parse_launch_posture_is_unchanged(stamp):
-    # The tolerant parser and its callers keep their old answers.
-    assert posture_store.parse_launch_posture("live=bananas") == {}
-    assert posture_store.parse_launch_posture("sandbox") == {}
-    assert posture_store.parse_launch_posture("mars=sandbox") == {"mars": "sandbox"}
-    stamp("live=bananas")
-    assert posture_store.launch_permits("live") is True
-    assert posture_store.launch_narrowed_target() is None
 
 
 def test_launch_pin_term_is_public():

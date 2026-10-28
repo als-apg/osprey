@@ -476,7 +476,6 @@ def test_the_gate_never_reads_the_posture_store(monkeypatch: pytest.MonkeyPatch)
         raise AssertionError("evaluate_switch read the posture store")
 
     monkeypatch.setattr(posture_store, "write_verdict", _explode)
-    monkeypatch.setattr(posture_store, "effective_writes", _explode)
 
     assert _gate(writes_enabled=False).allowed is True
     assert _gate(writes_enabled=True).allowed is True

@@ -1600,7 +1600,6 @@ def test_a_record_with_switch_fields_reads_unchanged_through_every_older_reader(
 
     record = control_context.read_record()
     assert (record.target, record.generation, record.posture) == ("standin", 5, mirror)
-    assert posture_store.recorded_posture() == mirror
 
     hook = _load_target_state_hook(monkeypatch)
     assert hook.parse_record(path.read_text(encoding="utf-8")) == {

@@ -55,9 +55,8 @@ from osprey_connectors.errors import ChannelWriteBlockedError
 from osprey_connectors.posture_store import (
     NO_OWNER,
     RESERVED_OWNER_KWARG,
-    StoreVerdict,
     current_owner,
-    store_verdict,
+    write_verdict,
 )
 from tests.services.bluesky_bridge.test_connector_devices import FakeConnector
 
@@ -68,6 +67,15 @@ _DEVICE_NAME = "motor"
 _CHANNEL = "SR:BEND:SETPOINT"
 _TARGET = "live"
 _SETPOINT = 3.5
+
+#: The ``control_system`` section a lane's queueserver holds: writes allowed,
+#: and both logins mapped ``allowed`` so the owner rung a bound tree applies
+#: never decides anything here — only each owner's own switch does.
+_SECTION = {
+    "type": "epics",
+    "writes": "allowed",
+    "login_tiers": {_OWNER: "allowed", _UNNARROWED_OWNER: "allowed"},
+}
 
 
 class _GatedConnector(FakeConnector):
@@ -90,11 +98,10 @@ class _GatedConnector(FakeConnector):
 
     async def write_channel_checked(self, channel_address: str, value: Any, **kwargs: Any):
         self.write_owners.append(current_owner())
-        verdict = store_verdict(_TARGET)
-        if verdict is not StoreVerdict.PERMITTED:
+        verdict = write_verdict(_SECTION, _TARGET)
+        if not verdict.allowed:
             # The reason word is the verdict's own spelling, not a second one:
-            # ``StoreVerdict`` is a ``StrEnum``, so what the store answered is
-            # what the operator reads.
+            # what the verdict answered is what the operator reads.
             raise ChannelWriteBlockedError(
                 channel_address,
                 "WRITES_DISABLED",
@@ -102,7 +109,7 @@ class _GatedConnector(FakeConnector):
                     f"Write to '{channel_address}' blocked: writes are off for the "
                     f"'{_TARGET}' control target — turn them back on from the "
                     f"control-target chip if the write is intended. "
-                    f"The store answered {verdict}."
+                    f"The verdict answered {verdict.reason}."
                 ),
             )
         return await super().write_channel_checked(channel_address, value, **kwargs)
@@ -278,16 +285,18 @@ def test_an_owner_less_run_after_an_owned_one_writes_under_no_owner(
 
     A worker's RunEngine outlives every item it executes and runs them on one
     thread, so an owner left in the context a run was advanced from would gate
-    the *next* person's plan against the previous person's narrowing. Both
-    runs go through one RunEngine and one connector, which is the arrangement
-    where that would show.
+    the *next* plan against the previous person's switch. Both runs go through
+    one RunEngine and one connector, which is the arrangement where that would
+    show: the owner-less run is refused ``owner_unknown`` (case row
+    ``owner-tree-nobody-bound``), where a leaked owner would have let it write.
     """
     connector = _GatedConnector()
     plan_function = wrapped_plan(_device(connector))
     run_engine = RunEngine(context_managers=[])
 
     run_engine(plan_function(**{RESERVED_OWNER_KWARG: _OWNER}))
-    run_engine(plan_function())
+    with pytest.raises(FailedStatus, match="owner_unknown"):
+        run_engine(plan_function())
 
     assert connector.write_owners == [_OWNER, NO_OWNER]
     assert connector.write_owners[1] is NO_OWNER
@@ -311,7 +320,7 @@ def test_a_switch_off_for_the_owner_refuses_the_write_and_fails_the_run(
     connector = _GatedConnector()
     plan_function = wrapped_plan(_device(connector))
 
-    with pytest.raises(FailedStatus, match="narrowing") as failure:
+    with pytest.raises(FailedStatus, match="switch_off") as failure:
         RunEngine(context_managers=[])(plan_function(**{RESERVED_OWNER_KWARG: _OWNER}))
 
     assert isinstance(failure.value.__cause__, ChannelWriteBlockedError)
