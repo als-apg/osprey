@@ -48,7 +48,7 @@ _DEAD_PID = 2_147_483_646
 # ── fixtures / helpers ──────────────────────────────────────────────────────
 def write_corrupt_record(root, raw):
     """Put *raw* where the record belongs, bypassing the schema writer."""
-    path = control_context.record_path_under(root)
+    path = control_context._record_path_under(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(raw, encoding="utf-8")
     control_context.invalidate_cache()

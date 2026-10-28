@@ -227,12 +227,12 @@ async def test_the_withheld_token_hint_carries_the_off_phrase(tmp_path, monkeypa
     _switch(tmp_path)
 
     body = _refusal(
-        "launch_token_required",
+        "launch_token_invalid",
         "the queue is running, so adding an item requires the launch token",
         manager_state="executing_queue",
     )
     with patch(f"{_MOD}._http_post_json", return_value=(403, body)):
-        with assert_raises_error(error_type="launch_token_required") as ctx:
+        with assert_raises_error(error_type="launch_token_invalid") as ctx:
             await _add_fn()(draft_revision=7)
 
     hints = [s for s in ctx["envelope"]["suggestions"] if "withheld the launch token" in s]

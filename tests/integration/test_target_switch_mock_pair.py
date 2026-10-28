@@ -74,11 +74,14 @@ from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system._base import ChannelValue
 from osprey_connectors.control_system._va_connector import fill_gateway_ports
 from osprey_connectors.errors import ChannelLimitsViolationError, ChannelNotFoundError
-from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
+from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc._proxy import ConnectorHostProxy
 from osprey_connectors.ipc._verification import derive_endpoints
-from osprey_connectors_tests._harness import isolate_verdict_environment
+from osprey_connectors_tests._harness import (
+    isolate_verdict_environment,
+    isolated_connector_registries,
+)
 from osprey_connectors_tests._harness import write_control_context as harness_write_control_context
 from tests.fixtures.control_context import context_for
 from tests.integration._mock_pair_connectors import (

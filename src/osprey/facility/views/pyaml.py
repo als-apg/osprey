@@ -1127,7 +1127,7 @@ def write_pyaml_view(root: Path, inputs: ViewInputs) -> list[Path]:
         inputs: The render's view inputs.
 
     Returns:
-        The files written, sorted.
+        The files written, in the order they were written.
     """
     written_models, omitted = measured_models(inputs)
     for model, reason in omitted.items():
@@ -1158,4 +1158,4 @@ def write_pyaml_view(root: Path, inputs: ViewInputs) -> list[Path]:
             path = directory / name
             path.write_text(text, encoding="utf-8")
             written.append(path)
-    return sorted(written)
+    return written

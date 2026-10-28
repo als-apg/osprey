@@ -136,7 +136,7 @@ def _switch_to(root: Path, target: str) -> Path:
 
 def _write_raw_record(root: Path, body: str) -> Path:
     """Drop a control-context record with arbitrary bytes in it."""
-    path = control_context.record_path_under(root)
+    path = control_context._record_path_under(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body, encoding="utf-8")
     control_context.invalidate_cache()

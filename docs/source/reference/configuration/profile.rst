@@ -380,11 +380,13 @@ Three rules follow from the catalog being the one home for these facts:
   place to declare the provider.
 - ``provider:`` naming an entry the file does not declare is refused, and the
   message lists the names it does declare.
-- A catalog that no longer matches the one OSPREY ships is reported as a note,
-  never a refusal — the comparison is with the catalog this OSPREY release
-  ships, not with the hash recorded under ``provenance:``.
-  ``osprey init --revalidate`` refreshes the entries OSPREY ships and keeps the
-  ones you added.
+- ``osprey validate`` compares each entry OSPREY ships with the one in the file,
+  key by key, as preset drift: a value you changed is a note, a key or model the
+  two disagree on having is refused unless a ``# DEVIATION:`` comment above it
+  claims it. Entries you added are not compared. The comparison is with the
+  catalog this OSPREY release ships, not with the hash under ``provenance:``.
+  ``osprey init --revalidate`` keeps every value in the file and adds the
+  entries and keys OSPREY ships that it lacks.
 
 .. _profile-posture-floor:
 
@@ -1111,9 +1113,9 @@ machine's alone — the stand-in's equivalent is the ``live_standin`` line itsel
   simulated nor the stand-in, since the recorder would sample one machine into a
   store the deployment reads as another's.
 
-On a laptop the second container is a real cost — the simulator image is
-amd64-only, so Apple Silicon emulates both — and deleting the line is the
-remedy; the how-to above says when that is worth it.
+On a laptop the second container is a real cost — a second simulator runs
+beside the first — and deleting the line is the remedy; the how-to above says
+when that is worth it.
 
 .. _profile-va-archiver:
 

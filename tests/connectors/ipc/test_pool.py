@@ -28,6 +28,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+import osprey_connectors
 from osprey_connectors import control_context
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.errors import ChannelNotFoundError
@@ -46,14 +47,20 @@ from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
 from osprey_connectors_tests._write_fakes import arm_switch
 from osprey_connectors_tests.ipc._pool_connectors import WRITE_LOG_ENV
+from tests._child_stubs import CHILD_STUBS
 from tests.facility.served_tree import in_process_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+# The connectors under test, wherever they are installed: the workspace member
+# here, the floor release in the framework-at-connectors-floor lane.
+CONNECTORS_ROOT = Path(osprey_connectors.__file__).resolve().parents[1]
 PYTHONPATH = os.pathsep.join(
     [
+        # Stand-ins first: skips the slow beamphysics import (tests/_child_stubs).
+        str(CHILD_STUBS),
         str(REPO_ROOT),
         str(REPO_ROOT / "src"),
-        str(REPO_ROOT / "packages" / "osprey-connectors" / "src"),
+        str(CONNECTORS_ROOT),
         # The connectors suite's test-support connectors (osprey_connectors_tests).
         str(REPO_ROOT / "packages" / "osprey-connectors" / "tests"),
     ]
@@ -195,6 +202,15 @@ def _alive(pid: int) -> bool:
     return True
 
 
+def _abandon(pid: int) -> None:
+    """Kill a child left holding a hung call, so teardown skips the 2 s disconnect bound.
+
+    Closing over a hung call is test_close_with_a_call_in_flight_fails_it_as_stopped's subject.
+    """
+    with contextlib.suppress(ProcessLookupError):
+        os.kill(pid, signal.SIGKILL)
+
+
 # ------------------------------------------------------------ keys and spawn
 
 
@@ -265,6 +281,7 @@ async def test_a_hung_call_on_one_target_does_not_hold_up_another(pools):
     hung.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await hung
+    _abandon(live.pid)
 
 
 async def test_an_unknown_execution_mode_is_refused(pools):
@@ -564,6 +581,7 @@ async def test_a_slow_but_alive_child_times_out_the_call_and_keeps_running(pools
     assert live.pid == pid and _alive(pid)
     assert (await live.read_channel("SR:DCCT", timeout=OK_TIMEOUT_S)).value is not None
     assert len(log.read_text().splitlines()) == 1
+    _abandon(pid)
 
 
 async def test_with_kill_on_write_timeout_a_write_that_misses_its_deadline_kills_its_child(
@@ -605,6 +623,7 @@ async def test_kill_on_write_timeout_leaves_a_read_that_times_out_on_the_ping_ru
     assert not isinstance(caught.value, ConnectorHostLostError)
     assert "still answers a ping" in str(caught.value)
     assert live.pid == pid and _alive(pid)
+    _abandon(pid)
 
 
 async def test_a_wedged_child_is_caught_by_the_call_deadline_too(pools):

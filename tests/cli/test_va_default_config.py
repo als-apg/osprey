@@ -33,15 +33,14 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
-from osprey.cli.init_cmd import init
 from osprey.cli.set_cmd import set as set_cmd
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import (
     ConnectorFactory,
-    isolated_connector_registries,
     register_builtin_connectors,
 )
-from tests._builds import BuiltProject
+from osprey_connectors_tests._harness import isolated_connector_registries
+from tests._builds import BuiltProject, copy_build
 from tests.facility.served_tree import in_process_config
 
 # The epics block a scaffolded Control Assistant renders: the app template's
@@ -71,19 +70,10 @@ def _build(runner: CliRunner, repo: Path) -> None:
     assert result.exit_code == 0, result.output
 
 
-def _scaffold(runner: CliRunner, repo: Path) -> Path:
-    """Scaffold a Control Assistant deployment repo at *repo* and build it once."""
-    result = runner.invoke(init, [str(repo), "--preset", "control-assistant", "--no-git"])
-    assert result.exit_code == 0, result.output
-    _build(runner, repo)
-    assert (repo / "build" / "config.yml").exists()
-    return repo
-
-
 @pytest.fixture
-def scaffolded_repo(runner: CliRunner, tmp_path: Path) -> Path:
-    """A fresh Control Assistant deployment repo, built once, for a test that edits it."""
-    return _scaffold(runner, tmp_path / "smoke")
+def scaffolded_repo(built_control_assistant: BuiltProject, tmp_path: Path) -> Path:
+    """A copy of the run's shared control-assistant build, for a test that edits it."""
+    return copy_build(built_control_assistant.repo, tmp_path)
 
 
 @pytest.fixture
@@ -113,16 +103,16 @@ def _load_config(repo: Path) -> dict:
 
 
 @pytest.fixture(scope="module")
-def served_in_process_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A freshly scaffolded repo after the documented flip, which tests only read.
+def served_in_process_repo(
+    built_control_assistant: BuiltProject, tmp_path_factory: pytest.TempPathFactory
+) -> Path:
+    """A copy of the shared build after the documented flip, which tests only read.
 
-    Module-scoped: every case reads the same scaffold, build, set and re-build,
-    and driving that sequence again per case would say nothing the first run
-    did not.
+    Module-scoped: every case reads the same set and re-build, and driving that
+    sequence again per case would say nothing the first run did not.
     """
-    runner = CliRunner()
-    repo = _scaffold(runner, tmp_path_factory.mktemp("served-in-process") / "smoke")
-    _serve_in_process(runner, repo)
+    repo = copy_build(built_control_assistant.repo, tmp_path_factory.mktemp("served-in-process"))
+    _serve_in_process(CliRunner(), repo)
     return repo
 
 

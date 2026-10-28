@@ -260,7 +260,8 @@ def _mutate_source(repo: Path) -> None:
     *between* ``osprey init`` and ``osprey build``, because the build is what
     renders every one of the three into the places the deploy reads them:
 
-      * ``skills/<name>/`` -> ``build/.claude/skills/<name>/`` (convention dir);
+      * ``skills/<name>/`` -> ``build/.claude/skills/<name>/``, named by
+        ``skills/<name>`` in the profile's ``skills:`` list;
       * ``data/<DATA_FILE>`` -> ``build/data/<DATA_FILE>``;
       * ``triggers.yml`` (named by the profile's ``dispatch.triggers``) ->
         ``build/triggers.yml`` AND the copy under
@@ -275,6 +276,15 @@ def _mutate_source(repo: Path) -> None:
     skill_path = repo / "skills" / "facility-marker" / "SKILL.md"
     skill_path.parent.mkdir(parents=True, exist_ok=True)
     skill_path.write_text(_OVERLAY_SKILL_MD, encoding="utf-8")
+    # A deployment's own skill renders only where a list names its path; the
+    # profile's list reaches every tier, the readonly dispatch tier included.
+    profile = repo / "profile.yml"
+    text = profile.read_text(encoding="utf-8")
+    assert "\nskills:\n" in text, "profile.yml has no block skills: list"
+    profile.write_text(
+        text.replace("\nskills:\n", "\nskills:\n  - skills/facility-marker\n", 1),
+        encoding="utf-8",
+    )
 
     data_path = repo / "data" / DATA_FILE
     data_path.parent.mkdir(parents=True, exist_ok=True)

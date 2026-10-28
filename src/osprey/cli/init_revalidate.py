@@ -35,11 +35,19 @@ in place, with the round-trip writer so every comment the operator kept survives
    marks ``deployment-data`` or ``data-map``) are never filled: the output
    names each one left out, and so is ``control_system.writes``, so a root
    that never stated it stays ``never``.
-6. ``providers.yml`` is refreshed: the entries OSPREY ships come back fresh,
-   and every entry the operator added is kept.
+6. ``providers.yml`` is completed, never rewritten: every value it states is
+   kept, an edited entry OSPREY ships included, and only the entries OSPREY
+   ships that it lacks, and the keys an existing one lacks, are added.
+   ``osprey validate`` reports each remaining difference as drift.
 7. ``provenance:`` is restamped with the preset, its hash and the catalog's
    hash, and ``requires_osprey_version`` at the schema floor, so a release
    that predates the vocabulary refuses the rewritten repo.
+7. The repo's own skills, agents, rules, output styles and hooks are named by
+   path in ``profile.yml`` and each app: each now renders only where its path
+   is named, and before every render carried all of them. A bare entry the
+   repo ships a file for (``safety`` beside ``rules/safety.md``) becomes the
+   path in place; every other unnamed one is appended. Tiers inherit
+   ``profile.yml``'s lists.
 
 Every file is read and rewritten in memory before the repo is touched, so a
 file that cannot be read leaves the repo as it was. The result is reported as
@@ -78,9 +86,9 @@ from osprey_connectors.workspace import (
 )
 
 from .build_profile_document import (
-    _LAYER_FILE_KNOBS,
     _WEB_TERMINALS,
     _WT_LABEL,
+    RENDER_KEYS,
     RETIRED_CATALOG_KEY,
     RETIRED_WRITES_LEAF,
     WRITES_KEY_LEAF,
@@ -203,13 +211,25 @@ class RevalidateResult:
 
 
 def _last_slot(container: Any, key: Any) -> tuple[dict, Any, int]:
-    """The comment slot that trails ``container[key]``'s whole subtree."""
+    """The comment slot that trails ``container[key]``'s whole subtree.
+
+    A flow collection (``access: [roster]``) is one line, so it is a leaf here:
+    its own items' slots sit inside its brackets, and a comment block handed to
+    one would be written there.
+    """
     value = container[key]
+    if _is_flow(value):
+        return container.ca.items, key, 0 if isinstance(container, CommentedSeq) else 2
     if isinstance(value, CommentedMap) and len(value):
         return _last_slot(value, list(value.keys())[-1])
     if isinstance(value, CommentedSeq) and len(value):
         return _last_slot(value, len(value) - 1)
     return container.ca.items, key, 0 if isinstance(container, CommentedSeq) else 2
+
+
+def _is_flow(value: Any) -> bool:
+    """Whether *value* is a collection written in flow style (``[a, b]``, ``{k: v}``)."""
+    return isinstance(value, (CommentedMap, CommentedSeq)) and bool(value.fa.flow_style())
 
 
 def _get_tail(slot: tuple[dict, Any, int]) -> tuple[str, int]:
@@ -434,7 +454,8 @@ def _item_column(seq: Any, default: int) -> int:
         line_col = seq.lc.item(0)
     except (AttributeError, KeyError, TypeError, IndexError):
         return default
-    return int(line_col[1]) - 2
+    # An item added in memory has no position yet.
+    return default if line_col is None else int(line_col[1]) - 2
 
 
 def _rewrite_roster_keys(document: Any, source: str) -> dict[str, dict[str, Any]]:
@@ -1945,6 +1966,352 @@ def _drop_helper_selections(document: Any) -> list[str]:
     return removed
 
 
+def _rewrite_shipped_shadows(document: Any, artifacts: list[str]) -> list[str]:
+    """Turn every bare entry the deployment ships a file for into that file's path, in place.
+
+    Before the by-name rule such a file replaced the library artifact wherever
+    the bare name was selected; now it does only where its path is named. The
+    entry keeps its position and its line comment.
+
+    Args:
+        document: A round-trip profile or app document.
+        artifacts: The repo's list-selected artifacts, as the build names them.
+
+    Returns:
+        The paths written, in list order.
+    """
+    from .profile_conventions import SELECTED_CONVENTION_SOURCES, library_entry_shadow
+
+    shipped = set(artifacts)
+    written: list[str] = []
+    if not isinstance(document, CommentedMap):
+        return written
+    for field_name in SELECTED_CONVENTION_SOURCES:
+        seq = document.get(field_name)
+        if not isinstance(seq, CommentedSeq):
+            continue
+        for index, entry in enumerate(seq):
+            path = library_entry_shadow(field_name, entry)
+            if path is not None and path in shipped and path not in seq:
+                seq[index] = path
+                written.append(path)
+    return written
+
+
+def name_shipped_shadows(root: Path) -> list[str]:
+    """Name every library-named file the repo at *root* ships by its path, in place.
+
+    ``osprey init`` seeds the deployment's own copy of the facility description
+    beside a profile that selects the library rule by its bare name; this is
+    what makes the profile, and every app, select the copy instead.
+
+    Args:
+        root: The repo root; holds ``profile.yml`` and maybe ``apps/``.
+
+    Returns:
+        The files rewritten, repo-relative.
+    """
+    from .profile_conventions import unselected_convention_artifacts
+
+    shipped = unselected_convention_artifacts(root, frozenset())
+    if not shipped:
+        return []
+    apps_dir = root / APPS_DIRNAME
+    rels = [PROFILE_FILENAME]
+    if apps_dir.is_dir():
+        rels += [f"{APPS_DIRNAME}/{path.name}" for path in sorted(apps_dir.glob("*.yml"))]
+    changed: list[str] = []
+    for rel in rels:
+        path = root / rel
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        rewritten = _rewrite_shadow_lines(text, rel, shipped)
+        if rewritten != text:
+            path.write_text(rewritten, encoding="utf-8")
+            changed.append(rel)
+    return changed
+
+
+def _name_convention_artifacts_text(text: str, rel: str, artifacts: list[str]) -> str:
+    """:func:`_name_convention_artifacts` on a file's text, changing nothing else in it.
+
+    For a file revalidate does not otherwise re-dump — an app — so its quoting,
+    its empty values and its comments come back byte for byte: a bare entry the
+    repo ships a file for becomes that path on its own line, and every artifact
+    still unnamed is added as a line of its own.
+    """
+    from .profile_conventions import SELECTED_CONVENTION_SOURCES, convention_selections
+
+    text = _rewrite_shadow_lines(text, rel, artifacts)
+    document = _load_text(text, rel)
+    if not isinstance(document, CommentedMap):
+        return text
+    selected = convention_selections(
+        {field: document.get(field) or [] for field in SELECTED_CONVENTION_SOURCES}
+    )
+    field_for = {source: field for field, source in SELECTED_CONVENTION_SOURCES.items()}
+    missing: dict[str, list[str]] = {}
+    for artifact in artifacts:
+        if artifact not in selected:
+            missing.setdefault(field_for[artifact.partition("/")[0]], []).append(artifact)
+    for field_name, entries in missing.items():
+        text = _append_list_lines(text, rel, field_name, entries)
+    return text
+
+
+def _append_list_lines(text: str, rel: str, field_name: str, entries: list[str]) -> str:
+    """*text* with *entries* added to its top-level list *field_name*, line by line.
+
+    A block list gains one line per entry under its last item, a one-line flow
+    list gains them inside its brackets, an empty key gains a block under it,
+    and an absent key is added as a block above ``config:`` and the comment
+    that introduces it (at the end of a file with no ``config:``).
+    """
+    document = _load_text(text, rel)
+    lines = text.splitlines(keepends=True)
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    value = document.get(field_name)
+    key_line, key_col = document.lc.key(field_name) if field_name in document else (0, 0)
+    # Read off the text: ruamel does not mark an empty `[]` as flow style.
+    after_key = lines[key_line][key_col:].split(":", 1)[-1].lstrip() if value is not None else ""
+    if isinstance(value, CommentedSeq) and after_key.startswith("["):
+        line = lines[key_line]
+        start = line.find("[", key_col)
+        end = line.find("]", start)
+        if start < 0 or end < 0:
+            raise BuildProfileError(
+                f"{rel}: `{field_name}:` is a flow list over several lines; write it one "
+                f"entry per line and run `osprey init --revalidate` again"
+            )
+        inner = line[start + 1 : end].rstrip()
+        joined = ", ".join([inner, *entries]) if inner.strip() else ", ".join(entries)
+        lines[key_line] = line[: start + 1] + joined + line[end:]
+    elif isinstance(value, CommentedSeq) and len(value):
+        first_line, first_col = value.lc.item(0)
+        prefix = lines[first_line][:first_col]
+        last_line = value.lc.item(len(value) - 1)[0]
+        lines[last_line + 1 : last_line + 1] = [f"{prefix}{entry}\n" for entry in entries]
+    elif field_name in document:
+        block = [f"{' ' * (key_col + 2)}- {entry}\n" for entry in entries]
+        lines[key_line + 1 : key_line + 1] = block
+    else:
+        at = len(lines)
+        if "config" in document:
+            at = document.lc.key("config")[0]
+            while at and lines[at - 1].startswith("#"):
+                at -= 1
+        lines[at:at] = [f"{field_name}:\n", *(f"  - {entry}\n" for entry in entries)]
+    return "".join(lines)
+
+
+def shipped_shadow_texts(root: Path, texts: dict[str, str]) -> dict[str, str]:
+    """*texts* (repo-relative path → YAML) as :func:`name_shipped_shadows` leaves them in *root*."""
+    from .profile_conventions import unselected_convention_artifacts
+
+    shipped = unselected_convention_artifacts(root, frozenset())
+    if not shipped:
+        return dict(texts)
+    return {rel: _rewrite_shadow_lines(text, rel, shipped) for rel, text in texts.items()}
+
+
+def _rewrite_shadow_lines(text: str, rel: str, shipped: list[str]) -> str:
+    """*text* with each bare entry the repo ships a file for spelled as its path.
+
+    Edited line by line rather than re-dumped, so a file ``osprey init`` just
+    emitted changes in those entries and nowhere else: the round-trip writer
+    does not keep every scalar's spelling (an empty value comes back ``null``).
+    A line comment keeps its column where the longer entry leaves room.
+    """
+    from .profile_conventions import SELECTED_CONVENTION_SOURCES, library_entry_shadow
+
+    document = _load_text(text, rel)
+    if not isinstance(document, CommentedMap):
+        return text
+    lines = text.splitlines(keepends=True)
+    shipped_set = set(shipped)
+    for field_name in SELECTED_CONVENTION_SOURCES:
+        seq = document.get(field_name)
+        if not isinstance(seq, CommentedSeq) or seq.fa.flow_style():
+            continue
+        for index, entry in enumerate(seq):
+            path = library_entry_shadow(field_name, entry)
+            if path is None or path not in shipped_set or path in seq:
+                continue
+            line_no, column = seq.lc.item(index)
+            line = lines[line_no]
+            if line[column : column + len(entry)] != entry:
+                continue
+            rest = line[column + len(entry) :]
+            pad = len(rest) - len(rest.lstrip(" "))
+            grow = len(path) - len(entry)
+            if rest.lstrip(" ").startswith("#") and pad > grow:
+                rest = rest[grow:]
+            lines[line_no] = line[:column] + path + rest
+    return "".join(lines)
+
+
+def _name_convention_artifacts(document: Any, artifacts: list[str]) -> list[str]:
+    """Append every artifact in *artifacts* that *document*'s lists do not select, in place.
+
+    Before the by-name rule a profile's own skills, agents, rules, output styles
+    and hooks rendered into every render, and one named like a library artifact
+    replaced it wherever the bare name was selected; now each renders only where
+    its path is named. So a bare entry the deployment ships a file for becomes
+    that path, in place, and every artifact still unnamed is appended — which
+    keeps the file's render exactly what it was. No kind is left out for any
+    file: trimming one is an edit the operator makes afterwards.
+
+    Args:
+        document: A round-trip profile or app document.
+        artifacts: Every list-selected convention artifact the repo ships, as
+            the build names them (``skills/beam-check``, ``hooks/osprey_limits.py``);
+            a facility hook is never among them (its declaration wires it).
+
+    Returns:
+        The paths written: rewritten bare entries first, then those appended.
+    """
+    from .profile_conventions import SELECTED_CONVENTION_SOURCES, convention_selections
+
+    if not isinstance(document, CommentedMap):
+        return []
+    added = _rewrite_shipped_shadows(document, artifacts)
+    lists = {
+        field: value if isinstance(value, list) else []
+        for field in SELECTED_CONVENTION_SOURCES
+        for value in (document.get(field),)
+    }
+    selected = convention_selections(lists)
+    field_for = {source: field for field, source in SELECTED_CONVENTION_SOURCES.items()}
+    for artifact in artifacts:
+        if artifact in selected:
+            continue
+        field_name = field_for[artifact.partition("/")[0]]
+        seq = document.get(field_name)
+        if not isinstance(seq, CommentedSeq):
+            keys = list(document.keys())
+            if field_name in document:
+                position = keys.index(field_name)
+                document.pop(field_name)
+            else:
+                position = keys.index("config") if "config" in keys else len(keys)
+            pred = _last_slot(document, keys[position - 1]) if position else None
+            document.insert(position, field_name, CommentedSeq())
+            seq = document[field_name]
+            seq.append(artifact)
+            if pred is not None:
+                # What followed the key before it introduced the next key; it
+                # still does, rather than now sitting above this list.
+                _place_after(pred, document, field_name, 0, [])
+        elif not len(seq):
+            # `skills: []` grows into a block list, the way every list with
+            # entries is spelled.
+            seq.fa.set_block_style()
+            seq.append(artifact)
+        else:
+            column = _item_column(seq, 2)
+            pred = _last_slot(seq, len(seq) - 1)
+            seq.append(artifact)
+            _place_after(pred, seq, len(seq) - 1, column, [])
+        added.append(artifact)
+    return added
+
+
+def _listed_artifacts(artifacts: list[str]) -> list[str]:
+    """The artifacts of *artifacts* a list may name: every one but a facility hook.
+
+    A facility hook is wired, and so copied, by its ``claude_code.hooks``
+    declaration alone; only a file replacing an OSPREY hook is listed.
+    """
+    from .profile_conventions import replaces_library_artifact
+
+    return [a for a in artifacts if not a.startswith("hooks/") or replaces_library_artifact(a)]
+
+
+def _host_session_hooks(config: Any) -> dict[str, list[Any]]:
+    """The host's facility hook declarations on every event but the guard event.
+
+    Before the by-name rule an app inherited every host declaration. A guard
+    still reaches every app (guards are a floor); any other event reaches only
+    an app whose own ``config:`` declares it, so the migration writes it there.
+    """
+    from .profile_conventions import GUARD_EVENT, declared_hooks
+
+    return {
+        event: entries
+        for event, entries in declared_hooks(config if isinstance(config, dict) else {}).items()
+        if event != GUARD_EVENT and entries
+    }
+
+
+def _yaml_flow(entry: Any) -> str:
+    """One declaration entry as a single-line YAML value."""
+    if isinstance(entry, str):
+        return entry
+    return yaml.safe_dump(dict(entry), default_flow_style=True, sort_keys=False).strip()
+
+
+def _carry_host_hooks_text(text: str, rel: str, declared: dict[str, list[Any]]) -> str:
+    """*text* (an app file) declaring each of the host's *declared* hooks it does not yet.
+
+    Each missing entry is added under the app's own dotted
+    ``claude_code.hooks.<event>`` key — appended to it when the app has one,
+    added at the top of ``config:`` otherwise — and nothing else in the file
+    changes.
+
+    Raises:
+        BuildProfileError: If the app declares that event in another spelling,
+            which a line edit cannot extend safely.
+    """
+    from .profile_conventions import declared_hook_path, declared_hooks
+
+    for event, entries in declared.items():
+        document = _load_text(text, rel)
+        if not isinstance(document, CommentedMap):
+            return text
+        config = document.get("config")
+        own = declared_hooks(config) if isinstance(config, CommentedMap) else {}
+        have = {declared_hook_path(e) for e in own.get(event, [])}
+        missing = [e for e in entries if declared_hook_path(e) not in have]
+        if not missing:
+            continue
+        key = f"claude_code.hooks.{event}"
+        lines = text.splitlines(keepends=True)
+        if lines and not lines[-1].endswith("\n"):
+            lines[-1] += "\n"
+        value = config.get(key) if isinstance(config, CommentedMap) else None
+        if isinstance(value, CommentedSeq) and len(value) and not value.fa.flow_style():
+            first_line, first_col = value.lc.item(0)
+            prefix = lines[first_line][:first_col]
+            last_line = value.lc.item(len(value) - 1)[0]
+            lines[last_line + 1 : last_line + 1] = [f"{prefix}{_yaml_flow(e)}\n" for e in missing]
+        elif event in own:
+            raise BuildProfileError(
+                f"{rel}: declares claude_code.hooks.{event} in a spelling revalidate cannot "
+                f"extend; add {', '.join(_yaml_flow(e) for e in missing)} to it by hand, or "
+                f"spell it as one `{key}:` block list and run `osprey init --revalidate` again"
+            )
+        else:
+            if isinstance(config, CommentedMap) and len(config):
+                at, column = config.lc.key(next(iter(config)))
+                indent = " " * column
+            elif "config" in document:
+                at, indent = document.lc.key("config")[0] + 1, "  "
+            else:
+                lines.append("config:\n")
+                at, indent = len(lines), "  "
+            block = [
+                f"{indent}# Carried from profile.yml: an app runs a host hook on {event} "
+                "only where it declares it.\n",
+                f"{indent}{key}:\n",
+                *(f"{indent}  - {_yaml_flow(e)}\n" for e in missing),
+            ]
+            lines[at:at] = block
+        text = "".join(lines)
+    return text
+
+
 def _catalog_stem(build_profile: Any) -> str | None:
     """``<s>`` when a catalog ``build_profile`` names ``<d>/<s>.yml`` for a directory ``<d>`` read as tiers."""
     if not isinstance(build_profile, str):
@@ -2174,7 +2541,7 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
             for knob, value in fields.items():
                 if knob == "build_profile":
                     continue
-                if knob in _LAYER_FILE_KNOBS:
+                if knob in RENDER_KEYS:
                     target = knobs if rel == PROFILE_FILENAME else overlay_knobs
                     target.setdefault(name, {})[knob] = value
                 elif knob == "landing_group":
@@ -2248,6 +2615,46 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
         )
         if rewritten != text:
             writes[rel] = rewritten
+    # ── Own skills, agents, rules, output styles, hooks: named ──────────────
+    # Each now renders only where a list names it. profile.yml and every app
+    # name all of them, which is what each render carried before; a tier
+    # inherits profile.yml's lists. A facility hook is the exception: its
+    # declaration wires and copies it, so it is never listed, and each app
+    # declares the host's non-guard hooks it used to inherit.
+    from .build_persistence import (
+        FACILITY_RULE_NAME,
+        FACILITY_RULE_PATH_ENTRY,
+        FACILITY_RULE_RELPATH,
+    )
+    from .profile_conventions import BUILD_OUTPUT_DIR, unselected_convention_artifacts
+
+    shipped = _listed_artifacts(unselected_convention_artifacts(root, frozenset()))
+    # A repo from before the facility description moved into the profile keeps
+    # its only, edited copy in build/; the bare `facility` it selects now means
+    # OSPREY's rule, so that copy is moved into the profile (below, with the
+    # other writes) and named by its path like every shipped shadow.
+    rescued_facility_rule = (
+        root / BUILD_OUTPUT_DIR / ".claude" / FACILITY_RULE_RELPATH
+        if not (root / FACILITY_RULE_RELPATH).exists()
+        and FACILITY_RULE_NAME in (document.get("rules") or [])
+        and (root / BUILD_OUTPUT_DIR / ".claude" / FACILITY_RULE_RELPATH).is_file()
+        else None
+    )
+    if rescued_facility_rule is not None:
+        shipped = sorted({*shipped, FACILITY_RULE_PATH_ENTRY})
+        writes[FACILITY_RULE_RELPATH.as_posix()] = rescued_facility_rule.read_text(encoding="utf-8")
+    session_hooks = _host_session_hooks(document.get("config"))
+    if shipped or session_hooks:
+        if shipped:
+            _name_convention_artifacts(document, shipped)
+        app_rels = {f"{APPS_DIRNAME}/{path.name}" for path in existing_apps.values()}
+        app_rels |= {rel for rel in writes if rel.startswith(f"{APPS_DIRNAME}/")}
+        for rel in sorted(app_rels - deletes):
+            text = writes.get(rel) or (root / rel).read_text(encoding="utf-8")
+            named = _name_convention_artifacts_text(text, rel, shipped) if shipped else text
+            named = _carry_host_hooks_text(named, rel, session_hooks)
+            if named != text:
+                writes[rel] = named
 
     # ── Lacking config leaves, providers.yml, provenance ────────────────────
     resolved = _resolve_preset(document, preset, root / PROFILE_FILENAME)
@@ -2309,7 +2716,7 @@ def _plan_providers(root: Path) -> Any:
     from .profile_cmd import _plan_provider_catalog
 
     try:
-        return _plan_provider_catalog(root)
+        return _plan_provider_catalog(root, keep_values=True)
     except click.UsageError as e:
         raise BuildProfileError(e.message) from e
 

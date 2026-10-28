@@ -15,7 +15,6 @@ children serving the pool tests' mock connector.
 """
 
 import asyncio
-import os
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -33,8 +32,10 @@ from osprey_connectors.types import baseline_target, configured_targets, resolve
 from osprey_connectors_tests._harness import state_dir_under, write_control_context
 from osprey_connectors_tests._write_fakes import arm_switch, turn_switch
 from osprey_connectors_tests.ipc._pool_connectors import WRITE_LOG_ENV
+from tests._processes import pid_alive
 from tests.connectors.ipc.test_pool import CHILD_START_TIMEOUT_S, PYTHONPATH, SERVED, SLOW
 from tests.facility.served_tree import in_process_config, served_tree
+from tests.runtime._loop import inside_a_running_loop
 from tests.runtime.test_executor_target_stamp import stamp_env, write_record
 
 #: A deployment that can switch: a virtual accelerator baseline and a stand-in.
@@ -137,7 +138,8 @@ class _FirstContextConnector:
 @pytest.fixture
 def in_process_registry():
     """Register the first-context fake under every type the sections select."""
-    from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
+    from osprey_connectors.factory import ConnectorFactory
+    from osprey_connectors_tests._harness import isolated_connector_registries
 
     with isolated_connector_registries():
         for name in ("epics", "virtual_accelerator", "live_standin"):
@@ -251,19 +253,6 @@ def fake_pool(monkeypatch):
     monkeypatch.setattr(ConnectorFactory, "create_control_system_connector", no_in_process_build)
     yield _FakePool.instances
     _FakePool.instances = []
-
-
-def inside_a_running_loop(call):
-    """Run *call* synchronously from inside a coroutine, as a notebook cell runs."""
-
-    async def driver():
-        return call()
-
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(driver())
-    finally:
-        loop.close()
 
 
 # ---------------------------------------------------------------------------
@@ -680,14 +669,6 @@ class TestPoolCleanup:
 # ---------------------------------------------------------------------------
 
 
-def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
-
-
 @pytest.fixture(scope="module")
 def pool_view(tmp_path_factory) -> Path:
     """The simulator view the pool tests' mock connector serves."""
@@ -739,12 +720,12 @@ class TestRealChildren:
             second_pid = runtime._runtime_connector.pid
 
             assert second_pid is not None and second_pid != first_pid
-            assert not _alive(first_pid)
+            assert not pid_alive(first_pid)
             assert list(pool.pids()) == [("live", None)]
         finally:
             asyncio.run(runtime.cleanup_runtime())
 
-        assert not _alive(second_pid)
+        assert not pid_alive(second_pid)
         assert runtime._connector_pool is None
 
     def test_an_in_process_deployment_reads_through_a_real_child(
@@ -772,7 +753,7 @@ class TestRealChildren:
         finally:
             asyncio.run(runtime.cleanup_runtime())
 
-        assert not _alive(pid)
+        assert not pid_alive(pid)
 
 
 class TestRealChildrenFollowTheSwitch:
@@ -822,4 +803,4 @@ class TestRealChildrenFollowTheSwitch:
         assert refusal_phrase("switch_off", "simulator") in str(off.value)
         assert on_report["writes_enabled"] is True
         assert len({off_pid, on_pid, again_pid}) == 3
-        assert not _alive(off_pid) and not _alive(on_pid)
+        assert not pid_alive(off_pid) and not pid_alive(on_pid)

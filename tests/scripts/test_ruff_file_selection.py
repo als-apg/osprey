@@ -42,8 +42,8 @@ PYTHON_SHEBANG = re.compile(rb"^#![^\n]*\bpython[0-9.]*\b")
 #: then its arguments up to the end of the shell word list.
 RUFF_INVOCATION = re.compile(r"\bruff\s+(?:check|format)\b((?:[ \t]+[^\s`'\"|;&>)]+)*)")
 
-#: The one declaration CI's ruff steps run from.
-CHECK_SCRIPT = "scripts/check.py"
+#: The checks module that declares the ruff checks CI's ruff steps run.
+CHECK_SCRIPT = "scripts/repo_checks.py"
 
 #: Every place that runs ruff or tells a contributor how to.
 INVOCATION_SURFACES = (

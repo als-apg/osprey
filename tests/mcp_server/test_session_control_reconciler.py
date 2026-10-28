@@ -489,7 +489,7 @@ class TestOwnership:
         """No record is not an error here: a claim that failed retries next tick."""
         manager = FakeManager()
         install_context(manager, monkeypatch)
-        fixtures.write_payload(control_context.record_path_under(root()), "not a record")
+        fixtures.write_payload(control_context._record_path_under(root()), "not a record")
         monkeypatch.setattr(
             control_context, "write_record", lambda *a, **k: (_ for _ in ()).throw(OSError("no"))
         )

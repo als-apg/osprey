@@ -26,7 +26,8 @@ import pytest
 
 from osprey_connectors import factory as factory_module
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
-from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
+from osprey_connectors.factory import ConnectorFactory
+from osprey_connectors_tests._harness import isolated_connector_registries
 from tests.facility.served_tree import in_process_config, served_tree
 
 #: The in-process simulator by dotted path, which ``resolve_target`` returns verbatim

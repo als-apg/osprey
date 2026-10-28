@@ -36,6 +36,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from osprey.audit import posture
+from osprey.mcp_server.approval_stamp import (  # noqa: F401 - re-exported spellings
+    APPROVAL_ASK_PREFIX,
+    APPROVAL_ASK_SUFFIX,
+    APPROVAL_CONFIG_INVALID,
+    APPROVAL_MISSING,
+    APPROVED_FIELDS,
+    ApprovalRefused,
+    check_asked_call,
+)
 from osprey.mcp_server.sandbox_env import (
     PERIMETER_DENY_PORTS_ENV,
     PERIMETER_MARKER_ENV,
@@ -183,12 +192,12 @@ FAILURE_KIND_SWITCH_IN_PROGRESS = "switch_in_progress"
 #: :attr:`ExecutionResult.failure_kind` for a guarded call that was never
 #: admitted: its tool's approval policy asks, and the approval hook left no
 #: matching record for this call. Nothing ran.
-FAILURE_KIND_APPROVAL_MISSING = "approval_missing"
+FAILURE_KIND_APPROVAL_MISSING = APPROVAL_MISSING
 #: :attr:`ExecutionResult.failure_kind` for a readwrite run refused because the
 #: rendered ``config.yml`` states an approval switch that is not true or false,
 #: or an ``approval`` section that is not a mapping. Nothing ran, and calling
 #: again cannot help: the fix is in the deployment's profile.
-FAILURE_KIND_APPROVAL_CONFIG_INVALID = "approval_config_invalid"
+FAILURE_KIND_APPROVAL_CONFIG_INVALID = APPROVAL_CONFIG_INVALID
 #: :attr:`ExecutionResult.failure_kind` for a readwrite run that did not start
 #: because another guarded run holds its control target's lock. Nothing in the
 #: submitted code ran; the error message names the holder's pid and start time.
@@ -806,7 +815,7 @@ def _check_approved_call(
         _ApprovalConfigInvalid: The config states an ``approval.enabled`` that
             is not true or false, or an ``approval`` that is not a mapping.
     """
-    if execution_mode != "readwrite":
+    if execution_mode != "readwrite" or not check_asked_call(osprey_config, tool, approved):
         return
     from osprey.cli.build_posture_check import ask_capable
     from osprey.mcp_server.approval_record import APPROVAL_CONFIG_INVALID, require_approval_record
@@ -1119,7 +1128,7 @@ async def _execute_via_local(
             {"approved_target": approved_target, "approved_view_sha256": approved_view_sha256},
             control_target=control_target,
         )
-    except _ApprovalMissing as refusal:
+    except ApprovalRefused as refusal:
         return ExecutionResult(
             success=False,
             stdout="",
@@ -1128,18 +1137,7 @@ async def _execute_via_local(
             execution_time_seconds=0.0,
             error_message=str(refusal),
             control_target=control_target,
-            failure_kind=FAILURE_KIND_APPROVAL_MISSING,
-        )
-    except _ApprovalConfigInvalid as refusal:
-        return ExecutionResult(
-            success=False,
-            stdout="",
-            stderr=str(refusal),
-            execution_method_used=EXECUTION_METHOD_SUBPROCESS,
-            execution_time_seconds=0.0,
-            error_message=str(refusal),
-            control_target=control_target,
-            failure_kind=FAILURE_KIND_APPROVAL_CONFIG_INVALID,
+            failure_kind=refusal.code,
         )
     limits_validator = _load_limits_validator(target=control_target)
 

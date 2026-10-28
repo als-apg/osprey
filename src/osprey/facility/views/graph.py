@@ -368,6 +368,11 @@ def _subject_block(subject: str, predicates: Mapping[str, set[_Term]]) -> list[s
     return [line + " ;" for line in lines[:-1]] + [lines[-1] + " ."]
 
 
+#: The document last rendered and its Turtle: every render of one build hands
+#: in the same document, so its graph is rendered once.
+_rendered: tuple[FacilityDocument, str] | None = None
+
+
 def graph_text(doc: FacilityDocument) -> str:
     """The graph view's Turtle for one facility file.
 
@@ -378,6 +383,14 @@ def graph_text(doc: FacilityDocument) -> str:
         The Turtle text, its first line the facility file's sha256 header,
         ending in one newline.
     """
+    global _rendered
+    if _rendered is None or _rendered[0] is not doc:
+        _rendered = (doc, _turtle(doc))
+    return _rendered[1]
+
+
+def _turtle(doc: FacilityDocument) -> str:
+    """Compute :func:`graph_text` without the per-build memo."""
     from osprey.facility.render import facility_bytes
 
     code = str(doc["identity"]["code"])

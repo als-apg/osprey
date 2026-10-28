@@ -114,7 +114,7 @@ def test_a_corrupt_record_is_unreadable_on_both_sides(stamped_root):
     answer. The verdict that follows is the case table's ``record-corrupt``.
     """
     # Arrange
-    path = control_context.record_path_under(stamped_root)
+    path = control_context._record_path_under(stamped_root)
     path.write_text('{"schema": 1, "target": "live"', encoding="utf-8")  # truncated
     posture_store.invalidate_cache()
 
@@ -343,7 +343,7 @@ def test_the_container_bind_is_the_whole_directory_on_all_four_resolvers(tmp_pat
 
 
 def test_the_stamped_path_and_the_explicit_root_path_are_one_path(tmp_path, monkeypatch):
-    """``record_path()`` and ``record_path_under(agent_data_root())`` coincide.
+    """``record_path()`` and ``_record_path_under(agent_data_root())`` coincide.
 
     The two spellings serve different callers — one reads the environment, the
     other is handed a root by a test fixture or by a writer preparing a
@@ -366,9 +366,9 @@ def test_the_stamped_path_and_the_explicit_root_path_are_one_path(tmp_path, monk
 
     # Assert
     assert root == tmp_path
-    assert control_context.record_path() == control_context.record_path_under(root)
+    assert control_context.record_path() == control_context._record_path_under(root)
     assert control_context.state_dir() == state_dir_under(root)
-    assert reader.record_path({}) == str(control_context.record_path_under(root))
+    assert reader.record_path({}) == str(control_context._record_path_under(root))
 
 
 def test_the_retired_per_session_store_is_read_by_neither_side(stamped_root):
@@ -661,7 +661,7 @@ def test_an_undecodable_record_is_unreadable_on_both_sides(tmp_path, monkeypatch
     monkeypatch.delenv(reader.EXECUTION_MODE_ENV_VAR, raising=False)
     monkeypatch.delenv(reader.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
     state_dir_under(root).mkdir(parents=True)
-    control_context.record_path_under(root).write_bytes(b"\xff\xfe{\x00schema\x00: 1}")
+    control_context._record_path_under(root).write_bytes(b"\xff\xfe{\x00schema\x00: 1}")
     posture_store.invalidate_cache()
 
     # Act / Assert — both answer, and both refuse
@@ -674,7 +674,9 @@ def test_an_undecodable_record_is_unreadable_on_both_sides(tmp_path, monkeypatch
 
 def test_the_degradation_hatch_writes_a_record_neither_side_honours(stamped_root):
     """A payload that is not a record at all: no schema, no identity fields."""
-    write_payload(control_context.record_path_under(stamped_root), {"posture": {"live": "sandbox"}})
+    write_payload(
+        control_context._record_path_under(stamped_root), {"posture": {"live": "sandbox"}}
+    )
 
     assert reader.read_record({}) is None
     assert reader.read_record_status({}) == (None, "unreadable")

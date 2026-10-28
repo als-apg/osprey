@@ -13,19 +13,11 @@ from __future__ import annotations
 import pytest
 
 from osprey.registry.mcp import FRAMEWORK_AGENTS, resolve_agents, resolve_servers
+from tests.registry._ctx import base_ctx
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _base_ctx(**overrides):
-    ctx = {
-        "project_root": "/tmp/test-project",
-        "current_python_env": "/usr/bin/python3",
-    }
-    ctx.update(overrides)
-    return ctx
 
 
 def _get_agent(agents: list[dict]) -> dict:
@@ -81,28 +73,28 @@ class TestFacilityKnowledgeAgentResolved:
     """resolve_agents() includes facility-knowledge enabled in a default build."""
 
     def test_appears_in_resolved_agents(self):
-        ctx = _base_ctx()
+        ctx = base_ctx()
         servers = resolve_servers({}, ctx)
         agents = resolve_agents({}, ctx, resolved_servers=servers)
         names = [a["name"] for a in agents]
         assert "facility-knowledge" in names
 
     def test_enabled_by_default(self):
-        ctx = _base_ctx()
+        ctx = base_ctx()
         servers = resolve_servers({}, ctx)
         agents = resolve_agents({}, ctx, resolved_servers=servers)
         agent = _get_agent(agents)
         assert agent["enabled"] is True
 
     def test_is_not_custom_in_resolved(self):
-        ctx = _base_ctx()
+        ctx = base_ctx()
         servers = resolve_servers({}, ctx)
         agents = resolve_agents({}, ctx, resolved_servers=servers)
         agent = _get_agent(agents)
         assert agent["is_custom"] is False
 
     def test_can_be_disabled_via_config(self):
-        ctx = _base_ctx()
+        ctx = base_ctx()
         servers = resolve_servers({}, ctx)
         agents = resolve_agents(
             {"agents": {"facility-knowledge": {"enabled": False}}},
@@ -113,7 +105,7 @@ class TestFacilityKnowledgeAgentResolved:
         assert agent["enabled"] is False
 
     def test_description_propagates(self):
-        ctx = _base_ctx()
+        ctx = base_ctx()
         servers = resolve_servers({}, ctx)
         agents = resolve_agents({}, ctx, resolved_servers=servers)
         agent = _get_agent(agents)
@@ -128,14 +120,8 @@ class TestFacilityKnowledgeAgentResolved:
 class TestFacilityKnowledgeAgentTemplate:
     """The agent template renders correctly with all four required tools."""
 
-    @pytest.fixture()
-    def template_manager(self):
-        from osprey.cli.templates.manager import TemplateManager
-
-        return TemplateManager()
-
     def _full_ctx(self, enabled: bool = True, **overrides):
-        ctx = _base_ctx(**overrides)
+        ctx = base_ctx(**overrides)
         claude_code_cfg = overrides.pop("_claude_code_config", {})
         ctx.setdefault("facility_name", "Test Facility")
         ctx["servers"] = resolve_servers(claude_code_cfg, ctx)
@@ -159,36 +145,25 @@ class TestFacilityKnowledgeAgentTemplate:
         rendered = self._render(template_manager, ctx)
         assert not rendered.strip(), "Template must produce no output when agent is disabled"
 
-    def test_contains_list_concepts_tool(self, template_manager):
-        ctx = self._full_ctx(enabled=True)
-        rendered = self._render(template_manager, ctx)
-        assert "mcp__osprey_facility_knowledge__list_concepts" in rendered
-
-    def test_contains_read_concept_tool(self, template_manager):
-        ctx = self._full_ctx(enabled=True)
-        rendered = self._render(template_manager, ctx)
-        assert "mcp__osprey_facility_knowledge__read_concept" in rendered
-
-    def test_contains_search_tool(self, template_manager):
-        ctx = self._full_ctx(enabled=True)
-        rendered = self._render(template_manager, ctx)
-        assert "mcp__osprey_facility_knowledge__search" in rendered
-
-    def test_contains_submit_response_tool(self, template_manager):
-        ctx = self._full_ctx(enabled=True)
-        rendered = self._render(template_manager, ctx)
-        assert "mcp__osprey_workspace__submit_response" in rendered
+    @pytest.mark.parametrize(
+        "expected",
+        [
+            pytest.param("mcp__osprey_facility_knowledge__list_concepts", id="list_concepts_tool"),
+            pytest.param("mcp__osprey_facility_knowledge__read_concept", id="read_concept_tool"),
+            pytest.param("mcp__osprey_facility_knowledge__search", id="search_tool"),
+            pytest.param("mcp__osprey_workspace__submit_response", id="submit_response_tool"),
+            pytest.param("name: facility-knowledge", id="frontmatter_name_field"),
+        ],
+    )
+    def test_contains(self, template_manager, expected):
+        rendered = self._render(template_manager, self._full_ctx(enabled=True))
+        assert expected in rendered
 
     def test_disallowed_tools_present(self, template_manager):
         ctx = self._full_ctx(enabled=True)
         rendered = self._render(template_manager, ctx)
         assert "disallowedTools" in rendered
         assert "Bash" in rendered
-
-    def test_frontmatter_name_field(self, template_manager):
-        ctx = self._full_ctx(enabled=True)
-        rendered = self._render(template_manager, ctx)
-        assert "name: facility-knowledge" in rendered
 
     def test_no_capabilities_tool(self, template_manager):
         """capabilities is a server-level introspection tool, not exposed to the agent."""

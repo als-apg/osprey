@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey_connectors.control_context import record_path_under
+from osprey_connectors.control_context import _record_path_under
 from osprey_connectors.types import baseline_target
 from osprey_connectors_tests._harness import write_control_context, write_server_report
 from tests._guarded_run import (
@@ -77,7 +77,7 @@ def make_config(make_config, tmp_path):
         path = make_config(config_dict)
         stamped = os.environ.get("OSPREY_AGENT_DATA_ROOT")
         root = Path(stamped) if stamped else tmp_path / "var" / "agent_data"
-        if not record_path_under(root).exists():
+        if not _record_path_under(root).exists():
             section = config_dict.get("control_system") if isinstance(config_dict, dict) else None
             write_control_context(root, target=baseline_target(section), switch=SWITCHED_ON)
         return path

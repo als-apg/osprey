@@ -36,7 +36,7 @@ own, because each has a meaningful "not stated" value that a reader can act
 on safely:
 
 * ``owner`` → ``None``, which is *ownerless* — the state a claim is for. An
-  owner that does not name one of :data:`OWNER_KINDS` and a live PID is not
+  owner that does not name one of :data:`_OWNER_KINDS` and a live PID is not
   an owner anybody should defer to, so reading it as ownerless is what lets
   the next process take the file over instead of stalling behind a ghost.
 * ``posture`` → ``{}``. A mirror of ``switch`` kept for old readers, never
@@ -153,7 +153,6 @@ __all__ = [
     "REPORT_APPLYING",
     "REPORT_FAILED",
     "OWNER_CONTROLS_SERVER",
-    "OWNER_KINDS",
     "OWNER_WEB_TERMINAL",
     "RECORD_FILENAME",
     "REPORT_FILE_GLOB",
@@ -172,7 +171,6 @@ __all__ = [
     "invalidate_cache",
     "is_process_alive",
     "live_owner",
-    "live_report_payloads",
     "live_reports",
     "owned_here",
     "parse_posture",
@@ -185,9 +183,6 @@ __all__ = [
     "read_record_status",
     "read_report",
     "record_path",
-    "record_path_under",
-    "report_path",
-    "report_path_under",
     "report_paths",
     "set_switch",
     "state_dir",
@@ -218,7 +213,7 @@ STATE_DIR_NAME = posture_store.STATE_DIR_NAME
 #: controls server — it is the one an operator is looking at.
 OWNER_WEB_TERMINAL = "web_terminal"
 OWNER_CONTROLS_SERVER = "controls_server"
-OWNER_KINDS = frozenset({OWNER_WEB_TERMINAL, OWNER_CONTROLS_SERVER})
+_OWNER_KINDS = frozenset({OWNER_WEB_TERMINAL, OWNER_CONTROLS_SERVER})
 
 #: The two termini a switch request can reach in the record. ``applied`` moved
 #: the target and minted a generation; ``refused`` moved nothing.
@@ -282,7 +277,7 @@ class Owner:
     """The process currently allowed to write the record.
 
     Attributes:
-        kind: One of :data:`OWNER_KINDS`.
+        kind: One of :data:`_OWNER_KINDS`.
         pid: The owning process's PID — how every other process decides
             whether the owner is still alive.
         port: The web terminal's port, so a follower can name where the owner
@@ -409,7 +404,7 @@ def state_dir() -> Path | None:
     return posture_store.state_dir()
 
 
-def record_path_under(root: Path) -> Path:
+def _record_path_under(root: Path) -> Path:
     """The record's path under an explicit agent-data *root*.
 
     The one place the three path hops are spelled, for a caller that holds a
@@ -465,7 +460,7 @@ def _parse_owner(value: Any) -> Owner | None:
         return None
     kind = value.get("kind")
     pid = _positive_int(value.get("pid"))
-    if kind not in OWNER_KINDS or pid is None:
+    if kind not in _OWNER_KINDS or pid is None:
         return None
     return Owner(kind=kind, pid=pid, port=_positive_int(value.get("port")))
 
@@ -1332,10 +1327,10 @@ def parse_report(raw: Any) -> ServerReport | None:
     )
 
 
-def report_path_under(root: Path, server_pid: object) -> Path:
+def _report_path_under(root: Path, server_pid: object) -> Path:
     """The report path of *server_pid* under an explicit agent-data *root*.
 
-    Through the same three hops as :func:`record_path_under`, identity
+    Through the same three hops as :func:`_record_path_under`, identity
     included: every family of file in this directory moves together, so a
     caller that finds the record under a root finds the reports beside it.
     """
@@ -1347,7 +1342,7 @@ def report_path_under(root: Path, server_pid: object) -> Path:
     )
 
 
-def report_path(server_pid: object) -> Path | None:
+def _report_path(server_pid: object) -> Path | None:
     """The report path of *server_pid*, or ``None`` without an agent-data root."""
     directory = state_dir()
     if directory is None:
@@ -1419,7 +1414,7 @@ def read_report(path: Path) -> ServerReport | None:
     return None if entry is None else entry[1]
 
 
-def live_report_payloads(
+def _live_report_payloads(
     entries: Iterable[Path],
     *,
     is_alive: Callable[[object], bool] = is_process_alive,
@@ -1461,7 +1456,7 @@ def live_reports(
 
     Args:
         entries: Report paths; :func:`report_paths` when omitted.
-        is_alive: As for :func:`live_report_payloads`.
+        is_alive: As for :func:`_live_report_payloads`.
     """
     paths = report_paths() if entries is None else entries
     reports: list[ServerReport] = []

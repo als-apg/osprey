@@ -47,7 +47,6 @@ from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.deployment.web_terminals.roster import resolve_cards
 from osprey_connectors.standin import archive_belongs_to_standin
 from tests._renders import tier_render
-from tests.cli.test_tier_app_presets import _build_render_stack
 
 pytestmark = pytest.mark.slow
 
@@ -528,8 +527,9 @@ def test_a_target_that_does_not_resolve_carries_no_consumer():
 
 
 @pytest.fixture(scope="module")
-def built_stack(tmp_path_factory) -> Path:
-    return _build_render_stack(tmp_path_factory.mktemp("reach-contract") / "my-facility")
+def built_stack(built_control_assistant) -> Path:
+    """The shipped control assistant: the run's shared, read-only build (``tests/_builds.py``)."""
+    return built_control_assistant.repo
 
 
 @pytest.fixture(scope="module")

@@ -656,23 +656,33 @@ def test_each_attached_file_is_a_byte_copy_beside_the_scenarios(
         )
 
 
-def test_a_rebuild_drops_the_copy_of_a_file_no_entry_attaches_any_more(tmp_path: Path) -> None:
-    from tests._builds import init_project, run_build
+def test_a_render_leaves_out_the_copy_of_a_file_no_entry_attaches_any_more(
+    tmp_path: Path, built_control_assistant: BuiltProject
+) -> None:
+    """Once nominal's entries attach nothing, its copy is not written; the others still are.
 
-    repo = init_project(tmp_path, "control-assistant", "demo")
-    copy_of = repo / BUILD_DIR_NAME / "data/simulator/scenarios/nominal/plots/orbit_rms.json"
-    assert run_build(repo).exit_code == 0
-    assert copy_of.is_file()
-    nominal = repo / "data" / "facility" / "scenarios" / "nominal.yaml"
-    authored = yaml.safe_load(nominal.read_text(encoding="utf-8"))
-    for entry in authored["logbook"]:
+    A rebuild replaces ``build/`` wholesale (``tests/cli/test_build_zero_arg.py``,
+    ``test_the_second_build_replaces_the_first_wholesale``), so the render decides.
+    """
+    facility = copy.deepcopy(built_control_assistant.facility)
+    (nominal,) = [s for s in facility["scenarios"] if s["name"] == "nominal"]
+    assert any(entry.get("attachments") for entry in nominal["logbook"])
+    for entry in nominal["logbook"]:
         entry.pop("attachments", None)
-    nominal.write_text(yaml.safe_dump(authored, sort_keys=False), encoding="utf-8")
+    render_dir = tmp_path / "render"
+    render_dir.mkdir()
 
-    result = run_build(repo)
+    written = render_facility_outputs(
+        render_dir, facility, {}, built_control_assistant.facility_dir
+    )
 
-    assert result.exit_code == 0, result.output
-    assert not copy_of.exists()
+    copies = [
+        path.relative_to(render_dir).as_posix()
+        for path in written
+        if path.relative_to(render_dir).as_posix().startswith("data/simulator/scenarios/")
+    ]
+    assert copies == [relative for relative in SCENARIO_FILES if "/nominal/" not in relative]
+    assert not (render_dir / "data/simulator/scenarios/nominal").exists()
 
 
 def test_a_file_two_entries_attach_is_copied_and_listed_once(

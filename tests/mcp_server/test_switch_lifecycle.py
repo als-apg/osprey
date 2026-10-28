@@ -43,7 +43,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
     REASON_TARGET_UNRESOLVABLE,
 )
 from osprey_connectors.control_system._base import ChannelValue, WriteOutcome
-from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
+from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.ipc._launch import host_env
 from osprey_connectors.ipc._pool import DEFAULT_CALL_DEADLINE_S
 from osprey_connectors.ipc._proxy import ConnectorHostProxy
@@ -54,7 +54,7 @@ from osprey_connectors.ipc._verification import (
 )
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.types import VIRTUAL_ACCELERATOR
-from osprey_connectors_tests._harness import state_dir_under
+from osprey_connectors_tests._harness import isolated_connector_registries, state_dir_under
 from tests.facility.served_tree import in_process_config
 from tests.fixtures.control_context import context_for
 from tests.mcp_server._switch_harness import (

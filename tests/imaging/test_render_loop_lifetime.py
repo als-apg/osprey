@@ -23,6 +23,7 @@ from contextlib import contextmanager
 import pytest
 
 from osprey.imaging import render
+from tests._live import async_wait_until, wait_until
 
 Image = pytest.importorskip("PIL.Image")
 
@@ -131,8 +132,7 @@ def test_a_render_cancelled_at_loop_end_is_reaped_inside_the_loop(monkeypatch, t
 
     async def run() -> None:
         task = asyncio.create_task(render.render_isolated(PNG, task_id="x"))
-        while render.worker_pid() is None:
-            await asyncio.sleep(0.01)
+        await async_wait_until(render.worker_pid, interval=0.01, what="a render worker")
         seen.append(_cached_process())
         await asyncio.sleep(0.05)
         task.cancel()
@@ -156,8 +156,7 @@ def test_a_render_pending_when_the_loop_shuts_down_is_reaped(monkeypatch, tmp_pa
     async def run() -> None:
         # Left running: asyncio.run cancels it during shutdown.
         asyncio.create_task(render.render_isolated(PNG, task_id="x"))
-        while render.worker_pid() is None:
-            await asyncio.sleep(0.01)
+        await async_wait_until(render.worker_pid, interval=0.01, what="a render worker")
         seen.append(_cached_process())
 
     with caplog.at_level(logging.WARNING, logger="asyncio"), _unraisable() as unraisable:
@@ -173,8 +172,7 @@ def test_a_render_pending_when_the_loop_shuts_down_is_reaped(monkeypatch, tmp_pa
 async def test_a_second_cancel_during_the_close_still_reaps_the_worker(monkeypatch, tmp_path):
     monkeypatch.setattr(render, "WORKER_ARGV", _silent_worker(tmp_path))
     task = asyncio.create_task(render.render_isolated(PNG, task_id="x"))
-    while render.worker_pid() is None:
-        await asyncio.sleep(0.01)
+    await async_wait_until(render.worker_pid, interval=0.01, what="a render worker")
     process = _cached_process()
     await asyncio.sleep(0.05)
     task.cancel()
@@ -242,9 +240,7 @@ def test_a_guard_on_a_loop_in_another_thread_is_cancelled_through_that_loop():
         asyncio.run(take_over())
 
         assert client._guard.cancel in scheduled
-        deadline = time.monotonic() + 5
-        while not client._guard.done() and time.monotonic() < deadline:
-            time.sleep(0.01)
+        wait_until(client._guard.done, timeout=5, interval=0.01, what="the guard to finish")
         assert client._guard.cancelled()
     finally:
         other.call_soon_threadsafe(other.stop)

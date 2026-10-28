@@ -191,7 +191,7 @@ quirks worth knowing:
    Where it is granted, the agent's
    ``queue_start`` arms the queue itself, and your approval of that tool call
    is the arming decision. Where it is not, ``queue_start`` is refused with
-   ``launch_token_required`` and the start stays with you, from the BLUESKY
+   ``launch_token_invalid`` and the start stays with you, from the BLUESKY
    queue panel's own **Start** button.
 
    What you approve when you approve a start is **the queue you were shown**.
@@ -247,11 +247,16 @@ quirks worth knowing:
       been queued once. Re-read the draft; edit it to mint a fresh revision
       for a repeat.
 
-   ``launch_token_required``
+   ``launch_token_invalid``
       The operation was armed and the caller held no valid token. Nothing was
       started. An agent meets this where the deployment did not grant it a
-      token, where the token it holds does not match the bridge's, or where
-      no launch token is configured at all — hand the start to the operator.
+      token, or where the token it holds does not match the bridge's — hand
+      the start to the operator.
+
+   ``launch_token_required``
+      The operation was armed and this deployment has no launch token
+      configured at all, so nobody can arm it through that route. Nothing was
+      started.
 
    ``browse_only_connector``
       This deployment cannot execute plans at all — it is a deployment

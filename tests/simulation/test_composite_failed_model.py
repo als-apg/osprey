@@ -11,7 +11,6 @@ solve is refused and leaves the model serving.
 from __future__ import annotations
 
 import importlib.metadata
-import importlib.util
 import json
 import math
 import re
@@ -35,14 +34,14 @@ from osprey_connectors.control_system._va_in_process_connector import (
 )
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation import model_status
-from osprey_connectors.simulation.composite import ENGINE_GROUP, STATUS_MAX_BYTES, Composite
+from osprey_connectors.simulation.composite import _STATUS_MAX_BYTES, ENGINE_GROUP, Composite
 from osprey_connectors.simulation.view import SCHEMAS
 from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
+from tests._by_path import load_module
+from tests._simulator_view import view_channel
 from tests.simulation.conftest import stage_built_simulator_view
 
 if TYPE_CHECKING:
-    from types import ModuleType
-
     from tests._builds import BuiltProject
 
 T0 = 1_760_000_000.0
@@ -236,15 +235,7 @@ LINE_SOURCE = Path(__file__).resolve().parents[2] / "scripts" / "facility_demo" 
 LOST = re.compile(r"^lost at element \d+ \(\w+\) turn 0: ")
 
 
-def _line_module() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("_line", LINE_SOURCE)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-LINE = _line_module()
+LINE = load_module("_line", LINE_SOURCE)
 
 
 def _line_corrector() -> str:
@@ -361,29 +352,12 @@ def stub_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(composite_module, "metadata", SimpleNamespace(entry_points=entry_points))
 
 
-def _channel(address: str, owner: str, **fields: Any) -> dict[str, Any]:
-    role = fields.pop("role", "readback")
-    return {
-        "address": address,
-        "role": role,
-        "pair": address if role == "setpoint" else None,
-        "value_type": fields.pop("value_type", "float"),
-        "unit": None,
-        "description": None,
-        "writable": role == "setpoint",
-        "value_range": None,
-        "owner": owner,
-        "on": None,
-        **fields,
-    }
-
-
 def _stub_view(root: Path, settings: Mapping[str, Any] | None = None) -> Path:
     channels = [
-        _channel("M:RB", "M"),
-        _channel(FLAG, "M", value_type="bool"),
-        _channel(MODE, "M", value_type="enum", options=MODE_OPTIONS),
-        _channel("T:SP", "texture", role="setpoint"),
+        view_channel("M:RB", "M"),
+        view_channel(FLAG, "M", value_type="bool"),
+        view_channel(MODE, "M", value_type="enum", options=MODE_OPTIONS),
+        view_channel("T:SP", role="setpoint", writable=True),
     ]
     wiring = [
         {
@@ -478,7 +452,7 @@ async def test_a_2kb_non_ascii_engine_text_is_capped_alike_in_the_composite_and_
     status = composite.status("M")
 
     assert len(message.encode("utf-8")) == 2048
-    assert len(status.encode("utf-8")) == STATUS_MAX_BYTES == 1023
+    assert len(status.encode("utf-8")) == _STATUS_MAX_BYTES == 1023
     assert status.endswith("…")
     assert message.startswith(status[:-1])
     assert model_status(connector, "M") == status

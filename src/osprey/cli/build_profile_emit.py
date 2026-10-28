@@ -217,7 +217,7 @@ _PROVENANCE_COMMENT = [
     "# preset that no `# DEVIATION: <why>` comment above the line claims (tag set",
     "# by `deviation_marker:`). This profile is the source of truth either way.",
     "# `providers_hash` is the same record for providers.yml beside this file;",
-    "# `osprey init --revalidate` refreshes the packaged entries in it.",
+    "# `osprey init --revalidate` adds the packaged entries and keys it lacks.",
 ]
 
 # Round-trip mode preserves comments, key order, and quoting style (same
@@ -1028,7 +1028,9 @@ def _sync_to_resolved(doc: CommentedMap, resolved: dict[str, Any]) -> None:
     Values that already compare equal are left untouched so their item-level
     comments survive; differing values are replaced (the key-level comment
     stays attached); keys absent from ``resolved`` are deleted together with
-    their comments.
+    their comments. A key appended to a map takes over the trailing block its
+    old last key held, which introduces whatever follows the map, so the new
+    key renders inside its own section.
     """
     for key in [k for k in doc.keys() if k not in resolved]:
         # The block a key holds introduces the key AFTER it (a collapsed
@@ -1042,12 +1044,18 @@ def _sync_to_resolved(doc: CommentedMap, resolved: dict[str, Any]) -> None:
             _append_trailing(doc, keys[index - 1], block)
         del doc[key]
         doc.ca.items.pop(key, None)
+    keys = list(doc.keys())
+    old_last_key = keys[-1] if keys else None
     for key, value in resolved.items():
         current = doc.get(key)
         if isinstance(current, CommentedMap) and isinstance(value, dict):
             _sync_to_resolved(current, value)
         elif key not in doc or _to_plain(current) != _to_plain(value):
             doc[key] = value
+    if old_last_key is not None:
+        new_last_key = list(doc.keys())[-1]
+        if new_last_key != old_last_key:
+            _relocate_trailing(doc, old_last_key, new_last_key)
 
 
 def _replace_header(text: str, header: str) -> str:

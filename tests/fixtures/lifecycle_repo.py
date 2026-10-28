@@ -95,6 +95,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import pytest
+import yaml
 
 #: Directory name of the exemplar deployment. One repo is one deployment and the
 #: directory name is the deployment name, so this is also the compose project
@@ -220,7 +221,7 @@ rules:
   - safety              # Core safety rules: never write without approval
   - error-handling      # Standard error handling and retry guidance
   - artifacts           # Rules for saving diagnostic and tuning artifacts
-  - facility            # Facility-level conventions (naming, units, logbook)
+  - rules/facility      # Facility-level conventions (naming, units, logbook)
   - workflows           # Approved workflow patterns (scan, ramp, restore)
   - timezone            # Always localise timestamps to facility timezone
   - python-execution    # Rules governing Python executor sandbox usage
@@ -1462,7 +1463,7 @@ requires_osprey_version: '>=2026.10.0'
 # preset that no `# DEVIATION: <why>` comment above the line claims (tag set
 # by `deviation_marker:`). This profile is the source of truth either way.
 # `providers_hash` is the same record for providers.yml beside this file;
-# `osprey init --revalidate` refreshes the packaged entries in it.
+# `osprey init --revalidate` adds the packaged entries and keys it lacks.
 provenance:
   preset: control-assistant
   preset_hash: @PRESET_HASH:control-assistant@
@@ -1827,7 +1828,7 @@ rules:
   - safety            # Core safety rules: never write without approval
   - error-handling    # Standard error handling and retry guidance
   - artifacts         # Rules for saving diagnostic artifacts
-  - facility          # Facility-level conventions (naming, units, logbook)
+  - rules/facility    # Facility-level conventions (naming, units, logbook)
   - workflows         # Approved workflow patterns (plan, delegate, parallelize)
   - timezone          # Always localise timestamps to facility timezone
 
@@ -1942,7 +1943,7 @@ rules:
   - safety            # Core safety rules: never write without approval
   - error-handling    # Standard error handling and retry guidance
   - artifacts         # Rules for saving diagnostic artifacts
-  - facility          # Facility-level conventions (naming, units, logbook)
+  - rules/facility    # Facility-level conventions (naming, units, logbook)
   - timezone          # Always localise timestamps to facility timezone
 
 # No skills: every bundled skill either writes to the logbook, drives the
@@ -2049,7 +2050,7 @@ rules:
   - safety            # Core safety rules: never write without approval
   - error-handling    # Standard error handling and retry guidance
   - artifacts         # Rules for saving diagnostic artifacts
-  - facility          # Facility-level conventions (naming, units, logbook)
+  - rules/facility    # Facility-level conventions (naming, units, logbook)
   - workflows         # Approved workflow patterns (plan, delegate, parallelize)
   - timezone          # Always localise timestamps to facility timezone
 
@@ -3217,6 +3218,19 @@ def expand_sentinels(text: str) -> str:
     return _PRESET_HASH_SENTINEL.sub(lambda m: _preset_hash(m.group(1)), text)
 
 
+def seeded_facility_rule(profile_text: str) -> str:
+    """``rules/facility.md`` as ``osprey init`` seeds it beside *profile_text*."""
+    import tempfile
+
+    from osprey.cli.build_persistence import ensure_profile_facility_rule
+
+    agents = (yaml.safe_load(expand_sentinels(profile_text)) or {}).get("agents") or []
+    with tempfile.TemporaryDirectory() as scratch:
+        root = Path(scratch)
+        ensure_profile_facility_rule(root, enabled_agents=agents)
+        return (root / "rules" / "facility.md").read_text(encoding="utf-8")
+
+
 def exemplar_source_files(*, with_ci: bool = False) -> dict[str, str]:
     """The exemplar's source zone as repo-relative posix path -> final text.
 
@@ -3246,6 +3260,9 @@ def exemplar_source_files(*, with_ci: bool = False) -> dict[str, str]:
     # package owns the content, and a copy here would prove only that
     # someone remembered to update two places.
     files["providers.yml"] = packaged_providers_yml()
+    # The facility description `osprey init` seeds for a profile selecting the
+    # facility rule, rendered from the package for the same reason.
+    files["rules/facility.md"] = seeded_facility_rule(files["profile.yml"])
     if with_ci:
         files.update(CI_PIPELINE_FILES)
     return {path: expand_sentinels(text) for path, text in files.items()}

@@ -115,7 +115,7 @@ def liveness(monkeypatch):
 def read(root: Path) -> ControlContext | None:
     """The record as it is on disk right now, past the signature cache."""
     control_context.invalidate_cache()
-    return control_context.read_record(path=control_context.record_path_under(root))
+    return control_context.read_record(path=control_context._record_path_under(root))
 
 
 # -- claiming ---------------------------------------------------------------
@@ -187,7 +187,7 @@ async def test_a_terminal_claims_over_a_live_controls_server(
 
 @pytest.mark.usefixtures("liveness")
 async def test_an_unparseable_record_starts_a_fresh_one(control_context_root):
-    path = control_context.record_path_under(control_context_root)
+    path = control_context._record_path_under(control_context_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("{not json at all", encoding="utf-8")
     control_context.invalidate_cache()
@@ -436,12 +436,12 @@ async def test_an_already_answered_request_is_removed_and_answered_only_once(
 
     task = make_task(make_app())
     await task.tick_once()
-    answered = control_context.record_path_under(control_context_root).read_bytes()
+    answered = control_context._record_path_under(control_context_root).read_bytes()
 
     file_request(OTHER_TERMINAL_PID, "va", request_id="r-5")
     await task.tick_once()
 
-    assert control_context.record_path_under(control_context_root).read_bytes() == answered
+    assert control_context._record_path_under(control_context_root).read_bytes() == answered
 
 
 # -- the push ---------------------------------------------------------------

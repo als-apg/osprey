@@ -85,7 +85,7 @@ def rewrite_record(root, switch, *, target: str = "live"):
     the file, so a reader nobody told still sees the rewrite. The epoch on
     disk is kept, as the production writer keeps it.
     """
-    path = control_context.record_path_under(root)
+    path = control_context._record_path_under(root)
     epoch = json.loads(path.read_text(encoding="utf-8"))["switch_epoch"]
     record = control_context.ControlContext(
         target=target, generation=0, switch=dict(switch), switch_epoch=epoch
@@ -282,7 +282,7 @@ class TestTargetResolution:
 
 class TestDegradation:
     def test_a_corrupt_record_refuses(self, agent_root):
-        path = control_context.record_path_under(agent_root)
+        path = control_context._record_path_under(agent_root)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("{not json at all")
         reset_verdict_state()
@@ -380,10 +380,10 @@ class TestSignatureCache:
         assert posture.posture() == posture.POSTURE_SANDBOX
 
         rewrite_record(agent_root, {"va": "on"})  # prime the size of the rewrite
-        size = control_context.record_path_under(agent_root).stat().st_size
+        size = control_context._record_path_under(agent_root).stat().st_size
         assert posture.posture() == posture.POSTURE_SANDBOX
         rewrite_record(agent_root, {"live": "on"})
-        assert control_context.record_path_under(agent_root).stat().st_size == size
+        assert control_context._record_path_under(agent_root).stat().st_size == size
 
         assert posture.posture() == posture.POSTURE_WRITES
 

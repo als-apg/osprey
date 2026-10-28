@@ -244,7 +244,9 @@ class TestPtySession:
 
             def spy():
                 reads.append(None)
-                return real() if len(reads) > 1 else None
+                if len(reads) == 1:
+                    raise process_tree.ProcessTableUnreadable(OSError("process table"))
+                return real()
 
             monkeypatch.setattr(process_tree, "snapshot", spy)
             session.terminate()
@@ -254,7 +256,7 @@ class TestPtySession:
             session.terminate()
             kill_quietly(pids)
 
-    def test_terminate_warns_when_the_process_table_never_reads(
+    def test_terminate_warns_and_ends_its_own_group_when_the_table_stays_unreadable(
         self, tmp_path, monkeypatch, caplog
     ):
         pid_file = tmp_path / "pids"
@@ -267,7 +269,12 @@ class TestPtySession:
         try:
             pids = wait_for_pids(session, pid_file, 2)
             child = session.pid
-            monkeypatch.setattr(process_tree, "snapshot", lambda: None)
+
+            def unreadable():
+                raise process_tree.ProcessTableUnreadable(OSError("process table"))
+
+            monkeypatch.setattr(process_tree, "snapshot", unreadable)
+            monkeypatch.setattr(process_tree, "READ_WAIT_S", 0.3)
             with caplog.at_level(logging.WARNING):
                 session.terminate()
             assert not session.is_alive
@@ -311,7 +318,6 @@ class TestPtySession:
 
             commands = session.started_commands()
 
-            assert commands is not None
             assert [c.label for c in commands] == ["magnet_scan.py"]
             assert commands[0].pgid == grandchild
             assert helper not in {pid for c in commands for pid, _ in c.members}

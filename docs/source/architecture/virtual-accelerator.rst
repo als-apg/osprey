@@ -55,8 +55,11 @@ consumer of a view opens it with. Each wiring record of ``variables.json``
 states what its engine's ``describe()`` said of it at build time: its ``role``
 (``setpoint``, ``readback``, ``monitor`` or ``output``), the transverse
 ``plane`` it steers or reads (``x``, ``y`` or none) and its ``refresh``. A
-write's pass publishes every served channel except those whose binding
-refreshes ``periodic``, which the next periodic pass publishes. Each channel
+write's pass publishes what the write can change, and never a channel whose
+binding refreshes ``periodic``, which the next periodic pass publishes: a
+physics setting publishes itself, its readback and what its model computes from
+its settings; any other write every served channel. A pass with no write
+publishes every served channel. Each channel
 also names the node it is ``on``. A view an older OSPREY wrote is refused
 before the ready line, with a message asking for ``osprey build``.
 

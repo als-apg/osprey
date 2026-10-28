@@ -64,6 +64,19 @@ _SITECUSTOMIZE = textwrap.dedent(
     osprey.runtime.read_channels = _read_channels
     osprey.runtime.write_channel = _write_channel
     osprey.runtime.channel_limits = lambda address: None
+
+    if os.environ.get("LOCK_CALLS"):
+        import osprey.runtime.guarded_run as _guarded_run
+
+        _lock = _guarded_run.lock
+
+        def _counted_lock(*args, **kwargs):
+            context = kwargs.get("context")
+            with open(os.environ["LOCK_CALLS"], "a") as handle:
+                handle.write(json.dumps(None if context is None else context.__dict__) + "\\n")
+            return _lock(*args, **kwargs)
+
+        _guarded_run.lock = _counted_lock
     """
 )
 
@@ -717,3 +730,56 @@ def test_a_busy_raised_by_the_scripts_own_lock_is_the_scripts_error(
     assert "failure_kind" not in metadata
     assert result.failure_kind is None, "a script's own error stays the script's"
     assert _envelope(result)["details"]["kind"] == "script_error"
+
+
+#: User code that reports the hold its run is under and the holder record on disk.
+_HOLD_PROBE = textwrap.dedent(
+    """
+    import json
+    import osprey.runtime._run_state as _run_state
+    from osprey.runtime.guarded_run import LOCK_FILE_NAME
+    hold = _run_state.STATE.hold
+    with open(hold.directory / LOCK_FILE_NAME) as handle:
+        record = json.load(handle)
+    results = {"context": hold.context.__dict__, "record": record}
+    """
+)
+
+
+@pytest.mark.parametrize(
+    ("env_extra", "owner"),
+    [
+        ({"OSPREY_CONTROL_OWNER": "alice", "OSPREY_CONTROL_CONTEXT_TREE": ""}, "alice"),
+        ({"OSPREY_CONTROL_OWNER": "", "OSPREY_CONTROL_CONTEXT_TREE": "tree"}, None),
+    ],
+    ids=["owner", "no-owner"],
+)
+def test_a_readwrite_run_fills_one_action_context(
+    tmp_path: Path, env_extra: dict[str, str], owner: str | None
+) -> None:
+    """The wrapper's one lock entry carries the stamped target, the owner and that target."""
+    sandbox = _Sandbox(tmp_path / "repo", {"Q": 9.0})
+    calls = tmp_path / "lock_calls.jsonl"
+    env = {**env_extra, "LOCK_CALLS": str(calls)}
+    if env_extra["OSPREY_CONTROL_CONTEXT_TREE"]:
+        tree = tmp_path / "tree"
+        tree.mkdir()
+        env["OSPREY_CONTROL_CONTEXT_TREE"] = str(tree)
+
+    metadata = sandbox.run(env, _HOLD_PROBE)
+
+    assert metadata["success"] is True, metadata.get("traceback")
+    expected = {"target": "live", "owner": owner, "approved_target": "live"}
+    lines = calls.read_text(encoding="utf-8").splitlines()
+    assert [json.loads(line) for line in lines] == [expected], "exactly one context per run"
+    results = metadata["_results"]
+    assert results["context"] == expected
+    assert results["record"]["owner"] == owner
+    assert results["record"]["target"] == "live"
+    assert lock_path("live", sandbox.root).read_text(encoding="utf-8") == ""
+
+
+def test_the_wrapper_passes_its_context_once() -> None:
+    script = ExecutionWrapper(execution_mode="readwrite").create_wrapper("x = 1\n")
+    assert script.count("context=") == 1
+    assert "OSPREY_APPROVED" not in script

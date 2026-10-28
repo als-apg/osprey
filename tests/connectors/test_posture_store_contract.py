@@ -224,7 +224,7 @@ def test_two_flips_within_one_second_are_both_seen(data_root):
     Both writes go through the atomic temp+rename the owner uses, so the
     signature moves on size and inode even when ``st_mtime_ns`` does not.
     """
-    path = control_context.record_path_under(data_root)
+    path = control_context._record_path_under(data_root)
     path.parent.mkdir(parents=True, exist_ok=True)
 
     def _atomic(posture):

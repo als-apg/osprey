@@ -57,7 +57,6 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 __all__ = [
-    "ARCHIVER_SETTINGS_LEAF",
     "CLI_ARCHIVER_TYPES",
     "CLI_CONTROL_SYSTEM_TYPES",
     "CONTROL_TARGETS",
@@ -68,7 +67,6 @@ __all__ = [
     "EPICS_ARCHIVER",
     "INVENTED_HISTORY_TYPES",
     "IN_PROCESS",
-    "LIMITS_BLOCK_LEAVES",
     "LIMITS_CHECKING_LEAF",
     "LIMITS_LEAVES",
     "LIMITS_MODES",
@@ -79,7 +77,6 @@ __all__ = [
     "MOCK_ARCHIVER",
     "MONGODB_ARCHIVER",
     "MYA_ARCHIVER",
-    "ONE_REAL_MACHINE",
     "RETIRED_CONTROL_SYSTEM_TYPES",
     "SERVED",
     "SERVING_KEY",
@@ -106,6 +103,7 @@ __all__ = [
     "connector_transport",
     "incomplete_limits_blocks",
     "is_simulated",
+    "limits_database_required",
     "machine_kind",
     "most_restrictive_limits_posture",
     "published_machine_kind",
@@ -121,8 +119,7 @@ __all__ = [
     "target_configured",
     "target_limits_posture",
     "tier_allows",
-    "tier_checks_limits",
-    "tier_limits_targets",
+    "tier_limits_database_targets",
     "tier_writes",
     "type_limits_posture",
 ]
@@ -240,7 +237,7 @@ CONTROL_TARGETS = [TARGET_LIVE, TARGET_VA, TARGET_STANDIN]
 #: which is also what keeps a session's posture, limits and archive about one
 #: machine each. Said here so a deployer meets it in the error and in the how-to
 #: rather than in the silence of a configured block nothing ever offers.
-ONE_REAL_MACHINE = (
+_ONE_REAL_MACHINE = (
     "A deployment names one real machine — exactly one connector block that is "
     "neither simulated nor the stand-in — and 'live' is that machine. A complex "
     "with two real machines runs one deployment per machine."
@@ -426,11 +423,11 @@ def retired_type_message(value: str) -> str:
 #: The one block under ``archiver:`` a connector's settings are read from,
 #: whichever route selected the connector. It has no dot in it, so a profile's
 #: ``archiver.settings.<leaf>`` renders to exactly the block the factory reads.
-ARCHIVER_SETTINGS_LEAF = "settings"
+_ARCHIVER_SETTINGS_LEAF = "settings"
 
 #: Keys of the ``archiver:`` section that are not a connector's settings block:
 #: the selector, the settings block itself, and archiver_read's point budget.
-_ARCHIVER_SECTION_LEAVES = ("type", ARCHIVER_SETTINGS_LEAF, "auto_bin_points")
+_ARCHIVER_SECTION_LEAVES = ("type", _ARCHIVER_SETTINGS_LEAF, "auto_bin_points")
 
 
 def _own_name_block(connector_type: str) -> str | None:
@@ -449,10 +446,10 @@ def _archiver_settings_homes(section: Any) -> list[tuple[str, Any]]:
     if not isinstance(section, dict):
         return []
     homes: list[tuple[str, Any]] = []
-    if ARCHIVER_SETTINGS_LEAF in section:
-        homes.append((ARCHIVER_SETTINGS_LEAF, section[ARCHIVER_SETTINGS_LEAF]))
+    if _ARCHIVER_SETTINGS_LEAF in section:
+        homes.append((_ARCHIVER_SETTINGS_LEAF, section[_ARCHIVER_SETTINGS_LEAF]))
     own = _own_name_block(resolve_archiver_type(section))
-    if own is not None and own != ARCHIVER_SETTINGS_LEAF and own in section:
+    if own is not None and own != _ARCHIVER_SETTINGS_LEAF and own in section:
         homes.append((own, section[own]))
     return homes
 
@@ -479,7 +476,7 @@ def archiver_settings_key(section: Any) -> str:
     the line an operator actually wrote.
     """
     homes = _archiver_settings_homes(section)
-    home = homes[0][0] if len(homes) == 1 else ARCHIVER_SETTINGS_LEAF
+    home = homes[0][0] if len(homes) == 1 else _ARCHIVER_SETTINGS_LEAF
     return f"archiver.{home}"
 
 
@@ -557,7 +554,7 @@ def resolve_target(section: Any, target: Any) -> str:
       does not recognize, which reaches the factory's "Unknown … type" error
       exactly as :func:`resolve_control_system_type` already lets it. A second
       non-simulated block beside it is not a second target: no name reaches it
-      (:data:`ONE_REAL_MACHINE`), so it is warned about rather than skipped in
+      (:data:`_ONE_REAL_MACHINE`), so it is warned about rather than skipped in
       silence.
     - When the section's own type is simulated or is a stand-in (or absent,
       which resolves to the simulator in process), the deployment has not named
@@ -597,7 +594,7 @@ def resolve_target(section: Any, target: Any) -> str:
     raise ValueError(
         f"Unknown control target {target!r}. Valid targets are "
         f"{TARGET_LIVE!r}, {TARGET_VA!r} and {TARGET_STANDIN!r}, spelled "
-        f"exactly. {ONE_REAL_MACHINE} A control target is always stated, never "
+        f"exactly. {_ONE_REAL_MACHINE} A control target is always stated, never "
         "defaulted — there is no target a caller gets by saying nothing, "
         "because the one it would get could be the real machine."
     )
@@ -918,7 +915,7 @@ LIMITS_MODES = (LIMITS_MODE_EXCLUSIVE, LIMITS_MODE_OPTIONAL)
 #: defines :data:`LIMITS_LEAVES` alone. A block carrying any other leaf is
 #: refused by :func:`incomplete_limits_blocks`, so a misspelt or retired leaf
 #: cannot sit in a config looking like a posture nobody reads.
-LIMITS_BLOCK_LEAVES = (*LIMITS_LEAVES, "database_path")
+_LIMITS_BLOCK_LEAVES = (*LIMITS_LEAVES, "database_path")
 
 
 @dataclass(frozen=True)
@@ -1222,22 +1219,59 @@ def most_restrictive_limits_posture(section: Any) -> LimitsPosture:
     )
 
 
-def tier_limits_targets(section: Any) -> list[str]:
-    """The targets whose limits checking the login tier's write ceiling arms.
+def limits_database_required(posture: LimitsPosture, *, path_configured: bool) -> bool:
+    """Whether a target with this limits posture needs a limits database.
+
+    The one answer every caller gives before it demands the file — the
+    connector's validator, the compose mount, the build check, a service start
+    and the bridge's startup gate — so none of them can refuse a deployment
+    another one runs.
+
+    A database is required when limits checking is on and either the mode is
+    not ``optional`` or a path is configured. ``optional`` with no path is a
+    deployment that legitimately keeps no limits file: every channel is
+    unlisted, and an unlisted channel is written with no limits, so there is
+    no file whose absence could matter. An unstated mode counts as not
+    optional, because silence is no permission to skip the database. A path
+    that is configured is always required, so a configured file that fails to
+    load stays a refusal everywhere rather than quietly checking nothing.
+
+    Args:
+        posture: The resolved posture of the target being asked about.
+        path_configured: Whether the caller's own config names a limits
+            database path (the live lookup at runtime, the rendered config at
+            render and build time).
+
+    Returns:
+        ``True`` when a limits database must exist and load.
+    """
+    return posture.enabled is True and (posture.mode != LIMITS_MODE_OPTIONAL or path_configured)
+
+
+def tier_limits_database_targets(section: Any, *, path_configured: bool) -> list[str]:
+    """The targets the login tier lets write whose limits posture needs a database.
 
     The tier is a ceiling, not a selection: a render whose :func:`tier_writes`
     answers ``allowed`` lets a session write to every :func:`configured_targets`,
-    so every one of them whose resolved :func:`target_limits_posture` states
-    ``enabled: true`` may open the channel-limits database. A ``never`` render
-    writes nowhere and so arms none.
+    so every one of them whose resolved :func:`target_limits_posture` makes
+    :func:`limits_database_required` true — limits checking on, and a mode
+    other than ``optional`` or a path configured — needs the channel-limits
+    database to exist and load. A ``never`` render writes nowhere and so arms
+    none. This is the one list a deployment-level caller reads before it
+    demands the file (the compose mount, the build check), so none of them can
+    refuse a deployment another one runs; a caller that serves one lane or one
+    type asks :func:`limits_database_required` for that posture directly.
 
-    ``enabled`` alone decides the limits half, because that is the leaf that
-    decides whether a validator exists at all — a target with no validator
-    consults no database. A caller that also refuses half-written blocks reads
-    :attr:`LimitsPosture.incomplete` itself.
+    The write half is deployment-wide and the limits half is per target, so
+    both are read off the same machine by construction. ``incomplete`` is not
+    read here: a half-written block builds a blocking failsafe at every write
+    surface, and a caller that refuses it names the leaves itself
+    (:attr:`LimitsPosture.incomplete`).
 
     Args:
         section: The ``control_system:`` config section.
+        path_configured: Whether the config names a limits database path; the
+            path is deployment-wide, so one answer serves every target.
 
     Returns:
         The qualifying targets in :func:`configured_targets` order; empty for a
@@ -1248,18 +1282,10 @@ def tier_limits_targets(section: Any) -> list[str]:
     return [
         target
         for target in configured_targets(section)
-        if target_limits_posture(section, target).enabled is True
+        if limits_database_required(
+            target_limits_posture(section, target), path_configured=path_configured
+        )
     ]
-
-
-def tier_checks_limits(section: Any) -> bool:
-    """Whether an ``allowed`` tier meets limits checking on some reachable target.
-
-    The question a deployment-level caller asks before it demands a channel-
-    limits database, read off the render's tier (:func:`tier_limits_targets`).
-    Never raises.
-    """
-    return bool(tier_limits_targets(section))
 
 
 def incomplete_limits_blocks(section: Any) -> list[str]:
@@ -1296,7 +1322,7 @@ def incomplete_limits_blocks(section: Any) -> list[str]:
       which gets one line naming the block and quoting what was found there
       instead of a line per leaf: there are no leaves to name.
     - The deployment-wide block carrying a leaf outside
-      :data:`LIMITS_BLOCK_LEAVES`, or a per-type block one outside
+      :data:`_LIMITS_BLOCK_LEAVES`, or a per-type block one outside
       :data:`LIMITS_LEAVES`. No reader consults such a leaf, so the posture
       its author meant by it is not the one the deployment runs.
 
@@ -1349,7 +1375,7 @@ def incomplete_limits_blocks(section: Any) -> list[str]:
                     f"{posture.key(leaf)} is missing; a per-type limits block must state "
                     f"both {LIMITS_LEAVES[0]} and {LIMITS_LEAVES[1]}"
                 )
-        defined = LIMITS_LEAVES if whole else LIMITS_BLOCK_LEAVES
+        defined = LIMITS_LEAVES if whole else _LIMITS_BLOCK_LEAVES
         for leaf in sorted(str(key) for key in block if key not in defined):
             errors.append(
                 f"{posture.key(leaf)} is not a limits leaf; a limits block states "
@@ -1526,7 +1552,7 @@ def _report_second_real_block(section: Any, baseline: str, never_live: tuple[str
         ", ".join(repr(name) for name in others),
         baseline,
         "them" if len(others) > 1 else "it",
-        ONE_REAL_MACHINE,
+        _ONE_REAL_MACHINE,
     )
 
 
@@ -1540,7 +1566,7 @@ def _live_type(section: Any) -> str:
     the stand-in, or make ``live`` ambiguous on exactly the deployments that run
     the stand-in beside the block naming their facility's own machine.
 
-    Either way the answer is one machine — :data:`ONE_REAL_MACHINE` — and both
+    Either way the answer is one machine — :data:`_ONE_REAL_MACHINE` — and both
     ways of missing it are said out loud: a baseline that cannot derive one
     raises, and a baseline that *is* one, beside a second real block no target
     can reach, is warned about.
@@ -1560,7 +1586,7 @@ def _live_type(section: Any) -> str:
         f"Target {TARGET_LIVE!r} has no control system on this deployment: "
         f"'control_system.type' resolves to {baseline!r}, which is simulated, "
         f"and the live blocks under 'control_system.connector' are: {found}. "
-        f"{ONE_REAL_MACHINE} Configure exactly one such block (an {EPICS!r} or "
+        f"{_ONE_REAL_MACHINE} Configure exactly one such block (an {EPICS!r} or "
         f"{DOOCS!r} block, say). It is not inferred, so that no session reaches "
         "a real machine this config never described."
     )

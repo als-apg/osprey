@@ -47,37 +47,28 @@ containment the host does not provide. The connector is the boundary.
 
 from __future__ import annotations
 
-import os
-import secrets
-
-from fastapi import HTTPException
+from osprey.utils import launch_token
 
 _LAUNCH_TOKEN_ENV = "BLUESKY_LAUNCH_TOKEN"  # noqa: S105 -- names an environment variable, holds no secret
 
 
 def require_armed() -> str:
-    """Return the configured launch token, or raise 503 if none is set.
+    """Return the bridge's configured launch token, or refuse 503.
 
-    Unset means the operator has not armed launch for this bridge instance
-    at all — the failure detail names the missing env var but never a token
-    value (there isn't one to leak).
+    Unset (or blank) means the operator has not armed launch for this bridge
+    instance at all: the refusal is ``launch_token_required`` and names the
+    missing env var but never a token value (there isn't one to leak). The
+    check itself is :func:`osprey.utils.launch_token.require_launch_token`.
     """
-    expected = os.environ.get(_LAUNCH_TOKEN_ENV)
-    if not expected:
-        raise HTTPException(
-            status_code=503,
-            detail=f"launch disabled: {_LAUNCH_TOKEN_ENV} is not configured",
-        )
-    return expected
+    return launch_token.require_launch_token(_LAUNCH_TOKEN_ENV)
 
 
 def verify_launch_token(header: str | None) -> None:
-    """Raise 503 (unarmed) or 403 (mismatch) unless ``header`` matches the armed token.
+    """Refuse 503 (unarmed) or 403 (missing/wrong) unless ``header`` matches.
 
-    Compares in constant time via :func:`secrets.compare_digest` so a mismatch
-    can't be distinguished by timing. The error details never echo the
-    expected or received token.
+    The shared :func:`osprey.utils.launch_token.verify_launch_token` bound to
+    ``BLUESKY_LAUNCH_TOKEN``: 503 ``launch_token_required`` when the bridge has
+    no token, 403 ``launch_token_invalid`` on a missing or mismatched header,
+    compared in constant time. The refusal never echoes either token.
     """
-    expected = require_armed()
-    if not secrets.compare_digest(header or "", expected):
-        raise HTTPException(status_code=403, detail="invalid or missing launch token")
+    launch_token.verify_launch_token(header, _LAUNCH_TOKEN_ENV)

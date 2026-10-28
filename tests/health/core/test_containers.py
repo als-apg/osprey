@@ -22,30 +22,14 @@ import pytest
 import osprey.health.core.containers as containers_mod
 from osprey.health.core.containers import containers
 from osprey.health.models import CheckResult, Status
-
-
-class _FakeProc:
-    """Minimal ``asyncio`` subprocess stand-in for the ``--version`` call."""
-
-    def __init__(self, stdout: bytes = b"", returncode: int = 0) -> None:
-        self._stdout = stdout
-        self.returncode: int | None = returncode
-
-    async def communicate(self) -> tuple[bytes, bytes]:
-        return self._stdout, b""
-
-    def kill(self) -> None:  # pragma: no cover - only hit on timeout
-        pass
-
-    async def wait(self) -> int:  # pragma: no cover - only hit on timeout
-        return self.returncode or 0
+from tests.health._fakes import FakeProc
 
 
 def _patch(
     monkeypatch: pytest.MonkeyPatch,
     *,
     runtime: list[str] | None = None,
-    version_proc: _FakeProc | None = None,
+    version_proc: FakeProc | None = None,
     version_error: Exception | None = None,
     runtime_error: Exception | None = None,
 ) -> None:
@@ -62,7 +46,7 @@ def _patch(
         containers_mod, "get_runtime_command", lambda *_a, **_k: runtime or ["docker", "compose"]
     )
 
-    async def _fake_exec(*_a: object, **_k: object) -> _FakeProc:
+    async def _fake_exec(*_a: object, **_k: object) -> FakeProc:
         if version_error is not None:
             raise version_error
         assert version_proc is not None
@@ -99,7 +83,7 @@ async def _rows(callable_) -> dict[str, CheckResult]:
 
 
 async def test_factory_returns_awaitable_callable(monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch(monkeypatch, version_proc=_FakeProc(b"Docker version 27.0.0"))
+    _patch(monkeypatch, version_proc=FakeProc(b"Docker version 27.0.0"))
     category = containers({"deployed_services": []}, probe=_boom_probe)
     results = await category()
     assert isinstance(results, list)
@@ -108,7 +92,7 @@ async def test_factory_returns_awaitable_callable(monkeypatch: pytest.MonkeyPatc
 async def test_full_mode_emits_available_and_per_service(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _patch(monkeypatch, version_proc=_FakeProc(b"Docker version 27.0.0"))
+    _patch(monkeypatch, version_proc=FakeProc(b"Docker version 27.0.0"))
     config = {"deployed_services": ["telemetry_store", "web"]}
     results = await containers(config, probe=_echo_probe())()
 
@@ -121,7 +105,7 @@ async def test_full_mode_emits_available_and_per_service(
 
 
 async def test_probe_receives_expected_spec(monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch(monkeypatch, version_proc=_FakeProc(b"Docker version 27.0.0"))
+    _patch(monkeypatch, version_proc=FakeProc(b"Docker version 27.0.0"))
     captured: list[dict] = []
     await containers({"deployed_services": ["telemetry_store"]}, probe=_echo_probe(captured))()
 
@@ -152,7 +136,7 @@ async def test_no_runtime_filenotfound_single_skip(monkeypatch: pytest.MonkeyPat
 
 
 async def test_broken_runtime_version_nonzero_is_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch(monkeypatch, version_proc=_FakeProc(b"", returncode=1))
+    _patch(monkeypatch, version_proc=FakeProc(b"", returncode=1))
     results = await containers({"deployed_services": ["web"]}, probe=_boom_probe)()
 
     assert len(results) == 1
@@ -171,7 +155,7 @@ async def test_broken_runtime_version_missing_binary_is_error(
 
 
 async def test_degraded_mode_config_none(monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch(monkeypatch, version_proc=_FakeProc(b"Docker version 27.0.0"))
+    _patch(monkeypatch, version_proc=FakeProc(b"Docker version 27.0.0"))
     by_name = await _rows(containers(None, probe=_boom_probe))
 
     assert set(by_name) == {"docker_available", "container_services"}
@@ -183,7 +167,7 @@ async def test_degraded_mode_config_none(monkeypatch: pytest.MonkeyPatch) -> Non
 async def test_empty_deployed_services_only_availability_row(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _patch(monkeypatch, version_proc=_FakeProc(b"Docker version 27.0.0"))
+    _patch(monkeypatch, version_proc=FakeProc(b"Docker version 27.0.0"))
     results = await containers({"deployed_services": []}, probe=_boom_probe)()
 
     assert [r.name for r in results] == ["docker_available"]
@@ -193,7 +177,7 @@ async def test_podman_runtime_name(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch(
         monkeypatch,
         runtime=["podman", "compose"],
-        version_proc=_FakeProc(b"podman version 5.0.0"),
+        version_proc=FakeProc(b"podman version 5.0.0"),
     )
     by_name = await _rows(containers({"deployed_services": []}, probe=_boom_probe))
 

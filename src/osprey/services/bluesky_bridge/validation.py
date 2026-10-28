@@ -11,8 +11,9 @@ Two independent gates, each defense-in-depth against a different failure:
 
 - :func:`_assert_limits_readable_if_writable` — a STARTUP guard. Refuses to
   bring the bridge up in the one unsafe posture: a write tier that allows
-  writes on a lane that is not degraded + limits checking enabled for the
-  target THIS LANE serves + the limits database unreadable. Fail-OPEN by design (see its docstring):
+  writes on a lane that is not degraded + a limits database required for the
+  target THIS LANE serves (:func:`osprey_connectors.types.limits_database_required`)
+  + the limits database unreadable. Fail-OPEN by design (see its docstring):
   every other combination starts normally.
 - :func:`_validate_launchable_request` — a per-ENQUEUE gate. Refuses to enqueue
   a session/unreviewed plan whose CURRENT on-disk content has no passing
@@ -79,13 +80,22 @@ def _assert_limits_readable_if_writable() -> None:
     deployment mounts one limits database, and a per-type block that omits the
     path is complete rather than incomplete.
 
+    Whether this lane's limits posture needs the database at all is
+    :func:`osprey_connectors.types.limits_database_required`, the predicate
+    the connector's validator, the compose mount and the build
+    also ask: limits checking on, and a mode other than ``optional``
+    or a path configured. ``optional`` with no path configured needs none —
+    every channel is unlisted and written with no limits — while a configured
+    path must load whatever the mode.
+
     Fail-OPEN by design: this is the ONLY combination that refuses
-    startup — this lane could write AND this lane's limits posture is
-    true, AND the limits database is missing, unreadable, or unparseable.
+    startup — this lane could write AND this lane's limits posture requires a
+    database, AND the limits database is missing, unreadable, or unparseable.
     Every other combination starts normally: a lane that cannot write never
-    even probes the database; writes enabled with limits
-    checking disabled needs no database at all; writes enabled with a readable
-    database is the healthy case. A writable deploy with no working limits enforcement is the one
+    even probes the database; writes enabled with limits checking disabled
+    needs no database at all, nor does ``optional`` with no path; writes
+    enabled with a readable database is the healthy case. A writable deploy
+    with no working limits enforcement is the one
     unsafe posture this guard exists to catch before any connector/CA work
     begins.
 
@@ -151,10 +161,13 @@ def _assert_limits_readable_if_writable() -> None:
         LIMITS_DATABASE_CONFIG_KEY,
         LimitsValidator,
     )
+    from osprey_connectors.types import limits_database_required
 
     try:
         configured = LimitsValidator.configured_database_path()
     except (FileNotFoundError, KeyError, RuntimeError):
+        return
+    if not limits_database_required(posture, path_configured=configured is not None):
         return
     if configured is None:
         raise RuntimeError(

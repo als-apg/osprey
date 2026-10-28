@@ -32,7 +32,7 @@ WHY EACH STEP IS SHAPED THE WAY IT IS:
   is either armed (``bluesky.queue_autostart`` on -- what the shipped
   ``control-assistant`` preset does) or stopped. On an armed queue the add is
   the arming write: the item runs the moment the manager reaches it, an
-  unarmed add is refused ``launch_token_required``, and a ``POST /queue/start``
+  unarmed add is refused ``launch_token_invalid``, and a ``POST /queue/start``
   afterwards is refused ``manager_not_idle`` while the plan is in motion. On a
   stopped queue the add just sits there until an armed start. ``start_draining``
   reads which of the two the manager reports and does only what that posture

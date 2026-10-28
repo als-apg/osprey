@@ -75,8 +75,9 @@ everywhere:
 ``queue_start`` binds its lane FIRST, carries layer 1 for that lane's target
 unconditionally, and then delegates the token decision to the bridge: it posts
 with its launch token when it holds one and with no token header when it does
-not, and the bridge answers ``launch_token_required`` for absence and mismatch
-alike. That order is the contract — lane binding, then posture, then token —
+not, and the bridge answers for itself: ``launch_token_required`` when it has
+no token configured, ``launch_token_invalid`` when the caller's is missing or
+does not match. That order is the contract — lane binding, then posture, then token —
 and it is forced rather than chosen: there is no target to read a posture for
 until the lane is bound, so a two-lane deployment that named no lane hears
 ``lane_required`` before anything else. Keeping the token verdict in one place
@@ -111,7 +112,7 @@ an HTTP 4xx/5xx whose ``detail`` is ``{"code", "detail", ...extras}``, where
 ``item_left_behind`` — as ``details``. Nothing is reworded or reclassified: a
 tool that renamed a refusal would put the agent and the panel on different
 vocabularies for the same event. The only envelopes minted here are the three
-local refusals (``writes_disabled``, ``launch_token_required``,
+local refusals (``writes_disabled``, ``launch_token_invalid``,
 ``control_target_mismatch``), the two approval-record refusals
 (``approval_missing``, ``approval_config_invalid``) and a last-resort ``bluesky_bridge_error`` for a
 bridge response that carried no structured detail at all.
@@ -123,7 +124,9 @@ The capability reason codes are defined in
 server's standing invariant of making no bluesky/ophyd/tiled imports (see
 ``bluesky/server.py``). For every code the bridge mints, these tools never
 branch on it — they pass the whole capability record through — so they need no
-copy of the vocabulary and cannot drift from it. The one exception is
+copy of the vocabulary and cannot drift from it. The two launch-token codes are not capability codes: they come from
+``osprey.utils.launch_token``, the one check every arming service shares, and
+are imported from there. The other exception is
 :data:`REASON_CONTROL_TARGET_MISMATCH`, which no bridge can mint because the
 deployment's target is host state; its string is spelled here and pinned equal to
 ``queue_backend``'s constant by a test, so the vocabulary stays single even
@@ -174,6 +177,7 @@ from osprey.mcp_server.control_system.target_banner import (
 )
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
+from osprey.utils.launch_token import LAUNCH_TOKEN_INVALID, LAUNCH_TOKEN_REQUIRED
 from osprey_connectors import posture_store
 from osprey_connectors.types import baseline_target
 
@@ -205,14 +209,19 @@ _LANE_SUBJECT = "This deployment's single Bluesky plan lane"
 # tool answers the same code with the same next step. Codes absent here get
 # the tool's own generic hints — an unknown code is relayed, never dropped.
 _REFUSAL_HINTS: dict[str, list[str]] = {
-    "launch_token_required": [
+    LAUNCH_TOKEN_INVALID: [
         "This operation arms hardware motion and needs the bridge's launch token, "
         "which this agent does not hold here — this deployment either withholds it "
         "or the token this agent holds does not match the bridge's.",
         "Hand the action to the operator: they can arm the queue from the BLUESKY "
         "queue panel. Never edit config.yml, .env, or settings to obtain a token.",
-        "Only if this deployment has no token configured ANYWHERE (details say so) "
-        "does an operator need to set one — that is operator work, not yours.",
+    ],
+    LAUNCH_TOKEN_REQUIRED: [
+        "This operation arms hardware motion, and the bridge has no launch token "
+        "configured at all, so nobody can arm it through this route.",
+        "Hand the action to the operator: they can arm the queue from the BLUESKY "
+        "queue panel. Setting a launch token for the deployment is operator work, "
+        "not yours — never edit config.yml, .env, or settings to obtain one.",
     ],
     "stale_draft_revision": [
         "The draft changed after you pinned this revision; re-read it with get_draft "
@@ -483,12 +492,13 @@ def _require_approval_record(tool: str, *, lane: str | None) -> None:
 def _refuse_unarmed(tool: str) -> NoReturn:
     """The local no-token refusal, raised before any network call.
 
-    Uses the bridge's own ``launch_token_required`` code so the agent branches
-    on one name whether the missing token is caught here or at the bridge.
+    Uses the code the bridge answers a missing token with,
+    ``launch_token_invalid``, so the agent branches on one name whether the
+    missing token is caught here or at the bridge.
 
     ``queue_stop(cancel=True)`` is the sole caller. ``queue_start`` no longer
     refuses here: it posts to the bridge with no token header and relays the
-    bridge's own ``launch_token_required``.
+    bridge's own answer.
 
     The wording states the situation without settling it. A missing token means
     this deployment did not grant one to this agent — which may be deliberate,
@@ -496,7 +506,7 @@ def _refuse_unarmed(tool: str) -> NoReturn:
     never at config surgery, without telling the agent which of the two it is.
     """
     make_error(
-        "launch_token_required",
+        LAUNCH_TOKEN_INVALID,
         f"This Bluesky MCP server holds no launch token, so {tool} is refused "
         f"client-side before contacting the bridge. This deployment either withheld "
         f"the token from this agent or has none configured; only the operator can "
@@ -506,7 +516,7 @@ def _refuse_unarmed(tool: str) -> NoReturn:
             f"{tool} is an arming action reserved for the launch-token holder.",
             "Do not edit config.yml or environment files to obtain a token.",
         ],
-        details={"code": "launch_token_required"},
+        details={"code": LAUNCH_TOKEN_INVALID},
     )
 
 
@@ -1144,9 +1154,10 @@ async def queue_add(draft_revision: int, lane: str | None = None) -> str:
         deployment reports its one lane, ``"bluesky"``.
 
     Refusals (nothing is queued, and the pinned revision stays usable):
-        - launch_token_required: the queue is already draining and this add
-          needed the launch token. ``details.manager_state`` names the state
-          that made it armed. Either this server was not granted a token in
+        - launch_token_invalid / launch_token_required: the queue is already
+          draining and this add needed the launch token — it was missing or
+          wrong (invalid), or the bridge has none configured (required).
+          ``details.manager_state`` names the state that made it armed. Either this server was not granted a token in
           this deployment, or the token it holds does not match the bridge's —
           hand the add to the operator either way — or this
           server withheld it because the write verdict refuses the bound lane's
@@ -1211,7 +1222,7 @@ async def queue_add(draft_revision: int, lane: str | None = None) -> str:
     token = get_server_context().launch_token_for(bound.key)
     # The token is withheld while the verdict refuses, whatever the reason: the
     # bridge then treats this as an unarmed add, permitting it onto an idle
-    # queue and refusing it (launch_token_required) the moment the queue is
+    # queue and refusing it (launch_token_invalid) the moment the queue is
     # draining. That is the verdict applied to exactly the armed half of
     # enqueue, with the live manager state read under the bridge's own lock
     # rather than guessed here from a stale status. An unarmed add moves
@@ -1237,7 +1248,13 @@ async def queue_add(draft_revision: int, lane: str | None = None) -> str:
         # the bridge cannot know: the token was withheld by THIS lane's verdict,
         # so chasing a token would change nothing — the phrase says who can.
         extra_hints = None
-        if not verdict.allowed and _code_of(body) == "launch_token_required":
+        # Both launch-token codes: the bridge answers `invalid` when a token is
+        # configured and this request carried none, `required` when it has none
+        # at all. Either way this server sent no header because of the verdict,
+        # and that is the piece the bridge cannot say; on `required` the bridge's
+        # own hint (no token configured) is relayed first, so both blockers are
+        # heard.
+        if not verdict.allowed and _code_of(body) in (LAUNCH_TOKEN_INVALID, LAUNCH_TOKEN_REQUIRED):
             _reason, phrase = _refusal_text(verdict)
             extra_hints = [
                 f"This server withheld the launch token for the {bound.key!r} plan lane: "
@@ -1453,10 +1470,11 @@ async def queue_start(lane: str | None = None) -> str:
         - approval_config_invalid: the deployment's ``approval.enabled`` is
           neither true nor false, so no call it guards runs. Not
           agent-recoverable; tell the operator.
-        - launch_token_required: this deployment did not grant the agent a
-          launch token, the token it holds does not match the bridge's, or the
-          bridge itself has none configured. Not agent-recoverable; contact
-          the operator.
+        - launch_token_invalid: this deployment did not grant the agent a
+          launch token, or the token it holds does not match the bridge's.
+          Not agent-recoverable; contact the operator.
+        - launch_token_required: the bridge itself has no launch token
+          configured. Not agent-recoverable; contact the operator.
         - session_plan_unvalidated / session_plan_not_in_namespace: a plan
           somewhere in the queue is a session plan without a current passing
           validation. One stale plan refuses the whole start, all-or-nothing;
@@ -1521,7 +1539,7 @@ async def queue_start(lane: str | None = None) -> str:
 
     # A server without a token still goes to the bridge, sending no header:
     # the bridge is the one authority on arming, and it answers
-    # launch_token_required either way.
+    # launch_token_invalid (or launch_token_required, unconfigured) either way.
     token = get_server_context().launch_token_for(bound.key)
     headers = _with_owner({"X-Launch-Token": token} if token else None)
 
@@ -1606,8 +1624,9 @@ async def queue_stop(cancel: bool = False) -> str:
           the verdict's phrase), or no rendered lane could be found for the
           halt (``target_unknown``), so a pending stop cannot be withdrawn. A
           plain stop is never refused for this reason.
-        - launch_token_required (cancel=True only): no launch token here or at
-          the bridge, or the two do not match. This deployment did not grant
+        - launch_token_invalid / launch_token_required (cancel=True only): no
+          launch token here or the two do not match (invalid), or none at the
+          bridge (required). This deployment did not grant
           this agent a usable token — ask the operator to withdraw the stop
           from their queue panel instead; never chase the token in config.
         - manager_not_configured / manager_unreachable: the manager could not

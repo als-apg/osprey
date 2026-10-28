@@ -113,23 +113,49 @@ def _build(profile_path: Path) -> Path:
     return repo / "build"
 
 
+#: Where the build reads the in_context mode's benchmark queries from, and the
+#: flat channel database the project/ mirror overrides.
+QUERIES_SOURCE = Path("data/benchmarks/cross_paradigm/queries/in_context_queries.json")
+FLAT_DB = Path("data/channel_databases/in_context.json")
+
+STRAY_J2 = b"{{ facility_name }} raw braces\n{% if channel_finder_mode %}kept{% endif %}\n"
+PROFILE_QUERIES = '[{"user_query": "profile", "targeted_pv": []}]\n'
+MIRROR_BODY = '{"channels": {"MIRROR:CH": {"description": "mirrored"}}}\n'
+
+
+@pytest.fixture(scope="module")
+def built(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Path]:
+    """One profile carrying every test's mark, built once; read only.
+
+    Each mark is a file that one claim reads and no other build step does. A
+    build that fails errors all four tests, with its output.
+    """
+    profile_dir = tmp_path_factory.mktemp("data-root") / "profile"
+    profile_path = _write_profile(profile_dir)
+    data = profile_dir / "data"
+    (data / "facility_notes.md.j2").write_bytes(STRAY_J2)
+    # A profile-only file proves the profile tree is the source.
+    (data / "facility_marker.txt").write_text("profile tree\n")
+    # Queries recognizably NOT the bundle's.
+    (profile_dir / QUERIES_SOURCE).write_text(PROFILE_QUERIES)
+    # The mirror and the profile's flat DB differ, so only the mirror landing
+    # last can pass.
+    (profile_dir / "project" / FLAT_DB).parent.mkdir(parents=True)
+    (profile_dir / "project" / FLAT_DB).write_text(MIRROR_BODY)
+    (profile_dir / FLAT_DB).parent.mkdir(parents=True, exist_ok=True)
+    (profile_dir / FLAT_DB).write_text('{"channels": {"PROFILE:FLAT": {}}}\n')
+    return profile_dir, _build(profile_path)
+
+
 class TestProfileDataIsContentNotTemplates:
     """The profile data tree is copied verbatim — no Jinja pass."""
 
-    def test_stray_j2_survives_byte_identical(self, tmp_path: Path) -> None:
-        profile_path = _write_profile(tmp_path / "profile")
-        stray = tmp_path / "profile" / "data" / "facility_notes.md.j2"
-        stray.write_bytes(
-            b"{{ facility_name }} raw braces\n{% if channel_finder_mode %}kept{% endif %}\n"
-        )
-
-        project_dir = _build(profile_path)
+    def test_stray_j2_survives_byte_identical(self, built: tuple[Path, Path]) -> None:
+        _, project_dir = built
 
         landed = project_dir / "data" / "facility_notes.md.j2"
         assert landed.exists(), "stray .j2 was dropped from the profile data tree"
-        assert landed.read_bytes() == stray.read_bytes(), (
-            "stray .j2 was rendered instead of copied verbatim"
-        )
+        assert landed.read_bytes() == STRAY_J2, "stray .j2 was rendered instead of copied verbatim"
         assert not (project_dir / "data" / "facility_notes.md").exists(), (
             ".j2 extension was stripped — the profile tree went through the render path"
         )
@@ -138,15 +164,8 @@ class TestProfileDataIsContentNotTemplates:
 class TestFullReplacement:
     """No bundle file reaches a project built from a profile data tree."""
 
-    def test_bundle_files_absent_from_build(self, tmp_path: Path) -> None:
-        profile_dir = tmp_path / "profile"
-        profile_path = _write_profile(profile_dir)
-
-        # A profile-only file proves the profile tree is the source.
-        (profile_dir / "data" / "facility_marker.txt").write_text("profile tree\n")
-
-        project_dir = _build(profile_path)
-
+    def test_bundle_files_absent_from_build(self, built: tuple[Path, Path]) -> None:
+        profile_dir, project_dir = built
         assert (project_dir / "data" / "facility_marker.txt").exists(), (
             "profile-only file did not land — the profile tree was not the source"
         )
@@ -246,26 +265,12 @@ class TestFullReplacement:
 class TestBuildPipelineOrderingHolds:
     """Materialization and the mirror behave as for a bundle-sourced tree."""
 
-    def test_benchmark_queries_come_from_the_profile_tree(self, tmp_path: Path) -> None:
-        profile_dir = tmp_path / "profile"
-        profile_path = _write_profile(profile_dir)
-
-        # A query file that is recognizably NOT the bundle's, staged where the
-        # build reads the in_context mode's queries from.
-        queries_src = (
-            profile_dir
-            / "data"
-            / "benchmarks"
-            / "cross_paradigm"
-            / "queries"
-            / "in_context_queries.json"
-        )
-        queries_src.write_text('[{"user_query": "profile", "targeted_pv": []}]\n')
-
-        project_dir = _build(profile_path)
+    def test_benchmark_queries_come_from_the_profile_tree(self, built: tuple[Path, Path]) -> None:
+        profile_dir, project_dir = built
+        queries_src = profile_dir / QUERIES_SOURCE
 
         queries = project_dir / "data" / "benchmarks" / "queries.json"
-        assert queries.read_text() == queries_src.read_text(), (
+        assert queries.read_text() == PROFILE_QUERIES, (
             "benchmark queries were not copied from the profile's tree"
         )
         assert not (project_dir / "data" / "benchmarks" / "cross_paradigm").exists(), (
@@ -273,29 +278,14 @@ class TestBuildPipelineOrderingHolds:
         )
         assert queries_src.exists(), "the profile's own tree was pruned"
 
-    def test_project_mirror_wins_over_profile_data(self, tmp_path: Path) -> None:
+    def test_project_mirror_wins_over_profile_data(self, built: tuple[Path, Path]) -> None:
         """The project/ mirror applies after the data tree lands, so it wins."""
-        profile_dir = tmp_path / "profile"
-        mirror_src = profile_dir / "project" / "data" / "channel_databases" / "in_context.json"
-        mirror_body = '{"channels": {"MIRROR:CH": {"description": "mirrored"}}}\n'
-
-        profile_path = _write_profile(profile_dir)
-        mirror_src.parent.mkdir(parents=True, exist_ok=True)
-        mirror_src.write_text(mirror_body)
-
-        # The profile's flat DB carries different content, so a passing
-        # assertion can only mean the mirror landed last.
-        profile_flat = profile_dir / "data" / "channel_databases" / "in_context.json"
-        profile_flat.parent.mkdir(parents=True, exist_ok=True)
-        profile_flat.write_text('{"channels": {"PROFILE:FLAT": {}}}\n')
-        (profile_dir / "data" / "facility_marker.txt").write_text("profile tree\n")
-
-        project_dir = _build(profile_path)
+        _, project_dir = built
 
         assert (project_dir / "data" / "facility_marker.txt").exists(), (
             "data/ was not sourced from the profile tree — the ordering claim is untested"
         )
-        landed = project_dir / "data" / "channel_databases" / "in_context.json"
-        assert landed.read_text() == mirror_body, (
+        landed = project_dir / FLAT_DB
+        assert landed.read_text() == MIRROR_BODY, (
             "project/ mirror did not win over the profile data tree"
         )

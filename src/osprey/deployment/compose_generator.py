@@ -843,25 +843,31 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
     silently re-point the mount at a file that is not there.
 
     Refusals are gated on
-    :func:`~osprey_connectors.types.tier_checks_limits`: a target opens this
-    file only when the render's login tier allows writes
-    (``control_system.writes: allowed``) and that target has
-    ``limits_checking.enabled`` on, so that pairing is what makes the file's
-    absence a fault rather than a posture. The tier is the same value every
-    Bluesky lane's mount is rendered on (:func:`_bluesky_lane_write_posture`),
-    so the refusal and the mount cannot disagree: a gate read any other way
-    would let a config refuse nothing and then render a lane binding a file
-    that is not on the host, which the container runtime creates as an empty
-    directory.
+    :func:`~osprey_connectors.types.tier_limits_database_targets`: a target
+    needs this file only when the render's login tier allows writes
+    (``control_system.writes: allowed``) and that target's limits posture
+    :func:`~osprey_connectors.types.limits_database_required` — limits checking
+    on, and either a mode other than ``optional`` or a path configured — so
+    that pairing is what makes the file's absence a fault rather than a
+    posture. The tier is the same value every Bluesky lane's mount is rendered
+    on (:func:`_bluesky_lane_write_posture`), so the refusal and the mount
+    cannot disagree: a gate read any other way would let a config refuse
+    nothing and then render a lane binding a file that is not on the host,
+    which the container runtime creates as an empty directory.
 
     A limits database is therefore optional, exactly as it is at runtime. A
     ``never`` render never opens it; neither does an ``allowed`` one with
     limits checking off for every reachable target, where the connector
-    builds no validator and consults no database. Both leave an unset or
+    builds no validator and consults no database; nor does one whose targets
+    check limits in ``optional`` mode with no path configured, where the
+    connector checks every channel as unlisted against an empty database. All
+    three leave an unset or
     not-yet-staged path a posture rather than a fault, and the render carries
     no mount — a bind source that does not exist would otherwise materialise as
-    a stray empty directory. Checking that is ON for an armed target is the
-    combination that needs the file, the same rule
+    a stray empty directory. A configured path is different: once named, a
+    file that is not on this host is refused for any armed target that checks
+    limits, whatever its mode. Requiring the database for an armed target is
+    the combination that needs the file, the same rule
     ``bluesky_bridge.validation._assert_limits_readable_if_writable`` starts
     on, and catching it here turns an unhealthy container an hour into a deploy
     into a refusal while the operator still has the config in front of them.
@@ -877,20 +883,26 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
         will be read under; ``""`` for the repo root itself
     :type deployed_config_dir: str
     :return: ``{"source": ..., "target": ...}``, or ``None`` when the key names
-        no path at all, or names one that is not on this host and no target
-        the tier arms checks limits — there is nothing to mount either way, and a bind
-        source that is not there is worse than no bind at all
+        no path at all and no target the tier arms requires the database, or
+        names one that is not on this host and no target the tier arms checks
+        limits — there is nothing to mount either way, and a bind source that
+        is not there is worse than no bind at all
     :rtype: dict[str, str] or None
     :raises DeploymentPreconditionError: The tier allows writes and some
-        reachable target has limits checking on, and the key is unset, is not a string, or names a
-        file that is not on this host
+        reachable target requires a limits database, and the key is unset or
+        not a string (a mode other than ``optional``), or names a file that is
+        not on this host
     """
-    from osprey_connectors.types import WRITES_KEY, tier_checks_limits
+    from osprey_connectors.types import WRITES_KEY, tier_limits_database_targets
 
     control_system = config.get("control_system") or {}
     limits_checking = control_system.get("limits_checking") or {}
     raw = limits_checking.get("database_path")
-    limits_required = tier_checks_limits(control_system)
+    limits_required = bool(
+        tier_limits_database_targets(
+            control_system, path_configured=isinstance(raw, str) and bool(raw.strip())
+        )
+    )
 
     if not isinstance(raw, str) or not raw.strip():
         if limits_required:
@@ -898,7 +910,7 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
                 reason=(
                     f"The login tier allows writes ({WRITES_KEY}: allowed) AND "
                     f"at least one control target has limits_checking.enabled "
-                    f"on, so the "
+                    f"on in a mode other than optional, so the "
                     f"channel-limits database is mounted into the services that "
                     f"write — but {LIMITS_DATABASE_CONFIG_KEY} names no path "
                     f"(found: {raw!r}). There is nothing to mount, so those "
@@ -913,7 +925,9 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
                     "Or turn limits checking off for that target — "
                     "limits_checking.enabled: false, deployment-wide or in that "
                     "target's control_system.connector.<type> block — which "
-                    "needs no limits database. A login tier that writes nowhere "
+                    "needs no limits database; limits_checking.mode: optional "
+                    "with no path checks every channel as unlisted and needs "
+                    "none either. A login tier that writes nowhere "
                     f"({WRITES_KEY}: never) needs none either."
                 ),
             )

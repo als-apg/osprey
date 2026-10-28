@@ -604,3 +604,33 @@ def test_an_unrelated_mention_of_a_migrated_app_is_not_reported(tmp_path: Path) 
     result = _revalidate(root)
 
     assert "Left for you to do by hand" not in result.output
+
+
+def test_dropping_the_catalog_keeps_a_flow_list_before_it_on_one_line(tmp_path: Path) -> None:
+    """B25: a roster whose last entry ends in a flow list (`access: [roster]`).
+
+    The comments after the dropped catalog belong to whatever follows it; they
+    were handed to the flow list's last item and written inside its brackets.
+    """
+    root = _previous_release_repo(tmp_path / "als-exemplar")
+    profile = root / "profile.yml"
+    text = profile.read_text(encoding="utf-8")
+    carol = '        display_name: "Deployment Admin (Carol)"\n'
+    catalog = f"    {RETIRED_CATALOG_KEY}:\n"
+    assert text.count(carol + catalog) == 1
+    profile.write_text(
+        text.replace(carol + catalog, carol + "        access: [roster]\n" + catalog),
+        encoding="utf-8",
+    )
+
+    _revalidate(root)
+
+    written = profile.read_text(encoding="utf-8")
+    assert "        access: [roster]\n" in written
+    assert "access: [roster\n" not in written
+    # The comment introducing `shared:` still introduces it.
+    assert "    # Apps everyone above may open" in written
+    lines = written.splitlines()
+    shared = lines.index("    shared:")
+    assert lines[shared - 4].lstrip().startswith("# Apps everyone above may open")
+    assert lines[shared - 5] == "        access: [roster]"

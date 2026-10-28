@@ -25,7 +25,7 @@ import { withPrefix } from './api.js';
  * origin's APIs.
  */
 export const FIRST_PARTY_SANDBOX =
-  'allow-scripts allow-same-origin allow-popups allow-forms allow-modals';
+  'allow-scripts allow-same-origin allow-popups allow-forms allow-modals allow-downloads';
 
 /**
  * The sandbox an agent-writable panel (a discovered `<project>/panels` bundle or
@@ -33,7 +33,7 @@ export const FIRST_PARTY_SANDBOX =
  * an opaque origin and the operator's cookie never rides its requests, and no
  * `allow-forms`, so it cannot submit a form to an operator route either.
  */
-export const OPAQUE_SANDBOX = 'allow-scripts allow-popups allow-modals';
+export const OPAQUE_SANDBOX = 'allow-scripts allow-popups allow-modals allow-downloads';
 
 /**
  * Ask the hub whether a panel is opaque, and if so where to frame it.

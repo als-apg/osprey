@@ -70,7 +70,11 @@ def limits_database_errors(render_dir: Path) -> list[str]:
     because that is where a relative ``database_path`` resolves to and where
     the file arrives from. The gate is the render's tier: the login tier allows
     writes (:func:`~osprey_connectors.types.tier_allows`) *and* some configured
-    target's resolved limits posture states ``enabled: true``.
+    target's resolved limits posture requires a database
+    (:func:`~osprey_connectors.types.limits_database_required` — limits checking
+    on, and a mode other than ``optional`` or a path configured); the list is
+    :func:`~osprey_connectors.types.tier_limits_database_targets`, the same one
+    the compose mount reads.
     The database is deployment-wide, so it is loaded once however many targets
     qualify, and the line names the first target that made it load.
 
@@ -83,33 +87,34 @@ def limits_database_errors(render_dir: Path) -> list[str]:
         loads. A ``database_path`` that is unset or not a string is left to
         the compose renderer, whose refusal already names it.
     """
-    from osprey_connectors.types import target_limits_posture, tier_limits_targets
+    from osprey_connectors.control_system import (
+        LimitsValidator,
+        mapping_config_lookup,
+    )
+    from osprey_connectors.types import target_limits_posture, tier_limits_database_targets
 
     config = _rendered_config(render_dir)
     section = config.get("control_system")
     if not isinstance(section, dict):
         return []
 
+    lookup = mapping_config_lookup(config)
+    anchor = str(render_dir / "config.yml")
+    path_configured = (
+        LimitsValidator.configured_database_path(config_lookup=lookup, config_path=anchor)
+        is not None
+    )
+
     armed = None
-    for target in tier_limits_targets(section):
+    for target in tier_limits_database_targets(section, path_configured=path_configured):
         posture = target_limits_posture(section, target)
         if posture.incomplete:
             continue
         armed = (target, _tier_key(section), posture.key("enabled"))
         break
-    if armed is None:
+    if armed is None or not path_configured:
         return []
     target, writes_key, limits_key = armed
-
-    from osprey_connectors.control_system import (
-        LimitsValidator,
-        mapping_config_lookup,
-    )
-
-    lookup = mapping_config_lookup(config)
-    anchor = str(render_dir / "config.yml")
-    if LimitsValidator.configured_database_path(config_lookup=lookup, config_path=anchor) is None:
-        return []
 
     loaded, reason = LimitsValidator.load_configured_database(
         config_lookup=lookup, config_path=anchor

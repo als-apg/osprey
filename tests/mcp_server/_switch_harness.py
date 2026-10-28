@@ -47,10 +47,16 @@ from osprey.mcp_server.control_system.server_context import MCPServerConfig
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.types import EPICS
 from osprey_connectors_tests._harness import isolate_verdict_environment, write_control_context
+from tests._child_stubs import CHILD_STUBS
 from tests.facility.served_tree import in_process_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-REPO_PATHS = (str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src"))
+#: After the fixture directory; stand-ins first to skip the slow beamphysics import.
+REPO_PATHS = (
+    str(CHILD_STUBS),
+    str(REPO_ROOT / "src"),
+    str(REPO_ROOT / "packages" / "osprey-connectors" / "src"),
+)
 
 #: The in-process simulator by dotted path: what lets a test *serve* ``live`` from a
 #: real child on a machine with no Channel Access, which is what nearly every

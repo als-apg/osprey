@@ -35,6 +35,7 @@ from osprey.cli.build_profile_presets import _presets_dir
 from osprey.cli.init_cmd import init
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.workspace import TIERS_DIRNAME
+from tests._builds import BuiltProject
 from tests._preset_data import copy_bundle_data
 from tests._retired_layout import RETIRED_LAYER_DIRNAME
 
@@ -184,7 +185,7 @@ def test_set_with_a_list_value_replaces_the_presets_list(runner: CliRunner, tmp_
 
 
 def test_preset_control_assistant_ships_live_gateway_telemetry(
-    runner: CliRunner, tmp_path: Path
+    built_control_assistant: BuiltProject,
 ) -> None:
     """control_assistant is the production-shaped reference facility: telemetry
     is wired LIVE through the co-deployed gateway into the telemetry store. This
@@ -192,10 +193,7 @@ def test_preset_control_assistant_ships_live_gateway_telemetry(
     service, disabled switch, hardcoded endpoint, or a credential key) fails
     loudly.
     """
-    result = _materialize(runner, str(tmp_path), "smoke", "control-assistant")
-    assert result.exit_code == 0, result.output
-
-    cfg = _config_yaml(_project(tmp_path, "smoke"))
+    cfg = _config_yaml(built_control_assistant.build_dir)
 
     # The store and its gateway are deployed (not merely declared).
     assert "telemetry_store" in cfg["deployed_services"]
@@ -215,7 +213,7 @@ def test_preset_control_assistant_ships_live_gateway_telemetry(
 
 
 def test_preset_control_assistant_dispatches_on_the_host_network(
-    runner: CliRunner, tmp_path: Path
+    built_control_assistant: BuiltProject,
 ) -> None:
     """A dispatched job reaches the machine and the plan queue where a terminal does.
 
@@ -225,10 +223,7 @@ def test_preset_control_assistant_dispatches_on_the_host_network(
     and its queue calls would both be refused on connect while the stack
     reported healthy.
     """
-    result = _materialize(runner, str(tmp_path), "smoke", "control-assistant")
-    assert result.exit_code == 0, result.output
-
-    project_dir = _project(tmp_path, "smoke")
+    project_dir = built_control_assistant.build_dir
     compose = yaml.safe_load(
         (project_dir / "services" / "dispatch_worker" / "docker-compose.yml").read_text(
             encoding="utf-8"
@@ -269,24 +264,36 @@ def test_unknown_preset_name(runner: CliRunner, tmp_path: Path) -> None:
         assert name in result.output
 
 
-def test_preset_name_normalization(runner: CliRunner, tmp_path: Path) -> None:
-    """control-assistant and control_assistant must both resolve to the same preset."""
-    out_a = tmp_path / "a"
-    out_b = tmp_path / "b"
-    out_a.mkdir()
-    out_b.mkdir()
+def test_preset_name_normalization(
+    built_control_assistant: BuiltProject, runner: CliRunner, tmp_path: Path
+) -> None:
+    """control-assistant and control_assistant must both resolve to the same preset.
 
-    r_hyphen = _materialize(runner, str(out_a), "smoke", "control-assistant")
-    r_under = _materialize(runner, str(out_b), "smoke", "control_assistant")
-    assert r_hyphen.exit_code == 0, r_hyphen.output
-    assert r_under.exit_code == 0, r_under.output
-    cfg_a = _config_yaml(_project(out_a, "smoke"))
-    cfg_b = _config_yaml(_project(out_b, "smoke"))
-    # Same preset → same provider and model in rendered config.
+    The spelling is an ``osprey init`` input only: ``osprey build`` re-reads the
+    repo's own source zone and never sees it. So the claim is pinned where the
+    spelling acts, on what each spelling materializes, every file byte for
+    byte; the render of that source zone is read from the shared build.
+    """
+
+    def source_zone(spelling: str) -> dict[str, bytes]:
+        repo = tmp_path / spelling / "smoke"
+        created = runner.invoke(init, [str(repo), "--preset", spelling, "--no-git"])
+        assert created.exit_code == 0, created.output
+        return {
+            path.relative_to(repo).as_posix(): path.read_bytes()
+            for path in sorted(repo.rglob("*"))
+            if path.is_file()
+        }
+
+    hyphen, under = source_zone("control-assistant"), source_zone("control_assistant")
+    assert sorted(under) == sorted(hyphen)
+    differing = [name for name in under if hyphen[name] != under[name]]
+    assert differing == [], f"the two spellings materialized different files: {differing}"
+    # Same preset → same provider in the rendered config.
     # NB: the rendered keys live under claude_code, NOT top-level
     # (a top-level lookup would make this assertion vacuous).
-    assert cfg_a["claude_code"]["provider"] == "anthropic"
-    assert cfg_a["claude_code"] == cfg_b["claude_code"]
+    rendered = _config_yaml(built_control_assistant.build_dir)
+    assert rendered["claude_code"]["provider"] == "anthropic"
 
 
 def test_preset_drift_guard() -> None:
@@ -686,7 +693,7 @@ def test_profile_md_files_registered_as_user_owned(runner: CliRunner, tmp_path: 
     profile = profile_dir / "profile.yml"
     profile.write_text(
         "extends: hello-world\nname: ConventionTest\nproject_name: repo\ndata: data\n"
-        "provider: anthropic\n"
+        "provider: anthropic\nrules: [rules/extra]\n"
     )
     result = _render_from(runner, str(profile))
     assert result.exit_code == 0, result.output
@@ -811,7 +818,9 @@ def test_deploying_profile_may_pin_only_the_events_path(runner: CliRunner, tmp_p
     assert "url" not in readonly_events
 
 
-def test_control_assistant_preset_wires_its_simulation(runner: CliRunner, tmp_path: Path) -> None:
+def test_control_assistant_preset_wires_its_simulation(
+    built_control_assistant: BuiltProject,
+) -> None:
     """The control-assistant preset wires its simulation from the build alone.
 
     Pins the wiring: no scenario bundle tree ships under ``data/simulation/``,
@@ -822,9 +831,7 @@ def test_control_assistant_preset_wires_its_simulation(runner: CliRunner, tmp_pa
     writes it from ``simulation.default_scenarios`` (``rf-thermal``, the
     incident the getting-started tutorial walks through).
     """
-    result = _materialize(runner, str(tmp_path), "smoke", "control-assistant")
-    assert result.exit_code == 0, result.output
-    project_dir = _project(tmp_path, "smoke")
+    project_dir = built_control_assistant.build_dir
     sim_dir = project_dir / "data" / "simulation"
 
     assert not (sim_dir / "scenarios").exists(), "the scenarios ship as facility scenario files"
@@ -1012,6 +1019,13 @@ class TestDeployServicesKnob:
             shutil.copytree(_presets_dir() / layer, profile.parent / layer)
         return _render_from(runner, str(profile))
 
+    @pytest.fixture(scope="class")
+    def attached(self, tmp_path_factory: pytest.TempPathFactory) -> Path:
+        """The ``deploy_services: false`` build, made once for the tests that read it."""
+        return self._build(
+            CliRunner(), tmp_path_factory.mktemp("attached"), extra="deploy_services: false\n"
+        )
+
     def test_default_true_scaffolds_services(self, runner: CliRunner, tmp_path: Path) -> None:
         """Baseline: the same profile without the knob deploys its own stack."""
         project = self._build(runner, tmp_path, extra="")
@@ -1021,7 +1035,7 @@ class TestDeployServicesKnob:
         assert (project / "services").is_dir()
         assert "postgresql" in cfg["services"]
 
-    def test_false_scaffolds_nothing(self, runner: CliRunner, tmp_path: Path) -> None:
+    def test_false_scaffolds_nothing(self, attached: Path) -> None:
         """An attached project writes no services/ tree, scaffolds no service,
         and lists an explicit empty deployed_services.
 
@@ -1031,7 +1045,7 @@ class TestDeployServicesKnob:
         and names to dial, never a service to run: no block carries the
         ``path`` a scaffolded service is declared by.
         """
-        project = self._build(runner, tmp_path, extra="deploy_services: false\n")
+        project = attached
         cfg = _config_yaml(project)
         # Explicit empty list — present so `osprey up` reads [] not None.
         assert cfg["deployed_services"] == []
@@ -1043,17 +1057,15 @@ class TestDeployServicesKnob:
         assert not (project / "services").exists()
 
     def test_an_attached_build_judges_dispatch_tier_against_its_own_base(
-        self, runner: CliRunner, tmp_path: Path
+        self, attached: Path
     ) -> None:
         """An attached build has no host render, so each render reads its host
         off the profile rendered as a deployment. ``dispatch.tier: readonly`` is
         judged against the deployment's own base, which floors the Config panel
         — not against the ``admin`` tier's render, whose own posture enables it.
         """
-        project = self._build(runner, tmp_path, extra="deploy_services: false\n")
-
-        assert _config_yaml(project)["web"]["config_panel"]["enabled"] is False
-        admin = _config_yaml(_render_project(tmp_path / "smoke", "admin"))
+        assert _config_yaml(attached)["web"]["config_panel"]["enabled"] is False
+        admin = _config_yaml(_render_project(attached.parent, "admin"))
         assert admin["web"]["config_panel"]["enabled"] is True
 
     def test_an_attached_base_that_lifts_a_refused_flag_still_refuses_the_tier(
@@ -1227,7 +1239,7 @@ def test_render_exclusion_keeps_the_artifact_out_of_the_built_project(
     )
     (root / "profile.yml").write_text(
         "name: RootProfile\nproject_name: prof\nextends: hello-world\nprovider: anthropic\n"
-        "model: claude-sonnet-5\ndata: data\n"
+        "model: claude-sonnet-5\ndata: data\nagents: [agents/orbit-writer]\n"
     )
     (root / RETIRED_LAYER_DIRNAME / "narrow.yml").write_text(
         "name: Narrow\n"

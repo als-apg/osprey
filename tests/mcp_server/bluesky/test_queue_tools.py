@@ -386,7 +386,7 @@ async def test_queue_add_armed_refusal_relays_code_manager_state_and_stranded_it
     """
     _armed(tmp_path, monkeypatch)
     body = _refusal(
-        "launch_token_required",
+        "launch_token_invalid",
         "the queue is running, starting, or set to autostart, so adding an item "
         "requires the launch token: missing or invalid launch token",
         manager_state="executing_queue",
@@ -394,7 +394,7 @@ async def test_queue_add_armed_refusal_relays_code_manager_state_and_stranded_it
         item_uid="u9",
     )
     with patch(f"{_MOD}._http_post_json", return_value=(403, body)):
-        with assert_raises_error(error_type="launch_token_required") as ctx:
+        with assert_raises_error(error_type="launch_token_invalid") as ctx:
             await _add_fn()(draft_revision=7)
 
     details = ctx["envelope"]["details"]
@@ -409,28 +409,60 @@ async def test_queue_add_armed_refusal_names_the_kill_switch_when_writes_are_off
 ):
     """Writes-off is WHY the token was withheld — say so without rewriting the code.
 
-    The bridge's ``launch_token_required`` is relayed unchanged (that is what
+    The bridge's ``launch_token_invalid`` is relayed unchanged (that is what
     happened on the wire); the extra suggestion adds the piece the bridge could
     not know, so nobody goes hunting for a token that would change nothing.
     """
     _configure(tmp_path, monkeypatch, writes=False, token=_TOKEN)
     body = _refusal(
-        "launch_token_required",
+        "launch_token_invalid",
         "the queue is running, so adding an item requires the launch token",
         manager_state="executing_queue",
     )
     with patch(f"{_MOD}._http_post_json", return_value=(403, body)) as m:
-        with assert_raises_error(error_type="launch_token_required") as ctx:
+        with assert_raises_error(error_type="launch_token_invalid") as ctx:
             await _add_fn()(draft_revision=7)
 
     # The other half of the compose-while-unarmed contract: the same tokenless
     # request that an idle queue accepts is what a draining queue refuses.
     assert _headers_without_owner(m) == {}
     envelope = ctx["envelope"]
-    assert envelope["details"]["code"] == "launch_token_required"
+    assert envelope["details"]["code"] == "launch_token_invalid"
     assert envelope["details"]["manager_state"] == "executing_queue"
     assert any(_OFF_PHRASE in s for s in envelope["suggestions"])
     assert not any("writes_enabled" in s for s in envelope["suggestions"])
+
+
+async def test_queue_add_unconfigured_bridge_refusal_still_names_the_verdict(tmp_path, monkeypatch):
+    """A bridge with NO token answers 503 ``launch_token_required``, not 403.
+
+    The withheld-token hint keys on both launch-token codes: the verdict is
+    still why this server sent no header, whichever of the two the bridge
+    answered, and it says so in the verdict's words — never a config key.
+    """
+    _configure(
+        tmp_path,
+        monkeypatch,
+        writes=True,
+        token=_TOKEN,
+        control_system={"type": "epics", "writes": "never"},
+    )
+    body = _refusal(
+        "launch_token_required",
+        "the queue is running, so adding an item requires the launch token: "
+        "launch disabled: BLUESKY_LAUNCH_TOKEN is not configured",
+        manager_state="executing_queue",
+    )
+    with patch(f"{_MOD}._http_post_json", return_value=(503, body)) as m:
+        with assert_raises_error(error_type="launch_token_required") as ctx:
+            await _add_fn()(draft_revision=7)
+
+    assert _headers_without_owner(m) == {}
+    envelope = ctx["envelope"]
+    assert envelope["details"]["code"] == "launch_token_required"
+    suggestions = envelope["suggestions"]
+    assert any("'bluesky'" in s and refusal_phrase("tier_never", "real") in s for s in suggestions)
+    assert not any("writes_enabled" in s or "profile.yml" in s for s in suggestions)
 
 
 async def test_queue_add_names_the_bound_lane_and_the_verdict_in_the_withheld_hint(
@@ -450,12 +482,12 @@ async def test_queue_add_names_the_bound_lane_and_the_verdict_in_the_withheld_hi
         control_system={"type": "epics", "writes": "never"},
     )
     body = _refusal(
-        "launch_token_required",
+        "launch_token_invalid",
         "the queue is running, so adding an item requires the launch token",
         manager_state="executing_queue",
     )
     with patch(f"{_MOD}._http_post_json", return_value=(403, body)) as m:
-        with assert_raises_error(error_type="launch_token_required") as ctx:
+        with assert_raises_error(error_type="launch_token_invalid") as ctx:
             await _add_fn()(draft_revision=7)
 
     assert _headers_without_owner(m) == {}
@@ -493,12 +525,12 @@ async def test_queue_add_readonly_refusal_names_the_sandbox_posture_not_a_config
     _armed(tmp_path, monkeypatch)
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
     body = _refusal(
-        "launch_token_required",
+        "launch_token_invalid",
         "the queue is running, so adding an item requires the launch token",
         manager_state="executing_queue",
     )
     with patch(f"{_MOD}._http_post_json", return_value=(403, body)):
-        with assert_raises_error(error_type="launch_token_required") as ctx:
+        with assert_raises_error(error_type="launch_token_invalid") as ctx:
             await _add_fn()(draft_revision=7)
 
     suggestions = ctx["envelope"]["suggestions"]
@@ -514,9 +546,9 @@ async def test_queue_add_writes_enabled_refusal_does_not_blame_the_kill_switch(
     Otherwise the previous test would pass on a tool that always appends it.
     """
     _armed(tmp_path, monkeypatch)
-    body = _refusal("launch_token_required", "requires the launch token", manager_state="paused")
+    body = _refusal("launch_token_invalid", "requires the launch token", manager_state="paused")
     with patch(f"{_MOD}._http_post_json", return_value=(403, body)):
-        with assert_raises_error(error_type="launch_token_required") as ctx:
+        with assert_raises_error(error_type="launch_token_invalid") as ctx:
             await _add_fn()(draft_revision=7)
 
     assert not any("withheld the launch token" in s for s in ctx["envelope"]["suggestions"])
@@ -695,17 +727,17 @@ async def test_queue_start_without_a_token_asks_the_bridge_and_relays_its_refusa
     The bridge is the one authority on arming, so a deployment that withheld
     the launch token from this agent posts ``/queue/start`` anyway, with NO
     token header (never a header carrying ``None``, which would not survive
-    the HTTP client), and relays the bridge's own ``launch_token_required``.
+    the HTTP client), and relays the bridge's own ``launch_token_invalid``.
     """
     _configure(tmp_path, monkeypatch, writes=True, token=None)
-    body = _refusal("launch_token_required", "starting the queue requires the launch token")
+    body = _refusal("launch_token_invalid", "starting the queue requires the launch token")
     with patch(f"{_MOD}._http_post_json", return_value=(403, body)) as m:
-        with assert_raises_error(error_type="launch_token_required") as ctx:
+        with assert_raises_error(error_type="launch_token_invalid") as ctx:
             await _start_fn()()
 
     assert m.call_args.args[0] == "/queue/start"
     assert _headers_without_owner(m) == {}
-    assert ctx["envelope"]["details"]["code"] == "launch_token_required"
+    assert ctx["envelope"]["details"]["code"] == "launch_token_invalid"
 
 
 async def test_a_tokenless_start_still_respects_the_kill_switch(tmp_path, monkeypatch):
@@ -729,7 +761,7 @@ async def test_arming_ops_report_the_kill_switch_before_the_missing_token(
     """Gate ORDER, not just gate presence: writes-off is reported first.
 
     With BOTH gates failing — writes disabled AND no token — the refusal must
-    name ``writes_disabled``, never ``launch_token_required``. Both refuse, so
+    name ``writes_disabled``, never ``launch_token_invalid``. Both refuse, so
     no test that only checks "it refused" can tell the order; but the two send
     an operator to opposite places. Reporting the missing token would have them
     chase a credential that changes nothing while the kill switch is off, at
@@ -772,19 +804,33 @@ async def test_queue_start_session_plan_refusal_names_the_blocking_plan(tmp_path
     assert ctx["envelope"]["details"]["plan"] == "orbit_sweep"
 
 
-async def test_queue_start_bridge_token_mismatch_relays_launch_token_required(
-    tmp_path, monkeypatch
-):
+async def test_queue_start_bridge_token_mismatch_relays_launch_token_invalid(tmp_path, monkeypatch):
     """The bridge's own token verdict is relayed in the same vocabulary."""
     _armed(tmp_path, monkeypatch)
     body = _refusal(
-        "launch_token_required", "starting the queue requires the launch token: invalid token"
+        "launch_token_invalid", "starting the queue requires the launch token: invalid token"
     )
     with patch(f"{_MOD}._http_post_json", return_value=(403, body)):
+        with assert_raises_error(error_type="launch_token_invalid") as ctx:
+            await _start_fn()()
+
+    assert ctx["envelope"]["details"]["code"] == "launch_token_invalid"
+
+
+async def test_queue_start_unconfigured_bridge_relays_launch_token_required(tmp_path, monkeypatch):
+    """A bridge with no token configured answers its own code, relayed as-is."""
+    _armed(tmp_path, monkeypatch)
+    body = _refusal(
+        "launch_token_required",
+        "starting the queue requires the launch token: "
+        "launch disabled: BLUESKY_LAUNCH_TOKEN is not configured",
+    )
+    with patch(f"{_MOD}._http_post_json", return_value=(503, body)):
         with assert_raises_error(error_type="launch_token_required") as ctx:
             await _start_fn()()
 
     assert ctx["envelope"]["details"]["code"] == "launch_token_required"
+    assert any("no launch token configured" in s for s in ctx["envelope"]["suggestions"])
 
 
 async def test_queue_start_environment_unavailable_is_relayed_as_retryable(tmp_path, monkeypatch):
@@ -1052,7 +1098,7 @@ async def test_queue_stop_cancel_refused_without_a_token_with_zero_http_calls(
 ):
     _configure(tmp_path, monkeypatch, writes=True, token=None)
     with patch(f"{_MOD}._http_post_json") as mock_post:
-        with assert_raises_error(error_type="launch_token_required"):
+        with assert_raises_error(error_type="launch_token_invalid"):
             await _stop_fn()(cancel=True)
     mock_post.assert_not_called()
 

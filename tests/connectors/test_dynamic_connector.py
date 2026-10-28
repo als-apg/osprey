@@ -7,7 +7,8 @@ import pytest
 from osprey_connectors import types
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
-from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
+from osprey_connectors.factory import ConnectorFactory
+from osprey_connectors_tests._harness import isolated_connector_registries
 from osprey_connectors_tests._write_fakes import ARMED_TARGET, arm_switch, writes_enabled_config
 
 

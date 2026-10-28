@@ -44,6 +44,7 @@ from osprey.registry.mcp import (
     FRAMEWORK_AGENTS,
     FRAMEWORK_SERVERS,
 )
+from tests._builds import copy_build
 from tests._preset_data import bundle_data_root
 
 # ---------------------------------------------------------------------------
@@ -1074,6 +1075,7 @@ def test_build_command_fails_on_violation(tmp_path, caplog):
                 "data": "data",
                 "provider": "anthropic",
                 "model": "claude-haiku-4-5",
+                "agents": ["agents/bogus"],
             },
             default_flow_style=False,
         )
@@ -1106,36 +1108,29 @@ def _rendered_deny(project: Path) -> list[str]:
     return json.loads((project / ".claude" / "settings.json").read_text())["permissions"]["deny"]
 
 
-def _killswitch_project(tmp_path, name: str, fields: dict) -> Path:
+def _killswitch_project(base: Path, tmp_path, name: str, fields: dict) -> Path:
     """A built project regenerated with ``fields`` applied to config.yml.
 
     The regen path is required here: ``create_project`` never runs the
     writes-off kill-switch block, so only a re-render reflects a
     ``control_system.writes`` setting.
 
-    The preset's own ``config:`` goes on first, because the connector blocks
-    these postures are stated against are the preset's — the framework template
-    renders no ``control_system`` at all — and a posture keyed on a connector
-    the project never declared is not the deployment under test.
+    The project is a ``copy_build`` of *base* (the module's
+    ``built_control_assistant_project``), which already carries the preset's
+    own ``config:``: the connector blocks these postures are
+    stated against are the preset's — the framework template renders no
+    ``control_system`` at all — and a posture keyed on a connector the project
+    never declared is not the deployment under test.
     """
     from osprey.utils.config_writer import config_update_fields
 
-    manager = TemplateManager()
-    project = _create_project(
-        manager,
-        project_name=name,
-        output_dir=tmp_path,
-        data_bundle="control_assistant",
-        context={"channel_finder_mode": "hierarchical"},
-        data_root=bundle_data_root("control_assistant"),
-    )
-    _apply_preset_config(manager, project, "control-assistant")
+    project = copy_build(base, tmp_path / name)
     config_update_fields(project / "config.yml", fields)
-    manager.regenerate_claude_code(project)
+    TemplateManager().regenerate_claude_code(project)
     return project
 
 
-def test_killswitch_deny_survives_profile_remove_deny(tmp_path):
+def test_killswitch_deny_survives_profile_remove_deny(tmp_path, built_control_assistant_project):
     """A writes-off kill-switch deny is NOT liftable through ``remove_deny``.
 
     ``remove_deny`` is authored in the profile, so anything it can reach is
@@ -1146,6 +1141,7 @@ def test_killswitch_deny_survives_profile_remove_deny(tmp_path):
     hole the deny-source split closes.
     """
     project = _killswitch_project(
+        built_control_assistant_project,
         tmp_path,
         "killswitch-remove-deny",
         {
@@ -1163,7 +1159,9 @@ def test_killswitch_deny_survives_profile_remove_deny(tmp_path):
     assert deny.count("mcp__controls__channel_write") == 1, f"duplicate deny entry in {deny}"
 
 
-def test_remove_deny_still_subtracts_profile_authored_deny(tmp_path):
+def test_remove_deny_still_subtracts_profile_authored_deny(
+    tmp_path, built_control_assistant_project
+):
     """The other half of the split: what a profile ADDED, a profile may remove.
 
     Both profile-authored deny sources — the ``deny_defaults`` floor and the
@@ -1172,6 +1170,7 @@ def test_remove_deny_still_subtracts_profile_authored_deny(tmp_path):
     inert rather than merely kill-switch-proof.
     """
     project = _killswitch_project(
+        built_control_assistant_project,
         tmp_path,
         "remove-deny-subtracts",
         {
@@ -1193,7 +1192,7 @@ def test_remove_deny_still_subtracts_profile_authored_deny(tmp_path):
     assert "mcp__controls__channel_write" in deny
 
 
-def test_killswitch_deny_absent_when_writes_enabled(tmp_path):
+def test_killswitch_deny_absent_when_writes_enabled(tmp_path, built_control_assistant_project):
     """With writes ON there is no kill-switch deny to protect, and none renders.
 
     Guards the split against the opposite failure: a ``killswitch_deny`` key
@@ -1201,6 +1200,7 @@ def test_killswitch_deny_absent_when_writes_enabled(tmp_path):
     system's write tool on a deployment that is supposed to have it.
     """
     project = _killswitch_project(
+        built_control_assistant_project,
         tmp_path,
         "killswitch-writes-on",
         {
@@ -1221,6 +1221,7 @@ def test_the_write_floor_denies_monitor_and_enterworktree_in_either_posture(tmp_
     both postures.
     """
     project = _killswitch_project(
+        built_control_assistant_project,
         tmp_path,
         f"write-floor-{'on' if writes == 'allowed' else 'off'}",
         {"control_system.writes": writes},
@@ -1230,7 +1231,7 @@ def test_the_write_floor_denies_monitor_and_enterworktree_in_either_posture(tmp_
         assert tool in deny, f"{tool} missing from the rendered deny {deny}"
 
 
-def test_killswitch_dedupe_when_profile_also_denies(tmp_path):
+def test_killswitch_dedupe_when_profile_also_denies(tmp_path, built_control_assistant_project):
     """A profile that itself denies a kill-switch matcher renders it exactly once.
 
     Pins the ``already_denied`` dedupe path: the facility-authored deny renders
@@ -1239,6 +1240,7 @@ def test_killswitch_dedupe_when_profile_also_denies(tmp_path):
     lost) or zero times (deny silently absent) — both must fail here.
     """
     project = _killswitch_project(
+        built_control_assistant_project,
         tmp_path,
         "killswitch-profile-denies",
         {
@@ -1383,7 +1385,7 @@ def _permission_lists_holding(perms: dict, tool: str) -> set[str]:
     ],
 )
 def test_execute_file_lands_in_the_same_permission_list_as_execute(
-    tmp_path, posture, fields, pyat_enabled
+    tmp_path, built_control_assistant_project, posture, fields, pyat_enabled
 ):
     """``execute_file`` gets the same verdict as ``execute`` under every posture.
 
@@ -1410,6 +1412,7 @@ def test_execute_file_lands_in_the_same_permission_list_as_execute(
     """
     overrides = {} if pyat_enabled else _NO_PYAT
     project = _killswitch_project(
+        built_control_assistant_project,
         tmp_path,
         f"execute-file-{posture}-{'pyat' if pyat_enabled else 'nopyat'}",
         {**fields, **overrides},
@@ -1453,6 +1456,7 @@ def test_all_write_posture_asks_for_both_python_exec_tools(tmp_path):
     raises the prompt the static ``ask`` used to.
     """
     project = _killswitch_project(
+        built_control_assistant_project,
         tmp_path,
         "execute-file-armed-ask",
         {_TYPE_KEY: _LIVE_TYPE, "control_system.writes": "allowed"},
@@ -1518,16 +1522,9 @@ def test_a_deployment_whose_only_target_is_disarmed_still_renders_the_deny(tmp_p
     """
     from osprey.utils.config_writer import config_delete_field, config_update_fields
 
-    manager = TemplateManager()
-    project = _create_project(
-        manager,
-        project_name="posture-single-target-disarmed",
-        output_dir=tmp_path,
-        data_bundle="control_assistant",
-        context={"channel_finder_mode": "hierarchical"},
-        data_root=bundle_data_root("control_assistant"),
+    project = copy_build(
+        built_control_assistant_project, tmp_path / "posture-single-target-disarmed"
     )
-    _apply_preset_config(manager, project, "control-assistant")
     config_update_fields(
         project / "config.yml",
         {_TYPE_KEY: _LIVE_TYPE, "control_system.writes": "never"},
@@ -1535,7 +1532,7 @@ def test_a_deployment_whose_only_target_is_disarmed_still_renders_the_deny(tmp_p
     assert config_delete_field(
         project / "config.yml", "control_system.connector.virtual_accelerator"
     )
-    manager.regenerate_claude_code(project)
+    TemplateManager().regenerate_claude_code(project)
 
     assert "mcp__controls__channel_write" in _rendered_deny(project)
 

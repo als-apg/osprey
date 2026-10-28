@@ -83,7 +83,7 @@ def write_record(
             owned_by=None,
             switch=switch,
         )
-    path = control_context.record_path_under(root)
+    path = control_context._record_path_under(root)
     record = control_context.ControlContext(
         target=target,
         generation=generation,
@@ -120,7 +120,7 @@ def write_report(
         "targets": {},
         "updated_at": datetime.now(UTC).isoformat(),
     }
-    path = control_context.report_path_under(root, pid)
+    path = control_context._report_path_under(root, pid)
     path.write_text(json.dumps(payload), encoding="utf-8")
     control_context.invalidate_cache()
     return path
@@ -307,14 +307,14 @@ class TestDeploymentRecordLookup:
         assert host_executor._deployment_record() is None
 
     def test_corrupt_record_is_ignored(self, state_root):
-        control_context.record_path_under(state_root).write_text("{not json", encoding="utf-8")
+        control_context._record_path_under(state_root).write_text("{not json", encoding="utf-8")
         control_context.invalidate_cache()
 
         assert host_executor._deployment_record() is None
 
     def test_a_record_without_a_generation_cannot_pin_a_run(self, state_root):
         """Generation is half the pin, so a record missing it describes nothing."""
-        control_context.record_path_under(state_root).write_text(
+        control_context._record_path_under(state_root).write_text(
             json.dumps({"schema": 1, "target": "va"}), encoding="utf-8"
         )
         control_context.invalidate_cache()
@@ -322,7 +322,7 @@ class TestDeploymentRecordLookup:
         assert host_executor._deployment_record() is None
 
     def test_unknown_target_name_is_not_a_record(self, state_root):
-        control_context.record_path_under(state_root).write_text(
+        control_context._record_path_under(state_root).write_text(
             json.dumps({"schema": 1, "target": "production", "generation": 1}), encoding="utf-8"
         )
         control_context.invalidate_cache()
@@ -834,7 +834,8 @@ class _FakeConnector:
 @pytest.fixture
 def fake_registry(deployment_config):  # noqa: ARG001 - deployment_config serves the control_system section this registry answers for
     """Register the fake connector under every type this deployment can select."""
-    from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
+    from osprey_connectors.factory import ConnectorFactory
+    from osprey_connectors_tests._harness import isolated_connector_registries
 
     with isolated_connector_registries():
         for name in ("epics", "virtual_accelerator"):

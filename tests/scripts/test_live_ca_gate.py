@@ -9,7 +9,6 @@ while holding its output open cannot keep the gate waiting.
 from __future__ import annotations
 
 import contextlib
-import importlib.util
 import os
 import signal
 import sys
@@ -18,14 +17,14 @@ from pathlib import Path
 
 import pytest
 
+from tests._by_path import load_module
+from tests._processes import pid_alive
+
 # scripts/ is not a package, so the gate is loaded by path. It is deliberately not
 # registered in sys.modules: nothing in it resolves its own module name, and an
 # import-time write to sys.modules is process state no fixture can undo.
 _MODULE_PATH = Path(__file__).resolve().parents[2] / "scripts" / "va" / "live_ca" / "gate.py"
-_spec = importlib.util.spec_from_file_location("live_ca_gate", _MODULE_PATH)
-assert _spec and _spec.loader
-gate = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(gate)
+gate = load_module("live_ca_gate", _MODULE_PATH)
 
 #: How long the stand-in processes would run if nothing stopped them. Far longer
 #: than any limit used here, so "returned quickly" can only mean "was not waited for".
@@ -34,23 +33,22 @@ _HANG_S = 60
 #: Upper bound on a call that must not wait for the hang.
 _PROMPT_S = 20
 
+#: The limit a hung child is killed at: room for an interpreter to start and
+#: print on a loaded host, and still far inside :data:`_PROMPT_S`.
+_KILL_LIMIT_S = 5
 
-def _alive(pid: int) -> bool:
-    """Whether ``pid`` still names a process."""
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
+#: A limit long enough for a child pytest to start, run one test and print its
+#: counts on a host busy with a parallel suite, and still far short of the hang.
+_REPORT_S = 20
 
 
 def _wait_gone(pid: int, within_s: float = 10.0) -> bool:
     deadline = time.monotonic() + within_s
     while time.monotonic() < deadline:
-        if not _alive(pid):
+        if not pid_alive(pid):
             return True
         time.sleep(0.02)
-    return not _alive(pid)
+    return not pid_alive(pid)
 
 
 def _wait_for_pid(pid_file: Path, within_s: float = 10.0) -> int:
@@ -89,7 +87,7 @@ def test_a_child_that_outlives_its_limit_is_killed_and_its_output_so_far_is_retu
     ]
 
     started = time.monotonic()
-    stdout, _stderr, returncode, timed_out = gate._run_child(cmd, 1)
+    stdout, _stderr, returncode, timed_out = gate._run_child(cmd, _KILL_LIMIT_S)
     elapsed = time.monotonic() - started
 
     assert timed_out is True
@@ -113,7 +111,7 @@ def test_an_orphan_holding_the_output_open_cannot_block_the_read(tmp_path: Path)
         assert "child-done" in stdout
         assert elapsed < _PROMPT_S
         # The orphan really was still there, holding the inherited output open.
-        assert _alive(orphan)
+        assert pid_alive(orphan)
     finally:
         if pid_file.exists():
             _kill(_wait_for_pid(pid_file))
@@ -169,13 +167,13 @@ def test_a_module_that_reports_counts_and_then_hangs_is_still_an_error(
         encoding="utf-8",
     )
 
-    counts, status = gate._run_module(str(module), 5)
+    counts, status = gate._run_module(str(module), _REPORT_S)
 
     out = capsys.readouterr().out
     assert "1 passed" in out, out
     assert counts == {"passed": 0, "skipped": 0, "failed": 0, "error": 1}
     assert status == 1
-    assert "timed out after 5 s" in out
+    assert f"timed out after {_REPORT_S} s" in out
 
 
 def test_a_module_timeout_flag_is_not_fanned_out_as_a_target_and_a_bad_value_is_refused(

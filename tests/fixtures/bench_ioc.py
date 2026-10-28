@@ -41,7 +41,6 @@ from __future__ import annotations
 import contextlib
 import functools
 import json
-import socket
 import subprocess
 import sys
 import time
@@ -52,6 +51,7 @@ from typing import Any
 
 import pytest
 
+from osprey.interfaces._serving import free_port
 from osprey_connectors.types import TARGET_LIVE
 
 # ---------------------------------------------------------------------------
@@ -131,13 +131,6 @@ CA_RESULT_MARKER = "__HOST_CA_RESULT__"
 # ---------------------------------------------------------------------------
 # Container lifecycle
 # ---------------------------------------------------------------------------
-
-
-def free_port() -> int:
-    """An ephemeral TCP port, from the OS rather than from a guess."""
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return int(probe.getsockname()[1])
 
 
 def docker(*args: str, timeout: float = DOCKER_TIMEOUT_S) -> subprocess.CompletedProcess:

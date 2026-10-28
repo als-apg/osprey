@@ -8,6 +8,9 @@ No conftest imports it from here, so it never shadows those module fixtures.
 ``_guards`` acts at import, so it is never imported from here.
 """
 
+from osprey_connectors_tests._harness._connector_registries import (
+    isolated_connector_registries,
+)
 from osprey_connectors_tests._harness._control_context_fixtures import (
     DEFAULT_GENERATION,
     DEFAULT_TARGET,
@@ -34,6 +37,7 @@ __all__ = [
     "VERDICT_ENV_VARS",
     "data_root",
     "isolate_verdict_environment",
+    "isolated_connector_registries",
     "owner",
     "pin_identity",
     "race_record_writers",

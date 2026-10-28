@@ -144,8 +144,10 @@ Convention directories
 ======================
 
 Put a file in the directory that matches what it is, and the build carries it
-into the project. There is nothing to declare in ``profile.yml``: the directory
-name *is* the declaration, and where each one lands is fixed.
+into the project. Where each one lands is fixed. Skills, agents, rules, output
+styles are also *selected* by name (see :ref:`profile-own-artifacts-by-name`),
+and hooks by the declaration that wires them (see :ref:`profile-custom-hooks`);
+everything else lands in every render.
 
 .. list-table::
    :header-rows: 1
@@ -190,9 +192,44 @@ Nested paths inside a markdown directory are preserved, so
 and per-user context copy as whole directories — the directory *is* the entry,
 and a build replaces it wholesale.
 
+.. _profile-own-artifacts-by-name:
+
+Naming your own skills, agents, rules and output styles
+-------------------------------------------------------
+
+These four render only where a list names them, like the library artifacts in
+the same list. Name one with its directory as a prefix:
+
+.. code-block:: yaml
+
+   skills:
+     - diagnose                  # a library skill
+     - skills/beam-check         # skills/beam-check/ beside profile.yml
+   output_styles:
+     - output-styles/terse       # the directory's spelling, hyphenated
+   hooks:
+     - hooks/osprey_limits.py    # only a file replacing an OSPREY hook
+
+``profile.yml``'s lists select for the deployment and every tier, a tier adds to
+them, and an app's lists are its whole selection. A bare entry always means
+OSPREY's artifact. A file named like one (``rules/facility.md``) replaces it
+only where its path, ``rules/facility``, is named: there it counts as that
+artifact for wiring, checks and the brief, and supplies only the content.
+Listing both in one render is a build error. A path naming no file fails the build; a file no list names
+reaches no render, and the build warns. ``osprey init`` names the facility
+description it seeds by its path. ``osprey init --revalidate`` turns a bare
+entry into the path wherever the repo ships the file, and names every other
+unnamed one in ``profile.yml`` and each app, so an existing deployment's renders
+stay as they were.
+
+A ``hooks:`` list names a ``hooks/<file>`` only to replace an OSPREY hook; any
+other entry is refused. Your own hooks are wired, and copied, by their
+``claude_code.hooks`` declaration (see :ref:`profile-custom-hooks`).
+
 A file you ship this way is registered as **yours** in the project: later
 re-renders never overwrite it, and cleanup never removes it. Name a file after
-something the framework also renders (``rules/safety.md``) and yours wins.
+something the framework also renders (``rules/safety.md``) and list its path
+(``rules/safety``) instead of the bare name: yours wins in that render.
 
 Ownership is *derived* from what the build actually copied, after exclusions
 are applied — there is no list to maintain. An artifact the profile
@@ -380,7 +417,9 @@ To customize something OSPREY generates — a rule, an agent, a service template
 The artifact is **moved** out of ``build/`` and into the matching convention
 slot of the repository's profile — ``rules/safety`` lands at
 ``<profile>/rules/safety.md``, ``services/postgresql`` at
-``<profile>/services/postgresql/``. Edit it there, then rebuild:
+``<profile>/services/postgresql/``. A claimed skill, agent, rule, output style
+or hook is named by its path (``rules/safety``) wherever ``profile.yml`` or an
+app listed its bare name. Edit it there, then rebuild:
 
 .. code-block:: bash
 
@@ -419,6 +458,8 @@ variable already covers your need — most service knobs (ports, images,
 credentials, retention) are configurable without owning the template.
 
 
+.. _profile-custom-hooks:
+
 Custom hooks
 ============
 
@@ -431,9 +472,9 @@ session start. Ship yours through ``hooks/``:
      hooks/
        facility_guard.py
 
-That copies the script to ``.claude/hooks/facility_guard.py``. **It does not make
-the script run.** Shipping and wiring are two steps; the second is a ``config:``
-key naming the event it fires on:
+A ``config:`` key naming the event it fires on wires it, and the script is
+copied to ``.claude/hooks/facility_guard.py`` in every render that declaration
+is in force in — and in no other:
 
 .. code-block:: yaml
 
@@ -452,9 +493,17 @@ Valid events: ``PreToolUse``, ``PostToolUse``, ``UserPromptSubmit``,
 .. admonition:: An undeclared hook never runs
    :class: important
 
-   Without a declaration the script still lands in ``.claude/hooks/`` and
-   survives every rebuild — doing nothing. This matters most for a safety check,
-   where "present" looks like "enforcing."
+   Without a declaration the script reaches no render, and the build warns.
+   Never list it in ``hooks:`` instead: that list names OSPREY's hooks, and a
+   ``hooks/<file>`` there only replaces one.
+
+Guards are a floor. Every ``PreToolUse`` hook in force on the deployment's
+render — OSPREY's (approval, ``writes-check``, ``limits``, ``memory-guard``) or
+one ``profile.yml`` declares — reaches every tier and app render, inert where
+no tool it matches is present. A tier or app adds guards; it never drops one by
+leaving it out. A declaration on any other event reaches a tier with
+``profile.yml``'s config, and an app only when the app's own ``config:``
+declares it.
 
 Declared wiring is **added** to the framework's, never put in its place. Your
 declaration cannot remove, alter, or displace anything the generated settings
@@ -485,7 +534,7 @@ to use the right spelling:
      claude_code.hooks.PreToolUse: null   # this event now wires nothing
      claude_code.hooks: {}                # or: unwire every event at once
 
-Either form leaves the script itself in place: unwired, not unshipped.
+Either form also stops the script being copied into that render.
 
 .. admonition:: An empty list does nothing
    :class: important
@@ -506,15 +555,18 @@ Replacing a built-in hook
 
 Shipping and declaring behave differently for the framework's own hooks.
 
-**Shipping** a file named for a built-in *replaces* it: ``hooks/`` is keyed by
-filename, because that is what the generated settings run. The built-in
-``writes-check`` hook is ``osprey_writes_check.py``, so a profile file of that
-name is the one the agent runs wherever the framework already wired that name.
+**Shipping** a file named for a built-in *replaces* it where a ``hooks:`` list
+names its path: ``hooks/`` is keyed by filename, because that is what the
+generated settings run. The built-in ``writes-check`` hook is
+``osprey_writes_check.py``, so listing ``hooks/osprey_writes_check.py`` in place
+of ``writes-check`` makes your file the one the agent runs, wired exactly where
+the built-in was. This is the one ``hooks/<file>`` a list accepts.
 
 **Declaring** a built-in hook is refused. The framework wires its own hooks from
 the profile's ``hooks:`` selection, so a declaration naming one would invoke it
 twice. Select or unselect a built-in through ``hooks:``; never through
-``claude_code.hooks``.
+``claude_code.hooks``. A built-in guard the deployment selects reaches every
+tier and app all the same, in the spelling ``profile.yml`` gives it.
 
 
 Tiers and Apps

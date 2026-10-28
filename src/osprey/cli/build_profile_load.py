@@ -53,6 +53,7 @@ from osprey_connectors.workspace import PROFILE_FILENAME
 from .build_profile_archiver import _expand_dotted, parse_va_archiver_block
 from .build_profile_deploy import _limits_block_leaf, _rendered_leaf_paths, parse_deploy_block
 from .build_profile_document import (
+    RENDER_KEYS,
     _normalize_empty_collections,
     _read_profile_document,
 )
@@ -279,10 +280,6 @@ ROOT_ONLY_KEYS = frozenset(
         "exclude",
     }
 )
-
-#: Per-render keys a tier or app may spell and a root profile never does: what
-#: the card running that render mounts, seeds from, and runs as.
-RENDER_KEYS = frozenset({"extra_mounts", "seed_base", "image"})
 
 #: The known keys of a tier: the root set minus the deployment's own keys, plus
 #: the per-render keys. A tier adds to the deployment's agent and never

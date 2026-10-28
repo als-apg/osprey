@@ -38,11 +38,12 @@ while the test file it runs is renamed.
 
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
 
 import pytest
+
+from tests._text_sweep import text_files
 
 LEGACY_SUBSTRINGS = (
     # prompts-era rename
@@ -163,6 +164,7 @@ WRITE_POSTURE_IDENTIFIERS = (
     "target_writes_enabled",
     "target_writes_enabled_key",
     "session_posture",
+    "any_armed_target_requires_limits_database",
     "any_target_writes_enabled",
     "any_armed_target_checks_limits",
     "writes_enabled_key",
@@ -264,21 +266,12 @@ SELF_ALLOWLIST = {
 
 
 def _scan_roots(repo_root: Path = _REPO_ROOT, roots: tuple[str, ...] = ROOTS) -> list[Path]:
-    files: list[Path] = []
-    for root in roots:
-        base = repo_root / root
-        if not base.exists():
-            continue
-        for dirpath, dirnames, filenames in os.walk(base):
-            dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
-            for name in sorted(filenames):
-                path = Path(dirpath) / name
-                if path.suffix not in SCAN_SUFFIXES or ".bak" in name:
-                    continue
-                if path.resolve() in SELF_ALLOWLIST:
-                    continue
-                files.append(path)
-    return files
+    return text_files(
+        repo_root,
+        roots,
+        suffixes=SCAN_SUFFIXES,
+        skip=lambda path: path.resolve() in SELF_ALLOWLIST or ".bak" in path.name,
+    )
 
 
 def _identifier(name: str) -> re.Pattern[str]:

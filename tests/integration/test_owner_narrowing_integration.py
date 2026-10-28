@@ -72,14 +72,13 @@ from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import (
     ConnectorFactory,
-    isolated_connector_registries,
 )
 from osprey_connectors.posture_store import (
     NO_OWNER,
     RESERVED_OWNER_KWARG,
 )
 from osprey_connectors.refusals import STORE_PATH_MARKERS, refusal_phrase
-from osprey_connectors_tests._harness import write_payload
+from osprey_connectors_tests._harness import isolated_connector_registries, write_payload
 from tests.facility.served_tree import in_process_config, served_tree
 
 #: The person whose chip turns the switch off in every row that turns one off.
@@ -286,7 +285,7 @@ def connector(armed_deployment: None, tmp_path: Path) -> Iterator[_RecordingInPr
 
     The recording subclass is registered under the deployment's own
     ``virtual_accelerator`` spelling inside
-    :func:`~osprey_connectors.factory.isolated_connector_registries`, the
+    :func:`~osprey_connectors_tests._harness.isolated_connector_registries`, the
     sanctioned bracket for mutating the factory registries, so the registration
     is restored on the way out and no later test builds this class. Its block
     names no ``serving`` venue, so the factory takes the registered class
