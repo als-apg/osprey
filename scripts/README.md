@@ -9,7 +9,6 @@ This directory contains testing and validation scripts for the Osprey Framework 
 | `check.py quick` | The checks a commit needs | Minutes | Before every commit |
 | `check.py full` | Every check, with the serial suites and the builds | The longest run | Before pushing |
 | `check.py quick --changed origin/main` | The quick tier scoped to the branch's diff, plus the checks that judge a range | Scales with the diff | Before creating a PR |
-| `_gate_env.sh` | Sourced by a gate's shell before `check.py`; moves into `check.py` needs | < 2s when current | Never run directly |
 | `check_config_keys.py` | Config-key resurrection guard | 2-5s | After touching a `config.yml.j2`, a preset, or config-reading code |
 | `changelog_fragments.py` | Changelog-fragment gate and release fold | < 1s | After touching a gated directory; when cutting a release |
 | `plugin_version.py` | Show, bump and check the plugin version | < 1s | After touching the plugin tree |
@@ -47,6 +46,13 @@ arms the checks that judge a range without scoping the tier, so
 **What it runs**: `uv run python scripts/check.py list` prints every check, its
 kind, its tiers and its command.
 
+**Provisioning**: before any check runs, two needs put the tree's pins in
+place. The `claude-pin` need of the test sweep runs `pinned_claude.py` and puts
+the directory whose `claude` reports the pinned version first on `PATH`; when
+none does, the sweep is refused with the install command. The `node` need runs
+the `js_deps_current.py` compare and runs `npm ci` only when `node_modules`
+differs from `package-lock.json`.
+
 **Requirements**:
 - `uv sync --extra dev --extra docs` and graphviz (`dot`) on PATH (the full
   tier refuses the docs build and the link check without them; the dev extra
@@ -55,8 +61,8 @@ kind, its tiers and its command.
 - network access for the full tier's link check
 - `uv sync --extra virtual-accelerator` on Linux x86_64 (the full tier refuses
   there without it; elsewhere the live Channel Access gate does not run)
-- `npm ci` (the TypeScript, ESLint, Vitest and dock-engine checks refuse without
-  the Node toolchain)
+- Node and npm on PATH (the TypeScript, ESLint, Vitest and dock-engine checks
+  refuse without the Node toolchain)
 
 **Exit codes**:
 - `0`: Clean
