@@ -2213,16 +2213,21 @@ def test_renders_needing_phoebus_handles_selects_only_the_phoebus_render(tmp_pat
 # `BLUESKY_LAUNCH_TOKEN` arms a queue start, so it is gated on the intersection
 # of the two things that make arming meaningful: writes actually enabled, and
 # the bluesky MCP server (the token's consumer -- not the panel) actually run.
-# Both reads deny on absence: `writes_enabled` must be explicitly true, and the
-# server's `enabled` key is an override over a registry default that is off.
+# Both reads deny on absence: the tier key `writes` must be the literal
+# `"allowed"`, and the server's `enabled` key is an override over a registry
+# default that is off.
 # ---------------------------------------------------------------------------
 
 
-def _launch_config(writes_enabled: Any = "absent", bluesky_enabled: Any = "absent") -> dict:
-    """A project config with either read spelled out, or omitted via the sentinel."""
+def _launch_config(writes: Any = "absent", bluesky_enabled: Any = "absent") -> dict:
+    """A project config with either read spelled out, or omitted via the sentinel.
+
+    ``writes`` is the rendered tier key ``control_system.writes``; only the
+    literal ``"allowed"`` arms.
+    """
     config: dict = {}
-    if writes_enabled != "absent":
-        config["control_system"] = {"writes_enabled": writes_enabled}
+    if writes != "absent":
+        config["control_system"] = {"writes": writes}
     if bluesky_enabled != "absent":
         config["claude_code"] = {"servers": {"bluesky": {"enabled": bluesky_enabled}}}
     return config
@@ -2258,7 +2263,7 @@ def test_bluesky_server_enabled_reads_non_dict_sections_defensively() -> None:
 def test_config_needs_launch_token_requires_writes_and_the_bluesky_server() -> None:
     """Both halves of the capability present -- the readwrite tier."""
     # Assert
-    assert config_needs_launch_token(_launch_config(True, True)) is True
+    assert config_needs_launch_token(_launch_config("allowed", True)) is True
 
 
 def test_config_needs_launch_token_denies_when_the_bluesky_server_is_absent() -> None:
@@ -2266,29 +2271,31 @@ def test_config_needs_launch_token_denies_when_the_bluesky_server_is_absent() ->
     means it does not run here -- and a token for a server that never starts arms
     nothing while still handing the agent a live credential."""
     # Assert
-    assert config_needs_launch_token(_launch_config(writes_enabled=True)) is False
+    assert config_needs_launch_token(_launch_config(writes="allowed")) is False
 
 
 def test_config_needs_launch_token_denies_when_the_bluesky_server_is_off() -> None:
     """Writes alone entitle nothing: with no bluesky server there is no consumer."""
     # Assert
-    assert config_needs_launch_token(_launch_config(True, False)) is False
+    assert config_needs_launch_token(_launch_config("allowed", False)) is False
 
 
 def test_config_needs_launch_token_denies_the_readonly_tier() -> None:
-    """The read-only tier is `writes_enabled: false` and still runs the bluesky
+    """The read-only tier is `writes: never` and still runs the bluesky
     server for browsing -- the server alone must never arm a queue start."""
     # Assert
-    assert config_needs_launch_token(_launch_config(False, True)) is False
+    assert config_needs_launch_token(_launch_config("never", True)) is False
 
 
-def test_config_needs_launch_token_requires_writes_enabled_explicitly() -> None:
-    """Anything short of a literal `True` -- absent, null, or a truthy non-bool --
-    means writes were never granted."""
+def test_config_needs_launch_token_requires_the_allowed_tier_explicitly() -> None:
+    """Anything short of the literal `"allowed"` -- absent, null, a bool, a truthy
+    non-string, or another spelling -- means writes were never granted."""
     # Assert
     assert config_needs_launch_token(_launch_config(bluesky_enabled=True)) is False
     assert config_needs_launch_token(_launch_config(None, True)) is False
+    assert config_needs_launch_token(_launch_config(True, True)) is False
     assert config_needs_launch_token(_launch_config("true", True)) is False
+    assert config_needs_launch_token(_launch_config("Allowed", True)) is False
     assert config_needs_launch_token(_launch_config(1, True)) is False
 
 
@@ -2304,7 +2311,7 @@ def test_config_needs_launch_token_denies_an_empty_config() -> None:
 def test_renders_needing_launch_token_selects_only_the_readwrite_render(tmp_path) -> None:
     """The entitlement set is exactly the renders whose rendered project both allows
     writes and runs the bluesky server -- the read-only tier runs the same server (for
-    browsing) and must still be excluded, because it is `writes_enabled` that decides,
+    browsing) and must still be excluded, because it is the tier `writes` that decides,
     not whether the server is present. This is the tier boundary the whole feature
     rests on: a read-only render can never end up in this set."""
     # Arrange
@@ -2315,7 +2322,7 @@ def test_renders_needing_launch_token_selects_only_the_readwrite_render(tmp_path
                 tmp_path,
                 "rw",
                 {
-                    "control_system": {"writes_enabled": True},
+                    "control_system": {"writes": "allowed"},
                     "claude_code": {"servers": {"bluesky": {"enabled": True}}},
                 },
             ),
@@ -2326,7 +2333,7 @@ def test_renders_needing_launch_token_selects_only_the_readwrite_render(tmp_path
                 tmp_path,
                 "ro",
                 {
-                    "control_system": {"writes_enabled": False},
+                    "control_system": {"writes": "never"},
                     "claude_code": {"servers": {"bluesky": {"enabled": True}}},
                 },
             ),
@@ -2377,8 +2384,8 @@ def test_renders_needing_launch_token_skips_unrendered_render_projects(tmp_path)
 _VA_ARMED_LIVE_DEPLOYMENT: dict = {
     "control_system": {
         "type": "epics",
-        "writes_enabled": False,
-        "connector": {"epics": {}, "virtual_accelerator": {"writes_enabled": True}},
+        "writes": "allowed",
+        "connector": {"epics": {}, "virtual_accelerator": {}},
     },
     "services": {"bluesky_va": {"target": "va", "port": 10081}},
     "claude_code": {"servers": {"bluesky": {"enabled": True}}},
@@ -2389,7 +2396,8 @@ _VA_ARMED_LIVE_DEPLOYMENT: dict = {
 _VA_BASELINE_DEPLOYMENT: dict = {
     "control_system": {
         "type": "virtual_accelerator",
-        "connector": {"virtual_accelerator": {"writes_enabled": True}},
+        "writes": "allowed",
+        "connector": {"virtual_accelerator": {}},
     },
     "claude_code": {"servers": {"bluesky": {"enabled": True}}},
 }
@@ -2418,8 +2426,8 @@ def test_config_needs_launch_token_for_denies_every_lane_for_the_readonly_tier()
     config = {
         "control_system": {
             "type": "epics",
-            "writes_enabled": False,
-            "connector": {"epics": {"writes_enabled": False}, "virtual_accelerator": {}},
+            "writes": "never",
+            "connector": {"epics": {}, "virtual_accelerator": {}},
         },
         "services": {"bluesky_va": {"target": "va", "port": 10081}},
         "claude_code": {"servers": {"bluesky": {"enabled": True}}},
@@ -2514,7 +2522,7 @@ def test_renders_needing_launch_token_by_lane_is_empty_for_the_readonly_tier(tmp
                     {
                         "control_system": {
                             "type": "epics",
-                            "writes_enabled": False,
+                            "writes": "never",
                             "connector": {"epics": {}, "virtual_accelerator": {}},
                         },
                         "services": {"bluesky_va": {"target": "va", "port": 10081}},
@@ -2536,7 +2544,7 @@ def test_renders_needing_launch_token_by_lane_is_empty_for_the_readonly_tier(tmp
 # `GRAPHDB_PASSWORD` is the graph store's ONLY credential, and Neo4j's one
 # account is write-capable, so the read-only tier gets it too: read-only-ness
 # lives in the `graph` MCP server's read transactions, not in the password. That
-# is why this predicate never reads `writes_enabled` -- the read-only operator
+# is why this predicate never reads the `writes` tier -- the read-only operator
 # terminal is precisely the tier graph search is meant to serve. What it does
 # read is the two keys that decide whether there is a store to dial and a server
 # to dial it: the `services.graphdb` block (present-and-resolvable), and the
@@ -2603,11 +2611,11 @@ def test_config_needs_graphdb_password_defaults_the_graph_server_to_enabled() ->
 
 
 def test_config_needs_graphdb_password_ignores_the_write_switch() -> None:
-    """The read-only tier searches the graph too. Gating this on `writes_enabled`
+    """The read-only tier searches the graph too. Gating this on the `writes` tier
     -- as the launch token is gated -- would leave the read-only operator terminal
     unable to reach the store at all."""
     # Arrange
-    config = {"services": {"graphdb": {}}, "control_system": {"writes_enabled": False}}
+    config = {"services": {"graphdb": {}}, "control_system": {"writes": "never"}}
 
     # Assert
     assert config_needs_graphdb_password(config) is True
@@ -2626,7 +2634,7 @@ def test_renders_needing_graphdb_password_spans_both_tiers(tmp_path) -> None:
                 tmp_path,
                 "rw",
                 {
-                    "control_system": {"writes_enabled": True},
+                    "control_system": {"writes": "allowed"},
                     "services": {"graphdb": {"port_host": 7687}},
                 },
             ),
@@ -2637,7 +2645,7 @@ def test_renders_needing_graphdb_password_spans_both_tiers(tmp_path) -> None:
                 tmp_path,
                 "ro",
                 {
-                    "control_system": {"writes_enabled": False},
+                    "control_system": {"writes": "never"},
                     "services": {"graphdb": {"port_host": 7687}},
                 },
             ),

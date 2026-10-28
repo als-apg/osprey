@@ -190,7 +190,11 @@ def _context(
     """
     from osprey.deployment.compose_generator import _bluesky_lane_write_posture
 
-    section = control_system if control_system is not None else {"writes_enabled": writes_enabled}
+    section = (
+        control_system
+        if control_system is not None
+        else {"writes": "allowed" if writes_enabled else "never"}
+    )
     services: dict[str, Any] = dict(lanes)
     services["virtual_accelerator"] = {"port": va_port}
     posture = _bluesky_lane_write_posture(services, section)
@@ -1052,11 +1056,13 @@ def _limits_mounts(rendered: dict[str, Any], service: str) -> list[str]:
 
 
 def test_a_single_lanes_posture_is_the_deployment_wide_one() -> None:
-    """The value the gate reads now must be the value it used to read.
+    """A single lane's posture is the render's login tier, nothing else.
 
     Every existing project is single-lane and has exactly one posture, so a
-    lane whose precomputed answer differed from ``control_system.writes_enabled``
-    would arm — or disarm — a deployment nobody reconfigured.
+    lane whose precomputed answer differed from ``control_system.writes``
+    would arm — or disarm — a deployment nobody reconfigured. The config read
+    here is a rendered one: a retired ``writes_enabled`` leaf the build did not
+    rewrite arms nothing (D2; row ``tier-absent-old-armed-flat``).
     """
     from osprey.deployment.compose_generator import _bluesky_lane_write_posture
 
@@ -1065,13 +1071,12 @@ def test_a_single_lanes_posture_is_the_deployment_wide_one() -> None:
     def posture(control_system: dict[str, Any] | None) -> bool:
         return _bluesky_lane_write_posture(lane, control_system)["bluesky"]
 
-    assert posture({"writes_enabled": True}) is True
-    assert posture({"writes_enabled": False}) is False
+    assert posture({"writes": "allowed"}) is True
+    assert posture({"writes": "never"}) is False
     assert posture(None) is False
-    # A VA baseline reaches the resolver by a different route (its target
-    # resolves, where a mock deployment's ``live`` does not) and must still
-    # answer the deployment-wide value when no connector block narrows it.
-    assert posture({"type": "virtual_accelerator", "writes_enabled": True}) is True
+    assert posture({"writes_enabled": True}) is False
+    # A VA baseline answers the same tier: the tier is target-blind.
+    assert posture({"type": "virtual_accelerator", "writes": "allowed"}) is True
 
 
 @pytest.mark.parametrize("writes", ["allowed", "never"])

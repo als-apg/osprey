@@ -7,7 +7,7 @@ posture: silent, the tier key nested or dotted, the retired flat leaf nested or
 dotted, a retired per-type leaf, and a retired per-type leaf on a custom
 connector type whose name holds a dot (``mypkg.Mod``, one key, never a path).
 
-The oracle is restated here from PR-3 and P1's ``tier_writes``; it never calls
+The oracle is restated here from PR-3's build-time rewrite; it never calls
 the normalizer. Per document: the tier key's value when it spells one; else,
 when it spells any retired leaf, ``allowed`` if any of them (the flat leaf or a
 per-type leaf, each type looked up whole) is a literal ``True`` and ``never``
@@ -225,11 +225,21 @@ def _set_config(pairs: tuple[str, ...]) -> dict[str, Any]:
     return config
 
 
-def test_the_oracle_restates_tier_writes_on_each_retired_spelling():
-    """Sanity of the restatement itself, on spellings whose nested form is already a section."""
-    assert document_answer(SPELLINGS["flat-nested-true"]) == tier_writes({"writes_enabled": True})
+def test_the_oracle_answers_each_retired_spelling_as_the_build_rewrites_it():
+    """Sanity of the restatement itself, on spellings whose nested form is already a section.
+
+    The retired leaves are a build-time spelling only: the build rewrites an
+    armed one to ``allowed``, while the runtime ``tier_writes`` reads no retired
+    leaf at all (rows ``tier-absent-old-armed-flat`` and
+    ``tier-absent-old-armed-connector``, ruling D2). That gap is why every
+    render must carry the tier key.
+    """
+    flat = {"writes_enabled": True}
+    assert document_answer(SPELLINGS["flat-nested-true"]) == _ALLOWED
+    assert tier_writes(flat) == _NEVER
     custom = {"connector": {"mypkg.Mod": {"writes_enabled": True}}}
-    assert document_answer({"control_system": custom}) == tier_writes(custom) == _ALLOWED
+    assert document_answer({"control_system": custom}) == _ALLOWED
+    assert tier_writes(custom) == _NEVER
     assert document_answer(SPELLINGS["flat-false-custom-type-true"]) == _ALLOWED
     assert document_answer(SPELLINGS["flat-true-per-type-false"]) == _ALLOWED
     assert document_answer(SPELLINGS["custom-type-false"]) == _NEVER

@@ -98,8 +98,9 @@ def _environment(rendered: dict[str, Any], service: str) -> dict[str, Any]:
         # The tier key decides over any retired leaf it sits beside.
         ({"writes": "never", "writes_enabled": True}, False),
         ({"writes": "allowed", "writes_enabled": False}, True),
-        # A render with no tier key answers through the retired leaves.
-        ({"writes_enabled": True}, True),
+        # A render with no tier key is `never`: retired leaves are not read at
+        # run time (D2; rows `tier-absent-old-armed-flat`, `tier-absent-unarmed`).
+        ({"writes_enabled": True}, False),
         ({"writes_enabled": False}, False),
         (None, False),
     ],
@@ -111,16 +112,12 @@ def test_a_lanes_posture_is_the_renders_tier(section: Any, armed: bool) -> None:
 
 
 def test_the_tier_arms_every_lane_whatever_its_target() -> None:
-    """The tier is a ceiling, not a selection: one armed leaf on one machine is
-    an ``allowed`` tier, and an ``allowed`` tier arms every lane."""
+    """The tier is a ceiling, not a selection: an ``allowed`` tier arms every
+    lane, whichever machine each one serves, and a ``never`` tier arms none."""
     lanes = _two_lanes()
-    retired = {
-        "type": "epics",
-        "writes_enabled": False,
-        "connector": {"virtual_accelerator": {"writes_enabled": True}},
-    }
+    allowed = {"type": "epics", "writes": "allowed"}
 
-    assert _bluesky_lane_write_posture(lanes, retired) == {"bluesky": True, "bluesky_va": True}
+    assert _bluesky_lane_write_posture(lanes, allowed) == {"bluesky": True, "bluesky_va": True}
     assert _bluesky_lane_write_posture(lanes, {"type": "epics", "writes": "never"}) == {
         "bluesky": False,
         "bluesky_va": False,
@@ -300,12 +297,12 @@ def test_a_never_render_checks_nothing(tmp_path: Path, section: dict[str, Any]) 
     assert limits_database_errors(_render_dir(tmp_path, section)) == []
 
 
-def test_a_retired_leaf_render_names_the_leaf_that_armed_it(tmp_path: Path) -> None:
+def test_a_retired_leaf_render_checks_nothing(tmp_path: Path) -> None:
+    """A render that still spells only a retired per-type leaf has no tier key,
+    so its tier is ``never`` (D2; row ``tier-absent-old-armed-connector``):
+    nothing opens the database and the build reads nothing."""
     section = _section(
         None, connector={"virtual_accelerator": {"port": 5064, "writes_enabled": True}}
     )
 
-    errors = limits_database_errors(_render_dir(tmp_path, section))
-
-    assert len(errors) == 1
-    assert errors[0].startswith("control_system.connector.virtual_accelerator.writes_enabled and ")
+    assert limits_database_errors(_render_dir(tmp_path, section)) == []

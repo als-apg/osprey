@@ -634,7 +634,7 @@ class TestSafetyPreservation:
         # The framework template writes no `control_system:` block of its own —
         # a deployment states its connector in the profile's `config:` — so the
         # fixture states the one setting it is about.
-        config.setdefault("control_system", {})["writes_enabled"] = False
+        config.setdefault("control_system", {})["writes"] = "never"
         config_path.write_text(yaml.dump(config, default_flow_style=False))
         manager.regenerate_claude_code(project_dir)
         return project_dir
@@ -1835,7 +1835,7 @@ class TestSettingsJsonValidity:
 
 
 class TestWritesToggleRegen:
-    """Flipping control_system.writes_enabled re-renders the kill-switch deny entry.
+    """Flipping control_system.writes re-renders the kill-switch deny entry.
 
     This is the GitHub #244 regression: editing config.yml alone leaves
     settings.json's permissions.deny stale, so a regen must add/remove
@@ -1861,13 +1861,13 @@ class TestWritesToggleRegen:
         )
         config_path = project_dir / "config.yml"
 
-        # Writes disabled → kill-switch baked into deny.
-        config_update_fields(config_path, {"control_system.writes_enabled": False})
+        # Tier never → kill-switch baked into deny.
+        config_update_fields(config_path, {"control_system.writes": "never"})
         manager.regenerate_claude_code(project_dir)
         assert "mcp__controls__channel_write" in self._deny(project_dir)
 
-        # Enable writes → regen drops the deny entry and reports settings.json changed.
-        config_update_fields(config_path, {"control_system.writes_enabled": True})
+        # Tier allowed → regen drops the deny entry and reports settings.json changed.
+        config_update_fields(config_path, {"control_system.writes": "allowed"})
         result = manager.regenerate_claude_code(project_dir)
         assert "mcp__controls__channel_write" not in self._deny(project_dir)
         assert any("settings.json" in f for f in result["changed"]), (
@@ -1901,11 +1901,13 @@ class TestWritesToggleRegen:
             "in-sync regen_if_drift must not re-render the Claude Code artifacts"
         )
 
-        # Drift the config by flipping writes_enabled → regen_if_drift reports the change.
+        # Drift the config by flipping the tier → regen_if_drift reports the change.
         config_path = project_dir / "config.yml"
         cfg = yaml.safe_load(config_path.read_text())
-        current = bool(cfg.get("control_system", {}).get("writes_enabled", False))
-        config_update_fields(config_path, {"control_system.writes_enabled": not current})
+        current = cfg.get("control_system", {}).get("writes") == "allowed"
+        config_update_fields(
+            config_path, {"control_system.writes": "never" if current else "allowed"}
+        )
         changed = manager.regen_if_drift(project_dir)
         # The other half of the witness above: a real regen DOES move that
         # mtime, so the equality asserted for the in-sync path is a property of

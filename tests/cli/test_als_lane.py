@@ -898,11 +898,14 @@ def test_a_remote_pva_gateway_fails_the_preflight() -> None:
     assert any("pva_gateway dials 'pvagw.example'" in error for error in errors), errors
 
 
-def test_an_armed_target_fails_the_preflight() -> None:
+def test_a_retired_armed_leaf_alone_arms_nothing_at_the_preflight() -> None:
+    # The preflight reads the tier the runtime reads: with no tier key a retired
+    # `writes_enabled: true` is `never` (row tier-absent-old-armed-flat, ruling
+    # D2), so nothing it guards could write.
     section = _isolated_section()
     del section["writes"]
     section["writes_enabled"] = True
-    assert "a configured target is armed for writes" in isolation_errors(section)
+    assert "a configured target is armed for writes" not in isolation_errors(section)
 
 
 def test_a_normalized_allowed_render_fails_the_preflight() -> None:

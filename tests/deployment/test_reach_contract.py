@@ -1183,15 +1183,17 @@ def test_every_lane_the_registry_knows_has_a_contract_of_its_own():
     [
         ({"type": "epics", "writes": "allowed"}, True),
         ({"type": "epics", "writes": "never"}, False),
-        # The retired per-type spelling, read as the normalizer reads it: a
-        # literal true in any connector block is `allowed`, for every lane.
+        # The retired per-type spelling in a rendered config the build did not
+        # rewrite: retired leaves are not read at run time (D2), so the tier is
+        # absent, `never`, and no lane is granted
+        # (row `tier-absent-old-armed-connector`).
         (
             {
                 "type": "epics",
                 "writes_enabled": False,
                 "connector": {"virtual_accelerator": {"writes_enabled": True}},
             },
-            True,
+            False,
         ),
         # When the tier key is present it alone decides; retired leaves are ignored.
         (
@@ -1228,14 +1230,15 @@ def test_a_lanes_launch_token_follows_the_login_tier_not_that_lanes_target(
 
 def test_a_per_type_false_does_not_narrow_an_allowed_tier_on_one_lane():
     """The mirror deployment — built for the simulator, told about its real
-    machine by a connector block whose retired leaf says false. A global true
-    normalizes to `allowed`, which is target-blind, so the per-type false
-    withholds nothing: both carried lanes are granted, the rest withheld."""
+    machine by a connector block whose retired leaf says false. The tier
+    `allowed` is target-blind and a per-type leaf is never read at run time,
+    so the per-type false withholds nothing: both carried lanes are granted,
+    the rest withheld."""
     config = {
         "claude_code": {"servers": {"bluesky": {"enabled": True}}},
         "control_system": {
             "type": "virtual_accelerator",
-            "writes_enabled": True,
+            "writes": "allowed",
             "connector": {"epics": {"writes_enabled": False}},
         },
         "services": {
@@ -1252,7 +1255,7 @@ def test_no_lane_is_armed_without_the_bluesky_server():
     the agent a live credential — so the server's own switch, whose registry
     default is off, gates every lane's grant."""
     config = {
-        "control_system": {"type": "virtual_accelerator", "writes_enabled": True},
+        "control_system": {"type": "virtual_accelerator", "writes": "allowed"},
         "services": {
             "bluesky": {"port": 10080, "target": "va"},
             "bluesky_live": {"port": 10081, "target": "live"},

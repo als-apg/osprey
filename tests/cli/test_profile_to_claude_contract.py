@@ -165,25 +165,6 @@ def built_hello_world_project(tmp_path_factory) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def _flatten_expected_allow(servers_config: dict, framework_allow: dict) -> set[str]:
-    """Compute the structural expectation: every server.permissions.allow tool
-    should round-trip to ``mcp__<server>__<tool>`` in settings.json.
-    """
-    expected: set[str] = set()
-    for name, tools in framework_allow.items():
-        for tool in tools:
-            expected.add(f"mcp__{name}__{tool}")
-    # Profile-defined custom servers from config.yml claude_code.servers
-    for name, spec in servers_config.items():
-        if not isinstance(spec, dict):
-            continue
-        if spec.get("enabled") is False:
-            continue
-        for tool in (spec.get("permissions", {}) or {}).get("allow", []) or []:
-            expected.add(f"mcp__{name}__{tool}")
-    return expected
-
-
 def _framework_allow_snapshot(settings_allow: set[str]) -> dict[str, set[str]]:
     """Reverse-engineer which framework-server tools are present in allow.
 
@@ -1294,45 +1275,45 @@ def _rendered_permissions(project: Path) -> dict:
     return json.loads((project / ".claude" / "settings.json").read_text())["permissions"]
 
 
-def test_mixed_posture_renders_neither_a_deny_nor_an_ask_for_channel_write(tmp_path):
-    """Retired leaves disagreeing (flat off, VA armed): channel_write is in no list.
-
-    The tier is target-blind: with no ``control_system.writes`` a literal
-    ``true`` in any retired leaf normalizes to ``allowed``, so this is an
-    ``allowed`` render. No static deny, and ``channel_write`` leaves ``ask``
-    because its rule carries writes-check AND approval — the session's switch,
-    via those two hooks, decides each call.
-    """
-    project = _retired_posture_project(
-        tmp_path,
-        "posture-mixed-va-armed",
+@pytest.mark.parametrize(
+    "fields",
+    [
         {_TYPE_KEY: _LIVE_TYPE, "control_system.writes_enabled": False, _VA_WRITES: True},
-    )
-    perms = _rendered_permissions(project)
-    assert "mcp__controls__channel_write" not in perms["deny"]
-    assert "mcp__controls__channel_write" not in perms["ask"]
-    assert "mcp__controls__channel_write" not in perms["allow"]
-
-
-def test_mixed_posture_from_a_disarmed_live_block_renders_the_same_way(tmp_path):
-    """Flat leaf on, the live machine's block disarmed — the same normalization.
-
-    A literal ``true`` in the flat leaf is ``allowed`` whatever a connector
-    block says, so this must reach the same render as the case above.
-    """
-    project = _retired_posture_project(
-        tmp_path,
-        "posture-mixed-live-disarmed",
         {_TYPE_KEY: _LIVE_TYPE, "control_system.writes_enabled": True, _LIVE_WRITES: False},
-    )
+        {
+            _TYPE_KEY: _LIVE_TYPE,
+            "control_system.writes_enabled": False,
+            _LIVE_WRITES: True,
+            _VA_WRITES: True,
+        },
+    ],
+    ids=["flat-off-va-armed", "flat-armed-live-off", "both-blocks-armed-flat-off"],
+)
+def test_an_armed_retired_leaf_without_the_tier_key_keeps_the_kill_switch(tmp_path, fields):
+    """A render spelling only retired leaves reads tier ``never``, whichever is ``true``.
+
+    The build rewrites a retired leaf to the tier key; a ``config.yml`` edited
+    back to the old spelling and regenerated is never rewritten, and the
+    render reads :func:`~osprey_connectors.types.tier_writes`, which has no
+    retired-leaf fallback (rows ``tier-absent-old-armed-flat`` and
+    ``tier-absent-old-armed-connector``, ruling D2). So ``channel_write`` stays
+    statically denied, in exactly the lists an explicit ``never`` tier puts it.
+    """
+    project = _retired_posture_project(tmp_path, "posture-retired-armed", fields)
     perms = _rendered_permissions(project)
-    assert "mcp__controls__channel_write" not in perms["deny"]
-    assert "mcp__controls__channel_write" not in perms["ask"]
-    assert "mcp__controls__channel_write" not in perms["allow"]
+    assert "mcp__controls__channel_write" in perms["deny"]
+    explicit = _killswitch_project(
+        tmp_path,
+        "posture-explicit-never",
+        {_TYPE_KEY: _LIVE_TYPE, "control_system.writes": "never"},
+    )
+    assert _permission_lists_holding(
+        perms, "mcp__controls__channel_write"
+    ) == _permission_lists_holding(_rendered_permissions(explicit), "mcp__controls__channel_write")
 
 
 def test_mixed_posture_leaves_python_execute_unasked_and_undenied(tmp_path):
-    """python's execute is pulled from ask on a normalized ``allowed`` render, never denied.
+    """python's execute is pulled from ask on a retired-leaf (``never``) render, never denied.
 
     It reaches ``allow`` here only through the required-tool rescue, which the
     enabled ``pyat-specialist`` triggers: that agent declares ``execute`` as its
@@ -1494,8 +1475,9 @@ def _retired_posture_project(tmp_path, name: str, fields: dict) -> Path:
     """A built project whose posture is spelled in the retired leaves alone.
 
     The preset carries ``control_system.writes``, which alone decides when
-    present, so it is removed before *fields* go on: the render then reads the
-    posture the single parse point normalizes the retired leaves into.
+    present, so it is removed before *fields* go on: the render then reads a
+    section with no tier key, which ``tier_writes`` answers ``never`` whatever
+    the retired leaves say (ruling D2).
     """
     from osprey.utils.config_writer import config_delete_field, config_update_fields
 
@@ -1509,9 +1491,9 @@ def _retired_posture_project(tmp_path, name: str, fields: dict) -> Path:
 def test_per_connector_keys_agreeing_with_the_global_key_still_kill_switch(tmp_path):
     """Every retired leaf disarmed, no tier key: the hard deny is back.
 
-    With ``control_system.writes`` absent the retired leaves normalize to
-    ``never`` unless one is a literal ``true``, so a deployment that says
-    "off" in every old spelling keeps the deny it already had.
+    With ``control_system.writes`` absent the render's tier is ``never``, so
+    a deployment that says "off" in every old spelling keeps the deny it
+    already had.
     """
     project = _retired_posture_project(
         tmp_path,
@@ -1524,36 +1506,6 @@ def test_per_connector_keys_agreeing_with_the_global_key_still_kill_switch(tmp_p
         },
     )
     assert "mcp__controls__channel_write" in _rendered_deny(project)
-
-
-def test_both_targets_armed_per_connector_lifts_a_global_writes_off(tmp_path):
-    """Per-connector leaves armed under a flat ``false``, no tier key: ``allowed``.
-
-    A literal ``true`` in any retired leaf normalizes to ``allowed`` even with
-    the flat key off, which is what makes this the proof that the render reads
-    the normalized tier and not the flat leaf. ``channel_write`` then renders
-    exactly as on an explicit ``allowed`` tier: not denied, and out of ``ask``
-    because its rule carries writes-check AND approval.
-    """
-    project = _retired_posture_project(
-        tmp_path,
-        "posture-both-armed",
-        {
-            _TYPE_KEY: _LIVE_TYPE,
-            "control_system.writes_enabled": False,
-            _LIVE_WRITES: True,
-            _VA_WRITES: True,
-        },
-    )
-    perms = _rendered_permissions(project)
-    assert "mcp__controls__channel_write" not in perms["deny"]
-    explicit = _killswitch_project(tmp_path, "posture-explicit-allowed", {_TYPE_KEY: _LIVE_TYPE})
-    explicit_perms = _rendered_permissions(explicit)
-    assert (
-        _permission_lists_holding(perms, "mcp__controls__channel_write")
-        == _permission_lists_holding(explicit_perms, "mcp__controls__channel_write")
-        == set()
-    )
 
 
 def test_a_deployment_whose_only_target_is_disarmed_still_renders_the_deny(tmp_path):

@@ -341,7 +341,7 @@ def _tiered_roster_config(tmp_path, *, rw_denies_bash: bool = True, ro_denies_ba
 
     `alice` runs a read-write render that also runs the bluesky server, so its
     project satisfies both halves of the launch-token predicate. `bob` runs a
-    read-only render — `writes_enabled: false` — which can never satisfy it.
+    read-only render — `writes: never` — which can never satisfy it.
     Both spell out `claude_code.servers.bluesky.enabled`: the server is opt-in in
     the registry, so a project that omits the key runs no server and would sit
     outside the predicate for the wrong reason. Both ship the shell deny by
@@ -363,7 +363,7 @@ def _tiered_roster_config(tmp_path, *, rw_denies_bash: bool = True, ro_denies_ba
                 tmp_path,
                 "rw",
                 {
-                    "control_system": {"writes_enabled": True},
+                    "control_system": {"writes": "allowed"},
                     "claude_code": {"servers": {"bluesky": {"enabled": True}}},
                 },
                 denies_bash=rw_denies_bash,
@@ -376,7 +376,7 @@ def _tiered_roster_config(tmp_path, *, rw_denies_bash: bool = True, ro_denies_ba
                 tmp_path,
                 "ro",
                 {
-                    "control_system": {"writes_enabled": False},
+                    "control_system": {"writes": "never"},
                     "claude_code": {"servers": {"bluesky": {"enabled": True}}},
                 },
                 denies_bash=ro_denies_bash,
@@ -485,7 +485,7 @@ def _graphdb_roster_config(tmp_path):
             project_path=_write_render_project(
                 tmp_path,
                 "ro-graph",
-                {"control_system": {"writes_enabled": False}, "services": {"graphdb": {}}},
+                {"control_system": {"writes": "never"}, "services": {"graphdb": {}}},
             ),
         ),
         "graph_vetoed": tier_render(
@@ -695,7 +695,7 @@ def test_a_role_only_roster_is_covered_by_the_render_check(tmp_path):
     config["modules"]["web_terminals"]["users"] = [
         {"name": "alice", "index": 0, "role": "operator"}
     ]
-    config["control_system"] = {"writes_enabled": True}
+    config["control_system"] = {"writes": "allowed"}
 
     with pytest.raises(BashLaunchTokenConflictError) as excinfo:
         write_web_terminal_artifacts(config, tmp_path)
@@ -730,7 +730,7 @@ def test_every_offending_render_is_named_not_just_the_first(tmp_path):
             tmp_path,
             "bad2",
             {
-                "control_system": {"writes_enabled": True},
+                "control_system": {"writes": "allowed"},
                 "claude_code": {"servers": {"bluesky": {"enabled": True}}},
             },
             denies_bash=False,
@@ -965,7 +965,7 @@ def test_dangerously_allow_bash_accepts_only_the_boolean_true(tmp_path, value):
 #: A render project that is entitled to no launch token at all — writes off and
 #: no bluesky server — so these tests exercise the open-mode gate alone and a
 #: failure here can never be the Bash/launch-token guard firing instead.
-_UNARMED_PROJECT: dict = {"control_system": {"writes_enabled": False}}
+_UNARMED_PROJECT: dict = {"control_system": {"writes": "never"}}
 
 
 def _open_roster_config(tmp_path, *, method: str = "none", deny: list[str] | None = None):
