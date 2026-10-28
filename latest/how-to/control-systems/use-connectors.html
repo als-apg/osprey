@@ -574,9 +574,10 @@ metadata.enum_labels = [&#39;OFFLINE&#39;, &#39;STANDBY&#39;, &#39;ACQUIRING&#39
 <p>Everything below is configuration only — which machine sits behind that API.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>Write operations require explicit opt-in, per connector type.
-See <a class="reference internal" href="../../reference/contracts/connectors.html#write-safety-config"><span class="std std-ref">Write Safety Configuration</span></a> in <a class="reference internal" href="../../reference/contracts/connectors.html"><span class="doc">Connector Contracts</span></a> for
-the <code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> settings that control write permissions.</p>
+<p>Writes are off until the login’s tier allows them
+(<code class="docutils literal notranslate"><span class="pre">control_system.writes:</span> <span class="pre">allowed</span></code>) and the person turns a machine on from
+the chip. See <a class="reference internal" href="../../reference/contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a> in
+<a class="reference internal" href="../../reference/contracts/connectors.html"><span class="doc">Connector Contracts</span></a>.</p>
 </div>
 </section>
 <section id="pick-a-control-system">

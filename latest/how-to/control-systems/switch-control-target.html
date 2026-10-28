@@ -630,13 +630,12 @@ header opens a popover with a <strong>Switch to</strong> button per machine. The
 asks for is the same one — the same gate, the same checks, the same refusal
 reasons — and a target the gate would refuse shows why where the button
 would be. See <a class="reference internal" href="#from-the-web-terminal">From the Web Terminal</a>.</p>
-<p>Whether writes are <em>allowed</em> follows it too. Write posture is per control
-target, so a deployment can be armed on the simulator and read-only on the
-machine — the same tool call that moved a setpoint before the switch is refused
-after it, naming the target that refused. That is a property of the deployment’s
-config, not of the switch, and it is set up in
-<a class="reference internal" href="use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>. Ask <code class="docutils literal notranslate"><span class="pre">control_target</span></code> if you want to know
-before you move: every row carries its own <code class="docutils literal notranslate"><span class="pre">writes_permitted</span></code>.</p>
+<p>Whether writes are <em>allowed</em> follows it too. Your write switch is per machine
+and starts off on each, so a setpoint the simulator took is refused on the real
+machine until you turn that machine on from the chip
+(<a class="reference internal" href="../../reference/contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a>). Moving the deployment never turns a switch on. Ask
+<code class="docutils literal notranslate"><span class="pre">control_target</span></code> if you want to know before you move: every row carries its
+own <code class="docutils literal notranslate"><span class="pre">writes_permitted</span></code>.</p>
 <p>The archive does not follow the switch — archive reads keep the deployment’s one
 configured archiver, and are stamped with the control target and the archiver
 that served them, so which machine a set of history is about is never
@@ -740,8 +739,8 @@ switch can prove it came home to.</p>
 <h3>Coming home<a class="headerlink" href="#coming-home" title="Link to this heading">#</a></h3>
 <p>Ask for the baseline and the switch runs like any other, under the exemption
 above.</p>
-<p>Nothing else brings a deployment home. The control target and the write posture
-belong to the deployment and are recorded on its durable volume, so they
+<p>Nothing else brings a deployment home. The control target and each login’s
+write switches are recorded on the deployment’s durable volume, so they
 outlive the conversation that set them, a controls server restarting, and
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">down</span> <span class="pre">&amp;&amp;</span> <span class="pre">osprey</span> <span class="pre">up</span></code>: a fresh server adopts the recorded target rather
 than resetting it. A deployment somebody left on the real machine yesterday is
@@ -771,10 +770,10 @@ a row.</p>
 <strong>Switch to</strong> away. Captured with OSPREY v2026.6.2.post2090+g23b198224.d20260831.</p>
 <p>Each machine carries:</p>
 <ul class="simple">
-<li><p><strong>A writes switch</strong> — the write state on that machine, for the whole
-deployment, and the control that changes it, in one widget. Turning writes
-off applies as you click; turning them on asks first. Where the deployment
-locks writes the switch is disabled, with the reason on hover.</p></li>
+<li><p><strong>A writes switch</strong> — your login’s switch for that machine, and the control
+that changes it, in one widget. Turning writes off applies as you click and
+nothing refuses it; turning them on asks first. A switch that is off and
+cannot be turned on is disabled, with the reason on hover.</p></li>
 <li><p><strong>A small ⓘ</strong> after the name — what writing to this machine means (<em>Writes
 move hardware</em>, or one of the <em>nothing moves</em> lines), the endpoint, and the
 controls server’s own technical label, shown on hover or keyboard focus.</p></li>
@@ -788,15 +787,15 @@ could not make the move is named, so you know which one to look at. The line
 leaves the row after a minute — an outcome is news for about as long as
 someone is watching for it.</p></li>
 </ul>
-<p>The foot’s <strong>Turn all writes off</strong> takes writes away from every machine it can
-in one click, and reports any machine it could not narrow rather than
-dropping it. Everything in the popover is per machine and applies to the whole
-deployment; <a class="reference internal" href="../web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a> walks the whole surface, including
-the write states themselves.</p>
+<p>The foot’s <strong>Turn all writes off</strong> turns every switch of your login off in one
+click. It stops your login’s writes only; other logins keep theirs. A switch
+is one login’s: two logins on one machine never change each other’s writes.
+<a class="reference internal" href="../web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a> walks the whole surface, including what the
+chip cannot lift and who can.</p>
 <p>One process holds the deployment’s control context at a time, and only that
-one writes to it. A second web terminal running against the same deployment
-data still renders the roster — worth reading — but its buttons are disabled,
-with a banner naming the holder and the port it is on.</p>
+one moves the deployment. A second web terminal of the same login turns
+switches on and off as the first does, but its <strong>Switch to</strong> buttons give way
+to a phrase naming the holder.</p>
 </section>
 </section>
 <section id="what-a-deployment-needs-first">
@@ -924,7 +923,8 @@ visible, not a contradiction.</p></td>
 <td><p>One entry per configured gateway role — <code class="docutils literal notranslate"><span class="pre">read_only</span></code>, <code class="docutils literal notranslate"><span class="pre">write_access</span></code>,
 and <code class="docutils literal notranslate"><span class="pre">pva</span></code> where it exists — with the host, port and routing mode
 derived from config, plus <code class="docutils literal notranslate"><span class="pre">selected_role</span></code>: the gateway this deployment
-would actually use, which follows the write posture.</p></td>
+would actually use, which follows the write verdict — the read-only
+gateway while writes are refused, where the machine has one.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">endpoint_tcp</span></code> and <code class="docutils literal notranslate"><span class="pre">probed_at</span></code></p></td>
 <td><p>The background check’s last observation of that gateway, and when it made
@@ -934,8 +934,8 @@ than presented as current.</p></td>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">writes_permitted</span></code>, <code class="docutils literal notranslate"><span class="pre">real_machine</span></code>, <code class="docutils literal notranslate"><span class="pre">probe_channel</span></code></p></td>
 <td><p>Whether writes are permitted on <strong>this target</strong>, whether this target is
 the real machine, and the channel a switch would prove it with. Two rows
-of the same deployment can disagree about the first one: write posture is
-per target, so a simulator may be armed beside a live machine that is not.</p></td>
+of the same deployment can disagree about the first one: the switch is
+per machine, so the simulator may be on beside a real machine that is off.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">limits_strict</span></code></p></td>
 <td><p>Whether <strong>this target</strong> runs exclusive limits — limits checking on and
@@ -1082,7 +1082,7 @@ is a materially different situation on the live machine than on the simulator. S
 every control-system failure envelope — a connect failure, a timeout, a limits
 refusal, a write the control system itself denied — names the target the
 deployment was pointed at when it failed: a human clause in the message
-(<code class="docutils literal notranslate"><span class="pre">active</span> <span class="pre">target:</span> <span class="pre">LIVE</span> <span class="pre">MACHINE</span> <span class="pre">at</span> <span class="pre">10.0.0.5:5064</span></code>) and a machine-readable
+(<code class="docutils literal notranslate"><span class="pre">active</span> <span class="pre">target:</span> <span class="pre">Real</span> <span class="pre">machine</span> <span class="pre">—</span> <span class="pre">writes</span> <span class="pre">move</span> <span class="pre">hardware</span> <span class="pre">at</span> <span class="pre">10.0.0.5:5064</span></code>) and a machine-readable
 <code class="docutils literal notranslate"><span class="pre">details.active_target</span></code> block carrying the target name, its label, and the
 endpoint where the configuration knows one. The agent narrating a failure, and
 any script asserting on one, can attribute it to the right machine from the
@@ -1095,9 +1095,9 @@ payload alone instead of reconstructing the answer from memory.</p>
 <li><p><strong>Every approval prompt names the target</strong>, not only the write prompts — a
 queue start, a patch or an execution all carry the line too, so its absence is
 never something you learn to read as safe. The live machine is named as
-<code class="docutils literal notranslate"><span class="pre">LIVE</span> <span class="pre">MACHINE</span></code> with the gateway the deployment actually holds; the stand-in as
-<code class="docutils literal notranslate"><span class="pre">LIVE</span> <span class="pre">MACHINE</span> <span class="pre">(stand-in)</span></code>; the simulator as
-<code class="docutils literal notranslate"><span class="pre">virtual</span> <span class="pre">accelerator</span> <span class="pre">(simulation)</span></code>. If the target cannot be read at all, the
+<code class="docutils literal notranslate"><span class="pre">Real</span> <span class="pre">machine</span> <span class="pre">—</span> <span class="pre">writes</span> <span class="pre">move</span> <span class="pre">hardware</span></code> with the gateway the deployment
+actually holds; the stand-in as <code class="docutils literal notranslate"><span class="pre">Rehearsal</span> <span class="pre">—</span> <span class="pre">nothing</span> <span class="pre">moves</span></code>, in amber; the
+simulator as <code class="docutils literal notranslate"><span class="pre">virtual</span> <span class="pre">accelerator</span> <span class="pre">(simulation)</span></code>. If the target cannot be read at all, the
 line says so explicitly instead of disappearing. (The web terminal names the
 same machines by what they are — <em>Real machine</em>, <em>Rehearsal</em>, <em>Simulator</em>,
 or the deployment’s own configured names — and keeps these technical labels
@@ -1211,7 +1211,7 @@ others and their archivers.</p>
 <code class="docutils literal notranslate"><span class="pre">virtual_accelerator.live_standin</span></code>: both would name a machine the deployment
 does not run.</p>
 <p><strong>The label stays honest.</strong> Nothing calls the stand-in the live machine. The
-banner reads <code class="docutils literal notranslate"><span class="pre">LIVE</span> <span class="pre">MACHINE</span> <span class="pre">(stand-in)</span></code>, the roster says the same, and the
+banner reads <code class="docutils literal notranslate"><span class="pre">Rehearsal</span> <span class="pre">—</span> <span class="pre">nothing</span> <span class="pre">moves</span></code>, the roster says the same, and the
 web terminal’s header chip reads <em>Rehearsal</em> — named for what it is for, with
 the technical label kept on its ⓘ tooltip. It carries a real machine’s posture — the
 same limits, the same approval prompts — because it is operated as one, not

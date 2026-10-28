@@ -637,53 +637,142 @@ same length and agree element by element. Everything else compares for equality.
 If the comparison cannot be made at all, the outcome is <code class="docutils literal notranslate"><span class="pre">mismatch</span></code>: a write is
 confirmed only when the values are known to agree.</p>
 </section>
-<section id="write-safety-configuration">
-<span id="write-safety-config"></span><h3>Write Safety Configuration<a class="headerlink" href="#write-safety-configuration" title="Link to this heading">#</a></h3>
-<p>Write operations are disabled by default, and write permission is set per
-connector type:</p>
+<section id="who-may-write">
+<span id="write-safety-config"></span><h3>Who May Write<a class="headerlink" href="#who-may-write" title="Link to this heading">#</a></h3>
+<p>Three facts decide a write. This section is the contract every other page
+points to.</p>
+<p><strong>The tier key</strong> says whether a login may write at all:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">                  </span><span class="c1"># what a type inherits when it says</span>
-<span class="w">                                         </span><span class="c1"># nothing about itself</span>
-<span class="w">  </span><span class="nt">connector</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">virtual_accelerator</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">               </span><span class="c1"># ... and this type&#39;s own answer</span>
-<span class="w">    </span><span class="nt">epics</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">              </span><span class="c1"># pinned, so the inherited key</span>
-<span class="w">                                         </span><span class="c1"># cannot arm it later</span>
+<span class="w">  </span><span class="nt">writes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">allowed</span><span class="w">          </span><span class="c1"># or never; silence is never</span>
 </pre></div>
 </div>
-<p>A connector type that carries no <code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> of its own inherits
-<code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code>; one that carries it uses its own value and
-never falls back. Both default to blocked when omitted, and <strong>only a literal</strong>
-<code class="docutils literal notranslate"><span class="pre">true</span></code> <strong>arms writes</strong> — the quoted string <code class="docutils literal notranslate"><span class="pre">'true'</span></code> and the number <code class="docutils literal notranslate"><span class="pre">1</span></code> do
-not. A custom connector’s block is keyed by the same dotted module path that
-selects it, so <code class="docutils literal notranslate"><span class="pre">mypackage.MoatConnector</span></code> names one block and is never split
-on its dots. A profile key <em>is</em> split on every dot, so a refused write from
-such a connector quotes the mapping above rather than a
-<code class="docutils literal notranslate"><span class="pre">control_system.connector.&lt;dotted</span> <span class="pre">type&gt;.writes_enabled</span></code> line: that line
-would build a nest nothing reads, and the write would go on being refused.</p>
-<p>Write posture is a <strong>launch-time deployment posture, not a live kill-switch</strong>:
-read from config and process-cached, so flipping it in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> does not
-affect a running process. The enforced kill-switch lives at the harness layer
-(a renderer <code class="docutils literal notranslate"><span class="pre">permissions.deny</span></code> on the write tool, then regenerate and
-relaunch); in-flight control of an active plan is the RunEngine’s own
-<code class="docutils literal notranslate"><span class="pre">abort</span></code> / <code class="docutils literal notranslate"><span class="pre">pause</span></code>. One live control does exist alongside it, and it only
-ever narrows: an operator can take one control target away from the whole
-deployment from <a class="reference internal" href="../../how-to/web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">the control-target chip</span></a>,
-and the connector re-reads that on every put.</p>
-<p>That rendered deny list is written once, before any target has been chosen,
-so it exists only where <strong>no</strong> target may write. A deployment armed on
-one target and not another renders no deny at all, and the refusal arrives per
-call instead, from the safety hook and from the connector, naming the target
-that refused it. Tools a project lists under <code class="docutils literal notranslate"><span class="pre">control_system.write_tools</span></code>
-take that per-call path in every render: they are never in the deny list, and
-the writes-check hook is what refuses them.</p>
-<p>The connector applies <strong>per-write mechanical safety</strong> — the write-posture gate,
-limits validation, the fail-closed validation path — on every put. That
-is a separate, complementary layer from the <strong>per-intent human authorization</strong>
-at the tool boundary (the approval hook, the launch token for plans), which
-gates the <em>intent</em> once rather than every put. The approval layer cannot
-substitute for the connector’s mechanical refusal.</p>
+<p>It is spelled in <code class="docutils literal notranslate"><span class="pre">tiers/*.yml</span></code>, in the deployment root for the root or
+single-user render, and in <code class="docutils literal notranslate"><span class="pre">apps/*.yml</span></code>, where it is always <code class="docutils literal notranslate"><span class="pre">never</span></code>. A tier
+overrides the root. Only the string <code class="docutils literal notranslate"><span class="pre">allowed</span></code> arms; any other value, and no
+key at all, reads <code class="docutils literal notranslate"><span class="pre">never</span></code>. The tier is a ceiling, not a selection: an
+<code class="docutils literal notranslate"><span class="pre">allowed</span></code> tier may write to every machine the deployment configures, and the
+switch picks which. Connector blocks carry transport facts only. On a
+<code class="docutils literal notranslate"><span class="pre">never</span></code> render the build denies the write tools outright, so they are
+refused before any per-call check.</p>
+<p><strong>The switch</strong> is one login’s, per machine, and off until that login turns it
+on from <a class="reference internal" href="../../how-to/web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">the control-target chip</span></a>. It is
+read on every write, so a flip reaches a session already running. Turning it
+off is never refused. A demoted login’s “on” stays on disk and does nothing
+while its tier is <code class="docutils literal notranslate"><span class="pre">never</span></code>.</p>
+<p><strong>The verdict</strong> combines them. One total order of terms; the first that
+refuses names the reason:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 5.0%" />
+<col style="width: 25.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>#</p></th>
+<th class="head"><p>Reason</p></th>
+<th class="head"><p>Refused when</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>1</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">readonly_run</span></code></p></td>
+<td><p>the run is read-only.</p></td>
+</tr>
+<tr class="row-odd"><td><p>2</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">tier_never</span></code></p></td>
+<td><p>the render’s tier is not <code class="docutils literal notranslate"><span class="pre">allowed</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p>3</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">target_unknown</span></code></p></td>
+<td><p>the machine does not resolve in this deployment.</p></td>
+</tr>
+<tr class="row-odd"><td><p>4</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">owner_unknown</span></code> / <code class="docutils literal notranslate"><span class="pre">owner_unscheduled</span></code> / <code class="docutils literal notranslate"><span class="pre">owner_foreign</span></code></p></td>
+<td><p>no login can be named for the write; a scheduled or triggered job runs
+for no login; or the owner is not the login this process acts for.</p></td>
+</tr>
+<tr class="row-even"><td><p>5</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">owner_unknown</span></code> / <code class="docutils literal notranslate"><span class="pre">tier_never</span></code></p></td>
+<td><p>in a shared container, the owner is missing from the login→tier map,
+or mapped <code class="docutils literal notranslate"><span class="pre">never</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p>6</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">record_unavailable</span></code></p></td>
+<td><p>the owner’s switch record cannot be read. An absent record is not
+unavailable: it is every switch off.</p></td>
+</tr>
+<tr class="row-even"><td><p>7</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">switch_off</span></code></p></td>
+<td><p>the owner’s switch is not on for this machine.</p></td>
+</tr>
+<tr class="row-odd"><td><p>8</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">launch_pinned</span></code></p></td>
+<td><p>the run was started with writes held off for this machine.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Two reasons come from outside the verdict: the EPICS connector refuses
+<code class="docutils literal notranslate"><span class="pre">switching</span></code> while its write gateway has not yet followed the switch, and the
+chip refuses a turn-on with <code class="docutils literal notranslate"><span class="pre">stopped_since</span></code> when a stop landed after it
+began. The package’s verdict, the connector and the stdlib hook twin share the
+order above, so a write is refused for the same reason on every side.</p>
+<p><strong>Refusal reasons and their trailer.</strong> Every refusal a write path returns
+ends with a trailer line naming the reason, so a reader recovers it without
+parsing the words:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">Writes</span> <span class="n">are</span> <span class="n">off</span><span class="p">;</span> <span class="n">turn</span> <span class="n">it</span> <span class="n">on</span> <span class="kn">from</span><span class="w"> </span><span class="nn">the</span> <span class="n">chip</span> <span class="ow">in</span> <span class="n">the</span> <span class="n">web</span> <span class="n">terminal</span><span class="o">.</span>
+<span class="p">[</span><span class="n">osprey</span><span class="o">-</span><span class="n">refusal</span><span class="p">:</span> <span class="n">switch_off</span><span class="p">]</span>
+</pre></div>
+</div>
+<p>The phrase says what stopped the write and who can lift it. It never names a
+config key, a file, an environment variable or a build command: its reader is
+an operator or the agent. The reasons and phrases are one importable table,
+<code class="docutils literal notranslate"><span class="pre">osprey_connectors.refusals</span></code>.</p>
+<p>The connector applies <strong>per-write mechanical safety</strong> — the verdict, limits
+validation, the fail-closed validation path — on every put. That is a
+separate layer from the <strong>per-intent human authorization</strong> at the tool
+boundary (the approval hook, the launch token for plans), which gates the
+<em>intent</em> once rather than every put. Neither substitutes for the other. See
+<a class="reference internal" href="../../architecture/safety-chain.html"><span class="doc">Safety Chain</span></a> for the order the layers run in.</p>
+</section>
+<section id="upgrading-from-a-deployment-wide-write-flag">
+<span id="write-safety-upgrade"></span><h3>Upgrading from a deployment-wide write flag<a class="headerlink" href="#upgrading-from-a-deployment-wide-write-flag" title="Link to this heading">#</a></h3>
+<p>Earlier releases armed writes per connector type, with
+<code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code> and
+<code class="docutils literal notranslate"><span class="pre">control_system.connector.&lt;type&gt;.writes_enabled</span></code>. Those keys are retired.</p>
+<ul class="simple">
+<li><p><strong>Run</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--revalidate</span></code>. It rewrites every layer to the tier
+key in place.</p></li>
+<li><p><strong>Until you do</strong>, each retired key builds with one warning naming the new
+key. A layer with a literal <code class="docutils literal notranslate"><span class="pre">true</span></code> in its flat or any per-type key reads
+<code class="docutils literal notranslate"><span class="pre">writes:</span> <span class="pre">allowed</span></code> — for every machine, not only the type it named; any
+other value reads <code class="docutils literal notranslate"><span class="pre">never</span></code>. An app always reads <code class="docutils literal notranslate"><span class="pre">never</span></code>. A file that
+spells both the retired and the new key is refused. The retired keys are
+refused from 2026.11.0.</p></li>
+<li><p><strong>A render built before this release</strong> is not reread with the old rule: at
+run time it has no tier key and reads <code class="docutils literal notranslate"><span class="pre">never</span></code> until it is rebuilt.</p></li>
+<li><p><strong>Every switch starts off.</strong> After the rebuild, nothing writes until a login
+turns a machine on from the chip. A scheduled dispatch job or a queue item
+with no owner no longer writes at all.</p></li>
+<li><p><strong>A shell on a write tier is refused at build.</strong> On an <code class="docutils literal notranslate"><span class="pre">allowed</span></code> render, a
+<code class="docutils literal notranslate"><span class="pre">claude_code.permissions.remove_deny</span></code> that lifts <code class="docutils literal notranslate"><span class="pre">Bash</span></code> or <code class="docutils literal notranslate"><span class="pre">Monitor</span></code>
+fails the build: a shell reaches the switch and the connectors around every
+gate. On a <code class="docutils literal notranslate"><span class="pre">never</span></code> render it stays a warning.</p></li>
+<li><p><strong>Two countdowns, warn now, refused from 2026.11.0.</strong> A facility tool that
+a server lists under <code class="docutils literal notranslate"><span class="pre">permissions.ask</span></code>, or whose name carries a
+destructive marker, and that is missing from that server’s
+<code class="docutils literal notranslate"><span class="pre">mcp_servers.&lt;server&gt;.writes</span></code> list, is a build warning.
+<code class="docutils literal notranslate"><span class="pre">control_system.write_tools</span></code> still gates its entries per call, now on the
+real machine’s switch, and warns; move them to
+<code class="docutils literal notranslate"><span class="pre">mcp_servers.&lt;server&gt;.writes</span></code>.</p></li>
+<li><p><strong>Shared containers read a login→tier map.</strong> The Bluesky queue and dispatch
+workers carry every login’s job, so the build renders
+<code class="docutils literal notranslate"><span class="pre">control_system.login_tiers</span></code> (<code class="docutils literal notranslate"><span class="pre">{login:</span> <span class="pre">allowed</span> <span class="pre">|</span> <span class="pre">never}</span></code>) into their
+config from the roster. A write there needs the container’s tier, the
+owner’s mapped tier and the owner’s switch; an owner the map does not name
+is refused <code class="docutils literal notranslate"><span class="pre">owner_unknown</span></code>. Nothing at run time writes the map: rebuild
+after a roster change.</p></li>
+</ul>
 </section>
 <section id="the-write-door">
 <span id="connector-write-door"></span><h3>The write door<a class="headerlink" href="#the-write-door" title="Link to this heading">#</a></h3>
@@ -694,9 +783,9 @@ kernel refuses to load a client library at all
 only in the processes that hold a connector. A connector marks its own put by
 holding the <strong>write door</strong> open around it. The base class does that for every
 connector: it wraps <code class="docutils literal notranslate"><span class="pre">write_channel</span></code> and <code class="docutils literal notranslate"><span class="pre">write_multiple_channels</span></code> — the
-latter is what <code class="docutils literal notranslate"><span class="pre">write_channels</span></code> reaches — and, after the write-posture
-check has passed, opens the door around the original method. A write refused
-by the posture check never opens it.</p>
+latter is what <code class="docutils literal notranslate"><span class="pre">write_channels</span></code> reaches — and, after the verdict has
+allowed the write, opens the door around the original method. A refused write
+never opens it.</p>
 <p>The door is a context variable
 (<code class="docutils literal notranslate"><span class="pre">osprey_connectors.control_system.write_door</span></code>), so it reaches only code
 that shares the context that opened it. That makes one rule for a connector’s
@@ -953,7 +1042,8 @@ relabeled – to your backend’s UTC wire format; <code class="docutils literal
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-confirmation">Write Confirmation</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#switching-confirmation-off">Switching confirmation off</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-values-are-compared">How values are compared</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#write-safety-configuration">Write Safety Configuration</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#who-may-write">Who May Write</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#upgrading-from-a-deployment-wide-write-flag">Upgrading from a deployment-wide write flag</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-write-door">The write door</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#limits-checking">Limits Checking</a></li>
 </ul>

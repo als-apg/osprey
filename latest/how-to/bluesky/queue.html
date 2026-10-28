@@ -737,21 +737,23 @@ is the everyday case.</p></td>
 </tbody>
 </table>
 </div>
-<p class="sd-card-text">The agent is held to a harder rule on top of this: where the project may
-write to no control target at all, its <code class="docutils literal notranslate"><span class="pre">queue_add</span></code> and <code class="docutils literal notranslate"><span class="pre">queue_start</span></code>
-tools are denied outright — it cannot queue or start anything, even on an
-idle queue. Its halts and its read tools are never taken away.</p>
-<p class="sd-card-text">Write posture is per control target, and each queue lane is bound at build
-time to one target, so a deployment can arm the lane that drives the
-simulator and leave the lane that drives the live machine unarmed. Nothing
-is denied up front on such a deployment — the deny list is written once,
-before a session picks a target — and <code class="docutils literal notranslate"><span class="pre">queue_add</span></code> and <code class="docutils literal notranslate"><span class="pre">queue_start</span></code>
-refuse per call instead, with <code class="docutils literal notranslate"><span class="pre">writes_disabled</span></code>, naming the lane’s machine.</p>
+<p class="sd-card-text">The agent is held to a harder rule on top of this: on a tier whose
+<code class="docutils literal notranslate"><span class="pre">control_system.writes</span></code> is <code class="docutils literal notranslate"><span class="pre">never</span></code>, its <code class="docutils literal notranslate"><span class="pre">queue_add</span></code> and
+<code class="docutils literal notranslate"><span class="pre">queue_start</span></code> tools are denied outright — it cannot queue or start
+anything, even on an idle queue. Its halts and its read tools are never
+taken away.</p>
+<p class="sd-card-text">On an <code class="docutils literal notranslate"><span class="pre">allowed</span></code> tier, each lane is bound at build time to one machine,
+and the write verdict for that machine is asked on every call
+(<a class="reference internal" href="../../reference/contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a>). With your switch for the lane’s machine off,
+<code class="docutils literal notranslate"><span class="pre">queue_start</span></code> is refused with <code class="docutils literal notranslate"><span class="pre">writes_disabled</span></code> and the verdict’s
+reason. <code class="docutils literal notranslate"><span class="pre">queue_add</span></code> still adds to an idle queue — the item is added
+unarmed, with <code class="docutils literal notranslate"><span class="pre">writes_refused</span></code> and the reason in its result — and is
+refused only where adding would mean executing.</p>
 <p class="sd-card-text">In a deployed control room the agent holds the launch token only where the
 deployment grants it, and it is granted <strong>per lane</strong>: to a tier whose
-config arms writes for the machine that lane drives and that also runs the
-bluesky MCP server. A tier can hold the simulator lane’s token and none
-for the live one. Where it is granted, the agent’s
+<code class="docutils literal notranslate"><span class="pre">control_system.writes</span></code> is <code class="docutils literal notranslate"><span class="pre">allowed</span></code> and that also runs the bluesky MCP
+server. The token is a ceiling; your switch still decides each write.
+Where it is granted, the agent’s
 <code class="docutils literal notranslate"><span class="pre">queue_start</span></code> arms the queue itself, and your approval of that tool call
 is the arming decision. Where it is not, <code class="docutils literal notranslate"><span class="pre">queue_start</span></code> is refused with
 <code class="docutils literal notranslate"><span class="pre">launch_token_invalid</span></code> and the start stays with you, from the BLUESKY
@@ -773,16 +775,19 @@ the detail rather than the prompt.</p>
 <p class="sd-card-text">A plan is also bound to <strong>whoever queued it</strong>. Queued through one of
 OSPREY’s named doors — the PLAN tab, the BLUESKY panel in its web-terminal
 tab, the agent’s <code class="docutils literal notranslate"><span class="pre">queue_add</span></code> — onto a lane this deployment runs, a plan
-carries that person’s name, and its writes obey their own read-only
-narrowing from the header chip (<a class="reference internal" href="../web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a>)
-wherever the plan runs.</p>
+carries that person’s name, and its writes follow that person’s tier and
+write switch (<a class="reference internal" href="../web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">The control-target chip</span></a>) wherever the plan runs.
+The lane reads the person’s tier from the login→tier map the build renders
+into its config; a name the map does not hold is refused.</p>
 <p class="sd-card-text">Not every route in is a named one. The same panel served at an address of
 its own is a service door rather than a terminal, and a login there names
 nobody. The queue server, in turn, is the facility’s rather than OSPREY’s,
 so a plan can reach it without passing an OSPREY door at all. Either way the
-plan carries whatever name it claims, or none, and runs at the lane’s
-ceiling — what the deployment armed for that lane, with nobody’s chip on
-top. A lane whose plans run on the facility’s own worker sits outside all of
+plan carries whatever name it claims, or none. A claimed name binds that
+person’s switch; a plan with no name writes nothing, refused
+<code class="docutils literal notranslate"><span class="pre">owner_unknown</span></code> — a breaking change from earlier releases, where it ran
+at what the deployment armed for the lane. A lane whose plans run on the
+facility’s own worker sits outside all of
 this, and a name shown on one of its items is a label rather than a gate.</p>
 <p class="sd-card-text">On a two-lane deployment the BLUESKY panel carries a <strong>lane picker</strong> in its
 status strip, labelled by the machine each lane drives. The panel is bound

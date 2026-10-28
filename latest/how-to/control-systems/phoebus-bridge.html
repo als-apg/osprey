@@ -697,7 +697,7 @@ URL tells the two apart. Its <code class="docutils literal notranslate"><span cl
 <code class="docutils literal notranslate"><span class="pre">phoebus.agent_access:</span> <span class="pre">read_write</span></code>. Under the default, <code class="docutils literal notranslate"><span class="pre">read</span></code>, the tool is
 left out of the agent’s tool list and permissions, and the server refuses a
 call to it by the key’s name. Under <code class="docutils literal notranslate"><span class="pre">read_write</span></code> every drive passes the
-writes kill switch (<code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code>) and then the approval
+write verdict (<a class="reference internal" href="../../reference/contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a>) and then the approval
 prompt, is refused while the control target is switched away from the
 deployment’s baseline (<a class="reference internal" href="switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a>), and is audited as a tool
 call. The key is all or nothing, because a panel runs whatever its widgets are

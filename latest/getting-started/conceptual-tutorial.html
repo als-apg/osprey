@@ -498,11 +498,12 @@ what the user asks.</p>
 <p>The agent can propose writes but cannot execute them alone. When a
 write is proposed, the operator sees the target channel and value and
 must explicitly approve before anything reaches hardware.</p>
-<p>Two automated checks run behind the scenes. The <strong>kill switch</strong>
-(<code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>) blocks writes when off — no prompt
-appears. It is set per control target, so a deployment can arm writes on its
-simulator and refuse them on the machine that has beam; a session is answered by
-the posture of whichever target it is pointed at. The <strong>limits system</strong>
+<p>Two automated checks run behind the scenes. The <strong>write verdict</strong> blocks a
+write — no prompt appears — unless the login’s tier allows writes
+(<code class="docutils literal notranslate"><span class="pre">control_system.writes</span></code>) and that login has turned writes on for the machine
+from the web terminal’s chip. The switch is per machine, so an operator can
+write to the simulator while the machine that has beam stays off
+(<a class="reference internal" href="../reference/contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a>). The <strong>limits system</strong>
 validates each value against per-channel safe ranges and read-only flags. If
 either check fails, the write is blocked before the operator is ever asked.</p>
 <p>These checks are enforced by the runtime, in a layer the agent’s tool calls

@@ -1518,7 +1518,8 @@ in a multi-user deployment too.</p></td>
 offers the reading tools only: <code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code> is left out of the
 agent’s tool list and permissions, and the server refuses a drive.
 <code class="docutils literal notranslate"><span class="pre">read_write</span></code> offers <code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code>, which still asks for approval
-and still stops when <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code> is <code class="docutils literal notranslate"><span class="pre">false</span></code>.
+and still stops where the write verdict refuses
+(<a class="reference internal" href="../contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a>).
 Any other value is refused by name. The switch is all or nothing: a
 panel runs whatever its widgets are wired to, so finer control belongs
 to the EPICS gateway or access security the Phoebus product connects

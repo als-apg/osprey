@@ -524,7 +524,7 @@ write-safety chain), three rules, and one output style:</p>
 <span class="w">  </span><span class="c1"># system until all three agree. Remove any one of them and `osprey build`</span>
 <span class="w">  </span><span class="c1"># refuses the render while writes are armed, naming the hook and the server</span>
 <span class="w">  </span><span class="c1"># whose write tools it guarded. Only a read-only deployment may drop them.</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">writes-check</span><span class="w">   </span><span class="c1"># Kill switch: refuse every write while writes_enabled is false</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">writes-check</span><span class="w">   </span><span class="c1"># Kill switch: refuse every write to a machine whose writes are off</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">approval</span><span class="w">       </span><span class="c1"># Gate hardware-write tool calls on human approval prompt</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">limits</span><span class="w">         </span><span class="c1"># Enforce per-channel min/max limits, from data/facility/limits.yaml</span>
 </pre></div>
@@ -541,10 +541,10 @@ per line:</p>
 <span class="w">  </span><span class="c1"># and `osprey config --defaults` lists every shipped connector type.</span>
 <span class="w">  </span><span class="nt">control_system.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">virtual_accelerator</span>
 <span class="w">  </span><span class="nt">control_system.connector.virtual_accelerator.serving</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">in_process</span>
-<span class="w">  </span><span class="c1"># The FIRST guard in the write-safety chain: while false, every hardware</span>
+<span class="w">  </span><span class="c1"># The FIRST guard in the write-safety chain: while `never`, every hardware</span>
 <span class="w">  </span><span class="c1"># write is refused before the limits check or the approval prompt is even</span>
-<span class="w">  </span><span class="c1"># consulted. Set it true, rebuild, and the two hooks below take over.</span>
-<span class="w">  </span><span class="nt">control_system.writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="c1"># consulted. Set it `allowed`, rebuild, and the two hooks below take over.</span>
+<span class="w">  </span><span class="nt">control_system.writes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">never</span>
 <span class="w">  </span><span class="c1"># ...</span>
 <span class="w">  </span><span class="c1"># The SECOND guard: every write is checked against the records in</span>
 <span class="w">  </span><span class="c1"># data/facility/limits.yaml (per-channel min/max and writable flags).</span>
@@ -558,7 +558,7 @@ per line:</p>
 <span class="w">  </span><span class="c1"># ...</span>
 </pre></div>
 </div>
-<p>That <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled:</span> <span class="pre">false</span></code> line is the one this tutorial
+<p>That <code class="docutils literal notranslate"><span class="pre">control_system.writes:</span> <span class="pre">never</span></code> line is the one this tutorial
 comes back to in Step 7. For everything the profile can hold, see
 <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a>.</p>
 <div class="admonition warning">
@@ -645,16 +645,17 @@ history, and the plot lands in the workspace pane beside the terminal.</p>
 </div>
 <p>The write is refused before it reaches the control system: the agent reports
 that writes are disabled in this deployment. The exact wording is the agent’s
-own, because the refusal happens a layer below it — with the switch off,
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders the write tool into the agent’s denied permissions,
-so the tool call is blocked before it even executes.</p>
+own, because the refusal happens a layer below it — with the tier at
+<code class="docutils literal notranslate"><span class="pre">never</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders the write tool into the agent’s denied
+permissions, so the tool call is blocked before it even executes.</p>
 <p>This is the first of <strong>three guards</strong> that every write must pass:</p>
 <ol class="arabic simple">
-<li><p><strong>Master switch</strong> (<code class="docutils literal notranslate"><span class="pre">writes-check</span></code> hook) — <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code>
-is <code class="docutils literal notranslate"><span class="pre">false</span></code> by default, so all writes are refused outright. This is what
-just fired: the build bakes the switch into the agent’s denied permissions,
-and the <code class="docutils literal notranslate"><span class="pre">writes-check</span></code> hook enforces the same switch again as defense in
-depth.</p></li>
+<li><p><strong>Who may write</strong> (<code class="docutils literal notranslate"><span class="pre">writes-check</span></code> hook) — the tier key
+<code class="docutils literal notranslate"><span class="pre">control_system.writes</span></code> is <code class="docutils literal notranslate"><span class="pre">never</span></code> here, so all writes are refused
+outright. This is what just fired: the build bakes the tier into the agent’s
+denied permissions. Once the tier allows writes, the hook asks your login’s
+write switch for the machine on every call. See
+<a class="reference internal" href="../reference/contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a>.</p></li>
 <li><p><strong>Limits</strong> (<code class="docutils literal notranslate"><span class="pre">limits</span></code> hook) — the value is checked against per-channel
 bounds and writable flags in <code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code>.</p></li>
 <li><p><strong>Approval</strong> (<code class="docutils literal notranslate"><span class="pre">approval</span></code> hook) — a write that passes both still pauses
@@ -665,14 +666,14 @@ for your explicit yes/no before anything is executed.</p></li>
 while writes are armed, naming the hook and the server whose write tools it
 guarded. Only a read-only deployment may drop them.</p>
 </section>
-<section id="step-7-enable-writes-in-profile-yml">
-<h2>Step 7: Enable Writes — in profile.yml<a class="headerlink" href="#step-7-enable-writes-in-profile-yml" title="Link to this heading">#</a></h2>
-<p>Open <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, find the <code class="docutils literal notranslate"><span class="pre">config:</span></code> block from Step 2, and set one
-key to <code class="docutils literal notranslate"><span class="pre">true</span></code>:</p>
+<section id="step-7-enable-writes-tier-rebuild-chip">
+<h2>Step 7: Enable Writes — Tier, Rebuild, Chip<a class="headerlink" href="#step-7-enable-writes-tier-rebuild-chip" title="Link to this heading">#</a></h2>
+<p>Writes take two steps: the deployment allows them, then you turn them on.</p>
+<p>Open <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, find the <code class="docutils literal notranslate"><span class="pre">config:</span></code> block from Step 2, and allow writes:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">control_system.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">virtual_accelerator</span>
 <span class="w">  </span><span class="nt">control_system.connector.virtual_accelerator.serving</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">in_process</span>
-<span class="w">  </span><span class="nt">control_system.writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">   </span><span class="c1"># ← was false</span>
+<span class="w">  </span><span class="nt">control_system.writes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">allowed</span><span class="w">   </span><span class="c1"># ← was never</span>
 </pre></div>
 </div>
 <p>Then re-render and relaunch:</p>
@@ -680,9 +681,12 @@ key to <code class="docutils literal notranslate"><span class="pre">true</span><
 osprey<span class="w"> </span>web
 </pre></div>
 </div>
-<p>Do <strong>not</strong> edit <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code> to flip this switch — that file is
-generated output, and your edit would vanish on the next build. The profile is
-where the change belongs, and the rebuild carries it into the render.</p>
+<p>Do <strong>not</strong> edit <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code> instead — that file is generated output,
+and your edit would vanish on the next build.</p>
+<p>The deployment now <em>may</em> write, but your switch is still off. Click the
+control-target chip in the header (<code class="docutils literal notranslate"><span class="pre">●</span> <span class="pre">Simulator</span> <span class="pre">·</span> <span class="pre">writes</span> <span class="pre">off</span></code>) and turn the
+simulator’s writes on (<a class="reference internal" href="../how-to/web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">The control-target chip</span></a>). A write asked for
+with the switch off is refused with a line telling you to do exactly that.</p>
 </section>
 <section id="step-8-write-with-the-guards-watching">
 <h2>Step 8: Write with the Guards Watching<a class="headerlink" href="#step-8-write-with-the-guards-watching" title="Link to this heading">#</a></h2>
@@ -690,7 +694,7 @@ where the change belongs, and the rebuild carries it into the render.</p>
 holds three records: two writable quadrupole setpoints with bounds, and one
 read-only measurement. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes them into the render’s limits
 database, <code class="docutils literal notranslate"><span class="pre">build/data/channel_limits.json</span></code>, which is what the guards read.
-With writes enabled, all three remaining behaviors are now observable.</p>
+With the simulator’s writes on, all three remaining behaviors are now observable.</p>
 <p><strong>A write inside its limits</strong> — pauses for your approval:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Set SR:MAG:QF:01:CURRENT:SP to 150
 </pre></div>
@@ -905,7 +909,7 @@ or volume.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-4-launch-the-web-terminal">Step 4: Launch the Web Terminal</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-5-read-some-channels">Step 5: Read Some Channels</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-6-attempt-a-write-and-get-refused">Step 6: Attempt a Write — and Get Refused</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-7-enable-writes-in-profile-yml">Step 7: Enable Writes — in profile.yml</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-7-enable-writes-tier-rebuild-chip">Step 7: Enable Writes — Tier, Rebuild, Chip</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-8-write-with-the-guards-watching">Step 8: Write with the Guards Watching</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-9-edit-the-limits-file">Step 9: Edit the Limits File</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-10-first-containers-deploy-the-telemetry-store">Step 10: First Containers — Deploy the Telemetry Store</a><ul class="visible nav section-nav flex-column">

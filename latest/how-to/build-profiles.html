@@ -1089,7 +1089,7 @@ tier and per app:</p>
 </pre></div>
 </div>
 <p>A tier holds only its <strong>differences</strong> from <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> — for <code class="docutils literal notranslate"><span class="pre">readonly</span></code>,
-chiefly <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled:</span> <span class="pre">false</span></code>; for <code class="docutils literal notranslate"><span class="pre">admin</span></code>, the
+chiefly <code class="docutils literal notranslate"><span class="pre">control_system.writes:</span> <span class="pre">never</span></code>; for <code class="docutils literal notranslate"><span class="pre">admin</span></code>, the
 privileges the profile deliberately withholds. The build lays it over the
 profile: lists are added by name, <code class="docutils literal notranslate"><span class="pre">config:</span></code> keys win. A tier never subtracts
 and never carries a deployment fact, so it has no <code class="docutils literal notranslate"><span class="pre">extends:</span></code>, <code class="docutils literal notranslate"><span class="pre">exclude:</span></code>,
@@ -1171,11 +1171,9 @@ green build as proof the exclusion took.</p>
 <p><code class="docutils literal notranslate"><span class="pre">exclude:</span></code> carves a tier by <em>removing</em> capability. When the boundary you
 want is “may not write,” prefer flipping the enforcement switch instead —
 the bundled <code class="docutils literal notranslate"><span class="pre">readonly</span></code> tier differs from its
-write-capable sibling only on write posture, leaving the tool surface
-identical (see <a class="reference internal" href="web-terminal/multi-user/tiers.html"><span class="doc">Privilege Tiers</span></a>). Write posture is per
-control target, so that tier pins the deployment-wide
-<code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code> <em>and</em> each connector type’s own key: the
-flat key is what a type inherits, not a floor over it.</p>
+write-capable sibling only on the tier key, <code class="docutils literal notranslate"><span class="pre">control_system.writes</span></code>,
+leaving the tool surface identical (see
+<a class="reference internal" href="web-terminal/multi-user/tiers.html"><span class="doc">Privilege Tiers</span></a> and <a class="reference internal" href="../reference/contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a>).</p>
 </div>
 <p>To keep the bluesky server <strong>on</strong> while hiding an individual plan, set
 <code class="docutils literal notranslate"><span class="pre">bluesky.excluded_plans</span></code> instead:</p>

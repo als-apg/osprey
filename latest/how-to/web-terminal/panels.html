@@ -700,7 +700,10 @@ switches theme, the terminal posts to the panel’s frame:</p>
 <p>A panel is always served from the terminal’s own address, so the message is
 same-origin. Check that before acting on it — <code class="docutils literal notranslate"><span class="pre">if</span> <span class="pre">(event.origin</span> <span class="pre">!==</span>
 <span class="pre">window.location.origin)</span> <span class="pre">return;</span></code> — and repaint. The Expert/Simple toggle
-broadcasts the same way, as <code class="docutils literal notranslate"><span class="pre">{</span> <span class="pre">type:</span> <span class="pre">'osprey-mode-change',</span> <span class="pre">mode</span> <span class="pre">}</span></code>.</p>
+broadcasts the same way, as <code class="docutils literal notranslate"><span class="pre">{</span> <span class="pre">type:</span> <span class="pre">'osprey-mode-change',</span> <span class="pre">mode</span> <span class="pre">}</span></code>. A panel
+that runs at an opaque origin (see <a class="reference internal" href="#panels-you-add-run-at-an-opaque-origin">Panels you add run at an opaque origin</a>)
+receives only the theme message, and checks <code class="docutils literal notranslate"><span class="pre">event.source</span> <span class="pre">===</span> <span class="pre">window.parent</span></code>
+instead of the origin.</p>
 <p><strong>The tokens come from the terminal, not from your copy.</strong> A page embedded as
 a panel can load OSPREY’s design tokens with a plain root-absolute reference:</p>
 <div class="highlight-html notranslate"><div class="highlight"><pre><span></span><span class="p">&lt;</span><span class="nt">link</span> <span class="na">rel</span><span class="o">=</span><span class="s">&quot;stylesheet&quot;</span> <span class="na">href</span><span class="o">=</span><span class="s">&quot;/design-system/css/tokens.css&quot;</span><span class="p">&gt;</span>
@@ -828,6 +831,30 @@ authenticated like any other — unless the redirect points at a third site,
 which is refused with a <code class="docutils literal notranslate"><span class="pre">502</span></code> so that a terminal URL never forwards an
 operator somewhere the panel picked.</p>
 </div>
+<section id="panels-you-add-run-at-an-opaque-origin">
+<h3>Panels you add run at an opaque origin<a class="headerlink" href="#panels-you-add-run-at-an-opaque-origin" title="Link to this heading">#</a></h3>
+<p>A panel under <code class="docutils literal notranslate"><span class="pre">panels/</span></code> and a panel registered while the terminal runs are
+bytes an agent can write, so the terminal never runs them as itself. Which
+panels this covers is decided by where they come from, not by anything the
+panel declares; panels OSPREY ships, and URL-backed panels declared under
+<code class="docutils literal notranslate"><span class="pre">web.panels</span></code>, keep their usual frame.</p>
+<ul class="simple">
+<li><p><strong>It cannot reach operator routes.</strong> The panel is framed without
+<code class="docutils literal notranslate"><span class="pre">allow-same-origin</span></code> or <code class="docutils literal notranslate"><span class="pre">allow-forms</span></code> and served with a sandboxing
+<code class="docutils literal notranslate"><span class="pre">Content-Security-Policy</span></code>, so it runs at an opaque origin and the
+operator’s cookie never rides its requests. A request to an operator route
+is refused, and so is a form post.</p></li>
+<li><p><strong>It uses relative URLs for its own files.</strong> The terminal frames the panel at
+a capability address bound to the operator’s login, and only URLs relative to
+the entry page (<code class="docutils literal notranslate"><span class="pre">./app.js</span></code>, <code class="docutils literal notranslate"><span class="pre">data.json</span></code>) are sure to stay under it. A
+root-absolute reference to the panel’s own files can leave that address, and
+is refused there.</p></li>
+<li><p><strong>The terminal’s own assets still load.</strong> <code class="docutils literal notranslate"><span class="pre">/design-system/…</span></code> and
+<code class="docutils literal notranslate"><span class="pre">/static/fonts/…</span></code> are served to an opaque panel, so it imports the theme
+module and links the tokens exactly as above, and the theme still follows the
+operator’s.</p></li>
+</ul>
+</section>
 </section>
 <section id="panel-layouts-presets">
 <h2>Panel layouts (“presets”)<a class="headerlink" href="#panel-layouts-presets" title="Link to this heading">#</a></h2>
@@ -984,7 +1011,10 @@ shape of it.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#theming-a-url-backed-panel">Theming a URL-backed panel</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-bluesky-panel">The Bluesky panel</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#channel-suggestions-in-plan-forms">Channel suggestions in plan forms</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#adding-your-own-panel">Adding your own panel</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#adding-your-own-panel">Adding your own panel</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#panels-you-add-run-at-an-opaque-origin">Panels you add run at an opaque origin</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#panel-layouts-presets">Panel layouts (“presets”)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#panel-tools-the-agent-uses">Panel tools the agent uses</a></li>
 </ul>

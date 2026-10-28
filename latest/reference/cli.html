@@ -584,7 +584,9 @@ included), and the repo’s own skills, agents, rules, output styles and hooks n
 its path), so every render keeps what it carried.
 Your deployment’s own selections — the roster, the shared apps, the default
 tier, role tiers, the landing groups — are left for you and named in the
-output. Prints a diff to review and commit.</p>
+output. Retired write keys are rewritten to the tier key
+<code class="docutils literal notranslate"><span class="pre">control_system.writes</span></code> in every layer (<a class="reference internal" href="contracts/connectors.html#write-safety-upgrade"><span class="std std-ref">Upgrading from a deployment-wide write flag</span></a>). Prints
+a diff to review and commit.</p>
 <p>The step is one-way: an older OSPREY refuses the revalidated repository. To go
 back, check out the repository as it was before the commit and install the
 previous release.</p>
@@ -633,8 +635,7 @@ osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span
 osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">channel_finder_mode</span><span class="o">=</span>in_context
 osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span>config.system.timezone<span class="o">=</span>America/Los_Angeles
 osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span>config.control_system.connector.epics.gateways.read_only.address<span class="o">=</span>gw.example.org
-osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--repo<span class="w"> </span>~/my-assistant<span class="w"> </span>config.control_system.writes_enabled<span class="o">=</span><span class="nb">true</span>
-osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span>config.control_system.connector.virtual_accelerator.writes_enabled<span class="o">=</span><span class="nb">true</span>
+osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--repo<span class="w"> </span>~/my-assistant<span class="w"> </span>config.control_system.writes<span class="o">=</span>allowed
 </pre></div>
 </div>
 </section>

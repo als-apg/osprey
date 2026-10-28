@@ -978,29 +978,23 @@ account can read stay readable to it.</p>
 </section>
 <section id="write-posture">
 <span id="python-executor-session-posture"></span><h3>Write posture<a class="headerlink" href="#write-posture" title="Link to this heading">#</a></h3>
-<p>An operator can turn writes off on one control target from the control-target
-chip in the header (see <a class="reference internal" href="../how-to/web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">The control-target chip</span></a>). The setting is
-the deployment’s, not one conversation’s. This server reads it at the moment a
-run asks for writes — not from the environment it was started with, so a
-change made mid-conversation applies to the next run — and a <code class="docutils literal notranslate"><span class="pre">readwrite</span></code>
-<code class="docutils literal notranslate"><span class="pre">execute</span></code> on such a target is refused by the executor’s own posture gate,
-whatever the deployment itself permits:</p>
-<blockquote>
-<div><p>Writes are off for the ‘&lt;target&gt;’ control target — turned off from the
-control-target chip in the header; applies to every session of this login.</p>
-</div></blockquote>
-<p>Where the run’s target cannot be identified, the most restrictive state
-recorded for the deployment decides, and the message says so — <em>“Writes are off
-for at least one control target (the run’s target could not be identified, so
-the most restrictive decides) — turned off from the control-target chip in
-the header.”</em> — rather than granting the run the most permissive answer.</p>
-<p>The agent is told to re-run as <code class="docutils literal notranslate"><span class="pre">readonly</span></code> — reads are untouched — or to
-turn writes back on from the chip. The deployment’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> is not the
-gate here and the message says so.</p>
+<p>A <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> <code class="docutils literal notranslate"><span class="pre">execute</span></code> asks the write verdict (<a class="reference internal" href="../reference/contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a>)
+when the run is requested — the login’s tier, then its switch for the run’s
+control target, read fresh, so a flip made mid-conversation applies to the next
+run. A refused run gets the verdict’s phrase and its trailer, for example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">Writes</span> <span class="n">are</span> <span class="n">off</span><span class="p">;</span> <span class="n">turn</span> <span class="n">it</span> <span class="n">on</span> <span class="kn">from</span><span class="w"> </span><span class="nn">the</span> <span class="n">chip</span> <span class="ow">in</span> <span class="n">the</span> <span class="n">web</span> <span class="n">terminal</span><span class="o">.</span>
+<span class="p">[</span><span class="n">osprey</span><span class="o">-</span><span class="n">refusal</span><span class="p">:</span> <span class="n">switch_off</span><span class="p">]</span>
+</pre></div>
+</div>
+<p>A run whose target cannot be identified is refused <code class="docutils literal notranslate"><span class="pre">target_unknown</span></code> rather
+than granted the most permissive answer. The agent is told to re-run as
+<code class="docutils literal notranslate"><span class="pre">readonly</span></code> — reads are untouched — or to ask the operator to turn writes
+on from the chip. The phrase names no config key: the deployment’s
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> is not what the operator changes here.</p>
 <p>A run that has already started cannot be <em>widened</em>: it keeps the launch pin it
-started under, so a script cannot gain write access to a machine the operator
-took away from it while it was running. A narrowing that lands mid-run is
-honoured by the reference monitor inside the sandbox at the moment of the write.</p>
+started under, and a write it attempts on a machine it was launched with writes
+held off for is refused <code class="docutils literal notranslate"><span class="pre">launch_pinned</span></code>. A switch turned off mid-run is
+honoured by the connector inside the sandbox at the moment of the write.</p>
 <p>A run is also refused outright while a control-target switch has not yet
 reached every control-system server. The sandbox is stamped with the target and
 the switch generation it was launched for, and a run that could be routed to

@@ -703,9 +703,9 @@ setting.</p>
 <span class="w">  </span><span class="c1"># Control system: which backend the deployment talks to. Required — see</span>
 <span class="w">  </span><span class="c1"># the posture floor below.</span>
 <span class="w">  </span><span class="nt">control_system.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">virtual_accelerator</span>
-<span class="w">  </span><span class="c1"># The write posture every connector type inherits when it says nothing</span>
-<span class="w">  </span><span class="c1"># itself. Only a literal `true` arms writes, at either level.</span>
-<span class="w">  </span><span class="nt">control_system.writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="c1"># The tier key: may this render write at all. `allowed` or `never`</span>
+<span class="w">  </span><span class="c1"># (silence is `never`); each login still turns a machine on from the chip.</span>
+<span class="w">  </span><span class="nt">control_system.writes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">allowed</span>
 <span class="w">  </span><span class="c1"># Limits checking. This pair is the deployment&#39;s, and every type</span>
 <span class="w">  </span><span class="c1"># inherits it: `exclusive` = only channels in the limits file can be</span>
 <span class="w">  </span><span class="c1"># written, `optional` = channels in the file are held to their limits and</span>
@@ -735,11 +735,10 @@ setting.</p>
 <p>That is the shape <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--preset</span> <span class="pre">control-assistant</span></code> writes, with the
 timezone changed and a per-type limits block added. Pointing the same deployment at a real machine
 (<code class="docutils literal notranslate"><span class="pre">control_system.type:</span> <span class="pre">epics</span></code>) is a larger edit than the one line, because
-two things the preset ships are scoped to the simulated baseline: the
-<code class="docutils literal notranslate"><span class="pre">va_archiver:</span></code> block records a machine the deployment would no longer be
-baselined on, and any profile-level <code class="docutils literal notranslate"><span class="pre">control_system.connector.&lt;type&gt;.writes_enabled:</span>
-<span class="pre">true</span></code> has to agree with the read-only tier that inherits it. <code class="docutils literal notranslate"><span class="pre">osprey</span>
-<span class="pre">build</span></code> refuses each in turn rather than rendering it. See
+the <code class="docutils literal notranslate"><span class="pre">va_archiver:</span></code> block the preset ships records a machine the deployment
+would no longer be baselined on. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses it rather than
+rendering it. The tier key needs no change: it is target-blind
+(<a class="reference internal" href="../contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a>). See
 <a class="reference internal" href="../../how-to/control-systems/use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
@@ -1149,27 +1148,25 @@ subtract what a profile added</p></td>
 </tbody>
 </table>
 </div>
-<p>The third source is the one to know about. A profile that leaves <strong>no</strong> control
-target armed does not merely stop the write path at run time; it also puts the
-framework servers’ write tools into the rendered deny list. Those entries are
+<p>The third source is the one to know about. A profile whose tier is
+<code class="docutils literal notranslate"><span class="pre">control_system.writes:</span> <span class="pre">never</span></code> does not merely stop the write path at run
+time; it also puts the framework servers’ write tools into the rendered deny list. Those entries are
 generated, not authored, and no <code class="docutils literal notranslate"><span class="pre">remove_deny</span></code> reaches them. (Tools a profile
 lists under <code class="docutils literal notranslate"><span class="pre">control_system.write_tools</span></code> are a different mechanism: they
 never reach <code class="docutils literal notranslate"><span class="pre">permissions.deny</span></code>, in any render, and are refused by the
-writes-check hook instead.) A profile that arms nothing and also writes
+writes-check hook instead.) A <code class="docutils literal notranslate"><span class="pre">never</span></code> profile that also writes
 <code class="docutils literal notranslate"><span class="pre">remove_deny:</span> <span class="pre">[&quot;mcp__controls__channel_write&quot;]</span></code> still renders that deny —
 which is the point. A read-only posture that a later edit could quietly lift
 would not be a posture at all.</p>
-<p>Arming <em>some</em> targets and not others renders differently, and the difference is
-worth knowing before you write such a profile. <code class="docutils literal notranslate"><span class="pre">settings.json</span></code> is rendered
-once, before any session has picked a target, so a tool that is legal on the
-simulator and refused on the machine cannot be denied there — and it cannot be
-left in <code class="docutils literal notranslate"><span class="pre">ask</span></code> either, or an operator would be prompted to approve a write the
-target’s posture forbids. Such a profile therefore renders <strong>neither</strong>: the
-gated tools leave both lists, and the boundary is carried per call by the
-safety hook (which reads the session’s active target) and by the connector
-behind it. The static deny is the stronger of the two, so reach for it — a
-profile that arms nothing — whenever the requirement is “this tier can never
-move anything”.</p>
+<p>An <code class="docutils literal notranslate"><span class="pre">allowed</span></code> tier renders differently. The login’s switch decides each write
+at run time, so nothing is denied up front. A write tool whose rule carries
+both the writes-check hook and an approval hook leaves <code class="docutils literal notranslate"><span class="pre">ask</span></code>: with the switch
+off, writes-check refuses it before any operator is offered an approval for a
+write the switch forbids; with it on, the approval hook asks. A tool missing
+either hook keeps its static <code class="docutils literal notranslate"><span class="pre">ask</span></code>. The boundary is carried per call by the
+safety hook and by the connector behind it (<a class="reference internal" href="../contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a>). The
+static deny is the stronger of the two, so reach for a <code class="docutils literal notranslate"><span class="pre">never</span></code> tier whenever
+the requirement is “this tier can never move anything”.</p>
 <div class="important admonition">
 <p class="admonition-title">Permission lists grow across <code class="docutils literal notranslate"><span class="pre">extends</span></code>; taking an entry out is explicit</p>
 <p>The permission lists under <code class="docutils literal notranslate"><span class="pre">config:</span></code> — <code class="docutils literal notranslate"><span class="pre">deny</span></code>, <code class="docutils literal notranslate"><span class="pre">ask</span></code> and their
@@ -1577,9 +1574,8 @@ none gets none here either.</p></li>
 name at build time rather than silently having the derived copy win: two homes
 for one fact are free to disagree, and an address left in <code class="docutils literal notranslate"><span class="pre">config:</span></code> reads as
 the endpoint the <code class="docutils literal notranslate"><span class="pre">standin</span></code> target dials while every session on it is somewhere
-else. The refusal is scoped to those leaves — a tier’s own
-<code class="docutils literal notranslate"><span class="pre">control_system.connector.live_standin.writes_enabled</span></code> says something the build
-has no opinion about, and is yours to write.</p>
+else. The refusal is scoped to those leaves; the rest of the
+<code class="docutils literal notranslate"><span class="pre">control_system.connector.live_standin</span></code> block is yours to write.</p>
 <p><strong>What the block does not decide.</strong> Write posture, limits checking and the
 operator acknowledgment are the profile’s, on a stand-in deployment exactly as on
 any other: they describe how the <em>deployment</em> is run, not where one of its
