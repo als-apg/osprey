@@ -62,7 +62,7 @@ class TestExecuteEmbedding:
             )
         assert vectors == [[0.1, 0.2]]
         embed.assert_called_once_with(
-            model="text-embedding-3-large",
+            model="openai/text-embedding-3-large",
             input=["alpha"],
             timeout=42.0,
             api_key="sk-test",
@@ -75,7 +75,11 @@ class TestExecuteEmbedding:
         with patch(_EMBEDDING, return_value=_response([1.0])) as embed:
             adapter.execute_embedding(["alpha"], model_id="text-embedding-3-small")
         kwargs = embed.call_args.kwargs
-        assert kwargs == {"model": "text-embedding-3-small", "input": ["alpha"], "timeout": 600.0}
+        assert kwargs == {
+            "model": "openai/text-embedding-3-small",
+            "input": ["alpha"],
+            "timeout": 600.0,
+        }
 
     def test_returns_one_vector_per_text_in_input_order(self, adapter):
         """The vectors come back in the order of the response data."""
@@ -93,7 +97,7 @@ class TestExecuteEmbedding:
         """model_id=None embeds with default_embedding_model_id."""
         with patch(_EMBEDDING, return_value=_response([1.0])) as embed:
             adapter.execute_embedding(["a"], model_id=None, api_key="k")
-        assert embed.call_args.kwargs["model"] == "text-embedding-3-small"
+        assert embed.call_args.kwargs["model"] == "openai/text-embedding-3-small"
 
     def test_library_failure_is_raised_as_runtime_error_keeping_the_cause(self, adapter):
         """A LiteLLM error surfaces as RuntimeError chained to the original exception."""
@@ -115,7 +119,7 @@ class TestCheckEmbeddingHealth:
         assert result.reachable is True
         assert result.reason is None
         kwargs = embed.call_args.kwargs
-        assert kwargs["model"] == "text-embedding-3-small"
+        assert kwargs["model"] == "openai/text-embedding-3-small"
         assert kwargs["api_base"] == "https://proxy.example/v1"
         assert kwargs["api_key"] == "sk-test"
         assert kwargs["timeout"] == 3.0
@@ -126,7 +130,7 @@ class TestCheckEmbeddingHealth:
         """An explicit model_id is the model the probe embeds with."""
         with patch(_EMBEDDING, return_value=_response([0.5])) as embed:
             adapter.check_embedding_health("sk-test", None, model_id="text-embedding-3-large")
-        assert embed.call_args.kwargs["model"] == "text-embedding-3-large"
+        assert embed.call_args.kwargs["model"] == "openai/text-embedding-3-large"
 
     def test_401_is_an_auth_verdict_not_an_exception(self, adapter):
         """A rejected key answers HealthResult(False, ..., 'auth')."""
