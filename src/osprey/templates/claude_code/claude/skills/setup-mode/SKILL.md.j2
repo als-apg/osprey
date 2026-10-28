@@ -132,7 +132,6 @@ Expected subdirectories in `{{ agent_data_root }}/`:
 | Change | Type | Effect |
 |--------|------|--------|
 | `control_system.writes` | Cold | The tier's write ceiling, `allowed` or `never`, for every machine this deployment has. Hooks re-read on each call, but the connector caches it at launch and `permissions.deny` is not regenerated — needs `osprey build` + restart |
-| `control_system.connector.<type>.writes_enabled` | Cold | Retired: ignored wherever `control_system.writes` is set, and `osprey set` refuses it. Replace it with `control_system.writes` in the profile or tier file — same rebuild and restart |
 | `control_system.limits_checking.enabled` | Hot | Hooks re-read on each call |
 | `control_system.limits_checking.mode` | Hot | Hooks re-read on each call |
 | `control_system.connector.<type>.limits_checking.*` | Hot | Per-connector-type limits-checking posture, which answers instead of the keys above for that type — hooks re-read on each call |

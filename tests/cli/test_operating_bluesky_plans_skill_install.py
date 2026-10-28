@@ -226,7 +226,8 @@ class TestOperatingBlueskyPlansSkillStructure:
         assert "verbatim" in lowered, "the capability detail carries the flip command verbatim"
 
     def test_documents_arming_gates(self, skill_text):
-        assert "control_system.writes_enabled" in skill_text
+        assert "control_system.writes" in skill_text
+        assert "control_system.writes_enabled" not in skill_text
         assert "launch token" in skill_text
 
     def test_points_at_authoring_skill(self, skill_text):

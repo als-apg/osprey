@@ -576,7 +576,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         # either way: write_plan only writes a file (never imports/execs
         # it), and validate_plan's dry run drives mock devices only, in a
         # subprocess with EPICS_CA_* neutralized — both work identically whether
-        # control_system.writes_enabled is on or off, so like stop_run neither
+        # writes are allowed or not, so like stop_run neither
         # carries _WRITES_CHECK. They get their own (distinct, independently
         # allowlistable) short-names rather than reusing the queue tools'
         # tier, since an operator may want to permit authoring/validating plan
