@@ -38,6 +38,7 @@ from osprey.agent_record.credentials import CLICKHOUSE_ADMIN_USER
 from tests._container_support import (
     CONTAINER_START_ATTEMPTS,
     ContainerExitedError,
+    is_docker_available,
     start_or_skip,
     stop_quietly,
     wait_until_ready,
@@ -91,6 +92,10 @@ def clickhouse_store() -> Iterator[_ClickHouseStore]:
         from testcontainers.core.container import DockerContainer
     except ImportError:
         pytest.skip("testcontainers not installed")
+    # Building the container object already asks the engine, so a host with
+    # none is told apart here, as a skip, before anything is built.
+    if not is_docker_available():
+        pytest.skip("Docker not available — the ClickHouse record runs in a container")
     admin_password = secrets.token_hex(16)
 
     def build():

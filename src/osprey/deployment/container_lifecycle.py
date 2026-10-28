@@ -37,6 +37,7 @@ from osprey.deployment.compose_generator import (
     _copy_local_framework_for_override,
     _dedupe_compose_files,
     agent_record_host_projects_dir,
+    claude_projects_volumes,
     clean_deployment,
     compose_base_cmd,
     compose_provider_env,
@@ -6681,9 +6682,12 @@ def _start_stack(
     # Transcripts that predate their own volume are copied into it, once, before
     # any compose invocation below can create that volume empty and start a
     # container on it. Both start paths reach here, and so do the single-service
-    # ups of the staging steps that follow.
-    for volume in copy_transcripts_once(config, runtime=get_runtime_command(config)[0], env=env):
-        _report_fact(f"copied the existing transcripts into {volume}")
+    # ups of the staging steps that follow. The runtime is asked only when the
+    # config renders a transcripts volume.
+    if claude_projects_volumes(config):
+        runtime = get_runtime_command(config)[0]
+        for volume in copy_transcripts_once(config, runtime=runtime, env=env):
+            _report_fact(f"copied the existing transcripts into {volume}")
     _report_unmounted_host_transcripts(config, compose_files, repo_root)
 
     # Stage the archiver store and seed its history BEFORE the branch split, so

@@ -460,6 +460,12 @@ def test_init_reset_refuses_by_name_while_a_host_record_runs(
         raise error
 
     monkeypatch.setattr("osprey.deployment.reset.reset_for_reinit", _raise)
+    # `--reset` is refused up front without a runtime; answered here so the
+    # refusal under test is the record's, whatever the host runs.
+    monkeypatch.setattr(
+        "osprey.deployment.runtime_helper.verify_runtime_is_running",
+        lambda config=None: (True, ""),
+    )
 
     result = CliRunner().invoke(
         cli, ["init", str(tmp_path / "demo"), "--preset", "hello-world", "--no-git", "--reset"]

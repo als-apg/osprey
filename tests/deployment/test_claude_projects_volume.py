@@ -496,7 +496,12 @@ def _assert_copies_precede_compose(calls: list[list[str]]) -> None:
 
 
 def _route_runtime_through(monkeypatch, fake: FakeRuntime, record: list[list[str]]) -> None:
-    """Send every subprocess call to *fake*, keeping one ordered record."""
+    """Send every subprocess call to *fake*, keeping one ordered record.
+
+    The start's copy step is put back in place of the suite's stand-in
+    (``tests/deployment/conftest.py``), so the copy these tests order is the real one.
+    """
+    monkeypatch.setattr(container_lifecycle, "copy_transcripts_once", copy_transcripts_once)
 
     def _run(cmd, env=None, check=False, **kwargs):  # noqa: ARG001 - subprocess.run's keywords
         cmd = list(cmd)
