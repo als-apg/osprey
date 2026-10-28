@@ -961,9 +961,9 @@ async def test_an_unresolvable_root_leaves_the_variable_absent(monkeypatch):
 async def test_owner_is_exported_to_the_agent_environment(monkeypatch):
     """A dispatch that carried an owner stamps OSPREY_CONTROL_OWNER for the run.
 
-    The stamp is rung 3 of the connector's owner ladder, so every control-system
-    write the agent makes is judged against that person's narrowing instead of
-    the deployment ceiling.
+    The stamp is rung 3 of the connector's owner ladder, so the write verdict
+    judges every control-system write the agent makes against that person's
+    tier and switch, on top of the deployment's write tier.
     """
     env = await _env_of_run(monkeypatch, owner="alice")
 
@@ -989,7 +989,7 @@ async def test_no_owner_sentinel_is_never_stamped(monkeypatch):
 
     The sentinel exists to be printed in a warning line, and it prints as
     ``<no owner>``; a truthiness guard would stamp the run with an account of
-    that name and look up a narrowing for it.
+    that name and look up a switch for it.
     """
     env = await _env_of_run(monkeypatch, owner=NO_OWNER)
 
