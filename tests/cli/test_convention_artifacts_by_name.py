@@ -685,9 +685,11 @@ def test_a_fresh_profile_naming_the_kill_switch_by_path_wires_it(
 
 
 def test_the_guard_floor_carries_the_hosts_spelling_and_pins_the_kill_switch() -> None:
-    from osprey.cli.build_profile_merge import _guard_floor
+    from osprey.cli.build_profile_merge import GuardFloor, _guard_floor
 
-    host = ["approval", "hooks/osprey_limits.py", "memory-guard", "error-guidance"]
+    host = GuardFloor.of(
+        {"hooks": ["approval", "hooks/osprey_limits.py", "memory-guard", "error-guidance"]}
+    )
     assert _guard_floor(host, ["approval", "turn-state"]) == [
         "approval",
         "turn-state",
