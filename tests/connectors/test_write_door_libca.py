@@ -90,6 +90,21 @@ async def main():
         entry["in_flight"] = in_flight.is_set()
         seen.append(entry)
         first.set()
+        if entry["in_flight"]:
+            attempted.set()
+
+    # The update the connector's own put makes can reach the monitor after the
+    # write has confirmed and returned, so nothing would have overlapped it. The
+    # write's confirming read waits until a callback has made its put, which
+    # keeps the write in flight across that put.
+    attempted = asyncio.Event()
+    confirming_read = connector._confirming_read
+
+    async def confirm_after_a_callback(*args, **kwargs):
+        await asyncio.wait_for(attempted.wait(), timeout=30)
+        return await confirming_read(*args, **kwargs)
+
+    connector._confirming_read = confirm_after_a_callback
 
     sub = aioca.camonitor(setpoint, on_update)
     await asyncio.wait_for(first.wait(), timeout=30)
