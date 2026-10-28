@@ -187,8 +187,10 @@ class ArchiveTree:
             if path.is_dir():
                 return
             raise
-        os.chmod(path, self.dir_mode)
+        # Owned first: a chown clears the setgid bit, and the mode carries it,
+        # so a directory another writer adds files to keeps the root's group.
         self._own(path)
+        os.chmod(path, self.dir_mode)
 
     def makedirs(self, path: Path) -> None:
         """Create *path* and any missing parents below the archive root."""

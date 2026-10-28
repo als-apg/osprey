@@ -307,3 +307,26 @@ def test_a_pass_waits_while_another_pass_holds_the_archive(trees):
 
     assert not second.is_alive()
     assert list((dest / ".incoming").iterdir()) == []
+
+
+def test_a_directory_handed_to_the_roots_owner_keeps_the_setgid_bit(tmp_path, monkeypatch):
+    """A chown clears setgid, so the mode is set after it: a second writer under
+    another uid then files into the root's group, which the deployer reads."""
+    dest = tmp_path / "archive"
+    dest.mkdir()
+    os.chmod(dest, 0o2770)
+    tree = archive_run.ArchiveTree(dest, DAY1)
+    try:
+        # What a rootful runtime does: hand the path over, losing setgid.
+        def chown(path, uid, gid, *, follow_symlinks=True):  # noqa: ARG001
+            os.chmod(path, stat.S_IMODE(os.lstat(path).st_mode) & ~stat.S_ISGID)
+
+        monkeypatch.setattr(tree, "_owner", (os.getuid(), os.getgid()))
+        monkeypatch.setattr(archive_run.os, "chown", chown)
+
+        tree.makedirs(dest / "2026-01-01" / "agent_record")
+
+        for directory in (dest / "2026-01-01", dest / "2026-01-01" / "agent_record"):
+            assert stat.S_IMODE(directory.stat().st_mode) == 0o2770, oct(directory.stat().st_mode)
+    finally:
+        tree.close()
