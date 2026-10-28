@@ -176,7 +176,7 @@ def fake(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, 
     state: dict[str, Any] = {"root": root, "client": FakeRecordClient()}
 
     @contextmanager
-    def _client(deployment, _environ=None):
+    def _client(deployment):
         state["deployment"] = deployment
         yield state["client"]
 

@@ -28,12 +28,14 @@ import time
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any
 
 import click
 
 from osprey.cli.output import fail, report, warn
-from osprey.cli.repo_resolver import find_repo_root, repo_option
+from osprey.cli.record_access import Deployment as _Deployment
+from osprey.cli.record_access import find_build, operator_login
+from osprey.cli.repo_resolver import repo_option
 
 #: How long a verb waits for the record's start-up job run to finish.
 JOBS_WAIT_S = 120.0
@@ -107,47 +109,15 @@ def serve(host: str, port: int | None, lease_dir: Path | None) -> None:
 # ---------------------------------------------------------------------------
 
 
-class _Deployment(NamedTuple):
-    """The deployment one verb reads: its repo root and its rendered config."""
-
-    root: Path
-    config: dict[str, Any]
-
-
 def _deployment(repo: Path | None) -> _Deployment:
     """The deployment repo and its rendered config; refused when there is no build."""
     from osprey_connectors.config import load_project_config
-    from osprey_connectors.workspace import rendered_config_path
 
-    repo_root = find_repo_root(repo)
-    config_path = rendered_config_path(repo_root)
-    if not config_path.is_file():
-        fail(
-            f"No build found in {repo_root}",
-            f"{config_path} does not exist. The agent record is the one the rendered "
-            "config describes.",
-            "run `osprey build` first",
-        )
+    build = find_build(repo, "The agent record is the one the rendered config describes.")
+    if build is None:
         raise click.exceptions.Exit(1)
+    repo_root, config_path = build
     return _Deployment(root=repo_root, config=load_project_config(str(config_path)))
-
-
-def _operator_login(repo_root: Path) -> tuple[str, str]:
-    """The operator login and its token, from the repo's build-minted login file."""
-    from osprey.agent_record import credentials as creds
-    from osprey.agent_record import identities as ids
-
-    login = ids.login_for(ids.OPERATOR_IDENTITY)
-    path = repo_root / creds.login_file(login)
-    token = creds.read_login(path, login)
-    if token is None:
-        fail(
-            "No operator login for the agent record",
-            f"{path} is missing or holds no {login} token.",
-            "run `osprey build` first",
-        )
-        raise click.exceptions.Exit(1)
-    return login, token
 
 
 @contextmanager
@@ -172,7 +142,10 @@ def _open_record(
     env = os.environ if environ is None else environ
     url = (env.get(URL_ENV) or "").strip()
     if url:
-        login, token = _operator_login(deployment.root)
+        operator = operator_login(deployment.root)
+        if operator is None:
+            raise click.exceptions.Exit(1)
+        login, token = operator
         yield RecordClient(url, login, token)
         return
     with ExitStack() as stack:

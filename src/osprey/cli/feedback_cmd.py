@@ -19,25 +19,25 @@ import datetime as dt
 import json
 import os
 import sys
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import ExitStack, contextmanager, nullcontext, suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any
 
 import click
 from rich.text import Text
 
 from osprey.cli.output import fail, machine_mode, note, report, table, warn
-from osprey.cli.repo_resolver import find_repo_root, repo_option
+from osprey.cli.record_access import Deployment as _Deployment
+from osprey.cli.record_access import find_build, operator_login
+from osprey.cli.repo_resolver import repo_option
 from osprey.cli.styles import Styles, data_table
 from osprey_connectors.config import load_project_config
 from osprey_connectors.logger import get_logger
+from osprey_connectors.workspace import rendered_config_path
 
 logger = get_logger("feedback")
-
-#: The rendered config's file name inside the build directory.
-_RENDERED_CONFIG = "config.yml"
 
 #: How much of a submission's excerpt the listing shows before cutting it.
 _EXCERPT_WIDTH = 56
@@ -47,13 +47,6 @@ _UNKNOWN = "-"
 
 #: Export field naming the session steps an entry references, resolved.
 _RESOLVED_FIELD = "entries"
-
-
-class _Deployment(NamedTuple):
-    """The deployment one verb reads: its repo root and its rendered config."""
-
-    root: Path
-    config: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -77,13 +70,6 @@ class _Record:
         return person.strip() if isinstance(person, str) else ""
 
 
-def _rendered_config_path(repo_root: Path) -> Path:
-    """Where the running stack's config lives in a deployment repo."""
-    from osprey.deployment.staleness import BUILD_DIRNAME
-
-    return repo_root / BUILD_DIRNAME / _RENDERED_CONFIG
-
-
 @contextmanager
 def _feedback_session(repo: Path | None, *, announce: bool = True) -> Iterator[_Deployment]:
     """Resolve the deployment repo, then run one feedback verb against it.
@@ -98,17 +84,12 @@ def _feedback_session(repo: Path | None, *, announce: bool = True) -> Iterator[_
     :raises click.Abort: If the repo has no build, or the verb failed.
     """
     action = click.get_current_context().info_name or "feedback"
-    repo_root = find_repo_root(repo)
-    config_path = _rendered_config_path(repo_root)
-
-    if not config_path.is_file():
-        fail(
-            f"No build found in {repo_root}",
-            f"{config_path} does not exist. Feedback is read from the agent record "
-            "the rendered config describes.",
-            "run `osprey build` first",
-        )
+    build = find_build(
+        repo, "Feedback is read from the agent record the rendered config describes."
+    )
+    if build is None:
         raise click.Abort()
+    repo_root, config_path = build
 
     if announce:
         report(f"Web-terminal feedback: {action} in {repo_root}")
@@ -130,28 +111,8 @@ def _feedback_session(repo: Path | None, *, announce: bool = True) -> Iterator[_
         raise click.Abort() from None
 
 
-def _operator_token(repo_root: Path) -> tuple[str, str]:
-    """The operator login and its token, from the repo's build-minted login file."""
-    from osprey.agent_record import credentials as creds
-    from osprey.agent_record import identities as ids
-
-    login = ids.login_for(ids.OPERATOR_IDENTITY)
-    path = repo_root / creds.login_file(login)
-    token = creds.read_login(path, login)
-    if token is None:
-        fail(
-            "No operator login for the agent record",
-            f"{path} is missing or holds no {login} token.",
-            "run `osprey build` first",
-        )
-        raise click.Abort()
-    return login, token
-
-
 @contextmanager
-def _record_client(
-    deployment: _Deployment, environ: Mapping[str, str] | None = None
-) -> Iterator[Any]:
+def _record_client(deployment: _Deployment) -> Iterator[Any]:
     """Yield an operator record client, holding a host-local record while it reads.
 
     With ``OSPREY_AGENT_RECORD_URL`` set, that record is read as it is.
@@ -163,9 +124,13 @@ def _record_client(
     from osprey.agent_record.client import URL_ENV, RecordClient
     from osprey.agent_record.host import HostRecordRefused, ensure_host_record
 
-    env = os.environ if environ is None else environ
-    login, token = _operator_token(deployment.root)
-    url = (env.get(URL_ENV) or "").strip()
+    # Feedback reads with the operator login in either mode: it alone sees
+    # every user's entries, so a host lease's own login is never used here.
+    operator = operator_login(deployment.root)
+    if operator is None:
+        raise click.Abort()
+    login, token = operator
+    url = (os.environ.get(URL_ENV) or "").strip()
     if url:
         yield RecordClient(url, login, token)
         return
@@ -175,7 +140,7 @@ def _record_client(
                 ensure_host_record(
                     deployment.root,
                     deployment.config,
-                    config_path=_rendered_config_path(deployment.root),
+                    config_path=rendered_config_path(deployment.root),
                 )
             )
         except HostRecordRefused as exc:
