@@ -633,7 +633,8 @@ def unmet_needs(checks: Iterable[Check]) -> list[tuple[str, str]]:
 def _hosts_over(paths: Sequence[str]) -> list[str]:
     """The checks with a derived scope and the CI lanes whose scope holds one of
     *paths*, a file or a directory, or lies beneath one of the directories: what
-    runs the tests the sweep deselects."""
+    runs the tests the sweep deselects. A node id is read as its file."""
+    paths = [path.partition("::")[0] for path in paths]
     inside = [candidate for path in paths for candidate in (path, path.rstrip("/") + "/")]
     above = tuple(path.rstrip("/") + "/" for path in paths)
 
