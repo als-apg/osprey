@@ -356,26 +356,26 @@ def test_unbundled_preset_cannot_be_compared(repo: Path) -> None:
 
 def test_layer_delta_is_compared_with_its_own_preset(repo: Path) -> None:
     delta = repo / READONLY
-    _edit(delta, "  control_system.writes_enabled: false\n", "")
+    _edit(delta, "  control_system.writes: never\n", "")
 
     report = _report(repo / PROFILE)
 
-    assert [f.subject for f in report.unmarked] == ["config.control_system.writes_enabled"]
+    assert [f.subject for f in report.unmarked] == ["config.control_system"]
     rendered = report.unmarked[0].render()
     assert f"{TIERS_DIRNAME}/readonly.yml" in rendered
     preset_line = _line_of(
-        _presets_dir() / TIERS_DIRNAME / "readonly.yml", "control_system.writes_enabled: false"
+        _presets_dir() / TIERS_DIRNAME / "readonly.yml", "  control_system.writes: never"
     )
     assert f"readonly.yml:{preset_line}" in rendered
 
 
 def test_validating_a_delta_reports_that_render_only(repo: Path) -> None:
     _edit(repo / PROFILE, "  - system-health", "  # - system-health")
-    _edit(repo / READONLY, "  control_system.writes_enabled: false\n", "")
+    _edit(repo / READONLY, "  control_system.writes: never\n", "")
 
     report = _report(repo / READONLY)
 
-    assert [f.subject for f in report.unmarked] == ["config.control_system.writes_enabled"]
+    assert [f.subject for f in report.unmarked] == ["config.control_system"]
 
 
 def test_profile_exclude_of_something_the_preset_keeps(repo: Path) -> None:

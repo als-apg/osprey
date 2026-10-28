@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 
 from osprey.agent_runner.artifact_resolve import deployed_render_dir
 from osprey.interfaces._app_setup import configure_interface_app
+from osprey.interfaces.opaque_origin import document_headers, opaque_headers
 from osprey.interfaces.vendor import html_has_plotly_bundle, vendor_url
 from osprey.port_layout import default_port
 from osprey.utils.timeseries import (
@@ -49,6 +50,31 @@ templates.env.globals["vendor_url"] = vendor_url
 _DESIGN_SYSTEM_HEAD = """<script src="/design-system/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/design-system/css/tokens.css">"""
 
+# C-MSG: every page served on the opaque origin carries this listener.  The
+# gallery cannot reach into an opaque document, so the document announces
+# itself (``osprey-artifact-ready``, to whichever window opened or embeds it,
+# with target "*" -- an opaque frame cannot name the console's origin and the
+# message carries nothing) and prints itself when asked
+# (``osprey-artifact-print``, accepted only from that opener or parent).  Theme
+# messages are the design-system follower's, imported beside this listener.
+_ARTIFACT_MESSAGE_LISTENER = """<script>
+/* OSPREY: C-MSG ready/print listener. */
+(function () {
+  var peer = window.opener || window.parent;
+  window.addEventListener('message', function (event) {
+    var data = event.data;
+    if (!data || data.type !== 'osprey-artifact-print') { return; }
+    if (event.source !== window.opener && event.source !== window.parent) { return; }
+    window.print();
+  });
+  function ready() {
+    if (peer && peer !== window) { peer.postMessage({ type: 'osprey-artifact-ready' }, '*'); }
+  }
+  if (document.readyState === 'complete') { ready(); }
+  else { window.addEventListener('load', ready); }
+})();
+</script>"""
+
 # Snippet injected into Plotly artifacts so they fill the iframe viewport in
 # Focus Mode and follow the OSPREY theme.  CSS alone is not enough for the
 # sizing: Plotly.newPlot() applies layout.width/height via JS *after* load,
@@ -58,6 +84,8 @@ _DESIGN_SYSTEM_HEAD = """<script src="/design-system/js/theme-boot.js"></script>
 # here needs to know what "light" or "dark" looks like.
 _RESPONSIVE_PLOTLY = (
     _DESIGN_SYSTEM_HEAD
+    + "\n"
+    + _ARTIFACT_MESSAGE_LISTENER
     + r"""
 <style>
 /* OSPREY: fill iframe viewport; page background from the theme in force,
@@ -125,6 +153,8 @@ window.addEventListener('resize', resizeAll);
 # ``.artifact-table`` is the class serialize_object() puts on DataFrame tables.
 _RESPONSIVE_TABLE_HTML = (
     _DESIGN_SYSTEM_HEAD
+    + "\n"
+    + _ARTIFACT_MESSAGE_LISTENER
     + """
 <style>
 /* OSPREY: fill iframe viewport */
@@ -162,6 +192,11 @@ body.jp-Notebook { padding: 0 16px; overflow-x: hidden; overflow-y: auto; }
 #notebook-container, .container { max-width: 100% !important; width: 100% !important; padding: 0 16px; }
 </style>"""
 
+# The notebook page renders light whatever the theme (the gallery frames it as
+# ``preview-iframe-light``), so it carries the C-MSG listener without a theme
+# follower.
+_NOTEBOOK_SNIPPET = _NOTEBOOK_RESPONSIVE_CSS + "\n" + _ARTIFACT_MESSAGE_LISTENER
+
 _RESPONSIVE_SNIPPETS = {
     "plot_html": _RESPONSIVE_PLOTLY,
     "table_html": _RESPONSIVE_TABLE_HTML,
@@ -181,6 +216,7 @@ _MARKDOWN_PAGE_TEMPLATE = """\
 <meta charset="UTF-8">
 <script src="/design-system/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/design-system/css/tokens.css">
+{msg_listener}
 <script type="module">
 // Follower role: this standalone page is never the theme hub (web-terminal
 // is) -- it just applies whatever theme-boot.js already resolved pre-paint
@@ -200,6 +236,7 @@ initTheme({{ role: 'follower' }});
       data-href-light="{hljs_light_href}">
 <script src="/static/js/vendor/highlight.min.js"></script>
 <script src="/static/js/vendor/marked.min.js"></script>
+<script src="{purify_src}"></script>
 <link rel="stylesheet" href="/static/css/vendor/katex.min.css">
 <script src="/static/js/vendor/katex.min.js"></script>
 <style>
@@ -269,6 +306,8 @@ def _build_markdown_page(md_source: str, title: str) -> str:
     return _MARKDOWN_PAGE_TEMPLATE.format(
         title=title.replace("&", "&amp;").replace("<", "&lt;"),
         md_json=md_json,
+        msg_listener=_ARTIFACT_MESSAGE_LISTENER,
+        purify_src=vendor_url("DOMPurify", "/static/js/vendor/purify.min.js"),
         hljs_dark_href=vendor_url(
             "highlight.js atom-one-dark theme", "/static/css/vendor/atom-one-dark.min.css"
         ),
@@ -1068,6 +1107,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
                 media_type=media_type,
                 filename=entry.filename,
                 content_disposition_type="inline",
+                headers=document_headers(media_type),
             )
 
         # HTML types may need responsive snippet injection + CDN rewriting.
@@ -1088,7 +1128,10 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         return Response(
             content=page.encode("utf-8"),
             media_type=entry.mime_type,
-            headers={"Content-Disposition": f'inline; filename="{entry.filename}"'},
+            headers={
+                "Content-Disposition": f'inline; filename="{entry.filename}"',
+                **document_headers(entry.mime_type),
+            },
         )
 
     @app.delete("/api/artifacts/{artifact_id}")
@@ -1129,9 +1172,10 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
             cache_dir = store.artifact_dir / "_notebook_cache"
             html, _ = get_or_render_html(filepath, cache_dir=cache_dir)
-            html_bytes = _inject_html_snippet(html.encode("utf-8"), _NOTEBOOK_RESPONSIVE_CSS)
+            html_bytes = _inject_html_snippet(html.encode("utf-8"), _NOTEBOOK_SNIPPET)
             return HTMLResponse(
-                content=_stamp_data_theme(html_bytes.decode("utf-8"), web_theme_pin)
+                content=_stamp_data_theme(html_bytes.decode("utf-8"), web_theme_pin),
+                headers=opaque_headers(),
             )
         except Exception as exc:
             raise HTTPException(
@@ -1153,7 +1197,9 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
         md_source = filepath.read_text(encoding="utf-8", errors="replace")
         html = _build_markdown_page(md_source, entry.title or entry.filename or "Markdown")
-        return HTMLResponse(content=_stamp_data_theme(html, web_theme_pin))
+        return HTMLResponse(
+            content=_stamp_data_theme(html, web_theme_pin), headers=opaque_headers()
+        )
 
     # Logbook entry composer
     from osprey.interfaces.artifacts.logbook import logbook_router

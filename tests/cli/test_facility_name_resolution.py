@@ -55,6 +55,20 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
 # ---------------------------------------------------------------------------
 
 
+def _select_writes_check(project_dir: Path) -> Path:
+    """Stamp a manifest whose hook selection carries ``writes-check``.
+
+    A framework-default render pins writes ``never`` and enables python's
+    read/write-mixed exec tools, which only the writes-check hook refuses per
+    call, so a render selecting no hooks is refused by the write-gate lint.
+    These tests are about something else and select the one hook it demands.
+    """
+    (project_dir / ".osprey-manifest.json").write_text(
+        json.dumps({"artifacts": {"hooks": ["writes-check"]}}), encoding="utf-8"
+    )
+    return project_dir
+
+
 def _write_facility_file(render_root: Path, identity: dict) -> None:
     document = {"schema": FACILITY_HEADER, "identity": identity}
     (render_root / "facility.json").write_text(json.dumps(document), encoding="utf-8")
@@ -72,7 +86,7 @@ def _write_facility_file(render_root: Path, identity: dict) -> None:
 def test_claude_code_context_without_a_facility_file_carries_the_project_name(tmp_path, config):
     manager = TemplateManager()
     ctx = claude_code.build_claude_code_context(
-        manager.template_root, manager.jinja_env, tmp_path, config
+        manager.template_root, manager.jinja_env, _select_writes_check(tmp_path), config
     )
     assert ctx["facility_name"] == facility_identity(tmp_path, "demo")["name"] == "demo"
 
@@ -83,7 +97,7 @@ def test_claude_code_context_carries_the_facility_file_name(tmp_path):
     ctx = claude_code.build_claude_code_context(
         manager.template_root,
         manager.jinja_env,
-        tmp_path,
+        _select_writes_check(tmp_path),
         {"project_name": "demo", "facility": {"name": "Configured LS"}},
     )
     assert ctx["facility_name"] == "Canonical LS"

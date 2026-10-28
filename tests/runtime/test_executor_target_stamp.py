@@ -32,7 +32,7 @@ import pytest
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey.runtime import ControlTargetChangedError
 from osprey_connectors import control_context, posture_store
-from osprey_connectors_tests._harness import state_dir_under
+from osprey_connectors_tests._harness import state_dir_under, write_control_context
 from tests.facility.served_tree import in_process_config, served_tree
 
 # ---------------------------------------------------------------------------
@@ -65,8 +65,24 @@ def write_record(
     target: str = "va",
     generation: int = 0,
     posture: dict[str, str] | None = None,
+    switch: dict[str, str] | None = None,
 ) -> Path:
-    """Write the deployment's control-context record. Defaults describe ``va``/0."""
+    """Write the deployment's control-context record. Defaults describe ``va``/0, switched off.
+
+    *switch* turns machines on through the person's gesture
+    (:func:`~osprey_connectors_tests._harness.write_control_context`): the
+    production writer keeps the switch on disk, so a record handed one is not
+    enough to turn anything on.
+    """
+    if switch:
+        return write_control_context(
+            root,
+            target=target,
+            generation=generation,
+            posture=dict(posture or {}),
+            owned_by=None,
+            switch=switch,
+        )
     path = control_context._record_path_under(root)
     record = control_context.ControlContext(
         target=target,
@@ -419,13 +435,39 @@ class TestLaunchPostureStamp:
     only that the executor stamps it, and stamps it every time.
     """
 
-    @pytest.mark.usefixtures("deployment_config")
-    def test_the_posture_is_stamped_beside_the_target(self, state_root):
-        write_record(state_root, target="va", generation=7)
+    @staticmethod
+    def _tier_allows(monkeypatch, view) -> None:
+        """The same deployment, with a write tier that allows writes."""
+        monkeypatch.setattr(
+            "osprey_connectors.config.get_config_value",
+            _section_reader({**_control_system_section(view), "writes": "allowed"}),
+        )
+
+    def test_the_posture_is_stamped_beside_the_target(self, state_root, monkeypatch, view):
+        """A tier that allows and a switch that is on: the run launches with writes."""
+        self._tier_allows(monkeypatch, view)
+        write_record(state_root, target="va", generation=7, switch={"va": "on"})
         env: dict[str, str] = {}
 
         assert host_executor._apply_target_stamp(env) == "va"
         assert env[host_executor.ENV_LAUNCH_POSTURE] == "va=writes"
+
+    def test_a_switched_off_target_is_stamped_sandboxed(self, state_root, monkeypatch, view):
+        self._tier_allows(monkeypatch, view)
+        write_record(state_root, target="va", generation=7, switch={"live": "on"})
+        env: dict[str, str] = {}
+
+        assert host_executor._apply_target_stamp(env) == "va"
+        assert env[host_executor.ENV_LAUNCH_POSTURE] == "va=sandbox"
+
+    @pytest.mark.usefixtures("deployment_config")
+    def test_a_tier_that_allows_nothing_is_stamped_sandboxed(self, state_root):
+        """The switch on is inert under a tier that allows no writes."""
+        write_record(state_root, target="va", generation=7, switch={"va": "on"})
+        env: dict[str, str] = {}
+
+        assert host_executor._apply_target_stamp(env) == "va"
+        assert env[host_executor.ENV_LAUNCH_POSTURE] == "va=sandbox"
 
     @pytest.mark.usefixtures("deployment_config")
     def test_a_narrowed_target_is_stamped_sandboxed(self, state_root):

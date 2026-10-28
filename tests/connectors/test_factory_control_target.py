@@ -236,18 +236,28 @@ class TestRuntimeSandbox:
         assert recording_factory.target == "va"
 
     @pytest.mark.asyncio
-    async def test_unstamped_sandbox_names_no_target(
-        self, recording_factory, monkeypatch, tmp_path
+    @pytest.mark.parametrize(
+        ("section", "baseline"),
+        [({}, "va"), ({"type": "epics"}, "live")],
+    )
+    async def test_unstamped_sandbox_names_the_baseline_target(
+        self, recording_factory, monkeypatch, tmp_path, section, baseline
     ):
+        """An unstamped sandbox is on the deployment's baseline, as the pool serves it.
+
+        Naming no target would leave the monitor nothing to decide by but
+        ``target_unknown``; the baseline puts the write under that machine's switch.
+        """
         import osprey.runtime as runtime
 
         monkeypatch.chdir(tmp_path)
         monkeypatch.delenv(runtime.ENV_CONTROL_TARGET, raising=False)
         monkeypatch.setattr(runtime, "_target_connector_config", lambda: None)
+        monkeypatch.setattr(runtime, "_control_system_section", lambda: section)
 
         await runtime._get_connector()
 
-        assert recording_factory.target is None
+        assert recording_factory.target == baseline
 
 
 # ---------------------------------------------------------------------------

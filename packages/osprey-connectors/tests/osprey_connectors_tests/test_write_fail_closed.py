@@ -17,8 +17,20 @@ import pytest
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
 from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors_tests._epics_fakes import ECA_DISCONN
+from osprey_connectors_tests._write_fakes import arm_switch
 from osprey_connectors_tests._write_fakes import make_mock_epics_connector as _make_connector
 from osprey_connectors_tests._write_fakes import writes_enabled_config as _writes_enabled_config
+
+
+@pytest.fixture(autouse=True)
+def _switch_on(monkeypatch, tmp_path):
+    """The login's switch on for the simulator target, connectors stamped with it.
+
+    With :func:`writes_enabled_config` serving a write tier that allows, that is
+    everything the reference monitor's verdict asks before a write reaches the
+    transport; a test that disarms serves a tier that does not.
+    """
+    return arm_switch(monkeypatch, tmp_path / "armed-data")
 
 
 class TestFailClosedValidation:

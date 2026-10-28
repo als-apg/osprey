@@ -27,6 +27,9 @@
  * property assignment, the Task 1.4 attribute-sink fix) through the actual
  * render pipeline in this same file, which would be impossible if the
  * module were mocked here.
+ *
+ * The MARKDOWN path lives in security_render_markdown.test.mjs: it needs a
+ * jsdom environment for the real sanitizer.
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';

@@ -1,10 +1,12 @@
 """Release-gate test: no legacy renamed symbols survive.
 
-Walks ``src/``, ``tests/``, and ``docs/`` (sources only) and asserts that none
-of the following substrings appear anywhere. Intentionally has no per-file
-exclusions — if a legitimate match shows up later, the rename surfaced it.
+Walks ``src/``, ``tests/``, ``docs/source/`` and ``packages/`` (sources only;
+vendored trees and ``changelog.d/`` fragments, which record removals by name,
+are skipped) and asserts that none of the legacy names appear anywhere.
 
-Seven rename generations are guarded: the ``prompts``-era rename; the
+Eight rename generations are guarded. The first seven are plain substrings
+with no per-file exclusions — if a legitimate match shows up later, the rename
+surfaced it: the ``prompts``-era rename; the
 ``scan`` -> ``bluesky`` rename that generalized the Bluesky plan/run subsystem
 (a plan is an arbitrary generator, not only a scan); the
 ``motor``/``detector`` -> ``setpoint``/``readback`` rename that put the bridge
@@ -22,6 +24,13 @@ unrelated senses of "scan" (a directory scan, a pattern scan, a CRT scanline),
 and every upstream ``bluesky``/``ophyd`` name such as ``SimMotor`` or
 ``EpicsMotor`` — are NOT listed here.
 
+The eighth, the write-posture generation, retired every reader of the old
+``writes_enabled`` posture when the tier key and ``write_verdict`` became the
+one answer. Its names are ordinary words (``effective_writes``,
+``target_posture``), so it matches whole identifiers only, and it has a closed
+exemption map (path -> names). A stale exemption — a path that is gone, or a
+name it no longer spells — fails, so the map can only shrink.
+
 Deliberately absent: the ``scan-agentic-e2e`` CI job id. GitHub branch
 protection matches required checks on that exact name, so the job keeps it
 while the test file it runs is renamed.
@@ -29,7 +38,10 @@ while the test file it runs is renamed.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
+
+import pytest
 
 from tests._text_sweep import text_files
 
@@ -138,7 +150,98 @@ LEGACY_SUBSTRINGS = (
     "services/build_artifacts",
 )
 
-ROOTS = ("src", "tests", "docs/source")
+# write-posture generation: every reader of the old ``writes_enabled`` posture,
+# deleted rather than aliased when ``control_system.writes`` (the tier) and
+# ``write_verdict`` became the one answer. Matched on WHOLE identifiers: the
+# names are ordinary words, and ``effective_writes`` is a prefix of nothing
+# live only by luck. Bare ``writes_enabled`` and ``WRITES_KEY`` are NOT listed:
+# the first is a live keyword and report field, the second the live tier key.
+WRITE_POSTURE_IDENTIFIERS = (
+    # osprey_connectors.types readers
+    "WRITES_ENABLED_KEY",
+    "TYPE_WRITES_ENABLED_LEAF",
+    "type_writes_enabled",
+    "target_writes_enabled",
+    "target_writes_enabled_key",
+    "session_posture",
+    "any_armed_target_requires_limits_database",
+    "any_target_writes_enabled",
+    "any_armed_target_checks_limits",
+    "writes_enabled_key",
+    "writes_enabled_answering_key",
+    "writes_enabled_remedy",
+    # osprey_connectors.posture_store readers
+    "effective_writes",
+    "store_permits",
+    "store_verdict",
+    "store_verdict_detail",
+    "record_verdict_detail",
+    "StoreVerdict",
+    "StoreVerdictDetail",
+    "recorded_posture",
+    "target_posture",
+    "launch_permits",
+    "launch_narrowed_target",
+    "parse_launch_posture",
+    # osprey_connectors.ipc
+    "config_writes_enabled",
+    # target_eligibility
+    "effective_writes_for_target",
+    "narrowing_refusal",
+    # python executor
+    "ExecutionControlConfig",
+    "get_execution_control_config",
+    "_writes_disabled_result",
+    # the stdlib twin's pre-switch posture functions
+    "WRITES_ENABLED_LEAF",
+    "effective_writes_for",
+    "most_restrictive_posture",
+    "target_sandboxed",
+    "type_posture",
+    "writes_posture",
+    "_global_posture",
+    "_states_posture",
+    "_posture_for",
+)
+
+# Closed exemption map, repo-relative path -> the names that path may spell.
+# Every entry is live: test_write_posture_exemptions_are_live fails on a path
+# that is gone or a name it no longer contains, so the map only shrinks.
+WRITE_POSTURE_EXEMPTIONS: dict[str, frozenset[str]] = {
+    # Transition tests: they assert the retired name is absent, and asserting
+    # an absence means spelling the name.
+    "tests/hooks/test_target_state_reader.py": frozenset(
+        {
+            "effective_writes_for",
+            "most_restrictive_posture",
+            "recorded_posture",
+            "target_posture",
+            "target_sandboxed",
+            "type_posture",
+            "writes_posture",
+        }
+    ),
+    "tests/interfaces/web_terminal/test_posture_get_contract.py": frozenset(
+        {"narrowing_refusal", "session_posture"}
+    ),
+}
+
+ROOTS = ("src", "tests", "docs/source", "packages")
+# Never walked: caches, vendored and built trees, and changelog fragments (a
+# removal entry names what it removed; the root ``changelog.d`` is outside the
+# roots for the same reason).
+SKIP_DIRS = frozenset(
+    {
+        "__pycache__",
+        "node_modules",
+        ".venv",
+        "dist",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache",
+        "changelog.d",
+    }
+)
 SCAN_SUFFIXES = (
     ".py",
     ".md",
@@ -162,13 +265,56 @@ SELF_ALLOWLIST = {
 }
 
 
-def _scan_roots() -> list[Path]:
-    return text_files(
-        _REPO_ROOT,
-        ROOTS,
-        suffixes=SCAN_SUFFIXES,
-        skip=lambda path: path.resolve() in SELF_ALLOWLIST or ".bak" in path.name,
-    )
+def _scan_roots(repo_root: Path = _REPO_ROOT, roots: tuple[str, ...] = ROOTS) -> list[Path]:
+    def skip(path: Path) -> bool:
+        return (
+            path.resolve() in SELF_ALLOWLIST
+            or ".bak" in path.name
+            or bool(SKIP_DIRS.intersection(path.relative_to(repo_root).parts))
+        )
+
+    if roots is not ROOTS:
+        return text_files(repo_root, roots, suffixes=SCAN_SUFFIXES, skip=skip)
+    # The repository's own scan names ``ROOTS`` at the walk, so check.py's
+    # tree-reader detector sees that this module reads the whole tests tree.
+    return text_files(repo_root, ROOTS, suffixes=SCAN_SUFFIXES, skip=skip)
+
+
+def _identifier(name: str) -> re.Pattern[str]:
+    return re.compile(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])")
+
+
+_WRITE_POSTURE_PATTERNS = {name: _identifier(name) for name in WRITE_POSTURE_IDENTIFIERS}
+# One pass per file: the alternation finds every whole identifier that is a
+# retired name; longest names first so no alternative shadows a longer one.
+_WRITE_POSTURE_ANY = re.compile(
+    r"(?<![A-Za-z0-9_])("
+    + "|".join(re.escape(n) for n in sorted(WRITE_POSTURE_IDENTIFIERS, key=len, reverse=True))
+    + r")(?![A-Za-z0-9_])"
+)
+
+
+def _write_posture_offenders(
+    repo_root: Path = _REPO_ROOT,
+    roots: tuple[str, ...] = ROOTS,
+    exemptions: dict[str, frozenset[str]] = WRITE_POSTURE_EXEMPTIONS,
+) -> list[str]:
+    offenders: list[str] = []
+    for path in _scan_roots(repo_root, roots):
+        try:
+            content = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        allowed = exemptions.get(path.relative_to(repo_root).as_posix(), frozenset())
+        for name in sorted(set(_WRITE_POSTURE_ANY.findall(content)) - allowed):
+            pattern = _WRITE_POSTURE_PATTERNS[name]
+            lines = [
+                f"{i}: {ln}"
+                for i, ln in enumerate(content.splitlines(), start=1)
+                if pattern.search(ln)
+            ][:3]
+            offenders.append(f"{path}: {name!r}\n  " + "\n  ".join(lines))
+    return offenders
 
 
 def test_no_legacy_symbols() -> None:
@@ -188,3 +334,51 @@ def test_no_legacy_symbols() -> None:
                 ][:3]
                 offenders.append(f"{path}: {needle!r}\n  " + "\n  ".join(lines))
     assert not offenders, "Legacy renamed symbols remain:\n" + "\n".join(offenders)
+
+
+def test_no_write_posture_identifiers() -> None:
+    offenders = _write_posture_offenders()
+    assert not offenders, "Retired write-posture names remain:\n" + "\n".join(offenders)
+
+
+@pytest.mark.parametrize("rel_path", sorted(WRITE_POSTURE_EXEMPTIONS))
+def test_write_posture_exemptions_are_live(rel_path: str) -> None:
+    """An exemption whose path is gone, or that no longer spells a name, fails."""
+    names = WRITE_POSTURE_EXEMPTIONS[rel_path]
+    assert names, rel_path
+    assert names <= set(WRITE_POSTURE_IDENTIFIERS), sorted(names - set(WRITE_POSTURE_IDENTIFIERS))
+    path = _REPO_ROOT / rel_path
+    assert path.is_file(), f"stale exemption: {rel_path} no longer exists"
+    parts = Path(rel_path).parts
+    scanned = (
+        any(rel_path.startswith(f"{root}/") for root in ROOTS)
+        and not SKIP_DIRS.intersection(parts)
+        and path.suffix in SCAN_SUFFIXES
+    )
+    assert scanned, f"exemption {rel_path} is outside the scanned tree"
+    content = path.read_text(encoding="utf-8", errors="ignore")
+    stale = sorted(n for n in names if not _WRITE_POSTURE_PATTERNS[n].search(content))
+    assert not stale, f"stale exemption: {rel_path} no longer spells {stale}"
+
+
+def test_planted_name_in_packages_fails(tmp_path: Path) -> None:
+    """Negative control: the gate sees a retired name planted under packages/."""
+    pkg = tmp_path / "packages" / "osprey-demo" / "src" / "osprey_demo"
+    pkg.mkdir(parents=True)
+    (pkg / "planted.py").write_text("def launch_permits(section):\n    return True\n")
+    # Whole identifiers only: a longer name containing a retired one is not it.
+    (pkg / "near_miss.py").write_text("my_launch_permits = launch_permits_v2 = 1\n")
+    # An exemption covers only the names it lists.
+    (pkg / "exempt.py").write_text("store_permits = 1\nStoreVerdict = 2\n")
+    # Changelog fragments record removals by name and are never walked.
+    log = tmp_path / "packages" / "osprey-demo" / "changelog.d"
+    log.mkdir()
+    (log / "x.removed.md").write_text("`launch_permits` is gone.\n")
+    exemptions = {
+        "packages/osprey-demo/src/osprey_demo/exempt.py": frozenset({"store_permits"}),
+    }
+
+    offenders = _write_posture_offenders(tmp_path, ("packages",), exemptions)
+
+    flagged = sorted((Path(o.split(":", 1)[0]).name, o.split("'")[1]) for o in offenders)
+    assert flagged == [("exempt.py", "StoreVerdict"), ("planted.py", "launch_permits")]

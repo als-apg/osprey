@@ -104,26 +104,39 @@ function textOf(value) {
 }
 
 /**
- * The name an operator knows a control target by: the client's word for its
- * kind where it has one, else the id as given.
+ * What the caller knows about each control target's kind: target key →
+ * `machine_kind` (`real` | `rehearsal` | `simulator`), exactly as the chip
+ * read it from `GET /api/terminal/posture` (or as a permission frame carried
+ * it). Never derived here from the target's name: a `standin` no live server
+ * vouched for is the real machine, and only GET knows which one it is.
+ * @typedef {Record<string, string>} TargetKinds
+ */
+
+/**
+ * The name an operator knows a control target by: the word for the kind its
+ * caller handed in, else the id as given — a target this module was told
+ * nothing about is named, never guessed at.
  * @param {string} target
+ * @param {TargetKinds} kinds
  * @returns {string}
  */
-function targetLabel(target) {
-  return Object.hasOwn(KIND_WORDS, target) ? KIND_WORDS[target] : target;
+function targetLabel(target, kinds) {
+  const kind = Object.hasOwn(kinds, target) ? kinds[target] : undefined;
+  return typeof kind === 'string' && Object.hasOwn(KIND_WORDS, kind) ? KIND_WORDS[kind] : target;
 }
 
 /**
  * The element a field's value is shown in, by its shape.
  * @param {string} key
  * @param {unknown} value
+ * @param {TargetKinds} kinds
  * @returns {HTMLElement}
  */
-function valueNode(key, value) {
+function valueNode(key, value, kinds) {
   const shape = shapeOf(key, value);
   if (shape === 'block') return elem('pre', 'op-kv-block', String(value));
   if (shape === 'rows') {
-    const nested = keyValueList(/** @type {Record<string, unknown>} */ (value));
+    const nested = keyValueList(/** @type {Record<string, unknown>} */ (value), kinds);
     nested.classList.add('op-kv-nested');
     return nested;
   }
@@ -135,15 +148,16 @@ function valueNode(key, value) {
 /**
  * A record as key and value rows, in the order the call gave them.
  * @param {Record<string, unknown>} record
+ * @param {TargetKinds} kinds
  * @returns {HTMLDListElement}
  */
-function keyValueList(record) {
+function keyValueList(record, kinds) {
   const list = /** @type {HTMLDListElement} */ (elem('dl', 'op-kv'));
   for (const [key, value] of Object.entries(record)) {
     const isTarget = key === TARGET_KEY && typeof value === 'string';
     const term = elem('dt', 'op-kv-key', isTarget ? 'Target' : key);
     const detail = elem('dd', 'op-kv-value');
-    detail.append(valueNode(key, isTarget ? targetLabel(value) : value));
+    detail.append(valueNode(key, isTarget ? targetLabel(value, kinds) : value, kinds));
     list.append(term, detail);
   }
   return list;
@@ -151,10 +165,14 @@ function keyValueList(record) {
 
 /**
  * A tool's input, drawn as key and value rows. An empty input reads "(no input)".
+ * An `approved_target` row reads the word for that target's kind when the
+ * caller passes it in `kinds` (the `machine_kind` the chip holds from GET),
+ * and the target id as given otherwise.
  * @param {unknown} input
+ * @param {TargetKinds} [kinds]
  * @returns {HTMLElement}
  */
-export function inputView(input) {
+export function inputView(input, kinds = {}) {
   if (
     input === undefined ||
     input === null ||
@@ -162,7 +180,8 @@ export function inputView(input) {
   ) {
     return elem('span', 'op-kv-empty', '(no input)');
   }
-  return isRecord(input) ? keyValueList(input) : valueNode('', input);
+  const known = isRecord(kinds) ? /** @type {TargetKinds} */ (kinds) : {};
+  return isRecord(input) ? keyValueList(input, known) : valueNode('', input, known);
 }
 
 /**

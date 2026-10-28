@@ -5,8 +5,12 @@ A worker at a tier runs the tier image, whose project is baked at
 therefore points ``CONFIG_FILE`` at that baked config, and derives every other
 in-container path the worker writes or reads — ``OSPREY_PROJECT_DIR``, the
 agent-data volume target, the audit root, the simulator-log and guarded-run
-mount targets — from that one project directory. Nothing overlays the baked
-config, so the build stages no worker ``config.yml`` for a tiered worker.
+mount targets — from that one project directory. The one thing mounted over
+the baked config is the worker's own staged copy of it,
+``build/services/dispatch_worker/config.yml``: the container-rooted tier render
+plus the ``control_system.login_tiers`` map, which ``osprey build`` writes after
+the tier projects are rendered. The terminals on that tier keep the map-free
+baked render; the worker keeps its tier's posture and gains the map.
 
 With ``dispatch.tier`` unset the worker compose is byte-for-byte what it was
 before the tier existed: every untiered shape the committed goldens pin
@@ -123,12 +127,23 @@ def test_tiered_worker_agent_data_volume_lands_under_the_tier_project() -> None:
     assert f"dispatch_workspace_1:{agent_data}" in service["volumes"]
 
 
-def test_tiered_worker_mounts_no_staged_config_and_names_no_own_project_path() -> None:
+def test_tiered_worker_mounts_its_staged_copy_over_the_tier_config_and_names_no_own_project_path() -> (
+    None
+):
+    """The staged tier copy is the one config mount, read-only, at the tier's
+    own ``CONFIG_FILE`` — never at the deployment's own project path."""
     rendered = _render(_config())
-    assert "build/services/dispatch_worker/config.yml" not in rendered
     assert f"{_OWN_ROOT}/" not in rendered
     (service,) = _worker_services(rendered).values()
-    assert not any(target.endswith("/build/config.yml") for target in _mount_targets(service))
+    config_mounts = [
+        str(volume)
+        for volume in service.get("volumes", [])
+        if str(volume).split(":")[1].endswith("/build/config.yml")
+    ]
+    assert config_mounts == [
+        f"./build/services/dispatch_worker/config.yml:{_TIER_ROOT}/build/config.yml:ro"
+    ]
+    assert service["environment"]["CONFIG_FILE"] == f"{_TIER_ROOT}/build/config.yml"
 
 
 def test_tiered_worker_simulator_log_target_follows_the_tier_project() -> None:

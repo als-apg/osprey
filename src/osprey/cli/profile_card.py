@@ -88,57 +88,46 @@ def _dotted_lookup(config: Mapping[str, Any], wanted: tuple[str, ...]) -> Any:
     return found
 
 
-def _render_control_section(
-    profile: BuildProfile, layer_deltas: Mapping[str, Mapping[str, Any]], render: str
-) -> dict[str, Any]:
-    """The ``control_system:`` section ``render``'s render resolves to.
+def _document_tier(config: Any) -> str | None:
+    """The tier one ``config:`` block states, read as the build reads it.
 
-    The layer's own ``config:`` folded over the host profile's, deeper
-    key winning, exactly as the build applies the two flat dotted bags in turn
-    — the bundled tiers pin posture on both sides of the boundary, and a
-    facility render that says nothing inherits the host's.
+    ``control_system.writes`` when the block spells it (any spelling, deeper
+    key winning), through :func:`~osprey_connectors.types.tier_writes` so only
+    the literal ``allowed`` arms; else what its retired ``writes_enabled``
+    leaves amount to (:func:`~.build_profile_document.retired_write_answer`,
+    the rewrite the normalizer applies — a layer handed to the card may be a
+    raw parse); else ``None``, a block that says nothing about the posture.
     """
-    from .build_profile_emit import _merge_subtree, effective_config_subtree
+    from osprey_connectors.types import tier_writes
 
-    wanted = ("control_system",)
-    section = effective_config_subtree(profile.config, wanted)
-    config = layer_deltas.get(render, {}).get("config")
-    if isinstance(config, Mapping):
-        _merge_subtree(section, effective_config_subtree(config, wanted))
-    return section
+    from .build_profile_document import retired_write_answer
+    from .build_profile_emit import effective_config_subtree
+
+    if not isinstance(config, Mapping):
+        return None
+    section = effective_config_subtree(config, ("control_system",))
+    if "writes" in section:
+        return tier_writes({"writes": section["writes"]})
+    return retired_write_answer(dict(config))
 
 
 def _write_rights(
     profile: BuildProfile, layer_deltas: Mapping[str, Mapping[str, Any]], render: str
 ) -> list[str]:
-    """``render``'s write posture, one item per target its render reaches.
+    """``render``'s write posture: one item when its login tier allows writes, else none.
 
-    Posture is per connector type — ``control_system.connector.<type>.
-    writes_enabled``, and only for a type whose own block says nothing the
-    deployment-wide ``control_system.writes_enabled`` — so one deployment can
-    be armed on its simulator and read-only on the machine beside it. There is
-    no deployment-wide answer to print, and no single answer per render
-    either: the card says it per target, and per login.
-
-    Which targets are named is
-    :func:`~osprey_connectors.types.session_posture`'s answer, never a loop
-    over both — a render that cannot switch reaches the one connector it
-    builds, and speaking about the other would describe a machine no session
-    here can be pointed at. So the ordinary single-target render reads as it
-    always has, one unqualified item or nothing at all, and only a
-    switch-capable render spells the targets out — both of them, armed and
-    not, since which half of a mixed posture carries the write path is the
-    whole reason to say it.
+    The tier — ``control_system.writes`` — is the one posture a login has. The
+    render's layer states it or inherits the host profile's (silence is
+    ``never``), each document read on its own (:func:`_document_tier`) so a
+    retired spelling in either answers as the build rewrites it. It is
+    target-blind: a tier that allows writes allows them for every machine the
+    render reaches, and the person's switch picks which one at the moment of
+    each write, so there is no per-target answer to print.
     """
-    from osprey_connectors.types import session_posture
-
-    posture = session_posture(_render_control_section(profile, layer_deltas, render))
-    if len(posture) == 1:
-        return ["rights approval-gated"] if any(posture.values()) else []
-    return [
-        f"{target} rights approval-gated" if armed else f"{target} read-only"
-        for target, armed in posture.items()
-    ]
+    tier = _document_tier(layer_deltas.get(render, {}).get("config"))
+    if tier is None:
+        tier = _document_tier(profile.config)
+    return ["rights approval-gated"] if tier == "allowed" else []
 
 
 def _panel_labels(

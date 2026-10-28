@@ -10,10 +10,10 @@ posture by reading this one file.
 Two independent gates, each defense-in-depth against a different failure:
 
 - :func:`_assert_limits_readable_if_writable` — a STARTUP guard. Refuses to
-  bring the bridge up in the one unsafe posture: writes enabled for the
-  target THIS LANE serves + a limits database required for that same target
-  (:func:`osprey_connectors.types.limits_database_required`) + the limits
-  database unreadable. Fail-OPEN by design (see its docstring):
+  bring the bridge up in the one unsafe posture: a write tier that allows
+  writes on a lane that is not degraded + a limits database required for the
+  target THIS LANE serves (:func:`osprey_connectors.types.limits_database_required`)
+  + the limits database unreadable. Fail-OPEN by design (see its docstring):
   every other combination starts normally.
 - :func:`_validate_launchable_request` — a per-ENQUEUE gate. Refuses to enqueue
   a session/unreviewed plan whose CURRENT on-disk content has no passing
@@ -51,47 +51,29 @@ def _request_field(request: Any, field: str, default: Any = None) -> Any:
 
 
 def _assert_limits_readable_if_writable() -> None:
-    """Refuse startup if writes are enabled but the limits database can't be read.
+    """Refuse startup if this lane could write but the limits database can't be read.
 
-    The posture checked is THIS LANE's, not the deployment's: a bridge
-    container serves one lane, that lane serves one control target
-    (`queue_backend.resolve_lane_identity`), and the write posture of that
-    target is what this process could actually move. Reading the
-    deployment-wide ``control_system.writes_enabled`` instead would refuse
-    startup for a read-only virtual-accelerator lane because some *other*
-    lane's machine is armed, and — the direction that matters — would start a
-    lane whose own connector block arms writes while the global key says
-    false. So the condition is
-    ``control_system.connector.<type>.writes_enabled`` for the type this
-    lane's target resolves to (inheriting the deployment-wide key where the
-    block says nothing), ANDed with ``not is_readonly_run()`` so a read-only
-    run needs no limits database at all.
+    "Could write" is the startup half of the write verdict, asked through
+    :func:`~osprey.services.bluesky_bridge.queue_backend.lane_tier_allows`:
+    :func:`osprey_connectors.posture_store.backstop_verdict` allows (the run
+    is not read-only and the login tier allows writes), and the lane is not
+    degraded. The tier is target-blind — a deployment that
+    allows writes allows them on every machine, and the person's switch picks
+    which one, at run time — so a lane whose tier allows writes may be switched
+    on at any moment after it starts, and it needs working limits enforcement
+    from the start. A degraded lane addresses a machine this deployment cannot
+    resolve, the connector refuses each of its writes, and it needs no limits
+    database.
 
-    That whole condition is asked through
-    :func:`osprey_connectors.posture_store.effective_writes`, the one rule the
-    connector's reference monitor and the MCP queue surface also read, so the
-    bridge and the tool addressing it cannot disagree about whether this lane
-    can write. It adds a third term to the two above: the operator's
-    per-target narrowing from the header chip, which can only narrow. A
-    narrowing belongs to one person, so that term asks whose work the write is,
-    and startup is nobody's: no item has been dequeued and nothing has bound an
-    owner, so :func:`osprey_connectors.posture_store.current_owner` falls to
-    its last rung. In a lane container — handed the read-only tree of every
-    identity's record and holding no chip of its own — that rung is
-    :data:`~osprey_connectors.posture_store.NO_OWNER`, which the deployment
-    ceiling alone governs, so the term is inert here and this guard is the two
-    config keys above. Where the bridge runs on the host beside its own record
-    the rung is the process account, whose chip does reach this check, and in
-    the fail-open direction — the same direction "writes disabled" already
-    takes. Either way the term earns its keep per WRITE rather than at startup,
-    once the plan wrapper has bound the owner the item was enqueued under. Note
-    also that this is a STARTUP guard reading a record that moves at run time:
-    a narrowing lifted after start is not re-checked here. That is deliberate and costs nothing, because the gate
-    that stands between a plan and hardware is the per-write one, not this.
+    The switch and the owner are deliberately not read here. Startup is nobody's
+    work: no item has been dequeued and nothing has bound an owner, and a
+    switch is a record that moves while the process runs. The gate that stands
+    between a plan and hardware is the per-write verdict the connector asks
+    once the plan wrapper has bound the owner the item was enqueued under.
 
-    Limits checking is resolved the same way, and for the same reason: a
-    deployment may leave its virtual accelerator unchecked while its live
-    machine enforces limits, so the condition is
+    Limits checking, unlike the tier, is resolved per lane: a deployment may
+    leave its virtual accelerator unchecked while its live machine enforces
+    limits, so the condition is
     ``control_system.connector.<type>.limits_checking.enabled`` for this
     lane's type, inheriting the deployment-wide block where no per-type block
     says anything. Only ``database_path`` stays deployment-wide — the
@@ -107,13 +89,13 @@ def _assert_limits_readable_if_writable() -> None:
     path must load whatever the mode.
 
     Fail-OPEN by design: this is the ONLY combination that refuses
-    startup — this lane's write posture true AND this lane's limits posture
-    requiring a database, AND the limits database is missing, unreadable, or
-    unparseable. Every other combination starts normally: writes disabled
-    (read-only posture) never even probes the database; writes enabled with
-    limits checking disabled needs no database at all, nor does ``optional``
-    with no path; writes enabled with a readable database is the healthy
-    case. A writable deploy with no working limits enforcement is the one
+    startup — this lane could write AND this lane's limits posture requires a
+    database, AND the limits database is missing, unreadable, or unparseable.
+    Every other combination starts normally: a lane that cannot write never
+    even probes the database; writes enabled with limits checking disabled
+    needs no database at all, nor does ``optional`` with no path; writes
+    enabled with a readable database is the healthy case. A writable deploy
+    with no working limits enforcement is the one
     unsafe posture this guard exists to catch before any connector/CA work
     begins.
 
@@ -136,19 +118,19 @@ def _assert_limits_readable_if_writable() -> None:
 
     Raises:
         RuntimeError: naming the lane, its target, and which condition failed
-            (both resolved posture keys, so an operator is sent to the lines
-            that actually answered rather than to a deployment-wide one some
-            per-type block overrides, whether the posture could be read at
-            all — a leaf missing from a per-type block or written as anything
-            but a literal boolean in either scope names every such leaf — and
-            whether the database path was configured/found/parseable) — never
-            the database's file contents or any other secret value.
+            (the resolved limits key, so an operator is sent to the line that
+            actually answered rather than to a deployment-wide one some
+            per-type block overrides, whether the limits posture could be read
+            at all — a leaf missing from a per-type block or written as
+            anything but a literal boolean in either scope names every such
+            leaf — and whether the database path was configured/found/
+            parseable) — never the database's file contents or any other
+            secret value.
     """
-    from osprey_connectors import posture_store
     from osprey_connectors.config import get_config_value
-    from osprey_connectors.types import target_limits_posture, target_writes_enabled_key
+    from osprey_connectors.types import target_limits_posture
 
-    from .queue_backend import resolve_lane_identity
+    from .queue_backend import lane_tier_allows, resolve_lane_identity
 
     lane, lane_target = resolve_lane_identity()
 
@@ -157,10 +139,9 @@ def _assert_limits_readable_if_writable() -> None:
     except (FileNotFoundError, KeyError, RuntimeError):
         return
 
-    if not posture_store.effective_writes(section, lane_target):
+    if not lane_tier_allows(section):
         return
     posture = target_limits_posture(section, lane_target)
-    writes_key = target_writes_enabled_key(section, lane_target)
     if posture.incomplete:
         # The connector and the hook both build the blocking failsafe from
         # this same posture, so no write would get through anyway; the gate
@@ -168,7 +149,7 @@ def _assert_limits_readable_if_writable() -> None:
         unreadable = ", ".join(posture.key(leaf) for leaf in posture.incomplete)
         raise RuntimeError(
             f"refusing to start writable: lane {lane} serves target {lane_target}, "
-            f"where {writes_key} is set, but its limits posture cannot be read: "
+            f"where the write tier allows writes, but its limits posture cannot be read: "
             f"{unreadable} must each be a literal true or false"
         )
     if posture.enabled is not True:
@@ -191,7 +172,7 @@ def _assert_limits_readable_if_writable() -> None:
     if configured is None:
         raise RuntimeError(
             f"refusing to start writable: lane {lane} serves target {lane_target}, "
-            f"where {writes_key} and {limits_key} are both set, but "
+            f"where the write tier allows writes and {limits_key} is set, but "
             f"{LIMITS_DATABASE_CONFIG_KEY} is not configured"
         )
 
@@ -199,7 +180,7 @@ def _assert_limits_readable_if_writable() -> None:
     if loaded is None:
         raise RuntimeError(
             f"refusing to start writable: lane {lane} serves target {lane_target}, "
-            f"where {writes_key} and {limits_key} are both set, but the configured "
+            f"where the write tier allows writes and {limits_key} is set, but the configured "
             f"{LIMITS_DATABASE_CONFIG_KEY} could not be read or parsed: {reason}"
         )
 

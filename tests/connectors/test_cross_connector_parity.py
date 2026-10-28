@@ -61,10 +61,11 @@ import aioca
 import pytest
 
 from osprey_connectors.control_system._base import ChannelValue, WriteOutcome
-from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors_tests._epics_fakes import FakeAioca, FakeChannel, ca_connector, ca_reading
+from osprey_connectors_tests._write_fakes import arm_switch
+from osprey_connectors_tests._write_fakes import writes_enabled_config as _writes_enabled
 from tests.facility.served_tree import in_process_config, served_tree
 
 # The one value every scenario writes, and the value a channel that did not
@@ -83,6 +84,17 @@ _TZ_PATCH = "osprey_connectors.control_system._doocs_connector.get_facility_time
 # ---------------------------------------------------------------------------
 # The scenario table — one canonical expectation per row
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _switch_on(monkeypatch, tmp_path):
+    """The login's switch on for the simulator target, connectors stamped with it.
+
+    With :func:`writes_enabled_config` serving a write tier that allows, that is
+    everything the reference monitor's verdict asks before a write reaches the
+    transport; a test that disarms serves a tier that does not.
+    """
+    return arm_switch(monkeypatch, tmp_path / "armed-data")
 
 
 @dataclass(frozen=True)
@@ -163,13 +175,6 @@ def _confirm_argument(scenario: Scenario) -> bool | None:
 # ---------------------------------------------------------------------------
 
 
-def _writes_enabled(key, default=None):
-    """Enable writes and answer every other config lookup with its default."""
-    if key == "control_system.writes_enabled":
-        return True
-    return default
-
-
 async def _run_mock(scenario: Scenario, monkeypatch, tmp_path) -> WriteRun:
     """Drive VAInProcessConnector through ``scenario``.
 
@@ -218,10 +223,11 @@ def _epics_connector(monkeypatch, *, channel):
     """A connected EPICS connector over one fake channel "SR:CH", writes allowed.
 
     connect() is skipped by injecting the runtime state it would have built;
-    the base class's writes gate is opened at the property so ``write_channel``
-    reaches the confirm flow this file is about.
+    the module's switch fixture and a write tier that allows open the base
+    class's writes gate, so ``write_channel`` reaches the confirm flow this file
+    is about through the real monitor.
     """
-    monkeypatch.setattr(EPICSConnector, "_writes_enabled", property(lambda self: True))
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", _writes_enabled)
     return ca_connector(aioca=FakeAioca({"SR:CH": channel}))
 
 

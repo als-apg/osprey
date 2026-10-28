@@ -37,7 +37,7 @@ OUT_OF_LIMITS_HIGH = 15.0  # the record's window is +-12A
 OUT_OF_LIMITS_LOW = -14.0
 
 LIMITS_OVERRIDES = {
-    "control_system.writes_enabled": True,
+    "control_system.writes": "allowed",
     "control_system.limits_checking.enabled": True,
     "control_system.limits_checking.database_path": str(e2e_conftest.LIMITS_DB_PATH),
     "control_system.limits_checking.mode": "optional",
@@ -81,7 +81,7 @@ def unlimited_sp() -> str:
 
 class TestLimitsEnforcement:
     @pytest.mark.asyncio
-    @pytest.mark.usefixtures("va_container")
+    @pytest.mark.usefixtures("va_container", "va_switch_on")
     async def test_out_of_limits_write_rejected_before_reaching_ioc(self, banded_sp, banded_rb):
         with e2e_conftest.patched_config(**LIMITS_OVERRIDES):
             connector = await e2e_conftest.connect_va()
@@ -109,7 +109,7 @@ class TestLimitsEnforcement:
             )
 
     @pytest.mark.asyncio
-    @pytest.mark.usefixtures("va_container")
+    @pytest.mark.usefixtures("va_container", "va_switch_on")
     async def test_unlimited_write_succeeds(self, unlimited_sp):
         with e2e_conftest.patched_config(**LIMITS_OVERRIDES):
             connector = await e2e_conftest.connect_va()

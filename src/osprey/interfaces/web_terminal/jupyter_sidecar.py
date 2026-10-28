@@ -17,7 +17,7 @@ Paths. Persistent state lives on the agent-data shared root, next to the
 session binding the kernel launcher reads::
 
     <shared_root>/notebooks/                  ServerApp.root_dir
-    <shared_root>/jupyter/data/               JUPYTER_DATA_DIR
+    <shared_root>/jupyter/data/               JUPYTER_DATA_DIR (kernelspecs; not labextensions)
     <shared_root>/jupyter/data/kernels/osprey/kernel.json
     <shared_root>/jupyter/lab/settings/       JUPYTERLAB_SETTINGS_DIR
     <shared_root>/jupyter/lab/workspaces/     JUPYTERLAB_WORKSPACES_DIR
@@ -102,10 +102,27 @@ _THEME_NAMES = {"dark": "JupyterLab Dark", "light": "JupyterLab Light"}
 #: JupyterLab plugins switched off through ``labconfig/page_config.json``.
 #: The extension manager offers installs into an image that cannot keep them;
 #: the announcements plugin is the news prompt and the update check.
+#: The javascript renderer is the one that executes ``application/javascript``
+#: output (``IPython.display.Javascript``) in the Lab document; the vega
+#: renderer compiles a Vega/Vega-Lite spec's expressions with ``new Function``,
+#: which the Lab page's ``'unsafe-eval'`` would allow. Kernel output may be an
+#: agent's, so no output runs script there. The proxy's script policy on Lab's
+#: pages (``routes/proxy.py``, ``_lab_page_csp``) refuses the same thing from
+#: the other side.
 LAB_DISABLED_EXTENSIONS = (
     "@jupyterlab/extensionmanager-extension",
     "@jupyterlab/apputils-extension:announcements",
+    "@jupyterlab/javascript-extension",
+    "@jupyterlab/vega5-extension",
 )
+
+#: The one directory Lab loads prebuilt extensions from: the image's own
+#: install tree. jupyter-server's default ``labextensions_path`` also searches
+#: ``$JUPYTER_DATA_DIR`` — on the shared root, which kernels and agent tooling
+#: write — and Lab loads every extension it finds there into its page, from a
+#: path the proxy's script policy allows (``routes/proxy.py``,
+#: ``_LAB_SCRIPT_TREES``).
+_LAB_EXTENSIONS_DIR = Path(sys.prefix) / "share" / "jupyter" / "labextensions"
 
 #: The ``LabApp`` class that answers "no update available"; named on the argv.
 _NEVER_CHECK_FOR_UPDATE = "jupyterlab.handlers.announcements.NeverCheckForUpdate"
@@ -562,6 +579,12 @@ class JupyterSidecar:
             # No news feed and no update check from inside an embedded panel.
             "--LabApp.news_url=None",
             f"--LabApp.check_for_updates_class={_NEVER_CHECK_FOR_UPDATE}",
+            # Prebuilt extensions from the image only, never the shared root.
+            # A bare path, not a list literal: ServerApp parses this before
+            # the Lab extension is loaded, and a deferred value is read with
+            # the trait's from_string, which keeps a literal as one string.
+            f"--LabServerApp.labextensions_path={_LAB_EXTENSIONS_DIR}",
+            "--LabServerApp.extra_labextensions_path=[]",
         ]
 
     def _child_env(self, token: str, runtime_dir: Path, config_dir: Path) -> dict[str, str]:

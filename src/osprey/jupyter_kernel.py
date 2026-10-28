@@ -293,11 +293,18 @@ def _stamp_from_record(env: MutableMapping[str, str]) -> None:
       no target, sandboxed, no refusal: the cell reads the deployment baseline,
       which is the same fail-closed outcome the kernel starts in;
     * otherwise the record's target, its generation, and the launch pin the
-      record's posture answers for that target.
+      write verdict answers for that target.
 
     The gate and the launch pin are the executor's own, called rather than
     restated, so the notebook and the ``execute()`` tool cannot disagree about
-    what "settled" means or about which posture a run starts under.
+    what "settled" means or about which posture a run starts under. The pin is
+    the write verdict asked with the launch pin ignored
+    (:func:`~osprey.mcp_server.python_executor.executor._launch_posture`): the
+    pin this process carries is the one the LAST cell was given, and a verdict
+    that read it back would let a kernel narrow but never widen. The pin is
+    one-way inside a run; a kernel's runs are its cells, so a switch turned on
+    reaches the next cell, and a switch turned off refuses the very next write
+    through the verdict the connector asks on every write.
 
     Args:
         env: This process's environment — ``os.environ``, and nothing else.
@@ -305,7 +312,6 @@ def _stamp_from_record(env: MutableMapping[str, str]) -> None:
             environment, so that is where the stamp has to land.
     """
     from osprey.mcp_server.python_executor import executor
-    from osprey_connectors import posture_store
 
     for name in (*executor._STAMP_ENV_NAMES, ENV_CONTROL_TARGET_REFUSAL):
         env.pop(name, None)
@@ -320,13 +326,9 @@ def _stamp_from_record(env: MutableMapping[str, str]) -> None:
     if not executor._target_is_resolvable(record.target):
         return
 
-    permitted = record.posture.get(record.target) != posture_store.POSTURE_SANDBOX
     env[executor.ENV_CONTROL_TARGET] = record.target
     env[executor.ENV_CONTROL_TARGET_GENERATION] = str(record.generation)
-    env[executor.ENV_LAUNCH_POSTURE] = posture_store.launch_posture_stamp(
-        record.target,
-        posture_store.POSTURE_WRITES if permitted else posture_store.POSTURE_SANDBOX,
-    )
+    env[executor.ENV_LAUNCH_POSTURE] = executor._launch_posture(record.target)
 
 
 def _cell_kernel_id() -> str | None:
@@ -459,9 +461,9 @@ _WRITE_REASONS = {
 #: the record before every cell, so the cell is what picks the new target up.
 HINT_TARGET_CHANGED = "The control target changed while this cell ran. Re-run the cell."
 
-#: The launch pin refused: the cell was opened with writes off, for its target
-#: or for every target. The chip is where that is turned on, and the next cell
-#: is stamped from it.
+#: Writes are off for the machine this cell writes to: its switch is off, or
+#: the cell was opened while it was (the launch pin). The chip is where the
+#: switch is turned on, and the next cell is stamped from it.
 HINT_WRITES_OFF = (
     "Writes are off for this cell. Turn writes on from the chip, then re-run the cell."
 )
@@ -472,6 +474,12 @@ HINT_RAW_CLIENT_IMPORT = (
     "Client libraries are not available in a notebook. "
     "Read and write through osprey.runtime.read_channel / write_channel instead."
 )
+
+#: The write-verdict reasons the chip is the remedy for. Every other reason —
+#: a tier that allows nothing, an owner the verdict cannot name, a record it
+#: cannot read — is not turned on from the chip, and the connector's own
+#: refusal phrase already names it.
+_WRITES_OFF_REASONS = frozenset({"switch_off", "launch_pinned"})
 
 
 def _refusal_classes() -> tuple[type[BaseException], ...]:
@@ -500,13 +508,17 @@ def _hint_for(value: BaseException) -> str | None:
     """The one action line for *value*, or ``None`` when there is no action.
 
     A refused client import or library load is answered by its class alone: no
-    posture lets a client in, so the chip is not its remedy. Every other branch
-    is read from the stamp this cell was given, so the hint and the connector's
-    own refusal text answer from one state rather than from a flag the kernel
-    would have to keep in step. A live-store refusal, a limits violation and a
-    switch in flight get no line: their own message already names what to do,
-    and a second line would either repeat it or send the operator somewhere the
-    message did not.
+    posture lets a client in, so the chip is not its remedy. A blocked write is
+    answered from the write verdict for the target the cell writes to — its
+    stamped target, else the deployment baseline the runtime builds an
+    unstamped cell on — with the launch pin honoured, the verdict the
+    connector itself refuses by. The hint and the connector's refusal text
+    therefore answer from one state rather than from a flag the kernel would
+    have to keep in step, and the line appears only for a reason the chip
+    turns around (:data:`_WRITES_OFF_REASONS`). A refusal the verdict no longer
+    explains, a limits violation and a switch in flight get no line: their own
+    message already names what to do, and a second line would either repeat it
+    or send the operator somewhere the message did not.
 
     Args:
         value: The refusal that reached the hook.
@@ -514,10 +526,12 @@ def _hint_for(value: BaseException) -> str | None:
     Returns:
         The line to print before the traceback, or ``None`` to print none.
     """
+    from osprey.audit import posture
     from osprey.mcp_server.python_executor import executor
     from osprey.runtime import ControlTargetChangedError, SwitchInProgressError
     from osprey_connectors import posture_store
     from osprey_connectors.errors import ChannelWriteBlockedError, ClientLibraryRefusedError
+    from osprey_connectors.types import baseline_target
 
     if isinstance(value, SwitchInProgressError):
         return None
@@ -527,10 +541,15 @@ def _hint_for(value: BaseException) -> str | None:
         return HINT_RAW_CLIENT_IMPORT
     if not isinstance(value, ChannelWriteBlockedError):
         return None
+    section = posture.control_system_section()
     target = (os.environ.get(executor.ENV_CONTROL_TARGET) or "").strip() or None
-    if posture_store.launch_permits(target):
-        return None
-    return HINT_WRITES_OFF
+    if target is None:
+        try:
+            target = baseline_target(section)
+        except Exception:  # no baseline to name: the verdict answers target_unknown
+            target = None
+    reason = posture_store.write_verdict(section, target).reason
+    return HINT_WRITES_OFF if reason in _WRITES_OFF_REASONS else None
 
 
 def _channel_token(channel: object) -> str | None:

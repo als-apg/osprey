@@ -209,7 +209,7 @@ def _measuring(served: Any) -> gm.Deployment:
         "simulation": CHAIN_CONFIG["simulation"],
         "control_system": {
             "type": "virtual_accelerator",
-            "writes_enabled": True,
+            "writes": "allowed",
             "limits_checking": {
                 "enabled": True,
                 "mode": "optional",
@@ -218,7 +218,6 @@ def _measuring(served: Any) -> gm.Deployment:
             "connector": {
                 "virtual_accelerator": {
                     "gateways": {"read_only": gateway, "write_access": gateway},
-                    "writes_enabled": True,
                     "timeout_s": 30.0,
                 }
             },

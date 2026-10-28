@@ -15,6 +15,22 @@ from tests.mcp_server._execute_code import mock_execute_code
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 
+@pytest.fixture
+def armed(tmp_path, monkeypatch):
+    """A deployment whose write verdict allows: a tier that allows, the switch on.
+
+    The executor's entry gate asks the write verdict for the run's target, so a
+    readwrite run is armed the way an operator arms one — a tier that allows
+    writes and the record's switch on for the simulator — never by patching a
+    config reader the gate no longer consults.
+    """
+    from osprey.audit import posture
+    from osprey_connectors_tests._write_fakes import ARMED_SECTION, ARMED_TARGET, arm_switch
+
+    monkeypatch.setattr(posture, "control_system_section", lambda: dict(ARMED_SECTION))
+    arm_switch(monkeypatch, tmp_path / "agent_data", ARMED_TARGET, stamp=False)
+
+
 def _get_python_execute_file():
     from osprey.mcp_server.python_executor.tools.python_execute_file import execute_file
 
@@ -30,14 +46,11 @@ _CAPUT_DETECTED = {
 
 
 @contextmanager
-def _patched_run(tmp_path, mock_exec, *, detection=None, writes_enabled=None):
+def _patched_run(tmp_path, mock_exec, *, detection=None):
     """Run execute_file from ``tmp_path`` with ``execute_code`` replaced by ``mock_exec``.
 
-    ``detection`` replaces pattern detection's verdict and ``writes_enabled`` the
-    deployment's write gate; either is left real when not given.
+    ``detection`` replaces pattern detection's verdict; it is left real when not given.
     """
-    from osprey.services.python_executor.execution.control import ExecutionControlConfig
-
     with ExitStack() as stack:
         stack.enter_context(
             patch(
@@ -50,15 +63,6 @@ def _patched_run(tmp_path, mock_exec, *, detection=None, writes_enabled=None):
                 patch(
                     "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
                     return_value=detection,
-                )
-            )
-        if writes_enabled is not None:
-            stack.enter_context(
-                patch(
-                    "osprey.services.python_executor.execution.control.get_execution_control_config",
-                    return_value=ExecutionControlConfig(
-                        control_system_writes_enabled=writes_enabled
-                    ),
                 )
             )
         stack.enter_context(
@@ -246,6 +250,7 @@ async def test_execute_file_readonly_blocks_writes(tmp_path, monkeypatch):
     _exc_ctx["envelope"]
 
 
+@pytest.mark.usefixtures("armed")
 async def test_execute_file_readwrite_allows_writes(tmp_path, monkeypatch):
     """Write patterns pass in readwrite mode."""
     monkeypatch.chdir(tmp_path)
@@ -258,7 +263,7 @@ async def test_execute_file_readwrite_allows_writes(tmp_path, monkeypatch):
     # The deployment-level writes gate is independent of execution_mode; this
     # test asserts the readwrite path, so the gate must be allow-through.
 
-    with _patched_run(tmp_path, mock_exec, detection=_CAPUT_DETECTED, writes_enabled=True):
+    with _patched_run(tmp_path, mock_exec, detection=_CAPUT_DETECTED):
         fn = _get_python_execute_file()
         result = await fn(
             file_path=str(script),
@@ -271,13 +276,18 @@ async def test_execute_file_readwrite_allows_writes(tmp_path, monkeypatch):
     assert data["summary"]["status"] == "Success"
 
 
-async def test_execute_file_deployment_writes_disabled_blocks(tmp_path, monkeypatch):
-    """The deployment kill switch refuses readwrite runs when writes are disabled.
+@pytest.mark.usefixtures("armed")
+async def test_execute_file_switched_off_target_blocks(tmp_path, monkeypatch):
+    """The write verdict refuses readwrite runs when the run's machine is switched off.
 
-    ``execute_file`` used to carry no deployment-level gate at all: a script
-    full of write patterns ran under execution_mode="readwrite" even with
-    control_system.writes_enabled=false in the project config.
+    ``execute_file`` used to carry no write gate at all: a script full of write
+    patterns ran under execution_mode="readwrite" whatever the deployment
+    allowed. The refusal is the switch's phrase, and names no config key.
     """
+    from osprey_connectors.refusals import refusal_text
+    from osprey_connectors_tests._write_fakes import ARMED_TARGET, turn_switch
+
+    turn_switch(ARMED_TARGET, "off")
     monkeypatch.chdir(tmp_path)
 
     script = tmp_path / "writer.py"
@@ -285,7 +295,7 @@ async def test_execute_file_deployment_writes_disabled_blocks(tmp_path, monkeypa
 
     mock_exec = mock_execute_code()
 
-    with _patched_run(tmp_path, mock_exec, detection=_CAPUT_DETECTED, writes_enabled=False):
+    with _patched_run(tmp_path, mock_exec, detection=_CAPUT_DETECTED):
         fn = _get_python_execute_file()
         with assert_raises_error(error_type="safety_error") as ctx:
             await fn(
@@ -295,7 +305,8 @@ async def test_execute_file_deployment_writes_disabled_blocks(tmp_path, monkeypa
             )
 
     mock_exec.assert_not_called()
-    assert "writes_enabled" in ctx["envelope"]["error_message"]
+    assert ctx["envelope"]["error_message"] == refusal_text("switch_off", "simulator")
+    assert "writes_enabled" not in ctx["envelope"]["error_message"]
 
 
 @pytest.mark.parametrize("mode", ["ReadWrite", "READWRITE", "write", "read_write"])
@@ -308,7 +319,7 @@ async def test_execute_file_rejects_unknown_execution_mode(tmp_path, monkeypatch
 
     mock_exec = mock_execute_code()
 
-    with _patched_run(tmp_path, mock_exec, detection=_CAPUT_DETECTED, writes_enabled=False):
+    with _patched_run(tmp_path, mock_exec, detection=_CAPUT_DETECTED):
         fn = _get_python_execute_file()
         with assert_raises_error(error_type="validation_error") as ctx:
             await fn(

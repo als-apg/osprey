@@ -86,6 +86,9 @@ from osprey.mcp_server.control_system.tools import control_target
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system._base import ChannelValue
+from osprey_connectors.workspace import reset_config_cache
+from osprey_connectors_tests._harness import write_control_context
+from tests._approval_stamp_fixture import ApprovalStamps
 from tests.fixtures.control_context import (
     claim_the_record,
     context_for,
@@ -398,7 +401,9 @@ def raw_config(
     config: dict = {
         "control_system": {
             "type": "epics",
-            "writes_enabled": True,
+            # The login tier. It arms nothing alone: the session's switch must
+            # also be on for the machine (see ``state_root``).
+            "writes": "allowed",
             "limits_checking": {
                 "enabled": True,
                 "mode": "exclusive",
@@ -435,12 +440,22 @@ def state_root(tmp_path, monkeypatch):
     inherits along with the rest of this environment. Stamping one and not the
     other leaves this process reading whatever record the developer's machine
     was last left pointed at.
+
+    The session's switch is on for both machines before any child spawns: a
+    write needs the login tier (``control_system.writes: allowed``) AND the
+    switch on for its target, and a connector chooses its write-capable gateway
+    from that verdict when it connects. The record is ownerless at generation
+    0 on the deployment's baseline, which is what a controls server's claim
+    would start, so a claim merges it rather than replacing it.
     """
     root = tmp_path / "var" / "agent_data"
     (root / target_state.STATE_DIR_NAME).mkdir(parents=True)
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
     monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
     control_context.invalidate_cache()
+    write_control_context(
+        root, target="live", generation=0, owned_by=None, switch={"live": "on", "va": "on"}
+    )
     yield root
     control_context.invalidate_cache()
 
@@ -464,9 +479,9 @@ def written_config(tmp_path):
     """Stage a deployment on disk and hand back its path.
 
     A connector-host child is configured from the section it is handed on the
-    wire, but ``control_system.writes_enabled`` is read by the connector itself
-    out of ``config.yml`` — it is a launch-time deployment posture, not a value
-    the launch payload may grant. So a deployment that means to select its
+    wire, but the login tier (``control_system.writes``) is read by the connector
+    itself out of ``config.yml`` — it is a launch-time deployment posture, not a
+    value the launch payload may grant. So a deployment that means to select its
     write-capable gateway has to exist as a file, and the manager passes that
     file's path to every child it spawns.
     """
@@ -536,15 +551,34 @@ async def started_on(factory, target: str, **overrides) -> ConnectorHostManager:
 
 @pytest.fixture
 def served_context(monkeypatch):
-    """Install a context as the controls server's singleton, for the tools."""
+    """Install a context as the controls server's singleton, for the tools.
+
+    ``OSPREY_CONFIG`` names the manager's own config file, as it does for a
+    controls server launched by a deployment: the write tool reads the login
+    tier and the approval policy out of the rendered config, not off the
+    context.
+    """
 
     def install(manager: ConnectorHostManager) -> ControlSystemContext:
+        monkeypatch.setenv("OSPREY_CONFIG", str(manager._config.config_path))
+        reset_config_cache()
         context = context_for(manager)
         monkeypatch.setattr(server_context_mod, "_registry", context)
         return context
 
     yield install
     server_context_mod.reset_server_context()
+    reset_config_cache()
+
+
+def approved_call():
+    """The ask stamp the approval hook files for a ``channel_write`` call, bound.
+
+    The deployment asks before every write, so the tool runs only on the
+    record the hook left for the call. The write-approval stamp — the binding
+    the prompt was rendered on — is each test's own subject and is filed by it.
+    """
+    return ApprovalStamps(target_state.state_dir()).approved("channel_write")
 
 
 @pytest.fixture
@@ -957,7 +991,7 @@ class TestAnApprovedWriteIsRefusedAfterASwitch:
 
         await move_the_deployment(manager, "live")
 
-        with assert_raises_error(error_type="target_changed") as captured:
+        with approved_call(), assert_raises_error(error_type="target_changed") as captured:
             await get_tool_fn(channel_write_module.channel_write)(operations=self.OPERATIONS)
 
         details = captured["envelope"]["details"]
@@ -976,7 +1010,7 @@ class TestAnApprovedWriteIsRefusedAfterASwitch:
         write_approval_stamp(self.OPERATIONS, manager.active_binding())
 
         await move_the_deployment(manager, "live")
-        with assert_raises_error(error_type="target_changed"):
+        with approved_call(), assert_raises_error(error_type="target_changed"):
             await get_tool_fn(channel_write_module.channel_write)(operations=self.OPERATIONS)
 
         assert await reading(manager, CORRECTOR_SP) == pytest.approx(0.0)
@@ -998,9 +1032,10 @@ class TestAnApprovedWriteIsRefusedAfterASwitch:
         write_approval_stamp(self.OPERATIONS, manager.active_binding())
 
         try:
-            result = await get_tool_fn(channel_write_module.channel_write)(
-                operations=self.OPERATIONS
-            )
+            with approved_call():
+                result = await get_tool_fn(channel_write_module.channel_write)(
+                    operations=self.OPERATIONS
+                )
             assert json.loads(result)["status"] != "error"
         finally:
             # Every later read in this module is of a machine at rest, so the
@@ -1295,9 +1330,7 @@ class TestTheSingleBlueskyLaneRefusesWhileTheSessionIsSwitched:
         monkeypatch.setattr(target_banner, "load_osprey_config", lambda: config)
         monkeypatch.setattr(
             "osprey_connectors.config.get_config_value",
-            lambda key, default=None, config_path=None: (
-                True if key == "control_system.writes_enabled" else default
-            ),
+            lambda key, default=None, config_path=None: default,
         )
         monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "va-e2e-switch-token")
         bluesky_context.initialize_server_context()

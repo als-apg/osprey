@@ -210,7 +210,7 @@ def install_session_plan(
 
     The owner binding is the other half of that: the wrapper's whole body runs
     inside ``bind_owner``, exactly as the catalog wrapper's does, so the writes
-    a session plan makes are gated against the narrowing of the person who
+    a session plan makes are gated against the switch of the person who
     queued it and not against the worker account's. The reserved owner kwarg is
     popped before ``PARAMS`` validation — a plan file never declares it — and
     the binding spans ``return (yield from plan)`` rather than the call, so it
