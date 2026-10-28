@@ -19,7 +19,6 @@ intention:
   live graph.
 """
 
-import asyncio
 import os
 import subprocess
 import sys
@@ -30,16 +29,7 @@ from osprey.mcp_server.channel_finder_graph.tools import get_schema as cf_get_sc
 from osprey.mcp_server.channel_finder_graph.tools import read_cypher as cf_read_cypher
 from osprey.mcp_server.graph.tools import get_schema as graph_get_schema
 from osprey.mcp_server.graph.tools import read_cypher as graph_read_cypher
-
-
-def _tool_names(mcp) -> set[str]:
-    """Tool names registered on a FastMCP server, across FastMCP versions."""
-    tools = mcp.get_tools() if hasattr(mcp, "get_tools") else mcp.list_tools()
-    if asyncio.iscoroutine(tools):
-        tools = asyncio.run(tools)
-    if isinstance(tools, dict):
-        return set(tools)
-    return {t.name for t in tools}
+from tests.mcp_server.conftest import registered_tool_names
 
 
 def test_read_cypher_is_the_graph_servers_callable():
@@ -54,7 +44,7 @@ def test_get_schema_is_the_graph_servers_callable():
 
 def test_both_tools_land_on_the_channel_finder_server():
     """Importing the modules registers the tools on this paradigm's own instance."""
-    registered = _tool_names(cf_graph_server.mcp)
+    registered = set(registered_tool_names(cf_graph_server.mcp))
 
     assert {"read_cypher", "get_schema"} <= registered
 

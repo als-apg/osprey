@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -36,9 +36,10 @@ from osprey.services.ariel_search.database.repository import CopyRendition
 from osprey.services.ariel_search.enhancement import _offload, availability, image_driver
 from osprey.services.ariel_search.enhancement.image_caption import module as caption_mod
 from osprey.services.ariel_search.enhancement.qmd_export.writer import mirror_path
-from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 from osprey.services.ariel_search.ingestion.ingest import ingest_one
 from osprey.services.ariel_search.search.keyword import keyword_search
+from tests.services.ariel_search.fake_adapters import HttpStubAdapter
+from tests.services.ariel_search.integration._support import fake_prepare, migrated_repository
 
 # xdist_group("docker"): every container-starting test file shares one worker, so a
 # run has a single testcontainers session and the shared database is serialized.
@@ -46,7 +47,6 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.xdist_group("docker"), pytest.mar
 
 MODEL = "vis-caption-1"
 CAPTION = "image_caption"
-ORIGINS = frozenset({("https", "h.example", 443)})
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n" + b"\x00" * 40
 RENDITION = CopyRendition(data=b"png", mime_type="image/png", width=1, height=1, sha256="cd" * 32)
 TS = datetime(2026, 9, 1, tzinfo=UTC)
@@ -54,25 +54,6 @@ REPLY = "Klystron arc trace on the scope.\nVisible text: KLY-3"
 
 
 # --- helpers -----------------------------------------------------------------------
-
-
-class _Adapter(FacilityAdapter):
-    """An http source whose pictures live on ``h.example``; it yields ``entries``."""
-
-    def __init__(self, config: ARIELConfig, entries: list[dict] | None = None) -> None:
-        super().__init__(config)
-        self.entries = entries or []
-
-    @property
-    def source_system_name(self) -> str:
-        return "Stub"
-
-    def attachment_origins(self) -> frozenset:
-        return ORIGINS
-
-    async def fetch_entries(self, *_args, **_kwargs) -> AsyncIterator:  # type: ignore[override]
-        for entry in list(self.entries):
-            yield dict(entry)
 
 
 class _FakeVision:
@@ -138,32 +119,10 @@ def _id(entry_id: str, name: str) -> str:
     return aid
 
 
-def _fake_prepare(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Render every sniffed picture instantly."""
-    from osprey.imaging.formats import sniff
-    from osprey.services.ariel_search.attachments import prepare as prepare_mod
-
-    async def _prepare(data, **_kwargs):
-        sniffed = sniff(data)
-        if not sniffed.is_image:
-            return prepare_mod.PreparedPicture(sniffed.mime, sniffed.skip_reason)
-        return prepare_mod.PreparedPicture(
-            mime_type=sniffed.mime,
-            skip_reason=None,
-            rendition_bytes=b"r",
-            rendition_mime="image/png",
-            rendition_w=1,
-            rendition_h=1,
-            rendition_sha256="cd" * 32,
-        )
-
-    monkeypatch.setattr(prepare_mod, "prepare_picture", _prepare)
-
-
 async def _seed_copied(repo, uri: str, entry_id: str, names: list[str]) -> list[str]:
     """Store an entry with one PNG per name, every picture copied with a rendition."""
     cfg = ARIELConfig.from_dict(_config_dict(uri))
-    await ingest_one(_entry(entry_id, names), _Adapter(cfg), repo, [], cfg, None)
+    await ingest_one(_entry(entry_id, names), HttpStubAdapter(cfg), repo, [], cfg, None)
     ids = [_id(entry_id, n) for n in names]
     for aid in ids:
         written = await repo.apply_copy_outcome(
@@ -217,17 +176,9 @@ def _isolated(monkeypatch):
 @pytest.fixture
 async def repo(scratch_database):
     """An ``ARIELRepository`` on a fresh scratch database at today's schema."""
-    from osprey.services.ariel_search.database import ARIELRepository
-    from osprey.services.ariel_search.database.connection import create_connection_pool
-    from osprey.services.ariel_search.database.migrations import run_migrations
-
     cfg = ARIELConfig.from_dict(_config_dict(scratch_database))
-    pool = await create_connection_pool(cfg.database)
-    try:
-        await run_migrations(pool, cfg)
-        yield ARIELRepository(pool, cfg)
-    finally:
-        await pool.close()
+    async with migrated_repository(cfg) as repository:
+        yield repository
 
 
 def _vision(monkeypatch, fake: _FakeVision) -> _FakeVision:
@@ -245,11 +196,11 @@ class TestPollLeavesCaptionsToTheCatchup:
         from osprey.services.ariel_search import ingestion as ingestion_pkg
         from osprey.services.ariel_search.ingestion.scheduler import IngestionScheduler
 
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         attachment_fetch.respond(FetchOutcome(data=PNG_MAGIC))
         fake = _vision(monkeypatch, _FakeVision(lambda _n: time.sleep(10)))
         cfg = ARIELConfig.from_dict(_config_dict(scratch_database))
-        adapter = _Adapter(cfg, [_entry("poll-1", ["a.png"])])
+        adapter = HttpStubAdapter(cfg, [_entry("poll-1", ["a.png"])])
         monkeypatch.setattr(ingestion_pkg, "get_adapter", lambda _config: adapter)
         scheduler = IngestionScheduler(cfg, repo)
 
@@ -367,7 +318,7 @@ class TestDisableAndReingest:
         assert matched == [[aid]]
 
         outcome = await ingest_one(
-            _entry("dis-1", ["a.png"]), _Adapter(disabled), repo, [], disabled, None
+            _entry("dis-1", ["a.png"]), HttpStubAdapter(disabled), repo, [], disabled, None
         )
         assert outcome.attachments_recorded
 

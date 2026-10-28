@@ -33,9 +33,7 @@ from osprey.services.auth_sidecar.sessions import (
     SessionState,
     UnlockedUser,
 )
-
-SESSION_SECRET = "session-secret-value"
-SESSION_LIFETIME = 3600
+from tests.services.auth_sidecar._helpers import SESSION_LIFETIME, SESSION_SECRET
 
 ALICE_HASH = hash_password("alice-password")
 BOB_HASH = hash_password("bob-password")

@@ -591,7 +591,6 @@ from tests.services.auth_sidecar.test_oidc_flow import (  # noqa: E402
     _session_from,
     _state_payload,
     _visit_identity_provider,
-    idp,  # noqa: F401 - the module-scoped provider fixture
 )
 
 EXT_SUBJECT = "idp|ext"
@@ -616,13 +615,13 @@ def _card_less(client: TestClient, next_target: str | None = None) -> httpx.Resp
 
 
 class TestReaderSignIn:
-    def test_the_pending_flow_keeps_next(self, idp: MockIdP) -> None:  # noqa: F811
+    def test_the_pending_flow_keeps_next(self, idp: MockIdP) -> None:
         with _browser(_reader_sidecar(idp)) as client:
             client.get(OIDC_ENTRY_PATH, params={"next": NEXT}, follow_redirects=False)
             pending = _state_payload(client)[PENDING_FLOW_SESSION_KEY]
         assert pending["next"] == NEXT
 
-    def test_a_reader_with_no_card_is_returned_to_next(self, idp: MockIdP) -> None:  # noqa: F811
+    def test_a_reader_with_no_card_is_returned_to_next(self, idp: MockIdP) -> None:
         idp.subject = EXT_SUBJECT
         with _browser(_reader_sidecar(idp)) as client:
             response = _card_less(client, NEXT)
@@ -635,7 +634,7 @@ class TestReaderSignIn:
 
     def test_a_reader_with_no_card_and_no_next_lands_on_the_history_page(
         self,
-        idp: MockIdP,  # noqa: F811
+        idp: MockIdP,
     ) -> None:
         idp.subject = EXT_SUBJECT
         with _browser(_reader_sidecar(idp)) as client:
@@ -643,7 +642,7 @@ class TestReaderSignIn:
         assert response.status_code == 303
         assert response.headers["location"] == f"{HISTORY_ORIGIN}/history/"
 
-    def test_a_reader_a_domain_rule_admits_gets_both_entries(self, idp: MockIdP) -> None:  # noqa: F811
+    def test_a_reader_a_domain_rule_admits_gets_both_entries(self, idp: MockIdP) -> None:
         idp.subject = "ext@partner.org"
         app = _reader_sidecar(
             idp,
@@ -662,14 +661,14 @@ class TestReaderSignIn:
 
     def test_an_identity_no_card_and_no_reader_admits_is_still_refused(
         self,
-        idp: MockIdP,  # noqa: F811
+        idp: MockIdP,
     ) -> None:
         idp.subject = "idp|nobody"
         with _browser(_reader_sidecar(idp)) as client:
             response = _card_less(client, NEXT)
         assert response.status_code == 403
 
-    def test_a_card_sign_in_honours_next_to_the_history_page(self, idp: MockIdP) -> None:  # noqa: F811
+    def test_a_card_sign_in_honours_next_to_the_history_page(self, idp: MockIdP) -> None:
         with _browser(_reader_sidecar(idp)) as client:
             response = _card_less(client, NEXT)
         assert response.status_code == 303

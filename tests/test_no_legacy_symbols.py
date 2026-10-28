@@ -35,6 +35,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from tests._text_sweep import text_files
+
 LEGACY_SUBSTRINGS = (
     # prompts-era rename
     "PromptCatalog",
@@ -208,23 +210,12 @@ def _judged_text(path: Path, content: str) -> str:
 
 
 def _scan_roots() -> list[Path]:
-    repo_root = Path(__file__).resolve().parent.parent
-    files: list[Path] = []
-    for root in ROOTS:
-        base = repo_root / root
-        if not base.exists():
-            continue
-        for path in base.rglob("*"):
-            if not path.is_file():
-                continue
-            if path.suffix not in SCAN_SUFFIXES:
-                continue
-            if path.resolve() in SELF_ALLOWLIST:
-                continue
-            if "__pycache__" in path.parts or ".bak" in path.name:
-                continue
-            files.append(path)
-    return files
+    return text_files(
+        _REPO_ROOT,
+        ROOTS,
+        suffixes=SCAN_SUFFIXES,
+        skip=lambda path: path.resolve() in SELF_ALLOWLIST or ".bak" in path.name,
+    )
 
 
 def test_no_legacy_symbols() -> None:

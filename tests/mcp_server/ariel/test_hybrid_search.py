@@ -1,36 +1,22 @@
 """Tests for the hybrid_search MCP tool."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from functools import partial
+from unittest.mock import AsyncMock
 
 import pytest
 
-from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from osprey.services.ariel_search.models import DiagnosticLevel, SearchDiagnostic
 from tests.mcp_server.ariel.conftest import (
     attach_fake_attachment_reader,
     get_tool_fn,
     make_mock_entry,
+    make_search_result,
+    patch_ariel_service,
+    service_returning,
 )
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 
-
-def _make_search_result(entries, reasoning="", sources=(), diagnostics=(), expanded_terms=()):
-    """Build a mock ARIELSearchResult.
-
-    ``expanded_terms`` is set explicitly on every result: a MagicMock
-    auto-attribute is neither iterable nor JSON-serializable, so leaving it
-    unset would fail the envelope build rather than the assertion under test.
-    """
-    result = MagicMock()
-    result.entries = tuple(entries)
-    result.answer = None
-    result.reasoning = reasoning
-    result.sources = tuple(sources)
-    result.search_modes_used = ("hybrid",)
-    result.diagnostics = tuple(diagnostics)
-    result.expanded_terms = tuple(expanded_terms)
-    result.pipeline_details = None
-    return result
+_make_search_result = partial(make_search_result, mode="hybrid")
 
 
 def _qmd_error(message):
@@ -49,28 +35,26 @@ def _get_hybrid_search():
     return get_tool_fn(hybrid_search)
 
 
-def _setup_registry(tmp_path, monkeypatch, config=None):
-    monkeypatch.chdir(tmp_path)
-    default = '{"ariel": {"database": {"uri": "postgresql://localhost/test"}}}'
-    (tmp_path / "config.yml").write_text(config if config is not None else default)
-    initialize_ariel_context()
+async def _searched_with(**kwargs):
+    """Call hybrid_search over an empty result; return the kwargs it gave ``service.search``."""
+    mock_service = service_returning(_make_search_result([]))
+
+    with patch_ariel_service(mock_service):
+        await _get_hybrid_search()(**kwargs)
+
+    return mock_service.search.call_args.kwargs
 
 
-async def test_hybrid_search_basic(tmp_path, monkeypatch):
+async def test_hybrid_search_basic(ariel_registry):
     """Basic hybrid search returns matching entries."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     entries = [make_mock_entry(entry_id="e1", raw_text="Beam loss event", score=0.9)]
     mock_result = _make_search_result(entries, reasoning="Hybrid search: 1 results")
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = mock_result
+    mock_service = service_returning(mock_result)
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_hybrid_search()
         result = await fn(query="beam loss problems")
 
@@ -82,80 +66,48 @@ async def test_hybrid_search_basic(tmp_path, monkeypatch):
     assert data["mode"] == "hybrid"
 
 
-async def test_hybrid_search_dispatches_to_the_hybrid_mode(tmp_path, monkeypatch):
+async def test_hybrid_search_dispatches_to_the_hybrid_mode(ariel_registry):
     """The tool must route to its own search module, not a neighbour's."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result([])
+    kwargs = await _searched_with(query="beam loss")
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
-        fn = _get_hybrid_search()
-        await fn(query="beam loss")
-
-    assert mock_service.search.call_args.kwargs["mode"] == "hybrid"
+    assert kwargs["mode"] == "hybrid"
 
 
-async def test_hybrid_search_forwards_author_and_source_filters(tmp_path, monkeypatch):
+async def test_hybrid_search_forwards_author_and_source_filters(ariel_registry):
     """author and source_system travel as advanced params."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result([])
+    kwargs = await _searched_with(query="test", author="chen", source_system="Example eLog")
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
-        fn = _get_hybrid_search()
-        await fn(query="test", author="chen", source_system="Example eLog")
-
-    adv = mock_service.search.call_args.kwargs["advanced_params"]
+    adv = kwargs["advanced_params"]
     assert adv["author"] == "chen"
     assert adv["source_system"] == "Example eLog"
 
 
-async def test_hybrid_search_forwards_date_range(tmp_path, monkeypatch):
+async def test_hybrid_search_forwards_date_range(ariel_registry):
     """start_date and end_date become the request's time range."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result([])
+    kwargs = await _searched_with(query="test", start_date="2024-01-15", end_date="2024-02-15")
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
-        fn = _get_hybrid_search()
-        await fn(query="test", start_date="2024-01-15", end_date="2024-02-15")
-
-    start, end = mock_service.search.call_args.kwargs["time_range"]
+    start, end = kwargs["time_range"]
     assert start.year == 2024 and start.month == 1 and start.day == 15
     assert end.month == 2 and end.day == 15
 
 
-async def test_hybrid_search_exclude_entry_ids(tmp_path, monkeypatch):
+async def test_hybrid_search_exclude_entry_ids(ariel_registry):
     """exclude_entry_ids filters out entries and over-fetches to compensate."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     entries = [
         make_mock_entry(entry_id="e1", raw_text="First entry"),
         make_mock_entry(entry_id="e2", raw_text="Second entry"),
     ]
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result(entries)
+    mock_service = service_returning(_make_search_result(entries))
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_hybrid_search()
         result = await fn(query="entry", max_results=2, exclude_entry_ids=["e1"])
 
@@ -165,19 +117,14 @@ async def test_hybrid_search_exclude_entry_ids(tmp_path, monkeypatch):
     assert mock_service.search.call_args.kwargs["max_results"] == 3
 
 
-async def test_hybrid_search_caps_at_max_results(tmp_path, monkeypatch):
+async def test_hybrid_search_caps_at_max_results(ariel_registry):
     """The response never exceeds what the caller asked for."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     entries = [make_mock_entry(entry_id=f"e{i}") for i in range(5)]
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result(entries)
+    mock_service = service_returning(_make_search_result(entries))
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_hybrid_search()
         result = await fn(query="entry", max_results=2)
 
@@ -195,18 +142,13 @@ async def test_hybrid_search_empty_query():
     assert "description or keywords" in envelope["suggestions"][0]
 
 
-async def test_hybrid_search_no_results_is_not_an_error(tmp_path, monkeypatch):
+async def test_hybrid_search_no_results_is_not_an_error(ariel_registry):
     """A query that matched nothing is a normal, empty response."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result([], reasoning="Hybrid search: 0 results")
+    mock_service = service_returning(_make_search_result([], reasoning="Hybrid search: 0 results"))
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_hybrid_search()
         result = await fn(query="nothing matches this")
 
@@ -220,31 +162,28 @@ async def test_hybrid_search_no_results_is_not_an_error(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-async def test_sidecar_down_is_an_error_not_an_empty_result(tmp_path, monkeypatch):
+async def test_sidecar_down_is_an_error_not_an_empty_result(ariel_registry):
     """A down sidecar must not read as "the corpus holds no answer".
 
     The service swallows the module's exception and returns an empty result
     carrying one ERROR diagnostic, which is byte-identical to a zero-hit query
     apart from that diagnostic. The tool has to notice.
     """
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result(
-        [],
-        reasoning="Hybrid search failed: the qmd sidecar at http://127.0.0.1:8180 is not answering",
-        diagnostics=[
-            _qmd_error(
-                "Hybrid search failed: the qmd sidecar at http://127.0.0.1:8180 is not answering"
-            )
-        ],
+    mock_service = service_returning(
+        _make_search_result(
+            [],
+            reasoning="Hybrid search failed: the qmd sidecar at http://127.0.0.1:8180 is not answering",
+            diagnostics=[
+                _qmd_error(
+                    "Hybrid search failed: the qmd sidecar at http://127.0.0.1:8180 is not answering"
+                )
+            ],
+        )
     )
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_hybrid_search()
         with assert_raises_error(error_type="service_unavailable") as _exc_ctx:
             await fn(query="beam loss")
@@ -253,25 +192,17 @@ async def test_sidecar_down_is_an_error_not_an_empty_result(tmp_path, monkeypatc
     assert "not answering" in data["error_message"]
 
 
-async def test_sidecar_down_names_the_health_endpoint(tmp_path, monkeypatch):
+async def test_sidecar_down_names_the_health_endpoint(ariel_registry):
     """An operator reading the error gets the exact command to run."""
-    _setup_registry(
-        tmp_path,
-        monkeypatch,
-        config='{"ariel": {"database": {"uri": "postgresql://localhost/test"}},'
-        ' "services": {"qmd": {"port": 8199}}}',
+    ariel_registry(services={"qmd": {"port": 8199}})
+
+    mock_service = service_returning(
+        _make_search_result(
+            [], diagnostics=[_qmd_error("Hybrid search failed: sidecar unreachable")]
+        )
     )
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result(
-        [], diagnostics=[_qmd_error("Hybrid search failed: sidecar unreachable")]
-    )
-
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_hybrid_search()
         with assert_raises_error(error_type="service_unavailable") as _exc_ctx:
             await fn(query="beam loss")
@@ -282,20 +213,17 @@ async def test_sidecar_down_names_the_health_endpoint(tmp_path, monkeypatch):
     assert any("keyword_search" in s for s in suggestions)
 
 
-async def test_unconfigured_sidecar_points_at_the_config_block(tmp_path, monkeypatch):
+async def test_unconfigured_sidecar_points_at_the_config_block(ariel_registry):
     """With no services.qmd block there is no URL to curl, so say that instead."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result(
-        [], diagnostics=[_qmd_error("Hybrid search failed: no qmd sidecar is configured")]
+    mock_service = service_returning(
+        _make_search_result(
+            [], diagnostics=[_qmd_error("Hybrid search failed: no qmd sidecar is configured")]
+        )
     )
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_hybrid_search()
         with assert_raises_error(error_type="service_unavailable") as _exc_ctx:
             await fn(query="beam loss")
@@ -305,9 +233,9 @@ async def test_unconfigured_sidecar_points_at_the_config_block(tmp_path, monkeyp
     assert not any("curl" in s for s in suggestions)
 
 
-async def test_non_qmd_diagnostics_do_not_trip_the_fault_path(tmp_path, monkeypatch):
+async def test_non_qmd_diagnostics_do_not_trip_the_fault_path(ariel_registry):
     """Only this mode's own ERROR diagnostic means this mode failed."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     unrelated = SearchDiagnostic(
         level=DiagnosticLevel.WARNING,
@@ -323,16 +251,11 @@ async def test_non_qmd_diagnostics_do_not_trip_the_fault_path(tmp_path, monkeypa
     )
     entries = [make_mock_entry(entry_id="e1")]
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result(
-        entries, diagnostics=[unrelated, other_mode]
+    mock_service = service_returning(
+        _make_search_result(entries, diagnostics=[unrelated, other_mode])
     )
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_hybrid_search()
         result = await fn(query="beam loss")
 
@@ -341,14 +264,14 @@ async def test_non_qmd_diagnostics_do_not_trip_the_fault_path(tmp_path, monkeypa
     assert data["results_found"] == 1
 
 
-async def test_envelope_carries_the_rerank_fallback_warning(tmp_path, monkeypatch):
+async def test_envelope_carries_the_rerank_fallback_warning(ariel_registry):
     """The degraded ordering has to reach the agent, not just the server log.
 
     When the reranker is unavailable the module retries unreranked and reports
     a WARNING. Those results are real, so the tool must succeed — but an agent
     reading the ranking deserves to know it is the weaker one.
     """
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     fallback = SearchDiagnostic(
         level=DiagnosticLevel.WARNING,
@@ -361,14 +284,9 @@ async def test_envelope_carries_the_rerank_fallback_warning(tmp_path, monkeypatc
     )
     entries = [make_mock_entry(entry_id="e1")]
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result(entries, diagnostics=[fallback])
+    mock_service = service_returning(_make_search_result(entries, diagnostics=[fallback]))
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_hybrid_search()
         result = await fn(query="beam loss")
 
@@ -385,19 +303,14 @@ async def test_envelope_carries_the_rerank_fallback_warning(tmp_path, monkeypatc
     ]
 
 
-async def test_config_typo_advises_the_config_key_not_the_health_endpoint(tmp_path, monkeypatch):
+async def test_config_typo_advises_the_config_key_not_the_health_endpoint(ariel_registry):
     """A refused settings value is an operator typo, not a dead sidecar.
 
     The service categorises it as "configuration" precisely so this tool can
     tell the two apart. Sending the reader to curl a health endpoint that
     answers perfectly well wastes the one hint they get.
     """
-    _setup_registry(
-        tmp_path,
-        monkeypatch,
-        config='{"ariel": {"database": {"uri": "postgresql://localhost/test"}},'
-        ' "services": {"qmd": {"port": 8199}}}',
-    )
+    ariel_registry(services={"qmd": {"port": 8199}})
 
     misconfigured = SearchDiagnostic(
         level=DiagnosticLevel.ERROR,
@@ -406,14 +319,9 @@ async def test_config_typo_advises_the_config_key_not_the_health_endpoint(tmp_pa
         category="configuration",
     )
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result([], diagnostics=[misconfigured])
+    mock_service = service_returning(_make_search_result([], diagnostics=[misconfigured]))
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_hybrid_search()
         with assert_raises_error(error_type="service_unavailable") as _exc_ctx:
             await fn(query="beam loss")
@@ -428,9 +336,9 @@ async def test_config_typo_advises_the_config_key_not_the_health_endpoint(tmp_pa
     assert not any("/health" in s for s in suggestions)
 
 
-async def test_config_fault_without_a_key_still_points_at_the_settings_block(tmp_path, monkeypatch):
+async def test_config_fault_without_a_key_still_points_at_the_settings_block(ariel_registry):
     """The module's message is its own, so the key is not guaranteed to be in it."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     misconfigured = SearchDiagnostic(
         level=DiagnosticLevel.ERROR,
@@ -439,14 +347,9 @@ async def test_config_fault_without_a_key_still_points_at_the_settings_block(tmp
         category="configuration",
     )
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result([], diagnostics=[misconfigured])
+    mock_service = service_returning(_make_search_result([], diagnostics=[misconfigured]))
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_hybrid_search()
         with assert_raises_error(error_type="service_unavailable") as _exc_ctx:
             await fn(query="beam loss")
@@ -457,11 +360,11 @@ async def test_config_fault_without_a_key_still_points_at_the_settings_block(tmp
     assert not any("curl" in s for s in suggestions)
 
 
-async def test_disabled_mode_names_the_enable_key(tmp_path, monkeypatch):
+async def test_disabled_mode_names_the_enable_key(ariel_registry):
     """A registered-but-disabled mode is an operator state, not an internal error."""
     from osprey.services.ariel_search.exceptions import ConfigurationError
 
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     mock_service = AsyncMock()
     attach_fake_attachment_reader(mock_service)
@@ -470,10 +373,7 @@ async def test_disabled_mode_names_the_enable_key(tmp_path, monkeypatch):
         config_key="search_modules.hybrid.enabled",
     )
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_hybrid_search()
         with assert_raises_error(error_type="service_unavailable") as _exc_ctx:
             await fn(query="beam loss")
@@ -482,7 +382,7 @@ async def test_disabled_mode_names_the_enable_key(tmp_path, monkeypatch):
     assert any("search_modules.hybrid.enabled" in s for s in data["suggestions"])
 
 
-async def test_unregistered_mode_does_not_advise_the_enable_key(tmp_path, monkeypatch):
+async def test_unregistered_mode_does_not_advise_the_enable_key(ariel_registry):
     """The other ConfigurationError branch needs different advice.
 
     The service raises with config_key "modes" when the mode resolved against
@@ -492,7 +392,7 @@ async def test_unregistered_mode_does_not_advise_the_enable_key(tmp_path, monkey
     """
     from osprey.services.ariel_search.exceptions import ConfigurationError
 
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     mock_service = AsyncMock()
     attach_fake_attachment_reader(mock_service)
@@ -501,10 +401,7 @@ async def test_unregistered_mode_does_not_advise_the_enable_key(tmp_path, monkey
         config_key="modes",
     )
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_hybrid_search()
         with assert_raises_error(error_type="service_unavailable") as _exc_ctx:
             await fn(query="beam loss")
@@ -515,18 +412,15 @@ async def test_unregistered_mode_does_not_advise_the_enable_key(tmp_path, monkey
     assert any("startup log" in s for s in suggestions)
 
 
-async def test_hybrid_search_service_error(tmp_path, monkeypatch):
+async def test_hybrid_search_service_error(ariel_registry):
     """Service failure returns standard error format."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     mock_service = AsyncMock()
     attach_fake_attachment_reader(mock_service)
     mock_service.search.side_effect = RuntimeError("Pool exhausted")
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_hybrid_search()
         with assert_raises_error(error_type="internal_error") as _exc_ctx:
             await fn(query="test")
@@ -595,57 +489,36 @@ TS_GROUP = {"original": "ts", "alternatives": ["troubleshoot", "timing system"]}
 
 
 @pytest.mark.parametrize("value", [True, False])
-async def test_expand_query_is_forwarded_in_advanced_params(tmp_path, monkeypatch, value):
+async def test_expand_query_is_forwarded_in_advanced_params(value, ariel_registry):
     """An explicit expand_query reaches the service as an advanced parameter."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result([])
+    kwargs = await _searched_with(query="ts bpm", expand_query=value)
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
-        fn = _get_hybrid_search()
-        await fn(query="ts bpm", expand_query=value)
-
-    assert mock_service.search.call_args.kwargs["advanced_params"]["expand_query"] is value
+    assert kwargs["advanced_params"]["expand_query"] is value
 
 
-async def test_expand_query_omitted_when_unset(tmp_path, monkeypatch):
+async def test_expand_query_omitted_when_unset(ariel_registry):
     """Silence leaves the deployment's ``expand_by_default`` in charge."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result([])
+    kwargs = await _searched_with(query="ts bpm")
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
-        fn = _get_hybrid_search()
-        await fn(query="ts bpm")
-
-    assert "expand_query" not in mock_service.search.call_args.kwargs["advanced_params"]
+    assert "expand_query" not in kwargs["advanced_params"]
 
 
-async def test_envelope_reports_the_applied_expansion(tmp_path, monkeypatch):
+async def test_envelope_reports_the_applied_expansion(ariel_registry):
     """The merged ranking reports the expansion both legs were run with."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result(
-        [make_mock_entry(entry_id="e1", raw_text="troubleshoot the timing system")],
-        expanded_terms=[TS_GROUP],
+    mock_service = service_returning(
+        _make_search_result(
+            [make_mock_entry(entry_id="e1", raw_text="troubleshoot the timing system")],
+            expanded_terms=[TS_GROUP],
+        )
     )
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_hybrid_search()
         result = await fn(query="ts fault", expand_query=True)
 
@@ -653,34 +526,31 @@ async def test_envelope_reports_the_applied_expansion(tmp_path, monkeypatch):
     assert data["expanded_terms"] == [TS_GROUP]
 
 
-async def test_pattern_fault_is_not_reported_as_a_sidecar_outage(tmp_path, monkeypatch):
+async def test_pattern_fault_is_not_reported_as_a_sidecar_outage(ariel_registry):
     """A rejected pattern carries the mode's own source, but is not an outage.
 
     ``_sidecar_fault`` carves out only the ``configuration`` category, so the
     category-specific fault has to be checked first or a caller typo would send
     an operator to look at a healthy sidecar.
     """
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result(
-        [],
-        diagnostics=[
-            SearchDiagnostic(
-                level=DiagnosticLevel.ERROR,
-                source="service.hybrid",
-                message="invalid pattern 'SR0[1-4': brackets [] not balanced",
-                category="pattern",
-            )
-        ],
-        expanded_terms=[TS_GROUP],
+    mock_service = service_returning(
+        _make_search_result(
+            [],
+            diagnostics=[
+                SearchDiagnostic(
+                    level=DiagnosticLevel.ERROR,
+                    source="service.hybrid",
+                    message="invalid pattern 'SR0[1-4': brackets [] not balanced",
+                    category="pattern",
+                )
+            ],
+            expanded_terms=[TS_GROUP],
+        )
     )
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_hybrid_search()
         with assert_raises_error(error_type="invalid_pattern") as _exc_ctx:
             await fn(query="ts /SR0[1-4/")
@@ -694,40 +564,22 @@ async def test_pattern_fault_is_not_reported_as_a_sidecar_outage(tmp_path, monke
 
 
 @pytest.mark.parametrize("value", [True, False])
-async def test_rerank_is_forwarded_in_advanced_params(tmp_path, monkeypatch, value):
+async def test_rerank_is_forwarded_in_advanced_params(value, ariel_registry):
     """An explicit rerank reaches the service as an advanced parameter."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result([])
+    kwargs = await _searched_with(query="beam loss", rerank=value)
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
-        fn = _get_hybrid_search()
-        await fn(query="beam loss", rerank=value)
-
-    assert mock_service.search.call_args.kwargs["advanced_params"]["rerank"] is value
+    assert kwargs["advanced_params"]["rerank"] is value
 
 
-async def test_rerank_omitted_when_unset(tmp_path, monkeypatch):
+async def test_rerank_omitted_when_unset(ariel_registry):
     """Silence leaves the deployment's ``settings.rerank`` in charge."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result([])
+    kwargs = await _searched_with(query="beam loss")
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
-        fn = _get_hybrid_search()
-        await fn(query="beam loss")
-
-    assert "rerank" not in mock_service.search.call_args.kwargs["advanced_params"]
+    assert "rerank" not in kwargs["advanced_params"]
 
 
 def test_docstring_gives_the_rerank_speed_tradeoff():
@@ -748,40 +600,22 @@ def test_docstring_gives_the_rerank_speed_tradeoff():
 
 
 @pytest.mark.parametrize("value", [True, False])
-async def test_include_images_is_forwarded_in_advanced_params(tmp_path, monkeypatch, value):
+async def test_include_images_is_forwarded_in_advanced_params(value, ariel_registry):
     """An explicit include_images reaches the service as its one channel."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result([])
+    kwargs = await _searched_with(query="orbit kick", include_images=value)
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
-        fn = _get_hybrid_search()
-        await fn(query="orbit kick", include_images=value)
-
-    assert mock_service.search.call_args.kwargs["advanced_params"]["include_images"] is value
+    assert kwargs["advanced_params"]["include_images"] is value
 
 
-async def test_include_images_omitted_when_unset(tmp_path, monkeypatch):
+async def test_include_images_omitted_when_unset(ariel_registry):
     """Silence leaves the service to decide from image_embedding.enabled."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result([])
+    kwargs = await _searched_with(query="orbit kick")
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
-        fn = _get_hybrid_search()
-        await fn(query="orbit kick")
-
-    assert "include_images" not in mock_service.search.call_args.kwargs["advanced_params"]
+    assert "include_images" not in kwargs["advanced_params"]
 
 
 def test_advanced_params_builder_carries_include_images_only_when_given():
@@ -803,23 +637,20 @@ def test_docstring_names_the_include_images_default():
     assert "None = on when capabilities().attachments.picture_search" in flat
 
 
-async def test_an_unmigrated_store_returns_results_and_the_schema_warning(tmp_path, monkeypatch):
+async def test_an_unmigrated_store_returns_results_and_the_schema_warning(ariel_registry):
     """A store behind the code still answers, and says how to catch it up."""
     from osprey.services.ariel_search.database.repository import (
         SCHEMA_BEHIND_SEARCH_MESSAGE,
     )
 
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
     mock_service = AsyncMock()
     attach_fake_attachment_reader(mock_service, unmigrated=True)
     mock_service.search.return_value = _make_search_result(
         [make_mock_entry(entry_id="e1", raw_text="orbit kick near BPM 7", score=0.7)]
     )
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         data = extract_response_dict(await _get_hybrid_search()(query="orbit kick near BPM 7"))
 
     assert not data.get("error", False)
@@ -830,19 +661,14 @@ async def test_an_unmigrated_store_returns_results_and_the_schema_warning(tmp_pa
     assert "schema behind code: run osprey ariel migrate" in SCHEMA_BEHIND_SEARCH_MESSAGE
 
 
-async def test_caption_matched_ids_reach_the_listing(tmp_path, monkeypatch):
+async def test_caption_matched_ids_reach_the_listing(ariel_registry):
     """The ids hybrid attaches to a hit surface as ``matched_attachment_ids``."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
     entry = make_mock_entry(entry_id="e1", raw_text="orbit kick near BPM 7", score=0.7)
     entry["_matched_attachment_ids"] = ["att-000000000000"]
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result([entry])
+    mock_service = service_returning(_make_search_result([entry]))
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         data = extract_response_dict(await _get_hybrid_search()(query="orbit kick near BPM 7"))
 
     assert data["entries"][0]["matched_attachment_ids"] == ["att-000000000000"]

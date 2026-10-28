@@ -36,16 +36,6 @@ def _lines(dest: Path, day: str = "2026-09-24") -> list[dict]:
     return [json.loads(line) for line in text.splitlines()]
 
 
-@pytest.fixture
-def trees(tmp_path):
-    sources = tmp_path / "sources"
-    sources.mkdir()
-    dest = tmp_path / "dest"
-    dest.mkdir()
-    os.chmod(dest, 0o700)
-    return sources, dest
-
-
 def test_first_pass_copies_every_included_file_verbatim(trees):
     sources, dest = trees
     # Source path under the sources tree -> its path in the day.

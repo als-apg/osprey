@@ -68,26 +68,7 @@ from osprey.registry.mcp import (
 from osprey_connectors import posture_store
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV as IDENTITY_MODULE_AUDIT_IDENTITY_ENV
 from osprey_connectors.identity import IDENTITY_ENV_LADDER, TERMINAL_USER_ENV
-from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
-
-
-def _base_ctx(**overrides):
-    """Minimal render context, matching ``tests/registry/test_mcp.py``."""
-    ctx = {
-        "project_root": "/tmp/test-project",
-        "current_python_env": "/usr/bin/python3",
-        "agent_data_root": DEFAULT_AGENT_DATA_BASE_DIR,
-    }
-    ctx.update(overrides)
-    return ctx
-
-
-def _resolve_one(cfg, name, ctx=None):
-    servers = resolve_servers(cfg, ctx or _base_ctx())
-    matches = [s for s in servers if s["name"] == name]
-    assert len(matches) == 1, f"expected exactly one {name!r} server, got {len(matches)}"
-    return matches[0]
-
+from tests.registry._ctx import render_ctx, resolve_one
 
 #: A spoof value distinct from anything the framework would ever assign, so a
 #: survivor is unmistakably the spec's and not a coincidence.
@@ -250,7 +231,7 @@ class TestRemovedOnEveryLaunchPath:
     @pytest.mark.parametrize("path", ["framework-override", "extends-clone", "custom-spec"])
     def test_pinned_marker_is_absent_from_the_resolved_env(self, marker, path):
         name = _PATH_SERVER[path]
-        srv = _resolve_one({"servers": {name: _spec_for_path(path, marker)}}, name)
+        srv = resolve_one({"servers": {name: _spec_for_path(path, marker)}}, name)
         assert marker not in srv["env"], (
             f"{marker} survived the {path} path with value {srv['env'].get(marker)!r}"
         )
@@ -266,7 +247,7 @@ class TestRemovedOnEveryLaunchPath:
         name = _PATH_SERVER[path]
         spec = _spec_for_path(path, NON_PINNABLE_AUDIT_MARKERS[0])
         spec["env"].update(dict.fromkeys(NON_PINNABLE_AUDIT_MARKERS, SPOOF))
-        srv = _resolve_one({"servers": {name: spec}}, name)
+        srv = resolve_one({"servers": {name: spec}}, name)
         assert not [m for m in NON_PINNABLE_AUDIT_MARKERS if m in srv["env"]]
 
     @pytest.mark.parametrize(
@@ -290,7 +271,7 @@ class TestRemovedOnEveryLaunchPath:
         name = _PATH_SERVER[path]
         spec = _spec_for_path(path, marker)
         spec["env"][marker] = spoof
-        srv = _resolve_one({"servers": {name: spec}}, name)
+        srv = resolve_one({"servers": {name: spec}}, name)
         assert marker not in srv["env"], (
             f"{marker} survived the {path} path with value {srv['env'].get(marker)!r}"
         )
@@ -308,7 +289,7 @@ class TestRemovedOnEveryLaunchPath:
         name = _PATH_SERVER[path]
         spec = _spec_for_path(path, marker)
         spec["env"][marker] = SPOOF
-        srv = _resolve_one({"servers": {name: spec}}, name)
+        srv = resolve_one({"servers": {name: spec}}, name)
         assert marker not in srv["env"], (
             f"{marker} survived the {path} path with value {srv['env'].get(marker)!r}"
         )
@@ -320,7 +301,7 @@ class TestRemovedOnEveryLaunchPath:
         """
         spec = _spec_for_path("custom-spec", marker)
         with caplog.at_level("WARNING"):
-            resolve_servers({"servers": {"site-tools": spec}}, _base_ctx())
+            resolve_servers({"servers": {"site-tools": spec}}, render_ctx())
         assert marker in caplog.text
         assert "site-tools" in caplog.text
         assert "removed after the spec env merge" in caplog.text
@@ -334,7 +315,7 @@ class TestRemovedOnEveryLaunchPath:
         it. The lint still warns, which is the operator-visible half.
         """
         spec = _spec_for_path("framework-override", AUDIT_IDENTITY_ENV)
-        controls = _resolve_one({"servers": {"controls": spec}}, "controls")
+        controls = resolve_one({"servers": {"controls": spec}}, "controls")
         assert "KEEP_ME" not in controls["env"]
         assert AUDIT_IDENTITY_ENV not in controls["env"]
 
@@ -342,14 +323,14 @@ class TestRemovedOnEveryLaunchPath:
     def test_placeholder_pin_is_not_expanded_into_the_env(self, marker):
         """A ``${...}`` pin must not survive as a runtime-expanded value either."""
         spec = {"extends": "phoebus", "env": {marker: "${EVIL:-somebody-else}"}}
-        p2 = _resolve_one({"servers": {"phoebus2": spec}}, "phoebus2")
+        p2 = resolve_one({"servers": {"phoebus2": spec}}, "phoebus2")
         assert marker not in p2["env"]
 
     def test_removal_does_not_disturb_the_assigned_marker(self):
         """Removal and assignment share one block — swapping them would show here."""
         spec = _spec_for_path("extends-clone", AUDIT_IDENTITY_ENV)
         spec["env"][TOOL_PREFIX_ENV] = SPOOF
-        p2 = _resolve_one({"servers": {"phoebus2": spec}}, "phoebus2")
+        p2 = resolve_one({"servers": {"phoebus2": spec}}, "phoebus2")
         assert AUDIT_IDENTITY_ENV not in p2["env"]
         assert p2["env"][TOOL_PREFIX_ENV] == "phoebus2"
 
@@ -358,7 +339,7 @@ class TestRemovedOnEveryLaunchPath:
         registry removes, it does not assign — the values belong to sites the
         render cannot see.
         """
-        for srv in resolve_servers({}, _base_ctx()):
+        for srv in resolve_servers({}, render_ctx()):
             for marker in NON_PINNABLE_AUDIT_MARKERS:
                 assert marker not in srv["env"], f"{srv['name']} grew {marker}"
 
@@ -385,7 +366,7 @@ class TestPinLint:
     def test_pin_is_flagged_on_every_path(self, caplog, marker, path):
         name = _PATH_SERVER[path]
         with caplog.at_level("WARNING"):
-            resolve_servers({"servers": {name: _spec_for_path(path, marker)}}, _base_ctx())
+            resolve_servers({"servers": {name: _spec_for_path(path, marker)}}, render_ctx())
         assert marker in caplog.text
         assert name in caplog.text
 
@@ -397,7 +378,7 @@ class TestPinLint:
         """
         spec = _spec_for_path("custom-spec", marker)
         with caplog.at_level("WARNING"):
-            resolve_servers({"servers": {"site-tools": spec}}, _base_ctx())
+            resolve_servers({"servers": {"site-tools": spec}}, render_ctx())
         assert "removed after the spec env merge" in caplog.text
         assert "assigned after the spec env merge" not in caplog.text
 
@@ -405,7 +386,7 @@ class TestPinLint:
         """The mirror wording, so the variant cannot collapse to one message."""
         spec = _spec_for_path("custom-spec", TOOL_PREFIX_ENV)
         with caplog.at_level("WARNING"):
-            resolve_servers({"servers": {"site-tools": spec}}, _base_ctx())
+            resolve_servers({"servers": {"site-tools": spec}}, render_ctx())
         assert "assigned after the spec env merge" in caplog.text
         assert "removed after the spec env merge" not in caplog.text
 
@@ -421,7 +402,7 @@ class TestPinLint:
             }
         }
         with caplog.at_level("WARNING"):
-            resolve_servers(cfg, _base_ctx())
+            resolve_servers(cfg, render_ctx())
         for marker in NON_PINNABLE_AUDIT_MARKERS:
             assert marker not in caplog.text
 

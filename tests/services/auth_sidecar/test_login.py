@@ -45,11 +45,13 @@ from osprey.services.auth_sidecar.routes.login import (
 from osprey.services.auth_sidecar.routes.recheck import RosterRoles
 from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME, SessionCodec, SessionState
 from osprey.services.auth_sidecar.throttle import AttemptThrottle
-
-SESSION_SECRET = "session-secret-value"
-STATE_SECRET = "state-secret-value"
-SESSION_LIFETIME = 3600
-EXTERNAL_ORIGIN = "https://terminals.example.org"
+from tests.services.auth_sidecar._helpers import (
+    SESSION_LIFETIME,
+    SESSION_SECRET,
+    STATE_SECRET,
+    FakeClock,
+)
+from tests.services.auth_sidecar._oidc import EXTERNAL_ORIGIN
 
 ALICE_PASSWORD = "alice-password"
 ALICE_HASH = hash_password(ALICE_PASSWORD)
@@ -160,25 +162,6 @@ def _cookie_attributes(header: str) -> dict[str, str]:
 def _inputs(body: str) -> list[str]:
     """Every ``<input>`` tag in the page, as raw markup."""
     return re.findall(r"<input[^>]*>", body, flags=re.IGNORECASE | re.DOTALL)
-
-
-class FakeClock:
-    """A monotonic clock the test moves by hand.
-
-    The throttle's windows are seconds long, so tests that let them lapse in real
-    time would be pinning the machine's speed rather than the route's behaviour —
-    and tests that stay inside one would be assuming two requests land within a
-    second of each other.
-    """
-
-    def __init__(self) -> None:
-        self.time = 1000.0
-
-    def advance(self, seconds: float) -> None:
-        self.time += seconds
-
-    def __call__(self) -> float:
-        return self.time
 
 
 def _throttled_client(

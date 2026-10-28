@@ -61,9 +61,7 @@ from osprey.services.auth_sidecar.throttle import (
     DEFAULT_MULTIPLIER,
     AttemptThrottle,
 )
-
-SESSION_SECRET = "session-secret-value"
-STATE_SECRET = "state-secret-value"
+from tests.services.auth_sidecar._helpers import SESSION_SECRET, STATE_SECRET
 
 PASSWORD_ENV = {
     "OSPREY_AUTH_METHOD": "password",

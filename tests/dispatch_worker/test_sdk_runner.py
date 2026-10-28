@@ -25,7 +25,6 @@ import pytest
 from osprey.agent_runner import (
     ApiErrorEvent,
     McpNotReadyError,
-    ResultEvent,
     SystemEvent,
     TextEvent,
     ThinkingEvent,
@@ -37,6 +36,7 @@ from osprey.agent_runner.clean_env import build_clean_env as _REAL_BUILD_CLEAN_E
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.dispatch_worker import sdk_runner
 from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR, NO_OWNER
+from tests.dispatch_worker._runner import drain, result_event, stub_osprey_helpers
 
 
 @pytest.fixture(autouse=True)
@@ -44,43 +44,7 @@ def _stub_osprey_helpers(monkeypatch, tmp_path):
     """Stub the deferred OSPREY helper imports on their source modules."""
     # The runner creates the agent's Claude state directory under the agent-data
     # root; keep that inside the test's own directory.
-    monkeypatch.setattr(
-        "osprey.agent_runner.artifact_resolve.deployed_agent_data_root",
-        lambda: tmp_path / "stub-agent-data",
-    )
-    monkeypatch.setattr(
-        "osprey.agent_runner.clean_env.build_clean_env",
-        lambda **kw: {},
-    )
-    monkeypatch.setattr(
-        "osprey.agent_runner.sdk_context.build_system_prompt",
-        lambda *a, **k: "system",
-    )
-    monkeypatch.setattr(
-        "osprey.agent_runner.sdk_context.make_tool_allowlist",
-        lambda tools, denied=(): lambda *a, **k: None,
-    )
-    monkeypatch.setattr(
-        "osprey_connectors.config.get_facility_timezone",
-        lambda *a, **k: "UTC",
-    )
-
-
-def _result(**overrides: Any) -> ResultEvent:
-    """A successful result record; any field can be overridden."""
-    fields: dict[str, Any] = {
-        "subtype": "success",
-        "is_error": False,
-        "num_turns": 1,
-        "duration_ms": 0,
-        "session_id": "s",
-        "total_cost_usd": 0.1,
-        "usage": None,
-        "result": None,
-        "api_error_status": None,
-    }
-    fields.update(overrides)
-    return ResultEvent(**fields)
+    stub_osprey_helpers(monkeypatch, agent_data=tmp_path / "stub-agent-data", open_allowlist=True)
 
 
 def _text(text: str) -> TextEvent:
@@ -99,18 +63,11 @@ def _tool_result(tool_use_id: str, content: Any) -> ToolResultEvent:
     )
 
 
-async def _drain(queue: asyncio.Queue) -> list[dict]:
-    events = []
-    while not queue.empty():
-        events.append(await queue.get())
-    return events
-
-
 @pytest.mark.asyncio
 async def test_happy_path(monkeypatch):
     async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
         yield _text("hello world")
-        yield _result(total_cost_usd=0.5, num_turns=4)
+        yield result_event(total_cost_usd=0.5, num_turns=4)
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
@@ -123,7 +80,7 @@ async def test_happy_path(monkeypatch):
     assert result["cost_usd"] == 0.5
     assert result["num_turns"] == 4
 
-    events = await _drain(queue)
+    events = await drain(queue)
     types = [e["type"] for e in events]
     assert "text" in types
     assert "done" in types
@@ -137,7 +94,7 @@ async def test_the_record_carries_the_cost_the_agent_reports(monkeypatch):
 
     async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
         yield _text("ok")
-        yield _result(total_cost_usd=0.25, num_turns=2)
+        yield result_event(total_cost_usd=0.25, num_turns=2)
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
@@ -145,7 +102,7 @@ async def test_the_record_carries_the_cost_the_agent_reports(monkeypatch):
     result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=queue)
 
     assert result["cost_usd"] == 0.25
-    events = await _drain(queue)
+    events = await drain(queue)
     assert {"type": "result", "cost_usd": 0.25, "num_turns": 2} in events
 
 
@@ -157,7 +114,7 @@ async def test_tool_result_in_user_message_is_captured(monkeypatch):
     async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
         yield _tool_use("tu1", "mcp__x__y", {})
         yield _tool_result("tu1", "Tool 'mcp__x__y' is not in this trigger's allowed_tools list")
-        yield _result(total_cost_usd=0.1, num_turns=1)
+        yield result_event(total_cost_usd=0.1, num_turns=1)
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
@@ -179,7 +136,7 @@ async def test_a_tool_result_with_no_content_is_recorded_as_empty(monkeypatch):
     async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
         yield _tool_use("tu1", "mcp__x__y", {})
         yield _tool_result("tu1", None)
-        yield _result(total_cost_usd=0.1, num_turns=1)
+        yield result_event(total_cost_usd=0.1, num_turns=1)
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
@@ -187,7 +144,7 @@ async def test_a_tool_result_with_no_content_is_recorded_as_empty(monkeypatch):
     result = await sdk_runner.run_dispatch("go", ["Read"], event_queue=queue)
 
     assert result["tool_calls"][0]["result"] == ""
-    events = await _drain(queue)
+    events = await drain(queue)
     assert {"type": "tool_result", "name": "mcp__x__y", "result": ""} in events
 
 
@@ -219,7 +176,7 @@ async def test_tool_policy_wiring(monkeypatch, tmp_path):
     async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
         captured["kw"] = kw
         yield _text("ok")
-        yield _result(total_cost_usd=0.1, num_turns=1)
+        yield result_event(total_cost_usd=0.1, num_turns=1)
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
@@ -290,7 +247,7 @@ async def test_config_file_env_points_at_the_render(monkeypatch):
         captured["kw"] = kw
         captured["project_dir"] = project_dir
         yield _text("ok")
-        yield _result(total_cost_usd=0.1, num_turns=1)
+        yield result_event(total_cost_usd=0.1, num_turns=1)
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
@@ -314,7 +271,7 @@ async def test_worker_trusts_the_config_file_its_service_sets(monkeypatch):
         captured["kw"] = kw
         captured["project_dir"] = project_dir
         yield _text("ok")
-        yield _result(total_cost_usd=0.1, num_turns=1)
+        yield result_event(total_cost_usd=0.1, num_turns=1)
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
@@ -352,7 +309,7 @@ async def test_subagent_surfaces_are_discovered_from_the_render(tmp_path, monkey
     async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
         captured["kw"] = kw
         yield _text("ok")
-        yield _result(total_cost_usd=0.1, num_turns=1)
+        yield result_event(total_cost_usd=0.1, num_turns=1)
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
@@ -379,7 +336,7 @@ async def test_no_discoverable_agents_denies_every_delegation(tmp_path, monkeypa
     async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
         captured["kw"] = kw
         yield _text("ok")
-        yield _result(total_cost_usd=0.1, num_turns=1)
+        yield result_event(total_cost_usd=0.1, num_turns=1)
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
@@ -412,7 +369,7 @@ async def test_subagent_delegation_runs_in_the_foreground(monkeypatch):
     async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
         captured["kw"] = kw
         yield _text("ok")
-        yield _result(total_cost_usd=0.1, num_turns=1)
+        yield result_event(total_cost_usd=0.1, num_turns=1)
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
@@ -435,7 +392,7 @@ async def test_a_dispatch_run_is_offered_the_task_list_tools(monkeypatch):
     async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
         captured["kw"] = kw
         yield _text("ok")
-        yield _result(total_cost_usd=0.1, num_turns=1)
+        yield result_event(total_cost_usd=0.1, num_turns=1)
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
@@ -485,7 +442,7 @@ async def test_error_path_does_not_raise(monkeypatch):
     assert result["error"] == "boom"
     assert result["text_output"] == ""
 
-    events = await _drain(queue)
+    events = await drain(queue)
     assert any(e["type"] == "error" and e["message"] == "boom" for e in events)
 
 
@@ -563,7 +520,7 @@ async def test_inactivity_timeout_aborts_with_clear_error(monkeypatch):
     # Aborted at the inactivity window, not the full 30s hang.
     assert result["duration_sec"] < 5
 
-    events = await _drain(queue)
+    events = await drain(queue)
     assert any(e["type"] == "error" for e in events)
 
 
@@ -614,7 +571,7 @@ async def test_oversized_text_output_is_truncated(monkeypatch):
 
     async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
         yield _text(huge)
-        yield _result(total_cost_usd=0.1, num_turns=1)
+        yield result_event(total_cost_usd=0.1, num_turns=1)
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
@@ -630,7 +587,7 @@ async def test_secret_scrubbed_from_text_output(monkeypatch):
 
     async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
         yield _text(f"leaked {secret} here")
-        yield _result(total_cost_usd=0.1, num_turns=1)
+        yield result_event(total_cost_usd=0.1, num_turns=1)
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
@@ -646,7 +603,7 @@ async def test_tool_use_and_result_are_captured(monkeypatch):
     async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
         yield _tool_use("tu1", "Read", {"path": "f"})
         yield _tool_result("tu1", "file contents")
-        yield _result(total_cost_usd=0.2, num_turns=2)
+        yield result_event(total_cost_usd=0.2, num_turns=2)
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     queue: asyncio.Queue = asyncio.Queue()
@@ -659,7 +616,7 @@ async def test_tool_use_and_result_are_captured(monkeypatch):
     assert call["input"] == {"path": "f"}
     assert call["result"] == "file contents"
 
-    events = await _drain(queue)
+    events = await drain(queue)
     types = [e["type"] for e in events]
     assert "tool_start" in types
     assert "tool_result" in types
@@ -686,7 +643,7 @@ async def test_surface_prompt_forwarded_to_build_system_prompt(monkeypatch):
 
     async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
         yield _text("ok")
-        yield _result(total_cost_usd=0.1, num_turns=1)
+        yield result_event(total_cost_usd=0.1, num_turns=1)
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     await sdk_runner.run_dispatch(
@@ -715,7 +672,7 @@ async def test_surface_prompt_omitted_leaves_system_prompt_unchanged(monkeypatch
 
     async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
         yield _text("ok")
-        yield _result(total_cost_usd=0.1, num_turns=1)
+        yield result_event(total_cost_usd=0.1, num_turns=1)
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
@@ -732,7 +689,7 @@ async def test_oversized_tool_result_is_truncated(monkeypatch):
     async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
         yield _tool_use("tu1", "Read", {})
         yield _tool_result("tu1", huge)
-        yield _result(total_cost_usd=0.1, num_turns=1)
+        yield result_event(total_cost_usd=0.1, num_turns=1)
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
@@ -778,7 +735,7 @@ async def test_mcp_not_ready_is_an_infrastructure_error(monkeypatch):
     assert result["failure_class"] == "infrastructure"
     assert "osprey_workspace" in result["error"]
     assert result["mcp_servers"] == mcp_snapshot_summary(raw)
-    events = await _drain(queue)
+    events = await drain(queue)
     assert any(e["type"] == "error" and "osprey_workspace" in e["message"] for e in events)
 
 
@@ -791,7 +748,7 @@ async def test_run_record_carries_the_mcp_snapshot(monkeypatch):
     async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
         kw["on_mcp_status"](raw)
         yield _text("ok")
-        yield _result(total_cost_usd=0.1, num_turns=1)
+        yield result_event(total_cost_usd=0.1, num_turns=1)
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
@@ -807,7 +764,7 @@ async def test_required_servers_are_the_allow_listed_ones(monkeypatch):
     async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
         captured.update(kw)
         yield _text("ok")
-        yield _result(total_cost_usd=0.1, num_turns=1)
+        yield result_event(total_cost_usd=0.1, num_turns=1)
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     await sdk_runner.run_dispatch(
@@ -832,7 +789,7 @@ async def test_cli_mcp_startup_limit_matches_the_barrier(monkeypatch):
     async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
         captured["env"] = kw["env"]
         yield _text("ok")
-        yield _result(total_cost_usd=0.1, num_turns=1)
+        yield result_event(total_cost_usd=0.1, num_turns=1)
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
@@ -857,7 +814,7 @@ async def _env_of_run(monkeypatch, **kwargs) -> dict[str, str]:
     async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
         captured["env"] = kw["env"]
         yield _text("ok")
-        yield _result(total_cost_usd=0.1, num_turns=1)
+        yield result_event(total_cost_usd=0.1, num_turns=1)
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue(), **kwargs)
@@ -1044,7 +1001,7 @@ async def test_the_run_goes_to_the_agent_runner_with_no_permission_mode_and_no_b
     async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
         captured.update(kw)
         yield _text("ok")
-        yield _result()
+        yield result_event()
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     await sdk_runner.run_dispatch("do it", ["Read"], max_turns=7, event_queue=asyncio.Queue())
@@ -1073,16 +1030,16 @@ async def test_events_outside_the_record_leave_it_unchanged(monkeypatch):
         result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=queue)
         result.pop("duration_sec")
         result.pop("session_id")
-        return result, await _drain(queue)
+        return result, await drain(queue)
 
-    alone = await run_with([_text("hello"), _result()])
+    alone = await run_with([_text("hello"), result_event()])
     surrounded = await run_with(
         [
             SystemEvent(subtype="init", data={"subtype": "init"}),
             ThinkingEvent(text="hm"),
             _text("hello"),
             ApiErrorEvent(error="rate_limit"),
-            _result(),
+            result_event(),
         ]
     )
 
@@ -1093,14 +1050,14 @@ async def test_events_outside_the_record_leave_it_unchanged(monkeypatch):
 async def test_a_result_for_an_unknown_call_streams_without_a_name(monkeypatch):
     async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
         yield _tool_result("never-issued", "orphan")
-        yield _result()
+        yield result_event()
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     queue: asyncio.Queue = asyncio.Queue()
     result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=queue)
 
     assert result["tool_calls"] == []
-    assert {"type": "tool_result", "name": None, "result": None} in await _drain(queue)
+    assert {"type": "tool_result", "name": None, "result": None} in await drain(queue)
 
 
 def test_the_worker_module_imports_without_the_agent_sdk():
@@ -1157,7 +1114,7 @@ async def test_a_run_whose_pinned_claude_code_is_not_installed_is_refused_with_t
     assert result["failure_class"] == "infrastructure"
     assert result["error"] == message
     assert result["tool_calls"] == []
-    events = await _drain(queue)
+    events = await drain(queue)
     assert any(e["type"] == "error" and "npm install -g" in e["message"] for e in events)
     refusals = [r for r in caplog.records if "2.1.146" in r.getMessage()]
     assert refusals and all(r.exc_info is None for r in refusals)
@@ -1172,11 +1129,11 @@ _ACCEPTED_SESSION = "0b6f4c1e-2d3a-4e5f-8a9b-1c2d3e4f5a6b"
 
 async def _stream_ok(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
     yield _text("ok")
-    yield _result()
+    yield result_event()
 
 
 async def _stream_result_error(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
-    yield _result(is_error=True, subtype="error_max_turns", result="max turns")
+    yield result_event(is_error=True, subtype="error_max_turns", result="max turns")
 
 
 async def _stream_silent(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
@@ -1263,12 +1220,12 @@ async def test_thinking_reaches_neither_the_outcome_nor_the_live_events(monkeypa
     async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
         yield ThinkingEvent(text="private reasoning")
         yield _text("answer")
-        yield _result()
+        yield result_event()
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     queue: asyncio.Queue = asyncio.Queue()
     result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=queue)
-    events = await _drain(queue)
+    events = await drain(queue)
 
     assert result["text_output"] == "answer"
     for shown in (result, *events):

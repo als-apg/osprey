@@ -13,24 +13,12 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from osprey.registry.mcp import FRAMEWORK_SERVERS, resolve_servers
+from tests.registry._ctx import base_ctx, render_ctx
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _base_ctx(**overrides):
-    ctx = {
-        "project_root": "/tmp/test-project",
-        "current_python_env": "/usr/bin/python3",
-        # Derived by the render funnel; settings.json.j2 renders it unconditionally.
-        "cleanup_period_days": 30,
-    }
-    ctx.update(overrides)
-    return ctx
 
 
 def _get_fk(servers: list[dict]) -> dict:
@@ -109,49 +97,49 @@ class TestFacilityKnowledgeResolved:
     """The resolved server dict has the correct shape for template rendering."""
 
     def test_appears_in_resolved_servers(self):
-        servers = resolve_servers({}, _base_ctx())
+        servers = resolve_servers({}, base_ctx())
         names = [s["name"] for s in servers]
         assert "osprey_facility_knowledge" in names
 
     def test_enabled_by_default(self):
-        servers = resolve_servers({}, _base_ctx())
+        servers = resolve_servers({}, base_ctx())
         fk = _get_fk(servers)
         assert fk["enabled"] is True
 
     def test_command_uses_python_env(self):
-        ctx = _base_ctx(current_python_env="/custom/python3")
+        ctx = base_ctx(current_python_env="/custom/python3")
         servers = resolve_servers({}, ctx)
         fk = _get_fk(servers)
         assert fk["command"] == "/custom/python3"
         assert fk["args"] == ["-m", "osprey.mcp_server.facility_knowledge"]
 
     def test_read_tools_in_permissions_allow(self):
-        servers = resolve_servers({}, _base_ctx())
+        servers = resolve_servers({}, base_ctx())
         fk = _get_fk(servers)
         for tool in ("list_concepts", "read_concept", "search"):
             assert tool in fk["permissions_allow"], f"{tool} missing from permissions_allow"
 
     def test_draft_concept_in_permissions_ask(self):
-        servers = resolve_servers({}, _base_ctx())
+        servers = resolve_servers({}, base_ctx())
         fk = _get_fk(servers)
         assert "draft_concept" in fk["permissions_ask"]
 
     def test_approval_hook_matcher_is_draft_only(self):
-        servers = resolve_servers({}, _base_ctx())
+        servers = resolve_servers({}, base_ctx())
         fk = _get_fk(servers)
         pre_rules = fk["hooks_pre"]
         assert len(pre_rules) == 1
         assert pre_rules[0]["matcher"] == "mcp__osprey_facility_knowledge__draft_concept"
 
     def test_approval_hook_fires_for_draft_concept(self):
-        servers = resolve_servers({}, _base_ctx())
+        servers = resolve_servers({}, base_ctx())
         fk = _get_fk(servers)
         draft_rule = fk["hooks_pre"][0]
         assert "osprey_approval.py" in draft_rule["hooks"][0]["command"]
 
     def test_no_pre_hook_for_read_tools(self):
         """list_concepts, read_concept, search must have no pre-tool-use hooks."""
-        servers = resolve_servers({}, _base_ctx())
+        servers = resolve_servers({}, base_ctx())
         fk = _get_fk(servers)
         pre_matchers = [r["matcher"] for r in fk["hooks_pre"]]
         for tool in ("list_concepts", "read_concept", "search"):
@@ -160,26 +148,26 @@ class TestFacilityKnowledgeResolved:
             )
 
     def test_post_error_hook_present(self):
-        servers = resolve_servers({}, _base_ctx())
+        servers = resolve_servers({}, base_ctx())
         fk = _get_fk(servers)
         post_matchers = [r["matcher"] for r in fk["hooks_post"]]
         assert any("osprey_facility_knowledge__.*" in m for m in post_matchers)
 
     def test_env_osprey_config_resolved(self):
-        ctx = _base_ctx(project_root="/my/project")
+        ctx = base_ctx(project_root="/my/project")
         servers = resolve_servers({}, ctx)
         fk = _get_fk(servers)
         assert fk["env"]["OSPREY_CONFIG"] == "/my/project/build/config.yml"
 
     def test_can_be_disabled_via_override(self):
-        ctx = _base_ctx()
+        ctx = base_ctx()
         cfg = {"servers": {"osprey_facility_knowledge": {"enabled": False}}}
         servers = resolve_servers(cfg, ctx)
         fk = _get_fk(servers)
         assert fk["enabled"] is False
 
     def test_is_not_custom(self):
-        servers = resolve_servers({}, _base_ctx())
+        servers = resolve_servers({}, base_ctx())
         fk = _get_fk(servers)
         assert fk["is_custom"] is False
 
@@ -192,14 +180,8 @@ class TestFacilityKnowledgeResolved:
 class TestFacilityKnowledgeTemplates:
     """Facility-knowledge server appears correctly in rendered .mcp.json and settings.json."""
 
-    @pytest.fixture()
-    def template_manager(self):
-        from osprey.cli.templates.manager import TemplateManager
-
-        return TemplateManager()
-
     def _full_ctx(self, **overrides):
-        ctx = _base_ctx(**overrides)
+        ctx = render_ctx(**overrides)
         claude_code_cfg = overrides.pop("_claude_code_config", {})
         ctx.setdefault("facility_permissions", {})
         ctx["servers"] = resolve_servers(claude_code_cfg, ctx)

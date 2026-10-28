@@ -188,20 +188,17 @@ def test_is_glob(token: str, expected: bool) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_glob_to_are_trailing_star_omits_word_end() -> None:
-    assert glob_to_are("SR01C___BPM*") == r"\mSR01C___BPM\S*"
-
-
-def test_glob_to_are_internal_question_mark() -> None:
-    assert glob_to_are("SR0?C___BPM*") == r"\mSR0\SC___BPM\S*"
-
-
-def test_glob_to_are_without_trailing_star_wraps_word_end() -> None:
-    assert glob_to_are("BPM*3") == r"\mBPM\S*3\M"
-
-
-def test_glob_to_are_escapes_metacharacters() -> None:
-    assert glob_to_are("a.b+c(d)e*") == r"\ma\.b\+c\(d\)e\S*"
+@pytest.mark.parametrize(
+    ("glob", "are"),
+    [
+        pytest.param("SR01C___BPM*", r"\mSR01C___BPM\S*", id="trailing_star_omits_word_end"),
+        pytest.param("SR0?C___BPM*", r"\mSR0\SC___BPM\S*", id="internal_question_mark"),
+        pytest.param("BPM*3", r"\mBPM\S*3\M", id="without_trailing_star_wraps_word_end"),
+        pytest.param("a.b+c(d)e*", r"\ma\.b\+c\(d\)e\S*", id="escapes_metacharacters"),
+    ],
+)
+def test_glob_to_are(glob: str, are: str) -> None:
+    assert glob_to_are(glob) == are
 
 
 def test_glob_to_are_leaves_underscore_literal() -> None:

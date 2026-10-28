@@ -17,7 +17,6 @@ import pytest
 
 from tests.mcp_server.conftest import (
     assert_raises_error,
-    extract_response_dict,
     get_tool_fn,
 )
 
@@ -46,6 +45,18 @@ def _patch_transcript_reader(events: list[dict], record: str = "complete", reaso
         "osprey.mcp_server.workspace.tools.session_log.read_session_events",
         return_value=SessionEvents(events, record, reason, "sess-1"),
     )
+
+
+async def _call_session_log(events: list[dict], tmp_path, **kwargs) -> dict:
+    fn = _get_session_log()
+    with (
+        patch(
+            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
+            return_value=tmp_path,
+        ),
+        _patch_transcript_reader(events),
+    ):
+        return json.loads(await fn(**kwargs))
 
 
 @pytest.fixture
@@ -225,15 +236,7 @@ def concurrent_agent_events():
 @pytest.mark.asyncio
 async def test_no_filters(basic_events, tmp_path):
     """Returns all events when no filters are applied."""
-    fn = _get_session_log()
-    with (
-        patch(
-            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
-            return_value=tmp_path,
-        ),
-        _patch_transcript_reader(basic_events),
-    ):
-        result = json.loads(await fn())
+    result = await _call_session_log(basic_events, tmp_path)
     assert result["total_events"] == 5
     assert result["showing"] == 5
 
@@ -241,15 +244,7 @@ async def test_no_filters(basic_events, tmp_path):
 @pytest.mark.asyncio
 async def test_agent_filter(basic_events, tmp_path):
     """Agent filter returns lifecycle events + tool_calls with matching agent_id."""
-    fn = _get_session_log()
-    with (
-        patch(
-            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
-            return_value=tmp_path,
-        ),
-        _patch_transcript_reader(basic_events),
-    ):
-        result = json.loads(await fn(agent="data-visualizer"))
+    result = await _call_session_log(basic_events, tmp_path, agent="data-visualizer")
     # Should include: agent_start, create_static_plot, create_dashboard, agent_stop
     assert result["total_events"] == 4
     types = [e["type"] for e in result["events"]]
@@ -261,15 +256,7 @@ async def test_agent_filter(basic_events, tmp_path):
 @pytest.mark.asyncio
 async def test_agent_excludes_outside_calls(basic_events, tmp_path):
     """Tool calls from main agent are excluded by agent filter."""
-    fn = _get_session_log()
-    with (
-        patch(
-            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
-            return_value=tmp_path,
-        ),
-        _patch_transcript_reader(basic_events),
-    ):
-        result = json.loads(await fn(agent="data-visualizer"))
+    result = await _call_session_log(basic_events, tmp_path, agent="data-visualizer")
     tool_names = [e.get("tool") for e in result["events"] if e["type"] == "tool_call"]
     assert "channel_read" not in tool_names
 
@@ -277,15 +264,7 @@ async def test_agent_excludes_outside_calls(basic_events, tmp_path):
 @pytest.mark.asyncio
 async def test_tool_filter(basic_events, tmp_path):
     """Tool filter matches by substring on tool name."""
-    fn = _get_session_log()
-    with (
-        patch(
-            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
-            return_value=tmp_path,
-        ),
-        _patch_transcript_reader(basic_events),
-    ):
-        result = json.loads(await fn(tool="dashboard"))
+    result = await _call_session_log(basic_events, tmp_path, tool="dashboard")
     assert result["total_events"] == 1
     assert result["events"][0]["tool"] == "create_dashboard"
 
@@ -293,15 +272,7 @@ async def test_tool_filter(basic_events, tmp_path):
 @pytest.mark.asyncio
 async def test_errors_only(basic_events, tmp_path):
     """errors_only returns only tool_call events with is_error=true."""
-    fn = _get_session_log()
-    with (
-        patch(
-            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
-            return_value=tmp_path,
-        ),
-        _patch_transcript_reader(basic_events),
-    ):
-        result = json.loads(await fn(errors_only=True))
+    result = await _call_session_log(basic_events, tmp_path, errors_only=True)
     assert result["total_events"] == 1
     assert result["events"][0]["tool"] == "create_dashboard"
     assert result["events"][0]["is_error"] is True
@@ -310,15 +281,7 @@ async def test_errors_only(basic_events, tmp_path):
 @pytest.mark.asyncio
 async def test_event_type_filter(basic_events, tmp_path):
     """event_type filter returns only events of that type."""
-    fn = _get_session_log()
-    with (
-        patch(
-            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
-            return_value=tmp_path,
-        ),
-        _patch_transcript_reader(basic_events),
-    ):
-        result = json.loads(await fn(event_type="agent_start"))
+    result = await _call_session_log(basic_events, tmp_path, event_type="agent_start")
     assert result["total_events"] == 1
     assert result["events"][0]["type"] == "agent_start"
 
@@ -326,15 +289,7 @@ async def test_event_type_filter(basic_events, tmp_path):
 @pytest.mark.asyncio
 async def test_last_n(basic_events, tmp_path):
     """last_n returns only the last N events."""
-    fn = _get_session_log()
-    with (
-        patch(
-            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
-            return_value=tmp_path,
-        ),
-        _patch_transcript_reader(basic_events),
-    ):
-        result = json.loads(await fn(last_n=2))
+    result = await _call_session_log(basic_events, tmp_path, last_n=2)
     assert result["showing"] == 2
     assert result["total_events"] == 5
     # Should be the last 2 events (agent_stop at min 3, channel_read at min 4)
@@ -344,30 +299,16 @@ async def test_last_n(basic_events, tmp_path):
 @pytest.mark.asyncio
 async def test_last_n_clamped_to_200(basic_events, tmp_path):
     """Values > 200 for last_n are clamped to 200."""
-    fn = _get_session_log()
-    with (
-        patch(
-            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
-            return_value=tmp_path,
-        ),
-        _patch_transcript_reader(basic_events),
-    ):
-        result = json.loads(await fn(last_n=999))
+    result = await _call_session_log(basic_events, tmp_path, last_n=999)
     assert result["filters_applied"]["last_n"] == 200
 
 
 @pytest.mark.asyncio
 async def test_combined_filters(basic_events, tmp_path):
     """Agent + errors_only filters work together."""
-    fn = _get_session_log()
-    with (
-        patch(
-            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
-            return_value=tmp_path,
-        ),
-        _patch_transcript_reader(basic_events),
-    ):
-        result = json.loads(await fn(agent="data-visualizer", errors_only=True))
+    result = await _call_session_log(
+        basic_events, tmp_path, agent="data-visualizer", errors_only=True
+    )
     assert result["total_events"] == 1
     assert result["events"][0]["tool"] == "create_dashboard"
 
@@ -375,31 +316,7 @@ async def test_combined_filters(basic_events, tmp_path):
 @pytest.mark.asyncio
 async def test_empty_events(tmp_path):
     """Returns empty events list when TranscriptReader returns nothing."""
-    fn = _get_session_log()
-    with (
-        patch(
-            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
-            return_value=tmp_path,
-        ),
-        _patch_transcript_reader([]),
-    ):
-        result = json.loads(await fn())
-    assert result["events"] == []
-    assert result["total_events"] == 0
-
-
-@pytest.mark.asyncio
-async def test_no_transcript(tmp_path):
-    """Returns empty events list when no transcript found."""
-    fn = _get_session_log()
-    with (
-        patch(
-            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
-            return_value=tmp_path,
-        ),
-        _patch_transcript_reader([]),
-    ):
-        result = json.loads(await fn())
+    result = await _call_session_log([], tmp_path)
     assert result["events"] == []
     assert result["total_events"] == 0
 
@@ -412,15 +329,7 @@ async def test_no_transcript(tmp_path):
 @pytest.mark.asyncio
 async def test_agent_id_filter(concurrent_agent_events, tmp_path):
     """agent_id filter returns only events for a specific agent instance."""
-    fn = _get_session_log()
-    with (
-        patch(
-            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
-            return_value=tmp_path,
-        ),
-        _patch_transcript_reader(concurrent_agent_events),
-    ):
-        result = json.loads(await fn(agent_id="agent-A"))
+    result = await _call_session_log(concurrent_agent_events, tmp_path, agent_id="agent-A")
     # agent-A: agent_start + 2 tool_calls + agent_stop = 4
     tool_calls = [e for e in result["events"] if e["type"] == "tool_call"]
     assert len(tool_calls) == 2
@@ -434,15 +343,7 @@ async def test_agent_id_filter(concurrent_agent_events, tmp_path):
 @pytest.mark.asyncio
 async def test_since_filter(concurrent_agent_events, tmp_path):
     """since excludes events before the timestamp."""
-    fn = _get_session_log()
-    with (
-        patch(
-            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
-            return_value=tmp_path,
-        ),
-        _patch_transcript_reader(concurrent_agent_events),
-    ):
-        result = json.loads(await fn(since=_ts(5)))
+    result = await _call_session_log(concurrent_agent_events, tmp_path, since=_ts(5))
     # min 5, 6, 7 → 3 events
     assert result["total_events"] == 3
     timestamps = [e["timestamp"] for e in result["events"]]
@@ -452,15 +353,7 @@ async def test_since_filter(concurrent_agent_events, tmp_path):
 @pytest.mark.asyncio
 async def test_before_filter(concurrent_agent_events, tmp_path):
     """before excludes events after the timestamp."""
-    fn = _get_session_log()
-    with (
-        patch(
-            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
-            return_value=tmp_path,
-        ),
-        _patch_transcript_reader(concurrent_agent_events),
-    ):
-        result = json.loads(await fn(before=_ts(1)))
+    result = await _call_session_log(concurrent_agent_events, tmp_path, before=_ts(1))
     # min 0, 1 → 2 events
     assert result["total_events"] == 2
     timestamps = [e["timestamp"] for e in result["events"]]
@@ -470,15 +363,7 @@ async def test_before_filter(concurrent_agent_events, tmp_path):
 @pytest.mark.asyncio
 async def test_since_before_combined(concurrent_agent_events, tmp_path):
     """since + before creates a time-range filter."""
-    fn = _get_session_log()
-    with (
-        patch(
-            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
-            return_value=tmp_path,
-        ),
-        _patch_transcript_reader(concurrent_agent_events),
-    ):
-        result = json.loads(await fn(since=_ts(2), before=_ts(4)))
+    result = await _call_session_log(concurrent_agent_events, tmp_path, since=_ts(2), before=_ts(4))
     # min 2, 3, 4 → 3 events
     assert result["total_events"] == 3
     timestamps = [e["timestamp"] for e in result["events"]]
@@ -488,15 +373,7 @@ async def test_since_before_combined(concurrent_agent_events, tmp_path):
 @pytest.mark.asyncio
 async def test_list_agents_mode(concurrent_agent_events, tmp_path):
     """list_agents returns compact agent summary with tool/error counts."""
-    fn = _get_session_log()
-    with (
-        patch(
-            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
-            return_value=tmp_path,
-        ),
-        _patch_transcript_reader(concurrent_agent_events),
-    ):
-        result = json.loads(await fn(list_agents=True))
+    result = await _call_session_log(concurrent_agent_events, tmp_path, list_agents=True)
     assert result["total_agents"] == 2
     agents = {a["agent_id"]: a for a in result["agents"]}
 
@@ -514,16 +391,8 @@ async def test_list_agents_mode(concurrent_agent_events, tmp_path):
 @pytest.mark.asyncio
 async def test_agent_id_correlation(concurrent_agent_events, tmp_path):
     """Two concurrent same-type agents are correctly disambiguated via agent_id."""
-    fn = _get_session_log()
-    with (
-        patch(
-            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
-            return_value=tmp_path,
-        ),
-        _patch_transcript_reader(concurrent_agent_events),
-    ):
-        # agent-B should get only create_dashboard (its agent_id)
-        result = extract_response_dict(await fn(agent_id="agent-B"))
+    # agent-B should get only create_dashboard (its agent_id)
+    result = await _call_session_log(concurrent_agent_events, tmp_path, agent_id="agent-B")
 
     tool_calls = [e for e in result["events"] if e["type"] == "tool_call"]
     assert len(tool_calls) == 1
@@ -560,15 +429,7 @@ async def test_time_window_fallback(tmp_path):
         },
     ]
 
-    fn = _get_session_log()
-    with (
-        patch(
-            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
-            return_value=tmp_path,
-        ),
-        _patch_transcript_reader(events),
-    ):
-        result = extract_response_dict(await fn(agent="data-visualizer"))
+    result = await _call_session_log(events, tmp_path, agent="data-visualizer")
 
     # Should still match the tool_call via time-window fallback
     assert result["total_events"] == 3
@@ -578,33 +439,14 @@ async def test_time_window_fallback(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_since_invalid_format(tmp_path):
-    """Bad timestamp returns validation error, not crash."""
-    fn = _get_session_log()
-    with (
-        patch(
-            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
-            return_value=tmp_path,
-        ),
-        _patch_transcript_reader([]),
-    ):
-        with assert_raises_error(error_type="validation_error") as _exc_ctx:
-            await fn(since="not-a-timestamp")
+@pytest.mark.parametrize("bound", ["since", "before"])
+async def test_invalid_bound_format(tmp_path, bound):
+    """A bad time bound returns a validation error naming it, not a crash."""
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await _call_session_log([], tmp_path, **{bound: "not-a-timestamp"})
 
     envelope = _exc_ctx["envelope"]
-    assert "since" in envelope["error_message"]
-
-
-async def _call_session_log(events: list[dict], tmp_path, **kwargs) -> dict:
-    fn = _get_session_log()
-    with (
-        patch(
-            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
-            return_value=tmp_path,
-        ),
-        _patch_transcript_reader(events),
-    ):
-        return json.loads(await fn(**kwargs))
+    assert bound in envelope["error_message"]
 
 
 @pytest.mark.asyncio
@@ -688,24 +530,6 @@ async def test_offset_bound_applies_in_list_agents_mode(tmp_path):
     assert result["total_agents"] == 1
     assert result["agents"][0]["agent_id"] == "agent-B"
     assert result["filters_applied"]["since"] == "2026-02-19T12:00:00-07:00"
-
-
-@pytest.mark.asyncio
-async def test_before_invalid_format(tmp_path):
-    """Bad upper bound returns validation error, not crash."""
-    fn = _get_session_log()
-    with (
-        patch(
-            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
-            return_value=tmp_path,
-        ),
-        _patch_transcript_reader([]),
-    ):
-        with assert_raises_error(error_type="validation_error") as _exc_ctx:
-            await fn(before="not-a-timestamp")
-
-    envelope = _exc_ctx["envelope"]
-    assert "before" in envelope["error_message"]
 
 
 @pytest.mark.asyncio
