@@ -64,6 +64,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 from osprey.agent_record import credentials as creds
 from osprey.agent_record import identities as ids
+from osprey.agent_record.contract import HEALTH_SOURCES_PATH
 from osprey_connectors.safety_file import atomic_replace
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -596,7 +597,7 @@ def _probe(url: str, login: str, token: str) -> tuple[str, str]:
                 return _UNHEALTHY, "/health answered no JSON"
             if isinstance(body, dict) and body.get("ready") is False:
                 return _STARTING, "it is not ready yet"
-            sources = client.get(f"{url}/health/sources", auth=(login, token))
+            sources = client.get(f"{url}{HEALTH_SOURCES_PATH}", auth=(login, token))
             if sources.status_code != 200:
                 return _UNHEALTHY, (
                     f"it refused the host login {login!r} ({sources.status_code}); "
@@ -666,6 +667,9 @@ def _acquire(
                 else:
                     lease = _write_lease(lease_dir)
                     child = _spawn(repo_root, config, state_dir, port, config_path)
+                    # The wait for a spawned child counts from its start, never
+                    # from a probe that saw the port empty before it existed.
+                    begun = time.monotonic()
             if time.monotonic() - begun >= bound:
                 where = f"; see {state_dir / LOG_FILE_NAME}" if child is not None else ""
                 raise HostRecordRefused(

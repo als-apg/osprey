@@ -564,12 +564,19 @@ class _Alive:
         return None
 
 
-def _scripted_probe(monkeypatch, script):
-    """Make ``_probe`` answer by elapsed time: *script* is ``[(until_s, state), ...]``."""
-    t0 = time.monotonic()
+def _scripted_probe(monkeypatch, script, *, first=None):
+    """Make ``_probe`` answer by elapsed time: *script* is ``[(until_s, state), ...]``.
+
+    *first*, when given, is the answer to the first probe whatever the clock
+    says, and the script's clock starts at that probe.
+    """
+    calls: list[float] = []
 
     def probe(*_args):
-        elapsed = time.monotonic() - t0
+        calls.append(time.monotonic())
+        if first is not None and len(calls) == 1:
+            return first, first
+        elapsed = time.monotonic() - calls[0]
         for until, state in script:
             if elapsed < until:
                 return state, state
@@ -584,7 +591,7 @@ def test_the_starter_waits_out_its_own_childs_first_pass(tmp_path, monkeypatch):
     stops: list[Path] = []
     monkeypatch.setattr(hr, "_spawn", lambda *a: _Alive())
     monkeypatch.setattr(hr, "stop_host_process", lambda d, **k: stops.append(d) or True)
-    _scripted_probe(monkeypatch, [(0.05, hr._DOWN), (0.8, hr._STARTING), (99, hr._READY)])
+    _scripted_probe(monkeypatch, [(0.8, hr._STARTING), (99, hr._READY)], first=hr._DOWN)
     record = hr.HostRecord("http://127.0.0.1:1", "host-builder", "t")
     lease, started = hr._acquire(
         tmp_path, {}, state_dir, record, 1, True, 0.2, tmp_path / "config.yml"
