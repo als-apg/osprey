@@ -47,12 +47,13 @@ from osprey.agent_record.contract import (
     transcript_key,
 )
 
-__all__ = ["SUBAGENTS_DIR", "TranscriptPath", "parse_line", "split_relpath"]
+__all__ = ["SUBAGENTS_DIR", "TRANSCRIPT_SUFFIX", "TranscriptPath", "parse_line", "split_relpath"]
 
 #: The directory, beside a session's transcript, that holds its subagents' files.
 SUBAGENTS_DIR = "subagents"
 _AGENT_STEM_PREFIX = "agent-"
-_JSONL_SUFFIX = ".jsonl"
+#: Only files with this suffix are transcripts.
+TRANSCRIPT_SUFFIX = ".jsonl"
 
 #: ``agentId: <id>`` as an Agent/Task result's text states it.
 _AGENT_ID_IN_TEXT = re.compile(r"\bagentId:\s*([A-Za-z0-9._-]+)")
@@ -76,13 +77,13 @@ class TranscriptPath:
 
     def subagent_relpath(self, session_id: str, agent_id: str) -> str:
         """The path of *agent_id*'s transcript under *session_id* in this project."""
-        stem = f"{_AGENT_STEM_PREFIX}{agent_id}{_JSONL_SUFFIX}"
+        stem = f"{_AGENT_STEM_PREFIX}{agent_id}{TRANSCRIPT_SUFFIX}"
         parts = [p for p in (self.project, session_id, SUBAGENTS_DIR, stem) if p]
         return "/".join(parts)
 
 
 def _stem(name: str) -> str:
-    return name[: -len(_JSONL_SUFFIX)] if name.endswith(_JSONL_SUFFIX) else name
+    return name[: -len(TRANSCRIPT_SUFFIX)] if name.endswith(TRANSCRIPT_SUFFIX) else name
 
 
 def split_relpath(relpath: str) -> TranscriptPath:
@@ -194,7 +195,9 @@ def parse_line(
     parsed = _Line(identity, path, raw, obj, when)
     line_type = obj.get("type")
     message = obj.get("message")
-    content = message.get("content") if isinstance(message, Mapping) else None
+    if not isinstance(message, Mapping):
+        message = {}
+    content = message.get("content")
     if line_type == "user" and content not in (None, "", []):
         return _user_entries(parsed, content)
     if line_type == "assistant" and isinstance(content, list) and content:
@@ -259,7 +262,7 @@ def _result_agent_id(structured: Any, content: Any) -> str:
         except ValueError:
             parsed = None
         if isinstance(parsed, Mapping) and _usable(parsed.get("agentId")):
-            return parsed["agentId"]
+            return _usable(parsed["agentId"])
         match = _AGENT_ID_IN_TEXT.search(text)
         if match:
             return match.group(1)

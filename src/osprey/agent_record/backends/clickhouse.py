@@ -15,7 +15,8 @@ in-process lock is the whole serialization. Bodies are stored as their
 canonical JSON text, ``ts`` and ``inserted_at`` as ``DateTime64(6, 'UTC')``;
 an entry that arrives without ``inserted_at`` is stamped inside the lock,
 each insert strictly later than every stamp before it (``max(previous + 1 µs,
-now)``), so stamps follow commit order even when the clock steps back. The UTC date of ``inserted_at`` is the arrival day and the partition.
+now)``), so stamps follow commit order even when the clock steps back.
+The UTC date of ``inserted_at`` is the arrival day and the partition.
 
 **State** is a ``ReplacingMergeTree(version)`` read with ``FINAL``; each put
 carries a version above every earlier one from this process.
@@ -45,11 +46,10 @@ import httpx
 from osprey.agent_record.backends import clickhouse_ddl as ddl
 from osprey.agent_record.contract import (
     ENTRY_COLUMNS,
-    OP_IN,
-    OP_STARTS_WITH,
     STATE_TIME_FIELD,
     AppendResult,
     BackendHealth,
+    ConditionOp,
     Entry,
     EntryInvalid,
     Query,
@@ -256,9 +256,9 @@ class ClickHouseBackend:
         where: list[str] = []
         for condition in select_conditions(scope_filter, query):
             column, value = condition.column, condition.value
-            if condition.op == OP_IN:
+            if condition.op is ConditionOp.IN:
                 where.append(f"`{column}` IN {_strings(value)}")
-            elif condition.op == OP_STARTS_WITH:
+            elif condition.op is ConditionOp.STARTS_WITH:
                 where.append(f"startsWith({column}, {ddl.quote(value)})")
             else:
                 where.append(f"{column} {condition.op} {_time_literal(value)}")

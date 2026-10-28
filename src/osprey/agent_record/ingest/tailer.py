@@ -61,6 +61,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
 
+from osprey.agent_record.config import DEFAULT_RETENTION_DAYS
 from osprey.agent_record.contract import (
     Entry,
     RecordBackend,
@@ -68,9 +69,10 @@ from osprey.agent_record.contract import (
     TranscriptOffset,
     check_projects_relpath,
     scrub,
+    transcript_passed,
     transcript_state_name,
 )
-from osprey.agent_record.ingest.transcripts import parse_line, split_relpath
+from osprey.agent_record.ingest.transcripts import TRANSCRIPT_SUFFIX, parse_line, split_relpath
 
 logger = logging.getLogger(__name__)
 
@@ -91,9 +93,6 @@ POLL_INTERVAL_S = 2.0
 
 #: The state field holding the inode of the file a generation was read from.
 INODE_FIELD = "inode"
-
-#: Only files with this suffix are transcripts.
-_TRANSCRIPT_SUFFIX = ".jsonl"
 
 #: The most bytes read from one file in one read; larger backlogs are committed
 #: chunk by chunk.
@@ -197,7 +196,7 @@ class TranscriptTailer:
         config: Mapping[str, Any] | None,
         *,
         secret_set: Iterable[str] = (),
-        retention_days: int = 14,
+        retention_days: int = DEFAULT_RETENTION_DAYS,
         prefixes: Mapping[str, str] | None = None,
     ) -> None:
         if not isinstance(retention_days, int) or retention_days < 1:
@@ -309,9 +308,7 @@ class TranscriptTailer:
             if not stat.S_ISREG(st.st_mode):
                 return None
             stored = self.backend.get_state(transcript_state_name(identity, relpath))
-            position = _position(stored, st.st_ino, st.st_size)
-            if position.offset > 0 and os.pread(fd, 1, position.offset - 1) != b"\n":
-                position = TranscriptOffset(position.generation + 1, 0)
+            position = _read_position(fd, stored, _committed(stored), st)
             end = _last_line_end(fd, position.offset, st.st_size)
         finally:
             os.close(fd)
@@ -325,17 +322,12 @@ class TranscriptTailer:
         Raises:
             RecordBackendError: If the committed positions cannot be read.
         """
-        for mark in marks:
-            value = self.backend.get_state(transcript_state_name(mark.identity, mark.relpath))
-            if value is None:
-                return False
-            try:
-                committed = TranscriptOffset.from_state(value)
-            except ValueError:
-                return False
-            if not committed.passes(mark.generation, mark.offset):
-                return False
-        return True
+        return all(
+            transcript_passed(
+                self.backend, mark.identity, mark.relpath, mark.generation, mark.offset
+            )
+            for mark in marks
+        )
 
     def poll_once(self, now: datetime | None = None) -> PollReport:
         """Read every root once and commit what was appended."""
@@ -448,10 +440,9 @@ class TranscriptTailer:
             if source.last_modified is None or modified > source.last_modified:
                 source.last_modified = modified
             stored = self.backend.get_state(state_name)
-            position = _position(stored, st.st_ino, size)
-            if position.offset > 0 and os.pread(fd, 1, position.offset - 1) != b"\n":
-                position = TranscriptOffset(position.generation + 1, 0)
-            if _unchanged(stored, position, size):
+            committed = _committed(stored)
+            position = _read_position(fd, stored, committed, st)
+            if _unchanged(committed, position, size):
                 return
             generation, offset = position.generation, position.offset
             tally.files_read += 1
@@ -495,26 +486,36 @@ class TranscriptTailer:
         return entries, skipped
 
 
-def _position(stored: Mapping[str, Any] | None, inode: int, size: int) -> TranscriptOffset:
-    """Where to read from: the committed offset, or a new generation from the start."""
+def _committed(stored: Mapping[str, Any] | None) -> TranscriptOffset | None:
+    """The committed offset in *stored*, or ``None`` when there is none or it is unreadable."""
     if stored is None:
-        return TranscriptOffset(0, 0)
+        return None
     try:
-        committed = TranscriptOffset.from_state(stored)
+        return TranscriptOffset.from_state(stored)
     except ValueError:
+        return None
+
+
+def _read_position(
+    fd: int,
+    stored: Mapping[str, Any] | None,
+    committed: TranscriptOffset | None,
+    st: os.stat_result,
+) -> TranscriptOffset:
+    """Where to read *fd* from: the committed offset, or a new generation from the start
+    when the file was replaced or truncated, or the offset is not at a line start."""
+    if committed is None:
         return TranscriptOffset(0, 0)
-    if stored.get(INODE_FIELD) != inode or size < committed.offset:
+    if stored is None or stored.get(INODE_FIELD) != st.st_ino or st.st_size < committed.offset:
+        return TranscriptOffset(committed.generation + 1, 0)
+    if committed.offset > 0 and os.pread(fd, 1, committed.offset - 1) != b"\n":
         return TranscriptOffset(committed.generation + 1, 0)
     return TranscriptOffset(committed.generation, committed.offset)
 
 
-def _unchanged(stored: Mapping[str, Any] | None, position: TranscriptOffset, size: int) -> bool:
+def _unchanged(committed: TranscriptOffset | None, position: TranscriptOffset, size: int) -> bool:
     """Whether the committed state already covers the whole file in the same generation."""
-    if stored is None:
-        return False
-    try:
-        committed = TranscriptOffset.from_state(stored)
-    except ValueError:
+    if committed is None:
         return False
     return (
         committed.fully_read
@@ -589,7 +590,7 @@ def _walk(
             finally:
                 os.close(sub_fd)
             continue
-        if not child.name.endswith(_TRANSCRIPT_SUFFIX) or not child.is_file(follow_symlinks=False):
+        if not child.name.endswith(TRANSCRIPT_SUFFIX) or not child.is_file(follow_symlinks=False):
             continue
         try:
             check_projects_relpath(relpath)

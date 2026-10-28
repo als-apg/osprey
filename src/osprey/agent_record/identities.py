@@ -16,7 +16,7 @@ on every audit surface and for the rendered lane queueservers on surface
 ``preflight`` only. Every other sender's value is dropped at ingest
 (:func:`trusted_on_behalf`, :func:`keep_on_behalf_of`).
 
-**The credential → scope table (D18).** :func:`credential_table` names every
+**The credential → scope table.** :func:`credential_table` names every
 login agent-record accepts, the identity it stands for and the scope it reads.
 A login is the identity's name, except a named reader's: the identity
 ``reader:<name>`` logs in as ``reader.<name>``, because a Basic user-id cannot
@@ -236,16 +236,11 @@ def transcript_roots(config: Mapping[str, Any] | None) -> dict[str, str]:
     roots = {
         f"{user}{TERMINAL_TRANSCRIPT_VOLUME_SUFFIX}": user for user in terminal_identities(config)
     }
-    from osprey.deployment.compose_generator import dispatch_worker_audit_identities
-
-    workers = dispatch_worker_audit_identities(_config(config))
-    if workers and dispatch_shared(config):
-        roots[DISPATCH_TRANSCRIPT_VOLUME] = SHARED_DISPATCH_IDENTITY
-    else:
-        for worker in workers:
-            index = _DISPATCH_WORKER_RE.match(worker)
-            if index:
-                roots[f"{DISPATCH_TRANSCRIPT_VOLUME}_{index[1]}"] = worker
+    for worker in dispatch_identities(config):
+        if worker == SHARED_DISPATCH_IDENTITY:
+            roots[DISPATCH_TRANSCRIPT_VOLUME] = worker
+        elif index := _DISPATCH_WORKER_RE.match(worker):
+            roots[f"{DISPATCH_TRANSCRIPT_VOLUME}_{index[1]}"] = worker
     host = host_identity(config)
     if host is not None:
         roots[HOST_TRANSCRIPT_ROOT] = host
@@ -271,6 +266,20 @@ def identity_class(config: Mapping[str, Any] | None, identity: str) -> str:
     if identity in terminal_identities(config):
         return SOURCE_TERMINAL
     return SOURCE_SERVICE
+
+
+class IdentityClasses:
+    """:func:`identity_class` over one deployment config, each identity worked out once."""
+
+    def __init__(self, config: Mapping[str, Any] | None) -> None:
+        self._config = config
+        self._known: dict[str, str] = {}
+
+    def __call__(self, identity: str) -> str:
+        known = self._known.get(identity)
+        if known is None:
+            known = self._known[identity] = identity_class(self._config, identity)
+        return known
 
 
 # ---------------------------------------------------------------------------
@@ -303,7 +312,7 @@ def keep_on_behalf_of(trusted: TrustedOnBehalf, identity: str, surface: str | No
 
 
 # ---------------------------------------------------------------------------
-# The credential → scope table (D18)
+# The credential → scope table
 # ---------------------------------------------------------------------------
 
 

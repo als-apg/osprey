@@ -81,10 +81,6 @@ def oldest_arrival_day(record: RecordBackend) -> date | None:
     return health.oldest_arrival_day
 
 
-def _due_days(record: RecordBackend, today: date, done: set[date]) -> list[date]:
-    return unexported_days(oldest_arrival_day(record), today, done)
-
-
 def _export_day(record: RecordBackend, tree: ArchiveTree, day: date) -> None:
     label = day.isoformat()
     temp = tree.staging_path(".parquet")
@@ -135,7 +131,8 @@ def run_export(record: RecordBackend, now: datetime, archive_root: Path) -> list
     """
     tree = ArchiveTree(archive_root, now)
     try:
-        days = _due_days(record, now.astimezone(UTC).date(), exported_days(archive_root))
+        done = exported_days(archive_root)
+        days = unexported_days(oldest_arrival_day(record), now.astimezone(UTC).date(), done)
         exported: list[date] = []
         for day in days:
             _export_day(record, tree, day)

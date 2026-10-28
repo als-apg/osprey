@@ -236,7 +236,9 @@ def parse_agent_record_block(
             message. Range and value rules are :func:`agent_record_errors`'.
     """
     block = raw.get(AGENT_RECORD_BLOCK)
-    port_default = {} if base is None else {"port": default_port("agent_record", base=base)}
+    port_default: dict[str, Any] = (
+        {} if base is None else {"port": default_port("agent_record", base=base)}
+    )
     if block is None:
         return AgentRecordConfig(**port_default)
     if not isinstance(block, Mapping):

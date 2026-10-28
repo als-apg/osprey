@@ -45,11 +45,10 @@ import duckdb
 
 from osprey.agent_record.contract import (
     ENTRY_COLUMNS,
-    OP_IN,
-    OP_STARTS_WITH,
     STATE_TIME_FIELD,
     AppendResult,
     BackendHealth,
+    ConditionOp,
     Entry,
     EntryInvalid,
     Query,
@@ -272,10 +271,10 @@ class EmbeddedBackend:
         params: list[Any] = []
         for condition in select_conditions(scope_filter, query):
             column, value = condition.column, condition.value
-            if condition.op == OP_IN:
+            if condition.op is ConditionOp.IN:
                 where.append(f"{column} IN ({', '.join('?' for _ in value)})")
                 params.extend(sorted(value))
-            elif condition.op == OP_STARTS_WITH:
+            elif condition.op is ConditionOp.STARTS_WITH:
                 where.append(f"starts_with({column}, ?)")
                 params.append(value)
             else:

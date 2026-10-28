@@ -68,11 +68,9 @@ from pathlib import Path
 from typing import Any
 
 from osprey.agent_record.contract import (
-    OPEN_SUFFIX,
     OTLP_SPOOL_DIR,
     RECORD_OFF_ENV,
     RECORD_OFF_VALUE,
-    SEALED_SUFFIX,
     SEGMENT_IDLE_S,
     SEGMENT_MAX_AGE_S,
     SEGMENT_MAX_BYTES,
@@ -81,6 +79,7 @@ from osprey.agent_record.contract import (
     SpoolLine,
     WriteResult,
     check_identity,
+    sealed_name,
     segment_name,
 )
 
@@ -212,7 +211,7 @@ def _seal(segment: _Segment) -> None:
         segment.timer = None
     if _segments.get(segment.directory) is segment:
         del _segments[segment.directory]
-    sealed = segment.directory / (segment.name[: -len(OPEN_SUFFIX)] + SEALED_SUFFIX)
+    sealed = segment.directory / sealed_name(segment.name)
     try:
         os.rename(segment.path, sealed)
     except FileNotFoundError:
@@ -258,17 +257,21 @@ def _ensure_dir(directory: Path) -> None:
         logger.debug("Could not set %o on the spool directory %s", SPOOL_DIR_MODE, directory)
 
 
+def _open_creating(path: Path, flags: int) -> int:
+    """``os.open`` *path* at :data:`SEGMENT_FILE_MODE`, creating its directory if missing."""
+    try:
+        return os.open(path, flags, SEGMENT_FILE_MODE)
+    except FileNotFoundError:
+        _ensure_dir(path.parent)
+        return os.open(path, flags, SEGMENT_FILE_MODE)
+
+
 def _new_segment(directory: Path) -> tuple[_Segment, int]:
     """Create a fresh ``.open`` segment in *directory* and return it opened."""
     global _atexit_registered
     now = _monotonic()
     name = segment_name(_host(), _pid(), time.time_ns())
-    path = directory / name
-    try:
-        fd = os.open(path, _CREATE_FLAGS, SEGMENT_FILE_MODE)
-    except FileNotFoundError:
-        _ensure_dir(directory)
-        fd = os.open(path, _CREATE_FLAGS, SEGMENT_FILE_MODE)
+    fd = _open_creating(directory / name, _CREATE_FLAGS)
     segment = _Segment(directory=directory, name=name, pid=_pid(), started=now, last_write=now)
     _segments[directory] = segment
     if not _atexit_registered:
@@ -340,7 +343,7 @@ def _ts_text(value: Any) -> str:
         return datetime.now(UTC).isoformat()
     if isinstance(value, datetime):
         return value.isoformat()
-    return value
+    return str(value)
 
 
 def _encode(line: SpoolLine) -> bytes:
@@ -366,22 +369,7 @@ def _record_failure(directory: Path | None, kind: Any, entry_id: Any, exc: BaseE
     }
     data = (json.dumps(record, ensure_ascii=False) + "\n").encode("utf-8")
     try:
-        fd = os.open(
-            directory / WRITER_ERRORS_FILE,
-            os.O_WRONLY | os.O_APPEND | os.O_CREAT,
-            SEGMENT_FILE_MODE,
-        )
-    except FileNotFoundError:
-        try:
-            _ensure_dir(directory)
-            fd = os.open(
-                directory / WRITER_ERRORS_FILE,
-                os.O_WRONLY | os.O_APPEND | os.O_CREAT,
-                SEGMENT_FILE_MODE,
-            )
-        except Exception:
-            logger.error("Could not record the spool failure in %s", directory, exc_info=True)
-            return
+        fd = _open_creating(directory / WRITER_ERRORS_FILE, os.O_WRONLY | os.O_APPEND | os.O_CREAT)
     except Exception:
         logger.error("Could not record the spool failure in %s", directory, exc_info=True)
         return
@@ -506,16 +494,12 @@ def write_received(
         data = b"".join(_encode(line) for line in built)
         name = segment_name(_host(), _pid(), time.time_ns())
         path = directory / name
-        try:
-            fd = os.open(path, _CREATE_FLAGS, SEGMENT_FILE_MODE)
-        except FileNotFoundError:
-            _ensure_dir(directory)
-            fd = os.open(path, _CREATE_FLAGS, SEGMENT_FILE_MODE)
+        fd = _open_creating(path, _CREATE_FLAGS)
         _write_all(fd, data, path)
         os.fsync(fd)
         os.close(fd)
         fd = None
-        os.rename(path, directory / (name[: -len(OPEN_SUFFIX)] + SEALED_SUFFIX))
+        os.rename(path, directory / sealed_name(name))
         path = None
         _fsync_dir(directory)
         return [line.entry_id for line in built]

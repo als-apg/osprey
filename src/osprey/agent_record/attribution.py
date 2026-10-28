@@ -38,7 +38,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Any
 
 from osprey.agent_record.contract import (
@@ -51,11 +50,12 @@ from osprey.agent_record.contract import (
     SURFACE_FIELD,
     Entry,
     accept_session,
+    arrival_order,
     run_id_of,
 )
 from osprey.agent_record.identities import (
+    IdentityClasses,
     TrustedOnBehalf,
-    identity_class,
     keep_on_behalf_of,
     spool_source_identity,
     trusted_on_behalf,
@@ -74,11 +74,6 @@ def is_run_accept(entry: Entry) -> bool:
         return False
     parts = entry.key.split(":")
     return len(parts) == 3 and parts[0] == RUN_KEY_PREFIX and parts[2] == RUN_ACCEPT
-
-
-def _arrival(entry: Entry) -> tuple[datetime, datetime, str]:
-    """Arrival order: ``inserted_at``, else the source time; then ts and key."""
-    return (entry.inserted_at or entry.ts, entry.ts, entry.key)
 
 
 def _requester(body: Mapping[str, Any]) -> str | None:
@@ -102,7 +97,10 @@ class Attribution:
     sessions: Mapping[tuple[str, str], str | None]
     #: ``(dispatch identity, run_id)`` → requester, for the runs that won their session.
     runs: Mapping[tuple[str, str], str | None]
-    _classes: dict[str, str] = field(default_factory=dict, compare=False, repr=False)
+    _class: IdentityClasses = field(init=False, compare=False, repr=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_class", IdentityClasses(self.config))
 
     @classmethod
     def build(cls, config: Mapping[str, Any] | None, run_entries: Iterable[Entry]) -> Attribution:
@@ -116,7 +114,7 @@ class Attribution:
         attribution = cls(config, trusted_on_behalf(config), {}, {})
         sessions: dict[tuple[str, str], str | None] = {}
         runs: dict[tuple[str, str], str | None] = {}
-        accepts = sorted((e for e in run_entries if is_run_accept(e)), key=_arrival)
+        accepts = sorted((e for e in run_entries if is_run_accept(e)), key=arrival_order)
         for accept in accepts:
             if attribution._class(accept.identity) != SOURCE_DISPATCH:
                 continue
@@ -131,12 +129,6 @@ class Attribution:
         object.__setattr__(attribution, "sessions", sessions)
         object.__setattr__(attribution, "runs", runs)
         return attribution
-
-    def _class(self, identity: str) -> str:
-        known = self._classes.get(identity)
-        if known is None:
-            known = self._classes[identity] = identity_class(self.config, identity)
-        return known
 
     def _dispatch_identity(self, identity: str) -> str:
         return spool_source_identity(self.config, identity)

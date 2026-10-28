@@ -226,7 +226,7 @@ def _event_name(record: Any, attributes: Mapping[str, Any]) -> str:
     name = attributes.get(EVENT_NAME_ATTRIBUTE)
     if isinstance(name, str) and name:
         return name
-    if record.event_name:
+    if isinstance(record.event_name, str) and record.event_name:
         return record.event_name
     body = _any_value(record.body) if record.HasField("body") else None
     if isinstance(body, str) and body.startswith(EVENT_BODY_PREFIX):

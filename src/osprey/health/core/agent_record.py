@@ -14,7 +14,7 @@ Rows, when the record answers:
   ones it could not understand.
 * ``agent_record_source.<identity>`` — one per spool directory: ``warning``
   when the source is **stopped** (a live session or pending backlog with nothing
-  reaching the record for :data:`~osprey.agent_record.service.STOPPED_AFTER`),
+  reaching the record for :data:`~osprey.agent_record.contract.STOPPED_AFTER`),
   when its lines were **refused**, when its writers logged errors or abandoned
   segments, or when its **backlog grows** (uncommitted lines older than
   :data:`BACKLOG_BEHIND_S`); ``ok`` and ``idle`` when it has no live session
@@ -40,6 +40,7 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Protocol
 
 from osprey.agent_record.client import ClientAnswer, RecordClient
+from osprey.agent_record.contract import STOPPED_AFTER
 from osprey.health.models import CheckResult, Status
 
 if TYPE_CHECKING:
@@ -47,6 +48,9 @@ if TYPE_CHECKING:
     from osprey.health.runtime import HealthRuntime
 
 CATEGORY = "agent_record"
+
+#: :data:`~osprey.agent_record.contract.STOPPED_AFTER` as the rows word it.
+_STOPPED_AFTER_TEXT = f"over {int(STOPPED_AFTER.total_seconds() // 60)} min"
 
 #: Seconds the report may take to answer.
 _TIMEOUT_S = 5.0
@@ -101,13 +105,14 @@ def agent_record(
 def report_rows(report: Mapping[str, Any]) -> list[CheckResult]:
     """The category's rows for one ``/health/sources`` *report* body."""
     spool = _mapping(report.get("spool"))
-    rows = [_backend_row(_mapping(report.get("backend")), spool)]
+    backend = _mapping(report.get("backend"))
+    rows = [_backend_row(backend, spool)]
     spool_row = _spool_row(spool)
     if spool_row is not None:
         rows.append(spool_row)
     rows.extend(_source_rows(_mapping(spool.get("sources"))))
     rows.extend(_transcript_rows(_mapping(report.get("transcripts"))))
-    rows.append(_export_row(_mapping(report.get("export")), _mapping(report.get("backend"))))
+    rows.append(_export_row(_mapping(report.get("export")), backend))
     return rows
 
 
@@ -186,7 +191,7 @@ def _source_row(identity: str, path: str, source: Mapping[str, Any]) -> CheckRes
 
     if source.get("stopped"):
         waiting = f"{backlog} line(s) waiting, " if backlog else "a live session, "
-        problems.append(f"stopped: {waiting}nothing reached the record for over 5 min")
+        problems.append(f"stopped: {waiting}nothing reached the record for {_STOPPED_AFTER_TEXT}")
     else:
         age = source.get("oldest_backlog_age_s")
         if backlog and isinstance(age, int | float) and age > BACKLOG_BEHIND_S:
@@ -232,7 +237,9 @@ def _transcript_rows(transcripts: Mapping[str, Any]) -> list[CheckResult]:
         if file_errors:
             problems.append(f"{len(file_errors)} file(s) cannot be read")
         if source.get("stopped"):
-            problems.append("stopped: a live transcript has not reached the record for over 5 min")
+            problems.append(
+                f"stopped: a live transcript has not reached the record for {_STOPPED_AFTER_TEXT}"
+            )
         details = "\n".join([f"transcripts {root}"] + [f"{k}: {v}" for k, v in file_errors.items()])
         if problems:
             rows.append(

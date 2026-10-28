@@ -42,7 +42,7 @@ from typing import Any, Literal
 
 import httpx
 
-from osprey.agent_record.contract import Drain, WaitMark
+from osprey.agent_record.contract import EXPORT_PATH, HEALTH_SOURCES_PATH, Drain, WaitMark
 from osprey.agent_record.credentials import LOGIN_ENV
 from osprey.agent_record.identities import VIEWER_HEADER
 from osprey.agent_record.reader import READ_SECONDS, WAIT_SECONDS
@@ -79,8 +79,6 @@ READ_NAMES = (
 )
 
 _READ_PATH = "/v1/read/"
-_HEALTH_SOURCES_PATH = "/health/sources"
-_EXPORT_PATH = "/jobs/export"
 
 
 @dataclass(frozen=True)
@@ -114,13 +112,21 @@ class ClientAnswer:
         return self.unavailable is None
 
 
-def _decode(response: httpx.Response) -> ClientAnswer:
+def _json_object(response: httpx.Response) -> Mapping[str, Any] | ClientAnswer:
+    """The JSON object *response* carries, or the failed answer naming why it has none."""
     try:
         body = response.json()
     except ValueError:
         return ClientAnswer.failed(f"agent-record answered {response.status_code} without JSON")
     if not isinstance(body, Mapping):
         return ClientAnswer.failed(f"agent-record answered {response.status_code} with no object")
+    return body
+
+
+def _decode(response: httpx.Response) -> ClientAnswer:
+    body = _json_object(response)
+    if isinstance(body, ClientAnswer):
+        return body
     status = body.get("status")
     reason = body.get("reason")
     reason = reason if isinstance(reason, str) else ""
@@ -157,12 +163,9 @@ def _decode(response: httpx.Response) -> ClientAnswer:
 
 def _decode_report(response: httpx.Response, key: str | None) -> ClientAnswer:
     """A ``/health/sources`` body (*key* ``None``: the whole object) or ``body[key]``."""
-    try:
-        body = response.json()
-    except ValueError:
-        return ClientAnswer.failed(f"agent-record answered {response.status_code} without JSON")
-    if not isinstance(body, Mapping):
-        return ClientAnswer.failed(f"agent-record answered {response.status_code} with no object")
+    body = _json_object(response)
+    if isinstance(body, ClientAnswer):
+        return body
     if response.status_code != 200 or (key is not None and body.get("status") != "ok"):
         reason = body.get("reason")
         detail = f": {reason}" if isinstance(reason, str) and reason else ""
@@ -280,7 +283,7 @@ class RecordClient:
             return httpx.request(
                 method,
                 f"{self.url}{path}",
-                params=params,
+                params=tuple(params),
                 headers=headers,
                 auth=(self.login, self._password),
                 timeout=timeout,
@@ -294,7 +297,7 @@ class RecordClient:
 
     def health_sources(self) -> ClientAnswer:
         """The service's per-source, backend and export report, as ``data``."""
-        response = self._send("GET", _HEALTH_SOURCES_PATH, [], self.timeout)
+        response = self._send("GET", HEALTH_SOURCES_PATH, [], self.timeout)
         if isinstance(response, ClientAnswer):
             return response
         return _decode_report(response, None)
@@ -303,7 +306,7 @@ class RecordClient:
         """Run the catch-up export now; ``data`` is the days exported, ISO dates
         oldest first. *timeout* overrides the client's for this call."""
         wait = self.timeout if timeout is None else timeout
-        response = self._send("POST", _EXPORT_PATH, [], wait)
+        response = self._send("POST", EXPORT_PATH, [], wait)
         if isinstance(response, ClientAnswer):
             return response
         return _decode_report(response, "exported")

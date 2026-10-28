@@ -81,7 +81,7 @@ of ``all``, ``own:<person>`` or ``reader:<name>``; a reader's kinds and days
 back come from this deployment's ``agent_record.readers``, never from the
 header, and a reader the config does not name is refused.
 
-**The drain** (P3-D1) is resolved here, never by the caller, from the scope
+**The drain** is resolved here, never by the caller, from the scope
 the login resolves to: ``Own``/``Source`` drain their own identity's spool
 directories (every ``dispatch-worker-N`` one in the shared mode) and its
 ``.otlp/<login>/`` directories, ``All`` and ``Reader`` drain every directory;
@@ -154,7 +154,7 @@ import os
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -172,9 +172,13 @@ from osprey.agent_record.config import (
     parse_agent_record_block,
 )
 from osprey.agent_record.contract import (
+    EXPORT_PATH,
+    HEALTH_SOURCES_PATH,
+    REFUSALS_WINDOW,
     REFUSED_STATE_PREFIX,
     SOURCE_HOST,
     SOURCE_OPERATOR,
+    STOPPED_AFTER,
     All,
     BackendHealth,
     Narrow,
@@ -208,6 +212,7 @@ __all__ = [
     "EMBEDDED_FILENAME",
     "EXPORT_PATH",
     "EXPORTERS",
+    "HEALTH_SOURCES_PATH",
     "HOST_PROJECTS_ENV",
     "IngestDrainer",
     "JOBS_CLOCK_ENV",
@@ -250,13 +255,6 @@ SPOOL_INTERVAL_S = 2.0
 #: Seconds between two looks at the lease directory of a host-local service.
 LEASE_POLL_S = 1.0
 
-#: How long a source may be live or hold a backlog without a commit before it is stopped.
-STOPPED_AFTER = timedelta(minutes=5)
-#: How far back ``/health/sources`` counts a source's stored refusals.
-REFUSALS_WINDOW = timedelta(hours=24)
-
-#: The route that runs the catch-up export on demand.
-EXPORT_PATH = "/jobs/export"
 #: The source classes whose logins may run the export.
 EXPORTERS = frozenset({SOURCE_HOST, SOURCE_OPERATOR})
 
@@ -826,11 +824,6 @@ def _health_sources(
 
 
 # ---------------------------------------------------------------------------
-# The runtime the lifespan owns
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
 # The drain
 # ---------------------------------------------------------------------------
 
@@ -895,6 +888,11 @@ class IngestDrainer:
             self.wake_consumer()
             self.tailer.wake()
         return progress
+
+
+# ---------------------------------------------------------------------------
+# The runtime the lifespan owns
+# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -982,8 +980,8 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.runtime = None
-        app.state.archive_root = settings.archive_root
-        app.state.jobs = scheduler.JobsState()
+        app.state.jobs.ready = False
+        app.state.jobs.last_error = None
         _report_archive_root(settings.archive_root)
         if settings.jobs_clock is not None:
             logger.warning(
@@ -1105,7 +1103,7 @@ def create_app(
     app.state.jobs_clock = jobs_clock
 
     def runtime_of(request: Request) -> _Runtime:
-        runtime = request.app.state.runtime
+        runtime: _Runtime | None = request.app.state.runtime
         if runtime is None:
             raise _Refused(503, "agent-record is not running")
         return runtime
@@ -1125,7 +1123,7 @@ def create_app(
             )
         return JSONResponse({"status": "ok", "jobs_ready": jobs_ready})
 
-    @app.get("/health/sources")
+    @app.get(HEALTH_SOURCES_PATH)
     async def health_sources(request: Request) -> JSONResponse:
         try:
             _authenticate(settings, request)

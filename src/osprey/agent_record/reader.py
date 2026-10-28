@@ -30,7 +30,7 @@ accountant: at most :data:`MAX_BYTES` of bodies and text, and at most
 loaded as well as while the answer is cut. Hitting any of those makes the
 answer not ``complete``.
 
-**Wait marks (D16, P3-D1).** A ``wait`` mark is polled for at most
+**Wait marks.** A ``wait`` mark is polled for at most
 :data:`WAIT_SECONDS`; if ingest has not passed it by then the answer is
 returned, with the entries that exist, and ``complete: false``. A drain mark
 is resolved by the :data:`Drainer` the service gives the reader: what the
@@ -53,9 +53,9 @@ result (``tool_result``, or the ``subagent`` entry of an Agent/Task call); a
 subagent's own entries are nested under the call that started it. A subagent
 whose call is not (yet) in the record is shown as its own group at its first
 entry's time. ``num_tool_calls`` and ``tool_count`` of a run are counted from
-its session's timeline, never stored (D22).
+its session's timeline, never stored.
 
-**Timeline cursor (P3-D2).** ``timeline`` and ``agent_timeline`` page by their
+**Timeline cursor.** ``timeline`` and ``agent_timeline`` page by their
 top-level nodes in ``(ts, inserted_at, key, chunk_index)`` order, through an
 opaque ``after`` cursor (:class:`TimelineCursor`). The first page fixes the
 snapshot ``as_of``: the newest ``inserted_at`` among the session's entries the
@@ -117,6 +117,7 @@ from osprey.agent_record.contract import (
     Source,
     WaitMark,
     accept_session,
+    arrival_order,
     check_kind,
     is_token,
     reassemble,
@@ -170,7 +171,7 @@ MAX_BYTES = 16 * 1024 * 1024
 #: Seconds one read spends loading and assembling (waiting excluded) before it
 #: answers incomplete.
 READ_SECONDS = 10.0
-#: The longest a read waits for ingest to pass a wait mark (D16).
+#: The longest a read waits for ingest to pass a wait mark.
 WAIT_SECONDS = 10.0
 #: How often a waiting read polls its marks.
 WAIT_POLL_SECONDS = 0.25
@@ -184,8 +185,6 @@ BRIDGE_CONVERSATION_FIELD = "conversation"
 BRIDGE_QUESTION_FIELD = "question"
 #: The body field naming which writer produced an entry (``entries(source=...)``).
 SOURCE_FIELD = "source"
-#: The audit body field naming its surface.
-
 #: How long after a queue-submit tool call starts a preflight entry may still be
 #: that submit's.
 PREFLIGHT_MATCH_SECONDS = 60
@@ -940,7 +939,7 @@ class RecordReader:
             if self._out_of_time(ctx):
                 break
             whole = reassemble(chunks)
-            if whole.incomplete:
+            if whole.body is None:
                 first = whole.first
                 lead = (
                     _leading_fields(first.body.get(CHUNK_PART_FIELD))
@@ -974,10 +973,7 @@ class RecordReader:
                 ScopeFilter(kinds=frozenset({KIND_RUN}), run_ids=frozenset(named)),
                 Query(key_prefix=f"{RUN_KEY_PREFIX}:"),
             )
-            ordered = sorted(
-                (a for a in accepts if is_run_accept(a)),
-                key=lambda a: (a.inserted_at or a.ts, a.ts, a.key),
-            )
+            ordered = sorted((a for a in accepts if is_run_accept(a)), key=arrival_order)
             for accept in ordered:
                 run_id = run_id_of(accept)
                 session = accept_session(accept)
@@ -1210,9 +1206,11 @@ class RecordReader:
             else:
                 by_session.setdefault((None, ""), []).append(run_id)
         drains = []
-        for (session, identity), run_ids in sorted(by_session.items(), key=lambda kv: str(kv[0])):
+        for (drain_session, identity), run_ids in sorted(
+            by_session.items(), key=lambda kv: str(kv[0])
+        ):
             also = frozenset({identity}) if identity else frozenset()
-            drains.append((run_ids, self._drained(ctx.scope, session, also)))
+            drains.append((run_ids, self._drained(ctx.scope, drain_session, also)))
         return drains
 
     def _run_summary(self, ctx: _Ctx, facts: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -1378,7 +1376,7 @@ class RecordReader:
 
     def run(self, scope: Scope, run_id: str, *, wait: WaitMark | None = None) -> ReadAnswer:
         """One run: its accept and terminal entries, the question of its bridge turn,
-        the answer text of its session and its tool-call count (D22)."""
+        the answer text of its session and its tool-call count."""
 
         def build(ctx: _Ctx) -> tuple[Any, bool]:
             facts = self._runs(ctx, [run_id]).get(run_id)
@@ -1458,7 +1456,7 @@ class RecordReader:
             )
             head, more = turns[:rows], len(turns) > rows
             facts = self._runs(ctx, (t.entry.run_id for t in head if t.entry.run_id), turns)
-            history = []
+            history: list[dict[str, Any]] = []
             for turn in head:
                 if not self._admit(ctx, turn):
                     return history, False
@@ -1492,12 +1490,7 @@ class RecordReader:
                 Query(since=since, order=ORDER_NEWEST_FIRST),
             )
             if source is not None:
-                items = [i for i in items if _body_source(i) == source]
+                items = [i for i in items if i.entry.body.get(SOURCE_FIELD) == source]
             return self._page(ctx, items, self._rows(limit, self.limits.rows))
 
         return self._answer(scope, wait, build)
-
-
-def _body_source(item: RecordItem) -> Any:
-    body = item.entry.body
-    return body.get(SOURCE_FIELD) if isinstance(body, Mapping) else None

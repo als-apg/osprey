@@ -82,6 +82,7 @@ from osprey.agent_record.contract import (
     SpoolLine,
     SpoolLineInvalid,
     accept_session,
+    arrival_order,
     entry_from_spool_line,
     is_token,
     kind_allowed,
@@ -90,10 +91,11 @@ from osprey.agent_record.contract import (
     refused_state_name,
     refused_state_value,
     scrub,
+    sealed_name,
     spool_state_name,
 )
 from osprey.agent_record.identities import (
-    identity_class,
+    IdentityClasses,
     keep_on_behalf_of,
     login_source_identity,
     spool_source_identity,
@@ -110,7 +112,7 @@ __all__ = [
     "SpoolHealth",
 ]
 
-logger = logging.getLogger("osprey.agent_record.ingest.spool")
+logger = logging.getLogger(__name__)
 
 #: The suffix a hostile path is renamed with, before its UTC stamp.
 QUARANTINE_SUFFIX = ".refused-"
@@ -209,9 +211,6 @@ class _Pass:
 
 @dataclass
 class _SourceState:
-    identity: str
-    directory: str
-    receiver_owned: bool
     refused: deque[RefusedLine] = field(default_factory=lambda: deque(maxlen=SHOWN_PER_SOURCE))
     refused_total: int = 0
     last_seen: datetime | None = None
@@ -305,7 +304,7 @@ class SpoolConsumer:
         self._secrets = tuple(secrets)
         self._now = now or (lambda: datetime.now(UTC))
         self._trusted = trusted_on_behalf(self.config)
-        self._classes: dict[str, str] = {}
+        self._class = IdentityClasses(self.config)
         self._lock = threading.Lock()
         #: Committed offsets known to this process, used while the backend is down.
         self._offsets: dict[str, int] = {}
@@ -393,7 +392,7 @@ class SpoolConsumer:
         for mark in marks:
             names = [mark.name]
             if mark.name.endswith(OPEN_SUFFIX):
-                names.append(mark.name[: -len(OPEN_SUFFIX)] + SEALED_SUFFIX)
+                names.append(sealed_name(mark.name))
             committed = 0
             for name in names:
                 value = self.backend.get_state(spool_state_name(mark.identity, name, mark.inode))
@@ -506,9 +505,7 @@ class SpoolConsumer:
         key = str(directory.path)
         state = self._sources.get(key)
         if state is None:
-            state = self._sources[key] = _SourceState(
-                directory.identity, key, directory.receiver_owned
-            )
+            state = self._sources[key] = _SourceState()
         return state
 
     def _consume_directory(
@@ -684,21 +681,21 @@ class SpoolConsumer:
                     if run.backend_error or not self._commit(
                         directory, source, name, state_name, batch, run
                     ):
-                        return self._pending(handle, offset, batch, sealed), idle_s
+                        return self._pending(handle, offset, sealed), idle_s
                     offset = batch[-1][1]
                     batch = []
             if batch:
                 if run.backend_error or not self._commit(
                     directory, source, name, state_name, batch, run
                 ):
-                    return self._pending(handle, offset, batch, sealed), idle_s
+                    return self._pending(handle, offset, sealed), idle_s
                 offset = batch[-1][1]
             if sealed and offset >= os.fstat(handle.fileno()).st_size:
                 self._delete(path, inode, state_name, run, problems)
             return 0, idle_s
 
     @staticmethod
-    def _pending(handle: Any, offset: int, batch: list[tuple[bytes, int]], sealed: bool) -> int:
+    def _pending(handle: Any, offset: int, sealed: bool) -> int:
         """Count the complete lines from *offset* on, for the backlog."""
         handle.seek(offset)
         count = 0
@@ -729,12 +726,6 @@ class SpoolConsumer:
         run.deleted.append(str(path))
 
     # ------------------------------------------------------------------ one batch
-
-    def _class(self, identity: str) -> str:
-        known = self._classes.get(identity)
-        if known is None:
-            known = self._classes[identity] = identity_class(self.config, identity)
-        return known
 
     def _commit(
         self,
@@ -881,7 +872,7 @@ class SpoolConsumer:
             ScopeFilter(identities=frozenset({identity}), kinds=frozenset({KIND_RUN})),
             Query(key_prefix=f"{RUN_KEY_PREFIX}:"),
         )
-        rows.sort(key=lambda e: (e.inserted_at or e.ts, e.ts, e.key))
+        rows.sort(key=arrival_order)
         known = {}
         for row in rows:
             if row.chunk.total != 1 or not row.key.endswith(f":{RUN_ACCEPT}"):

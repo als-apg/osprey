@@ -53,8 +53,9 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
+from enum import StrEnum
 from pathlib import Path, PurePosixPath
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, TypeGuard, runtime_checkable
 
 # ---------------------------------------------------------------------------
 # Kinds
@@ -104,8 +105,17 @@ ROUTE_OTLP = "otlp"
 ROUTE_SPOOL = "spool"
 ROUTES = frozenset({ROUTE_TRANSCRIPT, ROUTE_OTLP, ROUTE_SPOOL})
 
+#: The service route that answers each source's health.
+HEALTH_SOURCES_PATH = "/health/sources"
+#: The service route that runs the catch-up export on demand.
+EXPORT_PATH = "/jobs/export"
+#: How long a source may be live or hold a backlog without a commit before it is stopped.
+STOPPED_AFTER = timedelta(minutes=5)
+#: How far back :data:`HEALTH_SOURCES_PATH` counts a source's stored refusals.
+REFUSALS_WINDOW = timedelta(hours=24)
+
 #: The kinds each ingest route may produce. The transcript carries the content
-#: of a session; OTLP carries only what the transcript lacks (D4); the spool
+#: of a session; OTLP carries only what the transcript lacks; the spool
 #: carries the facts OSPREY components own. A receiver-owned spool directory
 #: (:data:`OTLP_SPOOL_DIR`) is ingested under :data:`ROUTE_OTLP`.
 ROUTE_KINDS: Mapping[str, frozenset[str]] = {
@@ -193,7 +203,7 @@ def check_kind(kind: str) -> str:
 #: directory name (``/``, ``\\``), a Basic login and an env-file value (``$``).
 _IDENTITY_FORBIDDEN = "/\\:$\0"
 
-#: A session id, terminal session, entry id or run id: the gateway's rule.
+#: A session id, terminal session, entry id or run id: one rule for all four.
 TOKEN_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
 
@@ -220,7 +230,7 @@ def check_identity(identity: str) -> str:
     return identity
 
 
-def is_token(value: object) -> bool:
+def is_token(value: object) -> TypeGuard[str]:
     """Whether *value* matches :data:`TOKEN_RE`."""
     return isinstance(value, str) and TOKEN_RE.match(value) is not None
 
@@ -232,7 +242,7 @@ def _check_token(value: str, what: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Keys (D4, D11, D14)
+# Keys
 # ---------------------------------------------------------------------------
 
 #: Hex digits of a content hash used inside a key.
@@ -505,7 +515,7 @@ def parse_ts(value: Any) -> datetime:
 
 
 # ---------------------------------------------------------------------------
-# Chunking (D15)
+# Chunking
 # ---------------------------------------------------------------------------
 
 #: The one field of a chunk's body: its slice of the serialized whole body.
@@ -712,7 +722,7 @@ def reassemble(chunks: Sequence[Entry]) -> Reassembled:
 
 #: Shorter values are never treated as secrets: masking them would mangle text.
 MIN_SECRET_LEN = 8
-SECRET_MASK = "***"
+SECRET_MASK = "***"  # noqa: S105 -- the mask that replaces a secret, holds no secret
 
 
 def scrub(body: Any, secret_set: Iterable[str]) -> Any:
@@ -841,6 +851,11 @@ class AppendResult:
 STAMP_TICK = timedelta(microseconds=1)
 
 
+def arrival_order(entry: Entry) -> tuple[datetime, datetime, str]:
+    """Arrival order: ``inserted_at``, else the source time; then ts and key."""
+    return (entry.inserted_at or entry.ts, entry.ts, entry.key)
+
+
 def next_stamp(
     newest: datetime | None, now: datetime, entries: Iterable[Entry]
 ) -> tuple[datetime, datetime]:
@@ -905,23 +920,26 @@ class Query:
     order: str = ORDER_OLDEST_FIRST
 
 
-#: :attr:`Condition.op` values; the comparisons are spelled as SQL spells them.
-OP_IN = "in"
-OP_STARTS_WITH = "starts_with"
-OP_AT_LEAST = ">="
-OP_BEFORE = "<"
+class ConditionOp(StrEnum):
+    """The operator of a :class:`Condition`; the comparisons are spelled as SQL spells them."""
+
+    IN = "in"
+    STARTS_WITH = "starts_with"
+    AT_LEAST = ">="
+    BEFORE = "<"
 
 
 @dataclass(frozen=True)
 class Condition:
     """One predicate of a select on one stored column; each backend renders it.
 
-    ``value`` is a non-empty ``frozenset[str]`` for :data:`OP_IN`, a ``str``
-    for :data:`OP_STARTS_WITH` and an aware ``datetime`` for the comparisons.
+    ``value`` is a non-empty ``frozenset[str]`` for :attr:`ConditionOp.IN`, a
+    ``str`` for :attr:`ConditionOp.STARTS_WITH` and an aware ``datetime`` for
+    the comparisons.
     """
 
     column: str
-    op: str
+    op: ConditionOp
     value: Any
 
 
@@ -931,9 +949,9 @@ def select_conditions(scope_filter: ScopeFilter, query: Query) -> list[Condition
 
     def any_of(column: str, values: frozenset[str]) -> None:
         if values:
-            conditions.append(Condition(column, OP_IN, values))
+            conditions.append(Condition(column, ConditionOp.IN, values))
 
-    def bound(column: str, op: str, value: datetime | None) -> None:
+    def bound(column: str, op: ConditionOp, value: datetime | None) -> None:
         if value is not None:
             conditions.append(Condition(column, op, value))
 
@@ -941,13 +959,13 @@ def select_conditions(scope_filter: ScopeFilter, query: Query) -> list[Condition
     any_of("kind", scope_filter.kinds)
     any_of("session_id", scope_filter.session_ids)
     any_of("run_id", scope_filter.run_ids)
-    bound("inserted_at", OP_AT_LEAST, scope_filter.arrived_since)
+    bound("inserted_at", ConditionOp.AT_LEAST, scope_filter.arrived_since)
     any_of("key", query.keys)
     if query.key_prefix is not None:
-        conditions.append(Condition("key", OP_STARTS_WITH, query.key_prefix))
+        conditions.append(Condition("key", ConditionOp.STARTS_WITH, query.key_prefix))
     any_of("tool_use_id", query.tool_use_ids)
-    bound("ts", OP_AT_LEAST, query.since)
-    bound("ts", OP_BEFORE, query.until)
+    bound("ts", ConditionOp.AT_LEAST, query.since)
+    bound("ts", ConditionOp.BEFORE, query.until)
     return conditions
 
 
@@ -1013,16 +1031,19 @@ def encode_state(name: str, value: Mapping[str, Any]) -> str:
         raise RecordBackendError(f"state {name!r} is not JSON: {exc}") from exc
 
 
-def decode_state(name: str, text: str, where: object) -> Mapping[str, Any]:
+def decode_state(name: str, text: str, where: str | Path) -> Mapping[str, Any]:
     """The state value stored as *text* under *name* in the store *where*.
 
     Raises:
-        RecordBackendError: If *text* is not JSON.
+        RecordBackendError: If *text* is not a JSON object.
     """
     try:
-        return json.loads(text)
+        value = json.loads(text)
     except ValueError as exc:
         raise RecordBackendError(f"state {name!r} in {where} is unreadable: {exc}") from exc
+    if not isinstance(value, Mapping):
+        raise RecordBackendError(f"state {name!r} in {where} is not a JSON object")
+    return value
 
 
 @runtime_checkable
@@ -1069,6 +1090,26 @@ def check_projects_relpath(relpath: str) -> str:
 def transcript_state_name(identity: str, relpath: str) -> str:
     """``transcript:<identity>:<path relative to projects/>``."""
     return f"{TRANSCRIPT_STATE_PREFIX}:{check_identity(identity)}:{check_projects_relpath(relpath)}"
+
+
+def transcript_passed(
+    state: StateStore, identity: str, relpath: str, generation: int, offset: int
+) -> bool:
+    """Whether *identity*'s committed position in the transcript *relpath* has
+    passed a mark at ``(generation, offset)``; ``False`` when none is committed
+    or it is unreadable.
+
+    Raises:
+        RecordBackendError: If the state store fails.
+    """
+    value = state.get_state(transcript_state_name(identity, relpath))
+    if value is None:
+        return False
+    try:
+        committed = TranscriptOffset.from_state(value)
+    except ValueError:
+        return False
+    return committed.passes(generation, offset)
 
 
 def spool_state_name(identity: str, segment: str, inode: int) -> str:
@@ -1176,7 +1217,7 @@ def reaches_a_record(key: str) -> bool:
     """Whether the environment variable *key* would carry a run into a record.
 
     The spool directory takes the run's spool lines; ``OTEL_*`` and the
-    telemetry switch send its OTLP batches to a collector.
+    telemetry switch send its OTLP batches to the record's OTLP receiver.
     """
     return key.startswith("OTEL_") or key in (SPOOL_DIR_ENV, TELEMETRY_SWITCH_ENV)
 
@@ -1187,7 +1228,7 @@ def unrecorded_env(env: Mapping[str, str]) -> dict[str, str]:
     For tooling runs (a reviewer, a benchmark), which are not the agent's
     work. Every variable that :func:`reaches_a_record` is dropped and the
     record off switch is set. A launch env is built from the project's config,
-    telemetry block included, and the SDK overlays it on the parent's (a stdio
+    its OTLP variables included, and the SDK overlays it on the parent's (a stdio
     MCP server takes it as its whole env), so scrubbing the parent alone would
     not keep the run out of the record.
 
@@ -1243,6 +1284,11 @@ class SegmentName:
 def segment_name(host: str, pid: int, start_ns: int) -> str:
     """The name of a new, open segment."""
     return SegmentName(host, pid, start_ns).name
+
+
+def sealed_name(open_name: str) -> str:
+    """The name the open segment *open_name* takes when it is sealed."""
+    return open_name[: -len(OPEN_SUFFIX)] + SEALED_SUFFIX
 
 
 def parse_segment_name(name: str) -> SegmentName | None:
@@ -1417,7 +1463,7 @@ WriteResult = str | None
 
 
 # ---------------------------------------------------------------------------
-# Wait marks (D16, P3-D1)
+# Wait marks
 # ---------------------------------------------------------------------------
 
 
@@ -1512,7 +1558,7 @@ class WaitMark:
                 path: tuple(pos) if isinstance(pos, list) else pos
                 for path, pos in t["files"].items()
             }
-            return cls(transcript=TranscriptMark(t.get("session_id"), files))
+            return cls(transcript=TranscriptMark(t.get("session_id", ""), files))
         raise WaitMarkInvalid("a wait mark names drain or transcript")
 
     def to_json(self) -> dict[str, Any]:
@@ -1542,14 +1588,7 @@ class WaitMark:
         """
         if self.transcript is None:
             raise ValueError("a drain mark is resolved by the service, not checked against state")
-        for path, mark in self.transcript.files.items():
-            value = state.get_state(transcript_state_name(transcript_identity, path))
-            if value is None:
-                return False
-            try:
-                committed = TranscriptOffset.from_state(value)
-            except ValueError:
-                return False
-            if not committed.passes(*mark):
-                return False
-        return True
+        return all(
+            transcript_passed(state, transcript_identity, path, *mark)
+            for path, mark in self.transcript.files.items()
+        )

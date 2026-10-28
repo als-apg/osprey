@@ -317,5 +317,5 @@ async def test_start_up_goes_on_over_an_unwritable_root(tmp_path, caplog):
                 response = await client.get("/health")
 
     assert response.status_code == 200, response.text
-    assert app.state.archive_root == root
+    assert app.state.settings.archive_root == root
     assert str(root) in caplog.text
