@@ -4462,6 +4462,16 @@ ABORT_PLAN_POINTS = 8000
 #: take at most half that budget; 300 points is ~200 s there.
 REARM_PLAN_POINTS = 300
 
+#: Rows the re-arm SETUP plan must have recorded before the test aborts it.
+#: The operator asks for "the plan I had emergency-stopped partway through",
+#: and the history also holds the abort twin's 8000-point run, stopped with
+#: rows recorded. An abort that lands before the setup plan's first row
+#: leaves a stopped run with no data, which no longer reads as "partway
+#: through": the agent then re-runs the 8000-point plan instead, which cannot
+#: finish inside REARM_RUN_TIMEOUT_SEC. Ten rows take under a second at the
+#: fastest measured pace, leaving ~16 s of the 300-point plan for the abort.
+REARM_SETUP_MIN_ROWS = 10
+
 #: How long a protocol-started plan may take to reach ``running`` — covers
 #: the manager handing the item to the worker, not the plan's own duration.
 RUNNING_WAIT_TIMEOUT_SEC = 180.0
@@ -4502,9 +4512,12 @@ def _long_grid_args(stack: DeployedScanStack, num_points: int) -> dict[str, Any]
     }
 
 
-def _start_plan_and_wait_running(stack: DeployedScanStack, num_points: int) -> str:
+def _start_plan_and_wait_running(
+    stack: DeployedScanStack, num_points: int, *, min_rows: int = 0
+) -> str:
     """Stage, enqueue, and arm a ``num_points`` grid protocol-side; return its
-    run id once the bridge reports it RUNNING.
+    run id once the bridge reports it RUNNING with at least ``min_rows`` rows
+    recorded.
 
     A plan that reaches a terminal state before it is ever seen running fails
     loudly here — the setup was too short for the test that asked for it, and
@@ -4526,7 +4539,8 @@ def _start_plan_and_wait_running(stack: DeployedScanStack, num_points: int) -> s
         status, body = _queue_drive.run_record(BRIDGE_URL, run_id)
         if status == 200 and isinstance(body, dict):
             last = body
-            if body.get("status") == "running":
+            rows = (body.get("progress") or {}).get("rows_seen") or 0
+            if body.get("status") == "running" and rows >= min_rows:
                 return run_id
             if body.get("status") in _queue_drive.TERMINAL_STATUSES:
                 raise AssertionError(
@@ -4536,7 +4550,8 @@ def _start_plan_and_wait_running(stack: DeployedScanStack, num_points: int) -> s
                 )
         time.sleep(0.5)
     raise AssertionError(
-        f"run {run_id} never reported 'running' within {RUNNING_WAIT_TIMEOUT_SEC:.0f}s "
+        f"run {run_id} never reported 'running' with {min_rows} row(s) recorded "
+        f"within {RUNNING_WAIT_TIMEOUT_SEC:.0f}s "
         f"(last record: {last!r})"
     )
 
@@ -4714,7 +4729,9 @@ async def test_rearming_an_aborted_plan_costs_a_fresh_approval(
     monkeypatch.setenv("BLUESKY_BRIDGE_URL", BRIDGE_URL)
     monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", deployed_scan_stack.token)
 
-    stopped_run_id = _start_plan_and_wait_running(deployed_scan_stack, REARM_PLAN_POINTS)
+    stopped_run_id = _start_plan_and_wait_running(
+        deployed_scan_stack, REARM_PLAN_POINTS, min_rows=REARM_SETUP_MIN_ROWS
+    )
 
     status, body = _queue_drive.request(BRIDGE_URL, "/queue/abort", "POST", timeout=180.0)
     assert status == 200, (
