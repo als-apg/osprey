@@ -1,0 +1,1 @@
+A process OSPREY starts and stops is now stopped through one call that reaps it and answers gone, the processes still running, or that the process table could not be read; nothing else reaps it while it is stopped.
