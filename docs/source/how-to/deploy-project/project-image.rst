@@ -421,8 +421,8 @@ Two areas of the project, two owners:
        approval prompt would outlive that
    * - The state zone — ``var/``
      - ``osprey``
-     - What the running deployment legitimately writes: agent data and
-       API-call logs (``var/agent_data/``), the config backups every config
+     - What the running deployment legitimately writes: agent data
+       (``var/agent_data/``), the config backups every config
        write takes first (``var/agent_data/config-backups/``), and the
        agent record's spool (``var/spool/``). The facility-knowledge
        bundle under ``build/data/`` joins them when the deployment has one,
@@ -470,8 +470,8 @@ that ``osprey build`` renders beside ``config.yml``, and it runs as root:
    :ref:`containerize-control-identity`.
 #. **Hands the state zone back** to the ``osprey`` user — only the paths root
    actually left behind — because both earlier steps wrote into ``var/`` as
-   root, including the protected-write audit ledger the running server has to
-   keep appending to.
+   root, including the agent record's spool (``var/spool/``) the running
+   server has to keep appending to.
 #. **Drops privileges** with ``exec gosu osprey "$@"``. Because it execs the
    arguments it was handed, overriding the command on ``docker run`` still
    goes through the drop.
@@ -627,9 +627,8 @@ Two kinds of state are worth persisting across container restarts:
      -v my-project-home:/home/osprey \
      my-project
 
-- ``var/agent_data/`` — API call logs, generated data artifacts, and the
-  backup every config write takes before it writes
-  (``config-backups/<name>.bak``). The backup anchors on the project root, so
+- ``var/agent_data/`` — generated data artifacts and the backup every config
+  write takes before it writes (``config-backups/<name>.bak``). The backup anchors on the project root, so
   it lands in the same place whether the project is flat, a deployment
   repository, or this image — unless the deployment relocates
   ``agent_data.base_dir``, which moves the backups with it.

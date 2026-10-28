@@ -310,7 +310,7 @@ COPY . /app/{{ project_name }}/
 # first, by the first write for the others — which that user then cannot write
 # to. Creating them before the chown below is what makes them writable.
 #
-#   var/agent_data/api_calls        must name the same directory as config.yml's
+#   var/agent_data                  must name the same directory as config.yml's
 #                                   `agent_data.base_dir`; the agent-data volume
 #                                   mounts here.
 #   var/agent_data/config-backups   every config write copies the file here
@@ -325,7 +325,7 @@ COPY . /app/{{ project_name }}/
 #   var/state                       per-container state the host reads
 #                                   (workspace.STATE_DIR_RELPATH), one
 #                                   identity directory per container.
-RUN mkdir -p /app/{{ project_name }}/var/agent_data/api_calls \
+RUN mkdir -p /app/{{ project_name }}/var/agent_data \
              /app/{{ project_name }}/var/agent_data/config-backups \
              /app/{{ project_name }}/var/spool \
              /app/{{ project_name }}/var/state

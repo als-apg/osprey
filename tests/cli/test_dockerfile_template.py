@@ -1019,12 +1019,22 @@ class TestPrivilegeSplit:
         text = (hello_project / "Dockerfile").read_text()
         mkdir = [b for _, b in _instructions(text) if b.startswith("mkdir")]
         assert len(mkdir) == 1, mkdir
+        targets = mkdir[0].split()[2:]
         for relpath in (
-            "var/agent_data/api_calls",
+            "var/agent_data",
             "var/agent_data/config-backups",
         ):
-            assert f"/app/hello-docker/{relpath}" in mkdir[0], relpath
+            assert f"/app/hello-docker/{relpath}" in targets, relpath
         assert f"/app/hello-docker/{PRE_UPGRADE_AUDIT_RELPATH}" not in mkdir[0]
+        assert "api_calls" not in text
+
+    def test_agent_data_dir_is_inside_the_chowned_state_zone(self, hello_project):
+        """The agent-data volume mount point is owned by the unprivileged user."""
+        text = (hello_project / "Dockerfile").read_text()
+        chown = "\n".join(b for _, b in _instructions(text) if "chown" in b)
+        mkdir = next(b for _, b in _instructions(text) if b.startswith("mkdir"))
+        assert "/app/hello-docker/var/agent_data" in mkdir.split()
+        assert re.search(r"chown -R osprey:osprey /app/hello-docker/var(\s|$)", chown), chown
 
     def test_chown_is_narrowed_to_the_mutable_state(self, hello_project):
         """The blanket `chown -R` of the whole project is gone.
