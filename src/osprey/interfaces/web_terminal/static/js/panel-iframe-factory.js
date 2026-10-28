@@ -35,7 +35,7 @@ export const FIRST_PARTY_SANDBOX =
  * The tokens are `OPAQUE_CSP` of opaque_origin.py without `sandbox`, held
  * there by tests/interfaces/test_opaque_origin.py.
  */
-export const OPAQUE_SANDBOX = 'allow-scripts allow-modals allow-popups allow-downloads';
+export const OPAQUE_SANDBOX = 'allow-scripts allow-popups allow-modals allow-downloads';
 
 /**
  * Ask the hub whether a panel is opaque, and if so where to frame it.
