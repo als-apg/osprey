@@ -25,7 +25,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
-from osprey.cli.build_profile import compute_profile_hash
+from osprey.cli.build_profile import compute_profile_hash, resolve_build_document
 from osprey.cli.init_cmd import _repo_gitignore
 from osprey.cli.profile_conventions import unknown_root_entries
 from osprey.cli.repo_resolver import PROFILE_FILENAME
@@ -264,6 +264,10 @@ config:
 """
 
 
+#: A variant that arms a service, the shape a write-armed host variant takes.
+SERVICE_OVERLAY = TESTSTAND_OVERLAY + "services:\n  archive_extra:\n    template: osprey.archive\n"
+
+
 @pytest.fixture
 def runner() -> CliRunner:
     return CliRunner()
@@ -423,6 +427,40 @@ class TestBuildIntegration:
         rendered = variant_repo / "build" / f"{variant_repo.name}-{renders[0].stem}"
         config = yaml.safe_load((rendered / "config.yml").read_text(encoding="utf-8"))
         assert config["system"]["timezone"] == "America/Los_Angeles"
+
+    def test_a_variant_that_adds_a_service_overlays_the_deployment_not_the_layers(
+        self, runner: CliRunner, variant_repo: Path
+    ) -> None:
+        """A variant's ``services:`` is the deployment's, never a tier's or an app's.
+
+        The overlay lays over ``profile.yml``; each tier and app render sees it
+        through that root and is then attached, so it runs no service of its
+        own. Before, the overlay was merged into each layer FILE, and every
+        tier and app was refused for a ``services:`` key it never spelled.
+        """
+        layers = sorted((variant_repo / TIERS_DIRNAME).glob("*.yml")) + sorted(
+            (variant_repo / "apps").glob("*.yml")
+        )
+        assert layers, "the exemplar repo carries tiers and apps"
+        _write_variant(
+            variant_repo,
+            "armed",
+            SERVICE_OVERLAY,
+        )
+        write_setting(variant_repo, f"{VARIANT_SETTING_KEY}=armed\n")
+
+        result = _build(runner, variant_repo)
+
+        assert result.exit_code == 0, result.output
+        # The deployment runs the variant's service ...
+        assert "archive_extra" in (variant_repo / "build" / "config.yml").read_text()
+        for layer in layers:
+            rendered = variant_repo / "build" / f"{variant_repo.name}-{layer.stem}"
+            text = (rendered / "config.yml").read_text(encoding="utf-8")
+            # ... each render sees the variant through its root ...
+            assert yaml.safe_load(text)["system"]["timezone"] == "America/Los_Angeles", layer.name
+            # ... and stays attached: the variant's service is not its own.
+            assert "archive_extra" not in text, layer.name
 
 
 def _overlay(repo: Path, name: str) -> Path:
@@ -607,6 +645,50 @@ class TestVariantDrift:
         assert check_drift(repo).state is DriftState.DRIFT
 
 
+class TestVariantOverlaysTheDeployment:
+    """A host variant lays over ``profile.yml``; a tier or app sees it through
+    that root and is judged only on what its own file spells."""
+
+    @pytest.fixture
+    def armed_repo(self, lifecycle_repo: Path) -> Path:
+        _write_variant(lifecycle_repo, "armed", SERVICE_OVERLAY)
+        write_setting(lifecycle_repo, f"{VARIANT_SETTING_KEY}=armed\n")
+        return lifecycle_repo
+
+    @pytest.mark.parametrize("layer", ["tiers/readonly.yml", "apps/logbook.yml"])
+    def test_a_layer_resolves_attached_over_the_varied_root(
+        self, armed_repo: Path, layer: str
+    ) -> None:
+        overlay = _overlay(armed_repo, "armed")
+
+        root = resolve_build_document(armed_repo / PROFILE_FILENAME, None, (overlay,))
+        resolved = resolve_build_document(armed_repo / layer, None, (overlay,))
+
+        assert "archive_extra" in root.profile.services
+        assert resolved.profile.services == {}
+        assert resolved.profile.deploy_services is False
+
+    def test_a_layer_spelling_services_itself_is_still_refused(self, armed_repo: Path) -> None:
+        tier = armed_repo / TIERS_DIRNAME / "readonly.yml"
+        tier.write_text(
+            tier.read_text(encoding="utf-8") + "services:\n  mine:\n    template: osprey.archive\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(BuildProfileError, match="tiers/readonly.yml spells 'services'"):
+            resolve_build_document(tier, None, (_overlay(armed_repo, "armed"),))
+
+    def test_selecting_a_variant_moves_a_layers_fingerprint(self, lifecycle_repo: Path) -> None:
+        """The render is built over the varied root, so its stamp must see the variant."""
+        tier = lifecycle_repo / TIERS_DIRNAME / "readonly.yml"
+        _write_variant(lifecycle_repo, "armed", SERVICE_OVERLAY)
+        before = compute_profile_hash(tier)
+
+        write_setting(lifecycle_repo, f"{VARIANT_SETTING_KEY}=armed\n")
+
+        assert compute_profile_hash(tier) != before
+
+
 def _run_validate(runner: CliRunner, repo: Path):
     """Run ``osprey validate`` from *repo*, zero-argument, as an operator would."""
     previous = Path.cwd()
@@ -713,23 +795,30 @@ class TestValidateHonorsTheVariant:
         assert "sets access 'any'" in merged.output
         assert "'alice'" in merged.output
 
-    def test_a_layer_delta_has_no_variant(self, runner: CliRunner, lifecycle_repo: Path) -> None:
-        """A delta named directly is a file, not a deployment — nothing overlays it."""
-        renders = sorted((lifecycle_repo / TIERS_DIRNAME).glob("*.yml"))
-        if not renders:
-            pytest.skip("the exemplar repo carries no layers")
-        _write_variant(lifecycle_repo, "teststand", "name: demo-teststand\n")
-        write_setting(lifecycle_repo, f"{VARIANT_SETTING_KEY}=teststand\n")
+    @pytest.mark.parametrize("layer", ["tiers/readonly.yml", "apps/logbook.yml"])
+    def test_a_layer_is_judged_over_the_varied_deployment(
+        self, runner: CliRunner, lifecycle_repo: Path, layer: str
+    ) -> None:
+        """A tier or app named directly is judged the way the build renders it:
+        over its root with the host variant laid on that root. A variant that
+        adds a service is the deployment's, so the layer is not refused for it.
+        """
+        _write_variant(
+            lifecycle_repo,
+            "armed",
+            SERVICE_OVERLAY,
+        )
+        write_setting(lifecycle_repo, f"{VARIANT_SETTING_KEY}=armed\n")
 
         previous = Path.cwd()
         os.chdir(lifecycle_repo)
         try:
-            result = runner.invoke(validate, [str(renders[0])])
+            result = runner.invoke(validate, [str(lifecycle_repo / layer)])
         finally:
             os.chdir(previous)
 
         assert result.exit_code == 0, result.output
-        assert "host variant" not in result.output
+        assert f"host variant armed ({VARIANT_DIRNAME}/armed.yml" in result.output
 
 
 def _git_init_and_track(repo: Path, relative: str) -> None:
