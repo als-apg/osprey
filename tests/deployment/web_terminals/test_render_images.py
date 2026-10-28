@@ -782,49 +782,6 @@ def test_a_render_placeholder_resolves_from_the_repo_env(tmp_path, calls, monkey
     assert calls == []
 
 
-def _telemetry_render(repo: Path, telemetry_lines: str) -> Path:
-    """A complete render whose model is fine and whose telemetry block varies.
-
-    The model is deliberately servable in every one of these, so the telemetry
-    block is the only thing that could draw a refusal.
-    """
-    project_path = _render(repo)
-    (project_path / "config.yml").write_text(
-        "project_name: ops-app\n"
-        "claude_code:\n"
-        "  provider: anthropic\n"
-        "  default_model: claude-sonnet-5\n"
-        "  telemetry:\n"
-        "    enabled: true\n" + telemetry_lines,
-        encoding="utf-8",
-    )
-    return project_path
-
-
-@pytest.mark.parametrize(
-    "telemetry_lines",
-    [
-        "    endpoint: https://collector.example.org:4318\n"
-        "    auth:\n"
-        "      token_env: OBSERVABILITY_TOKEN\n",
-        "    backend: gateway\n",
-    ],
-    ids=["collector-token", "gateway"],
-)
-def test_a_telemetry_block_is_never_a_launch_problem(tmp_path, calls, monkeypatch, telemetry_lines):
-    """No exporter reads ``claude_code.telemetry``, so a variable it names that
-    this host leaves unset says nothing about the launch."""
-    monkeypatch.delenv("OBSERVABILITY_TOKEN", raising=False)
-    monkeypatch.delenv("OSPREY_TELEMETRY_LOGIN", raising=False)
-    monkeypatch.delenv("OSPREY_OTEL_GATEWAY_HOST", raising=False)
-    repo = _repo(tmp_path, "ops")
-    _telemetry_render(repo, telemetry_lines)
-
-    render_images.verify_renders(_render_config(repo), _RENDER_USERS, repo_root=repo)
-
-    assert calls == []
-
-
 def test_an_unservable_model_still_gets_the_model_remedy(tmp_path, calls):
     """The converse, and the reason arm order matters: the credential arm sits
     ahead of the general one and must not swallow a genuine model failure.
@@ -840,10 +797,7 @@ def test_an_unservable_model_still_gets_the_model_remedy(tmp_path, calls):
         "    my-gateway:\n"
         "      base_url: https://gw.example.org/v1\n"
         "claude_code:\n"
-        "  provider: my-gateway\n"
-        "  telemetry:\n"
-        "    enabled: true\n"
-        "    endpoint: https://collector.example.org:4318\n",
+        "  provider: my-gateway\n",
         encoding="utf-8",
     )
 

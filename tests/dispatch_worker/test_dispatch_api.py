@@ -930,15 +930,9 @@ claude_code:
   provider: cborg
 """
 
-#: A profile that still spells a telemetry block naming another collector. No
-#: value in it is read: the worker exports to the record regardless.
-_TELEMETRY_ELSEWHERE_CONFIG = """\
+_ANTHROPIC_CONFIG = """\
 claude_code:
   provider: anthropic
-  telemetry:
-    enabled: true
-    backend: generic
-    endpoint: http://collector.example:4318
 """
 
 
@@ -1011,12 +1005,11 @@ def test_inject_provider_env_exports_otlp_to_the_record_with_the_workers_login(
     """The worker's agent sends its OTLP logs to agent-record under the worker's own login.
 
     The record address and login are the ones the worker's compose service
-    hands it; the profile's telemetry block names another collector, and is
-    not read.
+    hands it.
     """
     import base64
 
-    _render_config(tmp_path, _TELEMETRY_ELSEWHERE_CONFIG)
+    _render_config(tmp_path, _ANTHROPIC_CONFIG)
     fake = _isolated_environ(
         monkeypatch,
         tmp_path,
@@ -1032,7 +1025,6 @@ def test_inject_provider_env_exports_otlp_to_the_record_with_the_workers_login(
     assert fake["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://agent-record:8790"
     token = base64.b64encode(b"dispatch-worker-2:tok").decode()
     assert fake["OTEL_EXPORTER_OTLP_HEADERS"] == f"Authorization=Basic {token}"
-    assert "collector.example" not in " ".join(fake.values())
 
 
 def _pin_policy(monkeypatch, **env: str) -> None:

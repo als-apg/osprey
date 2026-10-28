@@ -1194,10 +1194,7 @@ def test_provisioning_refuses_an_undeclared_role(tmp_path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# A `claude_code.telemetry` block names nothing the web terminals need
-#
-# No exporter reads the block, so its references are neither required from
-# the env chain nor copied into `.env.users`.
+# The shared `.env.users` file carries no agent-record login
 # ---------------------------------------------------------------------------
 
 
@@ -1221,66 +1218,15 @@ def _catalog_config(project_path, render="operator"):
     }
 
 
-def _write_block_render(tmp_path, block, name="operator-proj"):
-    """Write a rendered render project whose ``claude_code.telemetry`` is ``block``."""
+def _write_render(tmp_path, name="operator-proj"):
+    """Write a rendered render project with an anthropic Claude Code block."""
     project_dir = tmp_path / name
     project_dir.mkdir()
     (project_dir / "config.yml").write_text(
-        yaml.safe_dump(
-            {
-                "project_name": name,
-                "claude_code": {"provider": "anthropic", "telemetry": block},
-            }
-        ),
+        yaml.safe_dump({"project_name": name, "claude_code": {"provider": "anthropic"}}),
         encoding="utf-8",
     )
     return name
-
-
-def _collector_block(**overrides):
-    """A generic-collector telemetry block, with ``overrides`` applied."""
-    return {
-        "enabled": True,
-        "backend": "generic",
-        "endpoint": "https://collector.example.org:4318",
-        **overrides,
-    }
-
-
-def test_a_telemetry_block_reference_is_asked_for_nothing(tmp_path, monkeypatch):
-    """No exporter reads `claude_code.telemetry`, so nothing it names is required.
-
-    A bare reference under an enabled block neither joins the missing-variable
-    gate nor reaches the generated file.
-    """
-    monkeypatch.delenv("OTLP_TOKEN", raising=False)
-    _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
-    block = _collector_block(
-        endpoint="${COLLECTOR_URL}",
-        resource_attributes={"collector.key": "${OTLP_TOKEN}"},
-        auth={"token_env": "OTLP_COLLECTOR_TOKEN"},
-    )
-    config = _catalog_config(_write_block_render(tmp_path, block))
-
-    assert env_production.users_env_generation_problem(config, tmp_path) is None
-    gap = env_production._required_vars_missing_from_chain(config, tmp_path)
-    assert gap.missing == {}
-    raw_text = env_production.ensure_env_production(config, tmp_path).read_text(encoding="utf-8")
-    assert "OTLP_TOKEN" not in raw_text
-    assert "OTLP_COLLECTOR_TOKEN" not in raw_text
-    assert "COLLECTOR_URL" not in raw_text
-
-
-def test_a_users_file_never_draws_a_telemetry_advisory(tmp_path, caplog):
-    """An existing file is asked only about LLM credentials, never about telemetry."""
-    (tmp_path / ".env.users").write_text("ANTHROPIC_API_KEY=ok\n", encoding="utf-8")
-    block = _collector_block(resource_attributes={"tenant": "${TENANT_NAME:-site}"})
-    config = _catalog_config(_write_block_render(tmp_path, block))
-
-    with caplog.at_level("WARNING"):
-        env_production.ensure_env_production(config, tmp_path)
-
-    assert "TENANT_NAME" not in caplog.text
 
 
 def test_a_record_login_in_the_chain_never_reaches_the_users_file(tmp_path):
@@ -1293,25 +1239,10 @@ def test_a_record_login_in_the_chain_never_reaches_the_users_file(tmp_path):
         tmp_path / ".env",
         {"ANTHROPIC_API_KEY": "cc-secret", "OSPREY_AGENT_RECORD_LOGIN": "alice:l0gin-s3cret"},
     )
-    config = _catalog_config(_write_block_render(tmp_path, {"enabled": True}))
+    config = _catalog_config(_write_render(tmp_path))
 
     result = env_production.ensure_env_production(config, tmp_path)
 
     raw_text = result.read_text(encoding="utf-8")
     assert "OSPREY_AGENT_RECORD_LOGIN" not in raw_text
     assert "l0gin-s3cret" not in raw_text
-
-
-def test_a_block_secret_in_the_chain_never_reaches_the_users_file(tmp_path):
-    """A variable a telemetry block names is never copied into the shared file."""
-    _write_dotenv(
-        tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret", "OTLP_TOKEN": "c0llect0r-t0ken"}
-    )
-    block = _collector_block(resource_attributes={"collector.key": "${OTLP_TOKEN}"})
-    config = _catalog_config(_write_block_render(tmp_path, block))
-
-    result = env_production.ensure_env_production(config, tmp_path)
-
-    raw_text = result.read_text(encoding="utf-8")
-    assert "OTLP_TOKEN" not in raw_text
-    assert "c0llect0r-t0ken" not in raw_text

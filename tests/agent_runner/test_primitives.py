@@ -382,14 +382,10 @@ def test_e2e_force_inert_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _gateway_config(project_dir: Path) -> None:
-    """Write a config whose telemetry block names the deployment's gateway."""
+def _anthropic_config(project_dir: Path) -> None:
+    """Write a config whose Claude Code block uses the anthropic provider."""
     (project_dir / "config.yml").write_text(
-        "claude_code:\n"
-        "  provider: anthropic\n"
-        "  telemetry:\n"
-        "    enabled: true\n"
-        "    backend: gateway\n",
+        "claude_code:\n  provider: anthropic\n",
         encoding="utf-8",
     )
 
@@ -398,7 +394,7 @@ class TestRecordLoginAtSpawn:
     """An agent spawn exports to the agent record under its login, or not at all.
 
     A spawn without a record login is never refused: it runs and exports
-    nothing. The profile's telemetry block chooses neither outcome.
+    nothing.
     """
 
     @pytest.fixture(autouse=True)
@@ -408,7 +404,7 @@ class TestRecordLoginAtSpawn:
         monkeypatch.setenv("OSPREY_AGENT_RECORD_URL", "http://127.0.0.1:10061")
 
     def test_a_missing_login_exports_nothing(self, tmp_path: Path) -> None:
-        _gateway_config(tmp_path)
+        _anthropic_config(tmp_path)
 
         env = provider_env_for_project(tmp_path)
 
@@ -419,7 +415,7 @@ class TestRecordLoginAtSpawn:
     def test_a_login_exports_to_the_record(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _gateway_config(tmp_path)
+        _anthropic_config(tmp_path)
         monkeypatch.setenv("OSPREY_AGENT_RECORD_LOGIN", "operator:s3cret")
 
         env = provider_env_for_project(tmp_path)
