@@ -1102,6 +1102,22 @@ def pytest_testnodedown(node):
 
 
 @pytest.hookimpl(trylast=True)
+def pytest_sessionstart(session):
+    """Stop git's repository discovery at the run's base temp.
+
+    A base temp inside a checkout would otherwise make every ``tmp_path`` look
+    like part of that checkout to any git a test or its subprocess runs: a
+    branch appears where none should, a ``git status`` reports the host's
+    changes. A repository a test creates at or below ``tmp_path`` is still
+    found, because the ceiling sits above it. Set before any test starts, so
+    the per-test environment snapshots take it as their baseline.
+    """
+    base = str(session.config._tmp_path_factory.getbasetemp().resolve())
+    ceilings = os.environ.get("GIT_CEILING_DIRECTORIES")
+    os.environ["GIT_CEILING_DIRECTORIES"] = os.pathsep.join((base, ceilings)) if ceilings else base
+
+
+@pytest.hookimpl(trylast=True)
 def pytest_sessionfinish(session):
     """Print a relayed refusal and end the session as a usage error.
 
