@@ -31,6 +31,7 @@ from osprey.deployment.subprocess_capture import (
     group_is_gone,
     observe_exit,
     run_captured,
+    stop_child,
     stop_group,
 )
 
@@ -977,25 +978,112 @@ class TestProcessGroupStop:
         finally:
             leader.wait()
 
-    def test_an_unreadable_table_answers_none_not_a_pid(self, monkeypatch):
-        leader = _exited_unreaped_leader()
+    def test_stop_child_says_unknown_when_the_table_is_unreadable(self, monkeypatch):
+        proc = _exited_unreaped_leader()
 
         def refused():
             raise ProcessTableUnreadable(PermissionError("refused"))
 
         monkeypatch.setattr(process_table, "snapshot", refused)
         monkeypatch.setattr(subprocess_capture, "_KILL_WAIT_S", 0.2)
+        outcome = stop_child(proc, grace=0.2)
+        assert outcome.unknown == (proc.pid,)
+        assert outcome.survivors == ()
+        assert not outcome.gone
+        assert proc.returncode == 0
+
+    def test_stop_child_names_a_leader_it_saw_alive_when_the_table_is_unreadable(
+        self, tmp_path, monkeypatch
+    ):
+        proc = _sleeping_group(tmp_path / "ready")
+
+        def refused():
+            raise ProcessTableUnreadable(PermissionError("refused"))
+
+        monkeypatch.setattr(subprocess_capture, "_signal_group", lambda _pgid, _sig: None)
+        monkeypatch.setattr(process_table, "snapshot", refused)
+        monkeypatch.setattr(subprocess_capture, "_KILL_WAIT_S", 0.2)
         try:
-            assert stop_group(leader.pid, grace=0.2) is None
+            outcome = stop_child(proc, grace=0.2)
+            assert outcome.survivors == (proc.pid,)
+            assert outcome.unknown == (proc.pid,)
+            assert outcome.describe() == (
+                f"still running after SIGKILL: pid {proc.pid}; "
+                f"process table unreadable: group {proc.pid} may still be running"
+            )
+            assert proc.returncode is None
         finally:
-            leader.wait()
+            monkeypatch.undo()
+            _kill_group(proc.pid)
+            proc.wait()
+
+    def test_stop_child_refuses_a_reaped_leader(self):
+        proc = subprocess.Popen([sys.executable, "-c", "pass"], process_group=0)
+        proc.wait()
+        with pytest.raises(ValueError, match="already reaped"):
+            stop_child(proc, grace=0.2)
+
+    def test_stop_child_refuses_a_child_that_does_not_lead_its_group(self):
+        proc = subprocess.Popen(["sleep", "60"])
+        try:
+            with pytest.raises(ValueError, match="does not lead its own process group"):
+                stop_child(proc, grace=0.2)
+        finally:
+            proc.kill()
+            proc.wait()
+
+    def test_stop_child_reaps_the_leader_it_stopped(self, tmp_path):
+        proc = _sleeping_group(tmp_path / "ready", ignore_term=True)
+        try:
+            outcome = stop_child(proc, grace=0.5)
+            assert outcome.gone
+            assert outcome.ended == (proc.pid,)
+            assert proc.returncode == -signal.SIGKILL
+            with pytest.raises(ChildProcessError):
+                subprocess_capture._waitid(proc.pid, os.WEXITED | os.WNOWAIT | os.WNOHANG)
+        finally:
+            _kill_group(proc.pid)
+
+    def test_stop_child_names_a_member_that_outlives_sigkill_and_leaves_the_leader_unwaited(
+        self, tmp_path, monkeypatch
+    ):
+        proc = _sleeping_group(tmp_path / "ready", ignore_term=True)
+        real_signal_group = subprocess_capture._signal_group
+
+        def no_sigkill(pgid, sig):
+            if sig != signal.SIGKILL:
+                real_signal_group(pgid, sig)
+
+        monkeypatch.setattr(subprocess_capture, "_signal_group", no_sigkill)
+        monkeypatch.setattr(subprocess_capture, "_KILL_WAIT_S", 0.2)
+        try:
+            outcome = stop_child(proc, grace=0.2)
+            assert outcome.survivors == (proc.pid,)
+            assert outcome.unknown == ()
+            assert proc.returncode is None
+        finally:
+            monkeypatch.undo()
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait()
+
+    def test_stop_child_stops_a_child_that_already_exited(self):
+        proc = _exited_unreaped_leader()
+        outcome = stop_child(proc, grace=0.5)
+        assert outcome.gone
+        assert proc.returncode == 0
 
     def test_a_stop_that_could_not_read_the_table_says_so(self, monkeypatch, caplog):
         proc = subprocess.Popen([sys.executable, "-c", "pass"], process_group=0)
-        observe_exit(proc, within=None)
-        monkeypatch.setattr(subprocess_capture, "stop_group", lambda *_a, **_k: None)
-        with caplog.at_level(logging.WARNING):
-            subprocess_capture._stop(proc, own_group=True)
+        monkeypatch.setattr(
+            subprocess_capture,
+            "stop_child",
+            lambda process, **_k: StopOutcome(ended=(process.pid,), unknown=(process.pid,)),
+        )
+        try:
+            with caplog.at_level(logging.WARNING):
+                subprocess_capture._stop(proc, own_group=True)
+        finally:
+            proc.wait()
         warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
         assert any(f"process table unreadable: group {proc.pid}" in w for w in warnings)
 
