@@ -120,6 +120,7 @@ from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.write_target import KIND_BANNERS
 from osprey_connectors_tests._harness import (
     owner,
     write_control_context,
@@ -215,17 +216,6 @@ SWITCH_TARGET = "live"
 #: row whose named endpoint can be seen to move when a session gives up writes.
 ENDPOINT_TARGET = "live"
 
-#: The server's own labels. The controls server mints these once, and this
-#: render keeps them where the machine vocabulary now lives: on tooltips.
-LABELS = {
-    "live": "LIVE MACHINE",
-    "va": "virtual accelerator (simulation)",
-    # The stand-in's label is derived from the render — its endpoint is this
-    # deployment's stand-in container — and so reads as the rehearsal even
-    # when no live server has published the kind that would make it one.
-    "standin": "Rehearsal — nothing moves",
-}
-
 #: The machine kind each target reads as when no controls server vouches for
 #: anything (C-KIND): ``va`` is the simulator, ``live`` the real machine, and
 #: ``standin`` the real machine too — a stand-in is only the rehearsal once a
@@ -236,6 +226,14 @@ KINDS = {
     "va": "simulator",
     "standin": "real",
 }
+
+#: The server's own labels: each target's C-WORDS banner (D4,
+#: :data:`osprey_connectors.write_target.KIND_BANNERS`), read off its kind so
+#: the label and the published kind cannot describe different machines — the
+#: stand-in reads as the real machine until a live server vouches for it. The
+#: controls server mints these once, and this render keeps them where the
+#: machine vocabulary now lives: on tooltips.
+LABELS = {target: KIND_BANNERS[kind] for target, kind in KINDS.items()}
 
 #: What the popover and the chip NAME each target: the render's default display
 #: name per target, since this render configures no
@@ -278,12 +276,12 @@ STOP_NOT_TAKEN = "The stop did not take effect — writes are still on."
 def _write_config(
     path: Path,
     *,
-    writes_enabled: bool = True,
+    writes: str = "allowed",
     login_tiers: dict[str, str] | None = None,
 ) -> Path:
     """A render carrying all three control targets, with writes armed.
 
-    ``writes_enabled=False`` is the app render: its tier never writes, so every
+    ``writes="never"`` is the app render: its tier never writes, so every
     verdict answers ``tier_never`` before the record is read. *login_tiers*
     lands at ``control_system.login_tiers`` verbatim — ``{login: "never"}`` is a
     readonly login on an otherwise writable deployment.
@@ -311,7 +309,8 @@ def _write_config(
     standin_gateway = {"address": "localhost", "port": STANDIN_PORT, "use_name_server": True}
     section: dict[str, Any] = {
         "type": "live_standin",
-        "writes_enabled": writes_enabled,
+        # The deployment's write tier (PR-3): only ``"allowed"`` arms.
+        "writes": writes,
         "limits_checking": {"enabled": True, "mode": "exclusive"},
         "target_switch": {"live_gateway_acknowledged": "operator@example"},
     }
@@ -365,7 +364,7 @@ def _chip_hub(
     ui_mode: str = "expert",
     switch: dict[str, str] | None = None,
     owned_by: Any = SELF_OWNER,
-    writes_enabled: bool = True,
+    writes: str = "allowed",
     login_tiers: dict[str, str] | None = None,
     rehearsal: bool = False,
 ) -> Iterator[tuple[str, Any, Path]]:
@@ -410,7 +409,7 @@ def _chip_hub(
     * *owned_by* — :data:`SELF_OWNER`, or an ``owner(...)`` naming a live
       process that is not this one: a follower terminal, which may still turn
       its login's switch but can no longer switch the target.
-    * *writes_enabled* / *login_tiers* — the app render and the readonly login
+    * *writes* / *login_tiers* — the app render and the readonly login
       (:func:`_write_config`).
     * *rehearsal* — a live controls server (this process) publishes the
       stand-in as the rehearsal, with a reachability sweep so the switch gate
@@ -425,9 +424,7 @@ def _chip_hub(
     workspace.mkdir(exist_ok=True)
     root = tmp_path / "agent_data"
     (root / posture_store.STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
-    config = _write_config(
-        tmp_path / "config.yml", writes_enabled=writes_enabled, login_tiers=login_tiers
-    )
+    config = _write_config(tmp_path / "config.yml", writes=writes, login_tiers=login_tiers)
 
     monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
@@ -1430,7 +1427,7 @@ def test_a_readonly_login_or_an_app_render_cannot_turn_on(
     """
     login = acting_identity()
     hub_args: dict[str, Any] = (
-        {"login_tiers": {login: "never"}} if lock == "readonly_login" else {"writes_enabled": False}
+        {"login_tiers": {login: "never"}} if lock == "readonly_login" else {"writes": "never"}
     )
     with _chip_hub(tmp_path, monkeypatch, switch={}, **hub_args) as (base_url, app, _root):
         page, _session_id = _settled_chip(chromium_browser, base_url)

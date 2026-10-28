@@ -113,7 +113,7 @@ def test_approval_disabled_passes_all(tmp_path, hook_runner, make_config):
     config = make_config(
         {
             "approval": {"enabled": False},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -144,7 +144,7 @@ SWITCH_CALLS = [
 
 
 def _switch_config(make_config, approval):
-    return make_config({"approval": approval, "control_system": {"writes_enabled": True}})
+    return make_config({"approval": approval, "control_system": {"writes": "allowed"}})
 
 
 def _switch_sentence(value):
@@ -298,7 +298,7 @@ def test_selective_mode_blocks_write(tmp_path, hook_runner, make_config):
                 "default_policy": "selective",
                 "requires_approval": ["channel_write", "execute"],
             },
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -324,7 +324,7 @@ def test_selective_mode_blocks_python_write(tmp_path, hook_runner, make_config):
                 "enabled": True,
                 "default_policy": "selective",
             },
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -350,7 +350,7 @@ def test_selective_mode_allows_readonly_python(tmp_path, hook_runner, make_confi
                 "enabled": True,
                 "default_policy": "selective",
             },
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -377,7 +377,7 @@ def test_per_tool_skip_allows_read(tmp_path, hook_runner, make_config):
                 "default_policy": "selective",
                 "tools": {"channel_read": "skip"},
             },
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -411,7 +411,7 @@ def test_channel_read_skip_emits_allow_decision(tmp_path, hook_runner, make_conf
                 "default_policy": "always",
                 "tools": {"channel_read": "skip"},
             },
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -439,7 +439,7 @@ def test_channel_read_always_asks(tmp_path, hook_runner, make_config):
     config = make_config(
         {
             "approval": {"enabled": True, "default_policy": "always"},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -462,7 +462,7 @@ def test_default_policy_always_blocks_all_tools(tmp_path, hook_runner, make_conf
     config = make_config(
         {
             "approval": {"enabled": True, "default_policy": "always"},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -486,7 +486,7 @@ def test_non_osprey_tools_pass_through(tmp_path, hook_runner, make_config):
     config = make_config(
         {
             "approval": {"enabled": True, "default_policy": "always"},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -511,7 +511,7 @@ def test_approval_ask_includes_tool_info(tmp_path, hook_runner, make_config):
                 "default_policy": "selective",
                 "requires_approval": ["channel_write"],
             },
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -537,7 +537,7 @@ def test_approval_python_write_creates_notebook(tmp_path, hook_runner, make_conf
     config = make_config(
         {
             "approval": {"enabled": True, "default_policy": "selective"},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
             "artifact_server": {"host": "127.0.0.1", "port": 10200},
         }
     )
@@ -565,7 +565,7 @@ def test_approval_notebook_failure_nonfatal(tmp_path, hook_runner, make_config):
     config = make_config(
         {
             "approval": {"enabled": True, "default_policy": "selective"},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -595,7 +595,7 @@ def test_framework_pattern_detection_tango_write(tmp_path, hook_runner, make_con
     config = make_config(
         {
             "approval": {"enabled": True, "default_policy": "selective"},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -618,7 +618,7 @@ def test_framework_pattern_detection_labview_write(tmp_path, hook_runner, make_c
     config = make_config(
         {
             "approval": {"enabled": True, "default_policy": "selective"},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -641,7 +641,7 @@ def test_framework_pattern_detection_set_value(tmp_path, hook_runner, make_confi
     config = make_config(
         {
             "approval": {"enabled": True, "default_policy": "selective"},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -664,7 +664,7 @@ def test_framework_pattern_no_false_positive_dict(tmp_path, hook_runner, make_co
     config = make_config(
         {
             "approval": {"enabled": True, "default_policy": "selective"},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -685,7 +685,7 @@ def test_framework_pattern_detection_import_fallback(tmp_path, hook_runner, make
     config = make_config(
         {
             "approval": {"enabled": True, "default_policy": "selective"},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -712,7 +712,7 @@ def test_framework_pattern_config_driven(tmp_path, hook_runner, make_config):
         {
             "approval": {"enabled": True, "default_policy": "selective"},
             "control_system": {
-                "writes_enabled": True,
+                "writes": "allowed",
                 "patterns": {
                     "write": [r"\bmy_custom_write\s*\("],
                     "read": [],
@@ -746,7 +746,7 @@ def test_has_write_patterns_passes_config_to_framework(tmp_path, hook_runner, ma
         {
             "approval": {"enabled": True, "default_policy": "selective"},
             "control_system": {
-                "writes_enabled": True,
+                "writes": "allowed",
                 "patterns": {
                     "write": [r"\bfacility_hw_write\s*\("],
                     "read": [],
@@ -794,7 +794,7 @@ def test_has_write_patterns_override_via_config(tmp_path, hook_runner, make_conf
         {
             "approval": {"enabled": True, "default_policy": "selective"},
             "control_system": {
-                "writes_enabled": True,
+                "writes": "allowed",
                 "patterns": {
                     "mode": "override",
                     "write": [r"\bfacility_hw_write\s*\("],
@@ -907,7 +907,7 @@ def test_missing_approval_section_defaults_to_always(tmp_path, hook_runner, make
     """
     config = make_config(
         {
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
             # No 'approval' section at all
         }
     )
@@ -1098,7 +1098,7 @@ def test_setup_patch_always_asks(tmp_path, hook_runner, make_config):
     result = hook_runner(
         "osprey_approval.py",
         "mcp__osprey_workspace__setup_patch",
-        {"path": "control_system.writes_enabled", "value": True},
+        {"path": "control_system.writes", "value": "allowed"},
         config_path=config,
         cwd=tmp_path,
         hook_config=DEFAULT_APPROVAL_CONFIG,
@@ -1354,7 +1354,7 @@ def test_selective_readwrite_asks_without_write_patterns(tmp_path, hook_runner, 
     config = make_config(
         {
             "approval": {"enabled": True, "default_policy": "selective"},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -1376,7 +1376,7 @@ def test_selective_readwrite_asks_for_aliased_caput(tmp_path, hook_runner, make_
     config = make_config(
         {
             "approval": {"enabled": True, "default_policy": "selective"},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -1443,9 +1443,9 @@ SIMULATOR_NEVER = {
     "writes": "never",
 }
 
-#: The old per-type ceiling: the mock connector armed, the machine's not. The
-#: tier reads any armed block as `allowed`, so the machine's own `False` no
-#: longer narrows anything; its switch is what decides.
+#: The old per-type ceiling, unrebuilt: the mock connector armed, the machine's
+#: not, and no tier key. The runtime reads no retired leaf (D2), so this section
+#: is a tier that never writes, whatever its switch says.
 PER_TYPE_CEILING = {
     "type": "epics",
     "connector": {"mock": {"writes_enabled": True}, "epics": {"writes_enabled": False}},
@@ -1625,12 +1625,12 @@ def test_a_tier_that_states_no_writes_defers(tmp_path, hook_runner):
     assert run("osprey_writes_check.py") == "deny"
 
 
-def test_a_per_type_ceiling_no_longer_narrows_a_switched_on_machine(tmp_path, hook_runner):
-    """Mock armed, epics not, session on `live` with its switch on: the call is asked.
+def test_an_unrebuilt_per_type_ceiling_never_writes_on_a_switched_on_machine(tmp_path, hook_runner):
+    """Mock armed, epics not, no tier key, session on `live` with its switch on: deferred.
 
-    The per-type `writes_enabled` blocks fold into the tier, where any armed
-    block is `allowed`; the machine's own `False` used to defer this call and is
-    no longer a term of the verdict. The switch is.
+    A retired per-type `writes_enabled` block is not read at runtime (D2); the
+    section is a tier that never writes (row `tier-absent-old-armed-connector`),
+    so the approval hook defers and `writes_check` denies, switch or no switch.
     """
     config = _posture_config(tmp_path, PER_TYPE_CEILING)
     _write_session_state(tmp_path, target="live", on=("live",))
@@ -1645,8 +1645,8 @@ def test_a_per_type_ceiling_no_longer_narrows_a_switched_on_machine(tmp_path, ho
             CHANNEL_WRITE_INPUT,
         )
 
-    assert run("osprey_approval.py") == "ask"
-    assert run("osprey_writes_check.py") is None
+    assert run("osprey_approval.py") is None
+    assert run("osprey_writes_check.py") == "deny"
 
 
 def test_a_write_whose_machine_cannot_be_placed_defers(tmp_path, hook_runner):
@@ -1926,7 +1926,7 @@ def test_pre_execution_notebook_is_saved_without_launching_the_gallery(
 
 RAW_PUT_CONFIG = {
     "approval": DEFAULT_TOOLS_CONFIG,
-    "control_system": {"writes_enabled": True},
+    "control_system": {"writes": "allowed"},
 }
 
 
@@ -1995,7 +1995,7 @@ def test_raw_client_write_denied_even_when_approval_would_allow(
     tmp_path, hook_runner, make_config, approval
 ):
     """Neither a disabled approval gate nor a skip policy turns the deny into an allow."""
-    config = {"approval": approval, "control_system": {"writes_enabled": True}}
+    config = {"approval": approval, "control_system": {"writes": "allowed"}}
 
     result = _run_execute(
         hook_runner, make_config, tmp_path, "caput('SR:QF:SP', 1.5)", config=config
@@ -2134,7 +2134,7 @@ GUARDED_ALWAYS_CONFIG = {
         "default_policy": "always",
         "tools": {"execute": "always", "execute_file": "always"},
     },
-    "control_system": {"type": "virtual_accelerator", "writes_enabled": True},
+    "control_system": {"type": "virtual_accelerator", "writes": "allowed"},
 }
 
 #: Asks only for readwrite or write-shaped execute calls.
@@ -2144,7 +2144,7 @@ GUARDED_SELECTIVE_CONFIG = {
         "default_policy": "always",
         "tools": {"execute": "selective", "execute_file": "selective"},
     },
-    "control_system": {"type": "virtual_accelerator", "writes_enabled": True},
+    "control_system": {"type": "virtual_accelerator", "writes": "allowed"},
 }
 
 

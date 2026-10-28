@@ -470,7 +470,7 @@ def _writes_allowed(section: Any, target: str) -> bool:
     return posture_store.write_verdict(section, target).allowed
 
 
-def _display_writes(config: Any, target: str, effective_writes: Mapping[str, bool] | None) -> bool:
+def _display_writes(config: Any, target: str, write_allowed: Mapping[str, bool] | None) -> bool:
     """Whether the endpoint rendered for *target* should be the write one.
 
     The injected mapping wins where it holds an answer for *target*; a miss, a
@@ -485,14 +485,14 @@ def _display_writes(config: Any, target: str, effective_writes: Mapping[str, boo
     Args:
         config: The full rendered config mapping.
         target: The session control target being described.
-        effective_writes: Per-target write posture, or ``None``.
+        write_allowed: Per-target write verdict ``allowed``, or ``None``.
 
     Returns:
         ``True`` when the write verdict allows writes to *target* under the
         posture that applies to this rendering.
     """
-    if effective_writes is not None:
-        override = effective_writes.get(target)
+    if write_allowed is not None:
+        override = write_allowed.get(target)
         if override is not None:
             return bool(override)
     return _writes_allowed(_control_system_section(config), target)
@@ -501,7 +501,7 @@ def _display_writes(config: Any, target: str, effective_writes: Mapping[str, boo
 def target_display_metadata(
     config: Any,
     *,
-    effective_writes: Mapping[str, bool] | None = None,
+    write_allowed: Mapping[str, bool] | None = None,
     config_path: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Per-target display metadata for the state file's single writer.
@@ -534,8 +534,8 @@ def target_display_metadata(
 
     Args:
         config: The full rendered config mapping (``config.yml`` as loaded).
-        effective_writes: Per-target effective write posture to render under.
-            A caller that has already resolved the deployment's posture passes it
+        write_allowed: Per-target write verdict ``allowed`` to render under.
+            A caller that has already resolved the verdicts passes them
             so the rendering and the enforcement cannot disagree; a target the
             mapping does not answer for falls back to the write verdict for
             it.
@@ -567,7 +567,7 @@ def target_display_metadata(
             }
             continue
         block = _connector_block(config, ceiling.connector_type)
-        # Asked of the ceiling endpoint, so the parenthesis cannot move under a
+        # Asked of the ceiling endpoint, so the rehearsal words cannot move under a
         # narrowing: a deployment whose two gateway rows sit on different ports
         # would otherwise be a stand-in with writes armed and the real machine
         # without them.
@@ -575,7 +575,7 @@ def target_display_metadata(
         selected = derive_endpoints(
             config,
             target,
-            writes_enabled=_display_writes(config, target, effective_writes),
+            writes_enabled=_display_writes(config, target, write_allowed),
             config_path=config_path,
         )
         metadata[target] = {
@@ -611,12 +611,12 @@ def _is_live_standin(config: Any, target: str, endpoint: Any) -> bool:
     archiver's enablement gate and the build derivation that points the gateways
     at the stand-in in the first place. An SSH tunnel is the case it must not
     claim: forwarding a real gateway to ``localhost:5064`` is loopback and
-    nothing more, so the port conjunct fails and the label stays
-    ``LIVE MACHINE`` — which is the truth, because the operator is one hop from
+    nothing more, so the port conjunct fails and the label stays the real
+    machine's — which is the truth, because the operator is one hop from
     hardware.
 
     Asked of the CEILING endpoint rather than of the one a narrowed session
-    lands on. The parenthesis is an identity fact, and identity does not move
+    lands on. The rehearsal words are an identity fact, and identity does not move
     when a session gives up writes: a deployment whose two gateway rows sit on
     different ports would otherwise be a stand-in while writes are armed and
     the facility's own machine once they are not.
@@ -625,7 +625,7 @@ def _is_live_standin(config: Any, target: str, endpoint: Any) -> bool:
     dial a Channel Access gateway. ``va`` is not asked at all: the simulator is
     described by its own branch, and a sandbox that happened to be configured
     on the stand-in's port is still a simulator. Membership in the family is
-    not the same as carrying the parenthesis, which is :func:`_label`'s to
+    not the same as carrying the rehearsal words, which is :func:`_label`'s to
     decide and is the ``standin`` target's alone — see there.
     """
     if target not in (TARGET_LIVE, TARGET_STANDIN):
@@ -636,38 +636,36 @@ def _is_live_standin(config: Any, target: str, endpoint: Any) -> bool:
 def _label(target: str, connector_type: str | None, *, standin: bool = False) -> str:
     """The published label for *target*: the identity line every reader renders.
 
-    This deployment's own stand-in is published as the rehearsal, in the
-    C-WORDS banner (:data:`osprey_connectors.write_target.KIND_BANNERS`), so the
-    roster, the prompt hook's identity line and a connector tool's error text
-    all say "Rehearsal — nothing moves" and none of them calls it
-    ``LIVE MACHINE``. Decided by the same two conjuncts as :func:`_machine_kind`,
-    so the label and the published kind cannot describe different machines.
+    The C-WORDS banner of the target's machine kind
+    (:data:`osprey_connectors.write_target.KIND_BANNERS`), read off
+    :func:`_machine_kind` and nothing else, so the label and the published kind
+    cannot describe different machines: the roster, the prompt hook's identity
+    line and a connector tool's error text all name the real machine "Real
+    machine — writes move hardware", this deployment's stand-in "Rehearsal —
+    nothing moves" and the simulator "Simulator — nothing moves". A real-machine
+    target no connector is configured for says so after its banner.
+
+    The rehearsal words belong to the ``standin`` target alone, and only while
+    its endpoint really is the stand-in container this deployment stood up (the
+    two conjuncts of :func:`_machine_kind`). A ``standin`` whose endpoint fails
+    the predicate is labelled the real machine — never "nothing moves" — and
+    refused by the eligibility gate, and ``live`` never carries the rehearsal
+    words at all: renaming the facility's machine on the strength of an
+    endpoint that merely looks like the stand-in's (a facility gateway forwarded
+    to loopback on that port) is the direction this stack must never fail in:
+    telling an operator nothing moves when hardware does.
     """
-    if target == TARGET_VA:
-        return "virtual accelerator (simulation)"
-    if connector_type is None:
-        return "live machine (not configured)"
-    # The rehearsal words are the whole of what an operator is told
-    # differently, and they belong to the 'standin' target alone. Two
-    # conjuncts, both required: the target is the one an operator selected by
-    # name, and its endpoint really is the stand-in container this deployment
-    # stood up. A 'standin' whose endpoint fails the predicate is labelled
-    # plain LIVE MACHINE — never "nothing moves" — and refused by the
-    # eligibility gate, and 'live' never carries the rehearsal words at all: it
-    # names the facility's authored machine, and renaming it on the strength of
-    # an endpoint that merely looks like the stand-in's (a facility gateway
-    # forwarded to loopback on that port) is the direction this stack must
-    # never fail in: telling an operator nothing moves when hardware does.
-    if target == TARGET_STANDIN and standin:
-        return KIND_BANNERS["rehearsal"]
-    return "LIVE MACHINE"
+    words = KIND_BANNERS[_machine_kind(target, standin=standin)]
+    if connector_type is None and target != TARGET_VA:
+        return f"{words} (not configured)"
+    return words
 
 
 def _machine_kind(target: str, *, standin: bool = False) -> str:
     """The kind of machine *target* is, published for every reader (C-KIND).
 
-    Decided by the same two conjuncts as :func:`_label`'s parenthesis, so the
-    label and the kind cannot describe different machines: ``standin`` is
+    :func:`_label` is this kind's banner, so the label and the kind cannot
+    describe different machines: ``standin`` is
     ``rehearsal`` only when its endpoint really is this deployment's stand-in
     container, and otherwise ``real``. ``va`` is the simulator; ``live`` is
     always the real machine. Readers take this from the report through

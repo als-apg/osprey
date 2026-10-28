@@ -31,7 +31,7 @@ stdin ──► Parse JSON
   Is this call a write, and is the deployment
   NOT armed for the target it would act on?
      │                    │
-    YES                  NO / no posture stated
+    YES                  NO
      │                    │
      ▼                    │
   EXIT, no decision       │
@@ -83,8 +83,9 @@ exits with NO decision at all, so that the layer which refuses it — the
 by an approval prompt. Posture is per target, so the same tool on the same
 deployment can defer on one target and prompt on the other; the operator's own
 per-target narrowing in the control-context record counts the same way as a
-config disarm, because `osprey_writes_check` reads the same record. A config
-that states no posture anywhere prompts exactly as it always has.
+config disarm, because `osprey_writes_check` reads the same record. A target
+whose write tier is not stated has the tier `never`, so its writes defer here
+like any other refusal; silence never means a prompt.
 
 ## Write-approval stamps
 
@@ -628,17 +629,23 @@ _TARGET_BASELINE_LINE = "Target: deployment baseline (state unavailable)"
 
 
 #: The words each machine kind is spoken of by on this prompt, keyed by the
-#: kind the twin's :func:`published_machine_kind` answers. These are the
-#: owner-facing literals every surface in scope uses for the three machines —
-#: the rehearsal and the real machine are restated here because this hook is
-#: deployed standalone and cannot import them — and they are deliberately NOT
-#: the refusal words (``KIND_WORDS``), which complete a refusal sentence rather
-#: than name a machine. The simulator keeps the phrase it always had.
+#: kind the twin's :func:`published_machine_kind` answers. A restated copy of
+#: ``osprey_connectors.write_target.KIND_BANNERS`` (C-WORDS, D4) — this hook is
+#: deployed standalone and cannot import it, so a test pins the two — and
+#: deliberately NOT the refusal words (``KIND_WORDS``), which complete a
+#: refusal sentence rather than name a machine.
 _KIND_WORDS = {
     "real": "Real machine — writes move hardware",
     "rehearsal": "Rehearsal — nothing moves",
-    "simulator": "virtual accelerator (simulation)",
+    "simulator": "Simulator — nothing moves",
 }
+
+#: The warning a switch toward the real machine carries, in the real machine's
+#: words: every write approved after it moves hardware.
+_REAL_SWITCH_WARNING = (
+    "⚠️  THIS SWITCH POINTS THE SESSION AT THE REAL MACHINE — every write "
+    "approved afterwards moves real hardware."
+)
 
 
 def _target_kind(target, hook_input=None):
@@ -1256,10 +1263,7 @@ def _describe_control_target_set(
     # nothing, and the simulator is not the alarming direction.
     kind = _target_kind(destination, hook_input)
     if kind == "real":
-        lines.append(
-            "⚠️  THIS SWITCH POINTS THE SESSION AT THE LIVE MACHINE — every write "
-            "approved afterwards moves real hardware."
-        )
+        lines.append(_REAL_SWITCH_WARNING)
     label = _KIND_WORDS[kind]
     endpoint = _sanitize_label(meta.get("endpoint") or "endpoint not recorded")
     lines.append(f"Destination: {label} ({endpoint})")
@@ -3452,10 +3456,11 @@ def main():
     #   per-target deny IS the whole gate — for the lane-addressed queue tools
     #   writes_check skips, the bluesky tools' own lane-bound posture re-read is.
     #
-    # Three-way, and the third way is the point: a config that states no posture
-    # at all falls through to normal approval, so every deployment that predates
-    # the per-target key keeps exactly the prompt it has today. Only an explicit
-    # `False` defers, and only where a refusal is guaranteed — see
+    # Three-way: `True` prompts as usual, `False` defers, and `None` (a call
+    # that is not a write, or a start whose lane cannot be placed) keeps normal
+    # approval. A target with no stated write tier has the tier `never`, so its
+    # writes answer `False` and defer; silence is never an allow. Only `False`
+    # defers, and only where a refusal is guaranteed — see
     # `_call_write_posture`, which answers every part of that question.
     if _call_write_posture(config, tool_name, short_name, tool_input, hook_input) is False:
         log_hook(

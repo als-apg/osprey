@@ -86,13 +86,15 @@ def _child_harness(child_environment, state_root):
 
 
 async def mixed_session(factory, va_armed_project):
-    """A started session whose 'va' block arms writes and whose 'live' does not.
+    """A started session whose switch is on for 'va' and off for 'live'.
 
-    The two targets then select different gateway roles, which is what lets a
-    case tell a per-target reading of the posture from a deployment-wide one.
+    The tier allows writes on every machine, so the two targets select
+    different gateway roles only through the per-target switch, which is what
+    lets a case tell a per-target reading of the verdict from a deployment-wide
+    one.
     """
     manager = factory(
-        raw=gateway_config(writes_enabled=False, va_writes_enabled=True, va_gateways=True),
+        raw=gateway_config(va_gateways=True),
         config_path=va_armed_project,
     )
     await manager.ensure_started()
@@ -181,8 +183,8 @@ class TestSuccessfulSwitch:
         # surviving it, and it still describes every target. Neither connector
         # here selects a gateway, so identity is the config rendering and the
         # republication changes nothing an operator would read.
-        assert record["targets"]["va"]["label"] == "virtual accelerator (simulation)"
-        assert record["targets"]["live"]["label"] == "LIVE MACHINE"
+        assert record["targets"]["va"]["label"] == "Simulator — nothing moves"
+        assert record["targets"]["live"]["label"] == "Real machine — writes move hardware"
 
     async def test_the_previous_child_process_actually_exits(self, make_manager):
         manager = await started_on(make_manager, "live")
@@ -488,26 +490,18 @@ class TestFailedSwitchLeavesThePreviousTargetActive:
 def write_armed_project(tmp_path, state_root):
     """A project config whose tier allows writes, with both machines switched on."""
     arm(state_root, "live", "va")
-    return project_config(tmp_path, {"type": GATEWAY_TYPE, "writes_enabled": True})
+    return project_config(tmp_path, {"type": GATEWAY_TYPE, "writes": "allowed"})
 
 
 @pytest.fixture
 def live_armed_project(tmp_path, state_root):
-    """A project config whose tier is allowed by the live type's block, live switched on.
+    """A project config whose tier allows writes, with only the live machine switched on.
 
-    The deployment-wide key is false; the live block's ``writes_enabled`` is
-    what makes the tier allow writes, and the switch is on for ``live`` alone,
-    so the write role whose failure the fallback answers is the one selected.
+    The tier is target-blind, so the switch being on for ``live`` alone is what
+    selects the write role whose failure the fallback answers.
     """
     arm(state_root, "live")
-    return project_config(
-        tmp_path,
-        {
-            "type": GATEWAY_TYPE,
-            "writes_enabled": False,
-            "connector": {GATEWAY_TYPE: {"writes_enabled": True}},
-        },
-    )
+    return project_config(tmp_path, {"type": GATEWAY_TYPE, "writes": "allowed"})
 
 
 @pytest.fixture
@@ -518,14 +512,7 @@ def va_armed_project(tmp_path, state_root):
     machine, arming writes on its virtual accelerator only.
     """
     arm(state_root, "va")
-    return project_config(
-        tmp_path,
-        {
-            "type": GATEWAY_TYPE,
-            "writes_enabled": False,
-            "connector": {VIRTUAL_ACCELERATOR: {"writes_enabled": True}},
-        },
-    )
+    return project_config(tmp_path, {"type": GATEWAY_TYPE, "writes": "allowed"})
 
 
 class TestDeadWriteGatewayFallback:
@@ -591,23 +578,17 @@ class TestDeadWriteGatewayFallback:
         assert result.outcome is WriteOutcome.REFUSED
         assert result.refusal_reason == "CONTROL_SYSTEM_REFUSED"
 
-    async def test_a_block_that_arms_only_the_live_type_still_gets_the_fallback(
+    async def test_a_switch_on_for_live_alone_still_gets_the_fallback(
         self, make_manager, live_armed_project
     ):
-        """The fallback answers the posture that selected the dead gateway.
+        """The fallback answers the verdict that selected the dead gateway.
 
-        Nothing here says ``control_system.writes_enabled: true``: the live
-        type's own block is what arms the write role, and therefore what makes
-        the dead ``write_access`` row the one probed. A parent that read one
-        posture for the whole deployment would send this session to the read
-        gateway from the start and never reach the fallback at all.
+        The switch is on for ``live`` alone: that per-target verdict is what
+        arms the write role there, and therefore what makes the dead
+        ``write_access`` row the one probed. A parent that read one verdict for
+        the whole deployment would get it wrong for one of the two targets.
         """
-        manager = await self._stranded_session(
-            make_manager,
-            live_armed_project,
-            writes_enabled=False,
-            live_writes_enabled=True,
-        )
+        manager = await self._stranded_session(make_manager, live_armed_project)
 
         result = await manager.switch("live")
 
@@ -639,7 +620,7 @@ class TestDeadWriteGatewayFallback:
 
     async def test_a_deployment_without_write_arming_never_needs_the_fallback(self, make_manager):
         """Read-only selection is untouched: no dead gateway is ever probed."""
-        manager = make_manager(raw=gateway_config(writes_enabled=False))
+        manager = make_manager(raw=gateway_config(writes="never"))
         await manager.ensure_started()
         await manager.switch("va")
 
@@ -720,9 +701,9 @@ class TestProbeFailureNamesTheGateway:
 class TestPerTargetPosture:
     """One deployment, two postures: the simulator armed, the machine not.
 
-    ``control_system.connector.<type>.writes_enabled`` is per connector type,
-    so a facility whose baseline is a real machine can arm writes on its
-    virtual accelerator alone. Three readings of that have to agree at once —
+    The tier is target-blind and the login's switch is per target, so a
+    facility whose baseline is a real machine can arm writes on its virtual
+    accelerator alone. Three readings of that have to agree at once —
     the parent deriving where a target lands, the child selecting its gateway,
     and the reference monitor in that child deciding whether a write may be
     attempted — and they agree only because each reads the posture of the type
@@ -737,8 +718,8 @@ class TestPerTargetPosture:
         A switch that returns a result at all has passed ``verify_child_report``:
         the role and endpoint the child reported were compared against the
         parent's derivation for that target. Here the two derivations disagree —
-        'va' is armed on its own block and selects the write-capable gateway,
-        'live' inherits the deployment-wide off and stays read-only — so a
+        'va' is switched on and selects the write-capable gateway, 'live' is
+        switched off and stays read-only — so a
         posture read once for the whole deployment would fail one of them.
         """
         manager = await mixed_session(make_manager, va_armed_project)
@@ -776,14 +757,7 @@ class TestPerTargetPosture:
 @pytest.fixture
 def tier_project(tmp_path):
     """A project config whose tier allows writes, with no machine switched on yet."""
-    return project_config(
-        tmp_path,
-        {
-            "type": GATEWAY_TYPE,
-            "writes_enabled": False,
-            "connector": {VIRTUAL_ACCELERATOR: {"writes_enabled": True}},
-        },
-    )
+    return project_config(tmp_path, {"type": GATEWAY_TYPE, "writes": "allowed"})
 
 
 class TestTheSwitchGovernsWrites:
@@ -798,7 +772,7 @@ class TestTheSwitchGovernsWrites:
 
     async def _on_va(self, make_manager, tier_project):
         manager = make_manager(
-            raw=gateway_config(writes_enabled=False, va_writes_enabled=True, va_gateways=True),
+            raw=gateway_config(va_gateways=True),
             config_path=tier_project,
         )
         await manager.ensure_started()
@@ -842,7 +816,7 @@ class TestTheSwitchGovernsWrites:
         """
         arm(state_root, "va")
         manager = make_manager(
-            raw=gateway_config(writes_enabled=False, va_writes_enabled=True, va_gateways=True),
+            raw=gateway_config(va_gateways=True),
             config_path=tier_project,
         )
         await manager.ensure_started()
@@ -912,9 +886,7 @@ class TestRepublishedDisplayMetadata:
         deployment still permits.
         """
         arm(posture_root, "live")
-        manager = make_manager(
-            raw=gateway_config(writes_enabled=True), config_path=write_armed_project
-        )
+        manager = make_manager(raw=gateway_config(), config_path=write_armed_project)
         await manager.ensure_started()
         armed = target_state.read()["targets"]["live"]
         assert armed["selected_role"] == "write_access"
@@ -927,7 +899,7 @@ class TestRepublishedDisplayMetadata:
         assert narrowed["selected_role"] == "read_only"
         assert narrowed["endpoint"] == f"{GATEWAY_HOST}:{READ_GATEWAY_PORT}"
         # Identity did not move with the endpoint: this is the same machine.
-        assert narrowed["label"] == "LIVE MACHINE"
+        assert narrowed["label"] == "Real machine — writes move hardware"
 
     async def test_a_render_that_raises_leaves_the_switch_intact(self, make_manager, monkeypatch):
         """The swap has already happened, so a failed render may not undo it.
@@ -949,7 +921,7 @@ class TestRepublishedDisplayMetadata:
         assert manager.active_target() == "va"
         record = target_state.read()
         assert record["applied_target"] == "va"
-        assert record["targets"]["va"]["label"] == "virtual accelerator (simulation)"
+        assert record["targets"]["va"]["label"] == "Simulator — nothing moves"
 
     async def test_the_metadata_names_a_target_before_any_child_exists(self, make_manager):
         """The first refusal can arrive before the first child does.
@@ -958,12 +930,12 @@ class TestRepublishedDisplayMetadata:
         gets the config rendering, which is the truthful answer for a session
         that has not yet been served by anything.
         """
-        manager = make_manager(raw=gateway_config(writes_enabled=False))
+        manager = make_manager(raw=gateway_config(writes="never"))
 
         metadata = manager.display_metadata()
 
         assert manager.has_child() is False
-        assert metadata["live"]["label"] == "LIVE MACHINE"
+        assert metadata["live"]["label"] == "Real machine — writes move hardware"
         assert metadata["live"]["selected_role"] == "read_only"
         assert metadata["live"]["endpoint"] == f"{GATEWAY_HOST}:{READ_GATEWAY_PORT}"
 
@@ -1108,7 +1080,7 @@ class TestTheChildsConfigFile:
             path.write_text(
                 yaml.safe_dump(
                     {
-                        "control_system": {"writes_enabled": False},
+                        "control_system": {"writes": "never"},
                         "services": {"virtual_accelerator": {"port": port}},
                     }
                 ),
@@ -1900,19 +1872,19 @@ class TestConfigDerivedFacts:
 
         assert metadata["va"]["probe_channel"] == VA_PROBE
         assert metadata["va"]["real_machine"] is False
-        assert metadata["va"]["label"] == "virtual accelerator (simulation)"
+        assert metadata["va"]["label"] == "Simulator — nothing moves"
         assert metadata["live"]["probe_channel"] == LIVE_PROBE
         # A deployment whose control_system.type names a connector class is a
         # deployment that has said what its real machine is, whatever that
         # class turns out to do.
         assert metadata["live"]["real_machine"] is True
-        assert metadata["live"]["label"] == "LIVE MACHINE"
+        assert metadata["live"]["label"] == "Real machine — writes move hardware"
 
     def test_display_metadata_still_describes_a_target_it_cannot_derive(self):
         metadata = target_display_metadata({"control_system": {"type": "virtual_accelerator"}})
 
         assert metadata["live"] == {
-            "label": "live machine (not configured)",
+            "label": "Real machine — writes move hardware (not configured)",
             "display_name": "Real machine",
             "endpoint": "",
             "selected_role": "",

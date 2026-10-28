@@ -48,8 +48,14 @@ from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 from tests.mcp_server.test_control_target_set import config_with_gateways, install_context
 
 #: The published label of this deployment's own stand-in (C-WORDS): the
-#: rehearsal banner, never the real machine's ``LIVE MACHINE``.
+#: rehearsal banner, never the real machine's.
 REHEARSAL_LABEL = "Rehearsal — nothing moves"
+
+#: The published label of the real machine (C-WORDS, D4): its kind's banner.
+REAL_LABEL = "Real machine — writes move hardware"
+
+#: The published label of the simulator (C-WORDS, D4): its one name.
+SIM_LABEL = "Simulator — nothing moves"
 
 #: The words only a real stand-in may carry, anywhere in its label.
 NOTHING_MOVES = "nothing moves"
@@ -144,7 +150,7 @@ def standin_config(
     live_host=REAL_GATEWAY_HOST,
     live_port=TUNNELLED_PORT,
     deployed=True,
-    writes_enabled=False,
+    writes="never",
     baseline_type="virtual_accelerator",
     va_gateways=False,
     strict_limits=False,
@@ -199,7 +205,7 @@ def standin_config(
         }
     control_system = {
         "type": baseline_type,
-        "writes_enabled": writes_enabled,
+        "writes": writes,
         "connector": {
             "epics": {
                 "probe_channel": LIVE_PROBE,
@@ -241,7 +247,7 @@ def split_gateway_config(**kwargs):
     session that has given up writes selects the read row on the other port,
     which is the only thing a posture is allowed to move.
     """
-    kwargs.setdefault("writes_enabled", True)
+    kwargs.setdefault("writes", "allowed")
     return standin_config(write_port=STANDIN_WRITE_PORT, standin_port=STANDIN_WRITE_PORT, **kwargs)
 
 
@@ -707,7 +713,7 @@ class TestThreeTargetRoster:
 
         # ``live`` is the facility's own machine, reached through its own block.
         assert rows["live"]["active"] is False
-        assert rows["live"]["label"] == "LIVE MACHINE"
+        assert rows["live"]["label"] == REAL_LABEL
         assert rows["live"]["real_machine"] is True
         assert rows["live"]["connector_type"] == "epics"
         assert rows["live"]["endpoints"]["read_only"]["host"] == REAL_GATEWAY_HOST
@@ -897,7 +903,7 @@ class TestLiveStandinLabel:
         """``live`` is the authored ``epics`` block, and it keeps its own name."""
         metadata = target_display_metadata(standin_config())
 
-        assert metadata["live"]["label"] == "LIVE MACHINE"
+        assert metadata["live"]["label"] == REAL_LABEL
         assert metadata["live"]["real_machine"] is True
         assert metadata["live"]["endpoint"] == f"{REAL_GATEWAY_HOST}:{TUNNELLED_PORT}"
 
@@ -914,7 +920,7 @@ class TestLiveStandinLabel:
             standin_config(live_host="localhost", live_port=STANDIN_PORT)
         )
 
-        assert metadata["live"]["label"] == "LIVE MACHINE"
+        assert metadata["live"]["label"] == REAL_LABEL
         assert metadata["live"]["real_machine"] is True
         assert metadata["standin"]["label"] == REHEARSAL_LABEL
 
@@ -927,15 +933,15 @@ class TestLiveStandinLabel:
         """
         metadata = target_display_metadata(standin_config(standin_port=None))
 
-        assert metadata["standin"]["label"] == "LIVE MACHINE"
+        assert metadata["standin"]["label"] == REAL_LABEL
         assert metadata["standin"]["real_machine"] is True
-        assert metadata["live"]["label"] == "LIVE MACHINE"
+        assert metadata["live"]["label"] == REAL_LABEL
 
     def test_a_leftover_standin_block_does_not_rename_a_moved_endpoint(self):
         """The label follows the endpoint, never the stale ``services:`` block."""
         metadata = target_display_metadata(standin_config(gateway_port=TUNNELLED_PORT))
 
-        assert metadata["standin"]["label"] == "LIVE MACHINE"
+        assert metadata["standin"]["label"] == REAL_LABEL
         assert metadata["standin"]["real_machine"] is True
 
     def test_an_ssh_tunnel_to_loopback_is_still_the_live_machine(self):
@@ -944,14 +950,14 @@ class TestLiveStandinLabel:
             standin_config(standin_port=None, gateway_port=TUNNELLED_PORT)
         )
 
-        assert metadata["standin"]["label"] == "LIVE MACHINE"
+        assert metadata["standin"]["label"] == REAL_LABEL
         assert metadata["standin"]["endpoint"] == f"localhost:{TUNNELLED_PORT}"
 
     def test_a_standin_endpoint_off_loopback_is_not_this_hosts_container(self):
         """The port matches, the host does not: another machine on that port."""
         metadata = target_display_metadata(standin_config(gateway_host=REAL_GATEWAY_HOST))
 
-        assert metadata["standin"]["label"] == "LIVE MACHINE"
+        assert metadata["standin"]["label"] == REAL_LABEL
 
     def test_a_render_says_the_same_word_as_the_deployment(self):
         """Multi-user parity: the projected port is the whole evidence.
@@ -1015,23 +1021,24 @@ class TestLiveStandinLabel:
 
         A ``standin`` whose endpoint is not this deployment's stand-in never
         says "nothing moves": it reads as the real machine, exactly as before
-        the rehearsal had a name. The deployment's own stand-in never says
-        ``LIVE MACHINE``.
+        the rehearsal had a name. The deployment's own stand-in never carries
+        the real machine's banner.
         """
         metadata = target_display_metadata(standin_config(**config_kwargs))
         label = metadata["standin"]["label"]
 
         if is_rehearsal:
             assert label == REHEARSAL_LABEL
-            assert "LIVE MACHINE" not in label
+            assert REAL_LABEL not in label
             assert metadata["standin"]["machine_kind"] == "rehearsal"
         else:
-            assert label == "LIVE MACHINE"
+            assert label == REAL_LABEL
             assert NOTHING_MOVES not in label.lower()
             assert metadata["standin"]["machine_kind"] == "real"
-        # Neither the facility's machine nor the simulator is ever the rehearsal.
+        # Neither the facility's machine nor the simulator is ever the rehearsal,
+        # and the facility's machine never says nothing moves.
         assert NOTHING_MOVES not in metadata["live"]["label"].lower()
-        assert NOTHING_MOVES not in metadata["va"]["label"].lower()
+        assert metadata["va"]["label"] == SIM_LABEL
 
     def test_the_simulator_is_described_by_its_own_branch(self):
         """``va`` is untouched by the stand-in, in every case above and here."""
@@ -1042,7 +1049,7 @@ class TestLiveStandinLabel:
         ):
             metadata = target_display_metadata(raw)
 
-            assert metadata["va"]["label"] == "virtual accelerator (simulation)"
+            assert metadata["va"]["label"] == SIM_LABEL
             assert metadata["va"]["real_machine"] is False
             assert metadata["va"]["probe_channel"] == VA_PROBE
 
@@ -1084,14 +1091,14 @@ class TestDisplayName:
         """The "not set up" nuance is the reader's to render, not the name's."""
         metadata = target_display_metadata({"control_system": {"type": "virtual_accelerator"}})
 
-        assert metadata["live"]["label"] == "live machine (not configured)"
+        assert metadata["live"]["label"] == f"{REAL_LABEL} (not configured)"
         assert metadata["live"]["display_name"] == "Real machine"
 
     def test_a_standin_that_fails_the_predicate_is_the_real_machine(self):
         """Same conjuncts as the parenthesis: no deployed stand-in, no Rehearsal."""
         metadata = target_display_metadata(standin_config(standin_port=None))
 
-        assert metadata["standin"]["label"] == "LIVE MACHINE"
+        assert metadata["standin"]["label"] == REAL_LABEL
         assert metadata["standin"]["display_name"] == "Real machine"
 
     def test_a_configured_name_wins_verbatim_stripped(self):
@@ -1190,7 +1197,7 @@ class TestEndpointFollowsThePosture:
     def test_the_store_never_widens_a_deployment_that_arms_nothing(self, posture_root):
         """A switch on cannot arm a target whose tier never allows writes."""
         arm(posture_root, "standin")
-        metadata = target_display_metadata(split_gateway_config(writes_enabled=False))
+        metadata = target_display_metadata(split_gateway_config(writes="never"))
 
         assert metadata["standin"]["endpoint"] == f"localhost:{STANDIN_PORT}"
         assert metadata["standin"]["selected_role"] == "read_only"
@@ -1205,12 +1212,12 @@ class TestEndpointFollowsThePosture:
         narrow(posture_root, "standin")
         config = split_gateway_config()
 
-        widened = target_display_metadata(config, effective_writes={"standin": True})
+        widened = target_display_metadata(config, write_allowed={"standin": True})
         assert widened["standin"]["endpoint"] == f"localhost:{STANDIN_WRITE_PORT}"
         assert widened["standin"]["selected_role"] == "write_access"
 
         posture_store.invalidate_cache()
-        narrowed = target_display_metadata(config, effective_writes={"standin": False})
+        narrowed = target_display_metadata(config, write_allowed={"standin": False})
         assert narrowed["standin"]["endpoint"] == f"localhost:{STANDIN_PORT}"
         assert narrowed["standin"]["selected_role"] == "read_only"
 
@@ -1218,7 +1225,7 @@ class TestEndpointFollowsThePosture:
         """A miss is not an answer of ``False``: the store still decides."""
         narrow(posture_root, "standin")
 
-        metadata = target_display_metadata(split_gateway_config(), effective_writes={"live": True})
+        metadata = target_display_metadata(split_gateway_config(), write_allowed={"live": True})
 
         assert metadata["standin"]["selected_role"] == "read_only"
         assert metadata["live"]["selected_role"] == "write_access"
@@ -1229,7 +1236,7 @@ class TestEndpointFollowsThePosture:
         narrow(posture_root, "standin")
 
         from_store = target_display_metadata(config)
-        injected = target_display_metadata(config, effective_writes={"standin": True})
+        injected = target_display_metadata(config, write_allowed={"standin": True})
 
         assert from_store["standin"]["label"] == REHEARSAL_LABEL
         assert injected["standin"]["label"] == REHEARSAL_LABEL

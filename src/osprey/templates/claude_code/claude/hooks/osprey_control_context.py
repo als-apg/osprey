@@ -44,7 +44,7 @@ something the agent's own context does not already hold:
 --- osprey control-context ---
 target: va  gen: 2
 writes: live=off va=on
-machines: live="Real machine — writes move hardware" va="Simulator"
+machines: live="Real machine — writes move hardware" va="Simulator — nothing moves"
 ```
 
 At a session start (``startup``, ``resume``, ``clear`` and ``compact`` alike:
@@ -57,7 +57,7 @@ a machine's words moved since the last emission for this session, marked
 --- osprey control-context (changed) ---
 target: live  gen: 3  (was va)
 writes: live=on (was off) va=on
-machines: live="Real machine — writes move hardware" va="Simulator"
+machines: live="Real machine — writes move hardware" va="Simulator — nothing moves"
 ```
 
 An unchanged prompt injects nothing. Nothing in the block asks the agent to do
@@ -90,8 +90,8 @@ file at all stays silent: there is nothing to describe.
 
 ``machines`` names each target by the words the operator sees for it, keyed by
 the same raw key: ``"Real machine — writes move hardware"``, ``"Rehearsal —
-nothing moves"`` or ``"Simulator"``. The kind comes from the controls server's
-published report (``osprey_target_state.published_machine_kind``), so the
+nothing moves"`` or ``"Simulator — nothing moves"``. The kind comes from the
+controls server's published report (``osprey_target_state.published_machine_kind``), so the
 stand-in reads ``Rehearsal — nothing moves`` only while this deployment has it
 stood up; a ``standin`` that is not reads as the real machine.
 
@@ -165,12 +165,13 @@ _SWITCH_OFF_REASON = "switch_off"
 #: The reason an unreadable record file refuses with.
 _RECORD_UNAVAILABLE = "record_unavailable"
 
-#: The owner-facing words for each machine kind (C-WORDS). The stdlib copy:
-#: hooks import nothing from the package.
+#: The owner-facing words for each machine kind (C-WORDS, D4). The stdlib copy
+#: of ``osprey_connectors.write_target.KIND_BANNERS``: hooks import nothing from
+#: the package, so a test pins the two.
 MACHINE_WORDS = {
     "real": "Real machine — writes move hardware",
     "rehearsal": "Rehearsal — nothing moves",
-    "simulator": "Simulator",
+    "simulator": "Simulator — nothing moves",
 }
 
 #: What the target line says when the record exists but cannot be read.

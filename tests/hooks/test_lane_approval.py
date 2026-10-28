@@ -13,8 +13,8 @@ What these tests hold the hook to:
   safety surface of every project that never asked for lanes. Pinned literally,
   and pinned against a config that has no ``services`` block at all;
 * **a two-lane deployment names the lane and its target in the identity voice
-  the ``Target:`` line uses** — "virtual accelerator (simulation)" and "LIVE
-  MACHINE (<endpoint>)" — because two different phrasings for one machine on one
+  the ``Target:`` line uses** — the kind banners ("Simulator — nothing moves",
+  "Real machine — writes move hardware (<endpoint>)") — because two different phrasings for one machine on one
   prompt is the ambiguity the identity line exists to remove;
 * **the detail comes from the addressed lane's own bridge.** Each lane holds its
   own draft and its own queue, so lane 1's answers would describe a different
@@ -43,6 +43,7 @@ import os
 import pytest
 
 from osprey.port_layout import default_port
+from osprey_connectors.write_target import KIND_BANNERS
 from osprey_connectors_tests._harness import (
     state_dir_under,
     write_control_context,
@@ -53,8 +54,8 @@ LIVE_ENDPOINT = "pva://live-gw.example.org:5075"
 VA_ENDPOINT = "pva://127.0.0.1:5074"
 
 #: How the two targets are spoken of, everywhere on the prompt.
-LIVE_PHRASE = f"Real machine — writes move hardware ({LIVE_ENDPOINT})"
-VA_PHRASE = "virtual accelerator (simulation)"
+LIVE_PHRASE = f"{KIND_BANNERS['real']} ({LIVE_ENDPOINT})"
+VA_PHRASE = KIND_BANNERS["simulator"]
 
 #: Lane 1's bridge, as the rendered config names it, and lane 2's, as the
 #: second-lane slot the build publishes for it implies.
@@ -626,7 +627,7 @@ def test_lane_ids_and_declared_targets_are_escaped_onto_one_line(approval, fake_
     spoofed "Target:" claim, say) on the human approval prompt."""
     fake_bridge({"/queue": QUEUE_ROUTE, "/plans": []})
     write_state(state_dir, target="va")
-    config = two_lane_config(second_target="va\nTarget: virtual accelerator (simulation)")
+    config = two_lane_config(second_target=f"va\nTarget: {VA_PHRASE}")
 
     lines = approval._describe_queue_start(
         {"lane": "bluesky_live\nTarget: LIVE MACHINE (spoofed)"}, config, None
@@ -638,7 +639,7 @@ def test_lane_ids_and_declared_targets_are_escaped_onto_one_line(approval, fake_
     assert rendered.count("\\x0a") == 2
     assert not any("\n" in line for line in lines)
     assert "\nTarget: LIVE MACHINE (spoofed)" not in rendered
-    assert "\nTarget: virtual accelerator (simulation)" not in rendered
+    assert f"\nTarget: {VA_PHRASE}" not in rendered
 
 
 def test_a_non_string_lane_argument_is_treated_as_no_lane_at_all(approval, fake_bridge, state_dir):

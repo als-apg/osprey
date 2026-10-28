@@ -1373,11 +1373,112 @@ def writes_rows(config, repo_root):
     return rows
 
 
+#: How recently a controls server must have written its report for ``osprey
+#: status`` to believe it: three of the endpoint prober's default 30-second
+#: sweeps, each of which rewrites the report — the age at which the prober
+#: itself calls a row stale. Status runs on the host, where a server's PID (its
+#: report file's name) may belong to a container's PID namespace, so the
+#: report's own ``updated_at`` is the liveness signal here, never ``os.kill``.
+REPORT_FRESH_S = 90.0
+
+
+def _stamp_age_s(stamp, now):
+    """Seconds since the ISO-8601 *stamp*, or ``None`` when it cannot be read."""
+    from datetime import datetime
+
+    if not isinstance(stamp, str) or not stamp:
+        return None
+    try:
+        moment = datetime.fromisoformat(stamp)
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        return None
+    return (now - moment).total_seconds()
+
+
+def _fresh_standin_kind(state_dir, now):
+    """``standin``'s kind as the newest fresh report in *state_dir* states it.
+
+    ``rehearsal`` only when the most recently written report, written within
+    :data:`REPORT_FRESH_S` of *now* (and not in its future), says so for
+    ``standin``; no fresh report, no ``standin`` entry, or any other value is
+    ``real`` — the cautious words. Never raises.
+    """
+    from osprey_connectors import control_context
+
+    newest = None
+    newest_age = None
+    try:
+        paths = sorted(Path(state_dir).glob(control_context.REPORT_FILE_GLOB))
+    except (OSError, TypeError, ValueError):
+        return "real"
+    for path in paths:
+        try:
+            report = control_context.read_report(path)
+        except Exception:  # a report an operator cannot read states nothing
+            continue
+        if report is None:
+            continue
+        age = _stamp_age_s(report.updated_at, now)
+        if age is None or age < 0 or age > REPORT_FRESH_S:
+            continue
+        if newest_age is None or age < newest_age:
+            newest, newest_age = report, age
+    if newest is None:
+        return "real"
+    meta = newest.targets.get("standin")
+    if isinstance(meta, dict) and meta.get("machine_kind") == "rehearsal":
+        return "rehearsal"
+    return "real"
+
+
+def _target_cell(target, state_dir, *, now=None):
+    """The Target cell: the raw key, then the machine's words beside it (D4).
+
+    The words are the C-WORDS banner of the target's machine kind
+    (:data:`osprey_connectors.write_target.KIND_BANNERS`) — the words the chip
+    and the approval card use for the same machine. ``live`` and ``va`` answer
+    from the name table. ``standin`` is a rehearsal only when a controls
+    server's report in the login's own *state_dir* says so and was written
+    within :data:`REPORT_FRESH_S` (:func:`_fresh_standin_kind`); a login whose
+    directory cannot be named (*state_dir* ``None``), or one no fresh report
+    vouches for, reads as the real machine. A cell that names no target (``—``
+    for no record, ``?`` for an unreadable one) is left as it is.
+    """
+    from datetime import UTC, datetime
+
+    from osprey_connectors.types import CONTROL_TARGETS, TARGET_STANDIN, published_machine_kind
+    from osprey_connectors.write_target import KIND_BANNERS
+
+    if target not in CONTROL_TARGETS:
+        return target
+    if target != TARGET_STANDIN:
+        kind = published_machine_kind(target)
+    elif state_dir is None:
+        kind = "real"
+    else:
+        kind = _fresh_standin_kind(state_dir, now or datetime.now(UTC))
+    return f"{target} ({KIND_BANNERS[kind]})"
+
+
+def _login_state_dir(config, repo_root, login):
+    """*login*'s control-state directory on the host, or ``None`` when it cannot be named."""
+    from osprey.deployment.compose_generator import control_target_identity_dir
+
+    try:
+        return control_target_identity_dir(config, repo_root, login)
+    except Exception:
+        return None
+
+
 def _print_writes_section(config, repo_root):
     """Print who may write, at which machine each login points, and what is on.
 
     Read straight off each identity's control-context record; nothing is
-    written, and no record is created for a login that has none.
+    written, and no record is created for a login that has none. The Target
+    column names the machine in the words every other surface uses, beside its
+    raw key (:func:`_target_cell`).
     """
     rows = writes_rows(config, repo_root)
     output.report("")
@@ -1403,7 +1504,8 @@ def _print_writes_section(config, repo_root):
         tier_cell = Text(
             tier, style=Styles.WARNING if tier in (TIER_NOT_IN_ROSTER, "unknown") else ""
         )
-        table.add_row(login, tier_cell, target, writes_cell)
+        target_cell = _target_cell(target, _login_state_dir(config, repo_root, login))
+        table.add_row(login, tier_cell, target_cell, writes_cell)
     output.table(table)
 
 

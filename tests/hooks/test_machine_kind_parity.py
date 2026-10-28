@@ -25,6 +25,7 @@ from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.connector_host_manager import target_display_metadata
 from osprey_connectors import posture_store
 from osprey_connectors.types import published_machine_kind
+from osprey_connectors.write_target import KIND_BANNERS
 from tests.mcp_server.test_control_target_roster import standin_config
 
 #: A PID no test host runs.
@@ -41,7 +42,8 @@ REPORT_FIXTURES: list[tuple[str, list[tuple[int | None, Any]], str]] = [
     ("live-standin", [(None, {"targets": _REHEARSAL})], "rehearsal"),
     ("standin-elsewhere", [(None, {"targets": {"standin": {"machine_kind": "real"}}})], "real"),
     ("no-report", [], "real"),
-    ("no-key", [(None, {"targets": {"standin": {"label": "LIVE MACHINE (stand-in)"}}})], "real"),
+    # A label that claims the rehearsal is display text, not a kind (C-KIND).
+    ("no-key", [(None, {"targets": {"standin": {"label": "Rehearsal — nothing moves"}}})], "real"),
     ("dead-server", [(DEAD_PID, {"targets": _REHEARSAL})], "real"),
     ("odd-value", [(None, {"targets": {"standin": {"machine_kind": "Rehearsal"}}})], "real"),
     ("meta-not-object", [(None, {"targets": {"standin": "rehearsal"}})], "real"),
@@ -143,11 +145,12 @@ def test_a_round_trip_keeps_the_key(report_dir, config_kwargs, expected):
     assert metadata["standin"]["machine_kind"] == expected
     assert metadata["va"]["machine_kind"] == "simulator"
     assert metadata["live"]["machine_kind"] == "real"
-    # The label and the kind come from one predicate.
+    # The label is the kind's banner (D4), so the two cannot disagree.
+    for target in ("live", "standin", "va"):
+        assert metadata[target]["label"] == KIND_BANNERS[metadata[target]["machine_kind"]]
     assert (metadata["standin"]["label"] == "Rehearsal — nothing moves") is (
         expected == "rehearsal"
     )
-    assert "LIVE MACHINE (stand-in)" not in metadata["standin"]["label"]
 
     target_state.write_server_record(metadata)
 

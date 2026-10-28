@@ -54,6 +54,7 @@ from osprey_connectors.control_system import is_readonly_run
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.types import published_machine_kind
+from osprey_connectors.write_target import KIND_BANNERS
 
 if TYPE_CHECKING:
     from osprey.interfaces.web_terminal.pty_manager import PtyRegistry, PtySession
@@ -1680,7 +1681,7 @@ def _switch_mutation(
         baseline=facts.baseline,
         in_flight=facts.in_flight,
         reports=facts.reports,
-        writes_enabled=target_eligibility.effective_writes_for_target(facts.section, wanted),
+        writes_enabled=target_eligibility.target_write_verdict(facts.section, wanted).allowed,
         # A pure lookup: the sidecar was asked in the facts hop, because this
         # call happens under the record lock.
         kernel_name=facts.kernel_names.get,
@@ -2679,7 +2680,10 @@ def _target_display(
     while the render describes what a *new* server would do with the config as
     it stands now. A labelled row therefore names the gateway that server last
     published, which after a switch change is the gateway the previous posture
-    selected until the reconciler's next pass republishes it.
+    selected until the reconciler's next pass republishes it. The GET row's
+    own ``label`` is not read from here: it is the banner of the row's machine
+    kind (D4), so only the endpoint and the other display facts come from a
+    published row.
 
     The render is the fallback, through the same
     :func:`~osprey.mcp_server.control_system.connector_host_manager.target_display_metadata`
@@ -2715,7 +2719,7 @@ def _target_display(
 
             derived = dict(
                 target_display_metadata(
-                    config, effective_writes=write_allowed, config_path=config_path
+                    config, write_allowed=write_allowed, config_path=config_path
                 )
             )
         except Exception:  # the roster must render, not 500
@@ -2857,7 +2861,9 @@ def _posture_view(app: Any, config_path: Path | None) -> dict[str, Any]:
         rows.append(
             {
                 "target": target,
-                "label": str(meta.get("label") or "") or target,
+                # D4: the label is the kind's banner, never a writer's string, so
+                # a stand-in no live server vouches for reads as the real machine.
+                "label": KIND_BANNERS.get(kind, KIND_BANNERS["real"]),
                 "display_name": str(meta.get("display_name") or ""),
                 "short_label": _short_label(kind),
                 "machine_kind": kind,

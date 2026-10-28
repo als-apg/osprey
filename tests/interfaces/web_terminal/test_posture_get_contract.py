@@ -87,12 +87,17 @@ DEAD_PID = 2_147_483_646
 OTHER_TERMINAL_PID = os.getppid()
 OTHER_TERMINAL_PORT = 8090
 
+#: Each machine kind's banner (C-WORDS, D4): the label every GET row carries.
+REAL_LABEL = "Real machine — writes move hardware"
+REHEARSAL_LABEL = "Rehearsal — nothing moves"
+SIM_LABEL = "Simulator — nothing moves"
+
 #: Per-target display metadata in the shape a controls server publishes.
 TARGET_META = {
-    "live": {"label": "LIVE MACHINE", "endpoint": "gw:5064", "real_machine": True},
-    "va": {"label": "virtual accelerator (simulation)", "endpoint": "localhost:5064"},
+    "live": {"label": REAL_LABEL, "endpoint": "gw:5064", "real_machine": True},
+    "va": {"label": SIM_LABEL, "endpoint": "localhost:5064"},
     "standin": {
-        "label": "LIVE MACHINE (stand-in)",
+        "label": REHEARSAL_LABEL,
         "endpoint": f"localhost:{STANDIN_PORT}",
         "real_machine": True,
         # C-KIND: the controls server vouches that this stand-in is live.
@@ -164,7 +169,6 @@ TOP_LEVEL_FIELDS = {
 def render(
     *,
     global_writes=False,
-    va_writes=None,
     standin_roles=("read_only", "write_access"),
     display_names=None,
     live_write_port=None,
@@ -210,14 +214,13 @@ def render(
         "probe_channel": "SIM:PROBE",
         "gateways": {"read_only": dict(gateway)},
     }
-    if va_writes is not None:
-        va["writes_enabled"] = va_writes
     if va_port is not None:
         del va["gateways"]["read_only"]["port"]
     config = {
         "control_system": {
             "type": "live_standin",
-            "writes_enabled": global_writes,
+            # The deployment's write tier (PR-3): only ``"allowed"`` arms.
+            "writes": "allowed" if global_writes else "never",
             # The keys a switch is judged on besides the gateways: a channel to
             # probe and the
             # operator's acknowledgement of the live gateway. Without them every
@@ -855,17 +858,19 @@ class TestStampOrdering:
         write_server_report(
             agent_data_root,
             SERVER_A,
-            targets={"live": {"label": "NAMED BY A DATED REPORT", "real_machine": True}},
+            targets={"live": {"label": REAL_LABEL, "endpoint": "dated:5064", "real_machine": True}},
             updated_at=stamp(),
         )
         write_server_report(
             agent_data_root,
             SERVER_B,
-            targets={"live": {"label": "NAMED BY AN UNDATED ONE", "real_machine": True}},
+            targets={
+                "live": {"label": REAL_LABEL, "endpoint": "undated:5064", "real_machine": True}
+            },
         )
         with only_alive(SERVER_A, SERVER_B):
             payload = get_posture(client)
-        assert row_for(payload, "live")["label"] == "NAMED BY A DATED REPORT"
+        assert row_for(payload, "live")["endpoint"] == "dated:5064"
 
 
 # -- executions in flight ---------------------------------------------------
@@ -1002,39 +1007,52 @@ class TestLastSwitchAndRealign:
 class TestTargetIdentity:
     """What each machine is called, and which derivation named it."""
 
-    def test_a_published_label_wins_over_the_render(self, client, agent_data_root):
+    def test_the_label_is_the_published_kinds_banner(self, client, agent_data_root):
+        """D4: a row's label is its machine kind's banner, never a writer's string."""
         write_server_report(agent_data_root, SERVER_A, targets=TARGET_META)
         with only_alive(SERVER_A):
             payload = get_posture(client)
-        assert row_for(payload, "live")["label"] == "LIVE MACHINE"
-        assert row_for(payload, "standin")["label"] == "LIVE MACHINE (stand-in)"
+        assert row_for(payload, "live")["label"] == REAL_LABEL
+        assert row_for(payload, "standin")["label"] == REHEARSAL_LABEL
+        assert row_for(payload, "va")["label"] == SIM_LABEL
+
+    def test_a_published_label_never_names_the_row(self, client, agent_data_root):
+        """A label an older writer minted is not repeated: the kind names the row."""
+        write_server_report(
+            agent_data_root,
+            SERVER_A,
+            targets={"live": {"label": "A LABEL AN OLDER WRITER MINTED", "real_machine": True}},
+        )
+        with only_alive(SERVER_A):
+            payload = get_posture(client)
+        assert row_for(payload, "live")["label"] == REAL_LABEL
 
     def test_the_newest_publisher_wins_per_target(self, client, agent_data_root):
         write_server_report(
             agent_data_root,
             SERVER_A,
-            targets={"live": {"label": "OLD NAME", "real_machine": True}},
+            targets={"live": {"label": REAL_LABEL, "endpoint": "old:5064", "real_machine": True}},
             updated_at=stamp(age_s=600),
         )
         write_server_report(
             agent_data_root,
             SERVER_B,
-            targets={"live": {"label": "NEW NAME", "real_machine": True}},
+            targets={"live": {"label": REAL_LABEL, "endpoint": "new:5064", "real_machine": True}},
             updated_at=stamp(age_s=1),
         )
         with only_alive(SERVER_A, SERVER_B):
             payload = get_posture(client)
-        assert row_for(payload, "live")["label"] == "NEW NAME"
+        assert row_for(payload, "live")["endpoint"] == "new:5064"
 
     def test_a_target_no_server_published_still_renders(self, client, agent_data_root):
         write_server_report(
             agent_data_root,
             SERVER_A,
-            targets={"live": {"label": "LIVE MACHINE", "real_machine": True}},
+            targets={"live": {"label": REAL_LABEL, "real_machine": True}},
         )
         with only_alive(SERVER_A):
             payload = get_posture(client)
-        assert row_for(payload, "va")["label"]
+        assert row_for(payload, "va")["label"] == SIM_LABEL
         assert row_for(payload, "va")["machine_kind"] == "simulator"
 
     def test_the_short_word_follows_the_published_kind(self, client, agent_data_root):
@@ -1049,12 +1067,12 @@ class TestTargetIdentity:
     def test_a_stand_in_label_no_server_vouched_for_reads_as_the_real_machine(
         self, client, agent_data_root
     ):
-        """The label's ``(stand-in)`` shape is not C-KIND: only the published kind is."""
+        """A label claiming the rehearsal is not C-KIND: only the published kind is."""
         unvouched = {k: v for k, v in TARGET_META["standin"].items() if k != "machine_kind"}
         write_server_report(agent_data_root, SERVER_A, targets={"standin": unvouched})
         with only_alive(SERVER_A):
             row = row_for(get_posture(client), "standin")
-        assert row["label"] == "LIVE MACHINE (stand-in)"
+        assert row["label"] == REAL_LABEL
         assert row["machine_kind"] == "real"
         assert row["short_label"] == "LIVE"
 
@@ -1076,6 +1094,7 @@ class TestTargetIdentity:
             payload = get_posture(client)
         assert row_for(payload, "va")["short_label"] == "VIRTUAL"
         assert row_for(payload, "va")["machine_kind"] == "simulator"
+        assert row_for(payload, "va")["label"] == SIM_LABEL
 
     def test_a_deployment_may_rename_the_rows(self, make_client, tmp_path):
         config = render(tmp_path=tmp_path, display_names={"va": "Digital Twin"})

@@ -15,6 +15,7 @@ import os
 
 import pytest
 
+from osprey_connectors.write_target import KIND_BANNERS
 from osprey_connectors_tests._harness import (
     state_dir_under,
     write_control_context,
@@ -27,7 +28,7 @@ SESSION_ID = "4f1c2a7e-0000-4000-8000-0000000000aa"
 ARMED_BOTH = {
     "control_system": {
         "type": "epics",
-        "writes_enabled": True,
+        "writes": "allowed",
         "connector": {
             "epics": {"prefix": "RING:"},
             "virtual_accelerator": {"prefix": "VA:"},
@@ -51,7 +52,7 @@ TIER_NEVER = {
 WITH_STANDIN = {
     "control_system": {
         "type": "epics",
-        "writes_enabled": True,
+        "writes": "allowed",
         "connector": {
             "epics": {"prefix": "RING:"},
             "virtual_accelerator": {"prefix": "VA:"},
@@ -60,9 +61,9 @@ WITH_STANDIN = {
     }
 }
 
-REAL = '"Real machine — writes move hardware"'
-REHEARSAL = '"Rehearsal — nothing moves"'
-SIMULATOR = '"Simulator"'
+REAL = f'"{KIND_BANNERS["real"]}"'
+REHEARSAL = f'"{KIND_BANNERS["rehearsal"]}"'
+SIMULATOR = f'"{KIND_BANNERS["simulator"]}"'
 
 #: The machines line of the two-machine deployment.
 MACHINES = f"machines: live={REAL} va={SIMULATOR}"
@@ -205,7 +206,9 @@ def test_a_stand_in_not_stood_up_reads_as_the_real_machine(tmp_path, run):
     _publish_standin(tmp_path, "real")
     block = run("SessionStart", config=WITH_STANDIN)
     assert block.endswith(f"machines: live={REAL} standin={REAL} va={SIMULATOR}")
-    assert "nothing moves" not in block
+    # The simulator's banner also says "nothing moves"; the stand-in must not.
+    assert f"standin={REHEARSAL}" not in block
+    assert block.count("nothing moves") == 1
 
 
 def test_a_stand_in_coming_up_under_the_session_is_marked(tmp_path, run):

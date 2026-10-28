@@ -21,6 +21,7 @@ from osprey.mcp_server.control_system.error_handling import ToolError, connector
 from osprey.mcp_server.control_system.server_context import initialize_server_context
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.errors import ChannelNotFoundError
+from osprey_connectors.write_target import KIND_BANNERS
 from osprey_connectors_tests._write_fakes import arm_switch
 from tests._approval_stamp_fixture import ApprovalStamps
 from tests.connectors.test_mock_connector import _config_with_writes_enabled
@@ -29,7 +30,7 @@ from tests.mcp_server.conftest import extract_response_dict, get_tool_fn, hook_e
 
 UNKNOWN = "NO:SUCH:CHANNEL"
 
-ACTIVE_TARGET = {"name": "va", "label": "virtual accelerator (simulation)"}
+ACTIVE_TARGET = {"name": "va", "label": KIND_BANNERS["simulator"]}
 
 SUGGESTIONS = [
     "Nothing was read from or written to this address.",
@@ -51,7 +52,7 @@ async def served(tmp_path, monkeypatch):
     view = served_tree(tmp_path / "served", ["A:SP"], readings=["A:RB"])
     control_system = {
         "type": "virtual_accelerator",
-        "writes_enabled": True,
+        "writes": "allowed",
         "connector": {"virtual_accelerator": in_process_config(view, response_delay_ms=0)},
     }
     (tmp_path / "config.yml").write_text(yaml.safe_dump({"control_system": control_system}))
@@ -112,8 +113,8 @@ async def test_a_read_of_an_unknown_address_is_not_found():
         "error": True,
         "error_type": "not_found",
         "error_message": (
-            "Unknown channel during channel_read (active target: virtual accelerator "
-            f"(simulation)): {UNKNOWN} is not a channel of this facility"
+            f"Unknown channel during channel_read (active target: {ACTIVE_TARGET['label']}): "
+            f"{UNKNOWN} is not a channel of this facility"
         ),
         "suggestions": SUGGESTIONS,
         "details": {
@@ -146,8 +147,8 @@ async def test_a_write_to_an_unknown_address_is_not_found():
         "error": True,
         "error_type": "not_found",
         "error_message": (
-            "Unknown channel during channel_write (active target: virtual accelerator "
-            f"(simulation)): {UNKNOWN} is not a channel of this facility"
+            f"Unknown channel during channel_write (active target: {ACTIVE_TARGET['label']}): "
+            f"{UNKNOWN} is not a channel of this facility"
         ),
         "suggestions": SUGGESTIONS,
         "details": {"channel": UNKNOWN, "active_target": ACTIVE_TARGET},
