@@ -123,11 +123,14 @@ REDACTED = "<redacted>"
 #: say nothing about the CLI's shape, so a live run may carry them although
 #: the fixture does not.
 _TRANSIENT_EVENTS = frozenset({"api_error"})
-#: Event names the CLI's background housekeeping emits. It starts on a timer
-#: that does not hold the process open, so a turn that ends first never emits
-#: them; whether a run carries them says how long it lasted, not what shape
-#: the CLI speaks. Neither side of the comparison holds them.
-_HOUSEKEEPING_EVENTS = frozenset({"retention_sweep"})
+#: Event names the CLI emits from work that runs beside the turn rather than
+#: in it: the retention sweep starts on a timer that does not hold the process
+#: open, and ``mcp_server_connection`` reports the project's MCP servers coming
+#: up while the turn is already under way. Whether a run carries them depends
+#: on how the two raced, not on what shape the CLI speaks: one capture of the
+#: pinned version has them and the next does not. Neither side of the
+#: comparison holds them.
+_HOUSEKEEPING_EVENTS = frozenset({"retention_sweep", "mcp_server_connection"})
 _BASIC = re.compile(r"^Basic ([A-Za-z0-9+/]+=*)$")
 #: Log-record fields OTLP/JSON spells as lowercase hex, where the protobuf JSON
 #: printer writes base64.
@@ -395,6 +398,24 @@ def structure(requests: list[Mapping[str, Any]]) -> dict[str, Any]:
     }
 
 
+def contract_events(
+    expected: Mapping[str, list[str]], live: Mapping[str, list[str]]
+) -> tuple[dict[str, list[str]], dict[str, list[str]], dict[str, list[str]]]:
+    """The events both sides are held to, and the event names that differ.
+
+    Housekeeping events leave both sides; a transient event may appear live
+    without the fixture. Returns ``(expected, live, drift)``, where *drift*
+    maps ``missing`` and ``extra`` to sorted event names.
+    """
+    kept_expected = {n: k for n, k in expected.items() if n not in _HOUSEKEEPING_EVENTS}
+    kept_live = {n: k for n, k in live.items() if n not in _HOUSEKEEPING_EVENTS}
+    drift = {
+        "missing": sorted(set(kept_expected) - set(kept_live)),
+        "extra": sorted(set(kept_live) - set(kept_expected) - _TRANSIENT_EVENTS),
+    }
+    return kept_expected, kept_live, drift
+
+
 def header_shape(authorization: str, login: str | None = None) -> str:
     """``Basic <identity>:<password>`` when the header is a Basic login, else what it is."""
     match = _BASIC.match(authorization)
@@ -552,19 +573,15 @@ def test_the_pinned_cli_speaks_the_otlp_shape_the_fixture_records(
         f"re-capture with {CAPTURE_ENV}=1 under a provider key"
     )
     expected = structure(recorded["requests"])
-    for events in (expected["events"], live["events"]):
-        for name in _HOUSEKEEPING_EVENTS:
-            events.pop(name, None)
-    missing = sorted(set(expected["events"]) - set(live["events"]))
-    extra = sorted(set(live["events"]) - set(expected["events"]) - _TRANSIENT_EVENTS)
-    assert not missing and not extra, (
+    expected_events, live_events, drift = contract_events(expected["events"], live["events"])
+    assert not drift["missing"] and not drift["extra"], (
         "event names differ from the fixture",
-        {"missing": missing, "extra": extra},
+        drift,
     )
-    for name, keys in expected["events"].items():
-        assert live["events"][name] == keys, (
+    for name, keys in expected_events.items():
+        assert live_events[name] == keys, (
             f"attribute keys of {name!r} differ from the fixture",
-            sorted(set(live["events"][name]) ^ set(keys)),
+            sorted(set(live_events[name]) ^ set(keys)),
         )
     assert live["resource_keys"] == expected["resource_keys"], (
         "resource keys differ from the fixture",
