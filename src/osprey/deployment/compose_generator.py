@@ -5508,6 +5508,12 @@ def prepare_compose_files(
     repo_root = resolve_repo_root(config)
     ensure_agent_record_dirs(repo_root, relative_to=repo_root)
     ensure_archive_dir(repo_root, relative_to=repo_root)
+    # The history page binds its own spool and state directories, and drops
+    # privileges before it writes: a bind source the runtime created would be
+    # root-owned and every refusal it records would be lost.
+    if history_page_deployed(config):
+        ensure_spool_dir(repo_root, HISTORY_SERVICE, relative_to=repo_root)
+        ensure_state_dir(repo_root, HISTORY_SERVICE, relative_to=repo_root)
     for service_dir in derived_compose_dirs(config):
         derived_template = os.path.join(SERVICES_DIR, service_dir, TEMPLATE_FILENAME)
         if not os.path.isfile(derived_template):
