@@ -155,7 +155,7 @@ def _queue_config(make_config):
     return make_config(
         {
             "approval": {"enabled": True, "default_policy": "always"},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 

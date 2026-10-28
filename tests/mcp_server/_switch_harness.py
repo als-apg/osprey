@@ -246,7 +246,7 @@ def raw_config(
         va_block["probe_channel"] = va_probe
     control_system = {
         "type": live_type,
-        "writes_enabled": False,
+        "writes": "never",
         "connector": {live_type: live_block, "virtual_accelerator": va_block},
     }
     target_switch = {
@@ -264,11 +264,9 @@ def raw_config(
 
 def gateway_config(
     *,
-    writes_enabled=True,
+    writes="allowed",
     read_gateway=True,
     read_port=READ_GATEWAY_PORT,
-    live_writes_enabled=None,
-    va_writes_enabled=None,
     va_gateways=False,
 ):
     """A config whose ``live`` target routes through configured CA gateways.
@@ -277,13 +275,12 @@ def gateway_config(
     nothing serves — the posture issue #718 is about: a write-capable gateway
     that is configured (so the role is selected) but not actually running.
 
-    The ``writes_enabled`` keys set only the write tier, which is target-blind:
-    a literal ``True`` in the deployment-wide *writes_enabled* or in either
-    block (*live_writes_enabled*, *va_writes_enabled*; ``None`` leaves the key
-    out) allows writes for every machine. Which machine is armed is the
-    login's switch, which :func:`arm` turns on. *va_gateways* gives the
-    simulator a gateway pair of its own, so an armed ``va`` has a
-    write-capable gateway to select.
+    *writes* is the deployment's write tier (``control_system.writes``;
+    ``None`` leaves the key out, which reads ``never``). The tier is
+    target-blind: ``"allowed"`` allows writes for every machine, and which
+    machine is armed is the login's switch, which :func:`arm` turns on.
+    *va_gateways* gives the simulator a gateway pair of its own, so an armed
+    ``va`` has a write-capable gateway to select.
     """
     gateways = {"write_access": {"address": GATEWAY_HOST, "port": DEAD_WRITE_PORT}}
     if read_gateway:
@@ -295,18 +292,13 @@ def gateway_config(
             "read_only": {"address": GATEWAY_HOST, "port": VA_READ_GATEWAY_PORT},
             "write_access": {"address": GATEWAY_HOST, "port": VA_WRITE_GATEWAY_PORT},
         }
-    if live_writes_enabled is not None:
-        live_block["writes_enabled"] = live_writes_enabled
-    if va_writes_enabled is not None:
-        va_block["writes_enabled"] = va_writes_enabled
-    return {
-        "control_system": {
-            "type": GATEWAY_TYPE,
-            "writes_enabled": writes_enabled,
-            "connector": {GATEWAY_TYPE: live_block, "virtual_accelerator": va_block},
-        },
-        "archiver": {"type": "mongodb_archiver"},
+    control_system = {
+        "type": GATEWAY_TYPE,
+        "connector": {GATEWAY_TYPE: live_block, "virtual_accelerator": va_block},
     }
+    if writes is not None:
+        control_system["writes"] = writes
+    return {"control_system": control_system, "archiver": {"type": "mongodb_archiver"}}
 
 
 def project_config(tmp_path, control_system):

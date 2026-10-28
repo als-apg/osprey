@@ -15,10 +15,10 @@ and pinned as module constants the test asserts against on the far side of the
 pipe. Nothing is randomised and nothing is derived: what the child raises is
 what the parent must see, field for field.
 
-Writes still pass through the base class's ``writes_enabled`` guard, so a child
-using this connector needs a config with ``control_system.writes_enabled: true``
-— otherwise the guard returns a blocked *result* and this connector's
-``write_channel`` is never entered.
+Writes still pass through the base class's write verdict, so a child using
+this connector needs a config whose tier is ``control_system.writes: allowed``
+and its target's switch on — otherwise the guard returns a blocked *result*
+and this connector's ``write_channel`` is never entered.
 """
 
 from __future__ import annotations

@@ -38,7 +38,7 @@ HOOK_CONFIG = {
 
 APPROVAL_CONFIG = {
     "approval": {"enabled": True, "default_policy": "always"},
-    "control_system": {"writes_enabled": True},
+    "control_system": {"writes": "allowed"},
 }
 
 CONVERSATION = "conv-1111"

@@ -61,18 +61,6 @@ _TOKEN = "genuinely-valid-token"
 #: the real machine (C-KIND): a bluesky process never vouches for a stand-in.
 _ALLOWED_SECTION = {"type": "epics", "writes": "allowed"}
 
-#: The old-model section the bridge startup-guard cases at the end still read.
-#: Those cases belong to the bridge task, which moves them to the verdict.
-_ARMED_SECTION = {
-    "type": "epics",
-    "writes_enabled": False,
-    "connector": {
-        "epics": {"prefix": "X:", "writes_enabled": True},
-        "virtual_accelerator": {"host": "localhost", "writes_enabled": True},
-        "live_standin": {"prefix": "S:", "writes_enabled": True},
-    },
-}
-
 #: Words a refusal must never carry: config keys, files and build commands.
 _BANNED = ("writes_enabled", "profile.yml", "config.yml", "osprey build", "redeploy")
 
@@ -532,7 +520,7 @@ def test_the_bridge_startup_guard_refuses_a_writable_lane_with_no_limits_db(tmp_
 
     _patch_bridge_config(
         monkeypatch,
-        section=_ARMED_SECTION,
+        section=_ALLOWED_SECTION,
         lane_targets={"bluesky": "standin"},
         limits_enabled=True,
         db_path=str(tmp_path / "missing.json"),
@@ -555,7 +543,7 @@ def test_the_bridge_startup_guard_does_not_read_the_switch(tmp_path, monkeypatch
 
     _patch_bridge_config(
         monkeypatch,
-        section=_ARMED_SECTION,
+        section=_ALLOWED_SECTION,
         lane_targets={"bluesky": "standin"},
         limits_enabled=True,
         db_path=str(tmp_path / "missing.json"),
@@ -573,7 +561,7 @@ def test_the_bridge_startup_guard_ignores_a_switch_of_another_target(tmp_path, m
 
     _patch_bridge_config(
         monkeypatch,
-        section=_ARMED_SECTION,
+        section=_ALLOWED_SECTION,
         lane_targets={"bluesky": "va"},
         limits_enabled=True,
         db_path=str(tmp_path / "missing.json"),

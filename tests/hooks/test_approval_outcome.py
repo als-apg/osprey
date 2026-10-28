@@ -41,7 +41,7 @@ APPROVAL_CONFIG = {
         "default_policy": "always",
         "tools": {"channel_write": "always", "channel_read": "skip"},
     },
-    "control_system": {"writes_enabled": True},
+    "control_system": {"writes": "allowed"},
 }
 
 CONVERSATION = "conv-1111"

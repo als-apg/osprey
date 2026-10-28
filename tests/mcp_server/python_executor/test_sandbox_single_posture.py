@@ -155,9 +155,9 @@ def _write_deployment(root: Path) -> Path:
         "approval": {"enabled": False},
         "control_system": {
             "type": "epics",
-            # Otherwise the connector's writes_enabled gate refuses first and
-            # neither path ever reaches a limits decision.
-            "writes_enabled": True,
+            # Otherwise the write tier refuses first and neither path ever
+            # reaches a limits decision.
+            "writes": "allowed",
             "limits_checking": {
                 "enabled": True,
                 "mode": "exclusive",

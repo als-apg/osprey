@@ -11,14 +11,12 @@ the chain behavior by running hooks sequentially.
 """
 
 import json
-from pathlib import Path
 
 import pytest
 import yaml
 
+from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._harness import isolate_verdict_environment, write_control_context
-
-HOOKS_DIR = Path(__file__).parents[2] / ".claude" / "hooks"
 
 WRITE_HOOK_CHAIN = [
     "osprey_writes_check.py",
@@ -76,7 +74,7 @@ def _stamped_agent_data_root(tmp_path, monkeypatch):
 
 def _make_chain_config(
     tmp_path,
-    writes_enabled=True,
+    writes="allowed",
     limits_enabled=True,
     approval_enabled=True,
     approval_default_policy="selective",
@@ -92,7 +90,7 @@ def _make_chain_config(
         "control_system": {
             "type": "virtual_accelerator",
             "connector": {"virtual_accelerator": {"serving": "in_process"}},
-            "writes_enabled": writes_enabled,
+            "writes": writes,
             "limits_checking": {
                 "enabled": limits_enabled,
                 "mode": mode,
@@ -135,7 +133,7 @@ def test_writes_disabled_blocks_before_limits(tmp_path, hook_runner):
     """Writes-disabled hook blocks before limits hook ever runs."""
     config = _make_chain_config(
         tmp_path,
-        writes_enabled=False,
+        writes="never",
         channels_db={"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}},
         approval_enabled=False,
     )
@@ -159,7 +157,7 @@ def test_switch_off_blocks_before_limits(tmp_path, hook_runner, _stamped_agent_d
     write_control_context(_stamped_agent_data_root, target="va", switch={})
     config = _make_chain_config(
         tmp_path,
-        writes_enabled=True,
+        writes="allowed",
         channels_db={"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}},
         approval_enabled=False,
     )
@@ -175,14 +173,17 @@ def test_switch_off_blocks_before_limits(tmp_path, hook_runner, _stamped_agent_d
 
     assert blocked_by == "osprey_writes_check.py"
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
-    assert "Writes are off" in result["hookSpecificOutput"]["permissionDecisionReason"]
+    assert (
+        refusal_phrase("switch_off", "simulator")
+        in result["hookSpecificOutput"]["permissionDecisionReason"]
+    )
 
 
 def test_limits_violation_blocks_before_approval(tmp_path, hook_runner):
     """Limits violation blocks before approval hook runs."""
     config = _make_chain_config(
         tmp_path,
-        writes_enabled=True,
+        writes="allowed",
         channels_db={"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}},
         approval_default_policy="selective",
         mode="exclusive",
@@ -206,7 +207,7 @@ def test_valid_write_reaches_approval(tmp_path, hook_runner):
     """Valid write with enabled writes and valid limits reaches approval hook."""
     config = _make_chain_config(
         tmp_path,
-        writes_enabled=True,
+        writes="allowed",
         channels_db={"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}},
         approval_default_policy="selective",
         mode="optional",
@@ -230,7 +231,7 @@ def test_valid_write_disabled_approval_passes_all(tmp_path, hook_runner):
     """Valid write with disabled approval passes all hooks."""
     config = _make_chain_config(
         tmp_path,
-        writes_enabled=True,
+        writes="allowed",
         channels_db={"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}},
         approval_enabled=False,
         mode="optional",
@@ -253,7 +254,7 @@ def test_read_tool_skips_write_checks(tmp_path, hook_runner):
     """Read tools pass through all write-focused hooks."""
     config = _make_chain_config(
         tmp_path,
-        writes_enabled=False,
+        writes="never",
         limits_enabled=False,
         approval_enabled=False,
     )
@@ -276,7 +277,7 @@ def test_non_osprey_tool_passes_entire_chain(tmp_path, hook_runner):
     """Non-osprey tools pass through the entire hook chain untouched."""
     config = _make_chain_config(
         tmp_path,
-        writes_enabled=False,
+        writes="never",
         limits_enabled=False,
         approval_default_policy="always",
     )
@@ -298,7 +299,7 @@ def test_python_execute_chain_with_framework_patterns(tmp_path, hook_runner):
     """Full hook chain triggers approval for Tango write patterns through python_execute."""
     config = _make_chain_config(
         tmp_path,
-        writes_enabled=True,
+        writes="allowed",
         approval_default_policy="selective",
     )
 
@@ -322,7 +323,7 @@ def test_per_tool_chain_write_always(tmp_path, hook_runner):
         "control_system": {
             "type": "virtual_accelerator",
             "connector": {"virtual_accelerator": {"serving": "in_process"}},
-            "writes_enabled": True,
+            "writes": "allowed",
             "limits_checking": {"enabled": False},
         },
         "approval": {
@@ -357,7 +358,7 @@ def test_per_tool_chain_read_skip(tmp_path, hook_runner):
         "control_system": {
             "type": "virtual_accelerator",
             "connector": {"virtual_accelerator": {"serving": "in_process"}},
-            "writes_enabled": True,
+            "writes": "allowed",
             "limits_checking": {"enabled": False},
         },
         "approval": {

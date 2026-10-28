@@ -303,7 +303,7 @@ def mock_config(tmp_path):
                 "control_system": {
                     "type": "virtual_accelerator",
                     "connector": {"virtual_accelerator": {"serving": "in_process"}},
-                    "writes_enabled": True,
+                    "writes": "allowed",
                     "limits_checking": {"enabled": False},
                 },
                 "archiver": {"type": "mock"},
@@ -315,7 +315,7 @@ def mock_config(tmp_path):
 
 @pytest.fixture
 def mock_config_writes_disabled(tmp_path):
-    """Config with writes_enabled: false."""
+    """Config whose write tier is never."""
     config = tmp_path / "config.yml"
     config.write_text(
         yaml.dump(
@@ -323,7 +323,7 @@ def mock_config_writes_disabled(tmp_path):
                 "control_system": {
                     "type": "virtual_accelerator",
                     "connector": {"virtual_accelerator": {"serving": "in_process"}},
-                    "writes_enabled": False,
+                    "writes": "never",
                     "limits_checking": {"enabled": False},
                 },
             }
@@ -357,7 +357,7 @@ def mock_config_with_limits(tmp_path):
                 "control_system": {
                     "type": "virtual_accelerator",
                     "connector": {"virtual_accelerator": {"serving": "in_process"}},
-                    "writes_enabled": True,
+                    "writes": "allowed",
                     "limits_checking": {
                         "enabled": True,
                         "database_path": str(limits_db),

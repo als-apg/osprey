@@ -27,9 +27,7 @@ def test_allow_path_emits_no_decision_in_dispatch_context(
 ):
     """approval.enabled=false normally emits explicit allow — not under dispatch."""
     monkeypatch.setenv("OSPREY_DISPATCH_RUN", "1")
-    config = make_config(
-        {"approval": {"enabled": False}, "control_system": {"writes_enabled": True}}
-    )
+    config = make_config({"approval": {"enabled": False}, "control_system": {"writes": "allowed"}})
 
     result = hook_runner(
         "osprey_approval.py",
@@ -49,9 +47,7 @@ def test_allow_path_unchanged_outside_dispatch_context(
 ):
     """Without the env var the explicit allow is preserved (web-terminal behavior)."""
     monkeypatch.delenv("OSPREY_DISPATCH_RUN", raising=False)
-    config = make_config(
-        {"approval": {"enabled": False}, "control_system": {"writes_enabled": True}}
-    )
+    config = make_config({"approval": {"enabled": False}, "control_system": {"writes": "allowed"}})
 
     result = hook_runner(
         "osprey_approval.py",
@@ -77,7 +73,7 @@ def test_skip_policy_emits_no_decision_in_dispatch_context(
                 "default_policy": "always",
                 "tools": {"archiver_read": "skip"},
             },
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -112,7 +108,7 @@ def test_ask_path_still_asks_in_dispatch_context(tmp_path, hook_runner, make_con
                 "default_policy": "selective",
                 "requires_approval": ["channel_write", "execute"],
             },
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 

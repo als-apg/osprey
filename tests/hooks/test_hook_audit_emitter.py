@@ -771,7 +771,7 @@ class TestWritesCheckDenies:
         assert record["subject"] == "mcp__bluesky__queue_add"
 
     def test_the_kill_switch_deny_records(self, repo, project_env):
-        (repo / "config.yml").write_text("control_system:\n  writes_enabled: false\n")
+        (repo / "config.yml").write_text("control_system:\n  writes: never\n")
         env = {**project_env, "OSPREY_CONFIG": str(repo / "config.yml")}
         result = run_hook(
             "osprey_writes_check.py",
@@ -786,7 +786,7 @@ class TestWritesCheckDenies:
         assert "reason=tier_never" in record["detail"]
 
     def test_an_allowed_call_records_nothing(self, repo, project_env, monkeypatch):
-        (repo / "config.yml").write_text("control_system:\n  writes_enabled: true\n")
+        (repo / "config.yml").write_text("control_system:\n  writes: allowed\n")
         _switch_on_for_alice(repo, monkeypatch)
         env = {**project_env, "OSPREY_CONFIG": str(repo / "config.yml")}
         result = run_hook(
@@ -898,7 +898,7 @@ class TestOtherHookDenies:
                     "control_system": {
                         "type": "virtual_accelerator",
                         "connector": {"virtual_accelerator": {"serving": "in_process"}},
-                        "writes_enabled": True,
+                        "writes": "allowed",
                         "limits_checking": {
                             "enabled": True,
                             "database_path": str(database),
@@ -937,7 +937,7 @@ class TestOtherHookDenies:
                     "control_system": {
                         "type": "virtual_accelerator",
                         "connector": {"virtual_accelerator": {"serving": "in_process"}},
-                        "writes_enabled": True,
+                        "writes": "allowed",
                         "limits_checking": {
                             "enabled": True,
                             "database_path": str(database),
@@ -970,7 +970,7 @@ class TestOtherHookDenies:
                         "default_policy": "selective",
                         "requires_approval": ["channel_write", "execute"],
                     },
-                    "control_system": {"writes_enabled": True},
+                    "control_system": {"writes": "allowed"},
                 }
             )
         )
@@ -1009,7 +1009,7 @@ class TestOtherHookDenies:
             yaml.dump(
                 {
                     "approval": {"enabled": False},
-                    "control_system": {"writes_enabled": True},
+                    "control_system": {"writes": "allowed"},
                 }
             )
         )

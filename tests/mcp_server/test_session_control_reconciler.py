@@ -1466,18 +1466,10 @@ class TestTheSwitchReachesARunningChild:
         self, monkeypatch, make_manager, state_root, tmp_path
     ):
         from osprey_connectors.control_system._base import WriteOutcome
-        from osprey_connectors.types import VIRTUAL_ACCELERATOR
         from tests.mcp_server._switch_harness import GATEWAY_TYPE, gateway_config, project_config
 
-        raw = gateway_config(writes_enabled=False, va_writes_enabled=True, va_gateways=True)
-        config_path = project_config(
-            tmp_path,
-            {
-                "type": GATEWAY_TYPE,
-                "writes_enabled": False,
-                "connector": {VIRTUAL_ACCELERATOR: {"writes_enabled": True}},
-            },
-        )
+        raw = gateway_config(va_gateways=True)
+        config_path = project_config(tmp_path, {"type": GATEWAY_TYPE, "writes": "allowed"})
         manager = make_manager(raw=raw, config_path=config_path)
         await manager.ensure_started("va")
         assert manager.status()["selected_role"] == "read_only"

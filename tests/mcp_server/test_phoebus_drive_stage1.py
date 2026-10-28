@@ -34,8 +34,9 @@ _MOD = "osprey.mcp_server.phoebus.tools.bridge_tools"
 #: A tier that allows writes, on a deployment whose baseline (``live``) is real.
 _ALLOWED = {"type": "epics", "writes": "allowed"}
 
-#: The armed posture an older config states: no ``writes`` key, a connector
-#: leaf set true. The tier reads it as ``allowed``; the switch still decides.
+#: The armed posture an unrebuilt render states: no ``writes`` key, a connector
+#: leaf set true. There is no run-time retired-leaf fallback, so the tier reads
+#: it as ``never`` whatever the switch says.
 _OLD_ARMED = {"type": "epics", "connector": {"epics": {"writes_enabled": True}}}
 
 #: Approval that asks for every tool.
@@ -103,24 +104,18 @@ async def test_tier_never_refuses_even_with_the_switch_on(tmp_path, monkeypatch,
     assert ctx["envelope"]["details"]["reason"] == "tier_never"
 
 
-async def test_skew_switch_off_record_under_old_armed_config_refuses(tmp_path, monkeypatch, stamps):
-    """An older config that armed the connector does not stand in for the switch."""
-    _deploy(tmp_path, monkeypatch, section=_OLD_ARMED, switch_on=False)
+async def test_old_armed_config_refuses_as_tier_never_with_the_switch_on(
+    tmp_path, monkeypatch, stamps
+):
+    """An unrebuilt render's armed connector leaf is no tier: the drive never fires."""
+    _deploy(tmp_path, monkeypatch, section=_OLD_ARMED)
     with patch(f"{_MOD}._http_post_drive") as post:
         with stamps.approved("phoebus_drive"):
             with assert_raises_error(error_type="writes_disabled") as ctx:
                 await _drive()(widget="SetButton", verb="click")
     post.assert_not_called()
-    assert _OFF_PHRASE in ctx["envelope"]["error_message"]
-    assert ctx["envelope"]["details"]["reason"] == "switch_off"
-
-
-async def test_old_armed_config_drives_with_the_switch_on(tmp_path, monkeypatch, stamps):
-    _deploy(tmp_path, monkeypatch, section=_OLD_ARMED)
-    with patch(f"{_MOD}._http_post_drive", return_value=_OK) as post:
-        with stamps.approved("phoebus_drive"):
-            await _drive()(widget="SetButton", verb="click")
-    post.assert_called_once()
+    assert refusal_phrase("tier_never", "real") in ctx["envelope"]["error_message"]
+    assert ctx["envelope"]["details"]["reason"] == "tier_never"
 
 
 async def test_unreachable_verdict_refuses_record_unavailable(tmp_path, monkeypatch, stamps):
