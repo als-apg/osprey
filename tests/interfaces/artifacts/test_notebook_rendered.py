@@ -13,6 +13,7 @@ renders the notebook's cells AND follows the posture in both directions.
 import re
 
 import nbformat
+import pytest
 
 # Hosts nbconvert's default HTMLExporter template pulls assets from.
 _CDN_HOSTS = ("cdnjs.cloudflare.com", "unpkg.com")
@@ -119,3 +120,34 @@ class TestNotebookRenderedAPI:
         resp = app_client.get(f"/api/notebooks/{entry.id}/rendered")
         assert resp.status_code == 500
         assert "Notebook rendering failed" in resp.json()["detail"]
+
+
+class TestNotebookPageIsOpaque:
+    """A notebook's outputs are agent-written HTML and script, so the rendered
+    page runs on an opaque origin and carries the C-MSG print listener."""
+
+    @pytest.fixture
+    def page(self, app_client):
+        entry = app_client.app.state.artifact_store.save_file(
+            file_content=_make_notebook_bytes(),
+            filename="demo.ipynb",
+            artifact_type="notebook",
+            title="Demo",
+            description="",
+            mime_type="application/x-ipynb+json",
+            tool_source="test",
+        )
+        return app_client.get(f"/api/notebooks/{entry.id}/rendered")
+
+    def test_the_rendered_page_carries_the_opaque_sandbox(self, page):
+        from osprey.interfaces.opaque_origin import OPAQUE_CSP
+
+        assert page.status_code == 200
+        assert page.headers["content-security-policy"] == OPAQUE_CSP
+        assert page.headers["x-content-type-options"] == "nosniff"
+
+    def test_the_page_carries_the_listener(self, page):
+        body = page.text
+        assert "osprey-artifact-ready" in body
+        assert "osprey-artifact-print" in body
+        assert "window.opener || window.parent" in body

@@ -47,7 +47,7 @@ from pathlib import Path
 
 import pytest
 
-from tests._tree_scan import matching_lines, text_files
+from tests._text_sweep import matching_lines, text_files
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _THIS_FILE = Path(__file__).resolve()

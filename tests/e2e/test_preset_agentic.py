@@ -211,10 +211,10 @@ async def test_control_assistant_channel_finder_flow(tmp_path: Path) -> None:
 async def test_hello_world_write_triggers_approval_hook(tmp_path: Path) -> None:
     """Hello-world write probe: agent sets a writable facility setpoint; approval hook fires.
 
-    Flips ``writes_enabled: true`` so the writes-disabled kill switch
-    (``osprey_writes_check.py``, safety_layer 1) doesn't deny before the
-    approval hook (safety_layer 2) gets to return ``ask`` — which is what
-    triggers the SDK's ``can_use_tool`` callback.
+    Arms writes (tier ``control_system.writes: allowed`` and this login's
+    switch on) so the writes check (``osprey_writes_check.py``, safety_layer 1)
+    doesn't deny before the approval hook (safety_layer 2) gets to return
+    ``ask`` — which is what triggers the SDK's ``can_use_tool`` callback.
     """
     repo = init_project(tmp_path, "hw_write", template="hello_world", provider="als-apg")
     enable_writes_in_project(repo)

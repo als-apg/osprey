@@ -102,10 +102,11 @@ async def _assert_session_write_dropped(connector, switch: str) -> None:
 
 class TestScenarioReload:
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("va_switch_on")
     async def test_scenario_switch_reloads_overrides_and_drops_session_writes(self, va_container):
         project = va_container
 
-        with e2e_conftest.patched_config(**{"control_system.writes_enabled": True}):
+        with e2e_conftest.patched_config(**{"control_system.writes": "allowed"}):
             connector = await e2e_conftest.connect_va()
 
             # Baseline: the session starts in nominal plus the suite scenario, and

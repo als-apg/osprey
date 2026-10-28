@@ -286,5 +286,7 @@ def test_incomplete_frame_body_still_yields_an_exception(body):
     assert isinstance(rebuilt, ConnectionError)
 
 
-def test_the_package_re_exports_every_field_list():
-    assert set(exceptions.__all__) <= set(osprey_connectors.ipc.__all__)
+def test_the_registry_is_internal_to_the_package():
+    # Both sides of the pipe are this package's own code, so the registry is
+    # not API: the namespace lists none of it.
+    assert not set(exceptions.__all__) & set(osprey_connectors.ipc.__all__)

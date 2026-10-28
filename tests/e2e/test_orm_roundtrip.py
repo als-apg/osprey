@@ -83,12 +83,14 @@ import yaml
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.services.bluesky_bridge.figure import rows_from_columnar
 from osprey.services.bluesky_bridge.orm_analysis import build_response_matrix
+from osprey_connectors import posture_store
 from osprey_connectors.simulation.state import STILL_SCENARIO, read_active_state
 from osprey_connectors.workspace import rendered_config_path, resolve_simulation_state_dir
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
 from tests.e2e._deploy_support import wait_for_health
 from tests.e2e._volumes import remove_project_volumes
+from tests.e2e.sdk_helpers import arm_deployed_queue_owner
 
 pytestmark = [
     pytest.mark.e2e,
@@ -263,6 +265,9 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
     # The repo root's `.env` — the deployment's whole secret store, and the file
     # `osprey up` refuses to start without.
     _orm_stack.seed_repo_env(repo)
+    # The plans write, and the worker's writes follow the add's owner's switch:
+    # this login's switch on in the deployment's record, before `up`.
+    arm_deployed_queue_owner(repo)
 
     osprey_bin = _orm_stack.find_osprey_console_script()
 
@@ -611,7 +616,12 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
 
     token = _orm_stack.minted_launch_token(deployed_orm_stack.repo)
     run_id = _queue_drive.stage_and_enqueue(
-        BRIDGE_URL, "orm", plan_args, client_id="orm-roundtrip-e2e", token=token
+        BRIDGE_URL,
+        "orm",
+        plan_args,
+        client_id="orm-roundtrip-e2e",
+        token=token,
+        owner=posture_store.current_owner(),
     )
     _queue_drive.start_draining(BRIDGE_URL, token, run_id)
 

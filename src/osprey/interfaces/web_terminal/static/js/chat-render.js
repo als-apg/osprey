@@ -37,7 +37,7 @@ import {
   createUserEntry,
 } from './chat-blocks.js';
 import { createTaskCard } from './chat-plan.js';
-import { createToolGroup } from './chat-tool-cards.js';
+import { createToolGroup, refusalLine } from './chat-tool-cards.js';
 import { createApprovalCard } from './chat-approval.js';
 import { createQuestionCard } from './chat-question.js';
 import { HIDDEN_TOOL_KEYS, PLAN_TOOL_KEY, QUESTION_TOOL_KEY, toolKey } from './chat-tool-vocab.js';
@@ -54,6 +54,7 @@ export { elem } from './chat-dom.js';
 /** @typedef {import('./chat-tool-cards.js').ToolGroup} ToolGroup */
 /** @typedef {import('./chat-tool-cards.js').ToolRow} ToolRow */
 /** @typedef {import('./chat-tool-cards.js').Decision} Decision */
+/** @typedef {import('./chat-tool-cards.js').ToolOutcome} ToolOutcome */
 /** @typedef {import('./chat-plan.js').TaskCard} TaskCard */
 /** @typedef {import('./chat-permission.js').PermissionBody} PermissionBody */
 
@@ -65,7 +66,8 @@ export { elem } from './chat-dom.js';
  * `tool_result` | `permission_request` | `permission_resolved` | `result` |
  * `session_reset` | `error` | `system`), `content` (text, deltas and thinking),
  * `tool_name` and `tool_name_raw` (`tool_use`; the raw name, prefix intact, is
- * the preferred phrase key), `message` (`error`), `is_error`, and `decision` (a
+ * the preferred phrase key), `message` (`error`), `is_error`, `refusal` (a
+ * `tool_result` the hooks refused: `{reason, phrase}`, else null), and `decision` (a
  * replayed `tool_result`: `allowed` or `denied`, when its call has one).
  *
  * @typedef {{ type: string, [key: string]: any }} ChatEvent
@@ -645,7 +647,20 @@ export function createChatRenderer(container, options = {}) {
         const row = chips.get(String(event.tool_use_id ?? ''));
         // Only a replayed call carries a decision; a live frame never does.
         if (event.decision) showDecision(row, event.decision);
-        row?.finish(event);
+        if (row) {
+          row.finish(event);
+        } else {
+          // A refused write with no row here (a hidden tool, a subagent's subagent)
+          // still says who can lift it.
+          const line = refusalLine(/** @type {ToolOutcome} */ (event));
+          if (line) {
+            const t = ensureTurn();
+            closeText(t);
+            closeThinking(t);
+            closeGroup(t);
+            t.entry.appendChild(line);
+          }
+        }
         break;
       }
       case 'permission_request':

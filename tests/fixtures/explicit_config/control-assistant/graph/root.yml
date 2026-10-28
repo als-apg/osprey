@@ -178,7 +178,7 @@ control_system:
     probe_interval_s: 30
     probe_timeout_s: 5
   type: virtual_accelerator
-  writes_enabled: true
+  writes: allowed
 deploy:
   fqdn: 127.0.0.1
 deployed_services:

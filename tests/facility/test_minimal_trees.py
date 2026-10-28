@@ -30,7 +30,7 @@ from click.testing import CliRunner, Result
 
 from osprey.facility import TEXTURE
 from osprey_connectors.errors import ChannelNotFoundError
-from tests._config_lookup import writes_enabled_lookup
+from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -366,7 +366,7 @@ async def test_the_in_process_simulator_refuses_an_address_outside_the_facility_
 
 
 async def test_als_shaped_namespace_round_trip(
-    build_project: Build, monkeypatch: pytest.MonkeyPatch
+    build_project: Build, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     project, result = build_project(MIXED_NAMESPACE, profile=MOCK_PROFILE)
     assert result.exit_code == 0, result.output
@@ -396,7 +396,9 @@ async def test_als_shaped_namespace_round_trip(
     from osprey_connectors.control_system._base import WriteOutcome
 
     collapsed = "SR04U_GDS1PS_AC00"
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_lookup)
+    # A write tier that allows, and the simulator's switch on: both halves of the verdict.
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
+    arm_switch(monkeypatch, tmp_path / "agent-data")
     connector = await _served(project)
     try:
         for address in addresses:

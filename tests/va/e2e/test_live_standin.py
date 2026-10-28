@@ -47,7 +47,7 @@ machine, so ``live`` stays *underivable* here — and that is the point rather
 than a gap in the fixture. A stand-in must never be the answer to "where is the
 real machine", so the roster below is asserted to offer ``va`` and ``standin``
 and no ``live`` row at all, while the display metadata still carries a truthful
-``live machine (not configured)`` slot for the readers that render one.
+"not configured" slot for the readers that render one.
 
 That also makes the switch under test a switch *away* from the baseline toward
 ``standin``, which is the direction the FR-8 gates guard: the operator
@@ -58,11 +58,11 @@ eligible.
 
 The write leg, and why it is the posture that refuses it
 --------------------------------------------------------
-Writes are armed **on the stand-in's own block** (``control_system.connector.
-live_standin.writes_enabled: true``) and nowhere else. That is what makes the
-refusal attributable: with writes unarmed the connector's ``writes_enabled``
-guard would refuse first, and the test would be measuring the wrong gate. With
-them armed, the deployment selects the ``write_access`` gateway for ``standin``
+Writes are armed **for the stand-in** and nowhere else: the login tier allows
+them (``control_system.writes: allowed``) and the session's switch is on for
+``standin`` alone. That is what makes the refusal attributable: with writes
+unarmed the write verdict would refuse first, and the test would be measuring
+the wrong gate. With them armed, the deployment selects the ``write_access`` gateway for ``standin``
 (asserted), the write reaches the limits validator, and
 ``mode: exclusive`` refuses it with ``UNLISTED_CHANNEL`` —
 a verdict about the *database*, not about the network. A database that had
@@ -138,9 +138,12 @@ from osprey.mcp_server.control_system.target_eligibility import (
     evaluate_eligibility,
 )
 from osprey.mcp_server.control_system.tools.control_target import target_rows
+from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system._base import ChannelValue
 from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors.types import LIVE_STANDIN, TARGET_LIVE, TARGET_STANDIN, TARGET_VA
+from osprey_connectors.write_target import KIND_BANNERS
+from osprey_connectors_tests._harness import write_control_context
 from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 
@@ -401,9 +404,10 @@ def raw_config(
     acknowledgment is deliberately **absent** — it is the live machine's alone,
     and its absence here is what the eligibility assertion below reads.
 
-    Writes are armed on the stand-in's block and nowhere else, which is what
-    makes the write leg a test of the limits posture rather than of the
-    ``writes_enabled`` guard that would otherwise refuse first.
+    The login tier allows writes; which machine they reach is the session's
+    switch, which ``module_environment`` turns on for the stand-in alone. That
+    is what makes the write leg a test of the limits posture rather than of the
+    write verdict that would otherwise refuse first.
 
     Args:
         sandbox_port: The sandbox instance's Channel Access port.
@@ -421,8 +425,8 @@ def raw_config(
             deployment-relative paths.
     """
 
-    def block(port: int, *, writes_enabled: bool | None = None) -> dict:
-        gateway_block: dict = {
+    def block(port: int) -> dict:
+        return {
             "timeout_s": CONNECTOR_TIMEOUT_S,
             "probe_channel": PROBE_CHANNEL,
             "gateways": {
@@ -430,9 +434,6 @@ def raw_config(
                 "write_access": {"address": "localhost", "port": port, "use_name_server": True},
             },
         }
-        if writes_enabled is not None:
-            gateway_block["writes_enabled"] = writes_enabled
-        return gateway_block
 
     # ``path`` is carried because the build's service injector writes it: the
     # stand-in is a second INSTANCE of the virtual accelerator service, so both
@@ -450,17 +451,17 @@ def raw_config(
     config: dict = {
         "control_system": {
             "type": "virtual_accelerator",
-            # The deployment-wide posture stays unarmed. The stand-in's own
-            # block arms it, which is the per-type posture doing exactly what it
-            # is for: one machine armed, the sandbox beside it left alone.
-            "writes_enabled": False,
+            # The login tier allows writes; it is target-blind. The session's
+            # switch, on for the stand-in alone (``module_environment``), is
+            # what arms one machine and leaves the sandbox beside it alone.
+            "writes": "allowed",
             "limits_checking": {
                 "enabled": True,
                 "mode": "exclusive" if strict_limits else "optional",
                 "database_path": str(e2e_conftest.LIMITS_DB_PATH),
             },
             "connector": {
-                "live_standin": block(standin_port, writes_enabled=True),
+                "live_standin": block(standin_port),
                 "virtual_accelerator": block(sandbox_port),
             },
         },
@@ -507,16 +508,45 @@ def module_environment(tmp_path_factory):
     not state — the last of which is load-bearing for the write leg, since a
     read-only run would refuse the write for a reason that is not the posture
     under test.
+
+    The control-context record is anchored there too, through the
+    ``OSPREY_AGENT_DATA_ROOT`` stamp the connector-host children inherit, and
+    written before any child spawns with the session's switch on for the
+    stand-in alone: a connector chooses its write-capable gateway from the
+    write verdict when it connects, and that verdict needs the switch as well
+    as the tier. Ownerless, generation 0, on the baseline — what a controls
+    server's claim would start.
     """
     root = tmp_path_factory.mktemp("standin-state") / "var" / "agent_data"
     (root / target_state.STATE_DIR_NAME).mkdir(parents=True)
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(target_state, "resolve_shared_data_root", lambda: root)
+        patch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+        control_context.invalidate_cache()
+        write_control_context(
+            root, target=TARGET_VA, generation=0, owned_by=None, switch={TARGET_STANDIN: "on"}
+        )
         patch.setenv("PYTHONPATH", os.pathsep.join(REPO_PATHS))
         patch.delenv("CONFIG_FILE", raising=False)
         patch.delenv("OSPREY_CONFIG", raising=False)
         patch.delenv("OSPREY_EXECUTION_MODE", raising=False)
         yield root
+
+
+@pytest.fixture(autouse=True)
+def stamped_root(module_environment, monkeypatch):
+    """Re-stamp ``OSPREY_AGENT_DATA_ROOT`` for each test body.
+
+    The suite-wide ``session_posture_leak_guard`` clears the stamp before every
+    test, so the module-scoped one above reaches only what it spawned. A test
+    body that asks the write verdict itself — the roster's ``writes_permitted``
+    — has to read the record this module wrote, not whatever the resolver
+    falls back to.
+    """
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(module_environment))
+    control_context.invalidate_cache()
+    yield
+    control_context.invalidate_cache()
 
 
 async def reading(manager: ConnectorHostManager, address: str) -> float:
@@ -670,10 +700,10 @@ class TestTheRosterNamesTheStandIn:
     def test_the_standin_row_is_labelled_as_the_stand_in(self, deployment) -> None:
         rows = target_rows(deployment, control_target=TARGET_VA, baseline=TARGET_VA)
 
-        assert rows[TARGET_STANDIN]["label"] == "LIVE MACHINE (stand-in)"
+        assert rows[TARGET_STANDIN]["label"] == "Rehearsal — nothing moves"
 
     def test_the_stand_in_is_still_the_real_machine(self, deployment) -> None:
-        """The parenthesis is the *whole* of what is said differently.
+        """The rehearsal words are the *whole* of what is said differently.
 
         A stand-in that reported ``real_machine: false`` would be a rehearsal of
         the wrong ritual: every strict limit, approval prompt and banner an
@@ -700,7 +730,7 @@ class TestTheRosterNamesTheStandIn:
         assert TARGET_LIVE not in rows
 
         metadata = target_display_metadata(deployment)
-        assert metadata[TARGET_LIVE]["label"] == "live machine (not configured)"
+        assert metadata[TARGET_LIVE]["label"] == f"{KIND_BANNERS['real']} (not configured)"
         assert metadata[TARGET_LIVE]["endpoint"] == ""
         assert metadata[TARGET_LIVE]["real_machine"] is False
 
@@ -771,7 +801,7 @@ class TestTheRosterNamesTheStandIn:
         ``deployed_services`` — and no ``services.live_standin`` block, which is
         the single conjunct the predicate reads. A deployment that forwards a
         real gateway to loopback looks exactly like this, and the honest answer
-        is ``LIVE MACHINE``: the operator would be one hop from hardware. So the
+        is the real machine's banner: the operator would be one hop from hardware. So the
         label loses its parenthesis *and* the switch is refused, because a block
         that is not the deployment's own stand-in must not be reachable under a
         soft label.
@@ -784,7 +814,7 @@ class TestTheRosterNamesTheStandIn:
 
         rows = target_rows(plain, control_target=TARGET_VA, baseline=TARGET_VA)
 
-        assert rows[TARGET_STANDIN]["label"] == "LIVE MACHINE"
+        assert rows[TARGET_STANDIN]["label"] == KIND_BANNERS["real"]
         assert rows[TARGET_STANDIN]["real_machine"] is True
         assert rows[TARGET_STANDIN]["available_now"] is False
         assert rows[TARGET_STANDIN]["reason"] == REASON_STANDIN_NOT_DEPLOYED
@@ -892,14 +922,14 @@ class TestTheStrictPostureRefusesAnUnlistedWrite:
     def test_the_refusal_was_reached_with_the_write_gateway_armed(
         self, round_trip: RoundTrip, deployment
     ) -> None:
-        """The refusal is the posture's, not the ``writes_enabled`` guard's.
+        """The refusal is the posture's, not the write verdict's.
 
         With writes unarmed the connector refuses every write before the limits
         validator ever runs, and this class would be measuring a gate it is not
         about. Two things say it was armed: the switch selected the
         ``write_access`` gateway for the stand-in, and the roster reports the
         stand-in's writes as permitted while the sandbox beside it — which the
-        deployment-wide posture leaves unarmed — reports them as not.
+        session's switch leaves off — reports them as not.
         """
         assert round_trip.outbound["selected_role"] == "write_access"
 

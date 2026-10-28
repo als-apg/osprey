@@ -18,6 +18,7 @@ from collections import OrderedDict
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from osprey.interfaces.web_terminal.process_tree import ProcessTableUnreadable
 from osprey.interfaces.web_terminal.pty_manager import EMPTY_ENV_FINGERPRINT, env_fingerprint
 
 if TYPE_CHECKING:
@@ -25,32 +26,24 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+#: How many idle timeouts a chat whose look keeps failing is kept for before it is
+#: reaped anyway. Its stop, like every stop, ends only what it can see.
+UNREAD_IDLE_FACTOR = 2.0
 
-def _has_running_commands(key: str, session: OperatorSession) -> bool:
-    """Whether the agent of chat *key* may still have a command it started running.
 
-    Blocking (it reads the process table); the reaper runs it in a worker thread. A failed
-    look, whether it raises or cannot read the process table (``None``),
-    counts as running: what the agent started is unknown, and reaping the chat
-    would end it unseen. Capacity eviction does not look at commands, so it
-    still bounds a chat kept open this way.
+def _has_running_commands(key: str, session: OperatorSession) -> bool | None:
+    """Whether the agent of chat *key* still has a command it started running.
+
+    ``None`` when the look failed, so what the agent started is unknown.
+    Blocking (it reads the process table); the reaper runs it in a worker thread.
     """
     try:
-        started = session.started_commands()
+        return bool(session.started_commands())
+    except ProcessTableUnreadable as exc:
+        logger.warning("Could not read the process table for chat session %r (%s)", key, exc.cause)
     except Exception:
-        logger.warning(
-            "Could not look for commands chat session %r started; keeping it open",
-            key,
-            exc_info=True,
-        )
-        return True
-    if started is None:
-        logger.warning(
-            "Could not read the process table for chat session %r; keeping it open",
-            key,
-        )
-        return True
-    return bool(started)
+        logger.warning("Could not look for commands chat session %r started", key, exc_info=True)
+    return None
 
 
 class ChatCapacityError(RuntimeError):
@@ -447,11 +440,20 @@ class ChatSessionPool:
         Idle = not busy (no in-flight turn, or a zombie whose reader and quiesce
         are both done), no command the agent started still running, AND
         ``last_activity`` older than ``idle_seconds``. A chat found running
-        such a command, or whose look failed so what it started is unknown,
-        has its ``last_activity`` refreshed and is kept. The look is one
-        read of the process table per non-busy chat per sweep, in worker threads, with the lock
-        released. Reaping ends the agent's process; the next message to that
-        chat resumes its transcript in a new child.
+        such a command has its ``last_activity`` refreshed and is kept.
+
+        A chat whose look failed, so what its agent started is unknown, keeps
+        its ``last_activity`` where it was. It is kept while the failure lasts,
+        but only until it has been idle for :data:`UNREAD_IDLE_FACTOR` times
+        ``idle_seconds``; then it is reaped like any idle chat. Its stop reads
+        the process table again and, like every stop, ends only what it can
+        see: while the table stays unreadable that is the agent alone. An
+        unreadable table therefore never keeps a chat open for good.
+
+        The look is one read of the process table per non-busy chat per sweep,
+        in worker threads, with the lock released. Reaping ends the agent's
+        process; the next message to that chat resumes its transcript in a new
+        child.
         """
         async with self._lock:
             looks = [(k, s) for k, s in self._sessions.items() if not s.is_busy]
@@ -467,6 +469,19 @@ class ChatSessionPool:
                 # An entry added, replaced, popped or turned busy between the
                 # passes is left for the next sweep.
                 if self._sessions.get(key) is not session:
+                    continue
+                if has_running is None:
+                    if self._is_idle(
+                        session, now, running_commands=False, factor=UNREAD_IDLE_FACTOR
+                    ):
+                        logger.warning(
+                            "Reaping chat session %r, idle %.0fs while what its agent "
+                            "started could not be read",
+                            key,
+                            now - session.last_activity,
+                        )
+                        victims.append(self._sessions.pop(key))
+                        self._launches.pop(key, None)
                     continue
                 if has_running:
                     # Stamping a running chat makes its idle timeout count from
@@ -505,17 +520,24 @@ class ChatSessionPool:
         if pending is not None:
             self._superseded.add(pending)
 
-    def _is_idle(self, session: OperatorSession, now: float, *, running_commands: bool) -> bool:
+    def _is_idle(
+        self,
+        session: OperatorSession,
+        now: float,
+        *,
+        running_commands: bool,
+        factor: float = 1.0,
+    ) -> bool:
         """Not busy, no started command running, AND ``last_activity`` older than ``idle_seconds``.
 
         A chat whose agent still has a command it started running is busy, so
         it is never reaped mid-command; its idle clock starts at the last
-        sweep that saw such a command. A chat whose look failed counts as
-        running one: the reaper never ends commands it could not see.
+        sweep that saw such a command. *factor* scales the timeout, for a chat
+        whose look failed (:meth:`reap_idle`).
         """
         if session.is_busy or running_commands:
             return False
-        return (now - session.last_activity) >= self._idle_seconds
+        return (now - session.last_activity) >= self._idle_seconds * factor
 
     def _pick_evictable_victim(self) -> OperatorSession | None:
         """Pop and return the least-recently-used non-busy chat, or None.

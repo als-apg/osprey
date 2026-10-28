@@ -47,6 +47,9 @@ from typing import Any
 
 import yaml
 
+# Framework-free, so it lives in the connectors suite's harness; re-exported here.
+from osprey_connectors_tests._harness._vocabulary import REFUSAL_BAN_LIST  # noqa: F401
+
 #: One agent-facing text: ``(source, name, field)``. The source is an MCP
 #: server, ``ariel_search`` for the ARIEL search descriptors, or ``rendered``
 #: for a file a build renders for the agent, named by its path under the

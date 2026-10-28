@@ -46,7 +46,7 @@ from osprey.mcp_server.control_system.connector_host_manager import ConnectorHos
 from osprey.mcp_server.control_system.server_context import MCPServerConfig
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.types import EPICS
-from osprey_connectors_tests._harness import write_control_context
+from osprey_connectors_tests._harness import isolate_verdict_environment, write_control_context
 from tests._child_stubs import CHILD_STUBS
 from tests.facility.served_tree import in_process_config, served_tree
 
@@ -102,8 +102,8 @@ FIXTURE_MODULE = '''\
 """A mock variant with the channels and the gateway selection the tests need.
 
 ``connect()`` selects a gateway role by exactly the rule EPICSConnector
-applies — this connector's own per-type write posture, and a configured
-``write_access`` row — and installs the same environment variables, so the
+applies — the one ``_selected_role`` holds, over this connector's own write
+verdict and the configured rows — and installs the same environment variables, so the
 child's post-connect report and the parent's verification of it exercise the
 real role-selection path.
 
@@ -118,8 +118,10 @@ gateway does to a put.
 import asyncio
 import os
 
+from osprey_connectors.control_system import is_readonly_run
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
+from osprey_connectors.ipc._verification import _selected_role
 
 REFUSE_CHANNEL = "FIXTURE:REFUSE"
 SLOW_CHANNEL = "FIXTURE:SLOW"
@@ -136,17 +138,13 @@ class FixtureConnector(VAInProcessConnector):
     async def connect(self, config):
         await super().connect(config)
         gateways = config.get("gateways") or {}
-        write_gateway = gateways.get(WRITE_ROLE) or {}
         try:
             armed = self._writes_enabled
         except Exception:  # a child with no project config is simply unarmed
             armed = False
-        if armed and write_gateway:
-            self._gateway_role = WRITE_ROLE
-            selected = write_gateway
-        else:
-            selected = gateways.get("read_only") or {}
-            self._gateway_role = "read_only" if selected else None
+        role = _selected_role(gateways, writes_enabled=armed, readonly_run=is_readonly_run())
+        selected = gateways.get(role) or {}
+        self._gateway_role = role if selected else None
         if selected:
             os.environ["EPICS_CA_ADDR_LIST"] = str(selected.get("address", ""))
             os.environ["EPICS_CA_SERVER_PORT"] = str(selected.get("port", 5064))
@@ -254,7 +252,7 @@ def raw_config(
         va_block["probe_channel"] = va_probe
     control_system = {
         "type": live_type,
-        "writes_enabled": False,
+        "writes": "never",
         "connector": {live_type: live_block, "virtual_accelerator": va_block},
     }
     target_switch = {
@@ -272,11 +270,9 @@ def raw_config(
 
 def gateway_config(
     *,
-    writes_enabled=True,
+    writes="allowed",
     read_gateway=True,
     read_port=READ_GATEWAY_PORT,
-    live_writes_enabled=None,
-    va_writes_enabled=None,
     va_gateways=False,
 ):
     """A config whose ``live`` target routes through configured CA gateways.
@@ -285,12 +281,12 @@ def gateway_config(
     nothing serves — the posture issue #718 is about: a write-capable gateway
     that is configured (so the role is selected) but not actually running.
 
-    Write posture is per connector type, so each target's own block can carry
-    it: *live_writes_enabled* and *va_writes_enabled* write ``writes_enabled``
-    into that block, and ``None`` leaves the key out — which is what makes the
-    target inherit the deployment-wide *writes_enabled*. *va_gateways* gives
-    the simulator a gateway pair of its own, so a ``va`` armed on its own block
-    has a write-capable gateway to select.
+    *writes* is the deployment's write tier (``control_system.writes``;
+    ``None`` leaves the key out, which reads ``never``). The tier is
+    target-blind: ``"allowed"`` allows writes for every machine, and which
+    machine is armed is the login's switch, which :func:`arm` turns on.
+    *va_gateways* gives the simulator a gateway pair of its own, so an armed
+    ``va`` has a write-capable gateway to select.
     """
     gateways = {"write_access": {"address": GATEWAY_HOST, "port": DEAD_WRITE_PORT}}
     if read_gateway:
@@ -302,26 +298,22 @@ def gateway_config(
             "read_only": {"address": GATEWAY_HOST, "port": VA_READ_GATEWAY_PORT},
             "write_access": {"address": GATEWAY_HOST, "port": VA_WRITE_GATEWAY_PORT},
         }
-    if live_writes_enabled is not None:
-        live_block["writes_enabled"] = live_writes_enabled
-    if va_writes_enabled is not None:
-        va_block["writes_enabled"] = va_writes_enabled
-    return {
-        "control_system": {
-            "type": GATEWAY_TYPE,
-            "writes_enabled": writes_enabled,
-            "connector": {GATEWAY_TYPE: live_block, "virtual_accelerator": va_block},
-        },
-        "archiver": {"type": "mongodb_archiver"},
+    control_system = {
+        "type": GATEWAY_TYPE,
+        "connector": {GATEWAY_TYPE: live_block, "virtual_accelerator": va_block},
     }
+    if writes is not None:
+        control_system["writes"] = writes
+    return {"control_system": control_system, "archiver": {"type": "mongodb_archiver"}}
 
 
 def project_config(tmp_path, control_system):
     """Write the ``config.yml`` a child reads its own write posture from.
 
-    The child reads posture from the ``CONFIG_FILE`` the parent hands it, not
-    from the init payload — so a write-armed child needs a real file saying so,
-    saying it the same way the parent's raw config does.
+    The child reads its write tier from the ``CONFIG_FILE`` the parent hands
+    it, not from the init payload — so a write-armed child needs a real file
+    whose tier allows writes, saying it the same way the parent's raw config
+    does, as well as its machine's switch on (:func:`arm`).
     """
     path = tmp_path / "config.yml"
     path.write_text(yaml.safe_dump({"control_system": control_system}), encoding="utf-8")
@@ -356,9 +348,16 @@ def state_root(tmp_path, monkeypatch):
     context claims resolves through the ``OSPREY_AGENT_DATA_ROOT`` stamp.
     Anchoring only one of them writes the record into whatever checkout the
     tests are running from.
+
+    The write verdict's environment is isolated too
+    (:func:`~osprey_connectors_tests._harness.isolate_verdict_environment`):
+    no stamped owner, dispatch run, bound tree, launch pin or read-only run,
+    and the acting identity pinned in the real environment, so the children
+    inherit the same owner the parent derives under. Every switch starts off;
+    :func:`arm` turns machines on.
     """
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+    isolate_verdict_environment(monkeypatch, tmp_path)
     control_context.invalidate_cache()
     yield tmp_path
     control_context.invalidate_cache()
@@ -433,12 +432,13 @@ def posture_root(tmp_path, monkeypatch):
 
     The stamp goes into the real environment rather than a patched lookup
     because the connector-host children have to read the same record the
-    parent does.
+    parent does. The write verdict's environment is isolated under it, as
+    :func:`state_root` isolates it, so a machine :func:`arm` turns on here is
+    on for parent and children alike.
     """
     root = tmp_path / "agent_data"
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    isolate_verdict_environment(monkeypatch, root)
     monkeypatch.setenv("OSPREY_POSTURE_SESSION", POSTURE_SESSION)
-    monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     posture_store.invalidate_cache()
     yield root
     posture_store.invalidate_cache()
@@ -453,6 +453,19 @@ async def started_on(factory, target, **overrides):
     await manager.start(target)
     assert manager.has_child()
     return manager
+
+
+def arm(root, *targets):
+    """Turn the login's switch on for *targets* on this deployment, every other off.
+
+    The tier is the config's: a section whose tier allows writes and a switch
+    that is on is what the write verdict arms, so this is the record half of
+    an armed target. The record is ownerless, as a fresh deployment's is, and
+    the switch goes through the person's gesture.
+    """
+    write_control_context(root, owned_by=None, switch=dict.fromkeys(targets, "on"))
+    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 def narrow(root, *targets):

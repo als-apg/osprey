@@ -8,7 +8,9 @@ misbehaviour it needs: a hanging channel, a failing ``connect()``, a
 two-IOC Channel Access suite beside this file covers the real protocol.
 
 Each test runs in a scratch directory with ``CONFIG_FILE`` removed from the
-environment, so a child reads only the config file its test hands the pool.
+environment, so a child reads only the config file its test hands the pool, and
+with an agent-data root of its own, so the parent's write verdict and the
+child's read the same record: every switch off unless the test turns one on.
 """
 
 import asyncio
@@ -26,6 +28,7 @@ import pytest
 import yaml
 
 import osprey_connectors
+from osprey_connectors import control_context
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.errors import ChannelNotFoundError
 from osprey_connectors.ipc import _pool as pool_module
@@ -39,6 +42,9 @@ from osprey_connectors.ipc._pool import (
     ConnectorHostWriteTimeoutError,
     PooledConnector,
 )
+from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
+from osprey_connectors_tests._write_fakes import arm_switch
 from osprey_connectors_tests.ipc._pool_connectors import WRITE_LOG_ENV
 from tests._child_stubs import CHILD_STUBS
 from tests._live import async_wait_until, wait_until
@@ -108,9 +114,10 @@ def served_view(tmp_path_factory):
 
 
 def _section(connector_type: str, *, writes_enabled: bool = False, block=None) -> dict:
+    """A section serving *connector_type* as ``live``; *writes_enabled* is its write tier."""
     return {
         "type": connector_type,
-        "writes_enabled": writes_enabled,
+        "writes": "allowed" if writes_enabled else "never",
         "connector": {
             connector_type: in_process_config(_VIEW["view"], response_delay_ms=1, **(block or {}))
         },
@@ -124,12 +131,19 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.delenv("CONFIG_FILE", raising=False)
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     monkeypatch.setenv("PYTHONPATH", PYTHONPATH)
+    arm_switch(monkeypatch, tmp_path / "agent-data", None, stamp=False)
     return tmp_path
 
 
 @pytest.fixture
-def writable(isolated, monkeypatch):
-    """A config file on disk that arms the slow mock, and a write log."""
+def switched_on(isolated, monkeypatch):
+    """The login's switch on for ``live``, in the record parent and child both read."""
+    return arm_switch(monkeypatch, isolated / "agent-data", "live", stamp=False)
+
+
+@pytest.fixture
+def writable(isolated, switched_on, monkeypatch):  # noqa: ARG001 - the switch is on
+    """A config file on disk whose tier allows writes, the switch on, and a write log."""
     section = _section(SLOW, writes_enabled=True)
     config_file = isolated / "config.yml"
     config_file.write_text(yaml.safe_dump({"control_system": section}))
@@ -289,15 +303,18 @@ async def test_a_readonly_child_refuses_writes_the_config_arms(pools, writable):
     assert [line.split() for line in log.read_text().splitlines()] == [["SR:SP", "1.0"]]
 
 
-async def test_a_section_that_arms_writes_without_a_config_file_is_refused(pools):
-    # The child reads its posture from a config file, and there is none: its
-    # writes are off. The section says they are armed, and the pool will not
+@pytest.mark.usefixtures("switched_on")
+async def test_a_section_that_arms_writes_without_a_config_file_is_refused(pools, spawns):
+    # The child takes its write tier from a config file, and there is none: its
+    # writes are off. The section's verdict allows them, and the pool will not
     # hand out a connector whose posture is not the one its caller described.
     pool = pools(_section(SLOW, writes_enabled=True))
     with pytest.raises(ConnectorHostStartError) as caught:
         await pool.connector("live")
 
     assert caught.value.stage == "verify"
+    # The verdict did not move, so the disagreement is not retried.
+    assert len(spawns) == 1
     assert "writes off" in str(caught.value) and "config_file" in str(caught.value)
     assert pool.pids() == {}
 
@@ -321,6 +338,166 @@ async def test_a_config_file_that_arms_what_the_section_does_not_is_refused(
     assert caught.value.stage == "verify"
     assert "writes armed" in str(caught.value)
     assert not log.exists()
+
+
+async def test_writes_follow_the_switch_at_spawn_time(pools, writable):
+    """Off at spawn: the child refuses. A fresh child after the turn-on writes."""
+    section, config_file, log = writable
+    control_context.set_switch(["live"], "off")
+    control_context.invalidate_cache()
+    pool = pools(section, config_file=config_file)
+
+    off = await pool.connector("live")
+    refused = await off.write_channel("SR:SP", 1.0)
+    assert off.report["writes_enabled"] is False
+    assert refused.outcome is WriteOutcome.REFUSED
+
+    await off.disconnect()
+    write_control_context(isolated_root(log), target="live", owned_by=None, switch={"live": "on"})
+    on = await pool.connector("live")
+    written = await on.write_channel("SR:SP", 2.0)
+
+    assert on.report["writes_enabled"] is True
+    assert written.outcome is not WriteOutcome.REFUSED
+    assert [line.split() for line in log.read_text().splitlines()] == [["SR:SP", "2.0"]]
+
+
+async def test_a_switch_turned_between_derive_and_report_respawns_once(
+    pools, writable, spawns, monkeypatch
+):
+    """The verdict moved while the child started: a fresh child, not an aborted start."""
+    section, config_file, log = writable
+    control_context.set_switch(["live"], "off")
+    control_context.invalidate_cache()
+    real = pool_module.ConnectorHostPool._writes_allowed
+    asked: list[bool] = []
+
+    def turned_on_after_the_first_verdict(section, target):
+        allowed = real(section, target)
+        if not asked:
+            write_control_context(
+                isolated_root(log), target="live", owned_by=None, switch={"live": "on"}
+            )
+        asked.append(allowed)
+        return allowed
+
+    monkeypatch.setattr(
+        pool_module.ConnectorHostPool,
+        "_writes_allowed",
+        staticmethod(turned_on_after_the_first_verdict),
+    )
+    pool = pools(section, config_file=config_file)
+
+    live = await pool.connector("live")
+    written = await live.write_channel("SR:SP", 3.0)
+
+    assert asked[0] is False and asked[-1] is True
+    assert len(spawns) == 2
+    first = spawns[0][1]
+    assert first.returncode is not None
+    assert live.report["writes_enabled"] is True
+    assert written.outcome is not WriteOutcome.REFUSED
+
+
+def isolated_root(log: Path) -> Path:
+    """The agent-data root :func:`isolated` armed, beside the test's write log."""
+    return log.parent / "agent-data"
+
+
+# ------------------------------------------------------------ gateway role (no spawn)
+
+_CA_ROW_RO = {"address": "ro.example.org", "port": 5064}
+_CA_ROW_RW = {"address": "rw.example.org", "port": 5065}
+
+
+def _epics_section(gateways: dict) -> dict:
+    return {"type": "epics", "writes": "allowed", "connector": {"epics": {"gateways": gateways}}}
+
+
+@pytest.mark.parametrize(
+    ("switch", "role", "writes"),
+    [(None, "read_only", False), ("on", "write_access", True)],
+    ids=["off", "on"],
+)
+def test_the_derived_role_follows_the_switch(isolated, switch, role, writes):
+    if switch:
+        write_control_context(
+            isolated / "agent-data", target="live", owned_by=None, switch={"live": switch}
+        )
+    pool = ConnectorHostPool(_epics_section({"read_only": _CA_ROW_RO, "write_access": _CA_ROW_RW}))
+
+    derivation, readonly_run, derived_writes = pool._derive(("live", None), pool._section)
+
+    assert (derivation.selected_role, derived_writes, readonly_run) == (role, writes, False)
+
+
+@pytest.mark.usefixtures("switched_on")
+def test_a_launch_pin_holds_the_derived_role_on_read_only(monkeypatch):
+    monkeypatch.setenv(pool_module.posture_store.LAUNCH_POSTURE_ENV_VAR, "live=sandbox")
+    pool = ConnectorHostPool(_epics_section({"read_only": _CA_ROW_RO, "write_access": _CA_ROW_RW}))
+
+    derivation, _, writes = pool._derive(("live", None), pool._section)
+
+    assert (derivation.selected_role, writes) == ("read_only", False)
+
+
+@pytest.mark.parametrize("switch", [None, "on"], ids=["off", "on"])
+def test_a_write_gateway_only_machine_is_derived_reading_through_it(isolated, switch):
+    if switch:
+        write_control_context(
+            isolated / "agent-data", target="live", owned_by=None, switch={"live": switch}
+        )
+    pool = ConnectorHostPool(_epics_section({"write_access": _CA_ROW_RW}))
+    key = ("live", None)
+
+    derivation, _, writes = pool._derive(key, pool._section)
+
+    assert writes is (switch == "on")
+    assert derivation.selected_role == "write_access"
+    assert derivation.selected_endpoint() is not None
+    # Not refused as a gatewayless Channel Access child.
+    assert pool._config_refusal(key, pool._section, derivation) is None
+
+
+@pytest.mark.parametrize("switch", [None, "on"], ids=["off", "on"])
+def test_a_readonly_run_on_a_write_gateway_only_machine_is_derived_on_the_read_role(
+    isolated, switch
+):
+    if switch:
+        write_control_context(
+            isolated / "agent-data", target="live", owned_by=None, switch={"live": switch}
+        )
+    pool = ConnectorHostPool(_epics_section({"write_access": _CA_ROW_RW}))
+    key = ("live", "readonly")
+
+    derivation, readonly_run, writes = pool._derive(key, pool._section)
+
+    assert (derivation.selected_role, readonly_run, writes) == ("read_only", True, False)
+    assert derivation.selected_endpoint() is None
+    # Refused as a readonly run, naming the gateway it lacks, not as a
+    # broadcast hazard: a readonly run never reads through the write gateway.
+    refusal = pool._config_refusal(key, pool._section, derivation)
+    assert refusal is not None
+    assert "no read-only gateway" in refusal
+    assert "deployment admin" in refusal
+    # A connect error, not a write refusal: the chip cannot fix it.
+    assert refusal_phrase("readonly_run") not in refusal
+
+
+@pytest.mark.usefixtures("isolated")
+async def test_a_readonly_child_on_a_write_gateway_only_machine_is_never_spawned(pools, spawns):
+    pool = pools(_epics_section({"write_access": _CA_ROW_RW}))
+
+    with pytest.raises(ConnectorHostStartError) as caught:
+        await pool.connector("live", execution_mode="readonly")
+
+    assert caught.value.stage == "config"
+    assert caught.value.pid is None
+    assert "no read-only gateway" in str(caught.value)
+    assert "deployment admin" in str(caught.value)
+    # A connect error, not a write refusal: the chip cannot fix it.
+    assert refusal_phrase("readonly_run") not in str(caught.value)
+    assert spawns == []
 
 
 # ------------------------------------------------------------ losing a child
@@ -606,9 +783,11 @@ def _ca_gateways(address: str, read_port, write_port=None) -> dict:
     [
         ("live", "epics", {}),
         ("live", "epics", {"gateways": {}}),
-        # A write-only table on a run that selects read_only: rows exist, but
-        # none for the role connect() will look up, so it configures nothing.
-        ("live", "epics", {"gateways": {"write_access": {"address": "10.0.0.1", "port": 5064}}}),
+        # A write-only table is not here: it reads through its write gateway,
+        # and a readonly run on one is refused as readonly. The two tests named
+        # test_a_write_gateway_only_machine_is_derived_reading_through_it and
+        # test_a_readonly_child_on_a_write_gateway_only_machine_is_never_spawned
+        # cover those cases.
         ("standin", "live_standin", {}),
         ("va", "virtual_accelerator", {}),
     ],

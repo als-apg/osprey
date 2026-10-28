@@ -2384,6 +2384,24 @@ _CONTRIB_PANEL_HTML = b"""<!doctype html>
 </script></body></html>"""
 
 
+def _contributing_panel(panel_id: str, label: str, url: str) -> dict:
+    """A custom panel entry for a page that posts a header contribution.
+
+    Config-declared, as the real loader stamps it: a first-party panel is
+    framed same-origin, so its page can post the header contribution to the
+    hub. A runtime registration would be opaque-origin and its contribution is
+    a separate contract.
+    """
+    return {
+        "id": panel_id,
+        "label": label,
+        "url": url,
+        "healthEndpoint": None,
+        "path": "/",
+        "configDefined": True,
+    }
+
+
 @contextmanager
 def _contrib_panel_backend():
     """Serve a page that contributes to the tile bar and records actions."""
@@ -2421,13 +2439,7 @@ def test_header_contribution_renders_and_round_trips(tmp_path, chromium_browser)
     workspace.mkdir()
 
     with _contrib_panel_backend() as stub_url:
-        custom = {
-            "id": "contrib-demo",
-            "label": "CONTRIB",
-            "url": stub_url,
-            "healthEndpoint": None,
-            "path": "/",
-        }
+        custom = _contributing_panel("contrib-demo", "CONTRIB", stub_url)
         with _live_server(
             workspace,
             enabled_panels={"artifacts"},
@@ -2485,13 +2497,7 @@ def test_header_contribution_reaches_the_fallback_bar_without_dockview(tmp_path,
     workspace.mkdir()
 
     with _contrib_panel_backend() as stub_url:
-        custom = {
-            "id": "contrib-demo",
-            "label": "CONTRIB",
-            "url": stub_url,
-            "healthEndpoint": None,
-            "path": "/",
-        }
+        custom = _contributing_panel("contrib-demo", "CONTRIB", stub_url)
         with _live_server(
             workspace,
             enabled_panels={"artifacts"},
@@ -2624,13 +2630,7 @@ def test_header_search_survives_re_contribution_and_menu_round_trips(tmp_path, c
     workspace.mkdir()
 
     with _search_menu_panel_backend() as stub_url:
-        custom = {
-            "id": "search-demo",
-            "label": "SEARCHY",
-            "url": stub_url,
-            "healthEndpoint": None,
-            "path": "/",
-        }
+        custom = _contributing_panel("search-demo", "SEARCHY", stub_url)
         with _live_server(
             workspace,
             enabled_panels={"artifacts"},
@@ -2754,13 +2754,7 @@ def test_tile_bar_drag_ghost_keeps_icons_bar_sized(tmp_path, chromium_browser):
     workspace.mkdir()
 
     with _search_menu_panel_backend() as stub_url:
-        custom = {
-            "id": "search-demo",
-            "label": "SEARCHY",
-            "url": stub_url,
-            "healthEndpoint": None,
-            "path": "/",
-        }
+        custom = _contributing_panel("search-demo", "SEARCHY", stub_url)
         with _live_server(
             workspace,
             enabled_panels={"artifacts"},
@@ -3210,13 +3204,7 @@ def test_tile_header_menu_yields_to_contributed_search_input(tmp_path, chromium_
     workspace.mkdir()
 
     with _search_menu_panel_backend() as stub_url:
-        custom = {
-            "id": "search-demo",
-            "label": "SEARCHY",
-            "url": stub_url,
-            "healthEndpoint": None,
-            "path": "/",
-        }
+        custom = _contributing_panel("search-demo", "SEARCHY", stub_url)
         with _live_server(
             workspace,
             enabled_panels={"artifacts"},

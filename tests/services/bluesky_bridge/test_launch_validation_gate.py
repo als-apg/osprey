@@ -162,34 +162,33 @@ def test_gate_ignores_a_request_with_no_plan_name() -> None:
 # start — on a posture belonging to some other lane's machine.
 
 
-#: A live-baseline deployment whose virtual accelerator alone arms writes AND
-#: turns limits checking on, while the deployment-wide limits block says off.
+#: A live-baseline deployment whose tier allows writes and whose virtual
+#: accelerator alone turns limits checking on, while the deployment-wide limits
+#: block says off.
 #: A bridge lane serving `va` must therefore demand a readable limits database
 #: that `control_system.limits_checking.enabled` alone would have excused.
 _VA_LIMITS_SECTION: dict = {
     "type": "epics",
-    "writes_enabled": False,
+    "writes": "allowed",
     "limits_checking": {"enabled": False, "mode": "optional"},
     "connector": {
         "epics": {"gateway_address": "epics-gateway.example"},
         "virtual_accelerator": {
-            "writes_enabled": True,
             "limits_checking": {"enabled": True, "mode": "exclusive"},
         },
     },
 }
 
 #: The mirror image: the deployment-wide block turns limits checking on, and
-#: the armed lane's own block turns it off. Reading the deployment-wide key
+#: the VA lane's own block turns it off. Reading the deployment-wide key
 #: would demand a database this lane's config says it does not need.
 _VA_UNCHECKED_SECTION: dict = {
     "type": "epics",
-    "writes_enabled": False,
+    "writes": "allowed",
     "limits_checking": {"enabled": True, "mode": "exclusive"},
     "connector": {
         "epics": {"gateway_address": "epics-gateway.example"},
         "virtual_accelerator": {
-            "writes_enabled": True,
             "limits_checking": {"enabled": False, "mode": "optional"},
         },
     },
@@ -257,7 +256,9 @@ def test_guard_reads_limits_enabled_from_the_lane_targets_own_block(
     # Assert
     message = str(excinfo.value)
     assert _VA_LIMITS_KEY in message
-    assert "control_system.connector.virtual_accelerator.writes_enabled" in message
+    # The tier allows writes; the refusal says so and names no writes key.
+    assert "the write tier allows writes" in message
+    assert "writes_enabled" not in message
     assert f"lane {_VA_LANE} serves target va" in message
 
 

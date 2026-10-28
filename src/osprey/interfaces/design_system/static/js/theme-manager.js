@@ -10,13 +10,15 @@
  *                localStorage['osprey-theme'] (per-render scoped on a
  *                multi-user mount — see storage-scope.js), live-follows the OS
  *                color-scheme preference while that preference is 'auto',
- *                and broadcasts every resolved change to every same-origin
- *                <iframe> panel via postMessage.
+ *                and broadcasts every resolved change to every <iframe>
+ *                panel via postMessage (target "*", so opaque frames hear it).
  *   'follower' — every embedded interface. Never persists or broadcasts;
  *                applies its own '?theme=' query param if present (panel-
  *                manager.js appends a validated one to each panel's iframe
  *                URL), otherwise trusts whatever theme-boot.js already set
- *                pre-paint, and applies whatever the hub broadcasts.
+ *                pre-paint, and applies whatever the hub broadcasts --
+ *                matched by origin, or by source (its parent) on an opaque
+ *                page, where localStorage is unavailable and is skipped.
  *
  * Family model: a THEMES entry is `{id, label, mode, family}` -- a family
  * is a `{light, dark}` pair (e.g. the built-in 'main' family, or the
@@ -489,7 +491,10 @@ function _broadcast(id) {
   const iframes = document.querySelectorAll('iframe');
   for (const iframe of iframes) {
     try {
-      iframe.contentWindow?.postMessage({ type: MESSAGE_TYPE, theme: id }, window.location.origin);
+      // Intentional "*" (same-origin contract exception): an opaque artifact
+      // frame or panel has origin "null" and is unreachable by a named
+      // target. Only this message may use "*" -- it carries a public theme id.
+      iframe.contentWindow?.postMessage({ type: MESSAGE_TYPE, theme: id }, '*');
     } catch {
       // Cross-origin -- expected for some iframes; nothing to do.
     }
@@ -551,7 +556,15 @@ function _applyPreference(family, mode) {
 
 /** @param {MessageEvent} event */
 function _handleMessage(event) {
-  if (event.origin !== window.location.origin) return;
+  // A same-origin page takes the hub by origin. On an opaque page (sandboxed,
+  // origin "null") an origin match proves nothing -- every opaque sender is
+  // "null" too -- so it takes the message by its source alone: the frame's
+  // parent, which is the hub that embeds it.
+  const fromHub =
+    window.location.origin === 'null'
+      ? window.parent !== window && event.source === window.parent
+      : event.origin === window.location.origin;
+  if (!fromHub) return;
   const data = event.data;
   if (!data || data.type !== MESSAGE_TYPE) return;
   // Never applies an arbitrary string to data-theme: _resolve() falls

@@ -90,10 +90,12 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey_connectors import posture_store
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
 from tests.e2e._deploy_support import format_failure, wait_for_health
 from tests.e2e._volumes import remove_project_volumes
+from tests.e2e.sdk_helpers import arm_deployed_queue_owner
 
 pytestmark = [
     pytest.mark.e2e,
@@ -353,6 +355,9 @@ def preflight_stack(
     # The repo root's `.env` -- the deployment's whole secret store, and the
     # file `osprey up` refuses to start without.
     _orm_stack.seed_repo_env(repo)
+    # The plans write, and the worker's writes follow the add's owner's switch:
+    # this login's switch on in the deployment's record, before `up`.
+    arm_deployed_queue_owner(repo)
 
     osprey_bin = _orm_stack.find_osprey_console_script()
 
@@ -472,6 +477,7 @@ def test_a_plan_naming_an_unserved_channel_is_refused_before_motion(
             ],
         },
         token=token,
+        owner=posture_store.current_owner(),
         client_id=_QUEUE_CLIENT_ID,
         timeout=SCAN_TIMEOUT_SEC,
     )
@@ -546,6 +552,7 @@ def test_a_fully_reachable_plan_still_runs_to_completion(
             ],
         },
         token=token,
+        owner=posture_store.current_owner(),
         client_id=_QUEUE_CLIENT_ID,
         timeout=SCAN_TIMEOUT_SEC,
     )

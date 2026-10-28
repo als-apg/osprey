@@ -1,10 +1,10 @@
 """The reconciler that brings this server into line with the control context.
 
-The control target, its generation and the write posture are one record per
-identity — ``control_target/<identity>/control_context.json`` — written only by
-whichever process owns it: the web terminal when there is one, else a controls
-server. One file per identity is what keeps one operator's target and narrowing
-about that operator's own writes.
+The control target, its generation and the login's write switch are one record
+per identity — ``control_target/<identity>/control_context.json`` — written only
+by whichever process owns it: the web terminal when there is one, else a
+controls server. One file per identity is what keeps one operator's target and
+switch about that operator's own writes.
 This server is one reader of that record among many, and this task is what
 makes the record true of the connector this process holds.
 
@@ -33,9 +33,9 @@ operator's gesture, and a silent adoption would answer it with nothing), and
 otherwise adopts the generation against the running child or spawns the new
 target. It publishes its own ``applied`` terminus, which is what releases the
 ``applying`` block written here; a failed swap files ``failed`` at the
-generation it kept. This reconcile runs BEFORE the posture half deliberately: a
-same-target adoption leaves a pending realignment pending, and the rebuild that
-answers it happens in the same pass.
+generation it kept. This reconcile runs BEFORE the realignment half
+deliberately: a same-target adoption leaves a pending realignment pending, and
+the rebuild that answers it happens in the same pass.
 
 **Consume switch requests.** A surface that cannot call this server writes down
 what it wants: a per-requester ``switch_request_<pid>.json``, consumed by the
@@ -79,34 +79,38 @@ How a request is answered, and why in that order
    first: every await is a place this task can be cancelled, and a shutdown
    between the two must not lose the record of a switch that happened.
 
-The posture half
-----------------
-A narrowing recorded for the target this deployment is currently ON does not
-take effect by itself: writes are refused per call from the record already, but
-the connector-host child *connected* on a gateway role chosen under the old
-posture. Realignment is a rebuild of that child through
+The realignment half
+--------------------
+A write verdict that moves for the target this deployment is currently ON does
+not take effect by itself: writes are refused or allowed per call from the
+record already, but the connector-host child *connected* on a gateway role
+chosen under the old verdict. So the reconciler takes the ``allowed`` of
+:func:`~osprey.mcp_server.control_system.target_eligibility.target_write_verdict`
+for the active target whenever the record moves, and a change of its answer —
+the operator's switch turned on or off — is a realignment: a rebuild of that
+child through
 :meth:`~osprey.mcp_server.control_system.server_context.ControlSystemContext.invalidate_connector`,
 which owns its own lock — this task takes none, deliberately, because a second
 lock around the same operation is how two things that must agree stop agreeing.
 A record that moved also republishes the ``targets`` block through
 :meth:`~osprey.mcp_server.control_system.connector_host_manager.ConnectorHostManager.publish_display`:
-display metadata names the gateway a posture chose, and a narrowing that lands
-without a switch to carry it has no other writer to restate that name.
+display metadata names the gateway a verdict chose, and a switch flipped
+without a target switch to carry it has no other writer to restate that name.
 
 The rebuild waits for any execution in flight. A python execution is stamped
 with the target and generation it launched under, and retiring its child
-mid-run would break a promise the executor made rather than enforce a posture
-the operator set. So the realignment is *deferred*, and
+mid-run would break a promise the executor made rather than enforce a switch
+the operator flipped. So the realignment is *deferred*, and
 :func:`~osprey.mcp_server.control_system.target_state.publish_posture_realign`
-says ``pending`` while it waits — which is what lets the popover say "read-only
-applies after the running execution finishes" instead of showing a toggle that
-appears to have done nothing.
+says ``pending`` while it waits — which is what lets the popover say "the
+change applies after the running execution finishes" instead of showing a
+toggle that appears to have done nothing.
 
-A narrowing on a target this deployment is NOT on realigns nothing: the
-connector has nothing to do with that machine, and the record is read again the
-moment a switch lands there. A switch that happens while a realignment is
-pending clears it for the same reason — the child the switch built read the
-record on the way up.
+A verdict that moves for a target this deployment is NOT on realigns nothing:
+the connector has nothing to do with that machine, and the verdict is taken
+again the moment a target switch lands there. A target switch that happens
+while a realignment is pending clears it for the same reason — the child the
+switch built took the verdict on the way up.
 """
 
 from __future__ import annotations
@@ -126,7 +130,7 @@ from osprey.mcp_server.http import (
     TARGET_SWITCH_TOOL,
     notify_target_switch_async,
 )
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context
 
 logger = logging.getLogger("osprey.mcp_server.control_system.session_control")
 
@@ -188,6 +192,24 @@ __all__ = [
 ]
 
 
+def _writes_allowed(context: Any, target: str) -> bool:
+    """The write verdict's ``allowed`` for *target*, from *context*'s config.
+
+    The same answer the switch gate and the connector host derive from
+    (:func:`~osprey.mcp_server.control_system.target_eligibility.target_write_verdict`).
+    A context whose config cannot be read answers with an empty section, which
+    refuses: never a rebuild toward writes nobody allowed.
+    """
+    from osprey.mcp_server.control_system import target_eligibility
+
+    try:
+        config = context.config.raw
+    except Exception:
+        config = None
+    section = config.get("control_system") if isinstance(config, dict) else None
+    return target_eligibility.target_write_verdict(section, target).allowed
+
+
 def _requester(record: dict[str, Any], pid: int) -> str:
     """Who to name in the terminus and the ledger for a request from *pid*.
 
@@ -218,14 +240,14 @@ class SessionControlReconciler:
         self._interval_s = float(interval_s)
         self._task: asyncio.Task[None] | None = None
 
-        # What the last pass saw of the record's posture. All three start
-        # unset, so the first pass *baselines* rather than acting: a narrowing
-        # already recorded when this server started was read by the child it
-        # started, and replaying it as a change would rebuild a connector
-        # nobody narrowed.
+        # What the last pass saw of the record and the active target's write
+        # verdict. All three start unset, so the first pass *baselines* rather
+        # than acting: a switch already recorded when this server started was
+        # read by the child it started, and replaying it as a change would
+        # rebuild a connector nobody touched.
         self._record_signature: tuple[int, int, int] | None = None
         self._active_target: str | None = None
-        self._active_posture: str | None = None
+        self._active_writes: bool | None = None
         self._realign_pending = False
         # Whether the record half has had its first pass. That pass joins the
         # record as found; only a record that moves after it is a gesture this
@@ -274,9 +296,9 @@ class SessionControlReconciler:
     # -- one pass ----------------------------------------------------------
 
     async def poll_once(self) -> None:
-        """One pass: claim or follow, reconcile to the record, posture, requests.
+        """One pass: claim or follow, reconcile to the record, realign, requests.
 
-        The reconcile runs before the posture half so that a realignment left
+        The reconcile runs before the realignment half so that a realignment left
         pending by a previous pass is answered against the child this pass
         settled on, and the request half runs last so that a request consumed
         here is reconciled to on the next tick with the record already written.
@@ -287,7 +309,7 @@ class SessionControlReconciler:
         record = self._own_or_follow(context)
         if record is not None:
             await self._reconcile_to_record(context, record)
-        await self._reconcile_posture(context)
+        await self._reconcile_writes(context)
         if record is not None:
             await self._consume_requests(context)
 
@@ -422,16 +444,16 @@ class SessionControlReconciler:
                 exc_info=True,
             )
 
-    # -- the posture -------------------------------------------------------
+    # -- the write verdict -------------------------------------------------
 
-    async def _reconcile_posture(self, context: Any) -> None:
+    async def _reconcile_writes(self, context: Any) -> None:
         """Republish on any move of the record; realign on the ACTIVE target's.
 
         The two halves answer different questions. Display metadata names the
-        gateway a posture chose, so it is stale the moment the record moves for
+        gateway a verdict chose, so it is stale the moment the record moves for
         ANY target, and it is republished on every move. The connector is only
-        wrong when the narrowing for the target this deployment is ON moved, so
-        that is the only case that rebuilds a child.
+        wrong when the write verdict for the target this deployment is ON
+        moved, so that is the only case that rebuilds a child.
         """
         signature = control_context.file_signature(control_context.record_path())
         try:
@@ -447,33 +469,33 @@ class SessionControlReconciler:
             self._publish_display(context)
         if record_moved or target != self._active_target:
             self._record_signature = signature
-            self._observe(target)
+            self._observe(context, target)
 
         if self._realign_pending:
             await self._realign(context)
 
-    def _observe(self, target: str) -> None:
-        """Record what the context now says about *target*, and whether it moved.
+    def _observe(self, context: Any, target: str) -> None:
+        """Take the write verdict for *target*, and note whether it moved.
 
-        A change of TARGET is not a change of posture: the child a switch built
-        read the record on the way up, so the deployment is already aligned and
+        A change of TARGET is not a change of verdict: the child a switch built
+        took the verdict on the way up, so the deployment is already aligned and
         a realignment left pending from the previous target is moot. A change
-        of the narrowing for the target this server is still on is the one case
+        of the verdict for the target this server is still on is the one case
         that owes the operator a rebuild.
         """
-        entry = posture_store.target_posture(target)
+        allowed = _writes_allowed(context, target)
         if target != self._active_target:
             self._active_target = target
-            self._active_posture = entry
+            self._active_writes = allowed
             if self._realign_pending:
-                # The deployment left the target that narrowing was about, on a
-                # child that read the record itself. Nothing is outstanding.
+                # The deployment left the target that verdict was about, on a
+                # child that took the verdict itself. Nothing is outstanding.
                 self._realign_pending = False
                 self._publish_realign(REALIGN_DONE)
             return
-        if entry == self._active_posture:
+        if allowed == self._active_writes:
             return
-        self._active_posture = entry
+        self._active_writes = allowed
         self._realign_pending = True
         # Published before the wait, not after it: "pending" is the answer to
         # "why has my toggle not taken effect", and it is only useful while the
@@ -490,8 +512,8 @@ class SessionControlReconciler:
         (spawn-then-swap: the old child keeps serving rather than being torn
         down for a replacement that will not come up), so the only evidence a
         caller ever gets is the returned answer. Publishing ``done`` on it
-        would tell an operator their read-only toggle had taken effect on a
-        child still connected under the old posture.
+        would tell an operator their switch had taken effect on a child still
+        connected under the old verdict.
 
         A test double that answers ``None`` counts as a rebuild: only an
         explicit ``False`` is the refusal this reads.
@@ -507,14 +529,14 @@ class SessionControlReconciler:
             rebuilt = await context.invalidate_connector("control_system")
         except Exception:
             logger.warning(
-                "Could not realign the control-system connector to the recorded posture; "
+                "Could not realign the control-system connector to the write verdict; "
                 "retrying on the next pass",
                 exc_info=True,
             )
             return
         if rebuilt is False:
             logger.warning(
-                "The connector host refused to respawn, so the recorded posture is not "
+                "The connector host refused to respawn, so the write verdict is not "
                 "realigned yet; retrying on the next pass"
             )
             return
@@ -524,8 +546,8 @@ class SessionControlReconciler:
     def _publish_display(self, context: Any) -> None:
         """Restate the target display metadata. Never costs the pass that ran it.
 
-        The writer renders identity from the posture it is actually in, so a
-        narrowing recorded for ANY target moves what the block should say —
+        The writer renders the endpoint from the write verdict, so a switch
+        flipped for ANY target moves what the block should say —
         including one this server is not on, where no switch runs and nothing
         else would republish. A republication that fails is logged and left:
         readers keep rendering the endpoint the last successful one named,
@@ -683,7 +705,7 @@ class SessionControlReconciler:
         """The switch verdict, in the words every other surface would get.
 
         Asked HERE rather than when the request was written: an execution that
-        started in between, a posture that narrowed, a target that stopped
+        started in between, a switch turned off, a target that stopped
         being eligible all have to refuse this switch, and a verdict taken
         earlier would be a verdict about a different moment.
 
@@ -704,7 +726,7 @@ class SessionControlReconciler:
             baseline=context.baseline,
             in_flight=target_state.in_flight_executions(),
             reports=reports,
-            writes_enabled=target_eligibility.effective_writes_for_target(section, wanted),
+            writes_enabled=target_eligibility.target_write_verdict(section, wanted).allowed,
             config_path=str(config_path) if config_path else None,
         )
 

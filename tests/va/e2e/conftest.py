@@ -445,8 +445,8 @@ STRING_NOMINAL = "synthetic e2e text"
 
 # CA gateway config: read_only and write_access both point at the container's
 # single published port (matches the preset's config.yml.j2 virtual_accelerator
-# block), so gateway selection is inert here -- writes_enabled is gated purely
-# by the base-class guard tested by test_approval_smoke.py.
+# block), so gateway selection is inert here -- writes are gated purely by the
+# base-class write verdict tested by test_approval_smoke.py.
 VA_GATEWAY_CONFIG: dict[str, Any] = {
     "timeout_s": 5.0,
     "gateways": {
@@ -492,8 +492,8 @@ def patched_config(**overrides: Any) -> Iterator[None]:
     CONFIG_FILE/cwd state another test in the same pytest process left behind
     (see ``tests/connectors/test_simulation_integration.py`` for the same
     pattern). Must stay active for the entire connect()+read/write sequence:
-    ``_writes_enabled`` is re-evaluated by the base-class guard on every
-    single write call, not cached at connect time.
+    the write verdict is re-evaluated by the base-class guard on every single
+    write call, not cached at connect time.
     """
 
     def _get_config_value(key: str, default: Any = None) -> Any:
@@ -540,11 +540,34 @@ async def connect_va(**config_overrides: Any):
     ``_disconnect_va_connectors``); callers need no try/finally of their own.
     """
     from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
+    from osprey_connectors.types import TARGET_VA
 
     register_builtin_connectors()
-    connector = await ConnectorFactory.create_control_system_connector(CONNECTOR_CONFIG)
+    # Stamped with the machine it writes to, as a controls server's factory call
+    # stamps it: the write verdict is per target, and an unstamped connector
+    # names no machine and is refused before its tier is read.
+    connector = await ConnectorFactory.create_control_system_connector(
+        CONNECTOR_CONFIG, control_target=TARGET_VA
+    )
     _LIVE_CONNECTORS.append(connector)
     return connector
+
+
+@pytest.fixture
+def va_switch_on(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path | None:
+    """The login's switch on for the simulator, in a record of this test's own.
+
+    A write needs the login tier (``control_system.writes: allowed``, served by
+    :func:`patched_config`) AND the session's switch on for its machine. This is
+    the second half, written through the person's gesture into a record under
+    *tmp_path*, with the acting identity pinned and every variable that would
+    change the verdict cleared. A test that serves ``writes: never`` still
+    refuses — the tier is read first.
+    """
+    from osprey_connectors.types import TARGET_VA
+    from osprey_connectors_tests._write_fakes import arm_switch
+
+    return arm_switch(monkeypatch, tmp_path / "armed-data", TARGET_VA, stamp=False)
 
 
 @pytest.fixture(autouse=True)
@@ -621,7 +644,7 @@ def stage_va_project(root: Path) -> VaProject:
     config = {
         "control_system": {
             "type": "virtual_accelerator",
-            "writes_enabled": True,
+            "writes": "allowed",
         },
         "simulation": {"default_scenarios": list(SUITE_SCENARIOS)},
     }

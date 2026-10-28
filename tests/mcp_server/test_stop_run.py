@@ -142,12 +142,12 @@ async def test_stop_run_is_ungated_with_writes_off_and_no_token(tmp_path, monkey
 
 async def test_stop_run_does_not_read_the_writes_kill_switch(tmp_path, monkeypatch):
     """Negative control for the property above, at the mechanism rather than
-    the outcome: `queue._writes_enabled` is the shared re-read every armed tool
-    performs, and the abort must never consult it — a tool that read it and
+    the outcome: `queue._lane_verdict` is the shared write verdict every armed
+    tool asks, and the abort must never consult it — a tool that asked it and
     ignored the answer would be one edit from gating a halt."""
     _locked_down(tmp_path, monkeypatch)
 
-    with patch("osprey.mcp_server.bluesky.tools.queue._writes_enabled") as writes:
+    with patch("osprey.mcp_server.bluesky.tools.queue._lane_verdict") as writes:
         with patch(f"{_MOD}._http_post_json", return_value=(200, _ABORT_OK)):
             with patch(f"{_MOD}.notify_agent_activity_async"):
                 await _fn()()

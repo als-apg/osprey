@@ -7,15 +7,24 @@ about the model under test.
 
 from __future__ import annotations
 
+import inspect
 import json
 import math
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 from osprey.agent_runner.primitives import SDKWorkflowResult, ToolTrace
 from osprey.agent_runner.project_paths import claude_project_dir
+from osprey.utils.owner_header import OWNER_HEADER
+from osprey_connectors import control_context
+from osprey_connectors.identity import acting_identity
+from osprey_connectors.types import baseline_target
+from tests.e2e import _queue_drive, sdk_helpers
 from tests.e2e.sdk_helpers import (
     HOOK_ATTACHMENT_PREFIX,
     JUDGE_RESULT_CHARS,
@@ -611,3 +620,284 @@ def test_transcript_dump_keeps_every_attempt(tmp_path, monkeypatch):
     assert first.parent == second.parent
     assert len(json.loads(first.read_text())["tool_traces"][0]["result"]) == 10
     assert len(json.loads(second.read_text())["tool_traces"][0]["result"]) == 20
+
+
+# ---------------------------------------------------------------------------
+# The arming helper (D9). A write is allowed when the login's tier says
+# ``allowed`` AND that login's switch is on for the machine, so the helper is
+# pinned on both halves and on whose switch it moves: arming the wrong login's
+# record is a lane that silently runs with writes off.
+# ---------------------------------------------------------------------------
+
+
+def _fake_repo(tmp_path: Path, profile_config: dict | None = None) -> Path:
+    """A repo with a source profile and a render, without running a build."""
+    repo = tmp_path / "deployment"
+    (repo / "build").mkdir(parents=True)
+    (repo / "profile.yml").write_text(
+        yaml.safe_dump({"name": "deployment", "config": profile_config or {}}, sort_keys=False)
+    )
+    (repo / "build" / "config.yml").write_text(
+        yaml.safe_dump(
+            {
+                "project_root": str(repo),
+                "agent_data": {"base_dir": "var/agent_data"},
+                "control_system": {"type": "virtual_accelerator"},
+            }
+        )
+    )
+    return repo
+
+
+def _builds(monkeypatch) -> list[list[str]]:
+    """Stand in for ``osprey <verb>``; record each call instead of building."""
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        sdk_helpers, "_run_osprey", lambda verb, args, *, timeout: calls.append([verb, *args])
+    )
+    return calls
+
+
+def _baseline() -> str:
+    return baseline_target({"type": "virtual_accelerator"})
+
+
+def test_set_writes_tier_spells_the_tier_key_once_and_rebuilds(tmp_path, monkeypatch):
+    builds = _builds(monkeypatch)
+    repo = _fake_repo(
+        tmp_path,
+        {
+            "archiver.type": "mock_archiver",
+            "control_system.writes": "never",
+            "control_system": {"writes": "never", "type": "virtual_accelerator"},
+        },
+    )
+
+    sdk_helpers.set_writes_tier(repo)
+
+    config = yaml.safe_load((repo / "profile.yml").read_text())["config"]
+    assert config["control_system.writes"] == "allowed"
+    assert config["control_system"] == {"type": "virtual_accelerator"}
+    assert config["archiver.type"] == "mock_archiver"
+    assert builds == [["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"]]
+
+
+def test_set_writes_tier_writes_a_config_block_a_profile_lacks(tmp_path, monkeypatch):
+    _builds(monkeypatch)
+    repo = _fake_repo(tmp_path)
+    (repo / "profile.yml").write_text("name: deployment\n")
+
+    sdk_helpers.set_writes_tier(repo)
+
+    profile = yaml.safe_load((repo / "profile.yml").read_text())
+    assert profile == {"name": "deployment", "config": {"control_system.writes": "allowed"}}
+
+
+def test_the_record_arm_turns_on_the_named_owners_switch_only(tmp_path):
+    repo = _fake_repo(tmp_path)
+
+    stored = sdk_helpers.switch_on_in_record(repo, owner="alice")
+
+    path = repo / "var" / "agent_data" / "control_target" / "alice" / "control_context.json"
+    assert sdk_helpers.switch_record_path(repo, "alice") == path
+    control_context.invalidate_cache()
+    on_disk = control_context.read_record(path=path)
+    assert on_disk is not None
+    assert dict(on_disk.switch) == {_baseline(): "on"} == dict(stored.switch)
+    assert on_disk.target == _baseline()
+    assert isinstance(on_disk.switch_epoch, int) and on_disk.switch_epoch > 0
+    assert not (path.parent.parent / "bob").exists()
+
+
+def test_the_record_arm_keeps_an_existing_record_and_is_idempotent(tmp_path):
+    repo = _fake_repo(tmp_path)
+    path = sdk_helpers.switch_record_path(repo, "alice")
+    control_context.write_record(
+        control_context.ControlContext(target=_baseline(), generation=7), path=path
+    )
+
+    sdk_helpers.switch_on_in_record(repo, owner="alice")
+    again = sdk_helpers.switch_on_in_record(repo, owner="alice")
+
+    assert again.generation == 7
+    assert dict(again.switch) == {_baseline(): "on"}
+
+
+def test_the_record_arm_retries_an_epochless_record_once(tmp_path):
+    repo = _fake_repo(tmp_path)
+    path = sdk_helpers.switch_record_path(repo, "alice")
+    path.parent.mkdir(parents=True)
+    payload = control_context.ControlContext(target=_baseline(), generation=1).to_payload()
+    payload["switch_epoch"] = None
+    path.write_text(json.dumps(payload))
+    control_context.invalidate_cache()
+
+    stored = sdk_helpers.switch_on_in_record(repo, owner="alice")
+
+    assert dict(stored.switch) == {_baseline(): "on"}
+    assert isinstance(stored.switch_epoch, int)
+
+
+def test_the_record_arm_refuses_an_owner_that_is_not_a_login(tmp_path):
+    repo = _fake_repo(tmp_path)
+    with pytest.raises(ValueError):
+        sdk_helpers.switch_on_in_record(repo, owner="../escape")
+    assert not (repo / "var" / "agent_data" / "escape").exists()
+
+
+class _FakeTerminal:
+    """A local HTTP server answering the posture and queue routes from a script."""
+
+    def __init__(self, answers):
+        self.answers = answers
+        self.seen: list[tuple[str, str, dict, dict | None]] = []
+        terminal = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def _answer(self, method):
+                length = int(self.headers.get("Content-Length") or 0)
+                raw = self.rfile.read(length) if length else b""
+                body = json.loads(raw) if raw else None
+                terminal.seen.append((method, self.path, dict(self.headers), body))
+                status, reply = terminal.answers(method, self.path, body)
+                data = json.dumps(reply).encode()
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def do_GET(self):
+                self._answer("GET")
+
+            def do_POST(self):
+                self._answer("POST")
+
+            def log_message(self, *args):
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+
+    @property
+    def base_url(self) -> str:
+        return f"http://127.0.0.1:{self.server.server_address[1]}"
+
+    def __enter__(self):
+        self.thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+def test_the_chip_arm_sends_the_epoch_it_read_and_retries_a_stamp_once():
+    def answers(method, _path, body):
+        if method == "GET":
+            return 200, {"switch_epoch": None}
+        if body["epoch"] is None:
+            return 409, {"detail": {"reason": "stopped_since", "epoch": "42", "stamped": True}}
+        return 200, {"target": body["target"], "state": "on", "switch_epoch": body["epoch"]}
+
+    with _FakeTerminal(answers) as terminal:
+        chip = sdk_helpers.ChipRoute(
+            terminal.base_url, session_id="sess-1", headers={"X-Osprey-Terminal-Secret": "s"}
+        )
+        reply = sdk_helpers.switch_on_through_chip(chip, "va")
+
+    assert reply == {"target": "va", "state": "on", "switch_epoch": "42"}
+    posts = [entry for entry in terminal.seen if entry[0] == "POST"]
+    assert [body for *_rest, body in posts] == [
+        {"session_id": "sess-1", "target": "va", "state": "on", "epoch": None},
+        {"session_id": "sess-1", "target": "va", "state": "on", "epoch": "42"},
+    ]
+    assert all(entry[1] == sdk_helpers.CHIP_POSTURE_PATH for entry in posts)
+    assert terminal.seen[0][1] == f"{sdk_helpers.CHIP_POSTURE_PATH}?session_id=sess-1"
+    assert all(entry[2].get("X-Osprey-Terminal-Secret") == "s" for entry in terminal.seen)
+
+
+def test_the_chip_arm_fails_with_the_refusal_it_was_given():
+    def answers(method, _path, _body):
+        if method == "GET":
+            return 200, {"switch_epoch": "5"}
+        return 403, {"detail": {"reason": "tier_never", "phrase": "WRITES OFF"}}
+
+    with _FakeTerminal(answers) as terminal:
+        with pytest.raises(AssertionError, match="tier_never"):
+            sdk_helpers.switch_on_through_chip(sdk_helpers.ChipRoute(terminal.base_url), "va")
+    assert len([entry for entry in terminal.seen if entry[0] == "POST"]) == 1
+
+
+def _arming_steps(monkeypatch) -> list[tuple]:
+    steps: list[tuple] = []
+    monkeypatch.setattr(sdk_helpers, "set_writes_tier", lambda _repo: steps.append(("tier",)))
+
+    def record(_repo, *, owner, targets):
+        steps.append(("record", owner, targets))
+        return control_context.ControlContext(
+            target=targets[0], generation=1, switch=dict.fromkeys(targets, "on"), switch_epoch=9
+        )
+
+    def chip(route, target):
+        steps.append(("chip", route.base_url, target))
+        return {"target": target, "state": "on", "switch_epoch": "11"}
+
+    monkeypatch.setattr(sdk_helpers, "switch_on_in_record", record)
+    monkeypatch.setattr(sdk_helpers, "switch_on_through_chip", chip)
+    return steps
+
+
+def test_arm_writes_sets_the_tier_before_the_record_switch(tmp_path, monkeypatch):
+    steps = _arming_steps(monkeypatch)
+    repo = _fake_repo(tmp_path)
+
+    armed = sdk_helpers.arm_writes(repo, owner="alice")
+
+    assert steps == [("tier",), ("record", "alice", [_baseline()])]
+    assert armed == sdk_helpers.ArmedWrites(
+        owner="alice", targets=[_baseline()], via="record", switch_epoch=9
+    )
+
+
+def test_arm_writes_through_the_chip_posts_each_target(tmp_path, monkeypatch):
+    steps = _arming_steps(monkeypatch)
+    repo = _fake_repo(tmp_path)
+
+    armed = sdk_helpers.arm_writes(
+        repo, owner="bob", targets=["va", "live"], chip=sdk_helpers.ChipRoute("http://t")
+    )
+
+    assert steps == [("tier",), ("chip", "http://t", "live"), ("chip", "http://t", "va")]
+    assert armed.via == "chip" and armed.owner == "bob" and armed.switch_epoch == 11
+
+
+def test_enable_writes_in_project_arms_the_identity_this_process_acts_as(tmp_path, monkeypatch):
+    seen: list[dict] = []
+    monkeypatch.setattr(sdk_helpers, "arm_writes", lambda repo, **kwargs: seen.append(kwargs))
+
+    sdk_helpers.enable_writes_in_project(tmp_path)
+    sdk_helpers.enable_writes_in_project(tmp_path, owner="carol")
+
+    assert seen == [{"owner": acting_identity()}, {"owner": "carol"}]
+
+
+@pytest.mark.parametrize("owner", ["alice", None])
+def test_a_queue_add_names_its_owner_in_the_owner_header(owner):
+    def answers(_method, _path, body):
+        return 200, {"run_id": "run-1", "revision": body["draft_revision"]}
+
+    with _FakeTerminal(answers) as bridge:
+        run_id = _queue_drive.enqueue(bridge.base_url, 3, token="tok", owner=owner)
+
+    assert run_id == "run-1"
+    ((_method, path, headers, _body),) = bridge.seen
+    assert path == "/queue/items"
+    assert headers.get(OWNER_HEADER) == owner
+    assert headers.get(_queue_drive.LAUNCH_TOKEN_HEADER) == "tok"
+
+
+def test_the_arming_helpers_spell_no_retired_posture_key():
+    retired = "writes" + "_enabled"
+    for module in (sdk_helpers, _queue_drive):
+        assert retired not in inspect.getsource(module), module.__name__

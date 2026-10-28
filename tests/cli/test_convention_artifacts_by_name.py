@@ -663,11 +663,11 @@ def test_a_fresh_profile_naming_the_kill_switch_by_path_wires_it(
     if not armed:
         profile = repo / "profile.yml"
         text = profile.read_text(encoding="utf-8")
-        assert text.count("  control_system.writes_enabled: true\n") == 1
+        assert text.count("  control_system.writes: allowed\n") == 1
         profile.write_text(
             text.replace(
-                "  control_system.writes_enabled: true\n",
-                "  control_system.writes_enabled: false\n",
+                "  control_system.writes: allowed\n",
+                "  control_system.writes: never\n",
             ),
             encoding="utf-8",
         )

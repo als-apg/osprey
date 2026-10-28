@@ -23,9 +23,9 @@ its owner in context would be the quiet way past a gate the catalog path
 enforces.
 
 The store the write asks is the real one, reading a real control-context
-tree: the record is planted for a named owner, so a refusal here is the
-store answering narrowing for *that person* rather than a stub agreeing to
-refuse. Every test stamps the tree bind, the deployment shape a lane's
+tree: a record is planted for each named owner with the target's switch on,
+and a refusal row turns one owner's switch off, so a refusal here is the
+store answering for *that person* rather than a stub agreeing to refuse. Every test stamps the tree bind, the deployment shape a lane's
 queueserver runs in, where the ladder's last answer is ``NO_OWNER`` rather
 than the account the process runs as.
 """
@@ -55,9 +55,8 @@ from osprey_connectors.errors import ChannelWriteBlockedError
 from osprey_connectors.posture_store import (
     NO_OWNER,
     RESERVED_OWNER_KWARG,
-    StoreVerdict,
     current_owner,
-    store_verdict,
+    write_verdict,
 )
 from tests.services.bluesky_bridge._fake_connector import FakeConnector
 
@@ -68,6 +67,15 @@ _DEVICE_NAME = "motor"
 _CHANNEL = "SR:BEND:SETPOINT"
 _TARGET = "live"
 _SETPOINT = 3.5
+
+#: The ``control_system`` section a lane's queueserver holds: writes allowed,
+#: and both logins mapped ``allowed`` so the owner rung a bound tree applies
+#: never decides anything here — only each owner's own switch does.
+_SECTION = {
+    "type": "epics",
+    "writes": "allowed",
+    "login_tiers": {_OWNER: "allowed", _UNNARROWED_OWNER: "allowed"},
+}
 
 
 class _GatedConnector(FakeConnector):
@@ -90,11 +98,10 @@ class _GatedConnector(FakeConnector):
 
     async def write_channel_checked(self, channel_address: str, value: Any, **kwargs: Any):
         self.write_owners.append(current_owner())
-        verdict = store_verdict(_TARGET)
-        if verdict is not StoreVerdict.PERMITTED:
+        verdict = write_verdict(_SECTION, _TARGET)
+        if not verdict.allowed:
             # The reason word is the verdict's own spelling, not a second one:
-            # ``StoreVerdict`` is a ``StrEnum``, so what the store answered is
-            # what the operator reads.
+            # what the verdict answered is what the operator reads.
             raise ChannelWriteBlockedError(
                 channel_address,
                 "WRITES_DISABLED",
@@ -102,7 +109,7 @@ class _GatedConnector(FakeConnector):
                     f"Write to '{channel_address}' blocked: writes are off for the "
                     f"'{_TARGET}' control target — turn them back on from the "
                     f"control-target chip if the write is intended. "
-                    f"The store answered {verdict}."
+                    f"The verdict answered {verdict.reason}."
                 ),
             )
         return await super().write_channel_checked(channel_address, value, **kwargs)
@@ -171,17 +178,23 @@ def control_context_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ite
     posture_store._owner_var.set(NO_OWNER)
 
 
-def narrow_for(tree: Path, owner: str, target: str = _TARGET) -> Path:
-    """Record *owner*'s narrowing of *target*, the way that owner's chip writes it."""
+def record_for(tree: Path, owner: str, *, on: bool, target: str = _TARGET) -> Path:
+    """Record *owner*'s switch for *target*, on or off, the way the person's gesture stores it."""
     path = tree / owner / control_context.RECORD_FILENAME
     control_context.write_record(
-        control_context.ControlContext(
-            target=target,
-            generation=3,
-            posture={target: posture_store.POSTURE_SANDBOX},
-        ),
-        path=path,
+        control_context.ControlContext(target=target, generation=3), path=path
     )
+    if on:
+        epoch = control_context.read_record(path=path).switch_epoch
+        control_context.set_switch([target], "on", epoch=epoch, path=path)
+    posture_store.invalidate_cache()
+    return path
+
+
+def turn_off_for(tree: Path, owner: str, target: str = _TARGET) -> Path:
+    """Turn *owner*'s switch for *target* off."""
+    path = tree / owner / control_context.RECORD_FILENAME
+    control_context.set_switch([target], "off", path=path)
     posture_store.invalidate_cache()
     return path
 
@@ -208,8 +221,16 @@ def _session_wrapper(device: ConnectorSettable) -> Callable[..., Iterator[Any]]:
 
 
 @pytest.fixture(params=["catalog", "session"])
-def wrapped_plan(request: pytest.FixtureRequest) -> Callable[[ConnectorSettable], Any]:
-    """Both wrappers, each around the plan that drives one gated channel."""
+def wrapped_plan(
+    request: pytest.FixtureRequest, control_context_tree: Path
+) -> Callable[[ConnectorSettable], Any]:
+    """Both wrappers, each around the plan that drives one gated channel.
+
+    Both owners' switches start on for the target, so a write is refused only
+    where a row turns one of them off.
+    """
+    for owner in (_OWNER, _UNNARROWED_OWNER):
+        record_for(control_context_tree, owner, on=True)
     if request.param == "catalog":
         return _catalog_wrapper
     return _session_wrapper
@@ -264,16 +285,18 @@ def test_an_owner_less_run_after_an_owned_one_writes_under_no_owner(
 
     A worker's RunEngine outlives every item it executes and runs them on one
     thread, so an owner left in the context a run was advanced from would gate
-    the *next* person's plan against the previous person's narrowing. Both
-    runs go through one RunEngine and one connector, which is the arrangement
-    where that would show.
+    the *next* plan against the previous person's switch. Both runs go through
+    one RunEngine and one connector, which is the arrangement where that would
+    show: the owner-less run is refused ``owner_unknown`` (case row
+    ``owner-tree-nobody-bound``), where a leaked owner would have let it write.
     """
     connector = _GatedConnector()
     plan_function = wrapped_plan(_device(connector))
     run_engine = RunEngine(context_managers=[])
 
     run_engine(plan_function(**{RESERVED_OWNER_KWARG: _OWNER}))
-    run_engine(plan_function())
+    with pytest.raises(FailedStatus, match="owner_unknown"):
+        run_engine(plan_function())
 
     assert connector.write_owners == [_OWNER, NO_OWNER]
     assert connector.write_owners[1] is NO_OWNER
@@ -282,7 +305,7 @@ def test_an_owner_less_run_after_an_owned_one_writes_under_no_owner(
 # --- the store's answer, for the owner the run carries ----------------------
 
 
-def test_a_narrowing_recorded_for_the_owner_refuses_the_write_and_fails_the_run(
+def test_a_switch_off_for_the_owner_refuses_the_write_and_fails_the_run(
     wrapped_plan: Callable[[ConnectorSettable], Any], control_context_tree: Path
 ) -> None:
     """The refusal reaches the operator saying what the store answered.
@@ -293,11 +316,11 @@ def test_a_narrowing_recorded_for_the_owner_refuses_the_write_and_fails_the_run(
     rather than a generic failure. Nothing is written: a refusal is decided
     before the value is sent.
     """
-    narrow_for(control_context_tree, _OWNER)
+    turn_off_for(control_context_tree, _OWNER)
     connector = _GatedConnector()
     plan_function = wrapped_plan(_device(connector))
 
-    with pytest.raises(FailedStatus, match="narrowing") as failure:
+    with pytest.raises(FailedStatus, match="switch_off") as failure:
         RunEngine(context_managers=[])(plan_function(**{RESERVED_OWNER_KWARG: _OWNER}))
 
     assert isinstance(failure.value.__cause__, ChannelWriteBlockedError)
@@ -309,13 +332,13 @@ def test_a_narrowing_recorded_for_the_owner_refuses_the_write_and_fails_the_run(
 def test_the_same_plan_is_permitted_for_an_owner_the_store_does_not_narrow(
     wrapped_plan: Callable[[ConnectorSettable], Any], control_context_tree: Path
 ) -> None:
-    """The control for the row above: one person's narrowing is theirs alone.
+    """The control for the row above: one person's switch is theirs alone.
 
     Same tree, same target, same plan — only the name the item carries
     differs. Without this, a refusal would equally well be explained by a
     store that refuses everyone, and the owner would be pinning nothing.
     """
-    narrow_for(control_context_tree, _OWNER)
+    turn_off_for(control_context_tree, _OWNER)
     connector = _GatedConnector()
     plan_function = wrapped_plan(_device(connector))
 

@@ -21,16 +21,25 @@ in place, with the round-trip writer so every comment the operator kept survives
    joins ``shared:``. An edited file stays where it is, and the step left to
    do by hand is printed, as it is for every catalog field, role or pin the
    rewrite cannot carry over.
-4. Every ``config:`` leaf the profile leaves to its preset is filled in from
+4. The retired write-posture keys (``control_system.writes_enabled`` and every
+   ``control_system.connector.<type>.writes_enabled``) become the tier key
+   ``control_system.writes`` by the rule the build applies at parse, in the
+   profile, every overlay and every tier or app file kept. A comment stanza the
+   previous release shipped about them is replaced by the bundled preset's
+   current one, a commented retired-key example is dropped, and any other
+   prose about them, or a connector block the rewrite empties, is printed as a
+   step left to do by hand.
+5. Every ``config:`` leaf the profile leaves to its preset is filled in from
    that preset, under the preset's own comment; the retired ``app_template:``
    key is dropped. The deployment's own selections (the keys the manifest
    marks ``deployment-data`` or ``data-map``) are never filled: the output
-   names each one left out.
-5. ``providers.yml`` is completed, never rewritten: every value it states is
+   names each one left out, and so is ``control_system.writes``, so a root
+   that never stated it stays ``never``.
+6. ``providers.yml`` is completed, never rewritten: every value it states is
    kept, an edited entry OSPREY ships included, and only the entries OSPREY
    ships that it lacks, and the keys an existing one lacks, are added.
    ``osprey validate`` reports each remaining difference as drift.
-6. ``provenance:`` is restamped with the preset, its hash and the catalog's
+7. ``provenance:`` is restamped with the preset, its hash and the catalog's
    hash, and ``requires_osprey_version`` at the schema floor, so a release
    that predates the vocabulary refuses the rewritten repo.
 7. The repo's own skills, agents, rules, output styles and hooks are named by
@@ -81,10 +90,18 @@ from .build_profile_document import (
     _WT_LABEL,
     RENDER_KEYS,
     RETIRED_CATALOG_KEY,
+    RETIRED_WRITES_LEAF,
+    WRITES_KEY_LEAF,
     _catalog_knobs,
+    _document_kind,
+    _kept_flat_leaf,
+    _mixed_writes_error,
     _refuse_mixed_roster,
     _RosterSpellings,
     _scan_roster,
+    _scan_writes,
+    _WriteSpellings,
+    retired_write_answer,
 )
 from .build_profile_emit import _drop_key_and_pre_comment
 from .build_profile_load import _PROFILE_SCHEMA_MIN_OSPREY
@@ -469,6 +486,424 @@ def _rewrite_roster_keys(document: Any, source: str) -> dict[str, dict[str, Any]
         column = _key_column(container, key, 0)
         _drop_node(container, key, _predecessor(container, key), column)
     return catalog
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The write-posture rewrite
+#
+# The retired ``control_system.writes_enabled`` and every
+# ``control_system.connector.<type>.writes_enabled`` become the one tier key,
+# ``control_system.writes``, by the rule the parse point applies
+# (:func:`~osprey.cli.build_profile_document.retired_write_answer`; ``never``
+# in an app). The keys are rewritten in the round-trip tree; the comments that
+# described them are rewritten as text afterwards, because a comment is not a
+# node: a stanza the previous release shipped is replaced by the current
+# preset's, a commented retired-key example is dropped, and any other prose
+# about the retired keys is left for the operator.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class WriteStanza(NamedTuple):
+    """One comment stanza the previous release shipped about the retired write keys.
+
+    The stanza is the ``old_lines`` lines right above the ``anchor`` line, in
+    the file AFTER the keys are rewritten; it is replaced by the
+    ``new_lines`` lines right above the same anchor in the bundled ``preset``
+    today. Lines are compared without their indentation, and the replacement
+    takes the anchor's indentation in the file it lands in.
+    """
+
+    preset: str
+    """The bundled preset (``tiers/<n>``, ``apps/<n>`` or a deployment preset) holding the successor."""
+    anchor: str
+    """The line below the stanza, stripped; the same in both releases."""
+    old_lines: int
+    old_hash: str
+    """:func:`_stanza_hash` of the previous release's stanza."""
+    new_lines: int
+    new_hash: str
+    """:func:`_stanza_hash` of the preset's stanza today, which locates it there."""
+
+
+#: The stanzas the previous release shipped, by frozen hash: the old text
+#: leaves the package with this release, so only its hash is kept. A stanza
+#: that still hashes to one of these was never edited, so replacing it with
+#: the preset's current words loses nothing the operator wrote.
+WRITE_STANZAS: tuple[WriteStanza, ...] = (
+    WriteStanza(
+        "control-assistant",
+        "control_system.writes: allowed",
+        7,
+        "sha256:ac361105ab01d4cd2a662d5f42d71ee2fa27841d59519084cb1313f05c12e940",
+        6,
+        "sha256:cd08381facbe2d0ec707b3d15b22e76424749dd04bf67092b0c9b7403e00078a",
+    ),
+    WriteStanza(
+        "control-assistant",
+        "# Where the simulator runs: `served` is its container over Channel Access; `in_process` is inside this process, with no container.",
+        4,
+        "sha256:af5020608bfe8231dea1508462dd9880cbb16c3e7cc680e01c565692e127d15a",
+        0,
+        "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ),
+    WriteStanza(
+        "control-assistant",
+        "# Channel the target switch reads to prove the live machine is reachable.",
+        3,
+        "sha256:ce6a8cf56ab8a75fd66cda2b9d67d9a9e465bae5e3d03f25c8aba1ca6e265e75",
+        0,
+        "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ),
+    WriteStanza(
+        "control-assistant",
+        "# Seconds an ENS lookup, a property read or a property set is given.",
+        1,
+        "sha256:eacda895bd3b9b217dea11b3de9c5bdaf04bdba82a45e527c43ced885e4329e2",
+        1,
+        "sha256:c71d12de9f95e34dfe6e9a4e3c62c6b4a26e59b90b1c73eee9373493289b4c6b",
+    ),
+    WriteStanza(
+        "control-assistant",
+        "# Property the target switch reads to prove this machine is reachable.",
+        3,
+        "sha256:268822f74f972ad272b373bc687b5419e76c3c45be3fd9d141daa8562253af2f",
+        0,
+        "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ),
+    WriteStanza(
+        "control-assistant",
+        "# control_system.connector.tango.probe_channel: sys/tg_test/1/ampli",
+        2,
+        "sha256:09c939480a710bcd937052fb6ca9076e2b1f1ba29bbb7f5a92e64cd4fe68ae90",  # osprey:not-a-port — digest digits
+        1,
+        "sha256:a8668b9914da648f2c88cf1cef503f5d2ef4ff64bd642957c7f2d0b594d6df1e",
+    ),
+    # The writes-check hook's entry, which named the retired key; a stanza is
+    # compared line by line, so a list entry's own comment is one too.
+    WriteStanza(
+        "control-assistant",
+        "- limits            # Enforce per-channel min/max limits before writes",
+        1,
+        "sha256:e80aca8e8c01cb79c19c83637e2958d48b8e86843a5b865a4ea618be86d3806e",
+        1,
+        "sha256:8f18a376a22a4d0943887f7020bc7a6c0536d21039ee1f22ab541b117a133999",
+    ),
+    # The stand-in's comment, which named the banner the real machine wears.
+    WriteStanza(
+        "control-assistant",
+        "# Delete the line on a laptop: the simulator image is amd64-only, so a",
+        3,
+        "sha256:7557ddf3c86a9245e4d5b1dc31a72d46a89e8c2fd425b42702f6c42170e11afe",
+        3,
+        "sha256:24247dd971887136c2a7e38327cc656e7a5c6d9ee9b6bcaa6bb5fed6e8c0b477",
+    ),
+    WriteStanza(
+        "hello-world",
+        "# write is refused before the limits check or the approval prompt is even",
+        1,
+        "sha256:cae435052c5791048c3acd5a74b7d278beac811cf47826bd2bd16e17c49823e9",
+        1,
+        "sha256:383412beeae8fa33449e63d1ebdb2e794e1a6ee70ec4c6d3d20334dd15d88562",
+    ),
+    WriteStanza(
+        "hello-world",
+        "control_system.writes: never",
+        1,
+        "sha256:88194b282cd242f33511a448710834fec5058da5c5925ba1d331d998f33bcfcb",
+        1,
+        "sha256:5e17e001d64e7e41ebfb856f2e5bcb30ef17d389c777da36448a446d91b63a18",
+    ),
+    WriteStanza(
+        "tiers/readonly",
+        "# at every write surface: channel-write tools land in the rendered",
+        4,
+        "sha256:2651efc04017af2746b818e064ecf4b10f6748a79877c69bea8d5421162c60ba",
+        3,
+        "sha256:afe4814f5c9f725d1aa17a0ab628d0ed68f29c3e53a4cc1b79f7695ef16b3312",
+    ),
+    WriteStanza(
+        "tiers/readonly",
+        "control_system.writes: never",
+        6,
+        "sha256:6e8ec4d3d2c95777f8c7e9233505b1d3b700599c74998cbe972141ed9e484ed7",
+        3,
+        "sha256:82e67cda3b2f935543a1a8ccb791b5ac0504321f25efd3fd1c99022319b64361",
+    ),
+    WriteStanza(
+        "tiers/readonly",
+        "#",
+        1,
+        "sha256:cfacbbb8563ef4d25cce60db32cb514f44a113b30d3b2cd90d2cdb2bd475bc8a",
+        1,
+        "sha256:31af145311961adff92ca6de4e8826a1d8131b9b0594cf1c029bf7869843b560",
+    ),
+    WriteStanza(
+        "tiers/readwrite",
+        "#",
+        6,
+        "sha256:b27562646623c3588a64e7185477ae24ef4b3cad9757733725209f53f60bcf86",
+        4,
+        "sha256:164599a2833156b9a036bfb19384a9ec5f7c4145e70f3e4bb7bffc481f2c933a",
+    ),
+    WriteStanza(
+        "tiers/readwrite",
+        "control_system.writes: allowed",
+        6,
+        "sha256:f570e2a1d6767f477cb13bf517f0012496dc1fc8604a710519ac91bddca0f2dc",
+        2,
+        "sha256:5bad65a1da7fdf15488a9490dbd180e08ca051f1b0f4b0ebff6e6bed261d4434",
+    ),
+    WriteStanza(
+        "tiers/readwrite",
+        "web.ui_mode: expert",
+        1,
+        "sha256:10d72c4916bfd1c7bb01e2a0f8302c118ed14fdd1c05aec617e6f1b2140058fe",
+        1,
+        "sha256:577f2e4790d551676cccda3ec34d49f56a0e6e1dc1255b99ce2872d261bd0fdc",
+    ),
+    WriteStanza(
+        "tiers/admin",
+        "# What makes this the admin tier is the deployment-editing block below, not a",
+        5,
+        "sha256:10020b2115f76dd4b0400534961374c024fcc9795a1c579f4dea2635433abf30",
+        2,
+        "sha256:6fdf4ff685e405e1b6b69e269b0384c00368057d5588de99a850de77661367dc",
+    ),
+    WriteStanza(
+        "apps/logbook",
+        "#",
+        3,
+        "sha256:7c4114f59e4681876a8e717a2b4473341cb08217693ec7e6b6a874383d5cea71",
+        2,
+        "sha256:45f8414a6ae749ae66d67bab745ac0e474b11e48197a6c6ee4f523604e6eb3bc",
+    ),
+    WriteStanza(
+        "apps/logbook",
+        "control_system.writes: never",
+        2,
+        "sha256:95d2f2142ddaed64959e9ae2e542ce94bc197b53e6b7e8471578f356d70582fd",
+        1,
+        "sha256:269e8240b883386a56542b4380304cd348e3b356d9cf50a1c200f874a722c3e4",
+    ),
+    WriteStanza(
+        "apps/knowledge",
+        "#",
+        3,
+        "sha256:7c4114f59e4681876a8e717a2b4473341cb08217693ec7e6b6a874383d5cea71",
+        2,
+        "sha256:45f8414a6ae749ae66d67bab745ac0e474b11e48197a6c6ee4f523604e6eb3bc",
+    ),
+    WriteStanza(
+        "apps/knowledge",
+        "control_system.writes: never",
+        2,
+        "sha256:95d2f2142ddaed64959e9ae2e542ce94bc197b53e6b7e8471578f356d70582fd",
+        1,
+        "sha256:269e8240b883386a56542b4380304cd348e3b356d9cf50a1c200f874a722c3e4",
+    ),
+    WriteStanza(
+        "apps/channel-finder",
+        "#",
+        3,
+        "sha256:7c4114f59e4681876a8e717a2b4473341cb08217693ec7e6b6a874383d5cea71",
+        2,
+        "sha256:45f8414a6ae749ae66d67bab745ac0e474b11e48197a6c6ee4f523604e6eb3bc",
+    ),
+    WriteStanza(
+        "apps/channel-finder",
+        "control_system.writes: never",
+        2,
+        "sha256:95d2f2142ddaed64959e9ae2e542ce94bc197b53e6b7e8471578f356d70582fd",
+        1,
+        "sha256:269e8240b883386a56542b4380304cd348e3b356d9cf50a1c200f874a722c3e4",
+    ),
+)
+
+#: A commented example of a retired write key, any spelling: dropped.
+_RETIRED_WRITE_EXAMPLE = re.compile(r"^\s*#\s*(?:[^\s#:]+\.)?writes_enabled\s*:")
+
+#: The tier key, dotted from ``config:``.
+_TIER_KEY = f"control_system.{WRITES_KEY_LEAF}"
+
+#: The tier key in its dotted spelling, as a line of a ``config:`` block.
+_TIER_KEY_LINE = re.compile(r"^\s*control_system\.writes\s*:")
+
+
+def _stanza_hash(lines: list[str]) -> str:
+    """Hash of a stanza's lines with their indentation and line ends removed."""
+    canonical = "\n".join(line.strip() for line in lines)
+    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def _preset_stanza(stanza: WriteStanza) -> list[str] | None:
+    """The lines the bundled preset writes above *stanza*'s anchor today; ``None`` if it no longer does."""
+    from .build_profile_presets import _presets_dir
+
+    path = _presets_dir() / f"{stanza.preset}.yml"
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    except OSError:
+        return None
+    for index, line in enumerate(lines):
+        if line.strip() != stanza.anchor or index < stanza.new_lines:
+            continue
+        region = lines[index - stanza.new_lines : index]
+        if _stanza_hash(region) == stanza.new_hash:
+            column = _indent(line)
+            return [entry[min(column, _indent(entry)) :] for entry in region]
+    return None
+
+
+def _rewrite_write_keys(document: Any, rel: str, steps: list[str]) -> bool:
+    """Rewrite the retired write-posture keys of one document to the tier key, in place.
+
+    The decision is the parse point's (:func:`retired_write_answer`, ``never``
+    in an app, the kind read from where *rel* lives); the placement is
+    :func:`~osprey.cli.build_profile_document._place_tier_key`'s, done with the
+    comment-keeping helpers: the tier key takes the place of the retired flat
+    key the render reads, else goes at the end of a nested ``control_system:``
+    block, else in front of the first per-type key. A connector block the
+    rewrite empties is reported in *steps*, not removed.
+
+    Returns:
+        Whether the document spelled a retired key.
+
+    Raises:
+        BuildProfileError: When it also spells ``control_system.writes``.
+    """
+    config = document.get("config") if isinstance(document, dict) else None
+    if not isinstance(config, dict):
+        return False
+    found = _WriteSpellings()
+    _scan_writes(config, (), None, found)
+    if not (found.flat or found.per_type):
+        return False
+    if found.new:
+        raise _mixed_writes_error(found, rel)
+    answer = (
+        "never" if _document_kind(Path(rel)) == "app" else retired_write_answer(config) or "never"
+    )
+
+    kept = _kept_flat_leaf(found)
+
+    if kept is None and found.block is not None:
+        block: Any = found.block  # a CommentedMap: the document is round-trip loaded
+        last = list(block.keys())[-1]
+        pred = _last_slot(block, last)
+        column = _key_column(block, next(iter(block)), 2)
+        block.insert(len(block), WRITES_KEY_LEAF, answer)
+        _place_after(pred, block, WRITES_KEY_LEAF, column, [])
+    elif kept is None:
+        top = found.per_type[0][2]
+        commented: Any = config
+        commented.insert(list(config.keys()).index(top), _TIER_KEY, answer)
+
+    for container, key, _top, name in found.per_type:
+        _drop_node(container, key, _predecessor(container, key), _key_column(container, key, 0))
+        if container is not config and not len(container):
+            steps.append(
+                f"{rel}: `control_system.connector.{name}` held only the retired "
+                f"`{RETIRED_WRITES_LEAF}`, so it is now empty; delete it, or give "
+                f"that machine the settings it needs"
+            )
+    for container, key, _top in found.flat:
+        if kept is not None and container is kept[0] and key == kept[1]:
+            continue
+        _drop_node(container, key, _predecessor(container, key), _key_column(container, key, 0))
+    if kept is not None:
+        container, key = kept
+        _rename_key(container, key, WRITES_KEY_LEAF)
+        renamed = key.rsplit(".", 1)[0] + "." + WRITES_KEY_LEAF if "." in key else WRITES_KEY_LEAF
+        old = container[renamed]
+        old_text = str(old).lower() if isinstance(old, bool) else str(old)
+        container[renamed] = answer
+        # The end-of-line comment keeps the gap the author left after the value.
+        commented_map: Any = container  # a CommentedMap: the document is round-trip loaded
+        entry = commented_map.ca.items.get(renamed)
+        token = entry[2] if entry and len(entry) > 2 else None
+        if isinstance(token, CommentToken) and not token.value.startswith("\n"):
+            column = max(0, token.column + len(answer) - len(old_text))
+            entry[2] = CommentToken(token.value, CommentMark(column))
+    return True
+
+
+def _rewrite_write_prose(text: str, rel: str, steps: list[str], *, rewrote: bool) -> str:
+    """*text* with the previous release's write-posture comments brought to this one.
+
+    A stanza in :data:`WRITE_STANZAS` is replaced by the bundled preset's
+    current stanza, and every commented example of a retired write key is
+    dropped. Prose left describing the retired keys — a comment line that names
+    ``writes_enabled``, the comment above a dropped example, or (when
+    *rewrote*) the comment above the tier key the rewrite wrote — is named in
+    *steps* for a hand edit. A line that is not a whole comment (the end of a
+    ``hooks:`` entry, say) is never named; only a stanza replaces one.
+    """
+    lines = text.splitlines(keepends=True)
+    replacements: list[tuple[int, int, list[str]]] = []
+    for stanza in WRITE_STANZAS:
+        for index, line in enumerate(lines):
+            if line.strip() != stanza.anchor or index < stanza.old_lines:
+                continue
+            start = index - stanza.old_lines
+            if _stanza_hash(lines[start:index]) != stanza.old_hash:
+                continue
+            if any(s < index and start < e for s, e, _ in replacements):
+                continue
+            current = _preset_stanza(stanza)
+            if current is None:
+                continue
+            pad = " " * _indent(line)
+            replacements.append(
+                (start, index, [pad + entry if entry.strip() else entry for entry in current])
+            )
+    # Each line paired with whether a replaced stanza now sits right above it.
+    marked = [(line, False) for line in lines]
+    for start, end, new in sorted(replacements, reverse=True):
+        marked[start : end + 1] = [(line, True) for line in new] + [(marked[end][0], True)]
+
+    prose: list[str] = []
+    kept: list[tuple[str, bool]] = []
+    for line, fresh in marked:
+        if _RETIRED_WRITE_EXAMPLE.match(line):
+            above = kept[-1] if kept else None
+            if above and not above[1] and _is_prose(above[0]):
+                prose.append(f"`{above[0].strip()}`, above the dropped `{line.strip()}`")
+            continue
+        kept.append((line, fresh))
+    for index, (line, fresh) in enumerate(kept):
+        stripped = line.strip()
+        if stripped.startswith("#") and RETIRED_WRITES_LEAF in stripped:
+            prose.append(f"`{stripped}`")
+        elif rewrote and not fresh and _TIER_KEY_LINE.match(line):
+            first = index
+            while first and not kept[first - 1][1] and _is_prose(kept[first - 1][0]):
+                first -= 1
+            if first < index:
+                prose.append(f"the comment from `{kept[first][0].strip()}` down to `{stripped}`")
+    if prose:
+        unique = list(dict.fromkeys(prose))
+        steps.append(
+            f"{rel}: comments written for the retired `{RETIRED_WRITES_LEAF}` keys "
+            f"remain; reword them for `{_TIER_KEY}` (`allowed` or `never`): " + "; ".join(unique)
+        )
+    return "".join(line for line, _fresh in kept)
+
+
+def _is_prose(line: str) -> bool:
+    """A whole-line comment with words in it (not a ``#`` spacer, not a key line)."""
+    stripped = line.strip()
+    if not stripped.startswith("#"):
+        return False
+    words = stripped.lstrip("#").strip()
+    return bool(words) and not _COMMENTED_KEY.match(words)
+
+
+#: A commented-out key line (``control_system.connector.epics.timeout_s: 5.0``).
+_COMMENTED_KEY = re.compile(r"^[\w\-]*[._][\w.\-]*:(\s|$)")
 
 
 def _tier_pins(config: Any) -> list[tuple[str, Any, Any]]:
@@ -1067,10 +1502,12 @@ def _claimed_elsewhere(document: Any) -> dict[str, str]:
 def _skipped_keys(document: Any, lacking: list[str]) -> dict[str, str]:
     """The lacking keys the fill must NOT write, each with the reason.
 
-    Two reasons, both about a key whose absence is correct rather than
+    Three reasons, each about a key whose absence is correct rather than
     accidental: it is, or sits below, the deployment's own data
-    (:func:`_deployment_data_keys`), or its fact is stated in another block of
-    this profile (:func:`_claimed_elsewhere`).
+    (:func:`_deployment_data_keys`); its fact is stated in another block of
+    this profile (:func:`_claimed_elsewhere`); or it is the tier key
+    ``control_system.writes``, which a silent root reads as ``never`` and a
+    preset never decides for a deployment.
     """
     if not lacking:
         return {}
@@ -1078,6 +1515,12 @@ def _skipped_keys(document: Any, lacking: list[str]) -> dict[str, str]:
     claimed = _claimed_elsewhere(document)
     skipped: dict[str, str] = {}
     for key in lacking:
+        if key == _TIER_KEY:
+            skipped[key] = (
+                "a root that does not state it reads as `never`; whether this "
+                "deployment allows writes is never filled in from a preset."
+            )
+            continue
         if key in claimed:
             skipped[key] = f"stated by `{claimed[key]}`. The build writes it here for you."
             continue
@@ -2135,6 +2578,43 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
             continue
         writes[rel] = _put_knobs(text, rel, values)
 
+    # ── The write posture, in every file kept ───────────────────────────────
+    # After the tier files are classified (a retired preset is recognized by
+    # its text as the previous release wrote it) and before the fill, which
+    # must see the tier key where the retired one stood rather than add it.
+    for rel, doc in list(documents.items()):
+        rewrote = _rewrite_write_keys(doc, rel, steps)
+        dumped = _dump_text(doc)
+        text = _rewrite_write_prose(dumped, rel, steps, rewrote=rewrote)
+        if text != dumped:
+            documents[rel] = _load_text(text, rel)
+    document = documents[PROFILE_FILENAME]
+    kept_layers = {layers[stem].rel: layers[stem].text for stem in sorted(tiers_left)}
+    for path in existing_apps.values():
+        kept_layers.setdefault(f"{APPS_DIRNAME}/{path.name}", path.read_text(encoding="utf-8"))
+    for rel, original in kept_layers.items():
+        if rel in deletes:
+            continue
+        text = writes.get(rel, original)
+        try:
+            layer_doc = _load_text(text, rel)
+        except BuildProfileError:
+            # The round-trip reader is stricter than the build's (a key
+            # written twice, say), so a file it refuses is not rewritten.
+            data = _safe_load(text, rel)
+            if isinstance(data, dict) and retired_write_answer(data.get("config")) is not None:
+                steps.append(
+                    f"{rel} spells the retired `{RETIRED_WRITES_LEAF}` keys but could not be "
+                    f"rewritten in place; replace them with `{_TIER_KEY}: allowed` or "
+                    f"`{_TIER_KEY}: never` by hand"
+                )
+            continue
+        rewrote = _rewrite_write_keys(layer_doc, rel, steps)
+        rewritten = _rewrite_write_prose(
+            _dump_text(layer_doc) if rewrote else text, rel, steps, rewrote=rewrote
+        )
+        if rewritten != text:
+            writes[rel] = rewritten
     # ── Own skills, agents, rules, output styles, hooks: named ──────────────
     # Each now renders only where a list names it. profile.yml and every app
     # name all of them, which is what each render carried before; a tier

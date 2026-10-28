@@ -32,7 +32,8 @@ optional fourth, `render` — see *The plan's own view* below):
    - `description` (str) — human-readable summary.
    - `writes` (bool) — whether the plan moves a channel (vs. read-only).
      Authoring metadata only; it has no effect on whether writes actually
-     happen — that is governed entirely by `control_system.writes_enabled`.
+     happen — that is governed entirely by the `control_system.writes` tier
+     and the owner's switch for the machine.
 
    **Three keys is the whole dict.** Unknown keys are refused, not ignored: the
    loader parses this block with extra keys forbidden, so a stray key rejects
@@ -563,8 +564,8 @@ failure downgrades the figure instead of losing it.
    `queue_add(draft_revision)` puts that pinned draft in the queue and
    `queue_start()` begins draining it. Both consult the validation record:
    the plan's content hash is re-checked at enqueue **and** again at queue
-   start, `queue_start` requires `control_system.writes_enabled` plus the
-   launch token, and a human sees an approval prompt. A refusal whose
+   start, `queue_start` requires `control_system.writes: allowed`, the
+   owner's switch and the launch token, and a human sees an approval prompt. A refusal whose
    `detail.code` starts with `session_plan_` (`session_plan_unvalidated`,
    `session_plan_not_in_namespace`) means exactly one thing: re-validate the
    plan and try again. Use `get_run(run_id)` / `get_run_data(run_id, ...)` to

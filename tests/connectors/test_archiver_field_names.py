@@ -188,7 +188,7 @@ def test_the_reserved_list_is_every_field_the_archive_writes_besides_a_channel()
     fields |= {archive.DATE_FIELD, archive.EXPIRE_FIELD}
 
     manifest = _Recording()
-    archive.write_manifest(
+    archive._write_manifest(
         manifest,
         {"schema_version": 2},
         seeded_at=instant,

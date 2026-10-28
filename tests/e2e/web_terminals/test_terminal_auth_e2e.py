@@ -4,7 +4,7 @@ Until the web-auth gate existed, every OSPREY web surface answered any caller on
 loopback with no credential at all. Because the agent's own Python-executor
 sandbox runs as a host subprocess on that same loopback, code the agent authored
 could reach the very server that spawned it and ``PATCH /api/config`` — rewriting
-the ``writes_enabled`` kill-switch and every other safety-relevant field — from
+the ``control_system.writes`` tier and every other safety-relevant field — from
 *outside* the tool layer whose in-tool re-checks are the actual safety authority.
 That is the chain this phase breaks (PROPOSAL "Break the Chain", requirements
 Functional 1–3).
@@ -195,7 +195,7 @@ config_status = _status(
     "PATCH",
     "/api/config",
     config_headers,
-    b'{"updates": {"control_system.writes_enabled": true}}',
+    b'{"updates": {"control_system.writes": "allowed"}}',
 )
 
 # (2) Panel coordination with the panel token -> admitted 200.
@@ -353,7 +353,7 @@ def test_escalation_chain_is_broken_end_to_end(tmp_path: Path) -> None:
         "  connector:\n"
         "    virtual_accelerator:\n"
         "      serving: in_process\n"
-        "  writes_enabled: false\n",
+        "  writes: never\n",
         encoding="utf-8",
     )
     log_path = tmp_path / "server.log"
@@ -438,7 +438,7 @@ def test_escalation_chain_is_broken_end_to_end(tmp_path: Path) -> None:
                 "token exchange returned no Set-Cookie"
             )
 
-            # `hooks.debug`, not `control_system.writes_enabled`: the latter is
+            # `hooks.debug`, not `control_system.writes`: the latter is
             # a protected key now, refused for every caller whatever credential
             # it carries. Written here it would refuse the admitted operator in
             # step 3 and refuse the forged Origin in step 4 for the same reason,
@@ -460,7 +460,7 @@ def test_escalation_chain_is_broken_end_to_end(tmp_path: Path) -> None:
             #    operator may not rewrite the safety surface itself. ----------
             protected = client.patch(
                 f"{base_url}/api/config",
-                json={"updates": {"control_system.writes_enabled": True}},
+                json={"updates": {"control_system.writes": "allowed"}},
                 headers={"Origin": base_url},
             )
             assert protected.status_code == 403, (

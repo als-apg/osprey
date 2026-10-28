@@ -27,11 +27,22 @@ from osprey_connectors.control_system._limits_validator import (
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors_tests._epics_fakes import FakeChannel, ca_connector, ca_reading
-from tests._config_lookup import writes_enabled_lookup
+from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
 from tests.connectors._driver_fakes import driven_through
 from tests.facility.served_tree import in_process_config, served_tree
 
 CURRENT = 10.0
+
+
+@pytest.fixture(autouse=True)
+def _switch_on(monkeypatch, tmp_path):
+    """The login's switch on for the simulator target, connectors stamped with it.
+
+    With :func:`writes_enabled_config` serving a write tier that allows, that is
+    everything the reference monitor's verdict asks before a write reaches the
+    transport; a test that disarms serves a tier that does not.
+    """
+    return arm_switch(monkeypatch, tmp_path / "armed-data")
 
 
 def _step_validator(channel: str, max_step: float = 5.0) -> LimitsValidator:
@@ -53,7 +64,7 @@ def _step_validator(channel: str, max_step: float = 5.0) -> LimitsValidator:
 
 
 async def test_the_simulator_reads_its_own_store(monkeypatch, tmp_path):
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_lookup)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
     connector = VAInProcessConnector()
     await connector.connect(
         in_process_config(served_tree(tmp_path, ["SIM:CHANNEL:SP"]), response_delay_ms=0)
@@ -145,7 +156,7 @@ async def test_max_step_blocks_an_oversized_step_on_the_simulator(monkeypatch, t
     No Channel Access read could ever answer for a simulated channel, so this
     write used to be refused as unverifiable however small the step was.
     """
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_lookup)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
     connector = VAInProcessConnector()
     await connector.connect(
         in_process_config(served_tree(tmp_path, ["SIM:CHANNEL:SP"]), response_delay_ms=0)
@@ -163,7 +174,7 @@ async def test_max_step_blocks_an_oversized_step_on_the_simulator(monkeypatch, t
 
 
 async def test_max_step_lets_a_small_step_through_on_the_simulator(monkeypatch, tmp_path):
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_lookup)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
     connector = VAInProcessConnector()
     await connector.connect(
         in_process_config(served_tree(tmp_path, ["SIM:CHANNEL:SP"]), response_delay_ms=0)

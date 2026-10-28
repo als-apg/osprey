@@ -88,6 +88,7 @@ def _child_read_names() -> list[tuple[str, str]]:
         ("posture_store.CONTROL_CONTEXT_DIR_ENV_VAR", posture_store.CONTROL_CONTEXT_DIR_ENV_VAR),
         ("posture_store.CONTROL_CONTEXT_TREE_ENV_VAR", posture_store.CONTROL_CONTEXT_TREE_ENV_VAR),
         ("posture_store.CONTROL_OWNER_ENV_VAR", posture_store.CONTROL_OWNER_ENV_VAR),
+        ("posture_store.DISPATCH_RUN_ENV_VAR", posture_store.DISPATCH_RUN_ENV_VAR),
         ("posture_store.LAUNCH_POSTURE_ENV_VAR", posture_store.LAUNCH_POSTURE_ENV_VAR),
         ("identity.AUDIT_IDENTITY_ENV", identity.AUDIT_IDENTITY_ENV),
         ("posture.POSTURE_ENV_VAR", posture.POSTURE_ENV_VAR),
