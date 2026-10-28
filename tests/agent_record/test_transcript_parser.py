@@ -368,7 +368,7 @@ def test_subagent_file_line_without_agent_id_uses_the_stem():
 
 
 # ---------------------------------------------------------------------------
-# debug: nothing is dropped
+# Debug mode drops nothing
 # ---------------------------------------------------------------------------
 
 

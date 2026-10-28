@@ -133,7 +133,7 @@ HISTORY_GATE_ENV = "OSPREY_TERMINAL_SECRET_HISTORY"
 #: agent-record's ClickHouse account.
 CLICKHOUSE_USER = "agent_record"
 CLICKHOUSE_USER_ENV = "OSPREY_AGENT_RECORD_CLICKHOUSE_USER"
-CLICKHOUSE_PASSWORD_ENV = "OSPREY_AGENT_RECORD_CLICKHOUSE_PASSWORD"
+CLICKHOUSE_PASSWORD_ENV = "OSPREY_AGENT_RECORD_CLICKHOUSE_PASSWORD"  # noqa: S105 -- names an environment variable, holds no secret
 #: The ClickHouse store's bootstrap account; the store container's ``env_file``.
 CLICKHOUSE_ADMIN_USER = "agent_record_admin"
 

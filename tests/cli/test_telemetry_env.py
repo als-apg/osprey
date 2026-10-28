@@ -203,7 +203,7 @@ def test_no_profile_value_changes_the_block(block):
 
 
 # ---------------------------------------------------------------------------
-# resolve() and load_provider_spec()
+# Resolving the provider and loading its spec
 # ---------------------------------------------------------------------------
 
 
