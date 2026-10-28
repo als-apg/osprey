@@ -350,22 +350,22 @@ describe('steps', () => {
     expect(cardBody()).toContain('read values from the simulator and make plots');
   });
 
-  test('a simulator deployment is never described as reading the live machine', () => {
+  test('a simulator deployment is never described as reading the real machine', () => {
     document.body.innerHTML = '<div class="terminal-card"></div>';
     serve({ kind: 'simulator', capabilities: ['make plots'] });
     startTour();
 
     // The one claim the derivation exists to prevent.
-    expect(cardBody()).not.toContain('live machine');
+    expect(cardBody()).not.toContain('real machine');
   });
 
-  test('a rehearsal deployment reads the rehearsal copy, never the live machine', () => {
+  test('a rehearsal deployment reads the rehearsal copy, never the real machine', () => {
     document.body.innerHTML = '<div class="terminal-card"></div>';
     serve({ kind: 'rehearsal' });
     startTour();
 
     expect(cardBody()).toContain('read values from the rehearsal copy');
-    expect(cardBody()).not.toContain('live machine');
+    expect(cardBody()).not.toContain('real machine');
   });
 
   test('the target step quotes the chip in its own words and names all three kinds', () => {

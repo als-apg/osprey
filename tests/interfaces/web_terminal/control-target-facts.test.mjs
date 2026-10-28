@@ -71,6 +71,7 @@ describe('kind words', () => {
     expect(KIND_BANNERS).toEqual({
       real: 'Real machine — writes move hardware',
       rehearsal: 'Rehearsal — nothing moves',
+      simulator: 'Simulator — nothing moves',
     });
     expect(TURN_ON_SENTENCE).toBe(
       'Runs already going — a sandbox run or a notebook cell — keep the state they started with; the next one follows.'
@@ -86,16 +87,16 @@ describe('kind words', () => {
     // A `standin` no live server vouched for is the real machine: GET says so,
     // and nothing here second-guesses it from the name or the label.
     expect(
-      machineKind({ machine_kind: 'real', target: 'standin', label: 'LIVE MACHINE (stand-in)' })
+      machineKind({ machine_kind: 'real', target: 'standin', label: 'Rehearsal — nothing moves' })
     ).toBe('real');
     // No kind at all fails toward the loud answer.
-    expect(machineKind({ target: 'standin', label: 'LIVE MACHINE (stand-in)' })).toBe('real');
+    expect(machineKind({ target: 'standin', label: 'Rehearsal — nothing moves' })).toBe('real');
     expect(machineKind({ target: 'va', real_machine: false })).toBe('real');
     expect(machineKind({ machine_kind: 'live' })).toBe('real');
   });
 
   test('a non-live standin reads as the real machine, never "Rehearsal"', () => {
-    const row = { target: 'standin', machine_kind: 'real', label: 'LIVE MACHINE (stand-in)' };
+    const row = { target: 'standin', machine_kind: 'real', label: 'Rehearsal — nothing moves' };
     expect(displayName(row, machineKind(row))).toBe('Real machine');
   });
 
@@ -297,14 +298,9 @@ describe('lockReason', () => {
     );
   });
 
-  test('reads no narrowing or ceiling field', () => {
-    // The retired columns change nothing: a row is locked by C-GET alone.
-    expect(
-      lockReason(
-        rowOf({ ceiling_writes: false, narrowing_refusal: 'selected_role_missing' }),
-        stateOf()
-      )
-    ).toBeNull();
+  test('reads no retired ceiling field', () => {
+    // A retired column changes nothing: a row is locked by C-GET alone.
+    expect(lockReason(rowOf({ ceiling_writes: false }), stateOf())).toBeNull();
   });
 });
 

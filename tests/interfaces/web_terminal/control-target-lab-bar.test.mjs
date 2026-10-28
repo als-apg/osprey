@@ -128,7 +128,7 @@ const rowOf = (o) => ({
 /** The rehearsal machine the deployment stands on — the chip's card. */
 const STANDIN = {
   target: 'standin',
-  label: 'LIVE MACHINE (stand-in)',
+  label: 'Rehearsal — nothing moves',
   short_label: 'STAND-IN',
   machine_kind: 'rehearsal',
   endpoint: 'standin-gw:5064',
@@ -142,7 +142,7 @@ const STANDIN = {
 /** The facility's own machine, writes off — a row. */
 const LIVE = {
   target: 'live',
-  label: 'LIVE MACHINE',
+  label: 'Real machine — writes move hardware',
   short_label: 'LIVE',
   machine_kind: 'real',
   endpoint: 'gw.example.org:5064',

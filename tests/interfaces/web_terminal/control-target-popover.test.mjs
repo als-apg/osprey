@@ -72,7 +72,7 @@ let popoverModule;
 const KINDS = {
   live: {
     target: 'live',
-    label: 'LIVE MACHINE',
+    label: 'Real machine — writes move hardware',
     short_label: 'LIVE',
     machine_kind: 'real',
     display_name: '',
@@ -81,7 +81,7 @@ const KINDS = {
   },
   standin: {
     target: 'standin',
-    label: 'LIVE MACHINE (stand-in)',
+    label: 'Rehearsal — nothing moves',
     short_label: 'STAND-IN',
     machine_kind: 'rehearsal',
     display_name: '',
@@ -90,7 +90,7 @@ const KINDS = {
   },
   va: {
     target: 'va',
-    label: 'virtual accelerator (simulation)',
+    label: 'Simulator — nothing moves',
     short_label: 'VIRTUAL',
     machine_kind: 'simulator',
     display_name: '',
@@ -448,7 +448,7 @@ describe('the card', () => {
     expect(title.querySelector('.ctc-name')?.textContent).toBe('Rehearsal');
     // The implementation vocabulary lives on the ⓘ tooltip, never at rest.
     const tip = /** @type {HTMLElement} */ (cardEl()?.querySelector('.ctc-tip'));
-    expect(tip.textContent).toContain('LIVE MACHINE (stand-in)');
+    expect(tip.textContent).toContain('Rehearsal — nothing moves');
     expect(tip.textContent).toContain('127.0.0.1:10090');
     expect(tip.querySelector('.ctc-tip-what')?.textContent).toBe(
       "Copy of the real machine's controls · nothing moves"
@@ -493,8 +493,8 @@ describe('names', () => {
     // inside the ⓘ tooltips.
     const atRest = /** @type {HTMLElement} */ (popEl()?.cloneNode(true));
     for (const tip of atRest.querySelectorAll('.ctc-tip')) tip.remove();
-    expect(atRest.textContent).not.toContain('LIVE MACHINE');
-    expect(atRest.textContent).not.toContain('virtual accelerator');
+    expect(atRest.textContent).not.toContain('Real machine — writes move hardware');
+    expect(atRest.textContent).not.toContain('Simulator — nothing moves');
   });
 
   test("the deployment's configured display_name wins over the default", async () => {

@@ -69,7 +69,7 @@ let chipModule;
 const KINDS = {
   live: {
     target: 'live',
-    label: 'LIVE MACHINE',
+    label: 'Real machine — writes move hardware',
     short_label: 'LIVE',
     machine_kind: 'real',
     endpoint: 'gw.example.org:5064',
@@ -77,7 +77,7 @@ const KINDS = {
   },
   standin: {
     target: 'standin',
-    label: 'LIVE MACHINE (stand-in)',
+    label: 'Rehearsal — nothing moves',
     short_label: 'STAND-IN',
     machine_kind: 'rehearsal',
     endpoint: '127.0.0.1:10090',
@@ -85,7 +85,7 @@ const KINDS = {
   },
   va: {
     target: 'va',
-    label: 'virtual accelerator (simulation)',
+    label: 'Simulator — nothing moves',
     short_label: 'VIRTUAL',
     machine_kind: 'simulator',
     endpoint: '127.0.0.1:10064',

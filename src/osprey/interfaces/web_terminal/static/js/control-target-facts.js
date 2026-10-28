@@ -109,15 +109,18 @@ export const KIND_WORDS = {
 };
 
 /**
- * The banner a confirm about a machine carries — what a write there does, in
- * the owner's words (C-WORDS). The real machine's reads red, the rehearsal's
- * amber; the simulator carries none, as before: nothing about it needs saying
- * before a click.
+ * The banner each machine kind is named by beside the machine — what a write
+ * there does, in the owner's words (C-WORDS, D4). A restated copy of
+ * `osprey_connectors.write_target.KIND_BANNERS`; a test pins the two. A
+ * confirm carries the real machine's (red) and the rehearsal's (amber); the
+ * simulator's confirm carries none ({@link hardwareNote}): nothing about it
+ * needs saying before a click.
  * @type {Record<string, string>}
  */
 export const KIND_BANNERS = {
   [KIND_REAL]: 'Real machine — writes move hardware',
   [KIND_REHEARSAL]: 'Rehearsal — nothing moves',
+  [KIND_SIMULATOR]: 'Simulator — nothing moves',
 };
 
 /**
@@ -139,12 +142,12 @@ export const STOP_NOT_TAKEN_SENTENCE =
  * The "read" capability phrase first contact and the tour put in front of an
  * operator, keyed on the same `data-target-kind` value as {@link KIND_WORDS}.
  * Keyed rather than fixed because the sentence is a promise about where the
- * numbers come from: the simulator saying "read live machine values" would be
+ * numbers come from: the simulator saying "read values from the real machine" would be
  * the one claim this vocabulary exists to prevent.
  * @type {Record<string, string>}
  */
 export const KIND_READ_PHRASES = {
-  [KIND_REAL]: 'read live machine values',
+  [KIND_REAL]: 'read values from the real machine',
   [KIND_REHEARSAL]: 'read values from the rehearsal copy',
   [KIND_SIMULATOR]: 'read values from the simulator',
 };
@@ -163,7 +166,7 @@ const KIND_DESCRIPTORS = {
 
 /**
  * The `reason` codes that all mean "the deployment has not authored this
- * machine yet". On a stock render this is the live target's DELIBERATE state —
+ * machine yet". On a stock render this is the real machine's DELIBERATE state —
  * authoring it is the go-live edit — so the descriptor says "not set up"
  * rather than implying a fault.
  */
@@ -176,8 +179,8 @@ const NOT_SET_UP_REASONS = new Set([
 /**
  * The name a row renders: the deployment's configured name where one is set,
  * the kind's own word otherwise. The server label survives untouched for the
- * tooltip; falling back to it here would put "LIVE MACHINE (stand-in)" back on
- * the one surface this vocabulary exists to clean up, so the label is last.
+ * tooltip; it is the kind's banner, longer than a name, so the label is
+ * last.
  * @param {any} row
  * @param {string} kind  a `data-target-kind` value (kindAttr's answer)
  * @returns {string}
@@ -262,7 +265,7 @@ export const REASON_PHRASES = {
   archive_belongs_to_standin: 'archive conflict',
   invented_history: 'no archive',
   standin_not_deployed: 'stand-in not deployed',
-  reaches_live_machine: 'points at live machine',
+  reaches_live_machine: 'points at the real machine',
   selected_role_missing: 'no endpoint for role',
   [REASON_STORE_UNAVAILABLE]: 'store unavailable',
   [REASON_CONTEXT_OWNED_ELSEWHERE]: 'held elsewhere',
@@ -487,13 +490,13 @@ export function reachException(reachability) {
  * @returns {string|null}
  */
 function hardwareNote(kind) {
-  return KIND_BANNERS[kind] || null;
+  return kind === KIND_SIMULATOR ? null : KIND_BANNERS[kind] || null;
 }
 
 /**
- * The tooltip a machine's name carries: the server's own label (the
- * implementation truth — "LIVE MACHINE (stand-in)"), the endpoint, and the
- * measured reachability. The at-rest surface names consequences; hover is
+ * The tooltip a machine's name carries: the row's label (its kind's banner,
+ * such as "Rehearsal — nothing moves"), the endpoint, and the measured
+ * reachability. The at-rest surface names consequences; hover is
  * where the machine vocabulary lives.
  * @param {any} row
  * @returns {string}
