@@ -6295,6 +6295,19 @@ def _stack_runs_record(compose_files: Sequence[str]) -> bool:
     return any(Path(path).parent.name == AGENT_RECORD_TEMPLATE_DIR for path in compose_files)
 
 
+def _record_to_take_over(
+    config: Mapping[str, Any], repo_root: Path | str, compose_files: Sequence[str]
+) -> bool:
+    """Whether this start's agent-record takes the record over from the host.
+
+    Only a deployment that records host sessions has a host-local record, and
+    only a start that renders the stack's agent-record takes it over.
+    """
+    return _stack_runs_record(compose_files) and (
+        _host_record_state_dir(config, repo_root) is not None
+    )
+
+
 def _start_stack_record(
     config: Mapping[str, Any],
     repo_root: Path | str,
@@ -6322,9 +6335,7 @@ def _start_stack_record(
     """
     from osprey.agent_record.credentials import RECORD_SERVICE
 
-    if not _stack_runs_record(compose_files):
-        return
-    if _host_record_state_dir(config, repo_root) is None:
+    if not _record_to_take_over(config, repo_root, compose_files):
         return
     cmd = [*base_cmd, "up", "-d", "--no-build", RECORD_SERVICE]
     logger.debug(f"Running command:\n    {' '.join(cmd)}")
@@ -6799,23 +6810,24 @@ def _start_stack(
             # The stack's agent-record starts first, alone, on the backend
             # invocation's argv and environment: the record is handed over
             # before the render and service builds below, never under them.
-            _start_stack_record(
-                config,
-                repo_root,
-                compose_files,
-                compose_base_cmd(
-                    with_plain_progress(get_runtime_command(config), provider=provider),
-                    compose_files,
-                    repo_root,
-                    _env_file_args(repo_root, provider),
-                    provider,
-                ),
-                runtime_env(
+            if _record_to_take_over(config, repo_root, compose_files):
+                _start_stack_record(
                     config,
-                    {**env, **compose_provider_env(provider, repo_root)},
-                    ignore_orphans=True,
-                ),
-            )
+                    repo_root,
+                    compose_files,
+                    compose_base_cmd(
+                        with_plain_progress(get_runtime_command(config), provider=provider),
+                        compose_files,
+                        repo_root,
+                        _env_file_args(repo_root, provider),
+                        provider,
+                    ),
+                    runtime_env(
+                        config,
+                        {**env, **compose_provider_env(provider, repo_root)},
+                        ignore_orphans=True,
+                    ),
+                )
             deploy_up_web_terminals(
                 config,
                 compose_files,
