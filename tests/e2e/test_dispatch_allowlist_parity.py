@@ -53,6 +53,7 @@ from pathlib import Path
 import pytest
 
 from osprey.agent_runner.tool_policy import PASSTHROUGH_TOOLS
+from tests.e2e._worker_record import WorkerRecord, worker_record
 from tests.e2e.provider import E2E_MODEL, e2e_provider
 from tests.e2e.test_dispatch_tutorial import (
     HEALTH_TIMEOUT_SEC,
@@ -187,7 +188,7 @@ def approval_off_repo(built_repo: Path, tmp_path_factory: pytest.TempPathFactory
 # ---------------------------------------------------------------------------
 
 
-def _start_worker(repo: Path) -> tuple[subprocess.Popen, str]:
+def _start_worker(repo: Path, record: WorkerRecord) -> tuple[subprocess.Popen, str]:
     port = _free_port()
     proc = subprocess.Popen(
         [sys.executable, "-m", "osprey.mcp_server.dispatch_worker"],
@@ -201,6 +202,8 @@ def _start_worker(repo: Path) -> tuple[subprocess.Popen, str]:
             "OSPREY_PROJECT_DIR": str(repo),
             "CONFIG_FILE": str(repo / "build" / "config.yml"),
             "CLAUDECODE": "",
+            # A run that is no longer in flight is read back from the record.
+            **record.worker_env(),
         },
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -211,14 +214,15 @@ def _start_worker(repo: Path) -> tuple[subprocess.Popen, str]:
 
 
 @pytest.fixture
-def worker(request) -> Iterator[str]:
-    """Start a real worker on the repo fixture named by the test param."""
+def worker(request, tmp_path: Path) -> Iterator[str]:
+    """Start a real worker, recording into its own record, on the repo fixture named by the param."""
     repo = request.getfixturevalue(request.param)
-    proc, url = _start_worker(repo)
-    try:
-        yield url
-    finally:
-        _terminate(proc)
+    with worker_record(tmp_path / "agent_record") as record:
+        proc, url = _start_worker(repo, record)
+        try:
+            yield url
+        finally:
+            _terminate(proc)
 
 
 def _http_json(url: str, payload: dict | None = None) -> dict:

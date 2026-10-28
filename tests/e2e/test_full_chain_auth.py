@@ -713,7 +713,6 @@ def _profile_edits() -> dict[str, Any]:
             "container_runtime": RUNTIME,
             "system.timezone": "UTC",
             "deploy.fqdn": "127.0.0.1",
-            "agent_record.readers": _record_readers(),
             PORT_BASE_CONFIG_KEY: PORT_BASE,
             "modules.web_terminals": {
                 "enabled": True,
@@ -737,7 +736,8 @@ def _profile_edits() -> dict[str, Any]:
                     }
                 },
             },
-        }
+        },
+        "agent_record": {"readers": _record_readers()},
     }
 
 
@@ -2410,11 +2410,8 @@ def history_withdrawal(deployment: dict[str, Any], history_page: dict[str, Any])
 
     profile_path = repo / "profile.yml"
     profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
-    config = profile["config"]
-    record_readers_key = "agent_record.readers"
-    config[record_readers_key] = [
-        r for r in config[record_readers_key] if r["name"] != NO_ROLE_USER
-    ]
+    record = profile["agent_record"]
+    record["readers"] = [r for r in record["readers"] if r["name"] != NO_ROLE_USER]
     profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
 
     osprey_bin = _find_osprey_console_script()

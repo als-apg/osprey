@@ -71,6 +71,7 @@ import httpx
 import pytest
 
 from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
+from tests.e2e.web_terminals._minimal_repo import stop_host_record, write_minimal_repo
 from tests.e2e.web_terminals.test_terminal_auth_e2e import (
     _free_port,
     _operator_secret_from_url,
@@ -322,19 +323,16 @@ def test_browser_session_survives_a_server_restart(tmp_path: Path) -> None:
     # so the run directory must be a real (if minimal) repo. It is also what
     # anchors the session store, which is the point here — the store must land
     # under THIS repo and be found again by the second launch.
-    repo = tmp_path / "session-restart-e2e"
-    (repo / "build").mkdir(parents=True)
-    (repo / "profile.yml").write_text("name: session-restart-e2e\n", encoding="utf-8")
-    (repo / "build" / "config.yml").write_text(
-        "system:\n"
-        "  name: session-restart-e2e\n"
-        "control_system:\n"
-        "  type: virtual_accelerator\n"
-        "  connector:\n"
-        "    virtual_accelerator:\n"
-        "      serving: in_process\n"
-        "  writes: never\n",
-        encoding="utf-8",
+    repo = write_minimal_repo(
+        tmp_path / "session-restart-e2e",
+        {
+            "system": {"name": "session-restart-e2e"},
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                "writes": "never",
+            },
+        },
     )
 
     base_url = f"http://{_HOST}:{port}"
@@ -503,3 +501,4 @@ def test_browser_session_survives_a_server_restart(tmp_path: Path) -> None:
             # case; PermissionError would mean it is not ours to kill.
             with contextlib.suppress(OSError):
                 os.kill(pid, signal.SIGKILL)
+        stop_host_record(repo)

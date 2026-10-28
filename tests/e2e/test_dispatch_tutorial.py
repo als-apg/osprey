@@ -47,6 +47,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.e2e._worker_record import WorkerRecord, worker_record
 from tests.e2e.provider import E2E_MODEL, e2e_provider
 from tests.e2e.sdk_helpers import HAS_SDK
 
@@ -232,7 +233,14 @@ def _write_local_triggers(dst: Path, worker_port: int) -> None:
 
 
 @pytest.fixture
-def dispatch_stack(built_repo: Path, tmp_path: Path) -> Iterator[dict]:
+def agent_record(tmp_path: Path) -> Iterator[WorkerRecord]:
+    """The record the worker records its runs in and reads them back from."""
+    with worker_record(tmp_path / "agent_record") as record:
+        yield record
+
+
+@pytest.fixture
+def dispatch_stack(built_repo: Path, agent_record: WorkerRecord, tmp_path: Path) -> Iterator[dict]:
     """Start a real worker + dispatcher as subprocesses; tear them down after."""
     worker_port = _free_port()
     dispatcher_port = _free_port()
@@ -253,6 +261,9 @@ def dispatch_stack(built_repo: Path, tmp_path: Path) -> Iterator[dict]:
             # The spawned Claude CLI resolves OSPREY config from CWD / CONFIG_FILE.
             "CONFIG_FILE": str(built_repo / "build" / "config.yml"),
             "CLAUDECODE": "",
+            # A run that is no longer in flight is read back from the record,
+            # as the deployed worker reads it from the stack's.
+            **agent_record.worker_env(),
         }
         worker_proc = subprocess.Popen(
             [sys.executable, "-m", "osprey.mcp_server.dispatch_worker"],

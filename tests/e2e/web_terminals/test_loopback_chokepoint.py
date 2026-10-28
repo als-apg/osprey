@@ -51,6 +51,7 @@ import pytest
 
 from osprey.cli.web_cmd import DECLARED_BIND_ENV, resolve_bind_host
 from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV
+from tests.e2e.web_terminals._minimal_repo import stop_host_record, write_minimal_repo
 
 pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke, pytest.mark.model_free]
 
@@ -154,14 +155,13 @@ def test_declared_loopback_survives_hostile_host_flag_over_real_socket(tmp_path:
     free_port = _free_port()
     # `osprey web` serves a deployment repo's RENDER: it walks up from the
     # working directory to the nearest `profile.yml` and refuses when that repo
-    # has no `build/config.yml` to serve. So the directory it runs in has to be
-    # a real (if minimal) repo — same as the deployment this test mirrors.
-    # Without it the server exits before binding and the bind assertions below
-    # never get to run.
-    repo = tmp_path / "loopback-chokepoint"
-    (repo / "build").mkdir(parents=True)
-    (repo / "profile.yml").write_text("name: loopback-chokepoint\n")
-    (repo / "build" / "config.yml").write_text("system:\n  name: loopback-chokepoint\n")
+    # has no `build/config.yml` to serve, and it holds the deployment's agent
+    # record while it runs. So the directory it runs in has to be a real (if
+    # minimal) repo. Without it the server exits before binding and the bind
+    # assertions below never get to run.
+    repo = write_minimal_repo(
+        tmp_path / "loopback-chokepoint", {"system": {"name": "loopback-chokepoint"}}
+    )
     log_path = tmp_path / "server.log"
 
     # sys.executable, NEVER bare "python": in this shared worktree, bare
@@ -246,3 +246,4 @@ def test_declared_loopback_survives_hostile_host_flag_over_real_socket(tmp_path:
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait(timeout=_TEARDOWN_TIMEOUT)
+        stop_host_record(repo)

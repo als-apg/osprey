@@ -479,6 +479,10 @@ def init_project(
         pins["config"]["control_system.connector.virtual_accelerator.serving"] = "in_process"
     if _preset_declares_virtual_accelerator(template):
         pins["virtual_accelerator"] = {"live_standin": None}
+    # These projects run host sessions and never a stack, so their record is the
+    # host-local one, which keeps the embedded backend: a ClickHouse store runs
+    # only in a stack.
+    pins["agent_record"] = {"backend": "embedded"}
     init_args.extend(set_pairs(pins))
     init_args.extend(["--set", f"port_base={e2e_port_base()}"])
     if channel_finder_mode is not None:

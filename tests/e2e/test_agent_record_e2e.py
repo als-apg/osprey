@@ -1165,7 +1165,9 @@ def _reset_keeps_then_purges(stack: Stack, day: date, *, reread: tuple[str, set[
 
     def record_present() -> bool:
         if stack.backend == BACKEND_EMBEDDED:
-            return embedded.exists()
+            # A reset leaves the state directory behind empty, the shape a
+            # fresh `osprey init` gives it: the record is its contents.
+            return embedded.is_dir() and any(embedded.iterdir())
         return _volume_exists(RECORD_STORE_VOLUME)
 
     assert record_present(), "no record before the reset"
@@ -1302,8 +1304,10 @@ def _history_page(stack: Stack) -> None:
     web = (stack.config.get("modules") or {}).get("web_terminals") or {}
     port = web.get("history_port") or default_port("history_origin", base=PORT_BASE)
     history = f"http://127.0.0.1:{port}/history/"
+    # A person navigating: a program gets a bare 401, a page asks for the sign-in.
+    navigation = {"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"}
     with httpx.Client(timeout=30) as anonymous:
-        refused = anonymous.get(history)
+        refused = anonymous.get(history, headers=navigation)
     assert refused.status_code == 302, f"{refused.status_code} {refused.text[:400]}"
     location = refused.headers.get("location", "")
     assert "/auth/enter" in location, location
@@ -1321,7 +1325,7 @@ def _history_page(stack: Stack) -> None:
             headers={"Origin": terminal_origin, "Accept": "text/html"},
         )
         assert login.status_code == 303, f"{login.status_code} {login.text[:400]}"
-        page = browser.get(history, follow_redirects=True)
+        page = browser.get(history, headers=navigation, follow_redirects=True)
     assert page.status_code == 200, f"{page.status_code} {page.text[:400]}"
     assert "text/html" in page.headers.get("content-type", ""), page.headers
 

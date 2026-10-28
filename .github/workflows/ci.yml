@@ -4723,13 +4723,14 @@ jobs:
     runs-on: ubuntu-latest
     # Only run on PRs from same repo (mirrors deploy-e2e gating). Unlike the
     # lifecycle lanes this is scoped to every same-repo PR rather than PRs into
-    # main: it builds no image and runs no destructive verb — it deploys two
-    # public upstream stores under project names it owns outright and tears
+    # main: it runs no destructive verb — it deploys a public upstream store
+    # and the agent record under project names it owns outright and tears
     # them down in a `finally` — so it is cheap enough to gate every PR that
     # can touch the build/deploy/profile path. No secrets: nothing here reaches
-    # an LLM.
+    # an LLM. Sized for two deployments that each build the project image the
+    # agent record runs, the second from the first one's layer cache.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    timeout-minutes: 20
+    timeout-minutes: 40
 
     steps:
     - name: Checkout repository
@@ -4755,7 +4756,7 @@ jobs:
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
       # that takes the container logs with it.
-      timeout-minutes: 15
+      timeout-minutes: 35
       run: |
         uv run pytest tests/e2e/test_deploy_writeback_e2e.py -v --tb=short
 

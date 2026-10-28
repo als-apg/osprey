@@ -131,7 +131,6 @@ env var drives the whole lane.
 
 from __future__ import annotations
 
-import base64
 import contextlib
 import importlib.util
 import itertools
@@ -157,13 +156,9 @@ import httpx
 import pytest
 import yaml
 
-from osprey.agent_record import credentials as record_creds
 from osprey.agent_record import identities as record_ids
-from osprey.agent_record import service as record_service
-from osprey.agent_record.backends.embedded import EmbeddedBackend
-from osprey.agent_record.client import URL_ENV as RECORD_URL_ENV
 from osprey.agent_record.client import RecordClient
-from osprey.agent_record.contract import SPOOL_DIR_ENV, Drain
+from osprey.agent_record.contract import Drain
 from osprey.bridges.core import PNG_MAGIC
 from osprey.bridges.google_chat.__main__ import Wiring, build_wiring, config_from_env, run
 from osprey.bridges.google_chat.client import MAX_CHARS, REPLY_OPTION
@@ -182,8 +177,7 @@ from osprey.bridges.google_chat.ops import (
     QUEUED_TEXT,
     SUPERSEDED_TEXT,
 )
-from osprey.interfaces._serving import run_app_server
-from tests.agent_record.test_identities import _config as record_config
+from tests.e2e._worker_record import WorkerRecord, worker_record
 from tests.e2e.fixtures.gchat_chat_fake import FakeChatServer, PostedMessage
 from tests.e2e.fixtures.gchat_gcs_fake import PUBLIC_HOST, FakeGcsServer
 
@@ -793,60 +787,27 @@ def _write_triggers(dst: Path, worker_port: int) -> None:
     dst.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
 
 
-RECORD_WORKER = "dispatch-worker-1"
 RECORD_BRIDGE = record_ids.BRIDGE_IDENTITIES["gchat_bridge"]
 
 
 @pytest.fixture(scope="module")
-def agent_record(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]:
+def agent_record(tmp_path_factory: pytest.TempPathFactory) -> Iterator[WorkerRecord]:
     """A real agent-record service over an embedded backend, in a thread.
 
     The bridge's conversation history lives in the record: its turns are appended to the
     bridge's own spool directory and read back with a drain. A turn's answer is its run's,
-    so the worker writes its ``run`` lines into its own spool directory under the same
-    root, and its Claude config directory's ``projects/`` links to the worker's transcript
-    root the service tails. Module-scoped, like the dispatch pair whose runs it records.
+    so the worker records into the same record (:mod:`tests.e2e._worker_record`).
+    Module-scoped, like the dispatch pair whose runs it records.
     """
-    base = tmp_path_factory.mktemp("agent_record")
-    config = record_config(workers=1, bridges=("gchat_bridge",))
-    transcripts = base / "transcripts"
-    root = next(n for n, i in record_ids.transcript_roots(config).items() if i == RECORD_WORKER)
-    (transcripts / root).mkdir(parents=True)
-    claude_config = base / "worker-claude-config"
-    claude_config.mkdir()
-    (claude_config / "projects").symlink_to(transcripts / root, target_is_directory=True)
-    spool_root = base / "spool"
-    spool_root.mkdir()
-
-    def token(login: str) -> str:
-        return f"e2e-token-of-{login}-0123456789"
-
-    verifiers = "".join(
-        record_creds.verifier_line(login, token(login)) + "\n"
-        for login in record_ids.credential_table(config)
-    )
-    env = {
-        record_creds.VERIFIER_ENV: base64.b64encode(verifiers.encode()).decode(),
-        record_creds.SECRETS_ENV: base64.b64encode(b"[]").decode(),
-        record_service.SPOOL_ROOT_ENV: str(spool_root),
-        record_service.RECORD_DIR_ENV: str(base / "record"),
-        record_service.TRANSCRIPTS_DIR_ENV: str(transcripts),
-    }
-    login = record_ids.login_for(RECORD_BRIDGE)
-    with EmbeddedBackend(base / "record" / "record.duckdb") as backend:
-        app = record_service.create_app(config=config, backend=backend, env=env)
-        with run_app_server(app) as url:
-            yield {
-                "url": url,
-                "spool_root": spool_root,
-                "login": f"{login}:{token(login)}",
-                "claude_config_dir": claude_config,
-            }
+    with worker_record(
+        tmp_path_factory.mktemp("agent_record"), bridges=("gchat_bridge",)
+    ) as record:
+        yield record
 
 
 @pytest.fixture(scope="module")
 def dispatch_stack(
-    built_repo: Path, agent_record: dict[str, Any], tmp_path_factory: pytest.TempPathFactory
+    built_repo: Path, agent_record: WorkerRecord, tmp_path_factory: pytest.TempPathFactory
 ) -> Iterator[dict]:
     """A real worker + dispatcher pair as subprocesses on free ports.
 
@@ -876,9 +837,8 @@ def dispatch_stack(
             "DISPATCH_TIMEOUT_SEC": str(WORKER_RUN_CAP_SEC),
             "CLAUDECODE": "",
             # The worker records its runs in the record the bridge reads its history
-            # from: run lines in its own spool directory, transcripts under its root.
-            SPOOL_DIR_ENV: str(agent_record["spool_root"] / RECORD_WORKER),
-            "CLAUDE_CONFIG_DIR": str(agent_record["claude_config_dir"]),
+            # from, and reads them back under its own login.
+            **agent_record.worker_env(),
         }
         worker_proc = subprocess.Popen(  # fixed argv, no shell
             [sys.executable, "-m", "osprey.mcp_server.dispatch_worker"],
@@ -979,9 +939,7 @@ def _set_bridge_env(
         "DISPATCHER_URL": dispatch["dispatcher_url"],
         "WORKER_URL": dispatch["worker_url"],
         "DEDUP_PATH": str(state_dir / "dedup.json"),
-        RECORD_URL_ENV: dispatch["record"]["url"],
-        record_creds.LOGIN_ENV: dispatch["record"]["login"],
-        SPOOL_DIR_ENV: str(dispatch["record"]["spool_root"] / RECORD_BRIDGE),
+        **dispatch["record"].env_for(RECORD_BRIDGE),
         # poll_budget must stay >= worker_timeout or CoreConfig refuses to build.
         "POLL_BUDGET": str(WORKER_RUN_CAP_SEC),
         "DISPATCH_TIMEOUT_SEC": str(WORKER_RUN_CAP_SEC),
