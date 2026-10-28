@@ -507,20 +507,16 @@ def _stop(process: subprocess.Popen, *, own_group: bool) -> None:
 
     The whole group is waited out, not just its leader: the leader of a
     ``podman compose`` is the dispatcher, and the provider it started can take
-    longer to go. A member still running after SIGKILL is named in a warning, and
-    a stop that could not read the process table says so.
+    longer to go. A member still running after SIGKILL is named in a warning,
+    and the outcome of the stop is logged in its own words when the group is
+    not proven gone.
     Only ever called on a run that is being abandoned; a child that exits on its
     own leaves its group alone.
     """
     if own_group:
-        survivors = stop_group(process.pid, grace=_STOP_GRACE_S)
-        if survivors is None:
-            logger.warning("process table unreadable: group %d may still be running", process.pid)
-        elif survivors:
-            logger.warning(
-                "still running after SIGKILL: pids %s", " ".join(str(pid) for pid in survivors)
-            )
-        process.wait()
+        outcome = stop_child(process, grace=_STOP_GRACE_S)
+        if not outcome.gone:
+            logger.warning("%s", outcome.describe())
         return
     for sig in (signal.SIGTERM, signal.SIGKILL):
         if process.poll() is not None:
@@ -756,6 +752,69 @@ def stop_group(pgid: int, *, dump: float | None = None, grace: float) -> list[in
     return sorted(row.pid for row in rows.values() if row.pgid == pgid and not row.exited)
 
 
+def stop_child(
+    process: subprocess.Popen, *, dump: float | None = None, grace: float
+) -> StopOutcome[int]:
+    """Stop the child ``process`` and its process group, reap it, and say what is left.
+
+    ``process`` leads its own process group (every caller starts it with
+    ``process_group=0``, ``start_new_session=True`` or ``setsid()``), so the
+    group is named by its pid. The signal ladder is :func:`stop_group`'s:
+    SIGABRT and ``dump`` seconds when ``dump`` is given, SIGTERM and ``grace``
+    seconds, SIGKILL; every wait is on the whole group.
+
+    The leader must be unreaped when the stop starts: an unreaped leader holds
+    the group's id, so nothing else can take it while the stop signals and
+    reads it. A leader that already exited and nobody reaped is a zombie that
+    still holds the id, and is stopped like a running one. The stop reaps the
+    leader once it has exited; a leader still running after SIGKILL is stuck in
+    the kernel, is not waited on, and is named among the survivors.
+
+    Two concurrent calls on one child are harmless: both pass the check, and the
+    second ``wait()`` returns the status the first stored under ``Popen``'s lock.
+
+    Returns:
+        An outcome whose ``ended`` is the group. ``survivors`` names the pids
+        a read of the process table found running after SIGKILL; ``unknown``
+        names the group when the table could not be read, and then the leader
+        is a survivor if it was seen running.
+
+    Raises:
+        ValueError: the leader was already reaped, or it does not lead its own
+            process group.
+    """
+    pid = process.pid
+    _check_leader(process)
+    pids = stop_group(pid, dump=dump, grace=grace)
+    leader_running = observe_exit(process) is None
+    if not leader_running:
+        process.wait()
+    if pids is None:
+        return StopOutcome(ended=(pid,), survivors=(pid,) if leader_running else (), unknown=(pid,))
+    return StopOutcome(ended=(pid,), survivors=tuple(pids))
+
+
+def _check_leader(process: subprocess.Popen) -> None:
+    """Refuse a leader that is reaped or that does not lead its own group."""
+    pid = process.pid
+    reaped = ValueError(f"the leader {pid} is already reaped; its group id is no longer pinned")
+    if process.returncode is not None:
+        raise reaped
+    while True:
+        try:
+            if _waitid(pid, os.WEXITED | os.WNOWAIT | os.WNOHANG) is not None:
+                return  # a zombie: its group id is still pinned
+        except ChildProcessError:
+            raise reaped from None
+        try:
+            pgid = os.getpgid(pid)
+        except ProcessLookupError:
+            continue  # it exited between the two looks
+        if pgid != pid:
+            raise ValueError(f"pid {pid} does not lead its own process group (group {pgid})")
+        return
+
+
 def diagnose_captured_failure(exc: BaseException) -> str | None:
     """Translate a captured child's failure into a remedy, or ``None``.
 
@@ -846,5 +905,6 @@ __all__ = [
     "group_is_gone",
     "observe_exit",
     "run_captured",
+    "stop_child",
     "stop_group",
 ]
