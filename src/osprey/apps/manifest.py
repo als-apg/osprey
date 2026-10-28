@@ -221,7 +221,6 @@ class Tools(_Strict):
     deny_in_jobs: StrictBool = False
     read: list[NonEmpty] = Field(default_factory=list)
     approval: list[Approval] = Field(default_factory=list)
-    stamp_fields: list[NonEmpty] = Field(default_factory=list)
     errors: ToolErrors | None = None
 
 

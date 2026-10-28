@@ -67,7 +67,6 @@ FULL: dict[str, Any] = {
                 },
             }
         ],
-        "stamp_fields": ["approved_target"],
         "errors": {"unreachable": "Open the panel.", "refused": "Re-read the knob."},
     },
     "audit_identity": "knob-audit",
