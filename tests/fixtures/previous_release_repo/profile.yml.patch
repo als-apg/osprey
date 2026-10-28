@@ -1,6 +1,6 @@
 --- a/profile.yml
 +++ b/profile.yml
-@@ -52,6 +52,9 @@
+@@ -52,8 +52,11 @@
  # need; add your own through an overlay.
 
  hooks:
@@ -8,8 +8,11 @@
 +  - target-state      # Stdlib reader for the control-target state file (helper, not wired to an event)
 +  - hook-config       # Inject project config.yml path into every tool call env
    - approval          # Gate hardware-write tool calls on human approval prompt
-   - writes-check      # Kill switch: refuse every write while writes_enabled is false
+-  - writes-check      # Kill switch: refuse every write while its machine's write switch is off
++  - writes-check      # Kill switch: refuse every write while writes_enabled is false
    - limits            # Enforce per-channel min/max limits before writes
+   - error-guidance    # Post-error hook that surfaces remediation hints
+   - memory-guard      # Gate Write to memory files, NotebookEdit to agent-data artifacts and notebooks
 @@ -70,7 +73,7 @@
    - safety              # Core safety rules: never write without approval
    - error-handling      # Standard error handling and retry guidance
@@ -19,7 +22,87 @@
    - workflows           # Approved workflow patterns (scan, ramp, restore)
    - timezone            # Always localise timestamps to facility timezone
    - python-execution    # Rules governing Python executor sandbox usage
-@@ -1127,7 +1130,7 @@
+@@ -150,9 +153,9 @@
+   # this key alone the build derives the target's connector block,
+   # `control_system.connector.live_standin` — seven leaves, nothing else.
+   # `control_target_set standin` points a session at it, and what an operator
+-  # meets there is a real machine's behaviour — the write switch, approval
+-  # prompts, limit refusals — under the "Rehearsal — nothing moves" banner,
+-  # on something that cannot move a magnet.
++  # meets there is a real machine's behaviour — approval prompts, limit
++  # refusals, the LIVE MACHINE (stand-in) banner — on something that cannot
++  # move a magnet.
+   # Delete the line on a laptop: the simulator image is amd64-only, so a
+   # second emulated container on Apple Silicon doubles what QEMU has to run —
+   # one more emulated soft-IOC for the life of the deployment.
+@@ -241,13 +244,14 @@
+   # `osprey set config.archiver.type=<the archiver that records it>` and
+   # `osprey set va_archiver=null`, because the recorded archive goes with it.
+   control_system.type: virtual_accelerator
+-  # Write posture, the FIRST guard in the write-safety chain: while `never`,
+-  # every hardware write is refused before the limits check or the approval
+-  # prompt is consulted. `allowed` here because the baseline is the simulator,
+-  # which cannot move a magnet; the read-only tier pins it `never`. Under
+-  # `allowed`, each login's own write switch for each machine decides the next
+-  # write, so allowing writes arms no machine by itself.
+-  control_system.writes: allowed
++  # Master write switch, the FIRST guard in the write-safety chain: while
++  # false, every hardware write is refused before the limits check or the
++  # approval prompt is consulted. On here because the baseline is the
++  # simulator, which cannot move a magnet; the read-only tier pins it off.
++  # Write posture is per connector type: a `control_system.connector.<type>.
++  # writes_enabled` overrides this for that type alone, and only a literal
++  # `true` arms writes at either level.
++  control_system.writes_enabled: true
+   # Extra tools the kill switch refuses while writes are off. Framework write
+   # tools are covered automatically; list your own servers' write tools here.
+   # control_system.write_tools: [mcp__my_server__dangerous_write]
+@@ -289,6 +293,10 @@
+   #
+   # Channel Access timeout in seconds.
+   control_system.connector.virtual_accelerator.timeout_s: 5.0
++  # Write posture for the simulator alone. Uncomment to arm writes here while
++  # the master switch keeps the live machine read-only; the shipped
++  # `readwrite` and `admin` tiers in tiers/ write this key.
++  # control_system.connector.virtual_accelerator.writes_enabled: true
+   # Where the simulator runs: `served` is its container over Channel Access; `in_process` is inside this process, with no container.
+   # control_system.connector.virtual_accelerator.serving: served
+   # Milliseconds each read and write takes when the simulator is served in process; unread when served.
+@@ -318,6 +326,9 @@
+   # value, in seconds. Running out of budget refuses the write, so raise this
+   # for a slow gateway — it buys room, never a weaker check.
+   # control_system.connector.epics.step_read_timeout_s: 2.0
++  # Write posture for the live machine. Stating it pins it: a type with its
++  # own posture never falls back to the master switch.
++  # control_system.connector.epics.writes_enabled: false
+   # Channel the target switch reads to prove the live machine is reachable.
+   # While unset this target is never switched to.
+   # control_system.connector.epics.probe_channel: SR:BEAM:CURRENT
+@@ -342,9 +353,12 @@
+   # DOOCS connector: no coordinates of its own. doocs4py reaches the ENS the
+   # facility's own DOOCS environment already names, so the empty coordinate set
+   # is the point of this block rather than an omission — what is left is how
+-  # long a call is given and the probe channel every connector type answers.
++  # long a call is given and the two leaves every connector type answers.
+   # Seconds an ENS lookup, a property read or a property set is given.
+   # control_system.connector.doocs.timeout_s: 5.0
++  # Write posture for the DOOCS machine. Same tri-state as the epics leaf
++  # above: stating it pins it, and only a literal true arms writes.
++  # control_system.connector.doocs.writes_enabled: false
+   # Property the target switch reads to prove this machine is reachable.
+   # control_system.connector.doocs.probe_channel: FACILITY/DEVICE/LOCATION/PROPERTY
+   # TANGO connector: one coordinate of its own, the device database, spelled
+@@ -356,7 +370,8 @@
+   # control_system.connector.tango.tango_host: your-tango-db.example.com:10000
+   # Seconds a device call waits before it is given up on.
+   # control_system.connector.tango.timeout_s: 5.0
+-  # Device attribute the target switch reads to prove this machine is reachable.
++  # The same two leaves as every other connector type, for the TANGO machine.
++  # control_system.connector.tango.writes_enabled: false
+   # control_system.connector.tango.probe_channel: sys/tg_test/1/ampli
+   # Target switch: how a running session moves between the connectors above.
+   #
+@@ -1115,7 +1130,7 @@
      # To override one port rather than move the block, name it here:
      #   nginx_port: 18000         # the landing page everyone opens first
      #   web_base_port: 18100      # first per-user web-terminal port
@@ -28,7 +111,7 @@
      # Every terminal below asks for a login (user alice: password alice, and
      # so on — set in this repo's .env; rotate with `osprey users passwd`).
      auth:
-@@ -1187,22 +1190,37 @@
+@@ -1175,22 +1190,37 @@
            # to your terminal" button, so the page lists nobody. It needs the
            # login wall above (auth.method password or oidc).
            # names: shown
@@ -72,7 +155,7 @@
        # The one login that can change this deployment's configuration — the web
        # Config panel, the scaffold gallery's editors, and the agent's own setup
        # tool. Behind the login wall like every other person on this page: an
-@@ -1210,15 +1228,31 @@
+@@ -1198,15 +1228,31 @@
        # it.
        - name: carol
          index: 2
@@ -107,7 +190,7 @@
        - channel-finder   # Channel Finder: channel addresses from the hierarchy
 
    # ── Health checks ──────────────────────────────────────────────────────────
-@@ -1322,14 +1356,14 @@
+@@ -1310,14 +1356,14 @@
      OSPREY_AUTH_PW_CAROL: carol
  data: data
  # Minimum OSPREY release that understands this profile's keys. Builds below it abort.
