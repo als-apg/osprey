@@ -39,7 +39,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from osprey.agent_runner.tool_names import BASH_DENY_ENTRY
+from osprey.agent_runner.tool_names import SHELL_TOOLS
 from osprey.bluesky_bridge_connection import (
     LANE_KEYS,
     LANE_ONE,
@@ -60,13 +60,6 @@ from osprey_connectors.types import (
     tier_allows,
 )
 from osprey_connectors.workspace import BUILD_DIR_NAME
-
-#: The ``permissions.deny`` entries a render must ship **all** of for its agent
-#: to have no shell: ``Bash`` is the shell itself and ``Monitor`` runs shell
-#: commands in the background, so denying either one alone leaves a shell open.
-#: Exact literals, as :data:`~osprey.agent_runner.tool_names.BASH_DENY_ENTRY`
-#: explains — a scoped deny constrains one command family, not the shell.
-SHELL_DENY_ENTRIES: tuple[str, ...] = (BASH_DENY_ENTRY, "Monitor")
 
 # Matches ${VAR} and $VAR env references inside modules.web_terminals.image_tag.
 _ENV_REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
@@ -3724,8 +3717,9 @@ def renders_with_open_shell(config: Any, project_root: Any) -> set[str]:
     """Names of referenced renders whose shipped settings leave a shell open.
 
     A shell is open unless the render's ``.claude/settings.json`` denies
-    **both** ``Bash`` and ``Monitor``: ``Monitor`` runs shell commands in the
-    background, so a render denying ``Bash`` alone still has one. Phrased as
+    every tool in :data:`~osprey.agent_runner.tool_names.SHELL_TOOLS`:
+    ``Monitor`` runs shell commands in the background, so a render denying
+    ``Bash`` alone still has one. Phrased as
     the *unsafe* set so its caller can name every offending render in one
     error rather than re-deriving them. A render granted
     ``BLUESKY_LAUNCH_TOKEN`` while its agent may also run a shell can read that
@@ -3750,4 +3744,4 @@ def renders_with_open_shell(config: Any, project_root: Any) -> set[str]:
         The subset of referenced render names whose rendered
         ``.claude/settings.json`` does not deny every shell tool.
     """
-    return renders_not_denying(config, project_root, SHELL_DENY_ENTRIES)
+    return renders_not_denying(config, project_root, SHELL_TOOLS)

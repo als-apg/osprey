@@ -19,7 +19,7 @@ from osprey.agent_runner.build_artifacts.catalog import (
     BuildArtifactCatalog,
 )
 from osprey.agent_runner.build_artifacts.ownership import framework_template_hash
-from osprey.agent_runner.tool_names import DENY_DEFAULTS, WRITE_CAPABLE_BUILTINS
+from osprey.agent_runner.tool_names import DENY_DEFAULTS, SHELL_TOOLS, WRITE_CAPABLE_BUILTINS
 from osprey.ariel_attachment_view import attachment_view_enabled
 from osprey.bluesky_tool_names import QUEUE_CONTROL_TOOLS
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
@@ -2156,15 +2156,6 @@ def _matcher_covers(matcher: str | None, tool: str) -> bool:
     return tool in [part.strip() for part in matcher.split("|")]
 
 
-#: The built-ins that run shell commands. On a render whose tier is
-#: ``control_system.writes: allowed`` a shell is an arming path — it can flip
-#: the write switch, call a connector or fire a dispatcher job without passing
-#: any write gate — so :func:`_lint_write_tools_are_gated` refuses a
-#: ``remove_deny`` that lifts one there (PR-12). On a ``never`` render the lift
-#: keeps the ordinary declared-gate warning.
-ARMING_SHELL_TOOLS = ("Bash", "Monitor")
-
-
 def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
     """Refuse to build a profile that can write with no gate.
 
@@ -2216,8 +2207,10 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
 
     **A lifted shell on an ``allowed`` tier is refused outright (PR-12).**
     When ``ctx["writes_tier"]`` is ``allowed`` and ``remove_deny`` lifts a tool
-    in :data:`ARMING_SHELL_TOOLS`, the build fails whatever hook the profile
-    declares: on that tier a shell is an arming path. On a ``never`` render (or
+    in :data:`~osprey.agent_runner.tool_names.SHELL_TOOLS`, the build fails
+    whatever hook the profile declares: on that tier a shell is an arming path —
+    it can flip the write switch, call a connector or fire a dispatcher job
+    without passing any write gate. On a ``never`` render (or
     a create-path context that carries no tier yet — the build re-renders
     through :func:`build_claude_code_context`, which settles it) the lift keeps
     the declared-gate warning above.
@@ -2259,11 +2252,7 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
     for tool in WRITE_CAPABLE_BUILTINS:
         if tool in deny:
             continue
-        if (
-            tool in ARMING_SHELL_TOOLS
-            and tool in remove_deny
-            and ctx.get("writes_tier") == "allowed"
-        ):
+        if tool in SHELL_TOOLS and tool in remove_deny and ctx.get("writes_tier") == "allowed":
             render = ctx.get("project_name") or "this render"
             raise BuildProfileError(
                 f"Render {render!r} has tier control_system.writes: allowed and its "
@@ -2288,7 +2277,7 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
                     "can POST to /panel/events/mcp and fire a job without the "
                     "approval prompt — the job still runs as the real user "
                     "under their chip."
-                    if tool in ("Bash", "Monitor")
+                    if tool in SHELL_TOOLS
                     else ""
                 )
                 logger.warning(

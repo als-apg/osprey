@@ -24,6 +24,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey.agent_runner.tool_names import SHELL_TOOLS
 from osprey.cli.templates.manager import TemplateManager
 from osprey_connectors.errors import BuildProfileError
 from tests._preset_data import bundle_data_root
@@ -34,7 +35,24 @@ from tests.fixtures.lifecycle_repo import (
     preserved_environ,
 )
 
-SHELLS = ["Bash", "Monitor"]
+SHELLS = list(SHELL_TOOLS)
+
+
+def test_the_shell_set_is_bash_and_monitor_declared_once() -> None:
+    """One shell set, read by both the roster guard and the PR-12 refusal.
+
+    A render that lifts ``Monitor`` alone has a shell (it runs commands in the
+    background), so both gates must count it; reading one declaration is what
+    keeps them from drifting apart.
+    """
+    from osprey.cli.templates import claude_code
+    from osprey.deployment.web_terminals import roster
+
+    assert SHELL_TOOLS == ("Bash", "Monitor")
+    assert claude_code.SHELL_TOOLS is SHELL_TOOLS
+    assert roster.SHELL_TOOLS is SHELL_TOOLS
+    assert not hasattr(claude_code, "ARMING_SHELL_TOOLS")
+    assert not hasattr(roster, "SHELL_DENY_ENTRIES")
 
 
 def _root_project(tmp_path: Path, name: str, writes: str, permissions: dict) -> tuple:
