@@ -271,10 +271,11 @@ the value: the limits check does not see it, neither at the ``osprey_limits`` ho
 connector; no connector asks the narrowing records at write time; and nothing reads the
 channel back.
 
-The audit trail records the call as it records any tool call: one line naming
+The audit trail records the call as it records any tool call: one entry naming
 ``phoebus_drive``, who called it, the posture in force and the decision. The tool call's
 own entry in the agent record carries the widget, verb, mode and value the call was given
-and the bridge's answer. Neither names the channel written, because the bridge decides which channel a widget writes. See
+and the bridge's answer. Neither names the channel written, because the bridge decides
+which channel a widget writes. See
 :doc:`/how-to/control-systems/phoebus-bridge` for the configuration and for the displays a
 drive is fit for.
 
@@ -382,7 +383,7 @@ container then gives uid 1000 that name at start (:ref:`multi-user-control-ident
 shared writers carry fixed service names instead: dispatch worker *i* writes as
 ``osprey-dispatch-<i>``, and each Bluesky lane OSPREY renders writes as ``osprey-bluesky`` or
 ``osprey-bluesky-<lane>``. An external-worker lane writes under whatever account the facility
-runs it as. The audit ledger records the same name beside the person who asked, so a put-log
+runs it as. The audit trail records the same name beside the person who asked, so a put-log
 line joins back to them; see :ref:`audit-trail-attribution`.
 
 **The name is attribution, not authentication.** The client asserts it and the server takes it

@@ -138,8 +138,8 @@ Shortened answers
 An answer longer than the bridge's ``HISTORY_ANSWER_LIMIT`` (3000 characters by
 default) is sent as its opening and a note naming its run. The agent reads the
 whole answer with ``prior_answer_read``. The agent record keeps every answer
-in full, once, in the run that gave it. Against a dispatcher or worker that does not advertise
-``prior_answers``, every answer is sent in full.
+in full, once, in the run that gave it. Against a dispatcher or worker that
+does not advertise ``prior_answers``, every answer is sent in full.
 
 ``prior_answer_runs``
 =====================
@@ -169,8 +169,8 @@ rather than part of it, and sets this key:
 Absent when the history read was complete, including a conversation that has
 no earlier turns. The key tells the agent that earlier turns may exist but
 were not sent, so a question that refers back ("that plot", "the same
-channel") may have a referent it cannot see. How far back a conversation can be replayed at all is
-``agent_record.retention_days``.
+channel") may have a referent it cannot see. How far back a conversation can
+be replayed at all is ``agent_record.retention_days``.
 
 ``reply_to``
 ============

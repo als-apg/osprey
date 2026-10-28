@@ -85,9 +85,10 @@ Four services run:
      - The facility's own MCP server on port 10900, built from a Dockerfile that
        lives in the profile.
 
-The first three are packaged with OSPREY. The last is the interesting one: it is the part no framework can ship for you, and
-everything about how a facility-owned container is declared, built, and reached
-is in :ref:`deploy-a-facility-own-service`.
+The first three are packaged with OSPREY. The last is the interesting one: it
+is the part no framework can ship for you, and everything about how a
+facility-owned container is declared, built, and reached is in
+:ref:`deploy-a-facility-own-service`.
 
 
 .. _perimeter-limits:

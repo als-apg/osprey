@@ -288,7 +288,7 @@ different key:
 
    * - Route
      - Name on the wire
-     - Ledger record naming the person
+     - Audit record naming the person
      - Join key to the put-log
    * - ``channel_write``
      - The card's identity

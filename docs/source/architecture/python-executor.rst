@@ -625,12 +625,12 @@ and the operator alert are what is missing.
 
 .. note::
 
-   **This is the one ledger that holds a payload.** Everywhere else OSPREY
+   **This is the one audit surface that holds a payload.** Everywhere else OSPREY
    records identifiers and config keys only --- never a value, a prompt or an
    agent message. Here the refused code *is* what the record is about, so it is
    kept whole (up to 8000 characters, flagged as truncated beyond that). Give
-   ``executor.jsonl`` the same care you would give the code itself, and expect
-   it to be the file that grows. See :ref:`the audit trail <reference-audit-trail>`
+   the ``executor`` entries the same care you would give the code itself, and
+   expect them to be what grows. See :ref:`the audit trail <reference-audit-trail>`
    for what the rest of it contains.
 
 .. admonition:: Control system operations in user code

@@ -432,8 +432,9 @@ def hermetic_hub() -> Iterator[HermeticHub]:
     watch_dir, ``_load_panel_config`` → artifacts-only, ``_launch_panel_server``
     → the already-running backend URL), so no extra server is spawned and no live
     agent is involved. Its session reads go to a :class:`_TranscriptRecord` over
-    the session directory, so no record service runs either. On exit both servers stop and both the project directory
-    and its ``~/.claude/projects/<encoded>/`` session directory are removed.
+    the session directory, so no record service runs either. On exit both
+    servers stop and both the project directory and its
+    ``~/.claude/projects/<encoded>/`` session directory are removed.
     """
     from osprey.cli.project_utils import encode_claude_project_path
     from osprey.interfaces._serving import run_app_server

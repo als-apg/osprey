@@ -609,7 +609,7 @@ class _Take:
     def wait_for_result(
         self,
         step_name: str,
-        ask_offset: datetime,
+        ask_mark: datetime,
         find: Callable[[], str | None],
         what: str,
     ) -> tuple[str, Any]:
@@ -626,7 +626,7 @@ class _Take:
         watch = self.watch(step_name, video_check_stall.PLOT_DIALOGS, self.phase_stall)
         ticks = max(1, -(-PLOT_BUDGET_MS // video_probes.POLL_MS))
         for _ in range(ticks):
-            if video_check_approval.ask_record_count(self.hook_log, ask_offset):
+            if video_check_approval.ask_record_count(self.hook_log, ask_mark):
                 raise ProbeFailed(
                     step_name, f"an approval prompt appeared while waiting for the {what}"
                 )
@@ -674,7 +674,7 @@ class _Take:
         self,
         step_name: str,
         caption: str,
-        ask_offset: datetime,
+        ask_mark: datetime,
         find: Callable[[], str | None],
         what: str,
     ) -> str:
@@ -684,7 +684,7 @@ class _Take:
         """
         while True:
             with self.step(step_name, caption, fast_forward=True):
-                kind, found = self.wait_for_result(step_name, ask_offset, find, what)
+                kind, found = self.wait_for_result(step_name, ask_mark, find, what)
             if kind == "result":
                 return found
             with self.step("open-artifact", caption):
@@ -899,11 +899,11 @@ class _Take:
             f"need {MIN_AZIMUTH_CHANGE_DEG:.0f}",
         )
 
-    def wait_for_approval(self, ask_offset: datetime) -> video_check_approval.Ask:
+    def wait_for_approval(self, ask_mark: datetime) -> video_check_approval.Ask:
         watch = self.watch("post", video_check_stall.NOTICE_DIALOGS)
         ticks = max(1, -(-APPROVAL_BUDGET_MS // video_probes.POLL_MS))
         for _ in range(ticks):
-            asks = self.asks(ask_offset)
+            asks = self.asks(ask_mark)
             if asks:
                 return asks[0]
             state = self.turn()
@@ -915,7 +915,7 @@ class _Take:
             self.page.wait_for_timeout(video_probes.POLL_MS)
         raise ProbeFailed("post", f"no {APPROVED_TOOL} approval within {APPROVAL_BUDGET_MS} ms")
 
-    def wait_for_draft(self, ask_offset: datetime, approved: video_check_approval.Ask) -> None:
+    def wait_for_draft(self, ask_mark: datetime, approved: video_check_approval.Ask) -> None:
         """Wait for the saved draft, pressing Enter once more only when it is safe.
 
         The retry fires once, after :data:`DRAFT_RETRY_AFTER_MS` without a
@@ -927,7 +927,7 @@ class _Take:
         retry_tick = -(-DRAFT_RETRY_AFTER_MS // video_probes.POLL_MS)
         ticks = max(1, -(-DRAFT_BUDGET_MS // video_probes.POLL_MS))
         for tick in range(ticks):
-            asks = self.asks(ask_offset)
+            asks = self.asks(ask_mark)
             if video_probes.draft_ready(self.page):
                 return
             if self.turn() == "errored":
@@ -949,13 +949,13 @@ class _Take:
         ask_caption = "Ask in plain language"
         with self.step("focus-1", ask_caption):
             self.focus_terminal()
-        plot_offset = video_check_approval.log_mark()
+        plot_mark = video_check_approval.log_mark()
         with self.step("prompt-1", ask_caption):
             self.submit("prompt-1", PROMPT_PLOT)
         plot_id = self.agent_phase(
             "plot",
             "The agent reads the archiver and plots",
-            plot_offset,
+            plot_mark,
             self.plot_id,
             "3D BPM scatter plot",
         )
@@ -966,13 +966,13 @@ class _Take:
         corr_caption = "Ask for a correlation"
         with self.step("focus-2", corr_caption):
             self.focus_terminal()
-        corr_offset = video_check_approval.log_mark()
+        corr_mark = video_check_approval.log_mark()
         with self.step("prompt-2", corr_caption):
             self.submit("prompt-2", PROMPT_CORR)
         corr_id = self.agent_phase(
             "correlate",
             "The agent correlates the BPMs with the vacuum",
-            corr_offset,
+            corr_mark,
             self.correlation_id,
             "correlation plot",
         )
@@ -981,11 +981,11 @@ class _Take:
         post_caption = "Post it to the logbook"
         with self.step("focus-3", post_caption):
             self.focus_terminal()
-        post_offset = video_check_approval.log_mark()
+        post_mark = video_check_approval.log_mark()
         with self.step("prompt-3", post_caption):
             self.submit("prompt-3", PROMPT_POST)
         with self.step("post", "The agent drafts the entry", fast_forward=True):
-            approved = self.wait_for_approval(post_offset)
+            approved = self.wait_for_approval(post_mark)
             self.check_attachment(approved, corr_id)
         approve_caption = "Writes wait for the operator's approval"
         with self.step("approval-hold", approve_caption):
@@ -993,7 +993,7 @@ class _Take:
         with self.step("approve", approve_caption):
             self.press_enter("approve")
         with self.step("draft", "Saving the draft", fast_forward=True):
-            self.wait_for_draft(post_offset, approved)
+            self.wait_for_draft(post_mark, approved)
         with self.step("close", "Draft saved with the plot attached"):
             if not video_probes.reveal_attachment(self.page):
                 raise ProbeFailed("close", "the saved draft shows no attachment to reveal")

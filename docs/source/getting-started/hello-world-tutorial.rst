@@ -393,8 +393,8 @@ List your sessions, then the approval decisions the safety chain made:
 
 The record keeps an entry for 14 days. Each UTC day that has closed is also
 exported, whole, as ``var/archive/<day>/agent_record/entries.parquet`` the next
-time the record runs: the lasting copy, which outlives that window. This query counts what each
-identity wrote, by kind, across every exported day:
+time the record runs: the lasting copy, which outlives that window. This query
+counts what each identity wrote, by kind, across every exported day:
 
 .. literalinclude:: hello-world-tutorial.sql
    :language: sql
@@ -406,9 +406,9 @@ which OSPREY installs:
 
    python -c "import duckdb; duckdb.sql(open('hello-world-tutorial.sql').read()).show()"
 
-On the first day the archive is still empty, and DuckDB reports that no file matches. See
-:doc:`/how-to/health-and-monitoring/agent-record` for what the record and its
-archive hold. The control-assistant preset adds a history page in the browser,
+On the first day the archive is still empty, and DuckDB reports that no file
+matches. See :doc:`/how-to/health-and-monitoring/agent-record` for what the
+record and its archive hold. The control-assistant preset adds a history page in the browser,
 described in :doc:`/how-to/health-and-monitoring/read-the-record`.
 
 The commands you now know are the complete lifecycle, and they are the same

@@ -824,13 +824,17 @@ deployment minted. The command is the service's entry and is not run by hand.
 
 .. code-block:: bash
 
-   osprey agent-record serve [--host HOST] [--port PORT]
+   osprey agent-record serve [--host HOST] [--port PORT] [--lease-dir DIRECTORY]
 
 ``--host HOST`` -- Interface to listen on (default ``127.0.0.1``; the service
 listens on every interface of its container).
 
-``--port PORT`` -- Port to serve on (default: the configured
+``-p, --port PORT`` -- Port to serve on (default: the configured
 ``agent_record.port``).
+
+``--lease-dir DIRECTORY`` -- Run as the host-local record that host commands
+start when no stack runs one: report ready only after the first full ingest
+pass, and stop once no lease in this directory names a live process.
 
 It reads the verifier and the secret set, and the spool, record and transcript
 locations, from the environment its compose service renders.

@@ -522,7 +522,7 @@ the ``access`` key settles the same way throughout — a card widened from
 to ``own`` refuses the shared ones, and a narrowed list refuses whoever it no
 longer covers.
 
-The ledger records who opened a session beside the card
+The audit trail records who opened a session beside the card
 (:ref:`audit-trail-identity-keys`), so a shared terminal's records still say
 who did what.
 
@@ -696,7 +696,7 @@ card, write as ``osprey``.
 The name is attribution, not authentication; the login wall is what
 authenticates the person. See :ref:`architecture-safety-chain-owner` for what
 the name does and does not establish, and :ref:`audit-trail-attribution` for
-how the audit ledger joins a write to the put-log.
+how the audit trail joins a write to the put-log.
 
 These rosters are refused by ``osprey scaffold web-terminals lint`` in every
 auth method, and by the build itself even with ``--no-lint``:
