@@ -1,7 +1,7 @@
 {
   "api_key_env_stripped": true,
-  "baseline_commit": "a138d45649ccdc1eba71da05f3b1703ccce0e478",
-  "baseline_sha": "a138d45649ccdc1eba71da05f3b1703ccce0e478",
+  "baseline_commit": "93415334267583c0c6b9a1c5e757143ab5d4a057",
+  "baseline_sha": "93415334267583c0c6b9a1c5e757143ab5d4a057",
   "cells": [
     "hello-world/unset",
     "control-assistant/in_context",
@@ -98,7 +98,7 @@
       "renders": []
     }
   },
-  "external_source": true,
+  "external_source": false,
   "masked_keys": {
     "replaced": {
       "api.providers": "sorted list of provider names, in place of the catalog mapping"
