@@ -52,8 +52,8 @@ changed paths map to. A path the mapping cannot place widens that runner to its
 whole selection; scoping never narrows. A script a check runs through, and a
 checks module, selects ``tests/scripts/``; a file under ``tests/<dir>/`` selects
 that directory when it holds a test module and widens otherwise. A base also arms the
-checks that judge a range. Paths after ``--`` are test files added to what the
-range selects.
+checks that judge a range. Paths after ``--`` are test files, pytest node ids
+or test directories added to what the range selects.
 
 ``list --changed BASE`` adds which checks and CI lanes the range ``BASE...HEAD``
 touches, read as a tier reads it; it runs nothing.
@@ -895,7 +895,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     verbs = parser.add_subparsers(dest="verb", required=True)
     for tier in TIERS:
-        verb = verbs.add_parser(tier, help=f"run the {tier} tier; test files may follow --")
+        verb = verbs.add_parser(tier, help=f"run the {tier} tier; tests may follow --")
         verb.add_argument(
             "--changed", metavar="BASE", help="scope the tier to BASE...HEAD; implies --base BASE"
         )
