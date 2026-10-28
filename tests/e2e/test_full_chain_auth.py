@@ -2384,12 +2384,17 @@ def test_history_an_artifact_under_u_cannot_read_a_history_response(
 
 
 def _history_page_statuses() -> list[int]:
-    """The status of every ``GET /history/`` the history page's nginx server logged, in order."""
+    """The status of every request for ``/history/`` the history page's nginx server logged.
+
+    A refusal is logged under the 403 page it was answered with, the internal
+    redirect ``error_page`` makes, so both paths are the page's requests.
+    """
     result = _runtime_cli("logs", NGINX_C, timeout=30)
     return [
         int(match.group(1))
         for match in re.finditer(
-            r'"GET /history/ HTTP/[0-9.]+" (\d{3}) ', result.stdout + result.stderr
+            r'"GET /history(?:/|-403\.html) HTTP/[0-9.]+" (\d{3}) ',
+            result.stdout + result.stderr,
         )
     ]
 
