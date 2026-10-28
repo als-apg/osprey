@@ -1102,7 +1102,7 @@ class RecordReader:
         ``None`` for a run the caller's scope sees no entry of.
 
         A fixed number of selects serves any number of runs: one for their run
-        entries (a second after a drain that had to wait), one for their
+        entries (a second after a drain), one for their
         sessions and one for their bridge turns (skipped when *turns*, already
         in scope, are given). Each run's session is drained under the identity
         that accepted it, every drain in one wait; runs with no accept entry
@@ -1120,16 +1120,16 @@ class RecordReader:
         drains = self._run_drains(ctx, ids, by_key)
         if drains:
             first = [(run_ids_, check) for run_ids_, check in drains if not check()]
-            if first:
-                if not self._wait(ctx, [check for _, check in first]):
-                    for run_ids_, _ in first:
-                        for run_id in run_ids_:
-                            ctx.incomplete(
-                                f"run {run_id}'s ingest did not drain within "
-                                f"{self.wait_seconds:g} s"
-                            )
-                # What the drain committed is read, not what was there before it.
-                by_key = {i.key: i for i in self._collect(ctx, run_filter, Query(keys=keys))}
+            if first and not self._wait(ctx, [check for _, check in first]):
+                for run_ids_, _ in first:
+                    for run_id in run_ids_:
+                        ctx.incomplete(
+                            f"run {run_id}'s ingest did not drain within {self.wait_seconds:g} s"
+                        )
+            # What the drain committed is read, not what was there before it.
+            # Ingest may commit between the read above and the drain's first
+            # check, so a drain that has already passed is read again too.
+            by_key = {i.key: i for i in self._collect(ctx, run_filter, Query(keys=keys))}
         found: dict[str, tuple[RecordItem | None, RecordItem | None]] = {}
         for run_id in ids:
             accept = by_key.get(run_key(run_id, RUN_ACCEPT))
