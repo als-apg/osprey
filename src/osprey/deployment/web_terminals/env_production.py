@@ -172,8 +172,7 @@ def migrate_users_env(project_root: str | Path) -> Path | None:
 #: depends on. The unbraced ``$NAME`` spelling is deliberately NOT matched:
 #: nothing this module reads is written that way, and treating it as a
 #: reference would make any value containing a bare ``$`` look like one.
-_ENV_REFERENCE_PATTERN = r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}"
-_ENV_REFERENCE_RE = re.compile(rf"\A{_ENV_REFERENCE_PATTERN}\Z")
+_ENV_REFERENCE_RE = re.compile(r"\A\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}\Z")
 
 
 def _env_reference(value: object) -> tuple[str, bool] | None:

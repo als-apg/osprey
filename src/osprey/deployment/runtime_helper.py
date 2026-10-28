@@ -1326,9 +1326,9 @@ TRANSCRIPTS_COPY_IMAGE_ENV = "OSPREY_TRANSCRIPTS_COPY_IMAGE"
 #: nothing to copy, not a failure.
 _TRANSCRIPTS_COPY_SH = 'if [ -d "/from/$1" ]; then cp -a "/from/$1/." /to/; fi'
 
-#: The labels compose stamps on a volume it creates. Reset, the orphan sweep
-#: and the feedback reader find a project's volumes by them.
-_COMPOSE_PROJECT_LABEL = "com.docker.compose.project"
+#: The labels compose stamps on a volume it creates, beside
+#: :data:`~osprey.deployment.container_ownership.COMPOSE_PROJECT_LABEL`. Reset,
+#: the orphan sweep and the feedback reader find a project's volumes by them.
 _COMPOSE_VOLUME_LABEL = "com.docker.compose.volume"
 _PODMAN_COMPOSE_PROJECT_LABEL = "io.podman.compose.project"
 
@@ -1383,6 +1383,7 @@ def copy_transcripts_once(
             first, so the next ``up`` copies again.
     """
     from osprey.deployment.compose_generator import claude_projects_volumes, resolve_project_name
+    from osprey.deployment.container_ownership import COMPOSE_PROJECT_LABEL
 
     config = dict(config or {})
     pairs = claude_projects_volumes(config)
@@ -1395,7 +1396,10 @@ def copy_transcripts_once(
     podman = Path(runtime).name == "podman"
 
     def _call(argv: list[str]) -> subprocess.CompletedProcess:
-        return run(argv, env=call_env, capture_output=True, text=True)
+        result: subprocess.CompletedProcess = run(
+            argv, env=call_env, capture_output=True, text=True
+        )
+        return result
 
     def _volume_exists(name: str) -> bool:
         return _call([runtime, "volume", "inspect", name]).returncode == 0
@@ -1429,7 +1433,7 @@ def copy_transcripts_once(
                     )
 
         labels = [
-            f"{_COMPOSE_PROJECT_LABEL}={project}",
+            f"{COMPOSE_PROJECT_LABEL}={project}",
             f"{_COMPOSE_VOLUME_LABEL}={pair['volume']}",
         ]
         if podman:

@@ -107,8 +107,9 @@ SELF_DISCOVERING_COMMANDS: frozenset[str] = frozenset(
 #: ``archive`` copies from the sources directory to the destination it is handed
 #: — inside the bundled service those are mounts, run by hand they are whatever
 #: the operator names — and discovers no deployment.
-#: ``history`` serves the store it is handed through the environment its
-#: service renders (address, account, gate secret) and discovers no deployment.
+#: ``history`` reads the record it is handed through the environment its
+#: service renders (record address, page login, gate secret) and discovers no
+#: deployment.
 #: ``agent-record`` likewise serves the record from the environment its service
 #: renders (verifier, secrets, spool, record and transcript locations).
 #:

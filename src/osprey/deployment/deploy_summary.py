@@ -39,9 +39,10 @@ deploy that otherwise succeeded.
 from __future__ import annotations
 
 import contextlib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from osprey.agent_record.config import (
     HISTORY_SERVICE,
@@ -833,10 +834,9 @@ def endpoint_entries(
 def reader_page_url(config: dict, reader: str) -> str | None:
     """Where the named reader ``reader`` opens the history page from another machine.
 
-    The one spelling of that link: the endpoint list prints it per reader, and
-    the line a deploy prints when it mints a key hands out the same one. On the
-    deploy host a reader reads the agent record's read API with the credential
-    the build minted for them; this is the route from anywhere else.
+    The one spelling of that link, which the endpoint list prints per reader.
+    On the deploy host a reader reads the agent record's read API with the key
+    ``osprey up`` minted for them; this is the route from anywhere else.
 
     A reader reaches the page by signing in: as the roster person of that name,
     or, under OIDC sign-on, as the IdP identity its ``oidc_subject`` names.
@@ -866,7 +866,7 @@ def reader_page_url(config: dict, reader: str) -> str | None:
     return f"{history_origin(config).origin}/history/"
 
 
-def _reader_signs_in(config: dict, entry: dict) -> bool:
+def _reader_signs_in(config: dict, entry: Mapping[str, Any]) -> bool:
     """Whether anything signs the reader ``entry`` in to the history page."""
     from osprey.deployment.web_terminals.roster import authored_people
 
@@ -888,7 +888,7 @@ def _reader_entries(config: dict) -> list[tuple[tuple[int, int, int, str], str, 
 
     Placed beside the gateway's other servers, under the history page's origin
     that answers the link. A reader nothing signs in has no row: they read on the
-    deploy host, through the read API, with the credential the build minted.
+    deploy host, through the read API, with the key ``osprey up`` minted.
 
     Advisory, like every row of the summary: a config whose history page's
     origin cannot be derived prints none here, and the render says why in its own

@@ -1156,7 +1156,7 @@ def render_web_terminals(
                 "agent_record_login_file": agent_record_credentials.login_file(entry["name"]),
                 "agent_record_login_digest": record_digests.get(entry["name"]),
                 # The two ends of this user's control-context bind, derived here
-                # for the same reason the audit pair above is: they are one
+                # for the same reason the spool and state pairs above are: they are one
                 # fact — the directory this terminal writes the record that
                 # says whether it has narrowed its writes to one machine — and
                 # the template consumes both finished, so the path it mounts
@@ -1884,8 +1884,8 @@ def history_carriers(config: Any) -> list[str]:
     """The sidecar's history-page carriers, one ``KEY=value`` line each.
 
     Rendered only when :func:`~osprey.agent_record.config.history_page_deployed`
-    holds; empty otherwise, so a deployment without the page renders exactly
-    what it did before. The variable names come from
+    holds; empty otherwise, so a deployment without the page renders no
+    history carrier. The variable names come from
     :mod:`~osprey.services.auth_sidecar.roster_env`, which the sidecar reads
     them back through:
 
@@ -3167,8 +3167,8 @@ def _scope_list(value: Any) -> str | None:
 #: rather than re-listed, so a service that gains an identity gains this
 #: protection in the same edit). A roster user carrying one of these names is
 #: not a cosmetic clash — the user's terminal would bind, read-write, the very
-#: host directory that service writes its own records into, so the user could
-#: read and rewrite the trail of the component that audits them.
+#: host directories that service writes its own records into, so the user could
+#: read and write the spool and state of the component that records them.
 #:
 #: A module constant has no config in scope, so the set is every name the
 #: generator CAN produce rather than the ones this deployment does:

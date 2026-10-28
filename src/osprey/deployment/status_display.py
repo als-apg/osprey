@@ -592,7 +592,7 @@ def show_status(
         output.table(_container_table(other_containers))
 
     # Same derivation of the repo root as the staleness check above: this legacy
-    # verb is handed the project's own config.yml, and the audit zone hangs off
+    # verb is handed the project's own config.yml, and the state zone hangs off
     # the directory holding it.
     _show_web_terminal_users(config, all_containers, Path(config_path).resolve().parent)
 
@@ -964,7 +964,7 @@ def _artifact_drift(repo_root, build_dir, config):
 # the content-capture gates are exactly the facts an operator opens ``osprey
 # status`` to read, and a blanket mask over the block would leave the section
 # with nothing to say. One entry is different — the OTLP headers block carries
-# the observability store's authorization header, a directly decodable
+# the launch's agent-record login as a Basic authorization header, a directly decodable
 # credential — and a status report is read on a shared terminal and pasted into
 # tickets.
 #

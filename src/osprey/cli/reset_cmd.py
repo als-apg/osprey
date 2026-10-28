@@ -86,8 +86,9 @@ def reset(repo: Path | None, dry_run: bool, assume_yes: bool, purge_audit: bool)
     containers under this project name came from a different checkout, and
     names it. A container with no such record counts as this deployment's.
     Volumes belong to the project by name, so every volume under this project
-    name is removed, except the record's data volume a plain reset keeps. Moving this directory makes its own older containers read
-    as foreign; the refusal says so and still will not remove them.
+    name is removed, except the record's data volume a plain reset keeps.
+    Moving this directory makes its own older containers read as foreign; the
+    refusal says so and still will not remove them.
 
     Exit status, so `osprey reset && ...` means what it looks like:
 

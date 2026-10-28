@@ -2349,8 +2349,9 @@ def _deployed_project_image_services(
     services, which are never ``deployed_services`` entries: the history page,
     rendered exactly when
     :func:`~osprey.agent_record.config.history_page_deployed` holds, and
-    agent-record (``services.agent_record``), which every project that deploys
-    its own stack runs.
+    agent-record
+    (:data:`~osprey.deployment.compose_generator.AGENT_RECORD_TEMPLATE_DIR`),
+    which every project that deploys its own stack runs.
 
     agent-record is counted from the render when one is given: a start passes
     the compose files it hands to compose, so an attached project, whose render

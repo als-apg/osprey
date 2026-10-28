@@ -137,7 +137,7 @@ RENDERED_CONFIG_RELPATH = f"{BUILD_DIR_NAME}/config.yml"
 DEFAULT_AGENT_DATA_BASE_DIR = f"{STATE_DIR_NAME}/agent_data"
 
 #: The audit tree a deployment wrote before the agent record existed, relative
-#: to the repo root. Nothing writes or reads it any more: it stays on disk
+#: to the repo root. Nothing writes or reads it: it stays on disk
 #: unchanged, executed code is still refused writing it, and only
 #: ``osprey reset --purge-audit`` deletes it. Named here because those two
 #: keepers — the executor's protected-write roots and the reset purge — have to

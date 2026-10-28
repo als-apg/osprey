@@ -2487,7 +2487,7 @@ def _inject_project_metadata(config):
     config_with_labels.update(
         _agent_record_source_keys(config_with_labels["osprey_agent_record"]["port"])
     )
-    # The history page's ports, store address and origin, and the URL the
+    # The history page's ports, retention and origin, and the URL the
     # dispatch dashboard links a run to (empty when the page is not deployed,
     # which renders no link).
     history_context = _resolve_history_render_context(config)
@@ -2930,7 +2930,8 @@ def _ensure_group_shared_dir(path, *, relative_to, label, noun, consequence, exa
           never narrowed. A bundle deliberately kept at 0700 must not become
           world-readable because a deploy ran.
         * ``True`` (the control-target tree root, provisioned on the build path
-          and on the web-stack up path) — the directory is the framework's, and
+          and on the web-stack up path, and :func:`ensure_archive_dir`) — the
+          directory is the framework's, and
           its mode carries no intent to preserve. Such a root may already sit
           at the 0755 an umasked ``mkdir(parents=True)`` leaves, and OR alone
           would settle that at 2775 — leaving ``other`` able to list the

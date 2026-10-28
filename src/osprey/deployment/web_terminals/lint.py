@@ -5103,7 +5103,7 @@ def history_carrier_collision_problems(config: Any) -> list[tuple[str, str]]:
 
     The sidecar's reader carriers are keyed by the ``agent_record.readers``
     names: ``jean-luc`` and ``jean_luc`` both key ``..._JEAN_LUC``, so one
-    reader's subject and kinds would be read as the other's.
+    reader's subject would be read as the other's.
 
     Returns:
         One ``(problem, remedy)`` pair per shared suffix, naming both readers.

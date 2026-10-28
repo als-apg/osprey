@@ -62,7 +62,8 @@
 # words, so deleting the reader really would drop the count toward zero. Where
 # an obvious anchored form existed it was preferred instead — e.g.
 # services.postgresql.path cites the compose generator's
-# `service_config["path"]` read after the bare word crossed the ceiling. The rest have no clean single reader to anchor on (the
+# `service_config["path"]` read after the bare word crossed the ceiling. The
+# rest have no clean single reader to anchor on (the
 # value is unpacked from a block, or read in several places with different
 # shapes), and forcing an anchor would mean inventing one.
 #
@@ -157,10 +158,9 @@ keys:
     rendered: false
     evidence: 'get\("host_identity"\)'
     note: >-
-      The identity host launches send telemetry and file their records under,
-      and the identity the agent record reads the host's transcripts as.
-      Unset in the presets: every build records the account that ran it,
-      whether or not the old telemetry store is deployed.
+      The identity host launches send their OTLP events and file their records
+      under, and the identity the agent record reads the host's transcripts as.
+      Unset in the presets: every build records the account that ran it.
     default: derived
     default_note: the account that ran `osprey build`
   # The agent record's block, written by the build from the profile's
@@ -3314,11 +3314,11 @@ deleted:
 - claude_code.telemetry.openobserve
 - claude_code.telemetry.openobserve.user
 - claude_code.telemetry.openobserve.password
+- claude_code.telemetry.openobserve.org
   # Claude Code's `cleanupPeriodDays` on OSPREY-owned volumes is
   # max(`agent_record.retention_days`, 30); there is no key of its own.
 - claude_code.transcripts
 - claude_code.transcripts.retention_days
-- claude_code.telemetry.openobserve.org
   # Claude Code's OTLP logs always go to the agent record, and every tool call
   # is an agent-record entry: no key selects a destination, a collector, a
   # signal or a capture level. The profile parser refuses each with its

@@ -842,7 +842,7 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
     configure a graph store and so need its Neo4j password — each in their own
     per-user environment block; which name a facility-knowledge bundle or run
     a qmd export and so get the deployment's bundle or mirror bind-mounted,
-    and the groups those shared directories (and every user's audit zone)
+    and the groups those shared directories (and every user's spool and state directories)
     were provisioned with; the roster's operator secrets; and which proxy
     settings hold a value where compose will read them (this process's
     environment, then the chain); and the facility's display name, from the
@@ -911,7 +911,7 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         "facility_bundle_gid": shared_corpus_gid(resolve_facility_bundle_dir(config, root)),
         # The ARIEL mirror: the same pure read, for the same reason, of a
         # directory the deploy provisioned before this render. The per-user
-        # audit subdirectories read back no gid here — their group is joined
+        # spool and state subdirectories read back no gid here — their group is joined
         # inside the container by the entrypoint, off the mounted directory.
         "ariel_mirror_renders": renders_needing_ariel_mirror(config, root),
         "ariel_mirror_gid": shared_corpus_gid(resolve_ariel_mirror_dir(config, root)),

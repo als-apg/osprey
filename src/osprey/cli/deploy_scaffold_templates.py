@@ -790,9 +790,9 @@ def _service_probes(profile: dict[str, Any]) -> tuple[Probe, ...]:
     """Probe every service the deployment actually runs.
 
     Ordered by port rather than by declaration: the deployed set is assembled
-    from three unrelated places (the ``config:`` list, the virtual-accelerator
-    injector, the ``services:`` block), so port order is the only ordering that
-    is stable under an edit to any one of them — and it reads, top to bottom,
+    from two unrelated places (the virtual-accelerator injector and the
+    ``services:`` block), so port order is the only ordering that is stable
+    under an edit to either of them — and it reads, top to bottom,
     the way ``docker ps`` does.
     """
     probes: list[Probe] = []

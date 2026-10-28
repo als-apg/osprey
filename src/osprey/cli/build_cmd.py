@@ -1280,7 +1280,7 @@ def _ensure_host_projects_dir(config: dict[str, Any], repo_root: Path) -> Path |
     """
     from osprey.deployment.compose_generator import agent_record_host_projects_dir
 
-    host_dir = agent_record_host_projects_dir(config, repo_root)
+    host_dir: Path | None = agent_record_host_projects_dir(config, repo_root)
     if host_dir is None or host_dir.exists():
         return None
     host_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -1503,8 +1503,9 @@ _rendered_config_cache: dict[tuple[str, bytes], dict[str, Any]] = {}
 def _record_host_identity(render_dir: Path, rendered: dict[str, Any]) -> bool:
     """Record ``deployment.host_identity`` in a render that states none.
 
-    A session launched on the host sends telemetry under one name and files
-    its ledger under another unless both are told the same one. The name is
+    A session launched on the host sends its OTLP events to the record under
+    one name and files its ledger under another unless both are told the same
+    one. The name is
     fixed at build — the account building, unless the profile states one — so a
     repo built by one account and run by another still agrees with itself.
     Every deployment records it: the agent record is always deployed, and it

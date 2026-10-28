@@ -224,8 +224,7 @@ def render_problem(config: dict, repo_root: Path | str) -> str | None:
     :func:`verify_renders` asked as a question. It walks the same set
     :func:`preflight_web_terminals` walks, in the same mode gate, and reports
     what that call would have raised — a render with no render, a partial one,
-    a model its provider cannot serve, or a telemetry block naming an
-    observability credential this deployment cannot resolve.
+    or a model its provider cannot serve.
 
     Pure: every step reads. ``resolve_cards`` parses the catalog,
     ``verify_renders`` stats rendered directories and parses their
