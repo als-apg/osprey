@@ -32,6 +32,7 @@ while the test file it runs is renamed.
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 LEGACY_SUBSTRINGS = (
@@ -172,6 +173,40 @@ SELF_ALLOWLIST = {
 }
 
 
+# A redirect's source is a retired URL by definition: the docs ``redirects``
+# dict keeps old page paths alive so links into them still land. Its keys are
+# masked before matching; its targets and every other line are still judged.
+_DOCS_CONF = (_REPO_ROOT / "docs/source/conf.py").resolve()
+
+
+def _redirect_sources(content: str) -> list[str]:
+    """The key literals of the module-level ``redirects`` dict in ``content``."""
+    for node in ast.parse(content).body:
+        if isinstance(node, ast.AnnAssign):
+            target, value = node.target, node.value
+        elif isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target, value = node.targets[0], node.value
+        else:
+            continue
+        if isinstance(target, ast.Name) and target.id == "redirects":
+            assert isinstance(value, ast.Dict), "redirects must be a dict literal"
+            return [
+                key.value
+                for key in value.keys
+                if isinstance(key, ast.Constant) and isinstance(key.value, str)
+            ]
+    return []
+
+
+def _judged_text(path: Path, content: str) -> str:
+    """``content`` with the docs redirect sources masked out."""
+    if path.resolve() != _DOCS_CONF:
+        return content
+    for source in _redirect_sources(content):
+        content = content.replace(f'"{source}":', '"":')
+    return content
+
+
 def _scan_roots() -> list[Path]:
     repo_root = Path(__file__).resolve().parent.parent
     files: list[Path] = []
@@ -199,6 +234,7 @@ def test_no_legacy_symbols() -> None:
             content = path.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
+        content = _judged_text(path, content)
         for needle in LEGACY_SUBSTRINGS:
             if needle in content:
                 # Capture a few line numbers for diagnosis
