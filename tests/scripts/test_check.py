@@ -1160,6 +1160,12 @@ def test_a_named_directory_without_a_pytest_file_is_refused(
         selected("quick", named=("notes",))
 
 
+def test_a_node_id_names_the_hosts_of_its_file() -> None:
+    hosts = check._hosts_over(["tests/integration/test_build_boot.py"])
+    assert "build-boot-smoke" in hosts
+    assert check._hosts_over(["tests/integration/test_build_boot.py::test_x"]) == hosts
+
+
 def test_the_pytest_line_carries_a_named_node_id() -> None:
     pytest_check = BY_ID["pytest"]
     selection = check.Selection(check.PATHS, ("tests/cli/test_main.py::test_x",))
