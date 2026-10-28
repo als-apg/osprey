@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import os
 import stat
 from pathlib import Path
 
@@ -359,3 +360,80 @@ def test_file_check_names_a_missing_or_open_gate(tmp_path):
     gate.mkdir()
     ((problem, _),) = cr.credential_file_problems(tmp_path, config)
     assert problem == f"{cr.HISTORY_GATE_FILE} is not a regular file"
+
+
+def _record_credential_names(root: Path, config: dict) -> set[str]:
+    """Every ``OSPREY_AGENT_RECORD_*`` name the module defines or the files carry."""
+    names = {
+        value
+        for value in vars(cr).values()
+        if isinstance(value, str) and value.startswith("OSPREY_AGENT_RECORD_")
+    }
+    names |= set(cr.digest_env(root, config))
+    for path in root.glob(f"{cr.CREDENTIAL_PREFIX}*"):
+        names |= {
+            name for name in parse_dotenv_file(path) if name.startswith("OSPREY_AGENT_RECORD_")
+        }
+    return names
+
+
+def test_no_record_credential_name_is_stripped_as_sensitive(tmp_path):
+    from osprey.utils.sensitive_env import is_sensitive
+
+    config = _config(backend="clickhouse", workers=1, readers=["ops"])
+    cr.ensure_agent_record_credentials(tmp_path, config, reader_keys=True)
+    names = _record_credential_names(tmp_path, config)
+
+    assert {
+        cr.LOGIN_ENV,
+        cr.VERIFIER_ENV,
+        cr.SECRETS_ENV,
+        cr.CLICKHOUSE_USER_ENV,
+        cr.CLICKHOUSE_PASSWORD_ENV,
+    } <= names
+    assert any(name.startswith(cr.DIGEST_ENV_PREFIX) for name in names)
+    assert [name for name in sorted(names) if is_sensitive(name)] == []
+
+
+@pytest.mark.parametrize("include_sensitive", [False, True], ids=["stripped", "terminal"])
+def test_a_host_launch_reads_each_credential_from_its_own_file(
+    tmp_path, monkeypatch, include_sensitive
+):
+    from osprey.agent_record import host as hr
+    from osprey.mcp_env import load_dotenv_from_project
+    from osprey_connectors.dotenv import merge_chain
+
+    config = _config(backend="clickhouse")
+    cr.ensure_agent_record_credentials(tmp_path, config, reader_keys=False)
+    (tmp_path / ".env").write_text("OSPREY_TERMINAL_SECRET=terminal-secret-value\n")
+    (tmp_path / ".env.shared").write_text("RECORD_TEST_SHARED=shared\n")
+    for name in _record_credential_names(tmp_path, config):
+        monkeypatch.delenv(name, raising=False)
+    for name in ("OSPREY_TERMINAL_SECRET", "RECORD_TEST_SHARED"):
+        monkeypatch.setenv(name, "")
+    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    chain = merge_chain(tmp_path)
+    assert not [name for name in chain if name.startswith("OSPREY_AGENT_RECORD_")]
+    load_dotenv_from_project(include_sensitive=include_sensitive)
+    assert os.environ["RECORD_TEST_SHARED"] == "shared"
+    assert not [name for name in os.environ if name.startswith("OSPREY_AGENT_RECORD_")]
+
+    # The host login, from its login file.
+    monkeypatch.setattr(hr, "_probe", lambda *_args: (hr._READY, ""))
+    site = hr._host_site(tmp_path, config)
+    assert (site.login, site.token) == ("builder", _token(tmp_path, cr.login_file("builder")))
+
+    # The verifier and the secret set, from the service file.
+    service = parse_dotenv_file(tmp_path / cr.SERVICE_FILE)
+    child = hr._child_env(tmp_path, config, tmp_path / "state", tmp_path / "config.yml")
+    assert child[cr.VERIFIER_ENV] == service[cr.VERIFIER_ENV]
+    assert child[cr.SECRETS_ENV] == service[cr.SECRETS_ENV]
+    assert cr.LOGIN_ENV not in child
+
+    # The ClickHouse password, from the account file the record service owns.
+    account = parse_dotenv_file(tmp_path / cr.CLICKHOUSE_FILE)
+    password = cr.read_env_value(tmp_path / cr.CLICKHOUSE_FILE, cr.CLICKHOUSE_PASSWORD_ENV)
+    assert password and password == account[cr.CLICKHOUSE_PASSWORD_ENV]
+    assert cr.CLICKHOUSE_FILE in cr.owner_files(config)[cr.RECORD_SERVICE]

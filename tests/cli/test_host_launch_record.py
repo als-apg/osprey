@@ -88,7 +88,7 @@ def _launch_stubs(monkeypatch):
     )
     monkeypatch.setattr(launcher, "_locate_claude", lambda: "/usr/local/bin/claude")
     monkeypatch.setattr(launcher, "_probe_cli_version", lambda executable: "2.1.300")
-    monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+    monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_kw: None)
     monkeypatch.setattr("osprey.cli.chat_cmd._launch_companion_servers", lambda project_dir: [])
 
 
@@ -650,7 +650,7 @@ def test_chat_launches_under_the_built_host_identity(runner, lifecycle_repo, mon
     [
         ("chat_cmd", "_overlay_repo_env(repo_root)\n"),
         ("query_cmd", "_overlay_repo_env(repo_root)\n"),
-        ("web_cmd", "load_dotenv_from_project()\n"),
+        ("web_cmd", "load_dotenv_from_project(include_sensitive=True)\n"),
     ],
 )
 def test_every_host_launcher_exports_the_identity_after_the_env_chain(
