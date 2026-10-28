@@ -17,7 +17,7 @@ filed (``approver: dispatch_policy``) is a record like a human's.
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Final, Literal
 
@@ -29,9 +29,11 @@ __all__ = [
     "APPROVAL_CONFIG_INVALID",
     "APPROVAL_MISSING",
     "APPROVED_FIELDS",
+    "TOOL_REQUIRED_FIELDS",
     "Refusal",
     "approval_ask_stamp",
     "require_approval_record",
+    "required_fields",
 ]
 
 #: :attr:`Refusal.error_type` for a call whose prompt left no matching record.
@@ -42,6 +44,13 @@ APPROVAL_CONFIG_INVALID: Final = "approval_config_invalid"
 #: The call fields the approval prompt binds a call to. Every one the call
 #: carries must equal the value the approval hook recorded for the call.
 APPROVED_FIELDS: tuple[str, ...] = ("approved_target", "approved_view_sha256")
+
+#: The approved fields an asking call of one tool must carry beyond what every
+#: guarded run carries, keyed by the tool's short name as ``approval.tools``
+#: keys it: a measurement is bound to the pyAML view its prompt showed.
+TOOL_REQUIRED_FIELDS: Mapping[str, tuple[str, ...]] = {
+    "pyaml_measure": ("approved_view_sha256",),
+}
 
 #: The ask stamp the approval hook leaves for a call it put to an approver,
 #: restated from ``osprey_approval.py`` (a hook script this package cannot
@@ -87,12 +96,26 @@ def approval_ask_stamp(tool_use_id: str | None) -> dict | None:
     return stamp if isinstance(stamp, dict) else None
 
 
+def required_fields(tool: str, *, guarded_run: bool = False) -> tuple[str, ...]:
+    """The approved fields an asking call of *tool* must carry.
+
+    The one rule, as the approval hook binds a call: a call that runs under
+    the control target's run lock (*guarded_run*: a readwrite ``execute`` or
+    ``execute_file``, every ``pyaml_measure``) carries its target, and a tool
+    :data:`TOOL_REQUIRED_FIELDS` names carries its further fields too — a
+    measurement its view digest. A tool under no lock that the table does not
+    name must carry nothing; whatever it does carry is still compared.
+    """
+    fields: tuple[str, ...] = ("approved_target",) if guarded_run else ()
+    return (*fields, *TOOL_REQUIRED_FIELDS.get(tool, ()))
+
+
 def require_approval_record(
     tool: str,
     config: Mapping[str, Any],
     *,
     approved: Mapping[str, str | None] | None = None,
-    required: Sequence[str] = (),
+    guarded_run: bool = False,
 ) -> Refusal | None:
     """Refuse a call of *tool* that its approval prompt left no record of.
 
@@ -100,15 +123,16 @@ def require_approval_record(
     as ``approval_config_invalid``; a tool that is not ``ask_capable`` passes;
     otherwise the ask stamp for the call in scope
     (:func:`~osprey.audit.call.current_tool_use_id`) must exist and name
-    *tool*, and every approved field the call carries, and every one in
-    *required*, must equal what the stamp recorded.
+    *tool*, and every approved field the call carries, and every one
+    :func:`required_fields` demands of it, must equal what the stamp recorded.
 
     Args:
         tool: The tool's short name, as ``approval.tools`` keys it.
         config: The rendered ``config.yml``.
         approved: The call's approved fields, ``None`` for an absent one.
             ``None`` when the call carries none.
-        required: The approved fields the call must carry.
+        guarded_run: Whether the call runs under the control target's run
+            lock, and so must carry ``approved_target``.
 
     Returns:
         ``None`` when the call may run, else the :class:`Refusal`.
@@ -125,6 +149,7 @@ def require_approval_record(
     stamp = approval_ask_stamp(current_tool_use_id())
     if stamp is None or not str(stamp.get("tool") or "").endswith(tool):
         return Refusal(APPROVAL_MISSING, _NO_RECORD)
+    required = required_fields(tool, guarded_run=guarded_run)
     fields = approved or {}
     for name in dict.fromkeys((*APPROVED_FIELDS, *fields, *required)):
         value = fields.get(name)

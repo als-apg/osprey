@@ -17,6 +17,7 @@ from typing import Any
 
 import pytest
 
+from osprey.mcp_server.approval_record import APPROVAL_MISSING, Refusal
 from osprey.mcp_server.python_executor import executor
 from osprey.mcp_server.python_executor.executor import (
     FAILURE_KIND_APPROVAL_CONFIG_INVALID,
@@ -62,12 +63,19 @@ def stamp(state: Path, tool: str, approver: str = "human") -> None:
     (state / f"approval_ask_{CALL_ID}.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
-def check(code: str, config: dict[str, Any], tool: str = "execute") -> None:
+def check(code: str, config: dict[str, Any], tool: str = "execute") -> Refusal | None:
     """Run the store-path check for one call under :data:`CALL_ID`."""
     from osprey.audit.call import call_scope
 
     with call_scope(CALL_ID, None):
-        executor._check_store_path(code, config, tool)
+        return executor._check_store_path(code, config, tool)
+
+
+def refused(code: str, config: dict[str, Any], tool: str = "execute") -> str:
+    """The message of the ``approval_missing`` refusal :func:`check` answers."""
+    refusal = check(code, config, tool)
+    assert refusal is not None and refusal.error_type == APPROVAL_MISSING
+    return refusal.message
 
 
 def launch(
@@ -128,11 +136,9 @@ def test_each_row_without_a_stamp(monkeypatch, case: dict[str, Any]) -> None:
     if case["dispatch"]:
         monkeypatch.setenv("OSPREY_DISPATCH_RUN", "1")
     if case["expected"] == "unchanged":
-        check(case["code"], case_config(case), case["tool"])
+        assert check(case["code"], case_config(case), case["tool"]) is None
         return
-    with pytest.raises(executor._ApprovalMissing) as refusal:
-        check(case["code"], case_config(case), case["tool"])
-    assert str(refusal.value) == STORE_PATH_REFUSAL
+    assert refused(case["code"], case_config(case), case["tool"]) == STORE_PATH_REFUSAL
 
 
 @pytest.mark.parametrize("case", [pytest.param(c, id=c["id"]) for c in CASES])
@@ -147,10 +153,9 @@ def test_each_row_with_a_stamp(stamps: Path, monkeypatch, case: dict[str, Any]) 
         monkeypatch.setenv("OSPREY_DISPATCH_RUN", "1")
     stamp(stamps, case["tool"])
     if case.get("deny_reason") != "store_path":
-        check(case["code"], case_config(case), case["tool"])
+        assert check(case["code"], case_config(case), case["tool"]) is None
         return
-    with pytest.raises(executor._ApprovalMissing):
-        check(case["code"], case_config(case), case["tool"])
+    assert refused(case["code"], case_config(case), case["tool"]) == STORE_PATH_REFUSAL
 
 
 # -- named guarantees -----------------------------------------------------------
@@ -171,8 +176,7 @@ def test_store_naming_code_is_refused_where_nobody_is_asked(
 ) -> None:
     if stamped:
         stamp(stamps, "execute")
-    with pytest.raises(executor._ApprovalMissing):
-        check(STORE_CODE, {"approval": approval})
+    assert refused(STORE_CODE, {"approval": approval}) == STORE_PATH_REFUSAL
 
 
 @pytest.mark.usefixtures("stamps")
@@ -215,8 +219,7 @@ def test_execute_file_is_checked_on_the_files_text(
 
 def test_a_stamp_for_another_tool_does_not_satisfy_it(stamps: Path) -> None:
     stamp(stamps, "execute_file")
-    with pytest.raises(executor._ApprovalMissing):
-        check(STORE_CODE, {"approval": {"enabled": True}})
+    assert refused(STORE_CODE, {"approval": {"enabled": True}}) == STORE_PATH_REFUSAL
 
 
 @pytest.mark.parametrize("approver", ["dispatch_policy", "human"])
@@ -225,8 +228,7 @@ def test_a_dispatch_run_is_refused_whatever_the_stamp(
 ) -> None:
     monkeypatch.setenv("OSPREY_DISPATCH_RUN", "1")
     stamp(stamps, "execute", approver=approver)
-    with pytest.raises(executor._ApprovalMissing):
-        check(STORE_CODE, {"approval": {"enabled": True}})
+    assert refused(STORE_CODE, {"approval": {"enabled": True}}) == STORE_PATH_REFUSAL
 
 
 @pytest.mark.parametrize("value", [None, "false", 0])
@@ -263,7 +265,7 @@ def test_code_with_no_marker_runs_exactly_as_before(
 
 @pytest.mark.usefixtures("stamps")
 def test_other_tools_are_not_checked() -> None:
-    check(STORE_CODE, {"approval": {"enabled": False}}, tool="pyaml_measure")
+    assert check(STORE_CODE, {"approval": {"enabled": False}}, tool="pyaml_measure") is None
 
 
 def test_the_executor_reads_the_shared_markers() -> None:

@@ -36,14 +36,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from osprey.audit import posture
-from osprey.mcp_server.approval_stamp import (  # noqa: F401 - re-exported spellings
-    APPROVAL_ASK_PREFIX,
-    APPROVAL_ASK_SUFFIX,
+from osprey.mcp_server.approval_record import (
     APPROVAL_CONFIG_INVALID,
     APPROVAL_MISSING,
-    APPROVED_FIELDS,
-    ApprovalRefused,
-    check_asked_call,
+    Refusal,
+    require_approval_record,
 )
 from osprey.mcp_server.sandbox_env import (
     PERIMETER_DENY_PORTS_ENV,
@@ -203,15 +200,6 @@ FAILURE_KIND_APPROVAL_CONFIG_INVALID = APPROVAL_CONFIG_INVALID
 #: submitted code ran; the error message names the holder's pid and start time.
 #: Spelled like the sandbox wrapper's failure kind for the same refusal.
 FAILURE_KIND_GUARDED_RUN_BUSY = "guarded_run_busy"
-
-#: The approved fields an asking guarded call must carry.
-_REQUIRED_APPROVED_FIELDS: tuple[str, ...] = ("approved_target",)
-
-#: The further approved fields an asking call of one tool must carry: a
-#: measurement is bound to the pyAML view its prompt showed.
-_TOOL_REQUIRED_APPROVED_FIELDS: Mapping[str, tuple[str, ...]] = {
-    "pyaml_measure": ("approved_view_sha256",),
-}
 
 #: Upper bound, in seconds, on winding down a cancelled run that has no finite
 #: deadline: how long its child gets to exit after ``SIGINT`` before it is
@@ -761,24 +749,6 @@ def _apply_target_stamp(sandbox_env: dict[str, str]) -> str:
     return target
 
 
-class _ApprovalMissing(Exception):
-    """A guarded call whose approval prompt left no matching record.
-
-    Raised by :func:`_check_approved_call` and turned into an
-    :class:`ExecutionResult` by :func:`_execute_via_local`, before anything
-    is spawned — never seen outside this module.
-    """
-
-
-class _ApprovalConfigInvalid(Exception):
-    """A readwrite call under an approval switch that is not true or false.
-
-    Raised by :func:`_check_approved_call` and turned into an
-    :class:`ExecutionResult` by :func:`_execute_via_local`, before anything
-    is spawned — never seen outside this module.
-    """
-
-
 def _check_approved_call(
     execution_mode: str,
     osprey_config: Mapping[str, Any],
@@ -786,7 +756,7 @@ def _check_approved_call(
     approved: Mapping[str, str | None],
     *,
     control_target: str,
-) -> None:
+) -> Refusal | None:
     """Whether the call was approved, decided before it is spawned.
 
     A readonly run takes no run lock, and a call whose tool's policy does not
@@ -794,7 +764,8 @@ def _check_approved_call(
     runs only when the approval hook's ask stamp for this tool call exists,
     names *tool*, and records every approved field the call carries with the
     same value; the call must carry the target, ``pyaml_measure`` the view
-    digest too, and that target must name the guarded-run directory
+    digest too (:func:`~osprey.mcp_server.approval_record.required_fields`
+    for a guarded run), and that target must name the guarded-run directory
     *control_target* does. Nothing of the stamp reaches the sandbox. The
     record check is :func:`~osprey.mcp_server.approval_record.require_approval_record`;
     the guarded-run target check is this executor's own.
@@ -808,37 +779,33 @@ def _check_approved_call(
             absent one.
         control_target: The target this run is stamped with.
 
-    Raises:
-        _ApprovalMissing: The policy asks and the stamp is missing, names
-            another tool, or disagrees with the call, or the call was approved
-            for another target than the run's.
-        _ApprovalConfigInvalid: The config states an ``approval.enabled`` that
-            is not true or false, or an ``approval`` that is not a mapping.
+    Returns:
+        ``None`` when the call may run; else the
+        :class:`~osprey.mcp_server.approval_record.Refusal` —
+        ``approval_missing`` when the policy asks and the stamp is missing,
+        names another tool, or disagrees with the call, or the call was
+        approved for another target than the run's; ``approval_config_invalid``
+        when the config states an ``approval.enabled`` that is not true or
+        false, or an ``approval`` that is not a mapping.
     """
-    if execution_mode != "readwrite" or not check_asked_call(osprey_config, tool, approved):
-        return
+    if execution_mode != "readwrite":
+        return None
     from osprey.cli.build_posture_check import ask_capable
-    from osprey.mcp_server.approval_record import APPROVAL_CONFIG_INVALID, require_approval_record
 
-    refusal = require_approval_record(
-        tool,
-        osprey_config,
-        approved=approved,
-        required=(*_REQUIRED_APPROVED_FIELDS, *_TOOL_REQUIRED_APPROVED_FIELDS.get(tool, ())),
-    )
+    refusal = require_approval_record(tool, osprey_config, approved=approved, guarded_run=True)
     if refusal is not None:
-        if refusal.error_type == APPROVAL_CONFIG_INVALID:
-            raise _ApprovalConfigInvalid(refusal.message)
-        raise _ApprovalMissing(refusal.message)
+        return refusal
     if not ask_capable(osprey_config, tool):
-        return
+        return None
     approved_target = str(approved["approved_target"])
     approved_name = _guarded_run_name(approved_target)
     if approved_name is None or approved_name != _guarded_run_name(control_target):
-        raise _ApprovalMissing(
+        return Refusal(
+            APPROVAL_MISSING,
             f"not run: this call was approved for target `{approved_target}`; the run is on "
-            f"`{control_target}` (approval_missing). Call the tool again."
+            f"`{control_target}` (approval_missing). Call the tool again.",
         )
+    return None
 
 
 #: The tools whose code :func:`_check_store_path` reads: the code ``execute``
@@ -866,7 +833,7 @@ def names_store(code: str) -> bool:
     return isinstance(code, str) and any(marker in code for marker in STORE_PATH_MARKERS)
 
 
-def _check_store_path(code: str, osprey_config: Mapping[str, Any], tool: str) -> None:
+def _check_store_path(code: str, osprey_config: Mapping[str, Any], tool: str) -> Refusal | None:
     """Refuse store-naming code no person approved, in every execution mode.
 
     Separate from :func:`_check_approved_call`, which leaves readonly runs
@@ -882,23 +849,26 @@ def _check_store_path(code: str, osprey_config: Mapping[str, Any], tool: str) ->
         osprey_config: The rendered ``config.yml``.
         tool: The tool's short name, as ``approval.tools`` keys it.
 
-    Raises:
-        _ApprovalMissing: Store-naming code no person approved.
-        _ApprovalConfigInvalid: The config's approval switch is not true or false.
+    Returns:
+        ``None`` when the code may run; else the
+        :class:`~osprey.mcp_server.approval_record.Refusal` —
+        ``approval_missing`` for store-naming code no person approved,
+        ``approval_config_invalid`` when the config's approval switch is not
+        true or false.
     """
     if tool not in STORE_PATH_TOOLS or not names_store(code):
-        return
+        return None
     from osprey.cli.build_posture_check import approval_enabled_fault, ask_capable
-    from osprey.mcp_server.approval_record import require_approval_record
 
     fault = approval_enabled_fault(osprey_config)
     if fault is not None:
-        raise _ApprovalConfigInvalid(f"not run: {fault} (approval_config_invalid).")
+        return Refusal(APPROVAL_CONFIG_INVALID, f"not run: {fault} (approval_config_invalid).")
     dispatch_run = os.environ.get(posture_store.DISPATCH_RUN_ENV_VAR) == "1"
     if dispatch_run or not ask_capable(osprey_config, tool):
-        raise _ApprovalMissing(STORE_PATH_REFUSAL)
+        return Refusal(APPROVAL_MISSING, STORE_PATH_REFUSAL)
     if require_approval_record(tool, osprey_config) is not None:
-        raise _ApprovalMissing(STORE_PATH_REFUSAL)
+        return Refusal(APPROVAL_MISSING, STORE_PATH_REFUSAL)
+    return None
 
 
 def _guarded_run_name(target: str) -> str | None:
@@ -1105,39 +1075,37 @@ async def _execute_via_local(
     # to wait for, not as a traceback out of the sandbox.
     try:
         control_target = _apply_target_stamp(sandbox_env)
-    except _SwitchInProgress as refusal:
+    except _SwitchInProgress as in_flight:
         return ExecutionResult(
             success=False,
             stdout="",
-            stderr=str(refusal),
+            stderr=str(in_flight),
             execution_method_used=EXECUTION_METHOD_SUBPROCESS,
             execution_time_seconds=0.0,
-            error_message=str(refusal),
+            error_message=str(in_flight),
             failure_kind=FAILURE_KIND_SWITCH_IN_PROGRESS,
         )
     # Whether this call was put to a human is decided here, by the process
     # that launches the script, from the record the approval hook left for
     # this tool call; the sandbox is handed nothing of it. Code that names the
     # posture store is checked first, readonly runs included.
-    try:
-        _check_store_path(code, osprey_config, tool)
-        _check_approved_call(
-            execution_mode,
-            osprey_config,
-            tool,
-            {"approved_target": approved_target, "approved_view_sha256": approved_view_sha256},
-            control_target=control_target,
-        )
-    except ApprovalRefused as refusal:
+    refusal = _check_store_path(code, osprey_config, tool) or _check_approved_call(
+        execution_mode,
+        osprey_config,
+        tool,
+        {"approved_target": approved_target, "approved_view_sha256": approved_view_sha256},
+        control_target=control_target,
+    )
+    if refusal is not None:
         return ExecutionResult(
             success=False,
             stdout="",
-            stderr=str(refusal),
+            stderr=refusal.message,
             execution_method_used=EXECUTION_METHOD_SUBPROCESS,
             execution_time_seconds=0.0,
-            error_message=str(refusal),
+            error_message=refusal.message,
             control_target=control_target,
-            failure_kind=refusal.code,
+            failure_kind=refusal.error_type,
         )
     limits_validator = _load_limits_validator(target=control_target)
 

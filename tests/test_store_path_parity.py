@@ -56,12 +56,9 @@ def executor_refusal(
     state.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(target_state, "state_dir", lambda: state)
     config = yaml.safe_load((tmp_path / "config.yml").read_text(encoding="utf-8"))
-    try:
-        with call_scope(TOOL_USE_ID, None):
-            executor._check_store_path(code, config, case["tool"])
-    except (executor._ApprovalMissing, executor._ApprovalConfigInvalid) as refusal:
-        return str(refusal)
-    return None
+    with call_scope(TOOL_USE_ID, None):
+        refusal = executor._check_store_path(code, config, case["tool"])
+    return None if refusal is None else refusal.message
 
 
 @pytest.mark.parametrize("case", case_params(HOOK_CASES))
