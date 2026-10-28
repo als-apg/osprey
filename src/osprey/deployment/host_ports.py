@@ -1322,10 +1322,40 @@ def find_port_conflicts(bindings, project_name, config=None, repo_id=None):
             and _runs_service(records, project_name, identity, binding.service)
         ):
             continue  # our own host-network container, which maps no port
+        if holder is None and _held_by_own_host_record(binding, config):
+            continue  # this deployment's host-local record, which the stack takes over
         description = _describe_holder(holder) if holder is not None else "an unknown host process"
         conflicts.append(_conflict(binding, "external", description))
 
     return conflicts
+
+
+def _held_by_own_host_record(binding, config):
+    """Whether *binding* is the agent record's port, held by this deployment's host-local record.
+
+    A host session runs the deployment's record as a host process on the same
+    loopback port the stack's agent-record publishes, and ``up`` stops that
+    process when the stack takes the record over, before the container starts.
+    The port is therefore free by the time it is bound.
+
+    Args:
+        binding: One binding the preflight found answered.
+        config: Loaded (rendered) configuration mapping, or ``None``.
+
+    Returns:
+        ``True`` only for the agent-record service's binding while this
+        deployment's host-local record process runs.
+    """
+    from osprey.agent_record import host as host_record
+    from osprey.agent_record.credentials import RECORD_SERVICE
+
+    if binding.service != RECORD_SERVICE or not config:
+        return False
+    try:
+        state_dir = host_record.host_state_dir(resolve_repo_root(config), config)
+    except Exception:
+        return False
+    return host_record.running_record_pid(state_dir) is not None
 
 
 def format_conflict_report(conflicts):

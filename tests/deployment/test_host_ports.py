@@ -1882,3 +1882,62 @@ class TestHistoryOriginSlot:
         assert conflict.kind == "duplicate"
         assert conflict.service == "nginx"
         assert "my-service" in conflict.holder
+
+
+class TestTheHostLocalRecordIsTakenOver:
+    """A host session's record holds the port the stack's agent-record publishes.
+
+    ``up`` stops that process before the stack starts, so while it runs its port
+    is this deployment's own and no conflict; anything else on it still is.
+    """
+
+    PORT = 19953
+
+    @staticmethod
+    def _config(tmp_path):
+        return {
+            "project_name": "proj",
+            "project_root": str(tmp_path),
+            "deployment": {"host_identity": "builder"},
+            "agent_record": {"port": TestTheHostLocalRecordIsTakenOver.PORT},
+        }
+
+    @staticmethod
+    def _host_record(monkeypatch, pid):
+        monkeypatch.setattr(host_ports, "_port_is_free", lambda host_ip, host_port: False)
+        monkeypatch.setattr(host_ports, "_run_runtime_ps", lambda config=None: "")
+        monkeypatch.setattr("osprey.agent_record.host.running_record_pid", lambda state_dir: pid)
+
+    def _binding(self, service):
+        return HostPortBinding(service, "127.0.0.1", self.PORT, 8000, "a.yml")
+
+    def test_the_running_host_record_on_the_record_port_is_not_a_conflict(
+        self, monkeypatch, tmp_path
+    ):
+        self._host_record(monkeypatch, 4242)
+
+        conflicts = find_port_conflicts(
+            [self._binding("agent-record")], project_name="proj", config=self._config(tmp_path)
+        )
+
+        assert conflicts == []
+
+    def test_with_no_host_record_running_the_holder_is_a_conflict(self, monkeypatch, tmp_path):
+        self._host_record(monkeypatch, None)
+
+        conflicts = find_port_conflicts(
+            [self._binding("agent-record")], project_name="proj", config=self._config(tmp_path)
+        )
+
+        assert [(c.service, c.holder) for c in conflicts] == [
+            ("agent-record", "an unknown host process")
+        ]
+
+    def test_another_service_on_that_port_is_still_a_conflict(self, monkeypatch, tmp_path):
+        self._host_record(monkeypatch, 4242)
+
+        conflicts = find_port_conflicts(
+            [self._binding("postgresql")], project_name="proj", config=self._config(tmp_path)
+        )
+
+        assert [c.service for c in conflicts] == ["postgresql"]
