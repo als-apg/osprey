@@ -20,7 +20,7 @@ from typing import IO, Any
 
 import pytest
 
-from osprey.deployment.subprocess_capture import group_is_gone
+from osprey.deployment.subprocess_capture import StopOutcome, group_is_gone
 from tests._by_path import load_module
 from tests._processes import pid_alive
 
@@ -91,7 +91,7 @@ def test_a_child_that_outlives_its_limit_is_killed_and_its_output_so_far_is_retu
     ]
 
     started = time.monotonic()
-    stdout, _stderr, returncode, timed_out, _survivors = gate._run_child(cmd, _LIMIT_S)
+    stdout, _stderr, returncode, timed_out, _outcome = gate._run_child(cmd, _LIMIT_S)
     elapsed = time.monotonic() - started
 
     assert timed_out is True
@@ -106,7 +106,7 @@ def test_an_orphan_holding_the_output_open_cannot_block_the_read(tmp_path: Path)
 
     try:
         started = time.monotonic()
-        stdout, _stderr, returncode, timed_out, _survivors = gate._run_child(cmd, _PROMPT_S)
+        stdout, _stderr, returncode, timed_out, _outcome = gate._run_child(cmd, _PROMPT_S)
         elapsed = time.monotonic() - started
 
         orphan = _wait_for_pid(pid_file)
@@ -128,11 +128,11 @@ def test_a_grandchild_in_the_module_session_dies_with_the_module_on_timeout(
     cmd = _spawning_child(pid_file, new_session=False, then=f"time.sleep({_HANG_S})")
 
     try:
-        _stdout, _stderr, _returncode, timed_out, survivors = gate._run_child(cmd, 2)
+        _stdout, _stderr, _returncode, timed_out, outcome = gate._run_child(cmd, 2)
 
         grandchild_group = _wait_for_pid(_group_file(pid_file))
         assert timed_out is True
-        assert survivors == []
+        assert outcome is not None and outcome.gone
         assert group_is_gone(grandchild_group), "the grandchild survived its module's timeout"
     finally:
         if _group_file(pid_file).exists():
@@ -219,13 +219,17 @@ def test_a_module_that_reports_counts_and_then_hangs_is_still_an_error(
 def test_a_timed_out_module_whose_table_could_not_be_read_says_so(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(gate, "_run_child", lambda _cmd, _limit: ("", "", -9, True, None))
+    monkeypatch.setattr(
+        gate,
+        "_run_child",
+        lambda _cmd, _limit: ("", "", -9, True, StopOutcome(ended=(1,), unknown=(1,))),
+    )
 
     counts, status = gate._run_module("m", 1)
 
     assert counts == {"passed": 0, "skipped": 0, "failed": 0, "error": 1}
     assert status == 1
-    assert "process table could not be read" in capsys.readouterr().out
+    assert "process table unreadable: group 1 may still be running" in capsys.readouterr().out
 
 
 def test_a_module_timeout_flag_is_not_fanned_out_as_a_target_and_a_bad_value_is_refused(
