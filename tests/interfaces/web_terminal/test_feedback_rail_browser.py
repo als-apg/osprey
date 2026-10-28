@@ -83,6 +83,13 @@ def _hub_server(workspace_dir: Path) -> Iterator[str]:
             "osprey.interfaces.web_terminal.app._launch_panel_server",
             side_effect=publish_artifact_url(),
         ),
+        # The feedback and bar-items stores live under the shared data root;
+        # pinning it to this test's workspace keeps a saved rail layout from
+        # leaking into later hub suites in the same worker.
+        patch(
+            "osprey_connectors.workspace.resolve_shared_data_root",
+            return_value=workspace_dir,
+        ),
     ]
     with _apply_all(patches):
         from osprey.interfaces.web_terminal.app import create_app
