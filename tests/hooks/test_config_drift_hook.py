@@ -182,8 +182,7 @@ def _as_permission(matcher: str) -> str:
     return matcher[: -len("__.*")] if matcher.endswith("__.*") else matcher
 
 
-# A deployment-wide posture plus a per-connector-type override: two line-anchored
-# `writes_enabled:` keys, both legitimate.
+# Retired leaves only: a flat `false` beside a connector block's `true`. No tier.
 MIXED_POSTURE_CONFIG = """\
 control_system:
   type: virtual_accelerator
@@ -194,7 +193,7 @@ control_system:
       writes_enabled: true
 """
 
-# The second key carries no value at all — still a second key.
+# Retired leaves only, the second carrying no value at all. No tier.
 BARE_SECOND_KEY_CONFIG = """\
 control_system:
   type: virtual_accelerator
@@ -281,31 +280,6 @@ control_system:
             "control_system:\n  writes_enabled: false\n  writes: allowed\n",
             (True, "control_system.writes: allowed"),
         ),
-        # No tier: the retired flat leaf decides, as the kill switch reads it.
-        (
-            "control_system:\n  writes_enabled: true\n",
-            (True, "control_system.writes_enabled: true"),
-        ),
-        (
-            "control_system:\n  writes_enabled: false\n",
-            (False, "control_system.writes_enabled: false"),
-        ),
-        # YAML spells the boolean in any case.
-        (
-            "control_system:\n  writes_enabled: TRUE\n",
-            (True, "control_system.writes_enabled: true"),
-        ),
-        # A connector block's literal true arms the tier like the flat leaf does.
-        (
-            "control_system:\n  writes_enabled: false\n  connector:\n    epics:\n"
-            "      writes_enabled: true\n",
-            (True, "control_system.connector.epics.writes_enabled: true"),
-        ),
-        (
-            "control_system:\n  connector:\n    epics:\n      writes_enabled: false\n"
-            "    virtual_accelerator:\n      writes_enabled: false\n",
-            (False, "control_system.connector.epics.writes_enabled: false"),
-        ),
     ],
     ids=[
         "allowed",
@@ -317,11 +291,6 @@ control_system:
         "boolean-is-never",
         "tier-beats-retired-true",
         "tier-beats-retired-false",
-        "retired-true",
-        "retired-false",
-        "retired-uppercase",
-        "connector-true-arms",
-        "connector-all-false",
     ],
 )
 def test_tier_in_config_parses(tmp_path, text, expected):
@@ -346,10 +315,13 @@ def test_tier_in_config_parses(tmp_path, text, expected):
         "control_system:\n  writes: ${OSPREY_TIER}\n",
         "control_system:\n  writes: *tier\n",
         "control_system:\n  writes: [allowed]\n",
-        # Only the literals true/false are accepted; YAML's other booleans are not.
-        "control_system:\n  writes_enabled: yes\n",
-        # A retired leaf with no value is still a leaf; it abstains.
-        "control_system:\n  writes_enabled: true\n  connector:\n    epics:\n      writes_enabled:\n",
+        # Retired leaves alone state no tier, as the kill switch reads them: the
+        # flat leaf, a connector block's, and both together all abstain.
+        "control_system:\n  writes_enabled: true\n",
+        "control_system:\n  writes_enabled: false\n",
+        "control_system:\n  writes_enabled: false\n  connector:\n    epics:\n"
+        "      writes_enabled: true\n",
+        "control_system:\n  connector:\n    epics:\n      writes_enabled: false\n",
         # Keys outside control_system are never the tier.
         "writes: allowed\nother:\n  writes: allowed\n  writes_enabled: true\n",
         # Nested deeper than the section's own child: not the tier.
@@ -369,8 +341,10 @@ def test_tier_in_config_parses(tmp_path, text, expected):
         "env-var",
         "alias",
         "flow-sequence",
-        "yaml-yes",
-        "retired-bare",
+        "retired-flat-true",
+        "retired-flat-false",
+        "retired-connector-true",
+        "retired-connector-false",
         "outside-the-section",
         "too-deep",
         "inside-a-list",
@@ -604,7 +578,7 @@ def test_write_tools_denied_abstains_on_a_partial_deny(tmp_path):
 @pytest.mark.parametrize("missing", ["config", "settings"])
 def test_detect_drift_is_none_when_an_artifact_is_missing(tmp_path, missing):
     # A project that was never built is not "drifted" — there is nothing to compare.
-    config_path, settings_path = _make_project(tmp_path, writes_enabled=True, channel_write=DENIED)
+    config_path, settings_path = _make_project(tmp_path, writes="allowed", channel_write=DENIED)
     (config_path if missing == "config" else settings_path).unlink()
 
     hook_config_path = tmp_path / ".claude" / "hooks" / "hook_config.json"
@@ -619,7 +593,7 @@ def test_detect_drift_fails_open_when_stat_raises():
 def test_detect_drift_prefers_the_targeted_check_over_mtime(tmp_path):
     # Both signals fire at once; the specific one wins so the operator is told
     # *what* drifted, not merely that something did.
-    config_path, settings_path = _make_project(tmp_path, writes_enabled=True, channel_write=DENIED)
+    config_path, settings_path = _make_project(tmp_path, writes="allowed", channel_write=DENIED)
     _set_mtimes(config_path, settings_path, config_newer=True)
 
     hook_config_path = tmp_path / ".claude" / "hooks" / "hook_config.json"
@@ -637,7 +611,7 @@ def test_detect_drift_sees_a_clone_the_framework_literal_would_miss(tmp_path):
     file that still blocked them, and the operator was told nothing.
     """
     config_path, settings_path = _make_project(
-        tmp_path, writes_enabled=True, channel_write=DENIED, write_tool=CLONE_CHANNEL_WRITE
+        tmp_path, writes="allowed", channel_write=DENIED, write_tool=CLONE_CHANNEL_WRITE
     )
     _set_mtimes(config_path, settings_path, config_newer=False)
     hook_config_path = tmp_path / ".claude" / "hooks" / "hook_config.json"
@@ -653,16 +627,16 @@ def test_detect_drift_sees_a_clone_the_framework_literal_would_miss(tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("writes_enabled", "channel_write", "expected_fragment"),
+    ("writes", "channel_write", "expected_fragment"),
     [
         # config wants writes, artifacts still deny them → the #244 case.
-        (True, DENIED, "still blocks writes"),
-        (True, ALLOWED, None),
-        (True, NO_PERMISSIONS, None),  # deny state undeterminable → no claim
-        (False, DENIED, None),
+        ("allowed", DENIED, "still blocks writes"),
+        ("allowed", ALLOWED, None),
+        ("allowed", NO_PERMISSIONS, None),  # deny state undeterminable → no claim
+        ("never", DENIED, None),
         # Safety-critical direction: config locked writes out, artifacts did not.
-        (False, ALLOWED, "still permits writes"),
-        (False, NO_PERMISSIONS, None),
+        ("never", ALLOWED, "still permits writes"),
+        ("never", NO_PERMISSIONS, None),
         (None, DENIED, None),  # config state undeterminable → no claim
         (None, ALLOWED, None),
         (None, NO_PERMISSIONS, None),
@@ -679,12 +653,10 @@ def test_detect_drift_sees_a_clone_the_framework_literal_would_miss(tmp_path):
         "absent-nopermissions-silent",
     ],
 )
-def test_drift_matrix(tmp_path, run_drift, writes_enabled, channel_write, expected_fragment):
-    config_path, settings_path = _make_project(
-        tmp_path, writes_enabled=writes_enabled, channel_write=channel_write
-    )
+def test_drift_matrix(tmp_path, run_drift, writes, channel_write, expected_fragment):
+    config_path, settings_path = _make_project(tmp_path, writes=writes, channel_write=channel_write)
     # Settings newer than config, so the mtime signal never fires and every
-    # warning below is attributable to the targeted writes_enabled check.
+    # warning below is attributable to the targeted tier check.
     _set_mtimes(config_path, settings_path, config_newer=False)
 
     code, out, err = run_drift(tmp_path)
@@ -698,41 +670,21 @@ def test_drift_matrix(tmp_path, run_drift, writes_enabled, channel_write, expect
         assert expected_fragment in json.loads(out)["hookSpecificOutput"]["additionalContext"]
 
 
+@pytest.mark.parametrize("channel_write", [DENIED, ALLOWED], ids=["denied", "allowed"])
 @pytest.mark.parametrize(
-    ("channel_write", "expected_fragment"),
-    [(DENIED, "still blocks writes"), (ALLOWED, None)],
-    ids=["denied-drift", "allowed-sync"],
+    "config_text",
+    [MIXED_POSTURE_CONFIG, BARE_SECOND_KEY_CONFIG],
+    ids=["mixed-retired-leaves", "bare-second-leaf"],
 )
-def test_retired_leaves_read_the_way_the_kill_switch_reads_them(
-    tmp_path, run_drift, channel_write, expected_fragment
-):
-    # A config that states no tier yet: a flat `false` beside a connector block's
-    # `true`. `tier_writes` reads that as `allowed` (any literal true arms), so the
-    # kill switch denies nothing — a render that still denies is the drift.
+def test_retired_leaves_alone_claim_nothing(tmp_path, run_drift, config_text, channel_write):
+    # A config that states no tier, only retired `writes_enabled` leaves. The kill
+    # switch reads no retired leaf, so neither does this hook: it abstains against
+    # a render that denies and one that permits alike, and check (a) is left to
+    # cover the config.
     config_path, settings_path = _make_project_from_text(
-        tmp_path, MIXED_POSTURE_CONFIG, channel_write=channel_write
+        tmp_path, config_text, channel_write=channel_write
     )
     # Settings newer than config, so any output here is the writes check, not mtime.
-    _set_mtimes(config_path, settings_path, config_newer=False)
-
-    code, out, err = run_drift(tmp_path)
-
-    assert code == 0
-    if expected_fragment is None:
-        assert err.strip() == ""
-        assert out.strip() == ""
-    else:
-        assert expected_fragment in err
-        assert "connector.virtual_accelerator.writes_enabled: true" in err
-
-
-def test_silent_when_the_second_writes_enabled_has_no_value(tmp_path, run_drift):
-    # Counting is value-blind: a bare block key is a second key even though it
-    # parses as no boolean. Without that, this config would read as a lone
-    # `true` against a denying settings.json and warn.
-    config_path, settings_path = _make_project_from_text(
-        tmp_path, BARE_SECOND_KEY_CONFIG, channel_write=DENIED
-    )
     _set_mtimes(config_path, settings_path, config_newer=False)
 
     code, out, err = run_drift(tmp_path)
@@ -854,18 +806,18 @@ def test_a_render_that_denies_only_the_framework_tool_is_not_a_posture(tmp_path,
 
 def test_warns_on_writes_mismatch(tmp_path, run_drift):
     # config says writes enabled, but artifacts still deny the write → #244 case.
-    config_path, settings_path = _make_project(tmp_path, writes_enabled=True, channel_write=DENIED)
+    config_path, settings_path = _make_project(tmp_path, writes="allowed", channel_write=DENIED)
     # Even with settings newer (mtime in sync), the targeted check still fires.
     _set_mtimes(config_path, settings_path, config_newer=False)
 
     code, out, err = run_drift(tmp_path)
     assert code == 0
-    assert "writes_enabled: true" in err
+    assert "control_system.writes: allowed" in err
     # The remedy the hint names, not the word it happens to use for it.
     assert "osprey build" in err
     # Also surfaced as SessionStart additionalContext on stdout.
     payload = json.loads(out)
-    assert "writes_enabled: true" in payload["hookSpecificOutput"]["additionalContext"]
+    assert "control_system.writes: allowed" in payload["hookSpecificOutput"]["additionalContext"]
 
 
 def test_warns_on_writes_mismatch_when_the_project_appends_write_tools(tmp_path, run_drift):
@@ -875,14 +827,14 @@ def test_warns_on_writes_mismatch_when_the_project_appends_write_tools(tmp_path,
     # hand-edited settings.json and the check goes quiet — the signal is lost
     # exactly where the config says writes are on and the artifacts still block.
     config_path, settings_path = _make_project(
-        tmp_path, writes_enabled=True, channel_write=DENIED, extras=(SITE_CUSTOM_WRITE,)
+        tmp_path, writes="allowed", channel_write=DENIED, extras=(SITE_CUSTOM_WRITE,)
     )
     _set_mtimes(config_path, settings_path, config_newer=False)
 
     code, out, err = run_drift(tmp_path)
 
     assert code == 0
-    assert "writes_enabled: true" in err
+    assert "control_system.writes: allowed" in err
     assert "blocks writes" in err
     payload = json.loads(out)
     assert "blocks writes" in payload["hookSpecificOutput"]["additionalContext"]
@@ -892,15 +844,13 @@ def test_warns_when_config_disables_writes_but_agent_permits(tmp_path, run_drift
     # The safety-critical direction: config.yml turned writes OFF, but the stale
     # artifacts still permit them — the agent could write hardware the operator
     # believes is locked out.
-    config_path, settings_path = _make_project(
-        tmp_path, writes_enabled=False, channel_write=ALLOWED
-    )
+    config_path, settings_path = _make_project(tmp_path, writes="never", channel_write=ALLOWED)
     # Settings newer than config: the targeted check must fire on its own.
     _set_mtimes(config_path, settings_path, config_newer=False)
 
     code, out, err = run_drift(tmp_path)
     assert code == 0
-    assert "writes_enabled: false" in err
+    assert "control_system.writes: never" in err
     assert "permits writes" in err
     assert "osprey build" in err
     payload = json.loads(out)
@@ -912,20 +862,20 @@ def test_warns_when_writes_are_off_and_permitted_with_appended_write_tools(tmp_p
     # overlap is not a partial one — and must keep warning after the extras are
     # subtracted.
     config_path, settings_path = _make_project(
-        tmp_path, writes_enabled=False, channel_write=ALLOWED, extras=(SITE_CUSTOM_WRITE,)
+        tmp_path, writes="never", channel_write=ALLOWED, extras=(SITE_CUSTOM_WRITE,)
     )
     _set_mtimes(config_path, settings_path, config_newer=False)
 
     code, out, err = run_drift(tmp_path)
 
     assert code == 0
-    assert "writes_enabled: false" in err
+    assert "control_system.writes: never" in err
     assert "permits writes" in err
 
 
 def test_warns_on_mtime_drift(tmp_path, run_drift):
-    # writes_enabled is consistent, but config.yml was edited after the last build.
-    config_path, settings_path = _make_project(tmp_path, writes_enabled=False, channel_write=DENIED)
+    # The tier is consistent, but config.yml was edited after the last build.
+    config_path, settings_path = _make_project(tmp_path, writes="never", channel_write=DENIED)
     _set_mtimes(config_path, settings_path, config_newer=True)
 
     code, _out, err = run_drift(tmp_path)
@@ -937,7 +887,7 @@ def test_warns_on_mtime_drift(tmp_path, run_drift):
 def test_warning_is_mirrored_to_stderr_and_session_context(tmp_path, run_drift):
     # The transcript line and the injected context must be the same warning, so
     # the agent cannot relay something the operator does not also see.
-    config_path, settings_path = _make_project(tmp_path, writes_enabled=True, channel_write=DENIED)
+    config_path, settings_path = _make_project(tmp_path, writes="allowed", channel_write=DENIED)
     _set_mtimes(config_path, settings_path, config_newer=False)
 
     code, out, err = run_drift(tmp_path)
@@ -955,7 +905,7 @@ def test_warns_on_config_that_pyyaml_cannot_parse(tmp_path, run_drift):
     (tmp_path / ".claude").mkdir(parents=True)
     config_path = tmp_path / "config.yml"
     settings_path = tmp_path / ".claude" / "settings.json"
-    broken = "control_system:\n  writes_enabled: true\n  channels: [unclosed\n\t- tab-indented\n"
+    broken = "control_system:\n  writes: allowed\n  channels: [unclosed\n\t- tab-indented\n"
     config_path.write_text(broken, encoding="utf-8")
     settings_path.write_text(
         json.dumps({"permissions": {"deny": [CHANNEL_WRITE]}}), encoding="utf-8"
@@ -990,7 +940,7 @@ def test_fails_open_on_malformed_permissions(tmp_path, run_drift):
     (tmp_path / ".claude").mkdir(parents=True)
     config_path = tmp_path / "config.yml"
     settings_path = tmp_path / ".claude" / "settings.json"
-    config_path.write_text("control_system:\n  writes_enabled: true\n", encoding="utf-8")
+    config_path.write_text("control_system:\n  writes: allowed\n", encoding="utf-8")
     settings_path.write_text(json.dumps({"permissions": None}), encoding="utf-8")
     _set_mtimes(config_path, settings_path, config_newer=False)
 
@@ -1008,9 +958,7 @@ def test_fails_open_when_settings_unreadable(tmp_path, run_drift):
     # An unreadable settings.json would look like "writes permitted" to a hook
     # that treated a failed read as absence. It must stay silent instead: the
     # deny list is undeterminable, so there is nothing honest to warn about.
-    config_path, settings_path = _make_project(
-        tmp_path, writes_enabled=False, channel_write=ALLOWED
-    )
+    config_path, settings_path = _make_project(tmp_path, writes="never", channel_write=ALLOWED)
     _set_mtimes(config_path, settings_path, config_newer=False)
     os.chmod(settings_path, 0o000)
 
@@ -1029,7 +977,7 @@ def test_stdin_is_never_read(tmp_path, hook_runner_raw, monkeypatch, stdin):
     # A closed pipe, a truncated write and a payload of the wrong JSON type all
     # have to produce the same warning as a well-formed one — malformed stdin
     # must neither crash the hook nor silence a real drift.
-    config_path, settings_path = _make_project(tmp_path, writes_enabled=True, channel_write=DENIED)
+    config_path, settings_path = _make_project(tmp_path, writes="allowed", channel_write=DENIED)
     _set_mtimes(config_path, settings_path, config_newer=False)
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
 

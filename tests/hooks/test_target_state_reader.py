@@ -237,7 +237,6 @@ def test_an_exploding_state_dir_still_returns_the_marker(monkeypatch):
     assert reader.is_baseline(reader.read_target())
     assert reader.read_record() is None
     assert reader.read_target_view() is None
-    assert reader.recorded_posture() == {}
 
 
 def test_is_baseline_tolerates_non_dict_input():
@@ -350,25 +349,26 @@ def test_target_metadata_degrades_rather_than_raising():
 
 
 # ---------------------------------------------------------------------------
-# recorded posture
+# the record's posture field: parsed, never decided on
 # ---------------------------------------------------------------------------
+#
+# ``recorded_posture``/``target_posture`` are retired with the rest of the
+# pre-switch posture functions; the parser they read through is kept, so its
+# filter is pinned here through ``read_record``. What the field may NOT do — refuse
+# a write while the switch is on — is the case table's rows
+# ``recorded-sandbox-switch-on``, ``recorded-sandbox-other-target`` and
+# ``tree-recorded-sandbox``, driven through the twin by test_write_verdict_twin.py.
 
 
-def test_recorded_posture_is_the_records_narrowings(state_dir):
+def _recorded():
+    record = reader.read_record()
+    return record["posture"] if record is not None else {}
+
+
+def test_the_record_carries_its_narrowings(state_dir):
     write_record(state_dir, posture={"live": "sandbox"})
 
-    assert reader.recorded_posture() == {"live": "sandbox"}
-    assert reader.target_posture("live") == reader.POSTURE_SANDBOX
-    assert reader.target_posture("va") is None
-
-
-def test_the_switch_is_not_addressed_to_one_session(state_dir, monkeypatch):
-    """It is the owner's: no session key selects it and none can miss it."""
-    monkeypatch.setenv(reader.POSTURE_SESSION_ENV_VAR, "someone-else")
-    write_record(state_dir, switch={"live": "on"})
-
-    assert reader.effective_writes_for(None, _ARMED, "va") is False
-    assert reader.effective_writes_for(None, _ARMED, "live") is True
+    assert _recorded() == {"live": "sandbox"}
 
 
 def test_the_interim_sandbox_reader_is_retired():
@@ -377,10 +377,27 @@ def test_the_interim_sandbox_reader_is_retired():
     assert "target_sandboxed" not in reader.__all__
 
 
+_RETIRED_POSTURE_NAMES = (
+    "effective_writes_for",
+    "most_restrictive_posture",
+    "recorded_posture",
+    "target_posture",
+    "type_posture",
+    "writes_posture",
+)
+
+
+@pytest.mark.parametrize("name", _RETIRED_POSTURE_NAMES)
+def test_the_pre_switch_posture_functions_are_retired(name):
+    """One verdict decides a write: :func:`write_verdict`, twin of the package's."""
+    assert not hasattr(reader, name)
+    assert name not in reader.__all__
+
+
 def test_a_bare_sandbox_string_narrows_every_target(state_dir):
     write_record(state_dir, posture="sandbox")
 
-    assert reader.recorded_posture() == dict.fromkeys(reader.CONTROL_TARGETS, "sandbox")
+    assert _recorded() == dict.fromkeys(reader.CONTROL_TARGETS, "sandbox")
 
 
 @pytest.mark.parametrize("value", ["writes", "", "off", 1, None, [], {"va": "writes"}])
@@ -388,7 +405,7 @@ def test_nothing_but_sandbox_survives_the_posture_filter(state_dir, value):
     """The writes posture is the absence of an entry; nothing here can widen."""
     write_record(state_dir, posture=value)
 
-    assert reader.recorded_posture() == {}
+    assert _recorded() == {}
 
 
 def test_a_non_string_posture_key_is_dropped(state_dir):
@@ -397,25 +414,7 @@ def test_a_non_string_posture_key_is_dropped(state_dir):
         encoding="utf-8",
     )
 
-    assert reader.recorded_posture() == {"7": "sandbox"}
-
-
-@pytest.mark.usefixtures("state_dir")
-def test_no_record_reads_as_no_narrowing():
-    assert reader.recorded_posture() == {}
-    assert reader.target_posture("live") is None
-
-
-def test_a_targetless_lookup_takes_the_most_restrictive_entry(state_dir):
-    write_record(state_dir, posture={"live": "sandbox"})
-
-    assert reader.target_posture(None) == reader.POSTURE_SANDBOX
-
-
-def test_a_targetless_lookup_on_an_unnarrowed_record_is_permissive(state_dir):
-    write_record(state_dir)
-
-    assert reader.target_posture(None) is None
+    assert _recorded() == {"7": "sandbox"}
 
 
 # ---------------------------------------------------------------------------
@@ -470,91 +469,43 @@ def test_session_key_is_the_audit_id(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# effective_writes_for
+# the write verdict and the tier
 # ---------------------------------------------------------------------------
+#
+# ``effective_writes_for`` is retired; :func:`write_verdict` is the one verdict
+# and the case table drives it. Each removed case and the row that covers it:
+#
+# * the deployment ceiling            -> ``tier-never``, ``tier-absent-unarmed``
+# * a switch left off                 -> ``switch-off``, ``switch-other-target``
+# * the switch is no session's        -> ``allow-live``, ``switch-other-target``
+#   (the verdict reads no session key)
+# * an old sandbox narrowing, switch on -> ``recorded-sandbox-switch-on``
+# * no record                         -> ``record-missing``
+# * an unreadable record              -> ``record-corrupt``
+# * work that belongs to no owner     -> ``dispatch-host-no-owner`` (the verdict
+#   refuses ``owner_unscheduled`` where the retired clause read the ceiling alone)
+# * a read-only run                   -> ``readonly-run``
+# * an unidentified target            -> ``target-null``
+#
+# The twin's ``tier_writes`` keeps its retired-leaf fallback for as long as the
+# package's ``types.tier_writes`` does: the case table's
+# ``tier-absent-old-armed-*`` rows drive both sides, so the two leave together.
 
-#: A deployment that arms writes on both machines it can reach.
-_ARMED = {
-    "type": "virtual_accelerator",
-    "writes_enabled": True,
-    "connector": {"virtual_accelerator": {"address": "x"}, "epics": {"address": "y"}},
-}
 
-
-#: Every machine switched on.
-_ALL_ON = {"live": "on", "va": "on", "standin": "on"}
-
-
-def test_effective_writes_needs_the_deployment_ceiling(state_dir):
-    write_record(state_dir, switch=_ALL_ON)
-
-    assert reader.effective_writes_for(None, _ARMED, "va") is True
-    assert (
-        reader.effective_writes_for(
-            None,
-            {
-                "type": "virtual_accelerator",
-                "connector": {"virtual_accelerator": {"serving": "in_process"}},
-            },
-            "va",
-        )
-        is False
+def test_the_tier_key_decides_when_present():
+    assert reader.tier_writes({"writes": "allowed"}) == reader.TIER_ALLOWED
+    assert reader.tier_writes({"writes": "allowed", "writes_enabled": False}) == (
+        reader.TIER_ALLOWED
     )
+    assert reader.tier_writes({"writes": "never", "writes_enabled": True}) == reader.TIER_NEVER
 
 
-def test_a_switch_left_off_refuses_an_armed_target(state_dir):
-    write_record(state_dir, switch={"live": "on"})
-
-    assert reader.effective_writes_for(None, _ARMED, "va") is False
-    assert reader.effective_writes_for(None, _ARMED, "live") is True
-
-
-@pytest.mark.parametrize("posture", [{"va": "sandbox"}, "sandbox"], ids=["per-target", "bare"])
-def test_an_old_sandbox_narrowing_with_the_switch_on_is_allowed(state_dir, posture):
-    """The record's ``posture`` field is a mirror; an old narrowing refuses nothing."""
-    write_record(state_dir, posture=posture, switch=_ALL_ON)
-
-    assert reader.target_posture("va") == reader.POSTURE_SANDBOX
-    assert reader.effective_writes_for(None, _ARMED, "va") is True
-
-
-@pytest.mark.usefixtures("state_dir")
-def test_no_record_is_every_switch_off():
-    assert reader.effective_writes_for(None, _ARMED, "va") is False
-
-
-def test_an_unreadable_record_refuses(state_dir):
-    (state_dir / reader.RECORD_FILENAME).write_text("{not json", encoding="utf-8")
-
-    assert reader.effective_writes_for(None, _ARMED, "va") is False
-
-
-@pytest.mark.usefixtures("state_dir")
-def test_work_that_belongs_to_no_owner_is_the_ceiling_alone(monkeypatch):
-    """A dispatch run with no owner stamp reads no record, as the package's clause does."""
-    monkeypatch.delenv(reader.CONTROL_OWNER_ENV_VAR, raising=False)
-    monkeypatch.setenv(reader.DISPATCH_RUN_ENV_VAR, "1")
-
-    assert reader.effective_writes_for(None, _ARMED, "va") is True
-
-
-def test_a_readonly_run_refuses_an_armed_unnarrowed_target(state_dir, monkeypatch):
-    write_record(state_dir, switch=_ALL_ON)
+def test_is_readonly_run_is_a_value_comparison(monkeypatch):
     monkeypatch.setenv(reader.EXECUTION_MODE_ENV_VAR, reader.SANDBOX_MODE)
-
     assert reader.is_readonly_run() is True
-    assert reader.effective_writes_for(None, _ARMED, "va") is False
 
-
-def test_an_unidentified_target_is_answered_by_every_reachable_one(state_dir):
-    """Stricter than the roster's union on purpose: a gate cannot guess."""
-    write_record(state_dir, switch={"live": "on", "va": "on"})
-
-    assert reader.effective_writes_for(None, _ARMED, None) is False
-
-    write_record(state_dir, switch=_ALL_ON)
-
-    assert reader.effective_writes_for(None, _ARMED, None) is True
+    monkeypatch.setenv(reader.EXECUTION_MODE_ENV_VAR, "readwrite")
+    assert reader.is_readonly_run() is False
 
 
 # ---------------------------------------------------------------------------

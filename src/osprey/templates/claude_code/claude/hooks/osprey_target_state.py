@@ -99,24 +99,18 @@ metadata and the caller renders its explicit "state unavailable" line — which
 is what it rendered before this record existed, for the same reason: nobody is
 there to say what the target IS.
 
-Write posture (a second question, answered from config)
--------------------------------------------------------
-Hooks that gate writes need one more answer that identity alone cannot give:
-does this deployment ARM writes for the target a call names? That is a config
-question, and its authority is ``osprey_connectors.types`` —
-:func:`type_writes_enabled` and :func:`target_writes_enabled`. Hooks cannot
-import it, so :func:`writes_posture`, :func:`session_types` and
-:func:`most_restrictive_posture` restate it here in stdlib terms, once, for
-every hook that asks: two hooks mirroring the same rules separately is two ways
-for one deployment to be described.
+Which targets a deployment has (a second question, answered from config)
+-------------------------------------------------------------------------
+Hooks that gate writes need two answers identity alone cannot give: which
+connector type does a target select here, and which targets can a session on
+this deployment reach at all? Both are config questions, and their authority is
+``osprey_connectors.types``. Hooks cannot import it, so :func:`target_type` and
+:func:`session_types` restate it here in stdlib terms, once, for every hook that
+asks: two hooks mirroring the same rules separately is two ways for one
+deployment to be described.
 
 The mirrored rules, on the ``control_system:`` section:
 
-* ``connector.<type>.writes_enabled`` is a tri-state. Absent — no connector
-  table, no block for the type, a block that is not a mapping, or one without
-  the leaf — inherits ``control_system.writes_enabled``. Literally ``True``
-  arms. Any other value leaves writes unarmed and does NOT fall back to the
-  deployment-wide key;
 * ``<type>`` is one whole key, never a path: a custom connector's dotted module
   path names a single block;
 * ``va`` resolves to the virtual accelerator and ``standin`` to the live
@@ -124,62 +118,47 @@ The mirrored rules, on the ``control_system:`` section:
   deployment stands up for itself. ``live`` resolves to the section's own type
   when that type is neither simulated nor a stand-in, else to the single such
   key under ``connector``. Zero or more than one is underivable, and an
-  underivable target answers the deployment-wide key.
+  underivable target selects no type.
 
-A caller holding no target of its own asks a prior question: which targets can a
-session on THIS deployment reach at all? :func:`session_types` answers it,
-restating ``osprey_connectors.types.session_posture`` — the deployment's
-CONFIGURED targets where it renders the target switch, and otherwise the single
-type ``control_system.type`` builds, read by TYPE under the baseline target that
-names it. Iterating the target vocabulary instead would answer for a machine no
-session here ever reaches: without the switch, ``live`` names a block the
+A caller holding no target of its own asks which targets a session on THIS
+deployment can reach. :func:`session_types` answers it, restating the
+reachable set of ``osprey_connectors.types.most_restrictive_limits_posture`` —
+the deployment's CONFIGURED targets where it renders the target switch, and
+otherwise the single type ``control_system.type`` builds, read by TYPE under
+the baseline target that names it. Iterating the target vocabulary instead
+would answer for a machine no session here ever reaches: without the switch, ``live`` names a block the
 connector the runtime built never serves, and a deployment with no
 ``live_standin`` block would grow a ``standin`` slot for a soft IOC nobody
 stood up.
 
-What this module adds on top of the framework's booleans is a THIRD state:
-``None``, for a section that expresses no posture at all — no deployment-wide
-key and no per-type key anywhere. That is the shape every deployment had before
-the per-type key existed, and a hook must leave it exactly as it found it rather
-than reading silence as a refusal.
-
-Recorded switch (a third question, answered from the record)
--------------------------------------------------------------
+The write verdict (a third question, answered from config and the record)
+-------------------------------------------------------------------------
 The person turns writes on for one machine from the control-target chip in the
 header. That is the record's ``switch`` field, ``{target: "on"}``, and it is
 enforced at WRITE time rather than delivered by respawning the agent, which is
 what lets a flip land on a session already mid-conversation.
 
-``osprey_connectors.posture_store`` is the canonical reader. Hooks cannot import
-it, so its rules are restated here — a change there is a change here.
+``osprey_connectors.posture_store.write_verdict`` is the canonical verdict.
+Hooks cannot import it, so :func:`write_verdict` restates it here term for term
+— a change there is a change here, and ``tests/hooks/test_write_verdict_twin.py``
+drives one case table through both.
 
-**1. Whose switch it is.** The owner's, resolved by :func:`current_owner`: this
-host's own record, or the owner's record in a bound read-only tree. Work that
-belongs to no owner is governed by the deployment ceiling alone.
+**1. The tier.** :func:`tier_writes` reads ``control_system.writes``: only the
+literal ``allowed`` arms. A section that states no tier is ``never``; a retired
+``writes_enabled`` leaf, flat or in a connector block, is never read, in step
+with the package's ``types.tier_writes``.
 
-**2. What the record's ``posture`` field is.** A mirror of the switch kept for
+**2. Whose switch it is.** The owner's, resolved by :func:`current_owner`: this
+host's own record, or the owner's record in a bound read-only tree.
+
+**3. What the record's ``posture`` field is.** A mirror of the switch kept for
 old readers — ``sandbox`` for every machine not switched on — and never an
 input to a write decision. A file written before the mirror may still carry an
 old narrowing; :func:`parse_posture` still parses it (``{"live": "sandbox"}``,
 or the bare string ``"sandbox"`` for every target in :data:`CONTROL_TARGETS`;
-anything else is dropped) for :func:`recorded_posture`, and nothing that
-decides a write reads it. An old narrowing with the switch on is allowed, on
-both sides.
-
-**3. How a lookup combines.** :func:`effective_writes_for` is the whole rule::
-
-    ceiling AND not readonly run AND (recorded switch = on)
-
-The ceiling is the deployment's own posture, read through this module's own
-predicates and never re-derived: :func:`writes_posture` for the target the
-record states, and :func:`most_restrictive_posture` when it states none. That
-second half is the one place this restatement is deliberately STRICTER than the
-module it restates, which takes the union across configured targets for a caller
-that holds no target at all — right for a roster describing a deployment, wrong
-for a gate, which must not be handed the more permissive of two answers it
-cannot choose between. The record can only narrow the ceiling: no record is
-every switch off, an unreadable one refuses, and with no target resolved every
-machine in :data:`CONTROL_TARGETS` must be on.
+anything else is dropped) so that :func:`parse_record` admits exactly the
+records the canonical parser admits, and nothing that decides a write reads it.
+An old narrowing with the switch on is allowed, on both sides.
 
 **4. When a change is seen.** Every read re-reads the file. The canonical reader
 caches its parse against ``(st_mtime_ns, st_size, st_ino)`` because it lives in
@@ -282,11 +261,6 @@ _BASELINE_TARGETS = {
     LIVE_STANDIN_TYPE: TARGET_STANDIN,
 }
 
-#: The write-posture key, as a LEAF: it is looked up both directly on the
-#: ``control_system:`` section and inside one already-resolved connector block,
-#: whose own key is the connector type in full.
-WRITES_ENABLED_LEAF = "writes_enabled"
-
 #: The agent-data root stamp a session child carries. Read by NAME rather than
 #: imported from ``osprey.audit.posture``, which declares it for the stamping
 #: side: hooks are stdlib-only and must not grow an ``osprey`` import to learn
@@ -377,7 +351,6 @@ __all__ = [
     "UNRESOLVED",
     "VALID_POSTURES",
     "VIRTUAL_ACCELERATOR_TYPE",
-    "WRITES_ENABLED_LEAF",
     "WRITES_LEAF",
     "NoOwner",
     "WriteVerdict",
@@ -385,13 +358,11 @@ __all__ = [
     "agent_data_root",
     "baseline_result",
     "current_owner",
-    "effective_writes_for",
     "hook_write_target",
     "is_baseline",
     "is_readonly_run",
     "launch_pin_term",
     "machine_kind",
-    "most_restrictive_posture",
     "owner_tier_term",
     "parse_posture",
     "parse_record",
@@ -406,7 +377,6 @@ __all__ = [
     "read_target_view",
     "read_tree_record",
     "record_path",
-    "recorded_posture",
     "refusal_phrase",
     "refusal_text",
     "resolve_state_dir",
@@ -414,13 +384,10 @@ __all__ = [
     "session_key",
     "session_types",
     "target_metadata",
-    "target_posture",
     "target_type",
     "tier_allows",
     "tier_writes",
-    "type_posture",
     "write_verdict",
-    "writes_posture",
 ]
 
 
@@ -881,7 +848,7 @@ def target_metadata(record, target):
     return meta if isinstance(meta, dict) else None
 
 
-# -- write posture ---------------------------------------------------------
+# -- which targets a deployment has ----------------------------------------
 
 
 def _resolved_type(section):
@@ -1005,9 +972,9 @@ def _configured_targets(section):
 def session_types(section):
     """``{target: connector type}`` for the targets a session here can REACH.
 
-    The stdlib restatement of ``osprey_connectors.types.session_posture``'s
-    reachable-target rule, and what a caller with no target of its own iterates
-    instead of the target vocabulary. Every :func:`_configured_targets` target
+    The stdlib restatement of the reachable-target rule of
+    ``osprey_connectors.types.most_restrictive_limits_posture``, and what a
+    caller with no target of its own iterates instead of the target vocabulary. Every :func:`_configured_targets` target
     on a deployment that renders the switch; otherwise the one type
     ``control_system.type`` builds, under the baseline target that names it — by
     type on purpose, because ``live`` is the switch's own derivation and without
@@ -1021,134 +988,7 @@ def session_types(section):
     return {_baseline_target(section): _resolved_type(section)}
 
 
-def _global_posture(section):
-    """``control_system.writes_enabled`` alone — explicitly ``True`` or nothing."""
-    return isinstance(section, dict) and section.get(WRITES_ENABLED_LEAF) is True
-
-
-def _states_posture(section):
-    """Whether *section* says anything at all about write posture."""
-    if not isinstance(section, dict):
-        return False
-    if WRITES_ENABLED_LEAF in section:
-        return True
-    connector = section.get("connector")
-    if not isinstance(connector, dict):
-        return False
-    return any(
-        isinstance(block, dict) and WRITES_ENABLED_LEAF in block for block in connector.values()
-    )
-
-
-def type_posture(section, connector_type):
-    """Whether *section* arms writes for one connector TYPE. Never raises.
-
-    :func:`writes_posture` below the target-to-type step, for the callers that
-    already hold a type: :func:`session_types` hands out types, and a refusal
-    naming a key must name the block the answer was read from.
-
-    ``True`` or ``False`` only. The third state belongs to
-    :func:`writes_posture`, because a section that states no posture anywhere
-    states none for any type and the distinction is not a per-type one.
-    """
-    connector = section.get("connector") if isinstance(section, dict) else None
-    block = connector.get(connector_type) if isinstance(connector, dict) else None
-    if not isinstance(block, dict) or WRITES_ENABLED_LEAF not in block:
-        return _global_posture(section)
-    return block[WRITES_ENABLED_LEAF] is True
-
-
-def writes_posture(section, target):
-    """Whether *section* arms writes for one control *target*. Never raises.
-
-    ``True`` armed, ``False`` not armed, and ``None`` for a section that states
-    no posture anywhere — see the module docstring for why silence is its own
-    answer rather than a refusal, and for the rules the ``True``/``False`` half
-    mirrors from ``osprey_connectors.types``.
-
-    Args:
-        section: The ``control_system:`` config section. A caller holding a
-            whole rendered config passes ``config.get("control_system")``.
-        target: The control target — one of :data:`CONTROL_TARGETS`.
-    """
-    if not _states_posture(section):
-        return None
-    connector_type = target_type(section, target)
-    if connector_type is None:
-        return _global_posture(section)
-    return type_posture(section, connector_type)
-
-
-def most_restrictive_posture(section):
-    """:func:`type_posture` ANDed over the REACHABLE targets. Never raises.
-
-    The answer for a caller that could not identify which target a call would
-    act on. Armed only where every target a session here could be pointed at is
-    armed, so an unidentifiable call on a deployment that armed one of two is
-    treated as the unarmed one — a guess between them could be a guess in
-    favour of hardware.
-
-    The set ANDed over is :func:`session_types` rather than the target
-    vocabulary. Without the switch there is only one target to be uncertain between,
-    and ANDing in a ``live`` no session here can select would leave a
-    simulator-armed deployment unarmed on the strength of a machine it does not
-    have — while telling the operator to flip a key that is deliberately false.
-
-    ``None`` when the section states no posture at all, which is target-blind
-    and therefore the same ``None`` :func:`writes_posture` returns.
-    """
-    if not _states_posture(section):
-        return None
-    return all(
-        type_posture(section, connector_type) is True
-        for connector_type in session_types(section).values()
-    )
-
-
-# -- recorded posture ------------------------------------------------------
-
-
-def recorded_posture(hook_input=None):
-    """The record's ``posture`` field as parsed — ``{target: "sandbox"}``.
-
-    The counterpart of ``posture_store.recorded_posture``, kept for old
-    readers: the field is a mirror of the switch, or an old narrowing in a
-    file written before the mirror, and no write decision here reads it —
-    :func:`effective_writes_for` and :func:`write_verdict` read the switch.
-    Empty when there is no readable record. That is not the same claim as
-    "nothing was narrowed": :func:`posture_unknown` is the predicate that tells
-    the two apart, and it refuses on exactly the shape where an empty answer
-    here could be hiding one. Never raises.
-    """
-    record = read_record(hook_input)
-    if record is None:
-        return {}
-    posture = record.get("posture")
-    return dict(posture) if isinstance(posture, dict) else {}
-
-
-def _posture_for(posture, target):
-    """The recorded posture for one target inside a *posture* map.
-
-    ``"sandbox"`` or ``None``. A *target* of ``None`` takes the MOST RESTRICTIVE
-    entry — any sandbox answers sandbox — because a caller that cannot say which
-    machine it is about must not be granted the most permissive answer.
-    """
-    if not isinstance(posture, dict) or not posture:
-        return None
-    if target:
-        return posture.get(target)
-    return POSTURE_SANDBOX if POSTURE_SANDBOX in posture.values() else None
-
-
-def target_posture(target, hook_input=None):
-    """The recorded posture for *target*, or ``None``. Never raises.
-
-    The counterpart of ``posture_store.target_posture``: one target, one
-    answer, read from the deployment's record rather than from anything this
-    process happens to carry.
-    """
-    return _posture_for(recorded_posture(hook_input), target)
+# -- process and record state ----------------------------------------------
 
 
 def is_readonly_run():
@@ -1196,95 +1036,15 @@ def posture_unknown(hook_input=None):
     return read_record(hook_input) is None
 
 
-def effective_writes_for(hook_input, section, target):
-    """Whether a write may proceed here and now. Never raises.
-
-    Rule 3 of the restated posture contract, spelled once::
-
-        ceiling AND not readonly run AND (recorded switch = on)
-
-    The ceiling is :func:`writes_posture` for the target the record states, and
-    :func:`most_restrictive_posture` when it states none — the fail-closed half,
-    and the one place this restatement is stricter than the module it restates
-    (see the module docstring). The record can only narrow it, through
-    :func:`_record_permits`; its ``posture`` field is not read.
-
-    Args:
-        hook_input: The hook's stdin payload, for repo-root resolution.
-        section: The ``control_system:`` config section.
-        target: The control target, or ``None`` when it could not be resolved.
-
-    Returns:
-        ``True`` only when the deployment arms this machine, the process is not
-        a read-only run, and the owner's switch is on for it.
-    """
-    try:
-        ceiling = writes_posture(section, target) if target else most_restrictive_posture(section)
-        if ceiling is not True:
-            return False
-        if is_readonly_run():
-            return False
-        return _record_permits(hook_input, target)
-    except Exception:  # pragma: no cover - defensive; a reader refuses, never raises
-        return False
-
-
-def _switched_on(record, target):
-    """Whether *record*'s switch arms *target*. Mirrors ``posture_store._switched_on``.
-
-    ``False`` for no record: an absent record is every switch off. With no
-    target every machine in :data:`CONTROL_TARGETS` must be on, the most
-    restrictive answer for a caller that cannot say which machine it means.
-    """
-    if record is None:
-        return False
-    switch = record.get("switch") or {}
-    if target:
-        return switch.get(target) == SWITCH_ON
-    return all(switch.get(name) == SWITCH_ON for name in CONTROL_TARGETS)
-
-
-def _record_permits(hook_input, target):
-    """The record clause of :func:`effective_writes_for`. May raise.
-
-    Mirrors ``posture_store.record_verdict_detail``, rung for rung: work that
-    belongs to no owner (:data:`NO_OWNER`) is the ceiling alone; an owner that
-    is not a name refuses; a bound tree is read through
-    :func:`read_tree_record` and refuses when unusable, never falling back to
-    this host; otherwise this host's record through
-    :func:`read_record_status`, where ``unreadable`` refuses and ``missing``
-    is every switch off. The answer is the switch (:func:`_switched_on`).
-    """
-    resolved = current_owner()
-    if resolved is NO_OWNER:
-        return True
-    if not isinstance(resolved, str):
-        return False
-    if _tree_is_bound():
-        tree = _control_context_tree()
-        if tree is None:
-            return False
-        record, unavailable = read_tree_record(tree, resolved)
-        if unavailable:
-            return False
-    else:
-        record, status = read_record_status(hook_input)
-        if status == "unreadable":
-            return False
-        if status != "ok":
-            record = None
-    return _switched_on(record, target)
-
-
 # -- the write verdict -----------------------------------------------------
 #
 # The stdlib twin of ``posture_store.write_verdict``: the same terms in the same
 # order, so a write the connector refuses is refused here for the same reason
 # and in the same words. Every name below restates a package symbol and says
 # which; ``tests/hooks/test_write_verdict_twin.py`` drives the shared case table
-# through both and compares the word tables key by key. Neither this section
-# nor :func:`effective_writes_for` above reads the record's ``posture`` field:
-# the switch is the state, and an old narrowing left in a file refuses nothing.
+# through both and compares the word tables key by key. Nothing in this section
+# reads the record's ``posture`` field: the switch is the state, and an old
+# narrowing left in a file refuses nothing.
 
 #: The stamped owner of a dispatch job's work. Mirrors
 #: ``posture_store.CONTROL_OWNER_ENV_VAR``; a blank value is the unset case.
@@ -1495,25 +1255,12 @@ class WriteVerdict:
 def tier_writes(section):
     """The login tier's write ceiling: ``"allowed"`` or ``"never"``. Never raises.
 
-    Mirrors ``types.tier_writes``: the ``writes`` leaf decides when present and
-    only the literal ``"allowed"`` arms; absent, a literal ``True`` in the flat
-    ``writes_enabled`` or in any connector block's ``writes_enabled`` is
-    ``allowed``. A section that is not a mapping is ``never``.
+    Mirrors ``types.tier_writes``: only the literal ``"allowed"`` in the
+    ``writes`` leaf arms. An absent leaf, any other value, and a section that is
+    not a mapping are ``never``; the retired ``writes_enabled`` leaves are not read.
     """
-    if not isinstance(section, dict):
-        return TIER_NEVER
-    if WRITES_LEAF in section:
-        value = section[WRITES_LEAF]
-        return TIER_ALLOWED if isinstance(value, str) and value == TIER_ALLOWED else TIER_NEVER
-    if section.get(WRITES_ENABLED_LEAF) is True:
-        return TIER_ALLOWED
-    connector = section.get("connector")
-    if isinstance(connector, dict) and any(
-        isinstance(block, dict) and block.get(WRITES_ENABLED_LEAF) is True
-        for block in connector.values()
-    ):
-        return TIER_ALLOWED
-    return TIER_NEVER
+    value = section.get(WRITES_LEAF) if isinstance(section, dict) else None
+    return TIER_ALLOWED if isinstance(value, str) and value == TIER_ALLOWED else TIER_NEVER
 
 
 def tier_allows(section):

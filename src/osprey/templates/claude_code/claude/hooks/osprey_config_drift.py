@@ -16,8 +16,7 @@ SessionStart ──► stat config.yml & .claude/settings.json
    (a) config.yml mtime > settings.json mtime? ──► general drift
                      │
                      ▼
-   (b) control_system's tier readable?  ── no ─► claim nothing about writes
-       (`writes`, else the retired `writes_enabled` leaves)
+   (b) control_system.writes readable?  ── no ─► claim nothing about writes
                      │ yes
                      ▼
     allowed/never vs this render's kill-switch tools in deny? ──► precise drift
@@ -51,13 +50,11 @@ The posture check (b) reads is the tier, ``control_system.writes``, exactly as
 the kill switch does (``tier_writes``): only the literal ``allowed`` arms. The
 key is looked up as a direct child of the top-level ``control_system`` section,
 never section-blind, because a facility server's ``writes:`` list lives under
-``claude_code.servers`` and says nothing about the tier. A config that does not
-state the tier yet is read off the retired leaves the same way the kill switch
-reads it: a literal ``true`` in ``control_system.writes_enabled`` or in any
-``control_system.connector.<type>.writes_enabled`` is ``allowed``, all
-``false`` is ``never``. Anything the regex cannot read for certain — no key at
-all, a duplicated key, a value that is not a plain scalar — abstains, and check
-(a) still covers such a config.
+``claude_code.servers`` and says nothing about the tier. A retired
+``writes_enabled`` leaf, flat or in a connector block, is never read: the kill
+switch does not read it either. Anything the regex cannot read for certain — no
+tier key at all, a duplicated key, a value that is not a plain scalar —
+abstains, and check (a) still covers such a config.
 
 Warn-only by design — it never mutates artifacts and never blocks the session
 (writes stay blocked until a proper regen, which is the safe direction). It is
@@ -84,9 +81,6 @@ from pathlib import Path
 _SECTION = "control_system"
 _WRITES_LEAF = "writes"
 _TIER_ALLOWED = "allowed"
-#: The retired posture leaves read only while a config states no tier.
-_RETIRED_LEAF = "writes_enabled"
-_CONNECTOR = "connector"
 
 #: One block-mapping line, `<indent><key>: <rest>`. A key is a plain YAML word;
 #: quoted or complex keys are not posture keys and are passed over.
@@ -115,7 +109,7 @@ def _control_system_keys(text: str) -> dict[tuple[str, ...], list[str]]:
     """Every block-mapping key under the top-level ``control_system`` section.
 
     Maps each key path (``("control_system", "connector", "epics",
-    "writes_enabled")``) to the raw value text of every line that spells it, in
+    "prefix")``) to the raw value text of every line that spells it, in
     file order, so a duplicated key shows up as two values. A line-level
     indentation walk rather than a YAML parse (this hook may run without
     PyYAML): keys inside a block sequence or a block scalar are never recorded,
@@ -177,12 +171,9 @@ def _tier_in_config(config_path: Path) -> tuple[bool, str] | None:
     Returns ``(allows_writes, "<dotted key>: <value>")``, or None when the
     answer is undeterminable. Mirrors the kill switch's ``tier_writes``:
     ``control_system.writes`` decides when present, and only the literal
-    ``allowed`` arms. Absent it, the retired leaves decide — any literal ``true``
-    among ``control_system.writes_enabled`` and the
-    ``control_system.connector.<type>.writes_enabled`` blocks is ``allowed``,
-    all ``false`` is ``never``. No key at all, a duplicated key, or a value the
-    regex cannot read abstains: for a warn-only signal a wrong warning is worse
-    than none.
+    ``allowed`` arms. A retired ``writes_enabled`` leaf is never read. No tier
+    key, a duplicated key, or a value the regex cannot read abstains: for a
+    warn-only signal a wrong warning is worse than none.
     """
     try:
         text = config_path.read_text(encoding="utf-8")
@@ -191,36 +182,12 @@ def _tier_in_config(config_path: Path) -> tuple[bool, str] | None:
     keys = _control_system_keys(text)
 
     tier = keys.get((_SECTION, _WRITES_LEAF))
-    if tier is not None:
-        if len(tier) != 1:
-            return None
-        value = _plain_scalar(tier[0])
-        if value is None:
-            return None
-        return value == _TIER_ALLOWED, f"{_SECTION}.{_WRITES_LEAF}: {value}"
-
-    retired = [
-        (path, values)
-        for path, values in keys.items()
-        if path == (_SECTION, _RETIRED_LEAF)
-        or (len(path) == 4 and path[1] == _CONNECTOR and path[3] == _RETIRED_LEAF)
-    ]
-    if not retired:
+    if tier is None or len(tier) != 1:
         return None
-    leaves: list[tuple[str, bool]] = []
-    for path, values in retired:
-        if len(values) != 1:
-            return None
-        value = (_plain_scalar(values[0]) or "").lower()
-        if value not in ("true", "false"):
-            return None
-        leaves.append((".".join(path), value == "true"))
-    armed = [name for name, on in leaves if on]
-    if armed:
-        return True, f"{armed[0]}: true"
-    flat = f"{_SECTION}.{_RETIRED_LEAF}"
-    name = flat if any(n == flat for n, _ in leaves) else leaves[0][0]
-    return False, f"{name}: false"
+    value = _plain_scalar(tier[0])
+    if value is None:
+        return None
+    return value == _TIER_ALLOWED, f"{_SECTION}.{_WRITES_LEAF}: {value}"
 
 
 def _kill_switch_tools(hook_config_path: Path) -> tuple[str, ...]:
