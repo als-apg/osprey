@@ -2510,13 +2510,7 @@ def test_header_contribution_reaches_the_fallback_bar_without_dockview(tmp_path,
     workspace.mkdir()
 
     with _contrib_panel_backend() as stub_url:
-        custom = {
-            "id": "contrib-demo",
-            "label": "CONTRIB",
-            "url": stub_url,
-            "healthEndpoint": None,
-            "path": "/",
-        }
+        custom = _contributing_panel("contrib-demo", "CONTRIB", stub_url)
         with _live_server(
             workspace,
             enabled_panels={"artifacts"},

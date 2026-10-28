@@ -3310,8 +3310,9 @@ describe('sidecar start failure and retry', () => {
 describe('panel frames — agent-writable panels are opaque, first-party panels keep their attributes', () => {
   const FACTORY_PATH =
     '../../../src/osprey/interfaces/web_terminal/static/js/panel-iframe-factory.js';
-  const FIRST_PARTY = 'allow-scripts allow-same-origin allow-popups allow-forms allow-modals';
-  const OPAQUE = 'allow-scripts allow-popups allow-modals';
+  const FIRST_PARTY =
+    'allow-scripts allow-same-origin allow-popups allow-forms allow-modals allow-downloads';
+  const OPAQUE = 'allow-scripts allow-popups allow-modals allow-downloads';
 
   /** @param {string} id @returns {HTMLIFrameElement | null} */
   const frame = (id) => document.querySelector(`iframe[data-panel-id="${id}"]`);

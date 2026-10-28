@@ -19,8 +19,8 @@ not a broken route.
 
 The hub's own frame factory (``panel-iframe-factory.js``) is proven on the same
 two panels: opened from the rail, each is framed at its cap URL under the final
-sandbox ``allow-scripts allow-popups allow-modals`` (no ``allow-same-origin``, no
-``allow-forms``) while an OSPREY catalog panel keeps today's attributes; the
+sandbox ``allow-scripts allow-popups allow-modals allow-downloads`` (no
+``allow-same-origin``, no ``allow-forms``) while an OSPREY catalog panel keeps today's attributes; the
 panel imports the first-party theme module through C-ASSETS and a live theme
 change in the hub reaches it — both as the raw ``osprey-theme-change`` message
 and as the ``data-theme`` its own follower applies. On their plain, cookie-gated
@@ -318,9 +318,11 @@ def test_the_panel_without_its_cap_does_not_load_in_an_opaque_frame(chromium_bro
 
 
 #: The sandbox the hub's factory frames an agent-writable panel under.
-_OPAQUE_SANDBOX = "allow-scripts allow-popups allow-modals"
+_OPAQUE_SANDBOX = "allow-scripts allow-popups allow-modals allow-downloads"
 #: Today's attributes, kept by OSPREY-shipped panels.
-_FIRST_PARTY_SANDBOX = "allow-scripts allow-same-origin allow-popups allow-forms allow-modals"
+_FIRST_PARTY_SANDBOX = (
+    "allow-scripts allow-same-origin allow-popups allow-forms allow-modals allow-downloads"
+)
 
 
 def _open_from_rail(page: Page, panel_id: str) -> Frame:

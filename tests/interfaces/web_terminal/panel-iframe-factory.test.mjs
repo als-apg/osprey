@@ -1,23 +1,39 @@
 // @ts-check
 /**
- * Unit tests for panel-iframe-factory.js's framing path (framePanel): every
- * navigation of a service panel — first load, a re-navigation, a recovered
- * panel's held address, a cap renewal — goes through it, so an opaque panel is
- * always framed through a freshly minted cap and a first-party one keeps its
- * plain URL. The whole-hub wiring (navigatePanel, health recovery, the panel
- * left open past its cap) is pinned in panel-manager.test.mjs; this file pins
- * the factory's own rules: the expiry it reads off a cap, when a renewal fires,
- * and which answers it drops.
+ * Unit tests for panel-iframe-factory.js: the two sandboxes it frames a
+ * service panel under (OPAQUE_SANDBOX until the hub has answered, loosened to
+ * FIRST_PARTY_SANDBOX for a panel the hub calls first-party; both carry
+ * `allow-downloads`, so a panel can hand the operator a file from inside its
+ * tile), the element createPanelIframe builds, and the framing path
+ * (framePanel): every navigation of a service panel — first load, a
+ * re-navigation, a recovered panel's held address, a cap renewal — goes through
+ * it, so an opaque panel is always framed through a freshly minted cap and a
+ * first-party one keeps its plain URL. The whole-hub wiring (navigatePanel,
+ * health recovery, the panel left open past its cap) is pinned in
+ * panel-manager.test.mjs; this file pins the factory's own rules: the sandbox
+ * token sets, the expiry it reads off a cap, when a renewal fires, and which
+ * answers it drops.
  *
  *   npx vitest run tests/interfaces/web_terminal/panel-iframe-factory.test.mjs
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
+// The dock adapter is stubbed at the module boundary: what createPanelIframe
+// owes it is one adoptIframe call with the element it built, which a spy states
+// directly; where the adapter then mounts the element is dock-iframe's own
+// contract. The factory is the only module on this graph that imports it.
+const adopted = vi.hoisted(() => vi.fn());
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-iframe.js', () => ({
+  adoptIframe: adopted,
+  setPanelReachable: vi.fn(),
+}));
+
 const FACTORY_PATH =
   '../../../src/osprey/interfaces/web_terminal/static/js/panel-iframe-factory.js';
-const FIRST_PARTY = 'allow-scripts allow-same-origin allow-popups allow-forms allow-modals';
-const OPAQUE = 'allow-scripts allow-popups allow-modals';
+const FIRST_PARTY =
+  'allow-scripts allow-same-origin allow-popups allow-forms allow-modals allow-downloads';
+const OPAQUE = 'allow-scripts allow-popups allow-modals allow-downloads';
 const HOUR_MS = 60 * 60 * 1000;
 
 /** @param {any} body */
@@ -60,6 +76,12 @@ function attachedFrame() {
 /** @param {HTMLIFrameElement} el */
 const path = (el) => new URL(el.src).pathname;
 
+/** @param {string} sandbox @returns {string[]} the sandbox's tokens, sorted */
+const tokens = (sandbox) => sandbox.split(/\s+/).filter(Boolean).sort();
+
+/** @param {HTMLIFrameElement} el @returns {string[]} the element's sandbox tokens, sorted */
+const sandboxTokens = (el) => tokens(el.getAttribute('sandbox') ?? '');
+
 /** Let the resolve promise chain run under fake timers. */
 const flush = () => vi.advanceTimersByTimeAsync(0);
 
@@ -74,11 +96,95 @@ beforeEach(() => {
   vi.setSystemTime(new Date(2026, 0, 5, 9, 0, 0));
   window.__OSPREY_PREFIX__ = '';
   document.body.innerHTML = '';
+  adopted.mockClear();
 });
 
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+describe('the sandbox constants', () => {
+  test('a first-party panel gets exactly the granted tokens, downloads included', async () => {
+    const { FIRST_PARTY_SANDBOX } = await load();
+    expect(tokens(FIRST_PARTY_SANDBOX)).toEqual([
+      'allow-downloads',
+      'allow-forms',
+      'allow-modals',
+      'allow-popups',
+      'allow-same-origin',
+      'allow-scripts',
+    ]);
+    expect(FIRST_PARTY_SANDBOX).toBe(FIRST_PARTY);
+  });
+
+  test('an opaque panel loses the origin and forms, keeps downloads', async () => {
+    const { OPAQUE_SANDBOX } = await load();
+    expect(tokens(OPAQUE_SANDBOX)).toEqual([
+      'allow-downloads',
+      'allow-modals',
+      'allow-popups',
+      'allow-scripts',
+    ]);
+    expect(OPAQUE_SANDBOX).toBe(OPAQUE);
+  });
+});
+
+describe('createPanelIframe', () => {
+  /** @type {{url: string | null, pendingUrl: string | null, iframe: HTMLIFrameElement | null}} */
+  let state;
+  beforeEach(() => {
+    state = { url: '/svc/tuning', pendingUrl: null, iframe: null };
+  });
+
+  test('frames the tile opaque until the hub answers, then first-party with downloads', async () => {
+    stubCaps(() => ({ ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }));
+    const { createPanelIframe } = await load();
+    createPanelIframe(
+      { id: 'tuning', label: 'Tuning' },
+      'tuning',
+      state,
+      document.createElement('div')
+    );
+
+    const iframe = /** @type {HTMLIFrameElement} */ (state.iframe);
+    expect(adopted).toHaveBeenCalledWith('tuning', iframe, { title: 'Tuning' });
+    // Restrictive before the hub has said what the panel is, and no src yet.
+    expect(iframe.dataset.panelFrame).toBe('pending');
+    expect(sandboxTokens(iframe)).toEqual(tokens(OPAQUE));
+    expect(iframe.getAttribute('src')).toBeNull();
+
+    await flush();
+    expect(iframe.dataset.panelFrame).toBe('first-party');
+    expect(sandboxTokens(iframe)).toEqual(tokens(FIRST_PARTY));
+    expect(sandboxTokens(iframe)).toContain('allow-downloads');
+    expect(path(iframe)).toBe('/svc/tuning');
+  });
+
+  test('a panel the hub calls opaque stays under the opaque sandbox, downloads included', async () => {
+    stubCaps((n) => capAnswer(n));
+    const { createPanelIframe } = await load();
+    createPanelIframe(
+      { id: 'tuning', label: 'Tuning' },
+      'tuning',
+      state,
+      document.createElement('div')
+    );
+    await flush();
+    const iframe = /** @type {HTMLIFrameElement} */ (state.iframe);
+    expect(iframe.dataset.panelFrame).toBe('opaque');
+    expect(sandboxTokens(iframe)).toEqual(tokens(OPAQUE));
+    expect(sandboxTokens(iframe)).toContain('allow-downloads');
+    expect(sandboxTokens(iframe)).not.toContain('allow-same-origin');
+  });
+
+  test('builds no iframe before the panel has a URL', async () => {
+    const { createPanelIframe } = await load();
+    state.url = null;
+    createPanelIframe(undefined, 'tuning', state, document.createElement('div'));
+    expect(state.iframe).toBeNull();
+    expect(adopted).not.toHaveBeenCalled();
+  });
 });
 
 describe('capExpiryMs reads the expiry the hub minted into the cap', () => {
