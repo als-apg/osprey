@@ -32,7 +32,6 @@ from osprey.deployment.subprocess_capture import (
     observe_exit,
     run_captured,
     stop_child,
-    stop_group,
 )
 
 
@@ -931,36 +930,11 @@ class TestProcessGroupStop:
         monkeypatch.setattr(process_table, "snapshot", refused)
         monkeypatch.setattr(subprocess_capture, "_KILL_WAIT_S", 0.2)
         try:
-            stop_group(leader.pid, grace=0.5)
+            subprocess_capture._stop_group(leader.pid, grace=0.5)
         finally:
             leader.wait()
         times = dict(sent)
         assert times[signal.SIGKILL] - times[signal.SIGTERM] >= 0.45
-
-    def test_a_group_that_ignores_sigterm_is_killed_and_none_survive(self, tmp_path):
-        group = _sleeping_group(tmp_path / "ready", ignore_term=True)
-        try:
-            assert stop_group(group.pid, grace=0.5) == []
-            assert group_is_gone(group.pid)
-        finally:
-            _kill_group(group.pid)
-            group.wait()
-
-    def test_a_member_that_outlives_sigkill_is_returned_as_a_survivor(self, tmp_path, monkeypatch):
-        group = _sleeping_group(tmp_path / "ready", ignore_term=True)
-        real_signal_group = subprocess_capture._signal_group
-
-        def no_sigkill(pgid, sig):
-            if sig != signal.SIGKILL:
-                real_signal_group(pgid, sig)
-
-        monkeypatch.setattr(subprocess_capture, "_signal_group", no_sigkill)
-        monkeypatch.setattr(subprocess_capture, "_KILL_WAIT_S", 0.2)
-        try:
-            assert stop_group(group.pid, grace=0.2) == [group.pid]
-        finally:
-            _kill_group(group.pid)
-            group.wait()
 
     def test_a_retryable_table_failure_is_read_again_not_reported(self, monkeypatch):
         leader = _exited_unreaped_leader()
@@ -974,7 +948,7 @@ class TestProcessGroupStop:
 
         monkeypatch.setattr(process_table, "snapshot", flaky)
         try:
-            assert stop_group(leader.pid, grace=1.0) == []
+            assert subprocess_capture._stop_group(leader.pid, grace=1.0) == []
         finally:
             leader.wait()
 

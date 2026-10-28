@@ -711,23 +711,20 @@ def _wait_group_gone(pgid: int, seconds: float) -> bool:
         return False
 
 
-def stop_group(pgid: int, *, dump: float | None = None, grace: float) -> list[int] | None:
+def _stop_group(pgid: int, *, dump: float | None = None, grace: float) -> list[int] | None:
     """Stop the process group ``pgid`` and return the pids still running after SIGKILL.
 
-    The group is named by its leader's pid. When ``dump`` is given the group is
-    first sent SIGABRT, which makes every process with ``faulthandler`` enabled
-    write each thread's stack before it dies, and gets ``dump`` seconds to be
-    gone. Then SIGTERM and ``grace`` seconds, then SIGKILL and
-    :data:`_KILL_WAIT_S`. Every wait is on the whole group, not only its leader.
-    A Ctrl-C during a wait ends that wait and moves on to the next signal; it is
-    not re-raised.
+    The engine of :func:`stop_child`, which checks the group's leader first and
+    reaps it after. The group is named by its leader's pid. When ``dump`` is
+    given the group is first sent SIGABRT, which makes every process with
+    ``faulthandler`` enabled write each thread's stack before it dies, and gets
+    ``dump`` seconds to be gone. Then SIGTERM and ``grace`` seconds, then
+    SIGKILL and :data:`_KILL_WAIT_S`. Every wait is on the whole group, not
+    only its leader. A Ctrl-C during a wait ends that wait and moves on to the
+    next signal; it is not re-raised.
 
     An exited process nobody has reaped counts as gone; a member this user may
     not signal counts as present.
-
-    The caller must not have reaped the leader: an unreaped leader holds the
-    group's id, so no other process can take it while the stop signals and
-    reads it. The caller reaps the leader after this returns.
 
     Returns:
         ``[]`` when the group is gone; the pids of members still running after
@@ -759,9 +756,9 @@ def stop_child(
 
     ``process`` leads its own process group (every caller starts it with
     ``process_group=0``, ``start_new_session=True`` or ``setsid()``), so the
-    group is named by its pid. The signal ladder is :func:`stop_group`'s:
-    SIGABRT and ``dump`` seconds when ``dump`` is given, SIGTERM and ``grace``
-    seconds, SIGKILL; every wait is on the whole group.
+    group is named by its pid. The signal ladder is SIGABRT and ``dump``
+    seconds when ``dump`` is given, SIGTERM and ``grace`` seconds, then
+    SIGKILL; every wait is on the whole group.
 
     The leader must be unreaped when the stop starts: an unreaped leader holds
     the group's id, so nothing else can take it while the stop signals and
@@ -772,6 +769,7 @@ def stop_child(
 
     Two concurrent calls on one child are harmless: both pass the check, and the
     second ``wait()`` returns the status the first stored under ``Popen``'s lock.
+    A call made after another call has reaped the child is refused.
 
     Returns:
         An outcome whose ``ended`` is the group. ``survivors`` names the pids
@@ -785,7 +783,7 @@ def stop_child(
     """
     pid = process.pid
     _check_leader(process)
-    pids = stop_group(pid, dump=dump, grace=grace)
+    pids = _stop_group(pid, dump=dump, grace=grace)
     leader_running = observe_exit(process) is None
     if not leader_running:
         process.wait()
@@ -906,5 +904,4 @@ __all__ = [
     "observe_exit",
     "run_captured",
     "stop_child",
-    "stop_group",
 ]
