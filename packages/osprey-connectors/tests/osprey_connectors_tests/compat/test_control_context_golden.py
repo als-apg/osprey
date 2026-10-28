@@ -6,6 +6,16 @@ its record in durable ``var/`` across a rebuild that picks up a newer
 connectors, so the newer reader must take the older file as it stands. A
 change that needs a new golden is a schema change, and a deployment is
 regenerated rather than migrated for one (see ``SCHEMA_VERSION``).
+
+Schema 1 has a normal form. The first write of a record that carries no
+``switch_epoch`` -- every golden one -- mints the epoch, stores the switch
+empty (every machine's writes off) and writes the ``posture`` mirror out for
+every machine in ``CONTROL_TARGETS``; the target, generation, owner and last
+switch are carried unchanged (``contracts.check_golden_rewrite``). So an older
+record survives a newer writer with the same meaning, not the same bytes, and
+the byte guarantee holds from the normal form on: a record already in it
+re-writes byte for byte, its epoch not re-minted and its posture not
+re-ordered.
 """
 
 from __future__ import annotations
@@ -29,7 +39,31 @@ def test_the_golden_record_round_trips_through_the_writer(tmp_path: Path) -> Non
     record = control_context.parse_record(golden)
     assert record is not None
     path = control_context.write_record(record, path=tmp_path / control_context.RECORD_FILENAME)
-    assert json.loads(path.read_text()) == golden
+    contracts.check_golden_rewrite(json.loads(path.read_text()), golden)
+
+
+def test_a_record_in_normal_form_rewrites_byte_for_byte(tmp_path: Path) -> None:
+    golden = json.loads((contracts.FIXTURES / control_context.RECORD_FILENAME).read_text())
+    first = control_context.parse_record(golden)
+    assert first is not None
+    path = control_context.write_record(first, path=tmp_path / control_context.RECORD_FILENAME)
+    normal = path.read_bytes()
+
+    again = control_context.parse_record(json.loads(normal))
+    assert again is not None
+    control_context.write_record(again, path=path)
+    assert path.read_bytes() == normal
+    assert json.loads(path.read_bytes())["switch_epoch"] == json.loads(normal)["switch_epoch"]
+
+
+def test_a_rewrite_that_drops_the_owner_breaks_the_contract(tmp_path: Path) -> None:
+    golden = json.loads((contracts.FIXTURES / control_context.RECORD_FILENAME).read_text())
+    record = control_context.parse_record(golden)
+    assert record is not None
+    path = control_context.write_record(record, path=tmp_path / control_context.RECORD_FILENAME)
+    rewrite = {**json.loads(path.read_text()), "owner": None}
+    with pytest.raises(contracts.ContractError, match="owner"):
+        contracts.check_golden_rewrite(rewrite, golden)
 
 
 def test_a_golden_record_the_reader_refuses_breaks_the_contract(tmp_path: Path) -> None:
