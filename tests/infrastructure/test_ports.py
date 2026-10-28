@@ -12,7 +12,7 @@ import textwrap
 
 import pytest
 
-from osprey.deployment.subprocess_capture import stop_group
+from osprey.deployment.subprocess_capture import observe_exit, stop_child
 from osprey_connectors_tests._harness import _ports
 from osprey_connectors_tests._harness._ports import (
     bound_socket,
@@ -30,23 +30,19 @@ _HOLDER_GRACE_S = 1.0
 
 
 def _end_holder(holder: subprocess.Popen[str]) -> None:
-    """End a lock holder by closing its stdin; a holder that ignores EOF is stopped as a group.
+    """End a lock holder by closing its stdin, then stop its group, which reaps it.
 
-    The group stop runs only while the leader is unreaped, which is the case
-    exactly when ``communicate`` timed out.
+    A holder exits on EOF; one that ignores it is stopped all the same and
+    fails the test.
     """
-    try:
-        holder.communicate(timeout=10)
-    except subprocess.TimeoutExpired:
-        survivors = stop_group(holder.pid, grace=_HOLDER_GRACE_S)
-        holder.wait()
-        for pipe in (holder.stdin, holder.stdout):
-            if pipe is not None:
-                pipe.close()
-        if survivors is None:
-            pytest.fail("the lock holder ignored EOF; the process table could not be read")
-        if survivors:
-            pytest.fail(f"the lock holder ignored EOF; still running after SIGKILL: {survivors}")
+    if holder.stdin is not None:
+        holder.stdin.close()
+    exited = observe_exit(holder, within=10.0)
+    if holder.stdout is not None:
+        holder.stdout.close()
+    outcome = stop_child(holder, grace=_HOLDER_GRACE_S)
+    assert outcome.gone, outcome.describe()
+    if exited is None:
         pytest.fail("the lock holder ignored EOF; its group was stopped")
 
 
