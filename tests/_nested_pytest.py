@@ -18,13 +18,13 @@ summary, writing nothing. In its own root it prunes only itself.
 
 A stopped run is reported with the Python stack of every thread of every
 process it started: the run gets its own process group and ``faulthandler``,
-and the stop is the product's ``osprey.deployment.subprocess_capture.stop_group``,
+and the stop is the product's ``osprey.deployment.subprocess_capture.stop_child``,
 the sequence every bounded gate run is stopped with: a ``SIGABRT`` to that
 group, which makes each process write its stacks to the same stderr before it
 dies, then SIGTERM and SIGKILL. Whatever the run left in its group is stopped
-the same way when it ends, so no worker it started outlives the calling test,
-and one that survives SIGKILL fails the test by pid, and one it could not look
-for fails it saying so.
+the same way when it ends, and that stop reaps the run's leader, so no worker
+it started outlives the calling test; one that survives SIGKILL fails the test
+by pid, and a leftover the stop could not look for fails it saying so.
 
 A finished run reports how long it sat silent before it exited
 (``NestedRun.quiet_before_exit``): the time between the last growth of its
@@ -46,7 +46,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.deployment.subprocess_capture import stop_group
+from osprey.deployment.subprocess_capture import StopOutcome, observe_exit, stop_child
 from osprey_connectors_tests._paths import TESTS_ROOT as HARNESS_ROOT
 
 #: How long a nested run may write nothing before it counts as hung. It spans
@@ -158,6 +158,7 @@ def run_nested_pytest(
                 stderr=err,
                 start_new_session=True,
             )
+            leftover: StopOutcome[int] = StopOutcome()
             try:
                 written = -1
                 last_progress = clock()
@@ -167,10 +168,10 @@ def run_nested_pytest(
                     if size != written:
                         written, last_progress = size, now
                     elif now - last_progress > stall_seconds:
-                        survivors = stop_group(proc.pid, dump=_DUMP_SECONDS, grace=_GRACE_SECONDS)
+                        outcome = stop_child(proc, dump=_DUMP_SECONDS, grace=_GRACE_SECONDS)
                         pytest.fail(
                             f"nested run wrote no new output for {stall_seconds} s and was "
-                            f"stopped{_survivor_note(survivors)}"
+                            f"stopped{_note(outcome)}"
                             f"\n--- stdout ---\n{out_path.read_text()}"
                             f"\n--- stderr ---\n{err_path.read_text()}"
                         )
@@ -179,15 +180,16 @@ def run_nested_pytest(
                 if out_path.stat().st_size + err_path.stat().st_size != written:
                     last_progress = exited
             finally:
-                leftover = stop_group(proc.pid, grace=_GRACE_SECONDS)
-                proc.wait()
-            if leftover is None:
+                # A stalled run was stopped, and reaped, where it stalled.
+                if proc.returncode is None:
+                    leftover = stop_child(proc, grace=_GRACE_SECONDS)
+            if leftover.unknown:
                 pytest.fail(
                     "could not tell whether the nested run left processes behind: "
-                    "the process table could not be read"
+                    + leftover.describe()
                 )
-            elif leftover:
-                pytest.fail(f"nested run left processes behind{_survivor_note(leftover)}")
+            elif leftover.survivors:
+                pytest.fail("nested run left processes behind" + _note(leftover))
         return NestedRun(
             argv,
             proc.returncode,
@@ -203,13 +205,9 @@ def _exited(proc: subprocess.Popen[bytes]) -> bool:
     The leader stays unreaped until the group stop has run, so its id cannot be
     taken by another process while the stop signals and reads the group.
     """
-    return os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is not None
+    return observe_exit(proc) is not None
 
 
-def _survivor_note(survivors: list[int] | None) -> str:
-    """The clause naming a stop's survivors, or nothing when there are none."""
-    if survivors is None:
-        return "; the process table could not be read to name what is still running"
-    if not survivors:
-        return ""
-    return "; still running after SIGKILL: pids " + " ".join(str(pid) for pid in survivors)
+def _note(outcome: StopOutcome[int]) -> str:
+    """The clause giving a stop's own account, or nothing when its group is gone."""
+    return "" if outcome.gone else "; " + outcome.describe()
