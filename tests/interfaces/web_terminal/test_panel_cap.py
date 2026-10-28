@@ -265,6 +265,15 @@ def _cap(app, panel_id: str, **kwargs) -> str:
     return mint_cap(get_web_credentials(app), OPERATOR_LOGIN, panel_id, **kwargs)
 
 
+def _forged(cap: str) -> str:
+    """``cap`` with its signature's last two characters changed, never to themselves.
+
+    A fixed replacement equals the real tail for one signature in 4096, and that
+    cap is then valid.
+    """
+    return cap[:-2] + ("zz" if not cap.endswith("zz") else "AA")
+
+
 def _static(panel_id: str, cap: str, file: str = "") -> str:
     return f"/panel-static/{panel_id}/{PANEL_CAP_SEGMENT}/{cap}/{file}"
 
@@ -321,7 +330,7 @@ class TestStaticCapRoute:
         [
             lambda app: _cap(app, "beta"),
             lambda app: _cap(app, "alpha", ttl=-1),
-            lambda app: _cap(app, "alpha")[:-2] + "zz",
+            lambda app: _forged(_cap(app, "alpha")),
             lambda app: mint_cap(_credentials("t" * 43), OPERATOR_LOGIN, "alpha"),
             lambda app: mint_cap(get_web_credentials(app), _session_login("foreign"), "alpha"),
         ],
@@ -467,7 +476,7 @@ class TestProxyCapRoute:
         [
             lambda app: _cap(app, "alpha"),
             lambda app: _cap(app, "agent-dash", ttl=-1),
-            lambda app: _cap(app, "agent-dash")[:-2] + "zz",
+            lambda app: _forged(_cap(app, "agent-dash")),
             lambda app: mint_cap(_credentials("t" * 43), OPERATOR_LOGIN, "agent-dash"),
             lambda app: mint_cap(get_web_credentials(app), _session_login("foreign"), "agent-dash"),
         ],
@@ -559,7 +568,7 @@ class TestCapWebsocket:
                 elif which == "expired":
                     cap = _cap(app, "agent-ws", ttl=-1)
                 else:
-                    cap = _cap(app, "agent-ws")[:-2] + "zz"
+                    cap = _forged(_cap(app, "agent-ws"))
                 with (
                     pytest.raises(WebSocketDisconnect),
                     client.websocket_connect(_proxied("agent-ws", cap, "ws"), headers=NULL_ORIGIN),
