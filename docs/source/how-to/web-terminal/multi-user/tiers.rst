@@ -30,19 +30,14 @@ Two questions decide a tier
 
 A tier is the answer to two independent questions.
 
-**May this session move hardware, and which hardware?** That is the reference
-monitor's write posture, and it is answered per control target rather than once
-for the deployment. ``control_system.writes_enabled`` is what a connector type
-inherits when it says nothing about itself, and a
-``control_system.connector.<type>.writes_enabled`` block answers for that type
-instead. Unarmed, every write surface refuses — channel writes, read-write
-Python execution, plan arming, all of it. Armed, a write is *supervised*: it
-still passes the writes-check hook, the per-channel limits, and a human
-approval prompt before the connector executes it.
-
-Because the answer is per target, a tier can be armed on the simulator and
-read-only on the machine — the same session, the same tools, refused the moment
-it switches target. That is the shape both write-capable tiers below have.
+**May this login write at all?** That is the tier key,
+``control_system.writes: allowed | never`` (:ref:`write-safety-config`). On
+``never`` every write surface refuses — channel writes, read-write Python
+execution, plan arming, all of it. On ``allowed`` the login may write to any
+machine the deployment configures, but only where its own switch is on: every
+switch starts off, and the person turns one machine on from the chip. A write
+is then still *supervised*: it passes the writes-check hook, the per-channel
+limits, and a human approval prompt before the connector executes it.
 
 **May this session change the deployment it runs in?** That is a different
 capability altogether — the ability to rewrite the ``config.yml`` every terminal
@@ -60,20 +55,15 @@ Put the two side by side and the tiers name themselves:
    * -
      - Cannot edit the deployment
      - Can edit the deployment
-   * - **Control-system writes off everywhere**
+   * - **Writes never**
      - **readonly**
      - —
-   * - **Writes on the simulator only** (supervised)
+   * - **Writes allowed** (switch per machine, supervised)
      - **readwrite**
      - **admin**
-   * - **Control-system writes on** (supervised)
-     - —
-     - —
 
-The preset ships the three named cells, and no tier armed on the live machine:
-arming one is the facility's own edit. The empty cells are not forbidden by
-anything in OSPREY — a tier file could be written for any of them — the preset
-simply does not ship one.
+The empty cell is not forbidden by anything in OSPREY — a tier file could be
+written for it — the preset simply does not ship one.
 
 .. _multi-user-tiers:
 
@@ -93,22 +83,19 @@ permissions, because permissions are a property of a project's ``config.yml``
      - Editing the deployment
      - What the screen looks like
    * - **readonly** (bob)
-     - Off, on every target. Every write surface refuses
+     - ``never``. Every write surface refuses
      - No. The ``setup_patch`` tool is denied, the Config panel is off, and
        the scaffold gallery is readable but not writable
      - Chat-first ``simple`` layout, without the EVENTS and BLUESKY panels
    * - **readwrite** (alice)
-     - On for the virtual accelerator, off for both hardware-shaped targets —
-       the live machine and its stand-in. A write refuses the moment the
-       session is switched to either, with no config edit either way. On the
-       simulator it is supervised: a channel write still passes the
+     - ``allowed``. Alice writes to a machine once she turns its switch on
+       from the chip, and nowhere else. A channel write still passes the
        writes-check hook, the per-channel limits, and a human approval prompt
        before it executes
      - No — the same floor as readonly
      - Full ``expert`` workspace with the EVENTS and BLUESKY panels
    * - **admin** (carol)
-     - On for the virtual accelerator, off for both hardware-shaped targets,
-       on exactly the supervised terms above
+     - ``allowed``, on exactly the terms above
      - Yes, and only here: the ``setup-mode`` skill, the ``setup_patch``
        tool, the web Config panel, and the gallery's edit, create and delete
        surfaces
@@ -139,9 +126,9 @@ read-only tier.
    The same table, as the rendered projects spell it. The single-user column
    is the one worth knowing: a plain ``osprey init --preset control-assistant``
    render is readwrite at the machine and floored at the deployment — no
-   Config tab, no gallery writes. It opens on the simulator, so reaching the
-   machine is a deliberate target switch. Admin in a single-user deployment
-   means editing ``profile.yml`` and rebuilding.
+   Config tab, no gallery writes. It opens on the simulator with every switch
+   off. Admin in a single-user deployment means editing ``profile.yml`` and
+   rebuilding.
 
    .. list-table::
       :header-rows: 1
@@ -152,37 +139,26 @@ read-only tier.
         - readwrite
         - admin
         - single-user base
-      * - ``control_system.writes_enabled``
-        - ``false``
-        - ``false``
-        - ``false``
-        - ``true``
-      * - ``control_system.connector.<type>.writes_enabled``
-        - ``false`` for both connector types, so no later edit of the
-          deployment-wide key can arm one
-        - ``virtual_accelerator: true`` and ``epics: false``; the live
-          machine's block is pinned by name, so no per-type ``true`` lower in
-          the chain can lift it
-        - the same two keys as readwrite
-        - none — every type inherits the deployment-wide key
+      * - ``control_system.writes``
+        - ``never``
+        - ``allowed``
+        - ``allowed``
+        - ``allowed``
       * - ``mcp__controls__channel_write``
         - kill-switch deny
-        - neither denied nor asked in ``settings.json``: ask + approval hook
-          on the simulator, hook refusal on both hardware-shaped targets
+        - ask + approval hook; refused ``switch_off`` where the switch is off
         - as readwrite
-        - ask + approval hook
+        - as readwrite
       * - Bluesky arming tools
         - kill-switch deny
-        - per lane: ask on the simulator's lane, ``writes_disabled`` on a
-          hardware-shaped one
+        - ask; refused ``switch_off`` where the lane's machine is off
         - as readwrite
-        - ask
+        - as readwrite
       * - ``mcp__python__execute``
         - read-only kernel only
-        - both kernels, but a read-write run is refused while the deployment
-          is on a hardware-shaped target
+        - both kernels; a read-write run is refused where the switch is off
         - as readwrite
-        - both kernels
+        - as readwrite
       * - ``mcp__osprey_workspace__setup_patch``
         - deny (floor)
         - deny (floor)
@@ -200,8 +176,7 @@ read-only tier.
         - 403 (read OK)
       * - Control-target chip: *Turn writes on* for a machine
         - locked (*kept read-only by the deployment*)
-        - confirm modal on the simulator; *writes locked* on both
-          hardware-shaped targets, which nothing in the browser lifts
+        - confirm modal
         - as readwrite
         - confirm modal
       * - ``build/config.yml`` owner in the container
@@ -231,8 +206,8 @@ file.
 Each file under ``tiers/`` holds only that tier's **differences** from
 ``profile.yml``. The base profile carries the floor — the three
 deployment-editing surfaces switched off — and a tier adds what it needs on
-top: ``readonly.yml`` turns control-system writes off, ``readwrite.yml`` arms
-them on the simulator alone, ``admin.yml`` does the same and lifts the floor.
+top: ``readonly.yml`` sets ``control_system.writes: never``, ``readwrite.yml``
+sets it ``allowed``, ``admin.yml`` does the same and lifts the floor.
 A tier adds lists by name and its config keys win; it never subtracts and never
 carries a deployment fact such as services, data or ports. ``osprey build``
 lays each tier over the base and renders it into its own project, and
@@ -279,22 +254,19 @@ holds is file ownership, not a permission list.
 .. raw:: html
    :file: ../../../_diagrams/tier-layers.html
 
-**Layer 1** is what makes the readonly tier certain. A tier armed on **no**
-target does not merely tell the agent not to write; it renders the framework
-servers' write-gated tools into a deny list that the agent runtime checks
-before any OSPREY code runs, and no tier setting can subtract from that
-list. Tools a project adds under ``control_system.write_tools`` are not in that
-list in any render — they are refused by the writes-check hook, which is
-Layer 2.
+**Layer 1** is what makes the readonly tier certain. A ``never`` tier does not
+merely tell the agent not to write; it renders the framework servers'
+write-gated tools into a deny list that the agent runtime checks before any
+OSPREY code runs, and no tier setting can subtract from that list. Tools a
+project adds under ``control_system.write_tools`` are not in that list in any
+render — they are refused by the writes-check hook, which is Layer 2.
 
-A tier armed on *some* targets — ``readwrite`` and ``admin``, both armed on the
-simulator alone — cannot get that static deny: ``settings.json`` is rendered
-once, before any session has picked a target, and the same tool is legal on one
-machine and refused on the other. So those tiers render no deny at all and carry
-the boundary per call instead — the safety hook checks the session's active
-target, and the connector refuses again behind it. Layer 1 is the stronger
-guarantee, which is why the read-only tier, and not a write-capable one, is the
-one to hand out when the requirement is "this login can never move anything".
+An ``allowed`` tier cannot get that static deny: the switch changes at run time,
+so the boundary is carried per call instead — the safety hook asks the verdict,
+and the connector asks it again behind it. Layer 1 is the stronger guarantee,
+which is why the read-only tier, and not a write-capable one, is the one to hand
+out when the requirement is "this login can never move anything". A shell is
+denied on an ``allowed`` tier, and lifting it fails the build.
 
 **Layer 2** is the set of gates that give the agent a readable refusal —
 ``setup_patch`` denied by the floor, the Config panel and gallery refusing
@@ -341,15 +313,16 @@ alice's and bob's terminals and ask both agents to do the same two things:
 reading. Both sessions answer identically: reads are ungated on both tiers.
 
 **Write.** Ask each agent to change a setpoint on the simulator. In alice's
-session the write goes to a human approval prompt, then executes. In bob's
-session the same request is **refused**: the write tool is denied in his
-project's rendered permissions, and the refusal states plainly that writes are
-disabled in his configuration.
+session the write is refused: her switch is off, and the refusal says to turn
+it on from the chip. She turns the simulator's writes on, asks again, and the
+write goes to a human approval prompt, then executes. In bob's session the
+same request is **refused** whatever he does: the write tool is denied in his
+project's rendered permissions, and his chip has no switch to turn on.
 
 **Switch.** In alice's terminal, use the control-target chip to switch to the
-Real machine or the Rehearsal, and ask for the same write. It is refused in her
-own session — by the safety hook and the connector, not by a rendered deny,
-because her tier is armed on the simulator alone.
+Real machine or the Rehearsal, and ask for the same write. It is refused —
+by the safety hook and the connector, not by a rendered deny — because her
+switch for that machine is still off.
 
 Both agents carry the *same* tool surface — the readonly tier is not a
 stripped-down agent that never heard of writing. It is the same agent whose

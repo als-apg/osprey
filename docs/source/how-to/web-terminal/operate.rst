@@ -413,9 +413,8 @@ chip cannot lift it, and a refusal nobody set --- a switch that cannot be read
 
    Where a deployment also serves a panel at an address of its own, that
    address is a **service door, not a terminal**. Log in there directly and the
-   deployment has no name to put on what you do, so nobody's chip applies to
-   it: a plan queued from that page runs at its lane's ceiling --- what the
-   deployment armed for that lane --- rather than under yours. Reaching the
+   deployment has no name to put on what you do, so no switch covers it: a
+   plan queued from that page writes nothing (``owner_unknown``). Reaching the
    same panel from its tab in the terminal is the named path, and the one the
    chip governs.
 

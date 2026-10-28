@@ -136,7 +136,9 @@ profile leaves to its preset (from ``--preset NAME``, or the preset the profile
 records), and the provider entries OSPREY ships, keeping the ones you added.
 Your deployment's own selections — the roster, the shared apps, the default
 tier, role tiers, the landing groups — are left for you and named in the
-output. Prints a diff to review and commit.
+output. Retired write keys are rewritten to the tier key
+``control_system.writes`` in every layer (:ref:`write-safety-upgrade`). Prints
+a diff to review and commit.
 
 The step is one-way: an older OSPREY refuses the revalidated repository. To go
 back, check out the repository as it was before the commit and install the
@@ -197,8 +199,7 @@ facilities' gateway addresses.
    osprey set channel_finder_mode=in_context
    osprey set config.system.timezone=America/Los_Angeles
    osprey set config.control_system.connector.epics.gateways.read_only.address=gw.example.org
-   osprey set --repo ~/my-assistant config.control_system.writes_enabled=true
-   osprey set config.control_system.connector.virtual_accelerator.writes_enabled=true
+   osprey set --repo ~/my-assistant config.control_system.writes=allowed
 
 osprey validate
 ===============

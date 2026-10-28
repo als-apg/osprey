@@ -23,9 +23,8 @@ and sets ``phoebus.agent_access: read_write`` has one more: ``phoebus_drive`` pa
 the Phoebus product writes the value through its own connections, not through the connector
 --- see :ref:`A Phoebus drive <architecture-safety-chain-phoebus-drive>`.
 
-A write also carries a name --- whose write it is. Narrowing a machine to read-only is
-that person's decision about their own writes, so the name decides which narrowing a write
-is judged against. :ref:`Whose write is it <architecture-safety-chain-owner>`, at the foot of
+A write also carries a name --- whose write it is. A machine's write switch is one login's,
+so the name decides whose tier and whose switch a write is judged against. :ref:`Whose write is it <architecture-safety-chain-owner>`, at the foot of
 this page, says where the name comes from and what it does not cover.
 
 .. raw:: html
@@ -37,15 +36,12 @@ The checks
 They run in this order; a channel write meets all three; a Python run, a plan and a Phoebus
 drive meet the first and the last:
 
-1. **Are writes switched on?** (``osprey_writes_check``) --- the kill switch. It refuses any
-   write when writes are switched off for the machine the deployment points at ---
-   ``control_system.connector.<type>.writes_enabled`` in ``config.yml``, or the
-   ``control_system.writes_enabled`` a type without that key inherits --- and when the person
-   who asked has narrowed that machine to read-only from their own terminal. It applies to channel
-   writes, Phoebus drives, read-write Python runs, and queueing or starting a plan. Where no
-   machine may be written at all, channel writes, Phoebus drives and plan queueing are switched
-   off outright rather than refused call by call, and a Python run is always asked. Stopping a
-   plan is never switched off.
+1. **May this login write to this machine?** (``osprey_writes_check``) --- the write
+   verdict: the login's tier, then the owner, then that login's switch for the machine the
+   deployment points at (:ref:`write-safety-config`). It applies to channel writes, Phoebus
+   drives, read-write Python runs, and queueing or starting a plan. On a ``never`` tier the
+   build denies those tools outright rather than refusing them call by call, and a Python run
+   is always asked. Stopping a plan is never refused.
 
 2. **Is the value within limits?** (``osprey_limits``) --- checks a channel write against the
    limits database: that the channel is in it, that it may be written, and the allowed range.
@@ -63,24 +59,37 @@ drive meet the first and the last:
    **What a prompt guarantees (stage 1).** Where the policy asks, a channel write, a Phoebus
    drive, queueing or starting a plan, and a read-write Python run go ahead only on the record
    the prompt left for that call; a call the prompt never saw is refused by the server that
-   would carry it out. Python code that names the store holding the machine's switch is asked
+   would carry it out. That is all it claims: the record is checked on the agent's own host,
+   by processes of the agent's own user, so it binds every tool path and does not contain code
+   already running there (see :ref:`architecture-safety-chain-residual`). Python code that names the store holding the machine's switch is asked
    under every policy and refused where nothing can ask --- under ``skip``, with approval off,
    or in a dispatch run. The executor checks it again before the code runs, read-only runs
    included.
 
-Every check reads the deployment's settings: which machine the deployment points at, and
-whether the person who asked has narrowed it, come from the records the deployment keeps ---
-one per person --- read fresh on every call, so a switch made anywhere reaches the agent's
-next tool call; whether writes are switched on for that machine is rendered from
-``config.yml`` at build time and takes a rebuild to change. See
-:ref:`web-terminal-session-posture` for the narrowing and
+Which machine the deployment points at, and whether the login's switch is on for it, come
+from the records the deployment keeps --- one per login --- read fresh on every call, so a
+flip reaches the agent's next tool call. The tier is rendered at build time and takes a
+rebuild to change. See :ref:`web-terminal-session-posture` for the switch and
 :doc:`/how-to/control-systems/switch-control-target` for the machine.
 
-.. note::
+.. _architecture-safety-chain-order:
 
-   After upgrading a deployment, choose the machine again. Records an older version kept in
-   a single file, at ``var/agent_data/control_target/control_context.json``, are not read ---
-   including a narrowing that record held.
+Enforcement order
+-----------------
+
+A write meets its gates in this order, and the first that refuses ends it:
+
+1. **The render.** A ``never`` tier denies the write tools before the agent can call them.
+2. **The hooks**, above: the verdict, the limits, the prompt.
+3. **The server** carrying the call checks that the prompt recorded it, and that the machine
+   is still the one approved.
+4. **The connector** asks the verdict again on every put, then the limits, then confirms.
+5. **The network.** Where a machine has a read-only gateway, a connector whose switch is off
+   is pointed at it, so the gateway refuses a put that got past everything else. A machine
+   with only a write gateway has the software layers alone, and the build says so.
+
+The hooks and the connector share one verdict and one order, so a write refused at either
+names the same reason.
 
 Five paths below the checks
 ===========================
@@ -126,7 +135,7 @@ or a chromaticity routine; pyAML, the Python accelerator middle layer, calls the
 its own Python and queues plans for that. It is the one path on which the executor runs code
 OSPREY ships rather than code the agent wrote: the pyAML view the build rendered from the
 facility description, with the tool's settings from ``data/facility/measurement/``. The call
-passes the kill switch and the approval prompt. The prompt lists the model, the kind, the
+passes the write verdict and the approval prompt. The prompt lists the model, the kind, the
 digest of the view the tool runs on and every setpoint the call steps; a call that would step
 more setpoints than a prompt can list is refused without asking. The tool then runs in the
 same sandbox as the agent's Python, under the same guards, and each setpoint it moves is an
@@ -138,7 +147,7 @@ setpoint the call moved with its value before the call
 A Bluesky plan
 --------------
 
-The agent queues or starts a plan through its Bluesky tools, which pass the kill switch and
+The agent queues or starts a plan through its Bluesky tools, which pass the write verdict and
 the approval prompt. A person reaches the same queue from the BLUESKY panel's **Start** button,
 with none of the checks in the way. Both then meet the gates the queue holds:
 
@@ -148,23 +157,22 @@ with none of the checks in the way. Both then meet the gates the queue holds:
 - **Every channel the plan declares must answer first.** Before a run starts, each channel the
   plan declares it will read or write is asked to respond; if any does not, the run is refused
   before anything is written.
-- **Each write is checked as it happens.** Are writes on for the machine the lane drives, is
-  the value within limits, and has the person the plan belongs to narrowed that machine.
+- **Each write is checked as it happens.** The verdict for the plan's owner on the machine
+  the lane drives, then the limits.
 
 Stopping a plan never needs a token, anywhere. See :doc:`/how-to/bluesky/queue` for the token
 and :doc:`/how-to/bluesky/write-plans` for the pre-run check.
 
 **A plan carries the name of whoever queued it.** The name rides along on the queued item, and
 the lane's own container reads it back when the plan starts: the plan runs inside a task that
-holds that name, so each of its writes is judged against that person's narrowing --- nobody
-else's, and a narrowing made after the plan started reaches its next write. A queue row OSPREY
+holds that name, so each of its writes is judged against that person's tier and switch ---
+nobody else's, and a flip made after the plan started reaches its next write. A queue row OSPREY
 relays shows the name only when the item carries one.
 
 The queue has other doors, and a plan that came through one of those carries whatever name it
 claims, or none at all. OSPREY did not put that name there and cannot vouch for it. A claimed
-name still binds: the plan's writes are judged against that person's narrowing, and the row
-shows the name. A plan carrying no name runs at whatever the lane itself allows --- **the
-lane's ceiling**.
+name still binds: the plan's writes are judged against that person's tier and switch, and the
+row shows the name. A plan carrying no name writes nothing: it is refused ``owner_unknown``.
 
 **A start is bound to the queue the approver looked at.** The approval prompt records which
 queue was shown, and the start carries that queue's identity with it; if the queue changed in
@@ -176,10 +184,9 @@ A Jupyter cell
 --------------
 
 A cell is run by a person, so no tool call and none of the checks are involved. What guards it
-are the deployment's settings, which the notebook kernel carries. The kernel starts with writes
-off, and before every cell it re-reads which machine the deployment points at and whether it
-may write; a switch made anywhere reaches the next cell, and narrowing the machine reaches a
-cell already running, because the connector checks the narrowing on every write. A cell reaches
+are the deployment's settings, which the notebook kernel carries. Before every cell the kernel
+re-reads which machine the deployment points at, and the connector asks the verdict on every
+write, so a flip of the switch reaches a cell already running. A cell reaches
 the machine through ``osprey.runtime``: importing a control-system client library, or loading
 one through ``ctypes`` or ``cffi``, is refused whatever the chip says, for reads as for writes,
 so a cell written the ordinary way reads and writes through the connector. The block is
@@ -219,28 +226,13 @@ What every path shares
 ======================
 
 **The connector.** Each of the five paths ends at the connector, the last step before the
-machine. On
-every write it asks the deployment's records one question --- may this person write to this
-machine right now --- and gets back one of three answers:
-
-``permitted``
-   nothing is in the way; the write goes on to the limits check below.
-
-``narrowing``
-   the person this write belongs to has narrowed this machine to read-only. Narrowing refuses
-   at once, whichever path the write took, including a plan already running.
-
-``control_context_unavailable``
-   the records could not be read --- no record where one was expected, or a directory the
-   container cannot see into. The write is refused rather than allowed, and the refusal names
-   what to check.
-
-Where the records are what refused a write, the message ends in the word they answered with,
-``narrowing`` or ``control_context_unavailable``, so the reason survives being passed along ---
-through a plan that failed, through a run record, into the audit line. Refusals decided
-elsewhere read differently and say so: a Python run that was pinned read-only when it launched
-is told to re-run the script, because a write state set since applies to the next run, not to
-one already in flight.
+machine. On every write it asks the verdict --- may this login write to this machine right now
+--- whichever path the write took, a plan already running included. A refusal ends in a
+``[osprey-refusal: <reason>]`` trailer, so the reason survives being passed along --- through
+a plan that failed, through a run record, into the audit line. The reasons are listed in
+:ref:`write-safety-config`. A Python run started with writes held off is refused
+``launch_pinned`` and told to run again: a flip applies to the next run, not to one in
+flight.
 
 Where limits checking is on, the connector then checks the value against the limits --- the
 allowed range, the step size, and whether the channel may be written at all. It sends the value
@@ -262,10 +254,10 @@ A Phoebus drive
 With the ``phoebus`` server enabled and ``phoebus.agent_access: read_write`` set (both off
 unless a deployment switches them on), ``phoebus_drive`` clicks a control or types a value into
 a widget of a display open in a running Phoebus product. Under the default, ``read``, the agent
-is not offered the tool and the server refuses a call to it. The call passes the kill switch
+is not offered the tool and the server refuses a call to it. The call passes the write verdict
 and the approval prompt, like the other tool paths, and is refused while the control target is
 switched away from the deployment's baseline, because the Phoebus product stays connected to
-the baseline machine. The narrowing is judged once, when the call passes the kill switch.
+the baseline machine. The switch is judged once, when the call passes the verdict.
 ``phoebus.agent_access`` is all or nothing, because a panel runs whatever its widgets are wired
 to; finer control belongs to the EPICS gateway or access security the Phoebus product connects
 through.
@@ -276,8 +268,7 @@ modes: synthetic, the default, fires the widget's GUI event so the display's own
 dialogs, enable rules and scripts run; semantic writes a typed value straight to the widget's
 channel. So none of :ref:`what every path shares <architecture-safety-chain-shared>` reaches
 the value: the limits check does not see it, neither at the ``osprey_limits`` hook nor at a
-connector; no connector asks the narrowing records at write time; and nothing reads the
-channel back.
+connector; no connector asks the verdict at write time; and nothing reads the channel back.
 
 The audit trail records the call as it records any tool call: one line naming
 ``phoebus_drive``, who called it, the posture in force and the decision. With
@@ -318,8 +309,8 @@ allowed, not who sent it.
 A job the OSPREY agent fires goes out through the terminal's own panel proxy. The agent never
 holds the dispatcher's key; the proxy holds it, adds it on the way out and stamps the same name
 the rest of that terminal's traffic carries. The worker that runs the job hands that name on to
-the job's own agent session, so the job runs as the person who asked and the writes it makes
-meet their narrowing. A backend behind the EVENTS panel is handed that key and that name
+the job's own agent session, so the job runs as the person who asked and its writes follow
+that person's tier and switch. A scheduled job runs for nobody and writes nothing. A backend behind the EVENTS panel is handed that key and that name
 only when the deployment's config declares it **and** it answers on the loopback address ---
 the same rule the operator secret follows. See :doc:`/how-to/agent-interfaces/event-dispatch`.
 
@@ -333,18 +324,16 @@ gaps follow from that, and a deployment should know them:
   or a tier whose profile allows a shell --- can reach the queue's own port and add a plan
   under any name it chooses, or none. The gap is that such a name is unvouched: OSPREY did not
   mint it, and it binds all the same, so the plan is judged against whoever it names. With no
-  name it runs at the lane's ceiling.
+  name it writes nothing.
 - **A shell reaching the panel's dispatcher address.** The panel token sits in the agent's own
   environment, so the same shell can fire a job without the approval prompt. Building a tier
   that allows a shell warns about exactly this, and a sandboxed run cannot do it --- neither the
-  token nor the port is there. The job still runs as the real person, under their narrowing.
-- **A direct login at the panel's own address.** Unnamed, as above, and at the lane's ceiling.
+  token nor the port is there. The job still runs as the real person, under their switch.
+- **A direct login at the panel's own address.** Unnamed, as above, so it writes nothing.
 
-**The lane's ceiling** is what a lane allows when nobody is named, and it describes the lanes
-this deployment deploys. An external-worker lane (``bluesky.external:``) is a facility's own
-RunEngine and devices: no OSPREY check runs inside it, so neither a person's narrowing nor the
-lane's ceiling reaches its writes. The name OSPREY puts on such an item is attribution --- it
-says who queued the plan, not what gated it.
+An external-worker lane (``bluesky.external:``) is a facility's own RunEngine and devices: no
+OSPREY check runs inside it, so no tier or switch reaches its writes. The name OSPREY puts on
+such an item is attribution --- it says who queued the plan, not what gated it.
 
 The raw-put block that sends Python runs through the connector has gaps of the same kind. It
 refuses a client library's own put, and it tells a connector's put apart by the connector's
@@ -380,6 +369,29 @@ against code that has its own way to a write --- the cooperative bypasses, or th
 network reach to the control system. Those are the connector's checks and the deployment's
 network to close. The mechanical boundaries of record are the connector's mediation and the
 containers themselves; the prompt is the record that a person intended the write.
+
+.. _architecture-safety-chain-residual:
+
+What the switch does not close
+------------------------------
+
+**The same-uid residual.** The switch's record is written by the terminal's server, and the
+agent, its Python runs and its notebook kernels run as the same Unix user. OSPREY closes what
+it can reach: the agent's file tools are denied the record's store, a shell is denied on every
+``allowed`` tier (lifting it fails the build), Python code that names the store needs approval
+and is refused where nothing can ask, and every writer other than the person's own route
+leaves the switch as it found it. Code in the executor running as that user, assembling the
+path at run time, can still reach it. A writer the agent cannot reach --- the record in its
+own user or container --- is the structural close, and is left to the sandboxing work (SBX).
+
+**Routes left to later work.** These writes are refused today and have no route back yet:
+
+- **An ownerless write** --- a queue item or request no login can be named for. The gate on
+  the external lane (BYP) is where it gets a route back.
+- **A scheduled dispatch job.** It runs for no login, so no switch covers it. The route back is
+  a schedule that names the login it follows; that is a dispatch feature.
+- **A stop across logins.** *Turn all writes off* stops the pressing login's writes only. A
+  deployment-wide stop needs one writer that can reach every login's record (SBX).
 
 The name the control system sees
 --------------------------------
@@ -418,12 +430,12 @@ interpreter or a raw socket --- and what gates a write is the chain above, not t
    the rendered project together; ``osprey health`` reports a card or worker writing under a
    different name than the render expects.
 
-Where the narrowing records live
---------------------------------
+Where the switch records live
+-----------------------------
 
-Each person's record sits in a directory of its own under the deployment's agent-data root, and
+Each login's record sits in a directory of its own under the deployment's agent-data root, and
 the lane and dispatch containers read that tree without being able to write to it. The tree is
-shared by group, so a narrowing is readable by the accounts that share it; it is state, not a
+shared by group, so a switch is readable by the accounts that share it; it is state, not a
 secret. The build refuses to set the tree up on a planted symlink, and the readers do not
 follow links, so nothing on the path can be swapped for a record from somewhere else. That
 guarantee rests on one thing the operator owns: the agent-data root itself must not be writable

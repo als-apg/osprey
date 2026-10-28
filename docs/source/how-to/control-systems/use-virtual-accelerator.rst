@@ -403,47 +403,24 @@ in-range write goes through. The mandatory write-approval flow applies
 unchanged — the Virtual Accelerator connector inherits the same write-safety
 wiring as the EPICS connector.
 
-Arm writes here without arming the machine
-------------------------------------------
+Write to the simulator without arming the machine
+-------------------------------------------------
 
-Write posture is per control target, and this is the page where that matters
-most: the Virtual Accelerator can be write-armed while the live machine the
-same deployment knows about stays read-only.
-``control_system.writes_enabled`` is the posture a connector type inherits when
-it says nothing about itself; a block under ``connector:`` answers for that type
-instead.
+Writes are decided per login and per machine, and this is the page where that
+matters most. The tier key says whether a login may write at all:
 
 .. code-block:: yaml
 
    control_system:
-     writes_enabled: false          # what every type inherits
-     connector:
-       epics:
-         writes_enabled: false      # the live machine, pinned by name
-       virtual_accelerator:
-         writes_enabled: true       # ... and the simulator alone is armed
+     writes: allowed       # or never; silence is never
 
-Only a literal ``true`` arms a target. The quoted string ``'true'`` and the
-number ``1`` do not, at either level, and a config that uses one of them will
-find its writes refused. A type that states its own posture never falls back to
-the inherited key, so the ``false`` above holds for the live machine even if a
-profile turns the deployment-wide key on.
-
-Switching to the live target (see
-:doc:`switch-control-target`) therefore takes its writes away, with no config
-edit and no rebuild — the same write tool that moves the simulator is refused
-on the machine. The bundled ``readwrite`` and
-``admin`` tiers ship exactly those three keys: they pin
-the live block by name, so no later per-type ``true`` can lift it.
-
-.. note::
-
-   On a deployment whose targets disagree like this, ``settings.json`` denies
-   nothing up front — it is rendered once, before any target has been picked
-   — so every refusal arrives per call instead, from the safety hook and
-   the connector, naming the target that refused it. Tools you list under
-   ``control_system.write_tools`` are refused by that same hook, which is how
-   they are gated in every deployment.
+The tier is target-blind. Which machine a write reaches is the person's own
+switch, turned on per machine from the
+:ref:`control-target chip <web-terminal-session-posture>`, and every switch
+starts off. Turn the simulator on and leave the real machine off, and the same
+write tool that moves the simulator is refused on the machine after a switch
+(:doc:`switch-control-target`), with no config edit and no rebuild. The rule is
+on :ref:`write-safety-config`.
 
 .. note::
 
