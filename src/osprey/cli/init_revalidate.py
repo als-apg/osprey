@@ -2452,10 +2452,18 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
             continue
         if edited:
             if retired.kind == APPS_DIRNAME:
+                # The one edit worth naming: a model the card ran on, which the
+                # bundled app does not set, so the app would run the host's.
+                model = data.get("model") if isinstance(data, dict) else None
+                carry = (
+                    f"your edits, its `model: {model}` among them, into {app_rel}"
+                    if model
+                    else f"your edits into {app_rel}"
+                )
                 steps.append(
                     f"{rel} was made from `{source}` and has been edited, so it stays a tier. "
                     f"To run it as the `{successor}` app: run `osprey scaffold apps`, carry "
-                    f"your edits into {app_rel}, list `{successor}` under `shared:`, and "
+                    f"{carry}, list `{successor}` under `shared:`, and "
                     f"remove {rel} and the users pinned to it"
                 )
             else:
