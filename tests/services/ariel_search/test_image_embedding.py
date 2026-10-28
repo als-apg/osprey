@@ -10,6 +10,7 @@ adapter against the ``llama_stub`` server on 127.0.0.1.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import logging
 import math
@@ -39,6 +40,7 @@ from osprey.services.ariel_search.enhancement.image_embedding.module import (
     ImageEmbeddingModule,
 )
 from osprey.services.ariel_search.exceptions import ModuleConfigError
+from tests.services.ariel_search._image_doubles import FakeCursor, FakeGate
 from tests.services.ariel_search.llama_stub import MODEL
 
 DIMS = 1024
@@ -81,34 +83,22 @@ def _module(url: str, **settings: Any) -> ImageEmbeddingModule:
 # ---------------------------------------------------------------------------
 
 
-class _Cursor:
-    def __init__(self, rows: list[tuple], rowcount: int = 0) -> None:
-        self._rows = rows
-        self.rowcount = rowcount
-
-    async def fetchone(self) -> tuple | None:
-        return self._rows[0] if self._rows else None
-
-    async def fetchall(self) -> list[tuple]:
-        return list(self._rows)
-
-
 class _Conn:
     def __init__(self, repo: FakeRepo) -> None:
         self._repo = repo
 
-    async def execute(self, sql: str, params: dict[str, Any]) -> _Cursor:
+    async def execute(self, sql: str, params: dict[str, Any]) -> FakeCursor:
         repo = self._repo
         repo.statements.append(sql)
         if sql.startswith("SELECT to_regclass"):
             name = params["t"]
-            return _Cursor([(name if name in repo.relations else None,)])
+            return FakeCursor([(name if name in repo.relations else None,)])
         if sql.startswith(f"SELECT attachment_id FROM {TABLE}"):
-            return _Cursor([(a,) for a in params["ids"] if a in repo.vectors])
+            return FakeCursor([(a,) for a in params["ids"] if a in repo.vectors])
         if sql.startswith(f"INSERT INTO {TABLE}"):
             assert "WHERE EXISTS" in sql and "ON CONFLICT (attachment_id) DO UPDATE" in sql
             if not repo.viewable(params["id"]):
-                return _Cursor([], 0)
+                return FakeCursor([], 0)
             literal = params["vector"]
             repo.vectors[params["id"]] = {
                 "embedding": None
@@ -117,27 +107,16 @@ class _Conn:
                 "skip_reason": params["skip"],
                 "model_ref": params["model"],
             }
-            return _Cursor([], 1)
+            return FakeCursor([], 1)
         raise AssertionError(f"unexpected statement: {sql}")
-
-
-class _ConnCtx:
-    def __init__(self, repo: FakeRepo) -> None:
-        self._repo = repo
-
-    async def __aenter__(self) -> _Conn:
-        return _Conn(self._repo)
-
-    async def __aexit__(self, *exc: object) -> None:
-        return None
 
 
 class _Pool:
     def __init__(self, repo: FakeRepo) -> None:
         self._repo = repo
 
-    def connection(self) -> _ConnCtx:
-        return _ConnCtx(self._repo)
+    def connection(self) -> contextlib.nullcontext[_Conn]:
+        return contextlib.nullcontext(_Conn(self._repo))
 
 
 class FakeRepo:
@@ -281,27 +260,6 @@ class FakeRepo:
         }
         self.status_writes.append((entry_id, "failed"))
         return self.failed[entry_id]
-
-
-class FakeGate:
-    """A recording :class:`PictureGate`."""
-
-    def __init__(self, *, deterministic: bool = True) -> None:
-        self.allow_deterministic = deterministic
-        self.started = 0
-        self.successes = 0
-        self.signatures: list[str] = []
-
-    def may_start_picture(self) -> bool:
-        self.started += 1
-        return True
-
-    def succeeded(self) -> None:
-        self.successes += 1
-
-    def deterministic(self, signature: str) -> bool:
-        self.signatures.append(signature)
-        return self.allow_deterministic
 
 
 def _warnings(caplog, needle: str) -> list[logging.LogRecord]:

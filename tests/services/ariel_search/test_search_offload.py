@@ -17,6 +17,7 @@ from osprey.services.ariel_search.search._offload import (
     SearchCallPool,
     run_search_call,
 )
+from tests._live import async_wait_until
 
 
 async def test_search_calls_run_on_their_own_bounded_pool(search_calls: SearchCallPool):
@@ -42,9 +43,7 @@ async def test_search_calls_run_on_their_own_bounded_pool(search_calls: SearchCa
         asyncio.ensure_future(run_search_call(search_calls, _call))
         for _ in range(SEARCH_CALL_WORKERS + 2)
     ]
-    deadline = time.monotonic() + 5.0
-    while running < SEARCH_CALL_WORKERS and time.monotonic() < deadline:
-        await asyncio.sleep(0.01)
+    await async_wait_until(lambda: running >= SEARCH_CALL_WORKERS, timeout=5.0, interval=0.01)
     await asyncio.sleep(0.1)
     with lock:
         held = running
@@ -59,14 +58,6 @@ async def test_search_calls_run_on_their_own_bounded_pool(search_calls: SearchCa
 async def test_run_search_call_times_out(search_calls: SearchCallPool):
     with pytest.raises(TimeoutError):
         await run_search_call(search_calls, time.sleep, 0.5, timeout_s=0.05)
-
-
-async def _wait_until(condition, deadline_s: float = 10.0) -> None:
-    deadline = time.monotonic() + deadline_s
-    while not condition():
-        if time.monotonic() > deadline:
-            pytest.fail("condition not reached before the deadline")
-        await asyncio.sleep(0.01)
 
 
 async def test_hung_calls_do_not_multiply_threads(search_calls: SearchCallPool):
@@ -92,7 +83,7 @@ async def test_hung_calls_do_not_multiply_threads(search_calls: SearchCallPool):
         for _ in range(SEARCH_CALL_WORKERS)
     ]
     try:
-        await _wait_until(lambda: entered == SEARCH_CALL_WORKERS)
+        await async_wait_until(lambda: entered == SEARCH_CALL_WORKERS, interval=0.01)
         for _ in range(50):
             with pytest.raises(TimeoutError):
                 await run_search_call(search_calls, _abandoned, timeout_s=0.01)
@@ -128,7 +119,7 @@ async def test_a_saturated_pool_refuses_at_once(search_calls: SearchCallPool):
         for _ in range(SEARCH_CALL_WORKERS)
     ]
     try:
-        await _wait_until(lambda: entered == SEARCH_CALL_WORKERS)
+        await async_wait_until(lambda: entered == SEARCH_CALL_WORKERS, interval=0.01)
         for call in hung:
             call.cancel()
         await asyncio.gather(*hung, return_exceptions=True)
@@ -221,7 +212,7 @@ async def test_a_closed_pool_refuses_queued_and_later_calls():
         return "held"
 
     running = asyncio.ensure_future(run_search_call(pool, _hold))
-    await _wait_until(started.is_set)
+    await async_wait_until(started.is_set, interval=0.01)
     queued = asyncio.ensure_future(run_search_call(pool, queued_ran.set))
     await asyncio.sleep(0.05)
 
@@ -244,4 +235,4 @@ async def test_a_closed_pool_ends_its_workers():
 
     pool.close()
 
-    await _wait_until(lambda: not any(worker.is_alive() for worker in workers))
+    await async_wait_until(lambda: not any(worker.is_alive() for worker in workers), interval=0.01)

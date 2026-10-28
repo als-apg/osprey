@@ -14,6 +14,10 @@ import pytest
 from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.errors import ChannelNotFoundError
+from osprey_connectors_tests._write_fakes import arm_switch
+from osprey_connectors_tests._write_fakes import (
+    writes_enabled_config as _config_with_writes_enabled,
+)
 from tests.facility.served_tree import in_process_config, served_tree
 
 #: The test rig's channels, in the facility schema's own spelling.
@@ -33,11 +37,15 @@ RIG = {
 }
 
 
-def _config_with_writes_enabled(key, default=None):
-    """Mock get_config_value that enables writes but returns sane defaults otherwise."""
-    if key == "control_system.writes_enabled":
-        return True
-    return default
+@pytest.fixture(autouse=True)
+def _switch_on(monkeypatch, tmp_path):
+    """The login's switch on for the simulator target, connectors stamped with it.
+
+    With :func:`writes_enabled_config` serving a write tier that allows, that is
+    everything the reference monitor's verdict asks before a write reaches the
+    transport; a test that disarms serves a tier that does not.
+    """
+    return arm_switch(monkeypatch, tmp_path / "armed-data")
 
 
 @pytest.fixture

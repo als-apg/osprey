@@ -379,7 +379,7 @@ def _shape_repo(repo: Path) -> None:
     (renders / f"{RENDER}.yml").write_text(
         f"name: {PROJECT_NAME} ({RENDER})\n"
         "config:\n"
-        "  control_system.writes_enabled: true\n"
+        "  control_system.writes: allowed\n"
         "  web.ui_mode: expert\n",
         encoding="utf-8",
     )
@@ -580,6 +580,44 @@ def _fleet_settled(posture: dict[str, Any], target: str) -> bool:
         if (row.get("applied_target"), row.get("applied_generation")) != (target, generation):
             return False
     return True
+
+
+def _switch_of(terminal: Terminal, target: str) -> str | None:
+    """This login's switch for *target*, as ``GET /api/terminal/posture`` reports it."""
+    rows = [row for row in terminal.posture().get("targets") or [] if row.get("target") == target]
+    assert len(rows) == 1, terminal.posture()
+    state: str | None = rows[0].get("switch")
+    return state
+
+
+def _turn_switch(terminal: Terminal, target: str, state: str) -> dict[str, Any]:
+    """Turn this login's switch *state* for *target* the way the header chip does.
+
+    ``GET`` reads the record's ``switch_epoch`` and the ``POST`` sends it back
+    with ``{target, state, epoch}``; a ``409`` that just stamped an epoch-less
+    record is retried once with the epoch it carries, the chip's own single
+    retry. Anything but a 200 fails here with the route's body. Returns that body.
+    """
+    epoch = terminal.posture().get("switch_epoch")
+    for _attempt in range(2):
+        answer = terminal.post(
+            "/api/terminal/posture",
+            json={
+                "session_id": terminal.session_id,
+                "target": target,
+                "state": state,
+                "epoch": epoch,
+            },
+        )
+        detail = answer.json().get("detail") if answer.status_code == 409 else None
+        if isinstance(detail, dict) and detail.get("stamped"):
+            epoch = detail.get("epoch")
+            continue
+        break
+    assert answer.status_code == 200, answer.text
+    body: dict[str, Any] = answer.json()
+    assert (body.get("target"), body.get("state")) == (target, state), body
+    return body
 
 
 def _wait_for_switch_to_settle(terminal: Terminal, target: str) -> dict[str, Any]:
@@ -969,7 +1007,8 @@ def test_a_cell_cannot_load_a_client_library_while_a_runtime_write_lands(
 ) -> None:
     """A kernel's cells reach the machine through the runtime; a client library does not load.
 
-    On a card with writes on, the runtime write is the positive control: it
+    On a card with writes on — the tier allows them and the chip turns the
+    switch on for the machine — the runtime write is the positive control: it
     lands, so anything refused afterwards is refused for going around the
     runtime and not for the card's posture. A client package's import and a
     client library's ``ctypes`` load are each refused with the line that names
@@ -981,6 +1020,8 @@ def test_a_cell_cannot_load_a_client_library_while_a_runtime_write_lands(
     # The baseline target is the only one whose limits make the setpoint writable.
     assert terminal.first_target == "va", terminal.first_target
     _wait_for_switch_to_settle(terminal, "va")
+    # A fresh login's switch is off; the chip's turn-on is what arms this card.
+    _turn_switch(terminal, "va", "on")
     band = repo_view(terminal.repo).motion_envelope(lane.write_readback)
     first = lane.at(FIRST_WRITE_FRACTION)
     second = lane.at(SECOND_WRITE_FRACTION)
@@ -1040,20 +1081,19 @@ def test_a_sandboxed_cell_refuses_writes_with_the_turn_writes_on_line(
 ) -> None:
     """The narrowing is per target and the pin is per cell.
 
-    The chip narrows the target the deployment is on; the kernel re-reads the
-    record before this cell and stamps the launch pin from it, so the refusal
-    is the cell's rather than the kernel process's. The audit session is the
+    The chip turns the switch off for the target the deployment is on (the
+    previous row left it on); the kernel re-reads the record before this cell
+    and stamps the launch pin from it. The write verdict reads the switch live,
+    and the switch comes before the pin in its order, so the refusal names the
+    switch being off and points at the chip. The audit session is the
     kernel's own — a notebook cell files under the kernel that ran it, which is
     what makes a cell's refusal attributable when several kernels are open.
     """
     assert terminal.session_id and terminal.first_target
     target = terminal.first_target
-    narrowed = terminal.post(
-        "/api/terminal/posture",
-        json={"session_id": terminal.session_id, "target": target, "posture": "sandbox"},
-    )
-    assert narrowed.status_code == 200, narrowed.text
-    assert narrowed.json()["entry"].get(target) == "sandbox", narrowed.text
+    assert _switch_of(terminal, target) == "on", terminal.posture()
+    _turn_switch(terminal, target, "off")
+    assert _switch_of(terminal, target) == "off", terminal.posture()
 
     session = terminal.start_notebook_session(STARTER_NOTEBOOK)
     terminal.kernel_id = session["kernel"]["id"]
@@ -1072,10 +1112,10 @@ def test_a_sandboxed_cell_refuses_writes_with_the_turn_writes_on_line(
 
         refused = _run_cell(socket, _write_cell(lane.channel, 1.0), channel_session)
         assert refused.error_name == "ChannelWriteBlockedError", refused
-        assert (
-            f"Write to '{lane.channel}' blocked: this run launched while writes were off for "
-            f"'{target}'; a write state set since applies to the next run" in refused.error_value
+        assert refused.error_value.startswith(
+            f"Write to '{lane.channel}' blocked: Writes are off; turn it on from the chip"
         ), refused.error_value
+        assert "[osprey-refusal: switch_off]" in refused.error_value, refused.error_value
         assert HINT_WRITES_OFF in refused.stdout, refused.stdout
 
     new_records = terminal.ledger()[records_before:]
@@ -1089,6 +1129,21 @@ def test_a_sandboxed_cell_refuses_writes_with_the_turn_writes_on_line(
     assert (
         dict(token.split("=", 1) for token in record["detail"].split())["channel"] == lane.channel
     )
+
+    # The pin is per cell: the SAME kernel, with the switch turned back on,
+    # stamps its next cell from the record again, so that cell no longer
+    # carries the narrowing the refused cell launched under. A kernel that
+    # stamped its pin once, or kept a stale one, would still read sandbox here.
+    _turn_switch(terminal, target, "on")
+    assert _switch_of(terminal, target) == "on", terminal.posture()
+    channel_session = uuid.uuid4().hex
+    with terminal.kernel_channels(terminal.kernel_id, channel_session) as socket:
+        restamped = _stamps(socket, channel_session)
+        assert restamped.get("OSPREY_CONTROL_TARGET") == target, restamped
+        assert restamped.get("OSPREY_LAUNCH_POSTURE") != f"{target}=sandbox", restamped
+    # Leave the switch as this row set it: off for the target the deployment is on.
+    _turn_switch(terminal, target, "off")
+    assert _switch_of(terminal, target) == "off", terminal.posture()
 
 
 # ---------------------------------------------------------------------------

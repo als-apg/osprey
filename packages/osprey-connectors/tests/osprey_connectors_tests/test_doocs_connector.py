@@ -22,6 +22,9 @@ from osprey_connectors.control_system._base import (
 )
 from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors.ipc import _frames as frames
+from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors_tests._write_fakes import arm_switch
+from osprey_connectors_tests._write_fakes import writes_enabled_config as _writes_enabled
 
 # --------------------------------------------------------------------------------------
 # Helpers to build mock doocs4py objects
@@ -37,6 +40,17 @@ _TZ_PATCH = "osprey_connectors.control_system._doocs_connector.get_facility_time
 # How long an offload test waits on a threading.Event before giving up. It only
 # elapses when the code under test is broken; a passing run never waits on it.
 _OFFLOAD_CEILING_S = 5.0
+
+
+@pytest.fixture(autouse=True)
+def _switch_on(monkeypatch, tmp_path):
+    """The login's switch on for the simulator target, connectors stamped with it.
+
+    With :func:`writes_enabled_config` serving a write tier that allows, that is
+    everything the reference monitor's verdict asks before a write reaches the
+    transport; a test that disarms serves a tier that does not.
+    """
+    return arm_switch(monkeypatch, tmp_path / "armed-data")
 
 
 def _make_eq_data(value=42.0, macropulse=12345):
@@ -90,12 +104,6 @@ def _make_limits_validator(confirm=True):
     validator.validate.return_value = None
     validator.resolve_confirm.return_value = confirm
     return validator
-
-
-def _writes_enabled(key, default=None):
-    if key == "control_system.writes_enabled":
-        return True
-    return default
 
 
 @pytest.fixture
@@ -439,7 +447,7 @@ class TestWriteChannel:
 
         assert result.outcome is WriteOutcome.REFUSED
         assert result.refusal_reason == "WRITES_DISABLED"
-        assert "disabled" in result.error_message.lower()
+        assert refusal_phrase("tier_never") in result.error_message
         mock_d4py.set.assert_not_called()
 
 

@@ -60,9 +60,10 @@ from osprey_connectors.errors import ChannelWriteBlockedError, ChannelWriteFaile
 from osprey_connectors.posture_store import (
     NO_OWNER,
     RESERVED_OWNER_KWARG,
-    StoreVerdict,
+    WriteVerdict,
     current_owner,
 )
+from osprey_connectors.refusals import refusal_phrase
 
 pytest.importorskip("bluesky")
 pytest.importorskip("ophyd_async")
@@ -74,7 +75,7 @@ from ophyd.status import StatusBase
 
 from osprey.services.bluesky_bridge.devices.connector import ConnectorSettable
 from osprey.services.bluesky_bridge.plan_fields import MovableChannel
-from tests.services.bluesky_bridge.test_connector_devices import FakeConnector
+from tests.services.bluesky_bridge._fake_connector import FakeConnector
 
 _OWNER = "alice"
 _PLAN_NAME = "stub_plan"
@@ -82,21 +83,21 @@ _CHANNEL = "SR:BEND:SETPOINT"
 _DEVICE_NAME = "motor"
 _SETPOINT = 3.5
 
-_REFUSAL_TARGET = "vacuum"
-_CONNECTOR_TYPE = "epics"
+_REFUSAL_TARGET = "live"
+_REFUSAL_KIND = "real"
+#: What the operator reads for the refusal these rows meet: the owner's switch
+#: is off for the real machine.
+_SWITCH_OFF_PHRASE = refusal_phrase("switch_off", _REFUSAL_KIND)
 
 
-def refuse_a_narrowed_write() -> None:
-    """Raise the refusal the reference monitor raises for a narrowed target.
+def refuse_a_switched_off_write() -> None:
+    """Raise the refusal the reference monitor raises when the owner's switch is off.
 
-    Composed by the monitor's own result builder and raised through its own
-    denial contract, rather than typed out here: the reason code and the
-    operator-facing sentence are what these rows look for in the wrapper's
-    warning, and a message written by the test would agree with that line
-    whatever either of them said.
-
-    Every caller runs under :func:`monitor_refusal_inputs`, which settles the
-    three environment answers that fork this refusal onto other wordings.
+    Composed by the monitor's own verdict-refusal builder from a ``switch_off``
+    verdict and raised through its own denial contract, rather than typed out
+    here: the reason code and the operator-facing phrase are what these rows
+    look for in the wrapper's warning, and a message written by the test would
+    agree with that line whatever either of them said.
 
     Public because the session wrapper's plan source imports it: both wrappers
     have to meet the same refusal, and a plan file is exec'd in a namespace of
@@ -105,12 +106,12 @@ def refuse_a_narrowed_write() -> None:
     from osprey_connectors.control_system import _base as connector_base
 
     connector_base.raise_for_write_result(
-        connector_base._writes_disabled_result(
+        connector_base._verdict_refusal(
             _CHANNEL,
             _SETPOINT,
-            _CONNECTOR_TYPE,
-            _REFUSAL_TARGET,
-            store_verdict=StoreVerdict.NARROWING,
+            WriteVerdict(
+                allowed=False, reason="switch_off", target=_REFUSAL_TARGET, kind=_REFUSAL_KIND
+            ),
         )
     )
     raise AssertionError("a refused write result must raise")
@@ -119,7 +120,7 @@ def refuse_a_narrowed_write() -> None:
 def _monitor_refusal() -> ChannelWriteBlockedError:
     """That same refusal as an object, for a caller that hands it on."""
     try:
-        refuse_a_narrowed_write()
+        refuse_a_switched_off_write()
     except ChannelWriteBlockedError as refusal:
         return refusal
     raise AssertionError("unreachable")
@@ -148,7 +149,7 @@ def _owner_probe_plan(_devices: Any, params: Any) -> Any:
 def _refusing_plan(_devices: Any, _params: Any) -> Any:
     """Run one message, then meet a gated write that refuses."""
     yield current_owner()
-    refuse_a_narrowed_write()
+    refuse_a_switched_off_write()
 
 
 _PROBE_SOURCE = '''PLAN_METADATA = {"name": "stub_plan"}
@@ -176,7 +177,7 @@ from pydantic import BaseModel, ConfigDict
 
 from osprey_connectors.posture_store import current_owner
 
-from tests.services.bluesky_bridge.test_plan_wrapper_owner import refuse_a_narrowed_write
+from tests.services.bluesky_bridge.test_plan_wrapper_owner import refuse_a_switched_off_write
 
 
 class PARAMS(BaseModel):
@@ -188,7 +189,7 @@ class PARAMS(BaseModel):
 def build_plan(devices, params):
     """Run one message, then meet a gated write that refuses."""
     yield current_owner()
-    refuse_a_narrowed_write()
+    refuse_a_switched_off_write()
 '''
 
 #: What the channel reported back when the value was sent and did not stick.
@@ -241,14 +242,12 @@ def clean_owner_environment(monkeypatch: pytest.MonkeyPatch):
 
 @pytest.fixture(autouse=True)
 def monitor_refusal_inputs(monkeypatch: pytest.MonkeyPatch):
-    """Settle the three answers that decide which refusal wording is raised.
+    """Keep the developer's environment out of the rows.
 
-    Each forks :func:`refuse_a_narrowed_write` onto a different message, and a
-    test process answers all three the way no deployment does: a build profile
-    it cannot read reads as writes-disabled deployment-wide, and an inherited
-    readonly mode or launch pin refuses before the target is consulted at all.
-    Settled here rather than at the raise, so what a row meets is the
-    narrowed-target arm — the one a queued plan meets — on any machine.
+    The refusal is built from an explicit verdict, so nothing here decides its
+    wording; a build profile it cannot read, an inherited launch pin or posture
+    stamp would still reach any connector code a row runs, so each is settled
+    here rather than left to the machine the suite runs on.
     """
 
     def armed(key: str, default: Any = None) -> Any:
@@ -392,7 +391,7 @@ def test_a_refused_write_logs_exactly_one_warning_naming_the_owner(
     """One line, naming the plan, the owner, the channel and the reason.
 
     A refusal mid-plan reaches the operator as the run record's error, which
-    says nothing about *whose* narrowing refused it. This line is where that
+    says nothing about *whose* write it refused. This line is where that
     is recorded — once per refused run, not once per retry — and it is the
     whole of the wrapper's response: no audit-ledger entry, and the exception
     travels on untouched.
@@ -414,10 +413,10 @@ def test_a_refused_write_logs_exactly_one_warning_naming_the_owner(
     assert _PLAN_NAME in line
     assert _OWNER in line
     # Both halves of the reason: the refusal's own code, which a log reader can
-    # group on without parsing prose, and the verdict word the operator-facing
+    # group on without parsing prose, and the phrase the operator-facing
     # message closes with, carried in from the refusal rather than re-derived.
     assert monitor_refusal.reason in line
-    assert StoreVerdict.NARROWING in line
+    assert _SWITCH_OFF_PHRASE in line
 
     assert posture_store._owner_var.get() is NO_OWNER
 
@@ -448,7 +447,7 @@ def test_the_refusal_travels_on_unchanged(
 def test_a_write_that_failed_in_the_plans_own_frame_earns_no_line(
     failing_wrapper: tuple[Any, str], caplog: pytest.LogCaptureFixture
 ) -> None:
-    """A channel that disagreed is nobody's narrowing, so nobody is named.
+    """A channel that disagreed is no switch's decision, so nobody is named.
 
     The handler is offered every exception the plan raises, and this one is a
     write that was attempted: naming an owner for it would attribute to a
@@ -542,7 +541,7 @@ class _RefusingConnector(FakeConnector):
         super().__init__(readbacks={_CHANNEL: 0.0})
 
     async def write_channel_checked(self, channel_address: str, value: Any, **kwargs: Any):  # noqa: ARG002 - the connector write signature
-        refuse_a_narrowed_write()
+        refuse_a_switched_off_write()
 
 
 def _device(connector: Any) -> ConnectorSettable:
@@ -592,7 +591,7 @@ def test_a_refusal_inside_a_device_write_earns_the_same_one_line(
     scheduled, which reports it by throwing its own ``FailedStatus`` into the
     suspended plan. Recognizing only a refusal raised in the plan's own frame
     would leave this — the one that happens on a machine — unrecorded, with
-    nothing anywhere saying whose narrowing the run was judged against.
+    nothing anywhere saying whose switch the run was judged against.
     """
     make_plan, logger_name = writing_wrapper
     connector = _RefusingConnector()
@@ -609,13 +608,13 @@ def test_a_refusal_inside_a_device_write_earns_the_same_one_line(
     assert _OWNER in line
     assert _CHANNEL in line
     assert monitor_refusal.reason in line
-    assert StoreVerdict.NARROWING in line
+    assert _SWITCH_OFF_PHRASE in line
 
     # The run still fails on the monitor's own wording, which is what the item
     # reports: the line is written beside the refusal, never instead of it.
     assert isinstance(failure.value.__cause__, ChannelWriteBlockedError)
     assert str(failure.value.__cause__) == str(monitor_refusal)
-    assert StoreVerdict.NARROWING in str(failure.value)
+    assert _SWITCH_OFF_PHRASE in str(failure.value)
     assert connector.readbacks[_CHANNEL] == 0.0
 
 
@@ -643,7 +642,7 @@ def test_an_owner_less_run_refused_at_a_device_write_still_earns_its_line(
 def test_a_write_that_failed_rather_than_was_refused_earns_no_line(
     writing_wrapper: tuple[Any, str], caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Nobody's narrowing decided a mismatch, so no owner is named for one.
+    """No switch decided a mismatch, so no owner is named for one.
 
     The handler is offered every exception a run raises, which is what makes
     this the row that matters: a failed write aborts the plan exactly as a
@@ -834,4 +833,4 @@ def test_a_refusal_reported_under_another_bound_still_earns_its_line(
     line = warnings[0].getMessage()
     assert _CHANNEL in line
     assert _OWNER in line
-    assert StoreVerdict.NARROWING in line
+    assert _SWITCH_OFF_PHRASE in line

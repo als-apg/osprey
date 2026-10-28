@@ -28,9 +28,9 @@ from osprey_connectors.simulation import pulse
 from osprey_connectors.simulation.archive import (
     DATE_FIELD,
     SeedKnobs,
+    _synthesize_documents,
     build,
     seed_base,
-    synthesize_documents,
 )
 from osprey_connectors.simulation.composite import Composite
 from osprey_connectors.simulation.state import write_active_state
@@ -126,7 +126,7 @@ def test_a_seeded_monitor_sample_under_a_readout_fault_is_the_served_reading(
     instant = T0.timestamp() - 600.0
 
     archive = container_lifecycle._archiver_seed_inputs({}, demo_render)
-    (document,) = synthesize_documents(archive, np.asarray([instant]))
+    (document,) = _synthesize_documents(archive, np.asarray([instant]))
     served = Composite(view, state_dir=state, clock=lambda: instant, model_log=False)
     nominal = Composite(view, clock=lambda: instant, model_log=False)
 
@@ -147,10 +147,10 @@ def test_a_stand_in_deployment_seeds_the_history_a_sandbox_seeds(
     assert archive_belongs_to_standin(standin)
     times = np.arange(T0.timestamp() - 300.0, T0.timestamp(), 10.0)
 
-    with_standin = synthesize_documents(
+    with_standin = _synthesize_documents(
         container_lifecycle._archiver_seed_inputs(standin, demo_render), times
     )
-    without = synthesize_documents(
+    without = _synthesize_documents(
         container_lifecycle._archiver_seed_inputs({}, demo_render), times
     )
 

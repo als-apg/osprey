@@ -32,8 +32,13 @@ def _reset_registry():
     _cfg._config_cache.clear()
 
 
-def get_tool_fn(tool_or_fn):
-    """Extract raw function from FastMCP FunctionTool."""
-    if hasattr(tool_or_fn, "fn"):
-        return tool_or_fn.fn
-    return tool_or_fn
+@pytest.fixture
+def cf_hier_context(tmp_path, monkeypatch):
+    """Run from ``tmp_path`` with an empty ``config.yml`` and an initialized context."""
+    from osprey.mcp_server.channel_finder_hierarchical.server_context import (
+        initialize_cf_hier_context,
+    )
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text("{}")
+    initialize_cf_hier_context()

@@ -72,7 +72,7 @@ services:
       # strong random token into the project .env when unset (see
       # container_lifecycle.py's per-service token-mint map).
       BLUESKY_LAUNCH_TOKEN: ${BLUESKY_LAUNCH_TOKEN}
-      # The connector-backed bridge reads control_system.type/writes_enabled
+      # The connector-backed bridge reads control_system.type/writes
       # and control_system.limits_checking.database_path from config.yml at
       # runtime. CWD is the image WORKDIR (/app), not the project dir, and the
       # image bakes no config.yml, so without CONFIG_FILE the loader finds none
@@ -291,7 +291,7 @@ services:
     environment:
       # Same CONFIG_FILE convention as the bridge: the per-put reference
       # monitor now runs in THIS container (the RunEngine lives here), so it
-      # reads control_system.type / writes_enabled / limits_checking /
+      # reads control_system.type / writes / limits_checking /
       # connector.<type>.limits_checking from the mounted config.yml, not
       # from the image's WORKDIR.
       CONFIG_FILE: /app/project/config.yml

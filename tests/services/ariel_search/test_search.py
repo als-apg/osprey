@@ -781,24 +781,17 @@ class TestUnbalancedQuotes:
         result = _balance_quotes(query)
         assert result == query
 
-    def test_unbalanced_single_quote(self):
-        """Single unbalanced quote is removed."""
-        query = '"hello world'
+    @pytest.mark.parametrize(
+        "query",
+        [
+            pytest.param('"hello world', id="single"),
+            pytest.param('test query"', id="trailing"),
+            pytest.param('"first" "second" "third', id="multiple"),
+        ],
+    )
+    def test_unbalanced_quotes_are_balanced(self, query):
+        """An unbalanced quote is removed, leaving an even number of quotes."""
         result = _balance_quotes(query)
-        # The last quote should be removed to balance
-        assert result.count('"') % 2 == 0
-
-    def test_unbalanced_trailing_quote(self):
-        """Trailing unbalanced quote is removed."""
-        query = 'test query"'
-        result = _balance_quotes(query)
-        assert result.count('"') % 2 == 0
-
-    def test_unbalanced_multiple_quotes(self):
-        """Multiple unbalanced quotes are handled."""
-        query = '"first" "second" "third'
-        result = _balance_quotes(query)
-        # Should have even number of quotes after balancing
         assert result.count('"') % 2 == 0
 
     def test_no_quotes(self):

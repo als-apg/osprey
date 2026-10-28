@@ -2646,17 +2646,21 @@ def _drop_approval_hook(repo: Path) -> None:
 def _disable_approval(repo: Path) -> None:
     """Turn approval off, and writes with it: armed writes need the approval hook installed.
 
-    The renders that arm the simulator's writes on their own are disarmed too.
+    The tier renders that allow writes on their own are pinned ``never`` too.
     """
     profile = repo / "profile.yml"
     data = yaml.safe_load(profile.read_text(encoding="utf-8"))
     data.setdefault("config", {})["approval.enabled"] = False
-    data["config"]["control_system.writes_enabled"] = False
+    data["config"]["control_system.writes"] = "never"
     profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
-    armed = "control_system.connector.virtual_accelerator.writes_enabled: true"
-    for render in sorted((repo / TIERS_DIRNAME).glob("*.yml")):
+    armed = "control_system.writes: allowed"
+    renders = sorted((repo / TIERS_DIRNAME).glob("*.yml"))
+    assert any(armed in render.read_text(encoding="utf-8") for render in renders), (
+        f"fixture precondition: some tier render under {TIERS_DIRNAME}/ allows writes"
+    )
+    for render in renders:
         text = render.read_text(encoding="utf-8")
-        render.write_text(text.replace(armed, armed.replace("true", "false")), encoding="utf-8")
+        render.write_text(text.replace(armed, "control_system.writes: never"), encoding="utf-8")
 
 
 def _select_in_context_unprobed(repo: Path) -> None:

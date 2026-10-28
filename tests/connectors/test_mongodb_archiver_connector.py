@@ -13,9 +13,9 @@ import pandas as pd
 import pytest
 
 from osprey.port_layout import default_port
-from osprey_connectors.archiver import HOST_OVERRIDE_ENV, PORT_OVERRIDE_ENV
 from osprey_connectors.archiver._base import ArchiverMetadata
 from osprey_connectors.archiver._field_names import field_name
+from osprey_connectors.archiver._mongo_client import HOST_OVERRIDE_ENV, PORT_OVERRIDE_ENV
 from osprey_connectors.archiver._mongodb_archiver_connector import (
     DEPLOY_HINT,
     MongoDBArchiverConnector,
@@ -1778,12 +1778,12 @@ class TestWaveformReadAgainstMongo:
 
     @pytest.fixture
     def waveform_store(self, mongodb_container, mongodb_test_data):  # noqa: ARG002 - seeds the scalars
-        from osprey_connectors.simulation.archive import prepare_collection, waveform_collection
+        from osprey_connectors.simulation.archive import _prepare_collection, waveform_collection
 
         client, scalars = _test_collection(mongodb_container)
         waveforms = scalars.database[waveform_collection(scalars.name)]
         waveforms.delete_many({})
-        prepare_collection(scalars, waveforms=waveforms)
+        _prepare_collection(scalars, waveforms=waveforms)
         documents = _sek_documents(5)
         waveforms.insert_many([dict(doc) for doc in documents])
         try:

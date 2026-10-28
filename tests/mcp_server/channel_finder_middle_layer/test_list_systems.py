@@ -2,22 +2,15 @@
 
 from unittest.mock import MagicMock, PropertyMock, patch
 
-from osprey.mcp_server.channel_finder_middle_layer.server_context import (
-    initialize_cf_ml_context,
-)
-from tests.mcp_server.channel_finder_middle_layer.conftest import get_tool_fn
-from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
+import pytest
+
+from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
+
+pytestmark = pytest.mark.usefixtures("cf_ml_context")
 
 
-def _setup(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("{}")
-    initialize_cf_ml_context()
-
-
-def test_list_systems_returns_systems(tmp_path, monkeypatch):
+def test_list_systems_returns_systems():
     """Happy path: returns list of systems with count."""
-    _setup(tmp_path, monkeypatch)
     mock_db = MagicMock()
     mock_db.list_systems.return_value = [
         {"name": "SR", "description": "Storage Ring"},
@@ -41,9 +34,8 @@ def test_list_systems_returns_systems(tmp_path, monkeypatch):
     assert data["systems"][1]["name"] == "BR"
 
 
-def test_list_systems_empty(tmp_path, monkeypatch):
+def test_list_systems_empty():
     """Returns empty list when no systems exist."""
-    _setup(tmp_path, monkeypatch)
     mock_db = MagicMock()
     mock_db.list_systems.return_value = []
     with patch(
@@ -63,9 +55,8 @@ def test_list_systems_empty(tmp_path, monkeypatch):
     assert data["systems"] == []
 
 
-def test_list_systems_internal_error(tmp_path, monkeypatch):
+def test_list_systems_internal_error():
     """Internal error returns standard error envelope."""
-    _setup(tmp_path, monkeypatch)
     mock_db = MagicMock()
     mock_db.list_systems.side_effect = Exception("DB broke")
     with patch(

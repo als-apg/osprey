@@ -9,7 +9,6 @@ while holding its output open cannot keep the gate waiting.
 from __future__ import annotations
 
 import contextlib
-import importlib.util
 import os
 import signal
 import subprocess
@@ -22,15 +21,14 @@ from typing import IO, Any
 import pytest
 
 from osprey.deployment.subprocess_capture import group_is_gone
+from tests._by_path import load_module
+from tests._processes import pid_alive
 
 # scripts/ is not a package, so the gate is loaded by path. It is deliberately not
 # registered in sys.modules: nothing in it resolves its own module name, and an
 # import-time write to sys.modules is process state no fixture can undo.
 _MODULE_PATH = Path(__file__).resolve().parents[2] / "scripts" / "va" / "live_ca" / "gate.py"
-_spec = importlib.util.spec_from_file_location("live_ca_gate", _MODULE_PATH)
-assert _spec and _spec.loader
-gate = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(gate)
+gate = load_module("live_ca_gate", _MODULE_PATH)
 
 #: How long the stand-in processes would run if nothing stopped them. Far longer
 #: than any limit used here, so "returned quickly" can only mean "was not waited for".
@@ -47,15 +45,6 @@ _LIMIT_S = 5.0
 #: A limit long enough for a child pytest to start, run one test and print its
 #: counts on a host busy with a parallel suite, and still far short of the hang.
 _REPORT_S = 20
-
-
-def _alive(pid: int) -> bool:
-    """Whether ``pid`` still names a process."""
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
 
 
 def _wait_for_pid(pid_file: Path, within_s: float = 10.0) -> int:
@@ -126,7 +115,7 @@ def test_an_orphan_holding_the_output_open_cannot_block_the_read(tmp_path: Path)
         assert "child-done" in stdout
         assert elapsed < _PROMPT_S
         # The orphan really was still there, holding the inherited output open.
-        assert _alive(orphan)
+        assert pid_alive(orphan)
     finally:
         if pid_file.exists():
             _kill(_wait_for_pid(pid_file))

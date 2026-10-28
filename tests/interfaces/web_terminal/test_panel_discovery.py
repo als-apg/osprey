@@ -15,7 +15,9 @@ Covers:
       custom_panels / visible_panels / discovered_panel_dirs; existing-id skip.
     - The /panel-static/{id}/{path} serving route: entry served for bare path,
       asset served, unknown id / missing file / symlink-escape → 404; and
-      GET /api/panels keeps a same-origin URL as-is while rewriting raw ones.
+      GET /api/panels keeps a same-origin URL as-is while rewriting raw ones;
+      every non-inert bundle file carries ``opaque_headers()`` on the plain
+      (cookie-gated) path too, inert ones only ``nosniff``.
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+from osprey.interfaces.opaque_origin import OPAQUE_CSP
 from osprey.interfaces.web_terminal.panel_discovery import (
     DiscoveredPanel,
     apply_discovered_panels,
@@ -186,6 +189,7 @@ def serving_client(tmp_path):
     panel_dir.mkdir()
     (panel_dir / "index.html").write_text(_VALID_HTML, encoding="utf-8")
     (panel_dir / "app.js").write_text("export const x = 1;\n", encoding="utf-8")
+    (panel_dir / "data.json").write_text('{"word": "hi"}', encoding="utf-8")
 
     app = bare_route_app(router)
     app.state.enabled_panels = set()
@@ -261,3 +265,30 @@ class TestServingRoute:
         # Non-discovered panel with a protocol-relative URL: still proxied, never
         # passed through as same-origin.
         assert by_id["legacy"]["url"] == "/panel/legacy"
+
+
+class TestBundleBytesAreOpaque:
+    """A ``<project>/panels`` bundle is agent-writable: opaque on its plain path too."""
+
+    @pytest.mark.parametrize("path", ["", "index.html", "app.js"])
+    def test_a_document_or_script_carries_the_sandbox(self, serving_client, path):
+        client, _ = serving_client
+        resp = client.get(f"/panel-static/demo/{path}")
+        assert resp.status_code == 200
+        assert resp.headers["content-security-policy"] == OPAQUE_CSP
+        assert "allow-same-origin" not in resp.headers["content-security-policy"]
+        assert resp.headers["x-content-type-options"] == "nosniff"
+
+    def test_an_inert_file_gets_nosniff_and_no_sandbox(self, serving_client):
+        client, _ = serving_client
+        resp = client.get("/panel-static/demo/data.json")
+        assert resp.status_code == 200
+        assert resp.headers["x-content-type-options"] == "nosniff"
+        assert "content-security-policy" not in resp.headers
+
+    def test_the_plain_path_grants_no_cross_origin_read(self, serving_client):
+        # Only the cap path answers ``Access-Control-Allow-Origin``; the plain
+        # path stays a same-origin, cookie-gated URL.
+        client, _ = serving_client
+        resp = client.get("/panel-static/demo/data.json", headers={"Origin": "null"})
+        assert "access-control-allow-origin" not in resp.headers

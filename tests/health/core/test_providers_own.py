@@ -8,42 +8,15 @@ other configured provider stays the warning it always was.
 
 from __future__ import annotations
 
-import time
 from collections.abc import Mapping
 from typing import Any
 
 from osprey.health.core.providers import providers
 from osprey.health.models import CheckResult, Status
+from tests.health._fakes import StubRegistry, fake_provider
 
 
-class _StubRegistry:
-    def __init__(self, mapping: dict[str, type]) -> None:
-        self._mapping = mapping
-
-    def get_provider(self, name: str) -> type | None:
-        return self._mapping.get(name)
-
-    def is_chat(self, _name: str) -> bool:
-        return True
-
-
-def _provider(result: tuple[bool, str], sleep: float = 0.0) -> type:
-    class _Fake:
-        def check_health(
-            self,
-            _api_key: str | None,
-            _base_url: str | None,
-            _timeout: float = 5.0,
-            _model_id: str | None = None,
-        ) -> tuple[bool, str]:
-            if sleep:
-                time.sleep(sleep)
-            return result
-
-    return _Fake
-
-
-async def _run(config: Mapping[str, Any] | None, registry: _StubRegistry) -> list[CheckResult]:
+async def _run(config: Mapping[str, Any] | None, registry: StubRegistry) -> list[CheckResult]:
     return await providers(config, registry=registry)()
 
 
@@ -51,7 +24,9 @@ _AUTH_FAILED = (False, "Authentication failed (invalid API key)")
 
 
 async def test_the_deployments_own_provider_failing_is_an_error() -> None:
-    registry = _StubRegistry({"own": _provider(_AUTH_FAILED), "other": _provider(_AUTH_FAILED)})
+    registry = StubRegistry(
+        {"own": fake_provider(_AUTH_FAILED), "other": fake_provider(_AUTH_FAILED)}
+    )
     config = {
         "claude_code": {"provider": "own"},
         "api": {"providers": {"own": {"api_key": "k"}, "other": {"api_key": "k"}}},
@@ -65,7 +40,7 @@ async def test_the_deployments_own_provider_failing_is_an_error() -> None:
 
 
 async def test_the_deployments_own_provider_passing_is_plain_ok() -> None:
-    registry = _StubRegistry({"own": _provider((True, "API accessible and authenticated"))})
+    registry = StubRegistry({"own": fake_provider((True, "API accessible and authenticated"))})
     config = {"claude_code": {"provider": "own"}, "api": {"providers": {"own": {"api_key": "k"}}}}
     rows = await _run(config, registry)
 
@@ -74,7 +49,7 @@ async def test_the_deployments_own_provider_passing_is_plain_ok() -> None:
 
 
 async def test_without_a_claude_code_provider_every_failure_stays_advisory() -> None:
-    registry = _StubRegistry({"p": _provider((False, "auth failed"))})
+    registry = StubRegistry({"p": fake_provider((False, "auth failed"))})
     rows = await _run({"api": {"providers": {"p": {"api_key": "k"}}}}, registry)
 
     assert rows[0].status is Status.WARNING
@@ -91,7 +66,7 @@ async def test_the_deployments_own_config_only_provider_is_skipped_not_failed() 
         "claude_code": {"provider": "house_gateway"},
         "api": {"providers": {"house_gateway": {"base_url": "https://gw.example/v1"}}},
     }
-    by_name = {r.name: r for r in await _run(config, _StubRegistry({}))}
+    by_name = {r.name: r for r in await _run(config, StubRegistry({}))}
 
     assert by_name["house_gateway"].status is Status.SKIP
     assert "no code adapter" in by_name["house_gateway"].message
@@ -102,7 +77,9 @@ async def test_an_own_provider_absent_from_api_providers_is_reported() -> None:
     """Named as the agent's provider but configured nowhere: there is no key to
     probe, and that is itself the error."""
     config = {"claude_code": {"provider": "own"}, "api": {"providers": {"p": {"api_key": "k"}}}}
-    by_name = {r.name: r for r in await _run(config, _StubRegistry({"p": _provider((True, "ok"))}))}
+    by_name = {
+        r.name: r for r in await _run(config, StubRegistry({"p": fake_provider((True, "ok"))}))
+    }
 
     assert by_name["own"].status is Status.ERROR
     assert "api.providers" in by_name["own"].message

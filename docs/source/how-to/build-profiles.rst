@@ -594,7 +594,7 @@ tier and per app:
        channel-finder.yml # channel search
 
 A tier holds only its **differences** from ``profile.yml`` — for ``readonly``,
-chiefly ``control_system.writes_enabled: false``; for ``admin``, the
+chiefly ``control_system.writes: never``; for ``admin``, the
 privileges the profile deliberately withholds. The build lays it over the
 profile: lists are added by name, ``config:`` keys win. A tier never subtracts
 and never carries a deployment fact, so it has no ``extends:``, ``exclude:``,
@@ -695,11 +695,9 @@ that points at a dropped file. See :ref:`profile-unwire-hook`.
    ``exclude:`` carves a tier by *removing* capability. When the boundary you
    want is "may not write," prefer flipping the enforcement switch instead —
    the bundled ``readonly`` tier differs from its
-   write-capable sibling only on write posture, leaving the tool surface
-   identical (see :doc:`web-terminal/multi-user/tiers`). Write posture is per
-   control target, so that tier pins the deployment-wide
-   ``control_system.writes_enabled`` *and* each connector type's own key: the
-   flat key is what a type inherits, not a floor over it.
+   write-capable sibling only on the tier key, ``control_system.writes``,
+   leaving the tool surface identical (see
+   :doc:`web-terminal/multi-user/tiers` and :ref:`write-safety-config`).
 
 To keep the bluesky server **on** while hiding an individual plan, set
 ``bluesky.excluded_plans`` instead:

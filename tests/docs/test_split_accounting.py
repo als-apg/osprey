@@ -12,12 +12,13 @@ destination it names has to land inside the Target Tree.
 
 from __future__ import annotations
 
-import importlib.util
 import subprocess
 from pathlib import Path
 
 import pytest
 import yaml
+
+from tests._by_path import load_module
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPT = _REPO_ROOT / "scripts" / "docs" / "check_split_accounting.py"
@@ -45,15 +46,7 @@ Gamma body line.
 """
 
 
-def _load_checker():
-    spec = importlib.util.spec_from_file_location("check_split_accounting", _SCRIPT)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-checker = _load_checker()
+checker = load_module("check_split_accounting", _SCRIPT)
 
 
 class SyntheticSplit:

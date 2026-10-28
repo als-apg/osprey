@@ -14,9 +14,6 @@ Two layers:
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from contextlib import contextmanager
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -24,26 +21,6 @@ from osprey.interfaces._serving import run_app_server
 from osprey.services.bluesky_bridge import live_rows
 from osprey.services.bluesky_bridge.app import app
 from osprey.services.bluesky_bridge.live_rows import LiveRowRecorder
-
-_TILED_URI_ENV = "BLUESKY_TILED_URI"
-_TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
-
-
-@pytest.fixture(autouse=True)
-def _isolated_state(monkeypatch: pytest.MonkeyPatch):
-    """Every test also gets Tiled unconfigured: several tests below (any run
-    with no live buffer) fall through `get_run_data` to the real
-    `_from_tiled`, not a mock. Left to ambient env, an exported
-    `BLUESKY_TILED_URI` would make those tests attempt a real Tiled
-    connection instead of exercising the "not configured" branch they claim
-    to — hanging, or raising `KeyError` on the unset `BLUESKY_TILED_API_KEY`
-    and surfacing as a 500 instead of the asserted 404.
-    """
-    live_rows._clear()
-    monkeypatch.delenv(_TILED_URI_ENV, raising=False)
-    monkeypatch.delenv(_TILED_API_KEY_ENV, raising=False)
-    yield
-    live_rows._clear()
 
 
 @pytest.fixture
@@ -184,19 +161,6 @@ def test_read_data_row_count_is_true_total_even_past_storage_cap(
 # =========================================================================
 
 
-@contextmanager
-def _live_bridge() -> Iterator[str]:
-    """Run the real bridge app on a real TCP port in a background thread.
-
-    Same module-level `registry`/`live_rows` singletons as the test process
-    (this is a thread, not a subprocess) — but the request/response still
-    travels over a real socket through the real ASGI app, so a missing or
-    misrouted endpoint fails exactly as it would in production.
-    """
-    with run_app_server(app) as url:
-        yield url
-
-
 async def test_get_run_data_tool_end_to_end_over_real_http(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -217,7 +181,7 @@ async def test_get_run_data_tool_end_to_end_over_real_http(
 
     monkeypatch.chdir(tmp_path)  # no config.yml in scope -> env var + defaults only
 
-    with _live_bridge() as base_url:
+    with run_app_server(app) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         server_context.reset_server_context()
         server_context.initialize_server_context()

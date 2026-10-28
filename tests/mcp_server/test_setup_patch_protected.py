@@ -36,7 +36,7 @@ from osprey.audit import protected, writer
 from osprey.audit.protected import SURFACE_SETUP_PATCH
 from osprey.cli.profile_conventions import RESERVED_PATH_CHANNELS, is_protected_key
 from osprey_connectors.config import RUNTIME_WRITE_PATH_KEYS
-from osprey_connectors.identity import acting_identity
+from tests._audit_ledger import ledger_records
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 SETUP_MOD = "osprey.mcp_server.workspace.tools.setup"
@@ -97,10 +97,7 @@ def _snapshot(root: Path) -> dict[str, bytes]:
 
 def _audit_records(root: Path) -> list[dict]:
     """Every record on this identity's ``setup_patch`` ledger."""
-    path = root / "var" / "audit" / acting_identity() / f"{SURFACE_SETUP_PATCH}.jsonl"
-    if not path.is_file():
-        return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    return ledger_records(root / "var" / "audit", SURFACE_SETUP_PATCH)
 
 
 def _notify():

@@ -36,7 +36,7 @@ and their names are imported from the subpackage itself:
 | --- | --- |
 | `osprey_connectors.control_system` | The control-system connector contract (`ControlSystemConnector`, `ChannelValue`, `ChannelWriteResult`, `WriteOutcome`, `values_match`, ...) and `LimitsValidator` |
 | `osprey_connectors.archiver` | The archiver connector contract (`ArchiverConnector`, `ArchiverMetadata`), the shared time-range helpers, the field name a channel is stored under, the MongoDB client arguments |
-| `osprey_connectors.ipc` | What a connector-host supervisor needs: the frame codec and exception registry, launching and stopping a child, the proxy and the pool, endpoint derivation and verification |
+| `osprey_connectors.ipc` | What a connector-host supervisor needs: launching and stopping a child, the proxy and the pool, endpoint derivation and verification, and the errors a frame raises (the wire codec itself is internal) |
 
 `osprey_connectors.control_system.write_door`, the door a connector opens around
 its own write, is a public module of its own.

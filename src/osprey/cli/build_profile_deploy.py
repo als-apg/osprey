@@ -367,6 +367,12 @@ def build_lint_view(
       writes it under, so the lint names the dispatch tier among the renders
       the deployment serves by one key at both altitudes.
 
+    It never lays in ``control_system.login_tiers``: the build stages that map
+    only into the shared containers' configs, never into the ``config.yml`` this
+    view stands for, so a view carrying it is a profile spelling it — refused
+    by :func:`deploy_aware_config_errors`
+    (:func:`~osprey.cli.build_profile_schema.login_tiers_key_errors`).
+
     Args:
         deploy: The profile's parsed ``deploy:`` block, or ``None``.
         config: The profile's ``config:`` block.
@@ -449,10 +455,15 @@ def deploy_aware_config_errors(
     from osprey.deployment.telemetry_lint import telemetry_errors
     from osprey.deployment.web_terminals.lint import _nest_dotted, profile_config_errors
 
+    from .build_profile_schema import login_tiers_key_errors
+
     view = build_lint_view(
         deploy, config, project_name, profile_root=profile_root, dispatch_tier=dispatch_tier
     )
     return [
+        # The view carries what the profile spells, so the key the build stages
+        # is refused on the same view the lint judges.
+        *login_tiers_key_errors(view),
         *profile_config_errors(view, profile_root=profile_root),
         *telemetry_errors(_nest_dotted(view)),
     ]
@@ -465,6 +476,7 @@ def deploy_aware_config_warnings(
     profile_root: Path | None = None,
     project_name: str | None = None,
     dispatch_tier: str | None = None,
+    mcp_servers: Mapping[str, Any] | None = None,
 ) -> list[str]:
     """The advisory half of :func:`deploy_aware_config_errors`, on the same merged view.
 
@@ -475,6 +487,10 @@ def deploy_aware_config_warnings(
     has, and the whole-deployment one (no login wall — ``auth.method: token`` or
     ``none`` — in front of a privileged terminal) is deliberately not an error,
     so printing is the only way it reaches an operator at all.
+
+    *mcp_servers* is the profile's loaded ``mcp_servers:`` map, which the
+    ``config:`` block does not carry; the facility write lint reads it beside
+    the ``claude_code.servers`` the block may persist.
     """
     from osprey.deployment.telemetry_lint import telemetry_warnings
     from osprey.deployment.web_terminals.lint import _nest_dotted, profile_config_warnings
@@ -482,10 +498,145 @@ def deploy_aware_config_warnings(
     view = build_lint_view(
         deploy, config, project_name, profile_root=profile_root, dispatch_tier=dispatch_tier
     )
+    nested = _nest_dotted(view)
     return [
         *profile_config_warnings(view, profile_root=profile_root),
-        *telemetry_warnings(_nest_dotted(view)),
+        *telemetry_warnings(nested),
+        *write_gateway_only_warnings(nested),
+        *facility_write_warnings(nested, mcp_servers),
     ]
+
+
+def write_gateway_only_warnings(config: Mapping[str, Any]) -> list[str]:
+    """One warning per configured machine reached only through a write gateway.
+
+    The write switch has two layers: every write is refused in software while
+    it is off, and the network backs that by giving the run a read-only gateway
+    to read through. A connector block whose ``gateways`` has a ``write_access``
+    entry and no ``read_only`` one reads through its write gateway while off
+    (:func:`~osprey_connectors.control_system._gateway_role._selected_role`), so
+    only the software layer holds. That is a supported shape, not an error; the
+    build says so and names the key that adds the second layer.
+
+    Walks the connector blocks *config* spells — a machine type the profile does
+    not configure has no gateways to judge. Takes nested or dotted keys.
+    """
+    from osprey.deployment.web_terminals.lint import _nest_dotted
+    from osprey_connectors.ipc import ROLE_READ_ONLY, ROLE_WRITE_ACCESS
+
+    control_system = _nest_dotted(config).get("control_system")
+    connectors = control_system.get("connector") if isinstance(control_system, dict) else None
+    if not isinstance(connectors, dict):
+        return []
+    warnings: list[str] = []
+    for kind, block in connectors.items():
+        gateways = block.get("gateways") if isinstance(block, dict) else None
+        if not isinstance(gateways, dict):
+            continue
+        if not gateways.get(ROLE_WRITE_ACCESS) or gateways.get(ROLE_READ_ONLY):
+            continue
+        prefix = f"control_system.connector.{kind}.gateways"
+        warnings.append(
+            f"control_system.connector.{kind} has a write gateway and no read-only "
+            "gateway: while writes are off it reads through the write gateway, so only "
+            "the software refusal backs the write switch for this machine — the network "
+            f"layer cannot. Add {prefix}.{ROLE_READ_ONLY} (address and port of a "
+            f"read-only gateway) next to {prefix}.{ROLE_WRITE_ACCESS}."
+        )
+    return warnings
+
+
+def facility_write_warnings(
+    config: Mapping[str, Any], mcp_servers: Mapping[str, Any] | None = None
+) -> list[str]:
+    """The facility write lints: undeclared write-looking tools and ``write_tools``.
+
+    PR-5: on a server that declares ``writes:``, a tool that asks for
+    permission, or whose name carries a destructive marker, and that the list
+    leaves out, is gated as a write anyway (the registry's warning window), so
+    the list is wrong and the build says which tool to add. A server with no
+    list is not judged: it keeps today's whole-server gate.
+
+    PR-5a: a non-empty ``control_system.write_tools`` still gates the tools it
+    names; the warning names the per-server key that replaces it.
+
+    Both are refused from :data:`~osprey.cli.build_profile_load.RETIRED_WRITE_KEYS_REFUSED_FROM`;
+    the release that reaches it moves this call to the deploy-aware errors.
+
+    Reads the profile's loaded *mcp_servers* (``McpServerDef`` or mappings) and
+    the ``claude_code.servers`` specs *config* persists; a server named in both
+    is judged once, from *mcp_servers*. Takes nested or dotted keys.
+    """
+    from osprey.cli.build_profile_load import RETIRED_WRITE_KEYS_REFUSED_FROM
+    from osprey.deployment.web_terminals.lint import _nest_dotted
+
+    nested = _nest_dotted(config)
+    servers: dict[str, tuple[Any, Any]] = {}
+    claude_code = nested.get("claude_code")
+    persisted = claude_code.get("servers") if isinstance(claude_code, dict) else None
+    if isinstance(persisted, dict):
+        for name, spec in persisted.items():
+            if isinstance(spec, dict) and spec.get("enabled", True) is not False:
+                servers[str(name)] = (spec.get("permissions"), spec.get("writes"))
+    for name, sdef in (mcp_servers or {}).items():
+        if isinstance(sdef, Mapping):
+            servers[str(name)] = (sdef.get("permissions"), sdef.get("writes"))
+        else:
+            servers[str(name)] = (
+                getattr(sdef, "permissions", None),
+                getattr(sdef, "writes", None),
+            )
+
+    warnings: list[str] = []
+    for name, (perms, writes) in servers.items():
+        warnings.extend(
+            _undeclared_write_tool_warnings(name, perms, writes, RETIRED_WRITE_KEYS_REFUSED_FROM)
+        )
+
+    control_system = nested.get("control_system")
+    extras = control_system.get("write_tools") if isinstance(control_system, dict) else None
+    if extras:
+        listed = ", ".join(f"`{tool}`" for tool in extras) if isinstance(extras, list) else ""
+        warnings.append(
+            "control_system.write_tools is deprecated: use `mcp_servers.<server>.writes` "
+            "to name a facility server's write tools. "
+            + (f"It still gates {listed} as writes" if listed else "It still gates its tools")
+            + f" until it is refused from OSPREY {RETIRED_WRITE_KEYS_REFUSED_FROM}."
+        )
+    return warnings
+
+
+def _undeclared_write_tool_warnings(name: str, perms: Any, writes: Any, sunset: str) -> list[str]:
+    """One warning per write-looking tool a declaring server leaves out of ``writes:``.
+
+    The tools are the gate's own warning window
+    (:func:`osprey.registry.mcp.write_window_tools`), so the lint names exactly
+    the undeclared tools the render gates anyway.
+    """
+    from osprey.bluesky_tool_names import DESTRUCTIVE_MARKERS
+    from osprey.registry.mcp import write_window_tools
+
+    if writes is None or not isinstance(writes, (list, tuple)):
+        return []
+    perms = perms if isinstance(perms, Mapping) else {}
+    entries = {
+        key: [e for e in perms.get(key) or [] if isinstance(e, str)] for key in ("ask", "allow")
+    }
+    declared = tuple(str(tool) for tool in writes)
+    warnings: list[str] = []
+    for tool, asked in write_window_tools(name, declared, entries):
+        if asked:
+            reason = "asks for permission (`permissions.ask`)"
+        else:
+            marker = next(m for m in DESTRUCTIVE_MARKERS if m in tool.lower())
+            reason = f"has a destructive name (`{marker}`)"
+        warnings.append(
+            f"mcp_servers.{name}: tool `{tool}` {reason} but is not in its `writes:` "
+            "list, so it is gated as a write the list does not declare. Add it to "
+            f"mcp_servers.{name}.writes; a server whose list leaves out such a tool is "
+            f"refused from OSPREY {sunset}."
+        )
+    return warnings
 
 
 def limits_block_errors(config: Mapping[str, Any]) -> list[str]:
@@ -764,7 +915,7 @@ def _mixed_depth_control_system_errors(config: Mapping[str, Any]) -> list[str]:
 
     Exactly that pair, and no deeper one. A deeper pair —
     ``control_system.connector:`` holding one type's block beside
-    ``control_system.connector.epics.writes_enabled`` — renders correctly
+    ``control_system.connector.epics.gateways`` — renders correctly
     today: :func:`~osprey.utils.config_writer._set_dotted_anchored` runs with
     ``create_only=True``, so it walks INTO whatever an existing intermediate
     key holds rather than replacing it, and the two entries merge. Refusing

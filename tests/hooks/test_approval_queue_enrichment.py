@@ -51,7 +51,7 @@ from contextlib import contextmanager
 
 from osprey import bluesky_tool_names as bsky
 from osprey.registry import mcp as mcp_registry
-from osprey_connectors_tests._harness import pin_identity, state_dir_under
+from osprey_connectors_tests._harness import pin_identity, state_dir_under, write_control_context
 
 SCAN_HOOK_CONFIG = {
     "server_prefixes": ["mcp__bluesky__"],
@@ -145,7 +145,7 @@ def _queue_config(make_config):
     return make_config(
         {
             "approval": {"enabled": True, "default_policy": "always"},
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -1444,11 +1444,15 @@ def _stamp_state_dir(tmp_path, monkeypatch):
     the root that the stamp lands in, and the hook child resolves it for
     itself. Pinning it is what puts the assertion here and the write over there
     on one directory whatever account the suite runs as.
+
+    The record points at the simulator, the lane's target, with its switch on:
+    a start the write verdict refuses is deferred before any prompt renders.
     """
     root = tmp_path / "agent_data"
     monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
     monkeypatch.setenv("OSPREY_POSTURE_SESSION", _STAMP_SESSION)
     pin_identity(monkeypatch)
+    write_control_context(root, target="va", switch={"va": "on"})
     return state_dir_under(root)
 
 
@@ -1496,7 +1500,7 @@ def test_a_start_prompt_that_reached_no_bridge_nulls_the_stamped_queue_token(
     than inherited by a start nobody could show a queue for."""
     config = _queue_config(make_config)
     state_dir = _stamp_state_dir(tmp_path, monkeypatch)
-    state_dir.mkdir(parents=True)
+    state_dir.mkdir(parents=True, exist_ok=True)
     slug = hook_module("osprey_approval").write_approval_session_slug(_STAMP_SESSION)
     stamp = state_dir / f"queue_start_approval_{slug}_bluesky.json"
     stamp.write_text(

@@ -54,11 +54,11 @@ import pytest
 
 from osprey.agent_runner.tool_policy import PASSTHROUGH_TOOLS
 from tests.e2e._facility_select import repo_view, seeded_readback
+from tests.e2e._server_port import UVICORN_STARTUP, bound_port
 from tests.e2e.provider import E2E_MODEL, e2e_provider
 from tests.e2e.test_dispatch_tutorial import (
     HEALTH_TIMEOUT_SEC,
     _find_osprey_console_script,
-    _free_port,
     _terminate,
     _wait_for_health,
 )
@@ -188,26 +188,28 @@ def approval_off_repo(built_repo: Path, tmp_path_factory: pytest.TempPathFactory
 # ---------------------------------------------------------------------------
 
 
-def _start_worker(repo: Path) -> tuple[subprocess.Popen, str]:
-    port = _free_port()
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "osprey.mcp_server.dispatch_worker"],
-        cwd=str(repo),
-        env={
-            **os.environ,
-            "DISPATCH_WORKER_PORT": str(port),
-            "DISPATCH_WORKER_TOKEN": TOKEN,
-            # Repo root + the render's config one level down, exactly as the
-            # dispatch_worker compose template wires the deployed worker.
-            "OSPREY_PROJECT_DIR": str(repo),
-            "CONFIG_FILE": str(repo / "build" / "config.yml"),
-            "CLAUDECODE": "",
-        },
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
+def _start_worker(repo: Path, log: Path) -> tuple[subprocess.Popen, str]:
+    """A worker on *repo* that binds port 0 and names its port in uvicorn's startup line."""
+    with log.open("w") as log_fh:
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "osprey.mcp_server.dispatch_worker"],
+            cwd=str(repo),
+            env={
+                **os.environ,
+                "DISPATCH_WORKER_PORT": "0",
+                "DISPATCH_WORKER_TOKEN": TOKEN,
+                # Repo root + the render's config one level down, exactly as the
+                # dispatch_worker compose template wires the deployed worker.
+                "OSPREY_PROJECT_DIR": str(repo),
+                "CONFIG_FILE": str(repo / "build" / "config.yml"),
+                "CLAUDECODE": "",
+            },
+            stdout=log_fh,
+            stderr=subprocess.STDOUT,
+        )
+    port = bound_port(log, UVICORN_STARTUP, child=proc, timeout=HEALTH_TIMEOUT_SEC)
     url = f"http://127.0.0.1:{port}"
-    _wait_for_health(f"{url}/health", HEALTH_TIMEOUT_SEC, proc)
+    _wait_for_health(f"{url}/health", HEALTH_TIMEOUT_SEC, proc, log)
     return proc, url
 
 
@@ -215,7 +217,7 @@ def _start_worker(repo: Path) -> tuple[subprocess.Popen, str]:
 def worker(request) -> Iterator[str]:
     """Start a real worker on the repo fixture named by the test param."""
     repo = request.getfixturevalue(request.param)
-    proc, url = _start_worker(repo)
+    proc, url = _start_worker(repo, repo.parent / "worker.log")
     try:
         yield url
     finally:

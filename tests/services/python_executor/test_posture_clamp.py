@@ -1,15 +1,13 @@
-"""Tests for the per-session posture clamp in the executor's execution gates.
+"""Tests for the executor's entry gate: the write verdict for the run's target.
 
-A web-terminal session switched to the sandbox posture spawns its child with
-``OSPREY_EXECUTION_MODE=readonly``, and the MCP servers launched under that
-session inherit it. The clamp is what makes the executor honour that posture:
-an agent asking for ``execution_mode="readwrite"`` inside a sandboxed session
-must be refused even though the *deployment* allows writes.
-
-The semantics pinned here mirror ``osprey_connectors``' ``is_readonly_run``:
-a **value** comparison, never a presence check. Any other value of the
-variable — including ``"readwrite"`` and garbage — leaves both modes alone,
-so the only thing that can sandbox a session is the sandbox posture itself.
+``enforce_posture_clamp`` asks :func:`osprey_connectors.posture_store.write_verdict`
+about the control target a run launched now would write to — the deployment's
+record's target, or its baseline when there is no record — and refuses a
+readwrite run with that verdict's phrase. These tests stage each term the
+verdict can refuse on (a read-only run, a tier that allows nothing, an unknown
+target or owner, an unreadable record, a switch that is off) and pin that the
+refusal speaks the verdict's own words, names no config key, and lands in the
+ledger as ``reason=posture`` with ``reason=<r> target=<t>`` detail.
 """
 
 from __future__ import annotations
@@ -21,7 +19,22 @@ from fastmcp.exceptions import ToolError
 
 from osprey.audit import posture as posture_module
 from osprey.mcp_server.python_executor.tools._execution_gates import enforce_posture_clamp
-from osprey_connectors_tests._harness import DEFAULT_TARGET, write_control_context
+from osprey_connectors import posture_store
+from osprey_connectors.refusals import refusal_text
+from osprey_connectors_tests._harness import (
+    FIXTURE_IDENTITY,
+    REFUSAL_BAN_LIST,
+    isolate_verdict_environment,
+    pin_identity,
+    reset_verdict_state,
+    write_control_context,
+)
+from tests._audit_ledger import ledger_records
+
+#: A tier that allows writes, on a deployment whose live machine is real.
+ARMED = {"type": "epics", "writes": "allowed"}
+
+SESSION_KEY = "11111111-2222-3333-4444-555555555555"
 
 
 @pytest.fixture(autouse=True)
@@ -30,12 +43,7 @@ def _audit_zone(tmp_path, monkeypatch):
 
     The clamp *records* its refusal, and ``writer.audit_dir`` resolves against
     the real project root — so without this a plain ``pytest`` run appends
-    refusals that never happened to the deployment's own ledger, where an
-    operator cannot tell them from the real ones.
-
-    Autouse rather than requested by the two tests that fire the clamp today: a
-    test added here later inherits the redirect instead of rediscovering the
-    leak the hard way.
+    refusals that never happened to the deployment's own ledger.
     """
     from osprey.audit import writer
 
@@ -43,334 +51,223 @@ def _audit_zone(tmp_path, monkeypatch):
     return tmp_path / "var" / "audit"
 
 
-def _envelope(exc_info) -> dict:
-    """The structured error envelope ``make_error`` packed into the ToolError."""
-    return json.loads(str(exc_info.value))
-
-
-def test_readwrite_refused_under_sandbox_posture(monkeypatch):
-    """The whole point: writes asked for inside a sandboxed session are refused."""
-    monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
-
-    with pytest.raises(ToolError) as exc_info:
-        enforce_posture_clamp("readwrite", tool="execute")
-
-    envelope = _envelope(exc_info)
-    assert envelope["error"] is True
-    assert envelope["error_type"] == "safety_error"
-    assert envelope["suggestions"]
-
-
-def test_a_read_only_run_refusal_names_the_run_not_the_deployment_config(monkeypatch):
-    """Two-vocabulary rule: nothing is wrong with the deployment config.
-
-    Mirror of ``test_readonly_refusal_message_does_not_blame_deployment`` on the
-    connector side — a refusal that mentions ``writes_enabled`` sends the
-    operator to edit a config file that is not the gate.
-
-    The environment source is a DEPLOYMENT-wide read-only run, so the remedy is
-    the run's own switch. The header chip is named only to close the dead end:
-    it already reads writes for this session and cannot lift the run.
-    """
-    monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
-
-    with pytest.raises(ToolError) as exc_info:
-        enforce_posture_clamp("readwrite", tool="execute")
-
-    envelope = _envelope(exc_info)
-    text = envelope["error_message"] + " " + " ".join(envelope["suggestions"])
-    assert "writes_enabled" not in text
-    assert "readonly execution mode" in text.lower()
-    assert "OSPREY_EXECUTION_MODE=readonly" in text
-    # Named as the thing that does NOT lift it, never as the way out.
-    assert "control-target chip in the header cannot lift" in text.lower()
-    assert "switch the session to the writes posture" not in text.lower()
-
-
-def test_readonly_passes_under_sandbox_posture(monkeypatch):
-    """A readonly run is exactly what the sandbox posture permits."""
-    monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
-
-    assert enforce_posture_clamp("readonly", tool="execute") is None
-
-
-def test_no_mode_var_means_not_a_sandbox_run(monkeypatch):
-    """Outside a postured session the variable is unset and the clamp is inert.
-
-    Pins the same semantics as the connector test of this name: with no
-    variable, the deployment gates alone decide, and *both* modes pass here.
-    """
-    monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
-
-    assert enforce_posture_clamp("readonly", tool="execute") is None
-    assert enforce_posture_clamp("readwrite", tool="execute") is None
-
-
-@pytest.mark.parametrize("value", ["readwrite", "READONLY", "", "sandbox", "true"])
-def test_other_values_leave_both_modes_unchanged(monkeypatch, value):
-    """Value comparison, not presence: only the exact ``readonly`` string clamps.
-
-    ``readwrite`` is the writes posture and must not be mistaken for a sandbox;
-    the remaining values are the ones a typo or a stale env would produce, and
-    a presence check would sandbox the session on every one of them.
-    """
-    monkeypatch.setenv("OSPREY_EXECUTION_MODE", value)
-
-    assert enforce_posture_clamp("readonly", tool="execute") is None
-    assert enforce_posture_clamp("readwrite", tool="execute") is None
-
-
-# --------------------------------------------------------------------------
-# The per-target posture: the clamp reads the record through posture()
-# --------------------------------------------------------------------------
-#
-# A session narrows ONE control target from the header chip. Nothing respawns
-# the executor for that, and nothing sets ``OSPREY_EXECUTION_MODE`` — setting it
-# would sandbox every target at once. The clamp still has to refuse a readwrite
-# run on a narrowed target, and still has to let one through on a target the
-# operator left alone, which it does entirely through what ``posture.posture()``
-# now answers.
-
-SESSION_KEY = "11111111-2222-3333-4444-555555555555"
-
-
-@pytest.fixture(autouse=True)
-def _no_ambient_deployment(control_context_root, monkeypatch):
-    """Point every test at an empty deployment, and clear the sandbox pin.
-
-    ``read_record()`` with no ``OSPREY_AGENT_DATA_ROOT`` falls back to
-    ``<repo>/var/agent_data``, where a developer's own stack leaves a real
-    record behind — so *deleting* the variable would answer these tests from
-    whatever that stack was last pointed at. Stamping a scratch root instead
-    makes "this deployment has no record" true by construction, which is what
-    the environment-only tests above are asserting under.
-
-    ``CONTROL_TARGET_ENV_VAR`` is cleared for the same reason on the other
-    reader: it is the executor sandbox's own write pin and it outranks the
-    record, so an inherited one would name a target no test here wrote.
-    """
-    from osprey.audit import posture as posture_module
-    from osprey_connectors import posture_store
-
-    for marker in (
-        posture_module.POSTURE_SESSION_ENV_VAR,
-        posture_module.CONTROL_TARGET_ENV_VAR,
-    ):
-        monkeypatch.delenv(marker, raising=False)
-    posture_store.invalidate_cache()
-    yield control_context_root
-    posture_store.invalidate_cache()
-
-
 @pytest.fixture
-def session(control_context_root, monkeypatch):
-    """A process under a deployment whose control-context record it can move.
+def deployment(tmp_path, monkeypatch):
+    """A clean verdict environment over a scratch agent-data root.
 
-    Returns a handle whose ``.on(target)`` points the deployment at a target
-    and whose ``.narrow(**entries)`` writes the per-target narrowings. Both
-    write the WHOLE record every time: the target and the posture are two
-    fields of one file now, so a second write naming only the posture would
-    drop the target the first one set.
-
-    The session key is still stamped — the ledger joins on it — but nothing
-    indexes a posture by it any more, which is why ``.narrow()`` names no
-    session.
+    Returns a handle: ``.section`` is the ``control_system`` section the
+    verdict reads (a tier that allows writes unless a test says otherwise) and
+    ``.on(target, switch=...)`` writes the deployment's record.
     """
-    from osprey.audit import posture as posture_module
-
+    root = tmp_path / "agent_data"
+    root.mkdir()
+    isolate_verdict_environment(monkeypatch, root)
+    pin_identity(monkeypatch, FIXTURE_IDENTITY)
     monkeypatch.setenv(posture_module.POSTURE_SESSION_ENV_VAR, SESSION_KEY)
-    monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
 
-    class _Session:
-        key = SESSION_KEY
-        target = DEFAULT_TARGET
-        narrowings: dict[str, str] = {}
+    class _Deployment:
+        section: dict = dict(ARMED)
 
-        @classmethod
-        def _publish(cls) -> None:
-            write_control_context(
-                control_context_root, target=cls.target, posture=dict(cls.narrowings)
-            )
+        @staticmethod
+        def on(target: str, *, switch: dict | None = None):
+            path = write_control_context(root, target=target, switch=switch or {})
+            reset_verdict_state()
+            return path
 
-        @classmethod
-        def on(cls, target: str) -> None:
-            cls.target = target
-            cls._publish()
+    monkeypatch.setattr(posture_module, "control_system_section", lambda: _Deployment.section)
+    reset_verdict_state()
+    yield _Deployment
+    reset_verdict_state()
 
-        @classmethod
-        def narrow(cls, **entries: str) -> None:
-            cls.narrowings = dict(entries)
-            cls._publish()
 
-    return _Session
+def _refusal(tool: str = "execute") -> dict:
+    """The structured envelope of the clamp's refusal of a readwrite run."""
+    with pytest.raises(ToolError) as exc_info:
+        enforce_posture_clamp("readwrite", tool=tool)
+    envelope = json.loads(str(exc_info.value))
+    assert envelope["error_type"] == "safety_error"
+    return envelope
 
 
 def _executor_records(audit_root) -> list[dict]:
     """Every record on the executor surface, for the identity in force."""
     from osprey.audit.envelope import SURFACE_EXECUTOR
-    from osprey_connectors.identity import acting_identity
 
-    path = audit_root / acting_identity() / f"{SURFACE_EXECUTOR}.jsonl"
-    if not path.exists():
-        return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    return ledger_records(audit_root, SURFACE_EXECUTOR)
 
 
-def test_a_narrowed_control_target_refuses_a_readwrite_run(session, _audit_zone):
-    """The narrowing lands on a session already running, with no respawn."""
-    session.on("live")
-    session.narrow(live="sandbox")
-
-    with pytest.raises(ToolError) as exc_info:
-        enforce_posture_clamp("readwrite", tool="execute")
-
-    assert _envelope(exc_info)["error_type"] == "safety_error"
+# -- allowed ----------------------------------------------------------------
 
 
-def test_a_narrowed_target_refusal_names_that_target(session, _audit_zone):
-    """Per target, so the refusal says WHICH machine — and says nothing wider.
+def test_a_switched_on_target_runs_and_records_nothing(deployment, _audit_zone):
+    deployment.on("live", switch={"live": "on"})
 
-    This gate runs before every readwrite tool call, so an unqualified "writes
-    are off" would read as a block on every machine while the deployment is
-    working normally on every other target. The name has to be the one
-    ``posture()`` clamped on, which is why both read the same resolver.
+    assert enforce_posture_clamp("readwrite", tool="execute") is None
+    assert _executor_records(_audit_zone) == []
+
+
+def test_a_readonly_run_is_never_asked_about(deployment, _audit_zone, monkeypatch):
+    """Reads are unaffected whatever the verdict would say."""
+    monkeypatch.setenv(posture_module.POSTURE_ENV_VAR, "readonly")
+    deployment.section = {"type": "epics"}
+
+    assert enforce_posture_clamp("readonly", tool="execute") is None
+    assert _executor_records(_audit_zone) == []
+
+
+@pytest.mark.parametrize("value", ["readwrite", "READONLY", "", "sandbox", "true"])
+def test_only_the_exact_readonly_value_is_a_read_only_run(deployment, monkeypatch, value):
+    """Value comparison, not presence: no other spelling of the variable refuses."""
+    monkeypatch.setenv(posture_module.POSTURE_ENV_VAR, value)
+    deployment.on("live", switch={"live": "on"})
+
+    assert enforce_posture_clamp("readwrite", tool="execute") is None
+
+
+# -- each term refuses in its own words ------------------------------------
+
+
+def test_a_read_only_run_refuses_with_its_phrase(deployment, monkeypatch):
+    deployment.on("live", switch={"live": "on"})
+    monkeypatch.setenv(posture_module.POSTURE_ENV_VAR, "readonly")
+
+    envelope = _refusal()
+
+    assert envelope["error_message"] == refusal_text("readonly_run", "real")
+    assert envelope["details"] == {"reason": "readonly_run", "target": "live"}
+
+
+def test_a_tier_that_allows_nothing_refuses(deployment):
+    deployment.section = {"type": "epics"}
+    deployment.on("live", switch={"live": "on"})
+
+    assert _refusal()["error_message"] == refusal_text("tier_never", "real")
+
+
+def test_a_switch_that_is_off_refuses(deployment):
+    deployment.on("live", switch={"va": "on"})
+
+    envelope = _refusal()
+
+    assert envelope["error_message"] == refusal_text("switch_off", "real")
+    assert envelope["details"] == {"reason": "switch_off", "target": "live"}
+
+
+@pytest.mark.usefixtures("deployment")
+def test_no_record_refuses_the_baseline_as_switched_off():
+    """No record: the run would build the baseline connector, and no switch is on."""
+    envelope = _refusal()
+
+    assert envelope["details"] == {"reason": "switch_off", "target": "live"}
+    assert envelope["error_message"] == refusal_text("switch_off", "real")
+
+
+def test_a_record_target_this_deployment_cannot_build_refuses(deployment):
+    """``live`` does not resolve on a section that names no real control system."""
+    deployment.section = {"writes": "allowed"}
+    deployment.on("live", switch={"live": "on"})
+
+    envelope = _refusal()
+
+    assert envelope["details"]["reason"] == "target_unknown"
+    assert envelope["error_message"] == refusal_text("target_unknown")
+
+
+def test_an_unknown_owner_refuses(deployment, monkeypatch):
+    deployment.on("live", switch={"live": "on"})
+    monkeypatch.setattr(posture_store, "current_owner", lambda owner=None: posture_store.NO_OWNER)
+
+    envelope = _refusal()
+
+    assert envelope["details"]["reason"] == "owner_unknown"
+    assert envelope["error_message"] == refusal_text("owner_unknown", "real")
+
+
+def test_an_unreadable_record_refuses(deployment):
+    path = deployment.on("live", switch={"live": "on"})
+    path.write_text("{ not json", encoding="utf-8")
+    reset_verdict_state()
+
+    envelope = _refusal()
+
+    assert envelope["details"]["reason"] == "record_unavailable"
+    assert envelope["error_message"] == refusal_text("record_unavailable", "real")
+
+
+def test_an_inherited_target_stamp_is_not_what_the_gate_asks_about(deployment, monkeypatch):
+    """The launch drops an inherited stamp, so the gate must not honour one.
+
+    The stamp names a machine whose switch is on; the record — what the run
+    will actually be stamped from — names one whose switch is off.
     """
-    session.on("live")
-    session.narrow(live="sandbox")
+    deployment.on("live", switch={"va": "on"})
+    monkeypatch.setenv(posture_module.CONTROL_TARGET_ENV_VAR, "va")
 
-    with pytest.raises(ToolError) as exc_info:
-        enforce_posture_clamp("readwrite", tool="execute")
-
-    envelope = _envelope(exc_info)
-    message = envelope["error_message"]
-    assert "'live' control target" in message
-    assert "applies to every session of this login" in message
-    assert "This terminal session is in the sandbox posture" not in message
-    assert "Turn writes back on for 'live' from the control-target chip in the header" in " ".join(
-        envelope["suggestions"]
-    )
+    assert _refusal()["details"] == {"reason": "switch_off", "target": "live"}
 
 
-def _clamp_fires(monkeypatch):
-    """Pin ``posture()`` at sandbox so only the NAMING step is under test.
+@pytest.mark.parametrize(
+    "stage",
+    ["readonly_run", "tier_never", "target_unknown", "owner_unknown", "record_unavailable", "off"],
+)
+def test_no_refusal_names_a_key_a_file_or_a_variable(deployment, monkeypatch, stage):
+    """Every refusal reads as who can lift it — never as a config edit."""
+    path = deployment.on("live", switch={"live": "on" if stage != "off" else "off"})
+    if stage == "readonly_run":
+        monkeypatch.setenv(posture_module.POSTURE_ENV_VAR, "readonly")
+    elif stage == "tier_never":
+        deployment.section = {"type": "epics"}
+    elif stage == "target_unknown":
+        deployment.section = {"writes": "allowed"}
+    elif stage == "owner_unknown":
+        monkeypatch.setattr(
+            posture_store, "current_owner", lambda owner=None: posture_store.NO_OWNER
+        )
+    elif stage == "record_unavailable":
+        path.write_text("{ not json", encoding="utf-8")
+        reset_verdict_state()
 
-    The two cases below are about the window between the gate's two reads:
-    ``posture()`` resolved a narrowed target and clamped, and the gate then
-    resolves the target again to name it. Patching the resolver alone cannot
-    stage that — ``posture()`` reads the very same function, so a resolver that
-    answers ``None`` would simply stop the clamp firing at all.
-    """
-    monkeypatch.setattr(posture_module, "posture", lambda: posture_module.POSTURE_SANDBOX)
+    envelope = _refusal()
+    text = " ".join([envelope["error_message"], *envelope["suggestions"]])
 
-
-def test_a_target_lost_between_the_two_reads_names_no_machine(session, _audit_zone, monkeypatch):
-    """The degraded cell: the clamp fired, but the target cannot be named now.
-
-    A state file replaced between the two reads leaves the second answer
-    ``None``. Inventing a machine name there would be worse than saying so: the
-    store's rule with no resolvable target is that the MOST RESTRICTIVE entry
-    decides, and which entry that was is not knowable here.
-    """
-    session.on("live")
-    session.narrow(live="sandbox")
-    _clamp_fires(monkeypatch)
-    monkeypatch.setattr(posture_module, "recorded_control_target", lambda: None)
-
-    with pytest.raises(ToolError) as exc_info:
-        enforce_posture_clamp("readwrite", tool="execute")
-
-    envelope = _envelope(exc_info)
-    message = envelope["error_message"]
-    assert "at least one control target" in message
-    assert "most restrictive" in message
-    assert "control-target chip in the header" in message
-    assert "'live'" not in message
-    assert "Turn writes back on from the control-target chip in the header" in " ".join(
-        envelope["suggestions"]
-    )
+    assert REFUSAL_BAN_LIST.search(text) is None, text
 
 
-def test_a_raising_target_resolver_still_refuses(session, _audit_zone, monkeypatch):
-    """Naming the target is a convenience; refusing is the contract.
+def test_a_verdict_that_raises_still_refuses(deployment, monkeypatch):
+    """The verdict never raises by contract; if it does, the gate refuses."""
+    deployment.on("live", switch={"live": "on"})
 
-    The resolver is documented never to raise, but this runs on the refusal
-    path of every readwrite tool call — a surprise here must not turn a safety
-    refusal into a 500.
-    """
+    def _explode(*_args, **_kwargs):
+        raise RuntimeError("the verdict is on fire")
 
-    def _explode() -> str | None:
-        raise RuntimeError("state directory is on fire")
+    monkeypatch.setattr(posture_store, "write_verdict", _explode)
 
-    session.on("live")
-    session.narrow(live="sandbox")
-    _clamp_fires(monkeypatch)
-    monkeypatch.setattr(posture_module, "recorded_control_target", _explode)
-
-    with pytest.raises(ToolError) as exc_info:
-        enforce_posture_clamp("readwrite", tool="execute")
-
-    assert "at least one control target" in _envelope(exc_info)["error_message"]
+    assert _refusal()["details"]["reason"] == "record_unavailable"
 
 
-def test_the_refusal_files_reason_posture_and_posture_sandbox(session, _audit_zone):
-    """The record an operator greps for: ``reason=posture``, ``posture=sandbox``.
+# -- the ledger --------------------------------------------------------------
 
-    The posture field is not restated by the gate — it comes from
-    ``posture.posture()``, which is exactly what the store now answers — so this
-    also pins that a store-backed refusal is indistinguishable in the ledger
-    from the session-wide one it replaces.
-    """
-    session.on("live")
-    session.narrow(live="sandbox")
 
-    with pytest.raises(ToolError):
-        enforce_posture_clamp("readwrite", tool="execute")
+def test_the_refusal_files_reason_posture_with_the_verdicts_reason_and_target(
+    deployment, _audit_zone
+):
+    deployment.on("live", switch={})
+
+    _refusal()
 
     record = _executor_records(_audit_zone)[-1]
     assert record["reason"] == "posture"
     assert record["posture"] == "sandbox"
     assert record["decision"] == "refused"
     assert record["session"] == SESSION_KEY
+    assert record["detail"] == "reason=switch_off target=live"
 
 
-def test_a_narrowing_on_another_target_leaves_this_session_alone(session, _audit_zone):
-    """Read-only on the live machine must not stop work on the accelerator."""
-    session.on("va")
-    session.narrow(live="sandbox")
+@pytest.mark.usefixtures("deployment")
+def test_a_refusal_with_no_target_files_no_target(_audit_zone, monkeypatch):
+    from osprey.mcp_server.python_executor.tools import _execution_gates as gates
 
-    assert enforce_posture_clamp("readwrite", tool="execute") is None
-    assert _executor_records(_audit_zone) == []
+    monkeypatch.setattr(gates, "_launch_target", lambda _section: None)
 
-
-def test_a_narrowed_target_still_permits_a_readonly_run(session, _audit_zone):
-    """Reads are unaffected by the posture, per target as session-wide."""
-    session.on("live")
-    session.narrow(live="sandbox")
-
-    assert enforce_posture_clamp("readonly", tool="execute") is None
-    assert _executor_records(_audit_zone) == []
-
-
-def test_an_unnarrowed_session_runs(session, _audit_zone):
-    session.on("live")
-    session.narrow()
-
-    assert enforce_posture_clamp("readwrite", tool="execute") is None
-
-
-@pytest.mark.usefixtures("session")
-def test_no_record_at_all_is_not_a_deployment_wide_clamp(_audit_zone):
-    """No record: the process cannot say which machine it is about.
-
-    Refusing here would refuse writes on targets nobody narrowed. The
-    fail-closed layer for one specific write is the connector's reference
-    monitor, which takes the most restrictive entry when it cannot name a
-    target; this gate answers the environment.
-
-    The narrowing cannot be staged alongside the missing target any more —
-    one record per deployment carries both, so "narrowed, but the target is
-    unknowable" is a state that no longer exists on disk. It survives only as
-    the window between the gate's two reads, which the two tests above stage
-    by hand.
-    """
-    assert enforce_posture_clamp("readwrite", tool="execute") is None
+    assert _refusal()["details"] == {"reason": "target_unknown", "target": None}
+    assert _executor_records(_audit_zone)[-1]["detail"] == "reason=target_unknown"

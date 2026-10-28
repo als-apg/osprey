@@ -7,6 +7,7 @@ tests in ``test_catchup.py`` reuse them.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import threading
 import time
@@ -68,17 +69,6 @@ class _Conn:
         return _Cursor((relation if relation in self._pool.relations else None,))
 
 
-class _ConnCtx:
-    def __init__(self, pool: _Pool) -> None:
-        self._pool = pool
-
-    async def __aenter__(self) -> _Conn:
-        return _Conn(self._pool)
-
-    async def __aexit__(self, *exc: object) -> None:
-        return None
-
-
 class _Pool:
     conninfo = "postgresql://fake/ariel"
 
@@ -86,8 +76,8 @@ class _Pool:
         self.relations = set(relations or ())
         self.statements: list[tuple[str, Any]] = []
 
-    def connection(self) -> _ConnCtx:
-        return _ConnCtx(self)
+    def connection(self) -> contextlib.nullcontext[_Conn]:
+        return contextlib.nullcontext(_Conn(self))
 
 
 class FakeRepo:

@@ -110,21 +110,21 @@ function mountSimpleInput({ disabled = false } = {}) {
 describe('capabilitySentence', () => {
   test('names where the values come from, per machine kind', () => {
     const facts = factsOf([], false);
-    expect(fc.capabilitySentence('live', facts)).toBe(
-      'Here the agent can read live machine values.'
+    expect(fc.capabilitySentence('real', facts)).toBe(
+      'Here the agent can read values from the real machine.'
     );
-    expect(fc.capabilitySentence('standin', facts)).toBe(
+    expect(fc.capabilitySentence('rehearsal', facts)).toBe(
       'Here the agent can read values from the rehearsal copy.'
     );
-    expect(fc.capabilitySentence('va', facts)).toBe(
+    expect(fc.capabilitySentence('simulator', facts)).toBe(
       'Here the agent can read values from the simulator.'
     );
   });
 
   test('the read phrase leads, then the server capabilities', () => {
     const facts = factsOf(['run analysis scripts', 'plot archived data'], false);
-    expect(fc.capabilitySentence('live', facts)).toBe(
-      'Here the agent can read live machine values, run analysis scripts, and plot archived data.'
+    expect(fc.capabilitySentence('real', facts)).toBe(
+      'Here the agent can read values from the real machine, run analysis scripts, and plot archived data.'
     );
   });
 
@@ -142,14 +142,14 @@ describe('capabilitySentence', () => {
     // Prepending the read phrase into the caller's array would make every
     // later sentence repeat it.
     const facts = factsOf(['run analysis scripts'], false);
-    fc.capabilitySentence('live', facts);
+    fc.capabilitySentence('real', facts);
     expect(facts.capabilities).toEqual(['run analysis scripts']);
   });
 });
 
 describe('starterPrompts', () => {
   test('offers the read prompt for every known machine kind', () => {
-    for (const kind of ['live', 'standin', 'va']) {
+    for (const kind of ['real', 'rehearsal', 'simulator']) {
       expect(fc.starterPrompts(kind, factsOf([], false))).toEqual([
         'What can you read right now?',
         'What are you allowed to do in this session?',
@@ -164,12 +164,12 @@ describe('starterPrompts', () => {
   });
 
   test('offers the logbook prompt last, and only where there is a logbook', () => {
-    expect(fc.starterPrompts('live', factsOf([], true))).toEqual([
+    expect(fc.starterPrompts('real', factsOf([], true))).toEqual([
       'What can you read right now?',
       'What are you allowed to do in this session?',
       'What happened in the logbook today?',
     ]);
-    expect(fc.starterPrompts('live', factsOf([], false))).not.toContain(
+    expect(fc.starterPrompts('real', factsOf([], false))).not.toContain(
       'What happened in the logbook today?'
     );
   });
@@ -177,8 +177,8 @@ describe('starterPrompts', () => {
 
 describe('setFacts', () => {
   test('the defaults read module state at call time, not at import time', () => {
-    chip.kind = 'live';
-    expect(fc.capabilitySentence()).toBe('Here the agent can read live machine values.');
+    chip.kind = 'real';
+    expect(fc.capabilitySentence()).toBe('Here the agent can read values from the real machine.');
     expect(fc.starterPrompts()).toEqual([
       'What can you read right now?',
       'What are you allowed to do in this session?',
@@ -186,7 +186,7 @@ describe('setFacts', () => {
 
     fc.setFacts({ capabilities: ['plot archived data'], logbook: true });
     expect(fc.capabilitySentence()).toBe(
-      'Here the agent can read live machine values and plot archived data.'
+      'Here the agent can read values from the real machine and plot archived data.'
     );
     expect(fc.starterPrompts()).toEqual([
       'What can you read right now?',
@@ -425,7 +425,7 @@ describe('onKindChange', () => {
   test('the idle poll repainting the same state fires nothing', () => {
     const changed = vi.fn();
     fc.onKindChange(changed);
-    settleOn('live');
+    settleOn('real');
 
     renderChip();
     renderChip();
@@ -435,12 +435,12 @@ describe('onKindChange', () => {
   test('a switch fires once, with the new kind', () => {
     const changed = vi.fn();
     fc.onKindChange(changed);
-    settleOn('live');
+    settleOn('real');
 
-    chip.kind = 'standin';
+    chip.kind = 'rehearsal';
     renderChip();
     expect(changed).toHaveBeenCalledTimes(1);
-    expect(changed).toHaveBeenCalledWith('standin');
+    expect(changed).toHaveBeenCalledWith('rehearsal');
 
     renderChip();
     expect(changed).toHaveBeenCalledTimes(1);
@@ -449,7 +449,7 @@ describe('onKindChange', () => {
   test('does not fire at the settled moment itself', () => {
     const changed = vi.fn();
     fc.onKindChange(changed);
-    settleOn('va');
+    settleOn('simulator');
     expect(changed).not.toHaveBeenCalled();
   });
 });
@@ -464,23 +464,23 @@ const chipTexts = (/** @type {Element} */ block) =>
 
 describe('buildEmptyState', () => {
   test('the intro emphasises each phrase and reads as the sentence', () => {
-    chip.kind = 'live';
+    chip.kind = 'real';
     fc.setFacts({ capabilities: ['run analysis scripts'], logbook: false });
     const block = fc.buildEmptyState();
 
     const intro = /** @type {HTMLElement} */ (block.querySelector('p.op-empty-intro'));
     expect([...intro.querySelectorAll('strong')].map((s) => s.textContent)).toEqual([
-      'read live machine values',
+      'read values from the real machine',
       'run analysis scripts',
     ]);
     expect(intro.textContent).toBe(fc.capabilitySentence());
     expect(intro.textContent).toBe(
-      'Here the agent can read live machine values and run analysis scripts.'
+      'Here the agent can read values from the real machine and run analysis scripts.'
     );
   });
 
   test('one phrase needs no connective, three read as a list', () => {
-    chip.kind = 'va';
+    chip.kind = 'simulator';
     fc.setFacts(null);
     expect(fc.buildEmptyState().querySelector('.op-empty-intro')?.textContent).toBe(
       'Here the agent can read values from the simulator.'
@@ -501,7 +501,7 @@ describe('buildEmptyState', () => {
   });
 
   test('offers the tour chips, in the tour classes', () => {
-    chip.kind = 'live';
+    chip.kind = 'real';
     fc.setFacts({ capabilities: [], logbook: true });
     const block = fc.buildEmptyState();
 
@@ -521,7 +521,7 @@ describe('buildEmptyState', () => {
 
   test('clicking a chip inserts that chip text', () => {
     document.documentElement.setAttribute('data-ui-mode', 'expert');
-    chip.kind = 'live';
+    chip.kind = 'real';
     fc.setFacts(null);
     const block = fc.buildEmptyState();
 
@@ -533,15 +533,15 @@ describe('buildEmptyState', () => {
 
 describe('renderEmptyStateContent', () => {
   test('rebuilds the same element for a different machine', () => {
-    chip.kind = 'live';
+    chip.kind = 'real';
     fc.setFacts(null);
     const block = fc.buildEmptyState();
-    expect(block.textContent).toContain('read live machine values');
+    expect(block.textContent).toContain('read values from the real machine');
 
-    chip.kind = 'va';
+    chip.kind = 'simulator';
     expect(fc.renderEmptyStateContent(block)).toBe(block);
     expect(block.textContent).toContain('read values from the simulator');
-    expect(block.textContent).not.toContain('live machine');
+    expect(block.textContent).not.toContain('real machine');
     expect(block.querySelectorAll('.op-empty-intro').length).toBe(1);
     expect(block.querySelectorAll('.tour-chips').length).toBe(1);
   });
@@ -577,11 +577,11 @@ describe('the Simple console', () => {
     const messages = await mountChat();
     expect(messages.querySelector('.op-empty')).toBeNull();
 
-    settleOn('live');
+    settleOn('real');
     const block = messages.querySelector('.op-empty');
     expect(block).not.toBeNull();
     expect(messages.firstChild).toBe(block);
-    expect(block?.textContent).toContain('read live machine values');
+    expect(block?.textContent).toContain('read values from the real machine');
   });
 
   test('does not show it over a log that already has messages in it', async () => {
@@ -589,13 +589,13 @@ describe('the Simple console', () => {
     sendMessage('already talking');
     expect(messages.querySelector('.op-empty')).toBeNull();
 
-    settleOn('live');
+    settleOn('real');
     expect(messages.querySelector('.op-empty')).toBeNull();
   });
 
   test('removes it as soon as the invitation is taken', async () => {
     const messages = await mountChat();
-    settleOn('live');
+    settleOn('real');
     expect(messages.querySelector('.op-empty')).not.toBeNull();
 
     sendMessage('what can you read right now?');
@@ -604,23 +604,23 @@ describe('the Simple console', () => {
 
   test('rebuilds it in place when the machine changes', async () => {
     const messages = await mountChat();
-    settleOn('live');
+    settleOn('real');
 
-    chip.kind = 'va';
+    chip.kind = 'simulator';
     chip.listeners.forEach((fn) => fn({}));
 
     const block = messages.querySelector('.op-empty');
     expect(messages.querySelectorAll('.op-empty').length).toBe(1);
     expect(block?.textContent).toContain('read values from the simulator');
-    expect(block?.textContent).not.toContain('live machine');
+    expect(block?.textContent).not.toContain('real machine');
   });
 
   test('does not resurrect it after the first message', async () => {
     const messages = await mountChat();
-    settleOn('live');
+    settleOn('real');
     sendMessage('first message');
 
-    chip.kind = 'va';
+    chip.kind = 'simulator';
     chip.listeners.forEach((fn) => fn({}));
     expect(messages.querySelector('.op-empty')).toBeNull();
   });

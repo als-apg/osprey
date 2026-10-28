@@ -79,6 +79,8 @@ from osprey_connectors.errors import (
     ChannelWriteBlockedError,
     RefusalReason,
 )
+from osprey_connectors.write_target import KIND_BANNERS
+from osprey_connectors_tests._harness import write_control_context
 from osprey_connectors_tests._harness._ports import reserved_port
 from tests.fixtures import bench_ioc as bench
 from tests.fixtures.control_context import context_for, publish_reachability
@@ -400,7 +402,9 @@ def raw_config(
     return {
         "control_system": {
             "type": "virtual_accelerator",
-            "writes_enabled": True,
+            # The login tier. It arms nothing alone: the session's switch must
+            # also be on for the machine (see ``state_root``).
+            "writes": "allowed",
             "limits_checking": {
                 "enabled": True,
                 "mode": "exclusive",
@@ -428,12 +432,22 @@ def state_root(tmp_path, monkeypatch):
     own root helper; the control-context record resolves through the
     ``OSPREY_AGENT_DATA_ROOT`` stamp. Stamping one and not the other leaves this
     process reading whatever record the developer's machine was last left on.
+
+    The session's switch is on for both machines before any child spawns: a
+    write needs the login tier (``control_system.writes: allowed``) AND the
+    switch on for its target, and a connector chooses its write-capable gateway
+    from that verdict when it connects. The record is ownerless at generation
+    0 on the deployment's baseline, which is what a controls server's claim
+    would start, so a claim merges it rather than replacing it.
     """
     root = tmp_path / "var" / "agent_data"
     (root / target_state.STATE_DIR_NAME).mkdir(parents=True)
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
     monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
     control_context.invalidate_cache()
+    write_control_context(
+        root, target="va", generation=0, owned_by=None, switch={"live": "on", "va": "on"}
+    )
     yield root
     control_context.invalidate_cache()
 
@@ -457,7 +471,7 @@ def written_config(tmp_path):
     """Stage a deployment on disk and hand back its path.
 
     A connector-host child is configured from the section it is handed on the
-    wire, but ``control_system.writes_enabled`` and the limits database are read
+    wire, but the login tier (``control_system.writes``) and the limits database are read
     by the connector itself out of the config file -- they are launch-time
     deployment posture, not values the launch payload may grant. So a deployment
     that means to write, under real limits, has to exist as a file.
@@ -1052,10 +1066,10 @@ class TestWhenTheBenchMachineGoesAway:
             # the payload alone, without reconstructing the recorded control target
             # from memory. Label and endpoint come from config the same way the
             # roster renders them; the name from the supervisor's own record.
-            assert "active target: LIVE MACHINE" in message, message
+            assert f"active target: {KIND_BANNERS['real']}" in message, message
             identity = captured["envelope"]["details"]["active_target"]
             assert identity["name"] == "live"
-            assert identity["label"] == "LIVE MACHINE"
+            assert identity["label"] == KIND_BANNERS["real"]
             assert identity["endpoint"].endswith(f":{ioc.port}")
             assert captured["envelope"]["details"]["channel"] == PROBE_CHANNEL
             assert "recovery" not in captured["envelope"]["details"]

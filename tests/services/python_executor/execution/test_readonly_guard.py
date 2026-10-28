@@ -37,6 +37,7 @@ from osprey.services.python_executor.execution.wrapper import (
     ExecutionWrapper,
 )
 from tests.runtime._patch_restore import drop_guard_finders
+from tests.services.python_executor.execution._write_targets import resolve_target
 
 # The refusal text contains literal parentheses; escape it for pytest.raises.
 _REFUSAL = re.escape(READONLY_REFUSAL)
@@ -46,28 +47,6 @@ _PROCESS_LOAD_REFUSAL = re.escape(READONLY_LOAD_REFUSAL.format(library="<process
 # Bound before any guard is installed, as a script can hold the loader class
 # from before the guard ran.
 cdll_before = ctypes.CDLL
-
-
-def _resolve_target(dotted):
-    """Mirror of the resolver the guard emits, for the restore fixture below.
-
-    Deliberately a copy rather than a shared import: the emitted guard has to
-    be self-contained — it runs before the user code in a subprocess that may
-    not be able to import OSPREY at all — so there is no function to share.
-    """
-    parts = dotted.split(".")
-    for cut in range(len(parts), 0, -1):
-        try:
-            obj = importlib.import_module(".".join(parts[:cut]))
-        except ImportError:
-            continue
-        for attr in parts[cut:]:
-            try:
-                obj = getattr(obj, attr)
-            except AttributeError:
-                return None
-        return obj
-    return None
 
 
 @pytest.fixture(autouse=True)
@@ -93,7 +72,7 @@ def _restore_patched_targets():
     """
     saved = []
     for dotted, attrs in _READONLY_WRITE_TARGETS:
-        target = _resolve_target(dotted)
+        target = resolve_target(dotted)
         if target is None:
             continue
         for attr in attrs:

@@ -189,8 +189,23 @@ def _queue_stop_fn():
 
 
 def _queue_stop_posture(tmp_path, monkeypatch, *, writes: bool, token: str | None) -> None:
-    """Re-arm the bridge context for a queue_stop test: writes on/off, token set/unset."""
-    (tmp_path / "config.yml").write_text(yaml.dump({"control_system": {"writes_enabled": writes}}))
+    """Re-arm the bridge context for a queue_stop test: switch on/off, token set/unset.
+
+    Writes are armed the way a person arms them: a tier that allows writes and a
+    record whose switch is on for ``live``, the target the single lane serves.
+    """
+    from osprey_connectors_tests._harness import (
+        isolate_verdict_environment,
+        reset_verdict_state,
+        write_control_context,
+    )
+
+    section = {"type": "epics", "writes": "allowed"}
+    (tmp_path / "config.yml").write_text(yaml.dump({"control_system": section}))
+    root = tmp_path / "agent_data"
+    isolate_verdict_environment(monkeypatch, root)
+    write_control_context(root, target="live", switch={"live": "on"} if writes else {})
+    reset_verdict_state()
     if token is None:
         monkeypatch.delenv("BLUESKY_LAUNCH_TOKEN", raising=False)
     else:

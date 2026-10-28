@@ -214,59 +214,137 @@ confirmed only when the values are known to agree.
 
 .. _write-safety-config:
 
-Write Safety Configuration
-~~~~~~~~~~~~~~~~~~~~~~~~~~
+Who May Write
+~~~~~~~~~~~~~
 
-Write operations are disabled by default, and write permission is set per
-connector type:
+Three facts decide a write. This section is the contract every other page
+points to.
+
+**The tier key** says whether a login may write at all:
 
 .. code-block:: yaml
 
    control_system:
-     writes_enabled: false                  # what a type inherits when it says
-                                            # nothing about itself
-     connector:
-       virtual_accelerator:
-         writes_enabled: true               # ... and this type's own answer
-       epics:
-         writes_enabled: false              # pinned, so the inherited key
-                                            # cannot arm it later
+     writes: allowed          # or never; silence is never
 
-A connector type that carries no ``writes_enabled`` of its own inherits
-``control_system.writes_enabled``; one that carries it uses its own value and
-never falls back. Both default to blocked when omitted, and **only a literal**
-``true`` **arms writes** — the quoted string ``'true'`` and the number ``1`` do
-not. A custom connector's block is keyed by the same dotted module path that
-selects it, so ``mypackage.MoatConnector`` names one block and is never split
-on its dots. A profile key *is* split on every dot, so a refused write from
-such a connector quotes the mapping above rather than a
-``control_system.connector.<dotted type>.writes_enabled`` line: that line
-would build a nest nothing reads, and the write would go on being refused.
+It is spelled in ``tiers/*.yml``, in the deployment root for the root or
+single-user render, and in ``apps/*.yml``, where it is always ``never``. A tier
+overrides the root. Only the string ``allowed`` arms; any other value, and no
+key at all, reads ``never``. The tier is a ceiling, not a selection: an
+``allowed`` tier may write to every machine the deployment configures, and the
+switch picks which. Connector blocks carry transport facts only. On a
+``never`` render the build denies the write tools outright, so they are
+refused before any per-call check.
 
-Write posture is a **launch-time deployment posture, not a live kill-switch**:
-read from config and process-cached, so flipping it in ``config.yml`` does not
-affect a running process. The enforced kill-switch lives at the harness layer
-(a renderer ``permissions.deny`` on the write tool, then regenerate and
-relaunch); in-flight control of an active plan is the RunEngine's own
-``abort`` / ``pause``. One live control does exist alongside it, and it only
-ever narrows: an operator can take one control target away from the whole
-deployment from :ref:`the control-target chip <web-terminal-session-posture>`,
-and the connector re-reads that on every put.
+**The switch** is one login's, per machine, and off until that login turns it
+on from :ref:`the control-target chip <web-terminal-session-posture>`. It is
+read on every write, so a flip reaches a session already running. Turning it
+off is never refused. A demoted login's "on" stays on disk and does nothing
+while its tier is ``never``.
 
-That rendered deny list is written once, before any target has been chosen,
-so it exists only where **no** target may write. A deployment armed on
-one target and not another renders no deny at all, and the refusal arrives per
-call instead, from the safety hook and from the connector, naming the target
-that refused it. Tools a project lists under ``control_system.write_tools``
-take that per-call path in every render: they are never in the deny list, and
-the writes-check hook is what refuses them.
+**The verdict** combines them. One total order of terms; the first that
+refuses names the reason:
 
-The connector applies **per-write mechanical safety** — the write-posture gate,
-limits validation, the fail-closed validation path — on every put. That
-is a separate, complementary layer from the **per-intent human authorization**
-at the tool boundary (the approval hook, the launch token for plans), which
-gates the *intent* once rather than every put. The approval layer cannot
-substitute for the connector's mechanical refusal.
+.. list-table::
+   :header-rows: 1
+   :widths: 5 25 70
+
+   * - #
+     - Reason
+     - Refused when
+   * - 1
+     - ``readonly_run``
+     - the run is read-only.
+   * - 2
+     - ``tier_never``
+     - the render's tier is not ``allowed``.
+   * - 3
+     - ``target_unknown``
+     - the machine does not resolve in this deployment.
+   * - 4
+     - ``owner_unknown`` / ``owner_unscheduled`` / ``owner_foreign``
+     - no login can be named for the write; a scheduled or triggered job runs
+       for no login; or the owner is not the login this process acts for.
+   * - 5
+     - ``owner_unknown`` / ``tier_never``
+     - in a shared container, the owner is missing from the login→tier map,
+       or mapped ``never``.
+   * - 6
+     - ``record_unavailable``
+     - the owner's switch record cannot be read. An absent record is not
+       unavailable: it is every switch off.
+   * - 7
+     - ``switch_off``
+     - the owner's switch is not on for this machine.
+   * - 8
+     - ``launch_pinned``
+     - the run was started with writes held off for this machine.
+
+Two reasons come from outside the verdict: the EPICS connector refuses
+``switching`` while its write gateway has not yet followed the switch, and the
+chip refuses a turn-on with ``stopped_since`` when a stop landed after it
+began. The package's verdict, the connector and the stdlib hook twin share the
+order above, so a write is refused for the same reason on every side.
+
+**Refusal reasons and their trailer.** Every refusal a write path returns
+ends with a trailer line naming the reason, so a reader recovers it without
+parsing the words::
+
+   Writes are off; turn it on from the chip in the web terminal.
+   [osprey-refusal: switch_off]
+
+The phrase says what stopped the write and who can lift it. It never names a
+config key, a file, an environment variable or a build command: its reader is
+an operator or the agent. The reasons and phrases are one importable table,
+``osprey_connectors.refusals``.
+
+The connector applies **per-write mechanical safety** --- the verdict, limits
+validation, the fail-closed validation path --- on every put. That is a
+separate layer from the **per-intent human authorization** at the tool
+boundary (the approval hook, the launch token for plans), which gates the
+*intent* once rather than every put. Neither substitutes for the other. See
+:doc:`/architecture/safety-chain` for the order the layers run in.
+
+.. _write-safety-upgrade:
+
+Upgrading from a deployment-wide write flag
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Earlier releases armed writes per connector type, with
+``control_system.writes_enabled`` and
+``control_system.connector.<type>.writes_enabled``. Those keys are retired.
+
+- **Run** ``osprey init --revalidate``. It rewrites every layer to the tier
+  key in place.
+- **Until you do**, each retired key builds with one warning naming the new
+  key. A layer with a literal ``true`` in its flat or any per-type key reads
+  ``writes: allowed`` --- for every machine, not only the type it named; any
+  other value reads ``never``. An app always reads ``never``. A file that
+  spells both the retired and the new key is refused. The retired keys are
+  refused from 2026.11.0.
+- **A render built before this release** is not reread with the old rule: at
+  run time it has no tier key and reads ``never`` until it is rebuilt.
+- **Every switch starts off.** After the rebuild, nothing writes until a login
+  turns a machine on from the chip. A scheduled dispatch job or a queue item
+  with no owner no longer writes at all.
+- **A shell on a write tier is refused at build.** On an ``allowed`` render, a
+  ``claude_code.permissions.remove_deny`` that lifts ``Bash`` or ``Monitor``
+  fails the build: a shell reaches the switch and the connectors around every
+  gate. On a ``never`` render it stays a warning.
+- **Two countdowns, warn now, refused from 2026.11.0.** A facility tool that
+  a server lists under ``permissions.ask``, or whose name carries a
+  destructive marker, and that is missing from that server's
+  ``mcp_servers.<server>.writes`` list, is a build warning.
+  ``control_system.write_tools`` still gates its entries per call, now on the
+  real machine's switch, and warns; move them to
+  ``mcp_servers.<server>.writes``.
+- **Shared containers read a login→tier map.** The Bluesky queue and dispatch
+  workers carry every login's job, so the build renders
+  ``control_system.login_tiers`` (``{login: allowed | never}``) into their
+  config from the roster. A write there needs the container's tier, the
+  owner's mapped tier and the owner's switch; an owner the map does not name
+  is refused ``owner_unknown``. Nothing at run time writes the map: rebuild
+  after a roster change.
 
 .. _connector-write-door:
 
@@ -280,9 +358,9 @@ kernel refuses to load a client library at all
 only in the processes that hold a connector. A connector marks its own put by
 holding the **write door** open around it. The base class does that for every
 connector: it wraps ``write_channel`` and ``write_multiple_channels`` --- the
-latter is what ``write_channels`` reaches --- and, after the write-posture
-check has passed, opens the door around the original method. A write refused
-by the posture check never opens it.
+latter is what ``write_channels`` reaches --- and, after the verdict has
+allowed the write, opens the door around the original method. A refused write
+never opens it.
 
 The door is a context variable
 (``osprey_connectors.control_system.write_door``), so it reaches only code

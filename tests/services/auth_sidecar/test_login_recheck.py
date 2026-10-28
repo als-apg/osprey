@@ -31,14 +31,11 @@ whose card was clicked, so a mis-click can never become someone else's session.
 from __future__ import annotations
 
 import inspect
-import json
-from base64 import b64encode
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
 import httpx
-import itsdangerous
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -56,7 +53,6 @@ from osprey.services.auth_sidecar.routes import recheck
 from osprey.services.auth_sidecar.routes import verify as verify_module
 from osprey.services.auth_sidecar.routes.oidc import (
     CALLBACK_PATH,
-    PENDING_FLOW_SESSION_KEY,
     RoleBinding,
 )
 from osprey.services.auth_sidecar.routes.recheck import (
@@ -78,20 +74,24 @@ from osprey.services.auth_sidecar.sessions import (
     SessionCodec,
     UnlockedUser,
 )
-from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
-
-SESSION_SECRET = "session-secret-value"
-STATE_SECRET = "state-secret-value"
-SESSION_LIFETIME = 3600
-EXTERNAL_ORIGIN = "https://terminals.example.org"
-FLOW_STATE = "handshake-state-value"
+from tests.services.auth_sidecar._helpers import (
+    SESSION_LIFETIME,
+    SESSION_SECRET,
+    STATE_SECRET,
+    ledger_records,
+)
+from tests.services.auth_sidecar._oidc import (
+    ALICE_SUBJECT,
+    EXTERNAL_ORIGIN,
+    FLOW_STATE,
+    FakeOIDCClient,
+    callback,
+    pending_state,
+)
 
 ALICE_PASSWORD = "alice-password"
 ALICE_HASH = hash_password(ALICE_PASSWORD)
-ALICE_SUBJECT = "idp|alice"
 BOB_SUBJECT = "idp|bob"
-
-SIDECAR_IDENTITY = "sidecar"
 
 GROUP_CLAIM = "groups"
 OPERATOR_GROUP = "als-operators"
@@ -124,24 +124,6 @@ OIDC_ENV = {
 
 
 # --- harness ----------------------------------------------------------------
-
-
-@pytest.fixture
-def zone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """The sidecar's own bound audit subdirectory, as compose gives it."""
-    directory = tmp_path / "var" / "audit" / SIDECAR_IDENTITY
-    directory.mkdir(parents=True)
-    monkeypatch.setenv(audit.AUDIT_DIR_ENV, str(directory))
-    monkeypatch.setenv(AUDIT_IDENTITY_ENV, SIDECAR_IDENTITY)
-    monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
-    return directory
-
-
-def _records(zone: Path) -> list[dict[str, Any]]:
-    path = zone / f"{audit.SURFACE}.jsonl"
-    if not path.exists():
-        return []
-    return [json.loads(line) for line in path.read_text("utf-8").splitlines() if line]
 
 
 def _bind_roster_roles(monkeypatch: pytest.MonkeyPatch, **roles: str) -> None:
@@ -196,29 +178,6 @@ def _verify(client: TestClient, user: str, cookie: str) -> httpx.Response:
     return client.get(VERIFY_PATH, params={"user": user}, cookies={SESSION_COOKIE_NAME: cookie})
 
 
-class FakeOIDCClient:
-    """Stands in for Authlib's Starlette client at the route boundary."""
-
-    def __init__(self, *, userinfo: dict[str, Any] | None = None) -> None:
-        self.token = {
-            "id_token": "header.payload.signature",
-            "userinfo": userinfo if userinfo is not None else {"sub": ALICE_SUBJECT},
-        }
-
-    async def create_authorization_url(self, _redirect_uri: str | None = None) -> dict[str, Any]:
-        return {
-            "url": f"https://idp.example.org/authorize?state={FLOW_STATE}",
-            "state": FLOW_STATE,
-            "nonce": "nonce-value",
-        }
-
-    async def save_authorize_data(self, request: Any, **kwargs: Any) -> None:  # noqa: ARG002 - the OIDC client signature
-        return None
-
-    async def authorize_access_token(self, request: Any, **kwargs: Any) -> dict[str, Any]:  # noqa: ARG002 - the OIDC client signature
-        return self.token
-
-
 def _oidc_app(
     env: dict[str, str] | None = None,
     *,
@@ -229,22 +188,6 @@ def _oidc_app(
     app.state.oidc_client = FakeOIDCClient(userinfo=userinfo)
     app.state.role_binding = binding if binding is not None else RoleBinding()
     return app
-
-
-def _pending(user: str) -> str:
-    signer = itsdangerous.TimestampSigner(STATE_SECRET)
-    data = {PENDING_FLOW_SESSION_KEY: {"state": FLOW_STATE, "user": user, "next": f"/u/{user}/"}}
-    return signer.sign(b64encode(json.dumps(data).encode("utf-8"))).decode("utf-8")
-
-
-def _callback(app: FastAPI, user: str = "alice") -> httpx.Response:
-    with TestClient(app, base_url=EXTERNAL_ORIGIN) as client:
-        client.cookies.set(STATE_COOKIE_NAME, _pending(user))
-        return client.get(
-            CALLBACK_PATH,
-            params={"code": "auth-code", "state": FLOW_STATE},
-            follow_redirects=False,
-        )
 
 
 class RecordingMapping(Mapping[str, str]):
@@ -292,7 +235,7 @@ class TestTheNoneRow:
         env["OSPREY_AUTH_METHOD"] = "none"
         with TestClient(create_app(env), base_url="https://testserver") as client:
             assert _login(client).status_code == 503
-        assert _records(zone) == []
+        assert ledger_records(zone) == []
 
 
 class TestThePasswordRow:
@@ -333,7 +276,7 @@ class TestThePasswordRow:
         _bind_roster_roles(monkeypatch, alice="operator")
         with TestClient(create_app(PASSWORD_ENV), base_url="https://testserver") as client:
             assert _login(client).status_code == 303
-        assert [(r["decision"], r["subject"], r.get("role")) for r in _records(zone)] == [
+        assert [(r["decision"], r["subject"], r.get("role")) for r in ledger_records(zone)] == [
             ("allowed", "alice", "operator")
         ]
 
@@ -382,14 +325,14 @@ class TestTheOidcRowWithoutAClaimsMap:
         is what the render built her terminal from, and with no claim binding to
         ask the provider about privilege it is what her session names too."""
         _bind_roster_roles(monkeypatch, alice="observer")
-        response = _callback(_oidc_app())
+        response = callback(_oidc_app())
         assert response.status_code == 303
-        assert [record.get("role") for record in _records(zone)] == ["observer"]
+        assert [record.get("role") for record in ledger_records(zone)] == ["observer"]
         assert _minted_entry(_issued_cookie(response), "alice").role_source == ROLE_SOURCE_ROSTER
 
     def test_the_login_is_recorded(self, zone: Path) -> None:
-        assert _callback(_oidc_app()).status_code == 303
-        assert [(r["decision"], r["reason"]) for r in _records(zone)] == [
+        assert callback(_oidc_app()).status_code == 303
+        assert [(r["decision"], r["reason"]) for r in ledger_records(zone)] == [
             ("allowed", audit.REASON_OIDC_LOGIN)
         ]
 
@@ -485,9 +428,9 @@ class TestTheOidcRowWithAClaimsMap:
             userinfo={"sub": ALICE_SUBJECT, GROUP_CLAIM: [OPERATOR_GROUP]},
             binding=RoleBinding(claim=GROUP_CLAIM, claim_map=CLAIM_MAP),
         )
-        response = _callback(app)
+        response = callback(app)
         assert response.status_code == 303
-        assert [record.get("role") for record in _records(zone)] == ["operator"]
+        assert [record.get("role") for record in ledger_records(zone)] == ["operator"]
         assert _minted_entry(_issued_cookie(response), "alice").role_source == ROLE_SOURCE_CLAIM
 
     def test_an_unmapped_group_fails_closed(self, zone: Path) -> None:
@@ -495,8 +438,10 @@ class TestTheOidcRowWithAClaimsMap:
             userinfo={"sub": ALICE_SUBJECT, GROUP_CLAIM: ["nobody-maps-this"]},
             binding=RoleBinding(claim=GROUP_CLAIM, claim_map=CLAIM_MAP),
         )
-        assert _callback(app).status_code == 403
-        assert [record["reason"] for record in _records(zone)] == [audit.REASON_UNMAPPED_ROLE_CLAIM]
+        assert callback(app).status_code == 403
+        assert [record["reason"] for record in ledger_records(zone)] == [
+            audit.REASON_UNMAPPED_ROLE_CLAIM
+        ]
 
 
 class TestTheClaimIsCrossCheckedAgainstTheRenderedRole:
@@ -524,16 +469,16 @@ class TestTheClaimIsCrossCheckedAgainstTheRenderedRole:
     ) -> None:
         _bind_roster_roles(monkeypatch, alice="observer")
 
-        result = _callback(self._app(OPERATOR_GROUP))
+        result = callback(self._app(OPERATOR_GROUP))
 
         assert result.status_code == 403
-        assert [(r["decision"], r["subject"], r["reason"]) for r in _records(zone)] == [
+        assert [(r["decision"], r["subject"], r["reason"]) for r in ledger_records(zone)] == [
             ("refused", "alice", audit.REASON_ROLE_MISMATCH)
         ]
 
     def test_the_refused_login_mints_no_session(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _bind_roster_roles(monkeypatch, alice="observer")
-        result = _callback(self._app(OPERATOR_GROUP))
+        result = callback(self._app(OPERATOR_GROUP))
         assert not [
             header
             for header in result.headers.get_list("set-cookie")
@@ -561,10 +506,12 @@ class TestTheClaimIsCrossCheckedAgainstTheRenderedRole:
 
         monkeypatch.setattr("osprey.services.auth_sidecar.routes.oidc.recheck_login", recording)
 
-        result = _callback(self._app("als-observers"))
+        result = callback(self._app("als-observers"))
 
         assert result.status_code == 303
-        assert [(r["decision"], r.get("role")) for r in _records(zone)] == [("allowed", "observer")]
+        assert [(r["decision"], r.get("role")) for r in ledger_records(zone)] == [
+            ("allowed", "observer")
+        ]
         assert [(g.role, g.role_source) for g in grants] == [("observer", ROLE_SOURCE_CLAIM)]
 
     def test_a_person_in_both_groups_opens_the_card_built_for_one(
@@ -579,13 +526,15 @@ class TestTheClaimIsCrossCheckedAgainstTheRenderedRole:
             ),
         )
 
-        result = _callback(app)
+        result = callback(app)
 
         assert result.status_code == 303
         entry = _minted_entry(_issued_cookie(result), "alice")
         assert entry.role == "observer"
         assert entry.role_source == ROLE_SOURCE_CLAIM
-        assert [(r["decision"], r.get("role")) for r in _records(zone)] == [("allowed", "observer")]
+        assert [(r["decision"], r.get("role")) for r in ledger_records(zone)] == [
+            ("allowed", "observer")
+        ]
 
     def test_the_admitted_role_reaches_the_verify_subrequest(
         self, monkeypatch: pytest.MonkeyPatch
@@ -595,7 +544,7 @@ class TestTheClaimIsCrossCheckedAgainstTheRenderedRole:
         _bind_roster_roles(monkeypatch, alice="observer")
         app = self._app("als-observers")
         with TestClient(app, base_url=EXTERNAL_ORIGIN) as client:
-            client.cookies.set(STATE_COOKIE_NAME, _pending("alice"))
+            client.cookies.set(STATE_COOKIE_NAME, pending_state("alice"))
             login = client.get(
                 CALLBACK_PATH,
                 params={"code": "auth-code", "state": FLOW_STATE},
@@ -691,7 +640,7 @@ class TestFailClosed:
         with TestClient(create_app(PASSWORD_ENV), base_url="https://testserver") as client:
             response = _login(client)
         assert response.status_code == 403
-        assert [(r["decision"], r["reason"]) for r in _records(zone)] == [
+        assert [(r["decision"], r["reason"]) for r in ledger_records(zone)] == [
             ("refused", audit.REASON_UNSAFE_ROLE)
         ]
 
@@ -733,14 +682,14 @@ class TestTheAntiLookupInvariant:
         """Bob's subject arriving on alice's handshake is refused, not resolved
         into bob's session: the card that was clicked is the only user a login
         can unlock."""
-        response = _callback(_oidc_app(userinfo={"sub": BOB_SUBJECT}), user="alice")
+        response = callback(_oidc_app(userinfo={"sub": BOB_SUBJECT}), user="alice")
         assert response.status_code == 403
         assert not [
             header
             for header in response.headers.get_list("set-cookie")
             if header.startswith(f"{SESSION_COOKIE_NAME}=")
         ]
-        assert [(r["subject"], r["reason"]) for r in _records(zone)] == [
+        assert [(r["subject"], r["reason"]) for r in ledger_records(zone)] == [
             ("alice", audit.REASON_IDENTITY_MISMATCH)
         ]
 
@@ -756,14 +705,14 @@ class TestTheAntiLookupInvariant:
         gated on :meth:`AuthSettings.shared`."""
         _bind_roster_roles(monkeypatch, alice="operator")
         env = {**OIDC_ENV, "OSPREY_AUTH_ROSTER_ACCESS_ALICE": "any"}
-        response = _callback(_oidc_app(env, userinfo={"sub": BOB_SUBJECT}), user="alice")
+        response = callback(_oidc_app(env, userinfo={"sub": BOB_SUBJECT}), user="alice")
         assert response.status_code == 303
         entry = _minted_entry(_issued_cookie(response), "alice")
         assert entry.oidc_subject == BOB_SUBJECT
         assert entry.opener == "bob"
         assert entry.role == "operator"
         assert entry.role_source == ROLE_SOURCE_ROSTER
-        record = _records(zone)[-1]
+        record = ledger_records(zone)[-1]
         assert record["subject"] == "alice"
         assert record["detail"] == "opener=bob"
 

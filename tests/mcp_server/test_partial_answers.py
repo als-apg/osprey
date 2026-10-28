@@ -9,7 +9,6 @@ which key a tool states its map under is declared once, in ``MAP_KEYS``.
 
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -17,7 +16,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from osprey.mcp_server.control_system.error_handling import (
-    ToolError,
     connector_error_handler,
     shared_typed_cause,
 )
@@ -38,12 +36,8 @@ from osprey_connectors.errors import (
     ConnectorUnavailableError,
 )
 from osprey_connectors.ipc import ChildUnresponsiveError
+from tests.mcp_server.conftest import assert_raises_error
 from tests.mcp_server.test_channel_read_size_rule import _read
-
-
-def _envelope(excinfo: pytest.ExceptionInfo[ToolError]) -> dict:
-    return json.loads(str(excinfo.value))
-
 
 # ---------------------------------------------------------------------------
 # The envelope
@@ -58,10 +52,10 @@ def test_the_contract_names():
 
 
 def test_nothing_answered_carries_the_map():
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         refuse_nothing_answered("channel_read", "things", {"x": "Gone: no x", "y": None})
 
-    assert _envelope(excinfo) == {
+    assert raised["envelope"] == {
         "error": True,
         "error_type": "nothing_answered",
         "error_message": "channel_read: none of the 2 requested things answered",
@@ -75,10 +69,10 @@ def test_nothing_answered_carries_the_recovery():
         {"action": "connector_dropped", "text": "The archiver connector was dropped."},
         {"action": "child_kept", "text": "The child was kept."},
     ]
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         refuse_nothing_answered("channel_read", "things", {"x": None}, recovery=recovery)
 
-    envelope = _envelope(excinfo)
+    envelope = raised["envelope"]
     assert envelope["error_message"] == (
         "channel_read: none of the 1 requested things answered. "
         "The archiver connector was dropped. The child was kept."
@@ -87,10 +81,10 @@ def test_nothing_answered_carries_the_recovery():
 
 
 def test_nothing_answered_keeps_further_details():
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         refuse_nothing_answered("channel_read", "things", {"x": None}, details={"model": "m"})
 
-    assert _envelope(excinfo)["details"] == {"model": "m", "missing": {"x": None}}
+    assert raised["envelope"]["details"] == {"model": "m", "missing": {"x": None}}
 
 
 ROWS = [
@@ -100,10 +94,10 @@ ROWS = [
 
 
 def test_a_write_nothing_answered_carries_its_rows():
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         refuse_nothing_answered("channel_write", "channels", results=ROWS)
 
-    assert _envelope(excinfo) == {
+    assert raised["envelope"] == {
         "error": True,
         "error_type": "nothing_answered",
         "error_message": "channel_write: none of the 2 requested channels answered",
@@ -190,11 +184,11 @@ def test_no_shared_cause(errors):
 
 async def test_a_shared_cause_keeps_its_own_envelope_with_the_map():
     missing = {"A": "TimeoutError: a", "B": "TimeoutError: b"}
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         async with connector_error_handler("channel_read", "archiver"):
             raise NothingAnsweredError(TimeoutError("a"), missing=missing)
 
-    assert _envelope(excinfo) == {
+    assert raised["envelope"] == {
         "error": True,
         "error_type": "timeout_error",
         "error_message": "channel_read timed out: a",
@@ -205,11 +199,11 @@ async def test_a_shared_cause_keeps_its_own_envelope_with_the_map():
 
 async def test_no_cause_is_nothing_answered_with_the_map():
     missing = {"A": "RuntimeError: a", "B": "RuntimeError: b"}
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         async with connector_error_handler("channel_read", "archiver"):
             raise NothingAnsweredError(None, missing=missing)
 
-    envelope = _envelope(excinfo)
+    envelope = raised["envelope"]
     assert envelope["error_type"] == "nothing_answered"
     assert envelope["error_message"] == "channel_read: none of the 2 requested channels answered"
     assert envelope["details"] == {"missing": missing}
@@ -217,21 +211,21 @@ async def test_no_cause_is_nothing_answered_with_the_map():
 
 async def test_a_shared_cause_keeps_its_own_envelope_with_the_rows():
     cause = ChannelWriteBlockedError("PV:A", "WRITES_DISABLED")
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         async with connector_error_handler("channel_write", "archiver"):
             raise NothingAnsweredError(cause, results=ROWS)
 
-    envelope = _envelope(excinfo)
+    envelope = raised["envelope"]
     assert envelope["error_type"] == "write_refused"
     assert envelope["details"] == {"channel": "PV:A", "reason": "WRITES_DISABLED", "results": ROWS}
 
 
 async def test_no_cause_is_nothing_answered_with_the_rows():
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         async with connector_error_handler("channel_write", "archiver"):
             raise NothingAnsweredError(None, results=ROWS)
 
-    envelope = _envelope(excinfo)
+    envelope = raised["envelope"]
     assert envelope["error_type"] == "nothing_answered"
     assert envelope["error_message"] == "channel_write: none of the 2 requested channels answered"
     assert envelope["details"] == {"results": ROWS}
@@ -257,11 +251,11 @@ def _unresponsive(message: str, record: dict) -> ChildUnresponsiveError:
 
 async def test_the_envelope_renders_the_supervisors_recovery():
     cause = ConnectorUnavailableError("down", recovery=(DROPPED,))
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         async with connector_error_handler("channel_read", "archiver"):
             raise NothingAnsweredError(cause, missing={"A": "x", "B": "y", "C": "z"})
 
-    envelope = _envelope(excinfo)
+    envelope = raised["envelope"]
     assert envelope["error_type"] == "connection_error"
     assert envelope["details"][RECOVERY_KEY] == [DROPPED]
     assert envelope["error_message"].endswith(DROPPED["text"])
@@ -269,11 +263,11 @@ async def test_the_envelope_renders_the_supervisors_recovery():
 
 async def test_an_unreachable_channel_recovers_nothing():
     cause = ChannelUnreachableError("SR:DEAD", "SR:DEAD did not answer")
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         async with connector_error_handler("channel_read", "archiver"):
             raise NothingAnsweredError(cause, missing={"SR:DEAD": "x"})
 
-    envelope = _envelope(excinfo)
+    envelope = raised["envelope"]
     assert envelope["error_type"] == "channel_unreachable"
     assert envelope["details"]["channel"] == "SR:DEAD"
     assert RECOVERY_KEY not in envelope["details"]
@@ -324,12 +318,12 @@ async def test_a_wedged_child_is_pinged_once(monkeypatch):
     ping = AsyncMock(return_value=dict(KEPT))
     monkeypatch.setattr(context, "_answer_unresponsive", ping)
 
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         async with connector_error_handler("channel_read"):
             connector = await context.control_system()
             await _gather_readings(connector, ["A", "B"])
 
-    envelope = _envelope(excinfo)
+    envelope = raised["envelope"]
     assert envelope["error_type"] == "timeout_error"
     assert envelope["details"][RECOVERY_KEY] == [KEPT]
     ping.assert_awaited_once()
@@ -343,24 +337,24 @@ async def test_mixed_causes_report_every_recovery_once_in_first_seen_order():
         _unresponsive("deadline again", KEPT),
         TimeoutError("late"),
     ]
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         async with connector_error_handler("channel_read"):
             raise NothingAnsweredError(
                 None, missing={str(i): str(e) for i, e in enumerate(errors)}, errors=errors
             )
 
-    envelope = _envelope(excinfo)
+    envelope = raised["envelope"]
     assert envelope["error_type"] == "nothing_answered"
     assert envelope["details"][RECOVERY_KEY] == [DROPPED, KEPT]
 
 
 async def test_mixed_causes_without_a_recovery_report_none():
     errors = [TimeoutError("late"), ChannelNotFoundError("B")]
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         async with connector_error_handler("channel_read"):
             raise NothingAnsweredError(None, missing={"A": "x", "B": "y"}, errors=errors)
 
-    envelope = _envelope(excinfo)
+    envelope = raised["envelope"]
     assert envelope["error_type"] == "nothing_answered"
     assert RECOVERY_KEY not in envelope["details"]
 
@@ -370,11 +364,11 @@ async def test_mixed_causes_report_the_recovery_they_carry(monkeypatch):
 
     monkeypatch.setattr(server_context, "_registry", None)
     errors = [ConnectorUnavailableError("down", recovery=(DROPPED,)), TimeoutError("late")]
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         async with connector_error_handler("channel_read"):
             raise NothingAnsweredError(None, missing={"A": "x", "B": "y"}, errors=errors)
 
-    envelope = _envelope(excinfo)
+    envelope = raised["envelope"]
     assert envelope["error_type"] == "nothing_answered"
     recovery = envelope["details"][RECOVERY_KEY]
     assert [r["action"] for r in recovery] == ["connector_dropped"]
@@ -383,11 +377,11 @@ async def test_mixed_causes_report_the_recovery_they_carry(monkeypatch):
 
 async def test_mixed_causes_report_a_replaced_child():
     errors = [_unresponsive("deadline", REPLACED), TimeoutError("late")]
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         async with connector_error_handler("channel_read"):
             raise NothingAnsweredError(None, missing={"A": "x", "B": "y"}, errors=errors)
 
-    envelope = _envelope(excinfo)
+    envelope = raised["envelope"]
     assert envelope["error_type"] == "nothing_answered"
     assert envelope["details"][RECOVERY_KEY] == [REPLACED]
     assert REPLACED["text"] in envelope["error_message"]
@@ -400,10 +394,10 @@ async def test_mixed_causes_report_a_replaced_child():
 
 async def test_a_read_nothing_answered_for_one_cause_is_that_cause(tmp_path, monkeypatch):
     values = {"SR:A": TimeoutError("late"), "SR:B": TimeoutError("later")}
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         await _read(tmp_path, monkeypatch, values)
 
-    envelope = _envelope(excinfo)
+    envelope = raised["envelope"]
     assert envelope["error_type"] == "timeout_error"
     assert envelope["details"]["missing"] == {
         "SR:A": "TimeoutError: late",
@@ -413,10 +407,10 @@ async def test_a_read_nothing_answered_for_one_cause_is_that_cause(tmp_path, mon
 
 async def test_a_read_nothing_answered_for_mixed_causes_is_nothing_answered(tmp_path, monkeypatch):
     values = {"SR:A": TimeoutError("late"), "SR:B": ChannelNotFoundError("SR:B")}
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         await _read(tmp_path, monkeypatch, values)
 
-    envelope = _envelope(excinfo)
+    envelope = raised["envelope"]
     assert envelope["error_type"] == "nothing_answered"
     assert envelope["details"]["missing"] == {
         "SR:A": "TimeoutError: late",
@@ -428,10 +422,10 @@ async def test_a_read_nothing_answered_for_an_untyped_cause_is_nothing_answered(
     tmp_path, monkeypatch
 ):
     values = {"SR:A": RuntimeError("odd"), "SR:B": RuntimeError("odder")}
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         await _read(tmp_path, monkeypatch, values)
 
-    envelope = _envelope(excinfo)
+    envelope = raised["envelope"]
     assert envelope["error_type"] == "nothing_answered"
     assert envelope["details"]["missing"] == {
         "SR:A": "RuntimeError: odd",
@@ -441,10 +435,10 @@ async def test_a_read_nothing_answered_for_an_untyped_cause_is_nothing_answered(
 
 async def test_a_read_that_timed_out_and_lost_its_link_drops_the_connector(tmp_path, monkeypatch):
     values = {"SR:A": TimeoutError("late"), "SR:B": ConnectionError("down")}
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         await _read(tmp_path, monkeypatch, values)
 
-    envelope = _envelope(excinfo)
+    envelope = raised["envelope"]
     assert envelope["error_type"] == "nothing_answered"
     assert envelope["details"]["missing"] == {
         "SR:A": "TimeoutError: late",

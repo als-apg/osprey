@@ -13,8 +13,6 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
-from contextlib import contextmanager
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -22,12 +20,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from osprey.interfaces._serving import run_app_server
-from osprey.services.bluesky_bridge import draft, plan_loader
+from osprey.services.bluesky_bridge import draft
 from osprey.services.bluesky_bridge.app import app
-
-_SESSION_PLAN_DIR_ENV = "BLUESKY_SESSION_PLAN_DIR"
-_PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
-_PLAN_MODULE_ENV = "BLUESKY_PLAN_MODULE"
 
 _ORM_ARGS: dict[str, Any] = {
     "correctors": ["COR1"],
@@ -41,18 +35,6 @@ _GRID_SCAN_ARGS: dict[str, Any] = {
 }
 
 
-@pytest.fixture(autouse=True)
-def _isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.delenv(_PLAN_DIRS_ENV, raising=False)
-    monkeypatch.delenv(_PLAN_MODULE_ENV, raising=False)
-    monkeypatch.setenv(_SESSION_PLAN_DIR_ENV, str(tmp_path / "plans_session"))
-    plan_loader.reset_facility_plans()
-    draft._clear()
-    yield
-    plan_loader.reset_facility_plans()
-    draft._clear()
-
-
 @pytest.fixture
 def client() -> TestClient:
     return TestClient(app)
@@ -64,32 +46,6 @@ def _read_frame(lines: Iterator[str]) -> dict[str, Any]:
         if line.startswith("data: "):
             return json.loads(line[len("data: ") :])
     raise AssertionError("SSE stream ended before yielding a frame")
-
-
-@contextmanager
-def _live_bridge() -> Iterator[str]:
-    """Run the real bridge app on a real TCP port in a background thread.
-
-    A genuine SSE stream needs a real socket: both `httpx.ASGITransport` and
-    Starlette's `TestClient` drive the ASGI app to full completion before
-    handing back *any* response (they exist to test request/response
-    handlers, not infinite generators) — an in-process simulated transport
-    would simply hang forever against `GET /draft/events`'s never-ending
-    generator. Mirrors `test_read_bounded.py`'s `_live_bridge` helper: same
-    module-level `draft`/`plan_loader` singletons as the test process (a
-    thread, not a subprocess), but requests travel over a real socket
-    through the real ASGI app.
-
-    Cross-loop note: `draft.py`'s module-level asyncio primitives (`_lock`,
-    subscriber queues) lazily bind to whichever event loop first touches
-    them. This is safe only because this suite's loops are used strictly
-    *sequentially* — the uvicorn server thread's loop runs and fully shuts
-    down (``run_app_server`` joins its thread on exit) before the next test's
-    loop starts. Overlapping access from two live loops at once would fail
-    with "Future ... attached to a different loop".
-    """
-    with run_app_server(app) as url:
-        yield url
 
 
 # ---------------------------------------------------------------------------
@@ -464,7 +420,12 @@ def test_revision_monotonic_across_clear_and_plan_change(client: TestClient) -> 
 
 
 def test_sse_frame_order_and_content_over_real_http() -> None:
-    with _live_bridge() as base_url:
+    # A real socket, because `httpx.ASGITransport` and `TestClient` drive the
+    # app to completion before returning any response and so hang on an
+    # endless SSE stream. The bridge's module-level asyncio primitives bind to
+    # the first loop that touches them; the server thread is joined before the
+    # next test's loop starts, so the two loops never overlap.
+    with run_app_server(app) as base_url:
         action_client = httpx.Client(base_url=base_url)
         try:
             with httpx.Client(base_url=base_url) as stream_client:

@@ -7,7 +7,20 @@ import pytest
 from osprey_connectors import types
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
-from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
+from osprey_connectors.factory import ConnectorFactory
+from osprey_connectors_tests._harness import isolated_connector_registries
+from osprey_connectors_tests._write_fakes import ARMED_TARGET, arm_switch, writes_enabled_config
+
+
+@pytest.fixture(autouse=True)
+def _switch_on(monkeypatch, tmp_path):
+    """The login's switch on for the simulator target, connectors stamped with it.
+
+    With :func:`writes_enabled_config` serving a write tier that allows, that is
+    everything the reference monitor's verdict asks before a write reaches the
+    transport; a test that disarms serves a tier that does not.
+    """
+    return arm_switch(monkeypatch, tmp_path / "armed-data")
 
 
 @pytest.fixture(autouse=True)
@@ -127,21 +140,20 @@ class TestCustomConnectorConfirmDefault:
 
     @pytest.fixture
     def writes_enabled(self, monkeypatch):
-        # A custom connector is stamped with its dotted type and resolves its
-        # posture from the ``control_system`` section, which carries no block for
-        # that type and so inherits the deployment-wide key.
-        section = {"writes_enabled": True}
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value",
-            lambda key, default=None: section if key == "control_system" else default,
-        )
+        # A custom connector is stamped with its dotted type; the tier is
+        # target- and type-blind, so the deployment's allowed tier arms it.
+        monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
 
     async def _connector(self):
         config = {
             "type": "osprey_connectors_tests._mock_dynamic_connector.MockDynamicConnector",
             "connector": {},
         }
-        return await ConnectorFactory.create_control_system_connector(config)
+        # Built for the simulator target, whose switch the module's fixture
+        # turned on: the factory stamps the target the caller names.
+        return await ConnectorFactory.create_control_system_connector(
+            config, control_target=ARMED_TARGET
+        )
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("writes_enabled")

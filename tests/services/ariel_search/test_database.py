@@ -164,29 +164,24 @@ def sql_index(conn, needle: str) -> int:
 class TestModelToTableName:
     """Tests for model_to_table_name function."""
 
-    def test_hyphenated_name(self) -> None:
-        """Test conversion of hyphenated model name."""
-        assert model_to_table_name("nomic-embed-text") == "text_embeddings_nomic_embed_text"
-
-    def test_dotted_name(self) -> None:
-        """Test conversion of dotted model name."""
-        assert model_to_table_name("bge.large.v1") == "text_embeddings_bge_large_v1"
-
-    def test_slashed_name(self) -> None:
-        """Test conversion of slashed model name."""
-        assert model_to_table_name("org/model-name") == "text_embeddings_org_model_name"
-
-    def test_mixed_name(self) -> None:
-        """Test conversion of mixed format name."""
-        assert model_to_table_name("org/model-v1.2") == "text_embeddings_org_model_v1_2"
-
-    def test_uppercase_lowercased(self) -> None:
-        """Test that uppercase is converted to lowercase."""
-        assert model_to_table_name("NOMIC-EMBED-TEXT") == "text_embeddings_nomic_embed_text"
-
-    def test_double_underscore_collapsed(self) -> None:
-        """Test that double underscores are collapsed."""
-        assert model_to_table_name("model--name") == "text_embeddings_model_name"
+    @pytest.mark.parametrize(
+        ("model", "table"),
+        [
+            pytest.param("nomic-embed-text", "text_embeddings_nomic_embed_text", id="hyphenated"),
+            pytest.param("bge.large.v1", "text_embeddings_bge_large_v1", id="dotted"),
+            pytest.param("org/model-name", "text_embeddings_org_model_name", id="slashed"),
+            pytest.param("org/model-v1.2", "text_embeddings_org_model_v1_2", id="mixed"),
+            pytest.param(
+                "NOMIC-EMBED-TEXT", "text_embeddings_nomic_embed_text", id="uppercase_lowercased"
+            ),
+            pytest.param(
+                "model--name", "text_embeddings_model_name", id="double_underscore_collapsed"
+            ),
+        ],
+    )
+    def test_model_to_table_name(self, model: str, table: str) -> None:
+        """Separators become one underscore, case folds, and the table prefix is added."""
+        assert model_to_table_name(model) == table
 
 
 class TestBaseMigration:

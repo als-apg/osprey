@@ -19,8 +19,12 @@ the `/osprey:contribute` skill, which invokes these checks at each gate.
 
 ## The Tiers
 
-Every check is declared once, in `scripts/check.py`. A laptop, an automated
-gate and each CI step run it from there.
+Every check is declared once, by the code that owns it, in a `repo_checks.py`
+module beside that code: `scripts/repo_checks.py` for the framework and the
+repository as a whole, and one in each package that brings checks of its own
+(`packages/osprey-connectors/repo_checks.py`). `scripts/check.py` collects every
+such module, and a laptop, an automated gate and each CI step run a check
+through it.
 
 | Tier | Command | Use Before |
 | --- | --- | --- |

@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors.simulation.envelope import noise_sigma
+from osprey_connectors.simulation.envelope import _noise_sigma
 from tests.e2e._facility_select import monitor_addresses, second_models
 from tests.fixtures import bench_ioc as bench
 from tests.va.e2e import conftest as e2e_conftest
@@ -102,7 +102,7 @@ def test_the_scenario_world_names_the_kinds_it_claims(limits: dict[str, Any]) ->
     assert burst.role != "setpoint" and VIEW.binding(e2e_conftest.BURST_CHANNEL) is None
     assert burst_seed is not None
     nominal = float(burst_seed["nominal"])
-    sigma = noise_sigma(burst_seed.get("noise"), nominal)
+    sigma = _noise_sigma(burst_seed.get("noise"), nominal)
     assert sigma > 0.0
     assert e2e_conftest.BURST_VALUE - nominal > 100 * sigma
 

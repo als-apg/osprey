@@ -29,12 +29,12 @@ from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.database.repository import ARIELRepository
 from osprey.services.ariel_search.database.vector_literal import vector_literal
 from osprey.services.ariel_search.enhancement.qmd_export.writer import encode_entry_id
-from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 from osprey.services.ariel_search.ingestion.ingest import ingest_one
 from osprey.services.ariel_search.search import image_lane
 from osprey.services.ariel_search.search._offload import SearchCallPool
 from osprey.services.ariel_search.search.qmd import hybrid_search
 from osprey.services.qmd import QMDSearchResult
+from tests.services.ariel_search.fake_adapters import StubAdapter
 from tests.services.ariel_search.llama_stub import FIXTURES, LlamaStub
 from tests.services.ariel_search.llama_stub import MODEL as LLAMA_MODEL
 
@@ -218,12 +218,9 @@ async def lane(
             strict=True,
         )
     )
-    pool = await create_connection_pool(config.database)
-    try:
+    async with await create_connection_pool(config.database) as pool:
         await run_migrations(pool, config)
         yield Lane(scratch_database, config, ARIELRepository(pool, config), vectors, search_calls)
-    finally:
-        await pool.close()
 
 
 def _row(result: list[tuple[Any, ...]], entry_id: str) -> dict[str, Any]:
@@ -271,7 +268,7 @@ class TestImageLane:
         entry_id = "reingest"
         url = {name: f"https://h.example/files/{name}.png" for name in "abc"}
         ids = {name: attachment_id_for(entry_id, {"url": u}) for name, u in url.items()}
-        adapter = _Adapter(lane.config)
+        adapter = StubAdapter(lane.config)
 
         async def ingest(names: str) -> None:
             entry = {
@@ -310,15 +307,3 @@ class TestImageLane:
         assert top["entry_id"] == "orbit"
         assert "image" in top["_matched_via"]
         assert "pic-orbit" in top["_matched_attachment_ids"]
-
-
-class _Adapter(FacilityAdapter):
-    """An http source whose entries the tests hand to ``ingest_one`` directly."""
-
-    @property
-    def source_system_name(self) -> str:
-        return "Stub"
-
-    async def fetch_entries(self, *_args: Any, **_kwargs: Any) -> AsyncIterator:  # type: ignore[override]
-        for entry in ():  # never yields
-            yield entry

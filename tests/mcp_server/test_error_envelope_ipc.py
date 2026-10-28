@@ -52,6 +52,7 @@ from osprey_connectors.errors import (
 )
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc._proxy import ConnectorHostProxy
+from osprey_connectors_tests._harness import isolate_verdict_environment, write_control_context
 from tests.facility.served_tree import in_process_config, served_tree
 from tests.mcp_server._raising_connector import (
     BLOCKED_CHANNEL,
@@ -89,6 +90,14 @@ IN_PROCESS_TYPE = "osprey_connectors.control_system._va_in_process_connector.VAI
 #: wedged child fails this test rather than the run.
 TIMEOUT_S = 20.0
 
+#: The control target every child here serves, and the one whose switch is turned on.
+CHILD_TARGET = "live"
+
+#: The write tier that lets a write reach the connector. With anything else the
+#: base class's guard returns a refused *result*, and neither the connector's own
+#: raise nor the limits database is ever reached.
+WRITES_ALLOWED = {"writes": "allowed"}
+
 #: The channel the limits database below bounds to ``[0.0, 100.0]``.
 BOUNDED_CHANNEL = "TEST:PV:SETPOINT"
 
@@ -109,6 +118,19 @@ async def _next_frame(stream):
             raise AssertionError("the connector host closed its frame channel during init")
         for frame in parser.feed(chunk):
             return frame
+
+
+def _arm_child(monkeypatch: pytest.MonkeyPatch, root: Path) -> None:
+    """Arm the child's writes before it is spawned.
+
+    The child's reference monitor asks the write verdict, which reads the login's
+    record from the agent-data root in the environment the child inherits. So the
+    verdict environment is isolated here (the record under *root*, the identity
+    pinned, nothing stamped or bound), and an ownerless record with the switch on
+    for :data:`CHILD_TARGET` is written before the spawn.
+    """
+    isolate_verdict_environment(monkeypatch, root)
+    write_control_context(root, target=CHILD_TARGET, owned_by=None, switch={CHILD_TARGET: "on"})
 
 
 async def _spawn(control_system: dict, config_file: Path, cwd: Path):
@@ -139,7 +161,7 @@ async def _spawn(control_system: dict, config_file: Path, cwd: Path):
             "init",
             {
                 "control_system": control_system,
-                "target": "live",
+                "target": CHILD_TARGET,
                 "config_file": str(config_file),
             },
         )
@@ -171,16 +193,15 @@ def _write_config(tmp_path: Path, control_system: dict) -> Path:
 def _raising_control_system() -> dict:
     return {
         "type": RAISING_TYPE,
-        # The base class's guard returns a blocked *result* when writes are
-        # off, and the connector's own raise would never be reached.
-        "writes_enabled": True,
+        **WRITES_ALLOWED,
         "connector": {RAISING_TYPE: {}},
     }
 
 
 @pytest.fixture
-async def raising_pair(tmp_path):
-    """A child serving the connector that raises each refusal on cue."""
+async def raising_pair(tmp_path, monkeypatch):
+    """A child serving the connector that raises each refusal on cue, writes armed."""
+    _arm_child(monkeypatch, tmp_path / "agent-data")
     control_system = _raising_control_system()
     config_file = _write_config(tmp_path, control_system)
     process, proxy = await _spawn(control_system, config_file, tmp_path)
@@ -191,15 +212,16 @@ async def raising_pair(tmp_path):
 
 
 @pytest.fixture
-async def limits_pair(tmp_path):
-    """A child running the real mock connector behind a real limits database."""
+async def limits_pair(tmp_path, monkeypatch):
+    """A child running the real mock connector behind a real limits database, writes armed."""
+    _arm_child(monkeypatch, tmp_path / "agent-data")
     limits_db = tmp_path / "channel_limits.json"
     limits_db.write_text(
         json.dumps({BOUNDED_CHANNEL: {"min_value": 0.0, "max_value": 100.0, "writable": True}})
     )
     control_system = {
         "type": IN_PROCESS_TYPE,
-        "writes_enabled": True,
+        **WRITES_ALLOWED,
         "limits_checking": {
             "enabled": True,
             "database_path": str(limits_db),

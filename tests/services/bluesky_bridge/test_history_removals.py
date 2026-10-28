@@ -24,7 +24,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from osprey.services.bluesky_bridge import app as app_module
-from osprey.services.bluesky_bridge import history_removals, queue, queue_removals
+from osprey.services.bluesky_bridge import history_removals
 from osprey.services.bluesky_bridge.app import app
 from osprey.services.bluesky_bridge.history_removals import RemovedRuns
 from osprey.services.bluesky_bridge.queue_backend import QueueBackend
@@ -77,19 +77,6 @@ def _item(run_id: str, *, result: dict | None = None) -> dict:
 
 def _done(run_id: str, exit_status: str = "completed") -> dict:
     return _item(run_id, result={"exit_status": exit_status})
-
-
-@pytest.fixture(autouse=True)
-def _isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("BLUESKY_SESSION_PLAN_DIR", str(tmp_path / "plans_session"))
-    history_removals._clear()
-    queue_removals._clear()
-    queue._clear()
-    yield
-    history_removals._clear()
-    queue_removals._clear()
-    queue._clear()
-    app_module.set_queue_backend(None)
 
 
 @pytest.fixture

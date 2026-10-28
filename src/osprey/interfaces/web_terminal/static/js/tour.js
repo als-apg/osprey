@@ -42,6 +42,7 @@ import { installFocusTrap, removeFocusTrap } from '/design-system/js/focus-trap.
 import { isMacPlatform, paletteChord } from '/design-system/js/platform.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import { isLive } from './bar-host.js';
+import { KIND_REAL, KIND_REHEARSAL, KIND_SIMULATOR, KIND_WORDS } from './control-target-facts.js';
 import { capabilitySentence, chipRow, starterPrompts } from './first-contact.js';
 
 /** Dismissal flag ("Don't show this again" / completed). Scoped per user. */
@@ -269,13 +270,16 @@ const STEPS = [
     place: 'left',
     title: 'Your control target',
     body: () => {
+      // The chip's own names (D4), lower-cased to sit inside the sentence.
+      /** @param {string} kind */
+      const name = (kind) => strong(KIND_WORDS[kind].toLowerCase());
       const parts = [
         'The deployment points at one control target: the ',
-        strong('real machine'),
+        name(KIND_REAL),
         ', a ',
-        strong('rehearsal'),
+        name(KIND_REHEARSAL),
         ' (a copy of the real controls — nothing moves), or a ',
-        strong('simulator'),
+        name(KIND_SIMULATOR),
         '.',
       ];
       const c = chipFacts();
@@ -288,7 +292,7 @@ const STEPS = [
           '.'
         );
       }
-      parts.push(' Click the chip to see the details or switch targets.');
+      parts.push(' Click the chip to see the details, turn writes on or off, or switch targets.');
       return parts;
     },
   },

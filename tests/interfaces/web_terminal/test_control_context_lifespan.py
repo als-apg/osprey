@@ -11,10 +11,10 @@ The rules under test are the deployment's, not the terminal's:
   server claims only over an absent or dead owner, so the two rules compose to
   "the terminal wins once it is there" — right, because the terminal is what
   an operator is looking at.
-* **A claim is a merge.** The target, generation and posture belong to the
+* **A claim is a merge.** The target, generation and switch belong to the
   deployment and outlive every process that reads them. Taking the file over
   changes who may write it and nothing else, which is why an operator's
-  narrowing survives a terminal restart.
+  switch survives a terminal restart.
 * **The claim is fail-open.** A terminal that cannot own the record still
   serves; it renders the roster read-only and answers the write routes 503,
   and its owner task tries again a second later.
@@ -115,7 +115,7 @@ def liveness(monkeypatch):
 def read(root: Path) -> ControlContext | None:
     """The record as it is on disk right now, past the signature cache."""
     control_context.invalidate_cache()
-    return control_context.read_record(path=control_context.record_path_under(root))
+    return control_context.read_record(path=control_context._record_path_under(root))
 
 
 # -- claiming ---------------------------------------------------------------
@@ -129,7 +129,8 @@ async def test_an_empty_deployment_is_claimed_at_the_baseline(control_context_ro
 
     stored = read(control_context_root)
     assert stored is not None
-    assert (stored.target, stored.generation, stored.posture) == (BASELINE, 0, {})
+    assert (stored.target, stored.generation, stored.switch) == (BASELINE, 0, {})
+    assert stored.posture == control_context.posture_mirror({})
     assert stored.owner == terminal_identity()
     assert app.state.control_context_owner is task.owner
     assert app.state.control_context_follows is None
@@ -141,14 +142,14 @@ async def test_a_claim_over_a_dead_owner_merges_the_deployment_s_own_facts(
 ):
     """The record says what the deployment is pointed at, not who is running.
 
-    This is also the restart case as an operator meets it: a narrowing made
+    This is also the restart case as an operator meets it: a switch turned on
     under the terminal that died is still in force under the one that claims.
     """
     write_control_context(
         control_context_root,
         target="va",
         generation=7,
-        posture={"va": "sandbox", "standin": "sandbox"},
+        switch={"live": "on"},
         owned_by=fixtures.owner(pid=OTHER_TERMINAL_PID, port=8090),
     )
 
@@ -157,6 +158,7 @@ async def test_a_claim_over_a_dead_owner_merges_the_deployment_s_own_facts(
     stored = read(control_context_root)
     assert stored is not None
     assert (stored.target, stored.generation) == ("va", 7)
+    assert stored.switch == {"live": "on"}
     assert stored.posture == {"va": "sandbox", "standin": "sandbox"}
     assert stored.owner == terminal_identity()
 
@@ -185,7 +187,7 @@ async def test_a_terminal_claims_over_a_live_controls_server(
 
 @pytest.mark.usefixtures("liveness")
 async def test_an_unparseable_record_starts_a_fresh_one(control_context_root):
-    path = control_context.record_path_under(control_context_root)
+    path = control_context._record_path_under(control_context_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("{not json at all", encoding="utf-8")
     control_context.invalidate_cache()
@@ -434,12 +436,12 @@ async def test_an_already_answered_request_is_removed_and_answered_only_once(
 
     task = make_task(make_app())
     await task.tick_once()
-    answered = control_context.record_path_under(control_context_root).read_bytes()
+    answered = control_context._record_path_under(control_context_root).read_bytes()
 
     file_request(OTHER_TERMINAL_PID, "va", request_id="r-5")
     await task.tick_once()
 
-    assert control_context.record_path_under(control_context_root).read_bytes() == answered
+    assert control_context._record_path_under(control_context_root).read_bytes() == answered
 
 
 # -- the push ---------------------------------------------------------------

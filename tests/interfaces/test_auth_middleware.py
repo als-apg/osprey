@@ -27,6 +27,8 @@ from osprey.interfaces import common_middleware
 from osprey.interfaces.common_middleware import (
     EXEMPT_PATHS,
     EXTERNAL_ORIGIN_ENV,
+    FORM_BODY_ROUTES,
+    FORM_UPLOAD_HEADER,
     MAX_BODY_PEEK_BYTES,
     MAX_SESSION_COOKIE_CANDIDATES,
     OPERATOR_SECRET_HEADER,
@@ -1946,3 +1948,289 @@ def test_a_route_behind_a_real_stack_reads_the_owner_off_request_state(
             headers={OPERATOR_SECRET_HEADER: OPERATOR_SECRET, OWNER_HEADER: "bob"},
         )
         assert unnamed.text == "nobody"
+
+
+# --------------------------------------------------------------------------- #
+# Pins: ``Origin: null`` on every credential path
+# --------------------------------------------------------------------------- #
+#
+# An opaque document — a sandboxed iframe, a ``data:`` URL, a file the browser
+# opened from disk — sends ``Origin: null``. It is never this app's origin, so a
+# mutating request or a websocket handshake carrying it is refused whatever
+# credential rides along. These tests pin that; the rule itself is the Origin
+# check above, applied to every credential.
+
+NULL_ORIGIN = "null"
+
+
+def test_a_cookie_write_from_an_opaque_origin_is_403(middleware, downstream, app_stub, credentials):
+    headers = {"host": "localhost:8080", "origin": NULL_ORIGIN, **session_cookie(credentials)}
+    sent = drive(middleware, http_scope("/api/config", "POST", headers, app=app_stub))
+    assert status_of(sent) == 403
+    assert detail_of(sent) == "cross-origin request refused"
+    assert not downstream.called
+
+
+def test_a_cookie_write_from_an_opaque_origin_is_403_even_vouched_same_origin(
+    middleware, downstream, app_stub, credentials
+):
+    """``Sec-Fetch-Site`` stands in only for an ABSENT Origin, never a present one."""
+    headers = {
+        "host": "localhost:8080",
+        "origin": NULL_ORIGIN,
+        "sec-fetch-site": "same-origin",
+        **session_cookie(credentials),
+    }
+    sent = drive(middleware, http_scope("/api/config", "POST", headers, app=app_stub))
+    assert status_of(sent) == 403
+    assert not downstream.called
+
+
+def test_an_operator_header_write_from_an_opaque_origin_is_403(middleware, downstream, app_stub):
+    headers = {
+        OPERATOR_SECRET_HEADER: OPERATOR_SECRET,
+        "origin": NULL_ORIGIN,
+        "host": "localhost:8080",
+    }
+    sent = drive(middleware, http_scope("/api/config", "POST", headers, app=app_stub))
+    assert status_of(sent) == 403
+    assert detail_of(sent) == "cross-origin request refused"
+    assert not downstream.called
+
+
+def test_a_panel_token_write_from_an_opaque_origin_is_403(middleware, downstream, app_stub):
+    """A panel-tier route the token would otherwise reach is still refused."""
+    headers = {"host": "localhost:8080", "origin": NULL_ORIGIN, **bearer()}
+    sent = drive(middleware, http_scope("/api/panel-focus", "POST", headers, app=app_stub))
+    assert status_of(sent) == 403
+    assert detail_of(sent) == "cross-origin request refused"
+    assert not downstream.called
+
+
+def test_a_cookie_websocket_from_an_opaque_origin_is_403(
+    middleware, downstream, app_stub, credentials
+):
+    headers = {"host": "localhost:8080", "origin": NULL_ORIGIN, **session_cookie(credentials)}
+    scope = ws_scope(headers=headers, app=app_stub, extensions=WS_EXTENSIONS)
+    sent = drive(middleware, scope, incoming=[])
+    assert status_of(sent) == 403
+    assert detail_of(sent) == "cross-origin request refused"
+    assert not downstream.called
+
+
+def test_an_operator_header_websocket_from_an_opaque_origin_is_403(
+    middleware, downstream, app_stub
+):
+    headers = {
+        OPERATOR_SECRET_HEADER: OPERATOR_SECRET,
+        "origin": NULL_ORIGIN,
+        "host": "localhost:8080",
+    }
+    scope = ws_scope(headers=headers, app=app_stub, extensions=WS_EXTENSIONS)
+    sent = drive(middleware, scope, incoming=[])
+    assert status_of(sent) == 403
+    assert not downstream.called
+
+
+def test_a_panel_token_websocket_from_an_opaque_origin_is_refused(middleware, downstream, app_stub):
+    """The token never opens a websocket; an opaque origin changes nothing."""
+    headers = {"host": "localhost:8080", "origin": NULL_ORIGIN, **bearer()}
+    scope = ws_scope(headers=headers, app=app_stub, extensions=WS_EXTENSIONS)
+    sent = drive(middleware, scope, incoming=[])
+    assert status_of(sent) in (401, 403)
+    assert not downstream.called
+
+
+@pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
+def test_every_unsafe_method_from_an_opaque_origin_is_403(
+    middleware, downstream, app_stub, credentials, method
+):
+    headers = {"host": "localhost:8080", "origin": NULL_ORIGIN, **session_cookie(credentials)}
+    sent = drive(middleware, http_scope("/api/config", method, headers, app=app_stub))
+    assert status_of(sent) == 403
+    assert not downstream.called
+
+
+# --------------------------------------------------------------------------- #
+# JSON bodies only: the three body types an HTML form can send are refused
+# --------------------------------------------------------------------------- #
+#
+# A form is the one way a page can make a credentialed write without running
+# script, so a script-blocking CSP does not stop it, and a form posted from a
+# page on this app's own origin passes the Origin check. What a form cannot do
+# is choose its body type: it sends urlencoded, multipart or text/plain, and
+# nothing else. Refusing those three on every admitted write is what closes it.
+
+SAME_ORIGIN = {"host": "localhost:8080", "origin": "http://localhost:8080"}
+
+FORM_TYPES = [
+    "application/x-www-form-urlencoded",
+    "multipart/form-data; boundary=----osprey",
+    "text/plain",
+    "text/plain;charset=UTF-8",
+    "Text/Plain; charset=utf-8",
+    " application/x-www-form-urlencoded ; charset=utf-8",
+]
+
+
+FORM_BODY = [{"type": "http.request", "body": b"a=1"}]
+
+
+@pytest.mark.parametrize("content_type", FORM_TYPES)
+@pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
+def test_a_same_origin_cookie_write_with_a_form_body_is_415(
+    middleware, downstream, app_stub, credentials, content_type, method
+):
+    headers = {**SAME_ORIGIN, "content-type": content_type, **session_cookie(credentials)}
+    sent = drive(middleware, http_scope("/api/config", method, headers, app=app_stub), FORM_BODY)
+    assert status_of(sent) == 415
+    assert detail_of(sent) == "this route accepts a JSON body only"
+    assert not downstream.called
+
+
+@pytest.mark.parametrize("content_type", FORM_TYPES)
+def test_an_operator_header_write_with_a_form_body_is_415(
+    middleware, downstream, app_stub, content_type
+):
+    headers = {OPERATOR_SECRET_HEADER: OPERATOR_SECRET, "content-type": content_type}
+    sent = drive(middleware, http_scope("/api/terminal/restart", "POST", headers, app=app_stub))
+    assert status_of(sent) == 415
+    assert not downstream.called
+
+
+def test_a_panel_token_write_with_a_form_body_is_415(middleware, downstream, app_stub):
+    headers = {"content-type": "text/plain", **bearer()}
+    sent = drive(middleware, http_scope("/api/panel-focus", "POST", headers, app=app_stub))
+    assert status_of(sent) == 415
+    assert not downstream.called
+
+
+@pytest.mark.parametrize(
+    "content_type",
+    [None, "application/json", "application/json; charset=utf-8", "application/merge-patch+json"],
+)
+def test_a_json_or_bodiless_write_is_admitted(
+    middleware, downstream, app_stub, credentials, content_type
+):
+    headers = {**SAME_ORIGIN, **session_cookie(credentials)}
+    if content_type is not None:
+        headers["content-type"] = content_type
+    sent = drive(middleware, http_scope("/api/config", "PUT", headers, app=app_stub))
+    assert status_of(sent) == 200
+    assert downstream.called
+
+
+def test_a_raw_upload_type_is_not_a_form_type(middleware, downstream, app_stub, credentials):
+    """The chat attachment upload sends octet-stream, which no form can send."""
+    headers = {
+        **SAME_ORIGIN,
+        "content-type": "application/octet-stream",
+        **session_cookie(credentials),
+    }
+    sent = drive(middleware, http_scope("/api/chat/abc/attachments", "POST", headers, app=app_stub))
+    assert status_of(sent) == 200
+    assert downstream.called
+
+
+@pytest.mark.parametrize("method", ["GET", "HEAD", "OPTIONS"])
+def test_a_safe_method_is_not_subject_to_the_body_rule(
+    middleware, downstream, app_stub, credentials, method
+):
+    headers = {**SAME_ORIGIN, "content-type": "text/plain", **session_cookie(credentials)}
+    sent = drive(middleware, http_scope("/api/config", method, headers, app=app_stub))
+    assert status_of(sent) == 200
+    assert downstream.called
+
+
+def test_a_proxied_panel_path_keeps_its_own_body_types(
+    middleware, downstream, app_stub, credentials
+):
+    """``/panel/<id>/…`` is relayed to the panel's own app, which decides its bodies.
+
+    A first-party panel app runs this same gate itself, so the rule still holds
+    there; a third-party panel keeps whatever forms it was built with.
+    """
+    headers = {
+        **SAME_ORIGIN,
+        "content-type": "application/x-www-form-urlencoded",
+        **session_cookie(credentials),
+    }
+    sent = drive(middleware, http_scope("/panel/grafana/login", "POST", headers, app=app_stub))
+    assert status_of(sent) == 200
+    assert downstream.called
+
+
+def test_a_form_body_refusal_is_not_filed_as_a_caller_refusal():
+    """The audited refusals stay 401/403; a body-type 415 is a request-shape answer.
+
+    Like a 413, it says nothing about who the caller is, so it stays out of the
+    column an operator reads for caller behaviour.
+    """
+    assert 415 not in common_middleware.AUDITED_REFUSAL_STATUSES
+
+
+# --------------------------------------------------------------------------- #
+# The one form-body route: ARIEL's multipart upload, behind a non-simple header
+# --------------------------------------------------------------------------- #
+
+
+def test_the_upload_route_takes_multipart_with_the_upload_header(
+    middleware, downstream, app_stub, credentials
+):
+    headers = {
+        **SAME_ORIGIN,
+        "content-type": "multipart/form-data; boundary=----osprey",
+        FORM_UPLOAD_HEADER: "1",
+        **session_cookie(credentials),
+    }
+    sent = drive(middleware, http_scope("/api/entries/upload", "POST", headers, app=app_stub))
+    assert status_of(sent) == 200
+    assert downstream.called
+
+
+def test_the_upload_route_refuses_multipart_without_the_upload_header(
+    middleware, downstream, app_stub, credentials
+):
+    """Exactly what a ``<form enctype="multipart/form-data">`` sends: no custom header."""
+    headers = {
+        **SAME_ORIGIN,
+        "content-type": "multipart/form-data; boundary=----osprey",
+        **session_cookie(credentials),
+    }
+    sent = drive(middleware, http_scope("/api/entries/upload", "POST", headers, app=app_stub))
+    assert status_of(sent) == 415
+    assert not downstream.called
+
+
+def test_the_upload_route_refuses_a_blank_upload_header(
+    middleware, downstream, app_stub, credentials
+):
+    headers = {
+        **SAME_ORIGIN,
+        "content-type": "multipart/form-data; boundary=----osprey",
+        FORM_UPLOAD_HEADER: "  ",
+        **session_cookie(credentials),
+    }
+    sent = drive(middleware, http_scope("/api/entries/upload", "POST", headers, app=app_stub))
+    assert status_of(sent) == 415
+    assert not downstream.called
+
+
+def test_the_upload_header_unlocks_no_other_route(middleware, downstream, app_stub, credentials):
+    headers = {
+        **SAME_ORIGIN,
+        "content-type": "multipart/form-data; boundary=----osprey",
+        FORM_UPLOAD_HEADER: "1",
+        **session_cookie(credentials),
+    }
+    sent = drive(middleware, http_scope("/api/config", "POST", headers, app=app_stub))
+    assert status_of(sent) == 415
+    assert not downstream.called
+
+
+def test_the_upload_header_is_one_a_form_cannot_send():
+    """A CORS-safelisted request header could be set by a form; this one is not one."""
+    safelisted = {"accept", "accept-language", "content-language", "content-type", "range"}
+    assert FORM_UPLOAD_HEADER.lower() not in safelisted
+    assert FORM_UPLOAD_HEADER.lower().startswith("x-")
+    assert ("POST", "/api/entries/upload") in FORM_BODY_ROUTES

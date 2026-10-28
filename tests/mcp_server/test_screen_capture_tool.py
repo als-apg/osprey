@@ -8,6 +8,8 @@ All backend calls are mocked — no actual screencapture/swift/osascript executi
 
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 from osprey.mcp_server.workspace.tools.screen_capture_backends.base import (
     BackendUnavailableError,
     ImageInfo,
@@ -56,6 +58,14 @@ def _make_mock_backend(**overrides):
     return backend
 
 
+def _run_with_screenshot_dir(tmp_path, monkeypatch):
+    """Run from ``tmp_path`` with screenshots configured to land in ``tmp_path/screenshots``."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text(
+        "screen_capture:\n  output_dir: '" + str(tmp_path / "screenshots") + "'\n"
+    )
+
+
 _BACKEND_PATCH = "osprey.mcp_server.workspace.tools.screen_capture.get_backend"
 
 
@@ -66,10 +76,7 @@ _BACKEND_PATCH = "osprey.mcp_server.workspace.tools.screen_capture.get_backend"
 
 async def test_screenshot_full_mode(tmp_path, monkeypatch):
     """Full mode captures entire screen and returns ArtifactStore entry."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(
-        "screen_capture:\n  output_dir: '" + str(tmp_path / "screenshots") + "'\n"
-    )
+    _run_with_screenshot_dir(tmp_path, monkeypatch)
 
     filepath_holder = []
 
@@ -98,10 +105,7 @@ async def test_screenshot_full_mode(tmp_path, monkeypatch):
 
 async def test_screenshot_region_mode(tmp_path, monkeypatch):
     """Region mode parses x,y,w,h and delegates to backend."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(
-        "screen_capture:\n  output_dir: '" + str(tmp_path / "screenshots") + "'\n"
-    )
+    _run_with_screenshot_dir(tmp_path, monkeypatch)
 
     async def mock_capture_region(_x, _y, _w, _h, filepath):
         open(filepath, "wb").write(b"PNG_DATA")
@@ -124,10 +128,7 @@ async def test_screenshot_region_mode(tmp_path, monkeypatch):
 
 async def test_screenshot_display_mode(tmp_path, monkeypatch):
     """Display mode passes display number to backend."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(
-        "screen_capture:\n  output_dir: '" + str(tmp_path / "screenshots") + "'\n"
-    )
+    _run_with_screenshot_dir(tmp_path, monkeypatch)
 
     async def mock_capture_display(_display, filepath):
         open(filepath, "wb").write(b"PNG_DATA")
@@ -147,12 +148,12 @@ async def test_screenshot_display_mode(tmp_path, monkeypatch):
     assert backend.capture_display.call_args[0][0] == "2"
 
 
-async def test_screenshot_window_by_wid(tmp_path, monkeypatch):
-    """Window mode with numeric WID delegates to backend."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(
-        "screen_capture:\n  output_dir: '" + str(tmp_path / "screenshots") + "'\n"
-    )
+@pytest.mark.parametrize(
+    "target", [pytest.param("12345", id="wid"), pytest.param("Phoebus", id="app-name")]
+)
+async def test_screenshot_window_delegates_the_target(tmp_path, monkeypatch, target):
+    """Window mode hands a numeric WID or an app name to the backend unchanged."""
+    _run_with_screenshot_dir(tmp_path, monkeypatch)
 
     async def mock_capture_window(_target, filepath):
         open(filepath, "wb").write(b"PNG_DATA")
@@ -163,46 +164,18 @@ async def test_screenshot_window_by_wid(tmp_path, monkeypatch):
 
     with patch(_BACKEND_PATCH, return_value=backend):
         fn = _get_screenshot_capture()
-        result = await fn(mode="window", target="12345")
+        result = await fn(mode="window", target=target)
 
     data = extract_response_dict(result)
     assert data["status"] == "success"
     assert "artifact_id" in data
     backend.capture_window.assert_called_once()
-    assert backend.capture_window.call_args[0][0] == "12345"
-
-
-async def test_screenshot_window_by_name(tmp_path, monkeypatch):
-    """Window mode with app name delegates to backend."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(
-        "screen_capture:\n  output_dir: '" + str(tmp_path / "screenshots") + "'\n"
-    )
-
-    async def mock_capture_window(_target, filepath):
-        open(filepath, "wb").write(b"PNG_DATA")
-        return _mock_image_info(filepath=filepath)
-
-    backend = _make_mock_backend()
-    backend.capture_window = AsyncMock(side_effect=mock_capture_window)
-
-    with patch(_BACKEND_PATCH, return_value=backend):
-        fn = _get_screenshot_capture()
-        result = await fn(mode="window", target="Phoebus")
-
-    data = extract_response_dict(result)
-    assert data["status"] == "success"
-    assert "artifact_id" in data
-    backend.capture_window.assert_called_once()
-    assert backend.capture_window.call_args[0][0] == "Phoebus"
+    assert backend.capture_window.call_args[0][0] == target
 
 
 async def test_screenshot_window_name_not_found(tmp_path, monkeypatch):
     """Window mode returns error when backend raises WindowNotFoundError."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(
-        "screen_capture:\n  output_dir: '" + str(tmp_path / "screenshots") + "'\n"
-    )
+    _run_with_screenshot_dir(tmp_path, monkeypatch)
 
     backend = _make_mock_backend()
     backend.capture_window = AsyncMock(
@@ -219,10 +192,7 @@ async def test_screenshot_window_name_not_found(tmp_path, monkeypatch):
 
 async def test_screenshot_custom_filename(tmp_path, monkeypatch):
     """Custom filename is used in the output path."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(
-        "screen_capture:\n  output_dir: '" + str(tmp_path / "screenshots") + "'\n"
-    )
+    _run_with_screenshot_dir(tmp_path, monkeypatch)
 
     async def mock_capture_full(filepath):
         open(filepath, "wb").write(b"PNG_DATA")
@@ -243,10 +213,7 @@ async def test_screenshot_custom_filename(tmp_path, monkeypatch):
 
 async def test_screenshot_default_filename(tmp_path, monkeypatch):
     """Default filename uses capture_YYYYMMDD_HHMMSS pattern."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(
-        "screen_capture:\n  output_dir: '" + str(tmp_path / "screenshots") + "'\n"
-    )
+    _run_with_screenshot_dir(tmp_path, monkeypatch)
 
     async def mock_capture_full(filepath):
         open(filepath, "wb").write(b"PNG_DATA")
@@ -268,10 +235,7 @@ async def test_screenshot_default_filename(tmp_path, monkeypatch):
 
 async def test_screenshot_invalid_mode(tmp_path, monkeypatch):
     """Invalid mode returns a validation error."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(
-        "screen_capture:\n  output_dir: '" + str(tmp_path / "screenshots") + "'\n"
-    )
+    _run_with_screenshot_dir(tmp_path, monkeypatch)
 
     fn = _get_screenshot_capture()
     with assert_raises_error(error_type="validation_error") as _exc_ctx:
@@ -283,10 +247,7 @@ async def test_screenshot_invalid_mode(tmp_path, monkeypatch):
 
 async def test_screenshot_command_failure(tmp_path, monkeypatch):
     """Backend RuntimeError returns capture_error."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(
-        "screen_capture:\n  output_dir: '" + str(tmp_path / "screenshots") + "'\n"
-    )
+    _run_with_screenshot_dir(tmp_path, monkeypatch)
 
     backend = _make_mock_backend()
     backend.capture_full = AsyncMock(
@@ -303,10 +264,7 @@ async def test_screenshot_command_failure(tmp_path, monkeypatch):
 
 async def test_screenshot_backend_unavailable(tmp_path, monkeypatch):
     """BackendUnavailableError returns platform_error."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(
-        "screen_capture:\n  output_dir: '" + str(tmp_path / "screenshots") + "'\n"
-    )
+    _run_with_screenshot_dir(tmp_path, monkeypatch)
 
     with patch(
         _BACKEND_PATCH,
@@ -507,10 +465,7 @@ async def test_manage_window_injection_prevention(tmp_path, monkeypatch):
 
 async def test_screenshot_region_missing_target(tmp_path, monkeypatch):
     """Region mode without target returns validation error."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(
-        "screen_capture:\n  output_dir: '" + str(tmp_path / "screenshots") + "'\n"
-    )
+    _run_with_screenshot_dir(tmp_path, monkeypatch)
 
     fn = _get_screenshot_capture()
     with assert_raises_error(error_type="validation_error") as _exc_ctx:

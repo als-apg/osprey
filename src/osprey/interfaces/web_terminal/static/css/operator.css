@@ -930,6 +930,51 @@ html[data-ui-mode="simple"] #operator-container {
   color: var(--text-secondary);
 }
 
+/* The machine the write lands on, keyed on the same `data-target-kind` the
+   chip sets: the real machine reads red, the rehearsal amber ("Rehearsal —
+   nothing moves"), the simulator green. A call that writes nothing has no
+   line at all. */
+.op-card-target {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  overflow-wrap: anywhere;
+}
+
+.op-card-target-key {
+  font-weight: var(--weight-medium);
+}
+
+.op-card-target-sep {
+  opacity: 0.6;
+}
+
+.op-card-target[data-target-kind="real"] {
+  color: var(--color-error);
+  background: color-mix(in srgb, var(--color-error) 15%, transparent);
+  border-color: color-mix(in srgb, var(--color-error) 40%, transparent);
+}
+
+.op-card-target[data-target-kind="rehearsal"] {
+  color: var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 15%, transparent);
+  border-color: color-mix(in srgb, var(--color-warning) 40%, transparent);
+}
+
+.op-card-target[data-target-kind="simulator"] {
+  color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+  border-color: color-mix(in srgb, var(--color-success) 35%, transparent);
+}
+
 .op-card-summary {
   display: flex;
   align-items: flex-start;

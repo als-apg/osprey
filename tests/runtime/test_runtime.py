@@ -107,10 +107,16 @@ class RecordingConnector(ControlSystemConnector):
 
 
 @pytest.fixture
-def clear_runtime_state():
-    """Clear runtime module state before each test."""
+def clear_runtime_state(monkeypatch):
+    """Clear runtime module state before each test.
+
+    An unstamped build reads the deployment's ``control_system`` section for its
+    baseline target. These tests patch the connector factory and load no config,
+    so the section reads as empty.
+    """
     import osprey.runtime as runtime
 
+    monkeypatch.setattr(runtime, "_control_system_section", dict)
     runtime._runtime_connector = None
     runtime._limits_validator = None
     saved_observers = list(runtime._write_observers)

@@ -96,7 +96,7 @@ from osprey_connectors.config import mapping_or_empty
 from osprey_connectors.control_system import ControlSystemConnector
 from osprey_connectors.errors import ConfigurationError, ConnectorUnavailableError
 from osprey_connectors.ipc import DEFAULT_PING_TIMEOUT_S, ChildUnresponsiveError, ConnectorHostProxy
-from osprey_connectors.types import configured_targets, target_writes_enabled
+from osprey_connectors.types import configured_targets, tier_allows
 
 __all__ = [
     "ConnectorEntry",
@@ -151,14 +151,14 @@ def claim_control_context(
     an operator is actually looking at, and behind another controls server,
     which got there first. A follower writes nothing here — it files requests.
 
-    **A claim is a merge.** The target, generation and posture in the record are
+    **A claim is a merge.** The target, generation and switch in the record are
     what this deployment is pointed at, and they outlive every process that
     reads them; taking the file over changes who may write it, and nothing else
     of a record somebody has switched. A record nobody has switched follows the
     deployment's baseline; every applied switch mints ``generation + 1``, so
     generation 0 is a claim and never a switch (:func:`control_context.claimed`).
     A record that is absent or too degraded to read at all starts one, at
-    *baseline*, generation 0, narrowing nothing.
+    *baseline*, generation 0, every switch off.
 
     The write is read-verified: two servers starting together can both find the
     record ownerless, and the one that lost the race has to find that out
@@ -388,18 +388,14 @@ class ControlSystemContext:
         self._initialized = True
         logger.info(
             "ControlSystemContext: initialized (control_system=%s, archiver=%s, "
-            "writes_by_target=%s, serving=%s)",
+            "targets=%s, tier_allows_writes=%s, serving=%s)",
             self._config.control_system.get("type", "not configured"),
             self._config.archiver.get("type", "not configured"),
             # The targets this config configures, not every target the
-            # connectors package names: a log line over the constant would
-            # report a posture for a `standin` soft IOC this deployment never
-            # stood up, answered out of the deployment-wide key by
-            # `target_writes_enabled`'s unresolvable-target fallback.
-            {
-                target: target_writes_enabled(self._config.control_system, target)
-                for target in configured_targets(self._config.control_system)
-            },
+            # connectors package names. Whether a write lands is the write
+            # verdict's, per call; what is known at start is the tier alone.
+            list(configured_targets(self._config.control_system)),
+            tier_allows(self._config.control_system),
             "connector-host child" if self.switch_capable else "in-process connector",
         )
 
@@ -676,8 +672,8 @@ class ControlSystemContext:
             # A deployment on this path serves one target and never switches, so
             # the target it is on is the deployment's own baseline. Naming it
             # rather than leaving the stamp blank is what makes the rebuild after
-            # invalidate_connector() carry the same session posture the instance
-            # it replaces was reading.
+            # invalidate_connector() take the write verdict for the same target
+            # the instance it replaces was taking it for.
             instance = await ConnectorFactory.create_control_system_connector(
                 entry.config, control_target=self.baseline
             )
@@ -723,21 +719,22 @@ class ControlSystemContext:
         a dead child is restarted rather than replaced by force. The
         session-control reconciler
         (:mod:`osprey.mcp_server.control_system.session_control`) passes none: it
-        rebuilds the connector when the operator narrows the posture of the
-        target the deployment is on, because the child connected on a gateway
-        role chosen under the old posture and only a rebuild moves it. Neither
-        takes a lock of its own — the manager's is the lock, and a second one
-        around the same operation is how two things that must agree stop
-        agreeing.
+        rebuilds the connector when the write verdict for the target the
+        deployment is on moves, because the child connected on a gateway role
+        chosen under the old verdict and only a rebuild moves it. Neither takes
+        a lock of its own — the manager's is the lock, and a second one around
+        the same operation is how two things that must agree stop agreeing.
 
         Returns:
             Whether the connector this call was asked about is now gone or
             replaced. ``False`` means one specific thing: the connector-host
-            respawn was attempted and refused, so whatever the caller
-            invalidated it for has not happened. Every caller reads it: the
-            reconciler to report a realignment truthfully, the supervisor to
-            report ``respawn_refused`` instead of ``child_replaced`` in the
-            recovery record it attaches.
+            respawn was attempted and refused, so the OLD child is still
+            serving and whatever the caller invalidated it for has not
+            happened. Every caller reads it: the reconciler to report a
+            realignment truthfully — one reported as done on a child that never
+            restarted would tell an operator their switch had taken effect when
+            it had not — and the supervisor to report ``respawn_refused``
+            instead of ``child_replaced`` in the recovery record it attaches.
         """
         if (
             name == "control_system"

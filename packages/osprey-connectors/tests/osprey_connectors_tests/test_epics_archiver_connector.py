@@ -16,7 +16,8 @@ from osprey_connectors.archiver._base import ArchiverMetadata
 from osprey_connectors.archiver._epics_archiver_connector import EPICSArchiverConnector
 from osprey_connectors.archiver._timerange import Processing
 from osprey_connectors.errors import ConnectorUnavailableError
-from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
+from osprey_connectors.factory import ConnectorFactory
+from osprey_connectors_tests._harness import isolated_connector_registries
 from osprey_connectors_tests._loopback_https import Reply, loopback_pair
 
 

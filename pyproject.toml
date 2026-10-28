@@ -292,6 +292,11 @@ dev = [
     # changes between minors, so an unpinned floor lets CI and the local hook
     # disagree about what "formatted" means.
     "ruff>=0.16.2,<0.17",
+    # Pinned so every venue judges the workflows by the same rules: a linter
+    # free to move versions reports findings the diff did not introduce.
+    "actionlint-py==1.7.12.25",
+    # Pinned for the same reason; actionlint runs it over every workflow `run:` block.
+    "shellcheck-py==0.11.0.1",
     "testcontainers[postgres]>=4.15.0",  # Real PostgreSQL for integration tests
     # `lint-imports` holds the boundary between the framework and the
     # connectors package: the contracts are in [tool.importlinter] below.

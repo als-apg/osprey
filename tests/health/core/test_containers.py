@@ -30,23 +30,7 @@ from osprey.deployment.deployment_record import (
 )
 from osprey.health.core.containers import containers
 from osprey.health.models import CheckResult, Status
-
-
-class _FakeProc:
-    """Minimal ``asyncio`` subprocess stand-in for the ``--version`` call."""
-
-    def __init__(self, stdout: bytes = b"", returncode: int = 0) -> None:
-        self._stdout = stdout
-        self.returncode: int | None = returncode
-
-    async def communicate(self) -> tuple[bytes, bytes]:
-        return self._stdout, b""
-
-    def kill(self) -> None:  # pragma: no cover - only hit on timeout
-        pass
-
-    async def wait(self) -> int:  # pragma: no cover - only hit on timeout
-        return self.returncode or 0
+from tests.health._fakes import FakeProc
 
 
 @pytest.fixture
@@ -67,13 +51,13 @@ def _config(repo: Path, services: list[str]) -> dict:
 def _patch_version(
     monkeypatch: pytest.MonkeyPatch,
     *,
-    version_proc: _FakeProc | None = None,
+    version_proc: FakeProc | None = None,
     version_error: Exception | None = None,
     argv: list[tuple] | None = None,
 ) -> None:
     """Patch the ``--version`` subprocess, recording each argv it is given."""
 
-    async def _fake_exec(*a: object, **_k: object) -> _FakeProc:
+    async def _fake_exec(*a: object, **_k: object) -> FakeProc:
         if argv is not None:
             argv.append(a)
         if version_error is not None:
@@ -115,7 +99,7 @@ async def test_factory_returns_awaitable_callable(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _record(repo)
-    _patch_version(monkeypatch, version_proc=_FakeProc(b"Docker version 27.0.0"))
+    _patch_version(monkeypatch, version_proc=FakeProc(b"Docker version 27.0.0"))
     category = containers(_config(repo, []), probe=_boom_probe)
     results = await category()
     assert isinstance(results, list)
@@ -125,7 +109,7 @@ async def test_full_mode_emits_available_and_per_service(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _record(repo)
-    _patch_version(monkeypatch, version_proc=_FakeProc(b"Docker version 27.0.0"))
+    _patch_version(monkeypatch, version_proc=FakeProc(b"Docker version 27.0.0"))
     results = await containers(_config(repo, ["telemetry_store", "web"]), probe=_echo_probe())()
 
     names = [r.name for r in results]
@@ -138,7 +122,7 @@ async def test_full_mode_emits_available_and_per_service(
 
 async def test_probe_receives_expected_spec(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _record(repo)
-    _patch_version(monkeypatch, version_proc=_FakeProc(b"Docker version 27.0.0"))
+    _patch_version(monkeypatch, version_proc=FakeProc(b"Docker version 27.0.0"))
     captured: list[dict] = []
     await containers(_config(repo, ["telemetry_store"]), probe=_echo_probe(captured))()
 
@@ -158,7 +142,7 @@ async def test_the_recorded_runtime_names_the_availability_row(
     _record(repo, runtime="podman")
     monkeypatch.setenv("CONTAINER_RUNTIME", "docker")
     argv: list[tuple] = []
-    _patch_version(monkeypatch, version_proc=_FakeProc(b"podman version 5.0.0"), argv=argv)
+    _patch_version(monkeypatch, version_proc=FakeProc(b"podman version 5.0.0"), argv=argv)
     config = {**_config(repo, []), "container_runtime": "docker"}
     by_name = await _rows(containers(config, probe=_boom_probe))
 
@@ -171,7 +155,7 @@ async def test_no_record_is_one_warning_row_and_probes_nothing(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     argv: list[tuple] = []
-    _patch_version(monkeypatch, version_proc=_FakeProc(b"Docker version 27.0.0"), argv=argv)
+    _patch_version(monkeypatch, version_proc=FakeProc(b"Docker version 27.0.0"), argv=argv)
     results = await containers(_config(repo, ["web"]), probe=_boom_probe)()
 
     assert len(results) == 1
@@ -187,7 +171,7 @@ async def test_an_unreadable_record_is_one_row_naming_it(
     path.parent.mkdir(parents=True)
     path.write_text("{not json", encoding="utf-8")
     argv: list[tuple] = []
-    _patch_version(monkeypatch, version_proc=_FakeProc(b"Docker version 27.0.0"), argv=argv)
+    _patch_version(monkeypatch, version_proc=FakeProc(b"Docker version 27.0.0"), argv=argv)
     results = await containers(_config(repo, ["web"]), probe=_boom_probe)()
 
     assert len(results) == 1
@@ -201,7 +185,7 @@ async def test_broken_runtime_version_nonzero_is_error(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _record(repo)
-    _patch_version(monkeypatch, version_proc=_FakeProc(b"", returncode=1))
+    _patch_version(monkeypatch, version_proc=FakeProc(b"", returncode=1))
     results = await containers(_config(repo, ["web"]), probe=_boom_probe)()
 
     assert len(results) == 1
@@ -222,7 +206,7 @@ async def test_broken_runtime_version_missing_binary_is_error(
 
 async def test_degraded_mode_config_none(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _record(repo)
-    _patch_version(monkeypatch, version_proc=_FakeProc(b"Docker version 27.0.0"))
+    _patch_version(monkeypatch, version_proc=FakeProc(b"Docker version 27.0.0"))
     by_name = await _rows(containers(None, probe=_boom_probe))
 
     assert set(by_name) == {"docker_available", "container_services"}
@@ -235,7 +219,7 @@ async def test_empty_deployed_services_only_availability_row(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _record(repo)
-    _patch_version(monkeypatch, version_proc=_FakeProc(b"Docker version 27.0.0"))
+    _patch_version(monkeypatch, version_proc=FakeProc(b"Docker version 27.0.0"))
     results = await containers(_config(repo, []), probe=_boom_probe)()
 
     assert [r.name for r in results] == ["docker_available"]

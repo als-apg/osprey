@@ -60,7 +60,7 @@ CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
 #: delta pins. That leaf IS the tier boundary between them — both pin the flat
 #: key off — which makes it the one field that proves a render came from the
 #: right delta.
-RENDER_WRITES = {"readonly": False, "readwrite": True}
+RENDER_WRITES = {"readonly": "never", "readwrite": "allowed"}
 
 
 def _run_build(repo: Path) -> None:
@@ -142,7 +142,7 @@ def test_build_renders_a_project_for_every_layer_delta(built_repo):
     a render share its deployment's data tree and conventions while still
     differing on the one axis it exists to differ on.
     """
-    for render, writes_enabled in RENDER_WRITES.items():
+    for render, writes in RENDER_WRITES.items():
         project = _render_project(built_repo, render)
         assert project.is_dir(), f"{render} was never rendered"
         # The two files the image build uses as its context.
@@ -153,9 +153,10 @@ def test_build_renders_a_project_for_every_layer_delta(built_repo):
         assert rendered["project_name"] == f"{EXEMPLAR_DIRNAME}-{render}"
         # From the delta: the tier boundary, and the web tier this render must
         # not try to stand up a second copy of.
-        assert rendered["control_system"]["writes_enabled"] is False
+        assert rendered["control_system"]["writes"] == writes
+        assert "writes_enabled" not in rendered["control_system"]
         connector = rendered["control_system"]["connector"]
-        assert connector["virtual_accelerator"]["writes_enabled"] is writes_enabled
+        assert "writes_enabled" not in connector["virtual_accelerator"]
         assert rendered["modules"]["web_terminals"]["enabled"] is False
         # From the root profile: the connector the deployment runs, the data
         # tree the agent reads, its conventions.
@@ -273,11 +274,11 @@ def test_editing_a_layer_delta_is_drift_the_next_start_refuses(built_repo):
     assert check_drift(built_repo).state is DriftState.CLEAN
 
     delta = built_repo / TIERS_DIRNAME / "readonly.yml"
+    anchor = "control_system.writes: never"
+    original = delta.read_text(encoding="utf-8")
+    assert original.count(anchor) == 1, "the edit must land, or the drift check is never asked"
     delta.write_text(
-        delta.read_text(encoding="utf-8").replace(
-            "control_system.writes_enabled: false",
-            "control_system.writes_enabled: false\n  system.timezone: America/Los_Angeles",
-        ),
+        original.replace(anchor, f"{anchor}\n  system.timezone: America/Los_Angeles"),
         encoding="utf-8",
     )
 

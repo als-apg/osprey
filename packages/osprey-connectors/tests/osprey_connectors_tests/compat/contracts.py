@@ -26,7 +26,10 @@ pass between them, which no import catches:
   files under ``fixtures/control_context/`` with the installed connectors. The
   golden files were written by the connectors' own writer and are never
   regenerated: they stand for the records a deployment already holds in its
-  durable ``var/`` when its rebuild picks up a newer connectors.
+  durable ``var/`` when its rebuild picks up a newer connectors. A newer
+  writer re-writes such a record in schema 1's normal form
+  (:func:`check_golden_rewrite`), so the hook is held to reading that
+  re-write as the same record, not as the same bytes.
 
 Usage::
 
@@ -70,6 +73,9 @@ HOOK_RELPATH = Path("templates/claude_code/claude/hooks/osprey_target_state.py")
 
 #: What the golden record states, as both parsers must read it.
 GOLDEN_RECORD = {"target": "va", "generation": 3, "posture": {"live": "sandbox"}}
+
+#: The keys schema 1's first write adds to a record written before them.
+NORMAL_FORM_KEYS = frozenset({"switch", "switch_epoch"})
 
 
 class ContractError(AssertionError):
@@ -227,8 +233,58 @@ def check_control_context_golden(fixtures: Path = FIXTURES) -> str:
     return f"control-context golden OK: 1 record, {len(reports)} report(s)"
 
 
+def defaulted_posture(posture: dict[str, str]) -> dict[str, str]:
+    """*posture* with every machine it leaves out stated as ``sandbox``.
+
+    An absent machine already reads as ``sandbox`` to every reader; the normal
+    form only writes that default out, for every machine in
+    :data:`~osprey_connectors.types.CONTROL_TARGETS`.
+    """
+    from osprey_connectors import control_context
+
+    return {**control_context.posture_mirror({}), **posture}
+
+
+def check_golden_rewrite(written: dict, golden: dict) -> None:
+    """*written*, the writer's re-write of *golden*, is the same record in normal form.
+
+    Schema 1's normal form is what the first write of a record that carries no
+    ``switch_epoch`` stores: the epoch minted, the switch empty (every machine's
+    writes off) and the ``posture`` mirror written out for every machine.
+    Everything else -- the schema, the target, the generation, the owner and
+    the last switch -- is carried unchanged, and nothing else is added.
+    """
+    from osprey_connectors import control_context
+
+    _require(control_context.parse_record(written) is not None, "the re-write no longer parses")
+    _require(
+        set(written) == set(golden) | NORMAL_FORM_KEYS,
+        f"the re-write carries the keys {sorted(written)}",
+    )
+    for key in sorted(set(golden) - {"posture"}):
+        _require(
+            written[key] == golden[key],
+            f"the re-write reads {key} as {written[key]!r}, not {golden[key]!r}",
+        )
+    _require(
+        written["posture"] == defaulted_posture(golden["posture"]),
+        f"the re-write reads posture as {written['posture']}",
+    )
+    _require(written["switch"] == {}, f"the re-write reads switch as {written['switch']}")
+    epoch = written["switch_epoch"]
+    _require(
+        isinstance(epoch, int) and not isinstance(epoch, bool) and epoch > 0,
+        f"the re-write minted no switch epoch: {epoch!r}",
+    )
+
+
 def check_control_context_hook(hook: Path, workdir: Path) -> str:
-    """A record the connectors write, and the golden one, read alike in the hook."""
+    """A record the connectors write, and the golden one, read alike in the hook.
+
+    The connectors re-write the golden record in schema 1's normal form
+    (:func:`check_golden_rewrite`); the hook must read that re-write as the
+    golden record with its posture defaulted, and the golden as it stands.
+    """
     from osprey_connectors import control_context
 
     module = load_hook(hook)
@@ -237,9 +293,16 @@ def check_control_context_hook(hook: Path, workdir: Path) -> str:
     assert written is not None
     path = workdir / control_context.RECORD_FILENAME
     control_context.write_record(written, path=path)
-    for label, text in (("written", path.read_text(encoding="utf-8")), ("golden", golden)):
+    rewrite = path.read_text(encoding="utf-8")
+    raw_golden = json.loads(golden)
+    check_golden_rewrite(json.loads(rewrite), raw_golden)
+    normal = {**GOLDEN_RECORD, "posture": defaulted_posture(raw_golden["posture"])}
+    for label, text, expected in (
+        ("written", rewrite, normal),
+        ("golden", golden, GOLDEN_RECORD),
+    ):
         parsed = module.parse_record(text)
-        _require(parsed == GOLDEN_RECORD, f"the hook reads the {label} record as {parsed}")
+        _require(parsed == expected, f"the hook reads the {label} record as {parsed}")
     return f"control-context hook OK: {hook}"
 
 

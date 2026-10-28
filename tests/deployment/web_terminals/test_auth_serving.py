@@ -108,7 +108,12 @@ from osprey.deployment.web_terminals.auth_credentials import (
     set_auth_password,
     terminal_secret_var,
 )
-from osprey.deployment.web_terminals.render import PROXY_ENV_NAMES, render_web_terminals
+from osprey.deployment.web_terminals.render import (
+    PROXY_ENV_NAMES,
+    TERMINAL_SECRET_HEADER,
+    render_web_terminals,
+)
+from osprey.interfaces.common_middleware import PANEL_CAP_SEGMENT
 from osprey.services.auth_sidecar.app import (
     DEFAULT_OIDC_CLIENT_ID_ENV,
     DEFAULT_OIDC_CLIENT_SECRET_ENV,
@@ -1647,3 +1652,111 @@ def test_no_argument_handed_to_docker_run_survives_as_an_interpolation(stack: St
     # Assert
     unresolved = [argument for argument in stack.auth_run_argv if "${" in argument]
     assert not unresolved, unresolved
+
+
+# ---------------------------------------------------------------------------
+# 9. Capability paths: exempt from the login, stripped of every credential
+# ---------------------------------------------------------------------------
+#
+# nginx's share of C-CAP is only the exemption: a `…/panel(-static)/<id>/~c/<cap>/`
+# path skips the `auth_request`, because an opaque panel's own requests carry
+# `Origin: null` and no cookie. Whether the cap is any good is the app's call
+# (tests/interfaces/web_terminal/test_panel_cap_routes.py); the stub upstream
+# here accepts anything, which is what lets these probes see exactly what nginx
+# let through and what it took away on the way.
+
+#: A cap-shaped segment. nginx never validates it, so any token the location's
+#: character class admits is a cap as far as the perimeter is concerned.
+_CAP = "6a1b2c3d.tag.signature"
+
+#: Every credential a browser or a hostile page could put on a cap request.
+_CREDENTIAL_HEADERS = {
+    "Authorization": "Bearer stolen-token",
+    "X-Osprey-Auth-Account": "mallory",
+    "X-Osprey-Auth-Subject": "mallory",
+    "X-Osprey-Auth-Role": "operator",
+    "X-Osprey-Auth-Role-Source": "client",
+    TERMINAL_SECRET_HEADER: "client-supplied-secret",
+}
+
+
+@pytest.mark.parametrize(
+    "tree",
+    ["panel", "panel-static"],
+    ids=["runtime-panel", "discovered-bundle"],
+)
+def test_a_cap_path_is_served_without_a_login(stack: Stack, tree: str) -> None:
+    """No session at all, and the cap path still reaches alice's app.
+
+    The control beside it is the same panel without the cap segment: that one is
+    refused, so the pass is the exemption and not an ungated location.
+    """
+    # Act
+    with stack.client() as client:
+        assert SESSION_COOKIE_NAME not in client.cookies
+        capped = client.get(
+            f"/u/alice/{tree}/demo/{PANEL_CAP_SEGMENT}/{_CAP}/data.json",
+            headers={"Accept": "application/json", "Origin": "null"},
+        )
+        uncapped = client.get(
+            f"/u/alice/{tree}/demo/data.json", headers={"Accept": "application/json"}
+        )
+
+    # Assert
+    assert capped.status_code == 200, capped.text
+    echoed = capped.json()
+    assert echoed["port"] == stack.upstream_ports["alice"]
+    # The user prefix is stripped exactly as on the gated path; the cap stays,
+    # because it is the app that reads and verifies it.
+    assert echoed["path"] == f"/{tree}/demo/{PANEL_CAP_SEGMENT}/{_CAP}/data.json"
+    assert uncapped.status_code == 401
+
+
+def test_a_bare_cap_segment_without_its_slash_stays_behind_the_login(stack: Stack) -> None:
+    """``…/~c/<cap>`` with nothing after it is not a cap path, so it is gated."""
+    # Act
+    with stack.client() as client:
+        response = client.get(
+            f"/u/alice/panel/demo/{PANEL_CAP_SEGMENT}/{_CAP}",
+            headers={"Accept": "application/json"},
+        )
+
+    # Assert
+    assert response.status_code == 401
+
+
+def test_a_cap_path_strips_the_cookie_and_every_auth_header(stack: Stack) -> None:
+    """A signed-in browser's cap request arrives at the app carrying no credential.
+
+    The browser holds a live session for alice and sends it, plus every identity
+    and secret header a page could forge. The location forwards headers by name
+    only, so none of them may arrive — not the session cookie (it would unlock
+    every user this operator has open), not ``Authorization``, not the identity
+    names, and not the operator-secret header, which a cap location never
+    injects. ``Accept`` is one of the forwarded names, so a distinctive value
+    arriving proves the request went through rather than vanished.
+    """
+    # Arrange
+    with stack.client() as client:
+        landed = _login(stack, client, "alice")
+        assert landed.status_code == 303, landed.text
+        assert SESSION_COOKIE_NAME in client.cookies
+
+        # Act
+        response = client.get(
+            f"/u/alice/panel/demo/{PANEL_CAP_SEGMENT}/{_CAP}/api/state",
+            headers={**_CREDENTIAL_HEADERS, "Accept": "application/x-cap-probe"},
+        )
+        # The control: the same session on alice's gated path is stamped with
+        # the operator secret, so its absence above is the cap location's doing.
+        gated = client.get("/u/alice/api/state", headers={"Accept": "application/json"})
+
+    # Assert
+    assert response.status_code == 200, response.text
+    received = response.json()["headers"]
+    assert received.get("accept") == "application/x-cap-probe", received
+    assert "cookie" not in received, received
+    for name in _CREDENTIAL_HEADERS:
+        assert name.lower() not in received, (name, received)
+    assert gated.status_code == 200, gated.text
+    assert TERMINAL_SECRET_HEADER.lower() in gated.json()["headers"]

@@ -1,6 +1,6 @@
 """FR5 acceptance: VA inherits the same base-class write-safety wiring as
 EPICS/mock -- ``VirtualAcceleratorConnector`` is an unmodified
-``EPICSConnector`` subclass, so ``control_system.writes_enabled: false``
+``EPICSConnector`` subclass, so a login tier of ``control_system.writes: never``
 must hard-block writes at the connector guard with zero CA I/O, exactly as
 ``tests/connectors/test_writes_enabled.py`` proves for the base class in
 isolation. This test proves the same contract against a real container: the
@@ -27,7 +27,6 @@ from __future__ import annotations
 import pytest
 
 from osprey_connectors.control_system import WriteOutcome
-from osprey_connectors.types import VIRTUAL_ACCELERATOR, writes_enabled_key
 from tests.facility.served_tree import assert_unmoved, assert_write_visible
 from tests.va.e2e import conftest as e2e_conftest
 
@@ -73,13 +72,13 @@ def corrector_rb(corrector: e2e_conftest.Corrector) -> str:
 
 class TestApprovalSmoke:
     @pytest.mark.asyncio
-    @pytest.mark.usefixtures("va_container")
+    @pytest.mark.usefixtures("va_container", "va_switch_on")
     async def test_write_blocked_when_writes_disabled_no_ca_io(
         self, corrector, corrector_sp, corrector_rb
     ):
         band = corrector.readback_band
 
-        with e2e_conftest.patched_config(**{"control_system.writes_enabled": False}):
+        with e2e_conftest.patched_config(**{"control_system.writes": "never"}):
             connector = await e2e_conftest.connect_va()
 
             sp_before = (await connector.read_channel(corrector_sp)).value
@@ -89,13 +88,16 @@ class TestApprovalSmoke:
 
             result = await connector.write_channel(corrector_sp, DEMO_CURRENT)
 
+        # Refused by the tier, with the switch on: the one term that differs
+        # from the write that succeeds below is the login's write tier.
         assert result.outcome is WriteOutcome.REFUSED
-        assert "writes are disabled" in result.error_message
-        assert writes_enabled_key(VIRTUAL_ACCELERATOR) in result.error_message
+        assert result.refusal_reason == "WRITES_DISABLED"
+        assert "write tier does not allow" in result.error_message
+        assert "[osprey-refusal: tier_never]" in result.error_message
 
         # Read back with writes still disabled (reads are never gated) to
         # confirm the blocked write never reached the IOC over CA.
-        with e2e_conftest.patched_config(**{"control_system.writes_enabled": False}):
+        with e2e_conftest.patched_config(**{"control_system.writes": "never"}):
             connector = await e2e_conftest.connect_va()
             sp_after = (await connector.read_channel(corrector_sp)).value
             rb_after = (await connector.read_channel(corrector_rb)).value
@@ -107,9 +109,9 @@ class TestApprovalSmoke:
         assert_unmoved(corrector_rb, rb_before, rb_after, band)
 
     @pytest.mark.asyncio
-    @pytest.mark.usefixtures("va_container")
+    @pytest.mark.usefixtures("va_container", "va_switch_on")
     async def test_same_write_succeeds_once_writes_enabled(self, corrector_sp):
-        with e2e_conftest.patched_config(**{"control_system.writes_enabled": True}):
+        with e2e_conftest.patched_config(**{"control_system.writes": "allowed"}):
             connector = await e2e_conftest.connect_va()
 
             result = await connector.write_channel(corrector_sp, DEMO_CURRENT)

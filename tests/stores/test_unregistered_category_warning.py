@@ -12,23 +12,6 @@ from __future__ import annotations
 
 import logging
 
-import pytest
-
-from osprey.stores.artifact_store import ArtifactStore
-
-
-@pytest.fixture
-def store(tmp_path, monkeypatch) -> ArtifactStore:
-    repo_root = tmp_path / "repo"
-    (repo_root / "build").mkdir(parents=True)
-    config_path = repo_root / "build" / "config.yml"
-    config_path.write_text(
-        f"project_root: {repo_root}\nagent_data:\n  base_dir: state/agent\n",
-    )
-    monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
-    monkeypatch.chdir(repo_root)
-    return ArtifactStore(workspace_root=repo_root / "state" / "agent")
-
 
 def _warnings(caplog) -> str:
     return "\n".join(

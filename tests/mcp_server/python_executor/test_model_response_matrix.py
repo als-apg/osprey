@@ -37,6 +37,8 @@ from osprey.mcp_server.python_executor.tools import (  # noqa: E402
 )
 from osprey.simulation.engines import pyat as engine  # noqa: E402
 from osprey.simulation.response import RESULT_TAG, solve_and_print  # noqa: E402
+from tests._simulator_view import view_channel  # noqa: E402
+from tests.mcp_server.conftest import assert_raises_error  # noqa: E402
 
 CORRECTOR_X = "SR:MAG:HCM:01:CURRENT:SP"
 CORRECTOR_Y = "SR:MAG:VCM:01:CURRENT:SP"
@@ -56,11 +58,6 @@ TIMEOUT_S = 120
 #: cold child on the slowest runner to load the view and enter the plug-in,
 #: which then never returns, so the stop always lands on a spinning solve.
 SPIN_TIMEOUT_S = 60
-
-
-def _envelope(raised: pytest.ExceptionInfo[ToolError]) -> dict[str, Any]:
-    envelope: dict[str, Any] = json.loads(str(raised.value))
-    return envelope
 
 
 # ---------------------------------------------------------------------------
@@ -141,18 +138,13 @@ def _line_render(root: Path, corrector_delta: float | None) -> Path:
         }
     )
     channels = [
-        {
-            "address": record["address"],
-            "role": "setpoint" if record["direction"] == "write" else "readback",
-            "pair": record["address"] if record["direction"] == "write" else None,
-            "value_type": "float",
-            "unit": None,
-            "description": None,
-            "writable": record["direction"] == "write",
-            "value_range": None,
-            "owner": LINE,
-            "on": {"device": f"{LINE}/{record['element']}"},
-        }
+        view_channel(
+            record["address"],
+            LINE,
+            role="setpoint" if record["direction"] == "write" else "readback",
+            writable=record["direction"] == "write",
+            on={"device": f"{LINE}/{record['element']}"},
+        )
         for record in wiring
     ]
     files = {
@@ -434,10 +426,10 @@ class TestSolveErrors:
     ):
         sandbox["render"] = _line_render(tmp_path / "line", corrector_delta=1.0)
 
-        with pytest.raises(ToolError) as raised:
+        with assert_raises_error() as raised:
             _call(model=LINE)
 
-        envelope = _envelope(raised)
+        envelope = raised["envelope"]
         assert envelope["error_type"] == "nothing_answered"
         assert (
             envelope["error_message"]
@@ -458,10 +450,10 @@ class TestSolveErrors:
         _set_step(render, "SR", 0.5)
         sandbox["render"] = render
 
-        with pytest.raises(ToolError) as raised:
+        with assert_raises_error() as raised:
             _call(model="SR", correctors=[CORRECTOR_X])
 
-        envelope = _envelope(raised)
+        envelope = raised["envelope"]
         assert envelope["error_type"] == "nothing_answered"
         assert list(envelope["details"]["missing"]) == [CORRECTOR_X]
         assert envelope["details"]["missing"][CORRECTOR_X].endswith(
@@ -475,10 +467,10 @@ class TestSolveErrors:
         sandbox["seed"] = {"refusing_engine.py": REFUSING_ENGINE}
         monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "refusing_engine")
 
-        with pytest.raises(ToolError) as raised:
+        with assert_raises_error() as raised:
             _call(model=LINE)
 
-        envelope = _envelope(raised)
+        envelope = raised["envelope"]
         assert envelope["error_type"] == "validation_error"
         assert envelope["error_message"] == (
             f"the response of {LINE} was refused: no optics for this deck"
@@ -493,10 +485,10 @@ class TestSolveErrors:
         sandbox["seed"] = {"no_solve_engine.py": NO_SOLVE_ENGINE}
         monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "no_solve_engine")
 
-        with pytest.raises(ToolError) as raised:
+        with assert_raises_error() as raised:
             _call(model=LINE)
 
-        envelope = _envelope(raised)
+        envelope = raised["envelope"]
         assert envelope["error_type"] == "execution_error"
         assert envelope["error_message"] == (
             f"the response of {LINE} has no solve: no optics for this deck"
@@ -511,10 +503,10 @@ class TestSolveErrors:
         sandbox["seed"] = {"internal_engine.py": INTERNAL_ENGINE}
         monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "internal_engine")
 
-        with pytest.raises(ToolError) as raised:
+        with assert_raises_error() as raised:
             _call(model=LINE)
 
-        envelope = _envelope(raised)
+        envelope = raised["envelope"]
         assert envelope["error_type"] == "execution_error"
         assert envelope["error_message"] == f"the solve of {LINE} ended without a result"
         assert "operands could not be broadcast" in envelope["details"]["stderr"]
@@ -527,10 +519,10 @@ class TestSolveErrors:
         sandbox["seed"] = {"broken_facility_engine.py": BROKEN_FACILITY_ENGINE}
         monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "broken_facility_engine")
 
-        with pytest.raises(ToolError) as raised:
+        with assert_raises_error() as raised:
             _call(model=LINE)
 
-        envelope = _envelope(raised)
+        envelope = raised["envelope"]
         assert envelope["error_type"] == "validation_error"
         assert envelope["error_message"].startswith(f"the response of {LINE} was refused: ")
         assert "the monitor names no element" in envelope["error_message"]
@@ -544,10 +536,12 @@ class TestSolveErrors:
         sandbox["seed"] = {"refusing_engine.py": UNDECLARED_ENGINE}
         monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "refusing_engine")
 
-        with pytest.raises(ToolError) as raised:
+        with assert_raises_error() as raised:
             _call(model=LINE)
 
-        assert _envelope(raised)["error_message"] == (f"the solve of {LINE} ended without a result")
+        assert raised["envelope"]["error_message"] == (
+            f"the solve of {LINE} ended without a result"
+        )
 
     @pytest.mark.parametrize(
         "printed",
@@ -576,10 +570,10 @@ class TestSolveErrors:
         monkeypatch.setattr("osprey.utils.config_paths.resolve_config_dir", lambda: sr_render)
         monkeypatch.setattr(executor, "execute_code", solved)
 
-        with pytest.raises(ToolError) as raised:
+        with assert_raises_error() as raised:
             _call(model="SR", correctors=[CORRECTOR_X])
 
-        envelope = _envelope(raised)
+        envelope = raised["envelope"]
         assert envelope["error_type"] == "execution_error"
         assert envelope["error_message"] == "the solve of SR ended without a result"
 
@@ -637,17 +631,17 @@ class TestRefusals:
     def test_a_model_without_a_corrector_delta_is_refused_naming_its_file(self, tmp_path):
         render = _line_render(tmp_path / "line", corrector_delta=None)
 
-        with pytest.raises(ToolError) as raised:
+        with assert_raises_error() as raised:
             tool.resolve_model_request(LINE, None, render_root=render)
 
-        message = _envelope(raised)["error_message"]
+        message = raised["envelope"]["error_message"]
         assert message.startswith(f"measurement/{LINE}.yaml states no corrector_delta")
 
     def test_an_unserved_or_unknown_model_is_refused_listing_the_served(self, sr_render):
-        with pytest.raises(ToolError) as raised:
+        with assert_raises_error() as raised:
             tool.resolve_model_request("ELSEWHERE", None, render_root=sr_render)
 
-        assert _envelope(raised)["error_message"] == (
+        assert raised["envelope"]["error_message"] == (
             "model 'ELSEWHERE' is not a served deck model of this render; the served ones: BTS, LINE, LTB, SR"
         )
 
@@ -663,10 +657,10 @@ class TestRefusals:
     def test_a_corrector_list_the_model_cannot_step_is_refused(
         self, sr_render, correctors, fragment
     ):
-        with pytest.raises(ToolError) as raised:
+        with assert_raises_error() as raised:
             tool.resolve_model_request("SR", correctors, render_root=sr_render)
 
-        assert fragment in _envelope(raised)["error_message"]
+        assert fragment in raised["envelope"]["error_message"]
 
 
 # ---------------------------------------------------------------------------

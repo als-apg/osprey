@@ -61,3 +61,33 @@ test('Cancel dismisses the dialog and runs onDismiss once', () => {
   expect(isConfirmUp()).toBe(false);
   expect(onDismiss).toHaveBeenCalledTimes(1);
 });
+
+test('the dialog carries the machine kind it is about as data-target-kind', () => {
+  // The stylesheet tones the banner and the confirm button from this one
+  // attribute: amber for the rehearsal, red for the real machine.
+  showConfirm(spec({ live: 'Rehearsal — nothing moves', targetKind: 'rehearsal' }));
+
+  const dialog = /** @type {HTMLElement} */ (document.querySelector('.posture-modal'));
+  expect(dialog.dataset.targetKind).toBe('rehearsal');
+  expect(document.querySelector('.posture-modal-live')?.textContent).toBe(
+    'Rehearsal — nothing moves'
+  );
+});
+
+test('a dialog about no machine has no data-target-kind', () => {
+  showConfirm(spec());
+
+  const dialog = /** @type {HTMLElement} */ (document.querySelector('.posture-modal'));
+  expect(dialog.hasAttribute('data-target-kind')).toBe(false);
+});
+
+test('a real-machine turn-on offers no waiver when the raiser passes none', () => {
+  showConfirm(
+    spec({ live: 'Real machine — writes move hardware', targetKind: 'real', skipKeyBase: null })
+  );
+
+  expect(document.querySelector('.posture-modal-skip')).toBeNull();
+  expect(
+    /** @type {HTMLElement} */ (document.querySelector('.posture-modal')).dataset.targetKind
+  ).toBe('real');
+});

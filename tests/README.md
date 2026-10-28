@@ -29,10 +29,11 @@ own CI steps.
 Both must pass. Parallel is the real gate; serial is the one that gives you
 readable output when something is wrong.
 
-`scripts/check.py` is the one declaration of the merge gate: every check is
-declared there once, CI's lint, test, docs, package and frontend-js jobs call it,
-and its `pytest` check already uses the parallel invocation, so you normally
-just run a tier:
+`scripts/check.py` runs the merge gate: every check is declared once, by the
+code that owns it, in a `repo_checks.py` module (`scripts/repo_checks.py` for
+the framework, one beside each package that brings its own), the command
+collects them, CI's caller jobs call it, and its `pytest` check already uses
+the parallel invocation, so you normally just run a tier:
 
 | Command | What it is for |
 |---|---|
@@ -178,7 +179,7 @@ The ones that exist today:
 - `osprey.deployment.compose_generator._reset_wheel_build_cache()` — defined in
   `wheel_build.py` and re-exported by `compose_generator`; import it from either,
   but `wheel_build.py` is where it lives if you need to read it.
-- `osprey_connectors.factory.isolated_connector_registries(clear=True)` — a
+- `osprey_connectors_tests._harness.isolated_connector_registries(clear=True)` — a
   context manager that snapshots and restores the connector registries. Use it
   instead of `ConnectorFactory._registry.clear()`, which destroys registrations
   other files depend on.
@@ -578,7 +579,8 @@ Checklist for a new test area:
       which later reads as a coverage shortfall rather than a collection failure.
 - [ ] **Reuse the shared fixtures and helpers.** The harness's `_ports.py` (`reserved_port()`,
       `bound_socket()`, the `reserve_port` fixture) and `wait_for_port()` for
-      ports, the existing reset seams for global state, `patch_subprocess()`
+      ports, `tests._live.wait_until()` / `async_wait_until()` for polling a
+      condition, the existing reset seams for global state, `patch_subprocess()`
       for subprocess fakes, `isolated_home` for anything touching `$HOME`.
 - [ ] **New global state gets a public reset seam in `src/`**, plus an autouse
       fixture in the area's `conftest.py` in the house style — reset before and

@@ -117,10 +117,10 @@ from osprey.mcp_server.control_system.target_eligibility import (
     PROBE_CHANNEL_KEY,
     REASON_PROBE_CHANNEL_MISSING,
     REASON_TARGET_UNRESOLVABLE,
-    effective_writes_for_target,
     endpoint_is_live_standin,
 )
 from osprey.utils.seconds import non_negative_seconds, positive_seconds
+from osprey_connectors import posture_store
 from osprey_connectors.control_system import is_readonly_run
 from osprey_connectors.errors import ConnectorUnavailableError
 from osprey_connectors.ipc import (
@@ -151,6 +151,7 @@ from osprey_connectors.types import (
 )
 from osprey_connectors.types import baseline_target as types_baseline_target
 from osprey_connectors.types import switch_capable as types_switch_capable
+from osprey_connectors.write_target import KIND_BANNERS
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey.mcp_server.control_system.server_context import MCPServerConfig
@@ -371,6 +372,10 @@ class _Derived:
     writes_enabled: bool
 
 
+class _WritesMoved(Exception):
+    """A candidate reported the other posture because the verdict moved under it."""
+
+
 @dataclass
 class _Child:
     """One live connector-host child and everything the parent holds about it."""
@@ -462,41 +467,52 @@ def _endpoint_text(endpoint: Endpoint | None) -> str:
     return f"{endpoint.host}:{endpoint.port}" if endpoint is not None else ""
 
 
-def _display_writes(config: Any, target: str, effective_writes: Mapping[str, bool] | None) -> bool:
+def _writes_allowed(section: Any, target: str) -> bool:
+    """Whether the write verdict allows a write to *target*, launch pin honoured.
+
+    :func:`osprey_connectors.posture_store.write_verdict`'s ``.allowed`` over
+    the ``control_system:`` section: the run mode, the write tier, the target,
+    the owner, the login's switch for that machine and the launch pin. It is
+    the verdict the child's own write guard takes over the same record — the
+    child inherits this process's environment, so it names the same owner and
+    the same agent-data root — and therefore the posture it selects its
+    gateway on.
+    """
+    return posture_store.write_verdict(section, target).allowed
+
+
+def _display_writes(config: Any, target: str, write_allowed: Mapping[str, bool] | None) -> bool:
     """Whether the endpoint rendered for *target* should be the write one.
 
     The injected mapping wins where it holds an answer for *target*; a miss, a
-    ``None`` value or no mapping at all falls back to this process's own
-    posture through
-    :func:`~osprey.mcp_server.control_system.target_eligibility.effective_writes_for_target`,
-    which takes the ``control_system:`` section rather than the whole config.
+    ``None`` value or no mapping at all falls back to the write verdict for
+    *target* (:func:`_writes_allowed`), the same answer the switch derives
+    under and the child selects its gateway on.
 
-    Injection exists because the one caller that already knows the deployment's
+    Injection exists because the one caller that already knows the session's
     posture computes it before it renders, and a second record read there could
-    answer a question the caller has already answered differently. When the
-    record narrows nothing, the fallback returns the deployment ceiling ANDed
-    with this run's mode.
+    answer a question the caller has already answered differently.
 
     Args:
         config: The full rendered config mapping.
         target: The session control target being described.
-        effective_writes: Per-target effective posture, or ``None``.
+        write_allowed: Per-target write verdict ``allowed``, or ``None``.
 
     Returns:
-        ``True`` when writes are armed for *target* under the posture that
-        applies to this rendering.
+        ``True`` when the write verdict allows writes to *target* under the
+        posture that applies to this rendering.
     """
-    if effective_writes is not None:
-        override = effective_writes.get(target)
+    if write_allowed is not None:
+        override = write_allowed.get(target)
         if override is not None:
             return bool(override)
-    return effective_writes_for_target(_control_system_section(config), target)
+    return _writes_allowed(_control_system_section(config), target)
 
 
 def target_display_metadata(
     config: Any,
     *,
-    effective_writes: Mapping[str, bool] | None = None,
+    write_allowed: Mapping[str, bool] | None = None,
     config_path: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Per-target display metadata for the state file's single writer.
@@ -507,19 +523,19 @@ def target_display_metadata(
     it, so this is the only place the three targets get described.
 
     Each entry carries ``label``, ``display_name``, ``endpoint``,
-    ``selected_role``, ``real_machine`` and ``probe_channel`` — the
+    ``selected_role``, ``real_machine``, ``probe_channel`` and ``machine_kind``
+    (``real``/``rehearsal``/``simulator``, see :func:`_machine_kind`) — the
     destination's probe channel travels with the metadata so a describer can
     name it without opening ``config.yml``.
 
     Identity and posture are derived separately, and only the endpoint moves.
-    ``label``, ``display_name``, ``real_machine`` and the ``(stand-in)``
-    parenthesis come from the deployment ceiling, so narrowing a session never
-    renames the machine an operator is standing in front of. ``endpoint`` and
-    ``selected_role`` come from a second derivation under the effective
-    posture, so a session that has given up writes is told the read gateway it
-    is actually talking to rather than the write gateway the deployment would
-    permit. A process with no ``OSPREY_POSTURE_SESSION`` stamp has no narrowing
-    to answer for and is rendered from the ceiling and this run's mode.
+    ``label``, ``display_name``, ``real_machine`` and the rehearsal words come
+    from the deployment ceiling, so turning a machine's switch
+    off never renames the machine an operator is standing in front of.
+    ``endpoint`` and ``selected_role`` come from a second derivation under the
+    write verdict for that target, so a session whose switch is off is told the
+    read gateway it is actually talking to rather than the write gateway the
+    deployment's tier would permit.
 
     One entry per name in :data:`~osprey.mcp_server.control_system.target_state.TARGET_NAMES`,
     walked from that tuple rather than from a list spelled again here: the
@@ -529,11 +545,11 @@ def target_display_metadata(
 
     Args:
         config: The full rendered config mapping (``config.yml`` as loaded).
-        effective_writes: Per-target effective write posture to render under.
-            A caller that has already resolved the deployment's posture passes it
+        write_allowed: Per-target write verdict ``allowed`` to render under.
+            A caller that has already resolved the verdicts passes them
             so the rendering and the enforcement cannot disagree; a target the
-            mapping does not answer for falls back to this process's own
-            posture.
+            mapping does not answer for falls back to the write verdict for
+            it.
         config_path: The project config the child reads, which an unset
             virtual-accelerator gateway port is filled from; ``None`` reads
             ``CONFIG_FILE``, else ``./config.yml``.
@@ -558,10 +574,11 @@ def target_display_metadata(
                 "selected_role": "",
                 "real_machine": False,
                 "probe_channel": "",
+                "machine_kind": _machine_kind(target),
             }
             continue
         block = _connector_block(config, ceiling.connector_type)
-        # Asked of the ceiling endpoint, so the parenthesis cannot move under a
+        # Asked of the ceiling endpoint, so the rehearsal words cannot move under a
         # narrowing: a deployment whose two gateway rows sit on different ports
         # would otherwise be a stand-in with writes armed and the real machine
         # without them.
@@ -569,7 +586,7 @@ def target_display_metadata(
         selected = derive_endpoints(
             config,
             target,
-            writes_enabled=_display_writes(config, target, effective_writes),
+            writes_enabled=_display_writes(config, target, write_allowed),
             config_path=config_path,
         )
         metadata[target] = {
@@ -584,6 +601,7 @@ def target_display_metadata(
             # the name on the label moves.
             "real_machine": ceiling.connector_type not in SIMULATED_TYPES,
             "probe_channel": str(block.get(PROBE_CHANNEL_KEY) or ""),
+            "machine_kind": _machine_kind(target, standin=standin),
         }
     return metadata
 
@@ -604,12 +622,12 @@ def _is_live_standin(config: Any, target: str, endpoint: Any) -> bool:
     archiver's enablement gate and the build derivation that points the gateways
     at the stand-in in the first place. An SSH tunnel is the case it must not
     claim: forwarding a real gateway to ``localhost:5064`` is loopback and
-    nothing more, so the port conjunct fails and the label stays
-    ``LIVE MACHINE`` — which is the truth, because the operator is one hop from
+    nothing more, so the port conjunct fails and the label stays the real
+    machine's — which is the truth, because the operator is one hop from
     hardware.
 
     Asked of the CEILING endpoint rather than of the one a narrowed session
-    lands on. The parenthesis is an identity fact, and identity does not move
+    lands on. The rehearsal words are an identity fact, and identity does not move
     when a session gives up writes: a deployment whose two gateway rows sit on
     different ports would otherwise be a stand-in while writes are armed and
     the facility's own machine once they are not.
@@ -618,7 +636,7 @@ def _is_live_standin(config: Any, target: str, endpoint: Any) -> bool:
     dial a Channel Access gateway. ``va`` is not asked at all: the simulator is
     described by its own branch, and a sandbox that happened to be configured
     on the stand-in's port is still a simulator. Membership in the family is
-    not the same as carrying the parenthesis, which is :func:`_label`'s to
+    not the same as carrying the rehearsal words, which is :func:`_label`'s to
     decide and is the ``standin`` target's alone — see there.
     """
     if target not in (TARGET_LIVE, TARGET_STANDIN):
@@ -627,22 +645,46 @@ def _is_live_standin(config: Any, target: str, endpoint: Any) -> bool:
 
 
 def _label(target: str, connector_type: str | None, *, standin: bool = False) -> str:
+    """The published label for *target*: the identity line every reader renders.
+
+    The C-WORDS banner of the target's machine kind
+    (:data:`osprey_connectors.write_target.KIND_BANNERS`), read off
+    :func:`_machine_kind` and nothing else, so the label and the published kind
+    cannot describe different machines: the roster, the prompt hook's identity
+    line and a connector tool's error text all name the real machine "Real
+    machine — writes move hardware", this deployment's stand-in "Rehearsal —
+    nothing moves" and the simulator "Simulator — nothing moves". A real-machine
+    target no connector is configured for says so after its banner.
+
+    The rehearsal words belong to the ``standin`` target alone, and only while
+    its endpoint really is the stand-in container this deployment stood up (the
+    two conjuncts of :func:`_machine_kind`). A ``standin`` whose endpoint fails
+    the predicate is labelled the real machine — never "nothing moves" — and
+    refused by the eligibility gate, and ``live`` never carries the rehearsal
+    words at all: renaming the facility's machine on the strength of an
+    endpoint that merely looks like the stand-in's (a facility gateway forwarded
+    to loopback on that port) is the direction this stack must never fail in:
+    telling an operator nothing moves when hardware does.
+    """
+    words = KIND_BANNERS[_machine_kind(target, standin=standin)]
+    if connector_type is None and target != TARGET_VA:
+        return f"{words} (not configured)"
+    return words
+
+
+def _machine_kind(target: str, *, standin: bool = False) -> str:
+    """The kind of machine *target* is, published for every reader (C-KIND).
+
+    :func:`_label` is this kind's banner, so the label and the kind cannot
+    describe different machines: ``standin`` is
+    ``rehearsal`` only when its endpoint really is this deployment's stand-in
+    container, and otherwise ``real``. ``va`` is the simulator; ``live`` is
+    always the real machine. Readers take this from the report through
+    :func:`osprey_connectors.types.published_machine_kind` and never derive it.
+    """
     if target == TARGET_VA:
-        return "virtual accelerator (simulation)"
-    if connector_type is None:
-        return "live machine (not configured)"
-    # The parenthesis is the whole of what an operator is told differently, and
-    # it belongs to the 'standin' target alone. Two conjuncts, both required:
-    # the target is the one an operator selected by name, and its endpoint
-    # really is the stand-in container this deployment stood up. A 'standin'
-    # whose endpoint fails the predicate is labelled plain LIVE MACHINE and
-    # refused by the eligibility gate, and 'live' never carries the
-    # parenthesis at all — it names the facility's authored machine, and
-    # renaming it as a stand-in on the strength of an endpoint that merely
-    # looks like one (a facility gateway forwarded to loopback on that port)
-    # is the direction this stack must never fail in: telling an operator the
-    # machine in front of them is only a stand-in when it is not.
-    return "LIVE MACHINE (stand-in)" if (target == TARGET_STANDIN and standin) else "LIVE MACHINE"
+        return "simulator"
+    return "rehearsal" if (target == TARGET_STANDIN and standin) else "real"
 
 
 def _display_name(config: Any, target: str, *, standin: bool = False) -> str:
@@ -1376,7 +1418,10 @@ class ConnectorHostManager:
 
         fallback: dict[str, Any] | None = None
         try:
-            candidate = await self._launch(target, derived, probe_channel, first_child=not probe)
+            candidate, derived = await self._launch(
+                target, derived, probe_channel, first_child=not probe
+            )
+            derivation = derived.derivation
         except SwitchError as exc:
             read_derivation = self._read_role_fallback(derivation, exc)
             dead = derivation.selected_endpoint()
@@ -1397,7 +1442,7 @@ class ConnectorHostManager:
             try:
                 # The child is still armed as derived; only the gateway it may
                 # select moved, so the posture it is held to is the same one.
-                candidate = await self._launch(
+                candidate, retried = await self._launch(
                     target,
                     replace(derived, derivation=derivation),
                     probe_channel,
@@ -1421,6 +1466,7 @@ class ConnectorHostManager:
                     verification=retry_error.verification,
                     gateway=retry_error.gateway,
                 ) from None
+            derivation = retried.derivation
             fallback = {
                 "host": dead.host,
                 "port": dead.port,
@@ -1593,20 +1639,20 @@ class ConnectorHostManager:
     def _derive(self, target: str) -> _Derived:
         """The destination's derivation, or a refusal naming what is missing.
 
-        The write posture handed in is the RECORDED one, not the config's: the
-        child selects its gateway from the per-target narrowing in the
-        control-context record as well as from config, so a parent deriving the
-        configured posture
-        would expect ``write_access`` from a child the operator has narrowed to
-        ``read_only`` — and ``verify_child_report``, comparing the two, would
-        abort the switch over a disagreement neither side got wrong.
+        The write posture handed in is the write verdict for *target*
+        (:func:`_writes_allowed`), not the config's tier: the child selects its
+        gateway on its own write guard's verdict — the login's switch for the
+        machine among its terms — so a parent deriving from the tier alone
+        would expect ``write_access`` from a child whose switch is off — and
+        ``verify_host_report``, comparing the two, would abort the switch over
+        a disagreement neither side got wrong.
 
-        The posture is read once and returned with the derivation, so the
+        The verdict is taken once and returned with the derivation, so the
         derivation and the post-connect check of the child's reported posture
         judge one snapshot of it.
         """
         readonly_run = is_readonly_run()
-        writes = effective_writes_for_target(self._config.control_system, target)
+        writes = False if readonly_run else _writes_allowed(self._config.control_system, target)
         try:
             derivation = derive_endpoints(
                 self._config.raw,
@@ -1697,6 +1743,72 @@ class ConnectorHostManager:
         *,
         without_write_gateway: bool = False,
         first_child: bool = False,
+    ) -> tuple[_Child, _Derived]:
+        """Spawn, verify and probe a child, re-deriving once if the verdict moved.
+
+        The verdict is taken in :meth:`_derive` and again by the child as it
+        connects, so a switch turned on or off in between leaves the child
+        reporting the other posture. That is a verdict that moved, not a
+        disagreement: when the verdict taken again now equals what the child
+        reported, the candidate is discarded, the destination re-derived and
+        launched once more, as the connector pool does. A mismatch the verdict
+        does not explain — or a second one — is refused by verification.
+
+        Returns:
+            The child, and the derivation it was launched and verified under.
+        """
+        try:
+            child = await self._launch_once(
+                target,
+                derived,
+                probe_channel,
+                without_write_gateway=without_write_gateway,
+                first_child=first_child,
+                may_rederive=True,
+            )
+            return child, derived
+        except _WritesMoved:
+            logger.info(
+                "The write verdict for target %r moved while its child connected; "
+                "re-deriving and launching once more",
+                target,
+            )
+        rederived = self._derive(target)
+        if without_write_gateway and ROLE_READ_ONLY in rederived.derivation.endpoints:
+            rederived = replace(
+                rederived,
+                derivation=replace(rederived.derivation, selected_role=ROLE_READ_ONLY),
+            )
+        child = await self._launch_once(
+            target,
+            rederived,
+            probe_channel,
+            without_write_gateway=without_write_gateway,
+            first_child=first_child,
+            may_rederive=False,
+        )
+        return child, rederived
+
+    def _writes_moved(self, target: str, derived: _Derived, report: dict[str, Any]) -> bool:
+        """Whether a writes mismatch in *report* is a verdict that moved.
+
+        True only when the child reports the other posture *and* the verdict,
+        taken again now, has moved to it. A readonly run is never one: its
+        report carries the tier, not the verdict.
+        """
+        if derived.readonly_run or report.get("writes_enabled") is not (not derived.writes_enabled):
+            return False
+        return _writes_allowed(self._config.control_system, target) is not derived.writes_enabled
+
+    async def _launch_once(
+        self,
+        target: str,
+        derived: _Derived,
+        probe_channel: str,
+        *,
+        without_write_gateway: bool,
+        first_child: bool,
+        may_rederive: bool,
     ) -> _Child:
         """Spawn, verify and probe a child — or leave nothing behind.
 
@@ -1741,6 +1853,8 @@ class ConnectorHostManager:
                     f"The connector-host child for target {target!r} answered its init frame "
                     f"with {type(report).__name__}, not the post-connect report.",
                 )
+            if may_rederive and self._writes_moved(target, derived, report):
+                raise _WritesMoved
             verification = verify_host_report(
                 derivation,
                 report,
@@ -1857,8 +1971,8 @@ class ConnectorHostManager:
             kwargs["config_file"] = config_file
         if is_readonly_run():
             # Restriction only. The child cannot be granted writes by launch
-            # payload; ``control_system.writes_enabled`` is the only thing that
-            # ever enables them.
+            # payload; its own write verdict is the only thing that ever
+            # allows them.
             kwargs["execution_mode"] = "readonly"
         return kwargs
 

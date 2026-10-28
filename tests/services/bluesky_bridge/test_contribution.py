@@ -22,37 +22,10 @@ from osprey.services.bluesky_bridge.contribution import (
     stage_contribution,
 )
 from osprey.services.bluesky_bridge.plan_validation import hash_plan_body
-from osprey.services.bluesky_bridge.session_dir import resolve_session_plan_dir
 from osprey.services.bluesky_bridge.validation_record import validation_records
-
-_SESSION_PLAN_DIR_ENV = "BLUESKY_SESSION_PLAN_DIR"
+from tests.services.bluesky_bridge._session_plans import write_session_plan
 
 _PLAN_BODY = "PLAN_METADATA = {'name': 'orbit_bump'}\n"
-
-
-@pytest.fixture(autouse=True)
-def _isolated_session_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Give every test its own session-plan directory and a clean validation
-    store — the module-level `validation_records` singleton is shared
-    process-wide (mirrors `test_session_load_gate.py`'s fixture)."""
-    monkeypatch.setenv(_SESSION_PLAN_DIR_ENV, str(tmp_path / "plans_session"))
-
-    with validation_records.lock:
-        saved_hashes = set(validation_records._passing_hashes)
-        validation_records._passing_hashes.clear()
-
-    yield
-
-    with validation_records.lock:
-        validation_records._passing_hashes.clear()
-        validation_records._passing_hashes.update(saved_hashes)
-
-
-def _write_session_plan(name: str, body: str = _PLAN_BODY) -> Path:
-    session_dir = resolve_session_plan_dir()
-    path = session_dir / f"{name}.py"
-    path.write_text(body)
-    return path
 
 
 def test_unknown_plan_raises(tmp_path: Path) -> None:
@@ -61,14 +34,14 @@ def test_unknown_plan_raises(tmp_path: Path) -> None:
 
 
 def test_unvalidated_plan_raises(tmp_path: Path) -> None:
-    _write_session_plan("orbit_bump")
+    write_session_plan("orbit_bump", _PLAN_BODY)
     # No validation_records.record() call — hash was never recorded as passing.
     with pytest.raises(UnvalidatedPlanError):
         prepare_contribution("orbit_bump", tmp_path / "catalog")
 
 
 def test_validated_plan_prepares_request(tmp_path: Path) -> None:
-    source_path = _write_session_plan("orbit_bump")
+    source_path = write_session_plan("orbit_bump", _PLAN_BODY)
     validation_records.record(hash_plan_body(_PLAN_BODY))
 
     catalog_dir = tmp_path / "catalog"
@@ -88,18 +61,18 @@ def test_validated_plan_prepares_request(tmp_path: Path) -> None:
 def test_editing_after_validation_re_raises_unvalidated(tmp_path: Path) -> None:
     """Matches the 2.4/2.5 re-check contract: an edit after validation drops
     the hash's passing record until re-validated."""
-    _write_session_plan("orbit_bump")
+    write_session_plan("orbit_bump", _PLAN_BODY)
     validation_records.record(hash_plan_body(_PLAN_BODY))
 
     # Edit the file after validation — its content hash changes.
-    _write_session_plan("orbit_bump", body=_PLAN_BODY + "# tweak\n")
+    write_session_plan("orbit_bump", _PLAN_BODY + "# tweak\n")
 
     with pytest.raises(UnvalidatedPlanError):
         prepare_contribution("orbit_bump", tmp_path / "catalog")
 
 
 def test_stage_contribution_copies_bytes_identically(tmp_path: Path) -> None:
-    _write_session_plan("orbit_bump")
+    write_session_plan("orbit_bump", _PLAN_BODY)
     validation_records.record(hash_plan_body(_PLAN_BODY))
 
     catalog_dir = tmp_path / "catalog" / "nested"  # doesn't exist yet

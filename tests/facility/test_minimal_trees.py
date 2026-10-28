@@ -30,6 +30,7 @@ from click.testing import CliRunner, Result
 
 from osprey.facility import TEXTURE
 from osprey_connectors.errors import ChannelNotFoundError
+from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -336,11 +337,6 @@ def test_zero_sources_write_the_same_view_set_with_no_channel(build_project: Bui
     ]
 
 
-def _writes_enabled(key: str, default: Any = None) -> Any:
-    """A config lookup with writes enabled and every other key at its default."""
-    return True if key == "control_system.writes_enabled" else default
-
-
 async def _served(project: BuiltProject) -> Any:
     from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
     from tests.facility.served_tree import in_process_config
@@ -370,7 +366,7 @@ async def test_the_in_process_simulator_refuses_an_address_outside_the_facility_
 
 
 async def test_als_shaped_namespace_round_trip(
-    build_project: Build, monkeypatch: pytest.MonkeyPatch
+    build_project: Build, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     project, result = build_project(MIXED_NAMESPACE, profile=MOCK_PROFILE)
     assert result.exit_code == 0, result.output
@@ -400,7 +396,9 @@ async def test_als_shaped_namespace_round_trip(
     from osprey_connectors.control_system._base import WriteOutcome
 
     collapsed = "SR04U_GDS1PS_AC00"
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", _writes_enabled)
+    # A write tier that allows, and the simulator's switch on: both halves of the verdict.
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
+    arm_switch(monkeypatch, tmp_path / "agent-data")
     connector = await _served(project)
     try:
         for address in addresses:

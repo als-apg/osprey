@@ -1,49 +1,50 @@
-"""The run-level pin: a widen never reaches a run that started narrow.
+"""The run-level pin: a switch turned on never reaches a run that started with it off.
 
-The per-target narrowing in the control-context record is read at WRITE time,
-which is what lets an operator narrow a target while a session is already
-mid-conversation. That direction is the point of the feature. The other
+The per-target switch in the control-context record is read at WRITE time,
+which is what lets an operator turn a target's writes off while a session is
+already mid-conversation. That direction is the point of the feature. The other
 direction is a hazard: a script is already running inside the sandbox, and
-widening the record under it
+turning the switch on under it
 would hand it write access to a machine nobody re-consented to while it works.
 
 So the executor pins what it launched under. ``OSPREY_LAUNCH_POSTURE`` is
 stamped into the sandbox environment and recorded in the in-flight marker, and
-inside that sandbox the store rule becomes the AND of the pin and the live
-store:
+inside that sandbox the write verdict reads it as its last term
+(``launch_pin_term``):
 
-* the store NARROWS -> the store read refuses on the next write (immediate);
-* the store WIDENS -> the pin still refuses (the run stays narrow until it ends).
+* the switch goes OFF -> the record read refuses on the next write (immediate);
+* the switch goes ON -> the pin still refuses (the run stays off until it ends).
+
+How the pin combines with the switch is pinned by the write-verdict case table
+(rows ``pin-*``, ``order-record-beats-pin``, ``order-switch-beats-pin``); this
+module covers the stamp's format and what the executor stamps.
 
 The 409 the posture route raises while a marker is live is a courtesy on top of
 this, not the barrier.
 
-This module also pins the case the posture clamp cannot cover: a session
-whose control target is unknowable. ``audit.posture.posture()`` degrades to the
-environment answer there, and no spawn site stamps a per-target narrowing into
-the environment, so the executor's deployment gate has to ask the store itself —
-most restrictively, because it cannot say which machine the run is about.
+The executor stamps the pin from the write verdict for the run's target, asked
+with the pin itself ignored: a switch turned off reaches a run that is already
+going at its next write, and a switch turned on reaches only the next run.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
+from osprey.audit import posture
 from osprey.mcp_server.python_executor import executor as host_executor
-from osprey.mcp_server.python_executor.tools import _execution_gates as gates
 from osprey_connectors import control_context, posture_store
 from osprey_connectors_tests._harness import pin_identity, state_dir_under, write_control_context
+from osprey_connectors_tests._write_fakes import turn_switch
 
 #: A session key of the shape the web terminal writes.
 SESSION_KEY = "4f1c2a7e-0000-4000-8000-000000000042"
 
-#: A deployment armed for every target, so the ceiling never decides anything
-#: here — this module is about the store and the pin.
-ARMED = {
+#: A deployment whose tier allows writes on every target, so the tier never
+#: decides anything here — this module is about the switch and the pin.
+ARMED_TIER = {
     "type": "epics",
-    "writes_enabled": True,
+    "writes": "allowed",
     "connector": {
         "epics": {"prefix": "RING:"},
         "virtual_accelerator": {"prefix": "VA:"},
@@ -64,162 +65,26 @@ def data_root(tmp_path, monkeypatch):
     posture_store.invalidate_cache()
 
 
-def write_store(root: Path, posture) -> None:
-    """Write the narrowings both the gate and the sandbox read."""
-    write_control_context(root, posture=posture)
-    posture_store.invalidate_cache()
-
-
 # ---------------------------------------------------------------------------
 # The stamp's wire format
 # ---------------------------------------------------------------------------
 
 
 class TestStampFormat:
-    """``<target>=<posture>``, and only ``sandbox`` ever does anything."""
+    """``<target>=<posture>``, written in one place and read as the pin term."""
 
     def test_the_stamp_is_one_target_equals_posture_pair(self):
         assert posture_store.launch_posture_stamp("standin", "sandbox") == "standin=sandbox"
         assert posture_store.launch_posture_stamp("va", "writes") == "va=writes"
 
-    def test_no_target_is_spelled_as_every_target(self):
+    def test_no_target_is_spelled_as_every_target(self, monkeypatch):
         """A run that cannot name its machine is pinned for all of them."""
         stamp = posture_store.launch_posture_stamp(None, "sandbox")
+        monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, stamp)
 
         assert stamp == f"{posture_store.LAUNCH_POSTURE_ALL_TARGETS}=sandbox"
-        assert set(posture_store.parse_launch_posture(stamp)) == set(posture_store.CONTROL_TARGETS)
-
-    def test_writes_narrows_nothing(self):
-        """Recorded for the marker, inert for the decision — nothing may widen."""
-        assert posture_store.parse_launch_posture("standin=writes") == {}
-        assert posture_store.parse_launch_posture("*=writes") == {}
-
-    @pytest.mark.parametrize(
-        "raw",
-        [None, "", "   ", "standin", "=sandbox", "standin=locked", "standin sandbox"],
-        ids=[
-            "absent",
-            "empty",
-            "blank",
-            "no-separator",
-            "no-target",
-            "unknown-posture",
-            "space-separated",
-        ],
-    )
-    def test_an_unparseable_stamp_is_inert(self, raw):
-        """Every process that is not an executor sandbox is untouched by this term."""
-        assert posture_store.parse_launch_posture(raw) == {}
-
-
-# ---------------------------------------------------------------------------
-# The pin inside the sandbox
-# ---------------------------------------------------------------------------
-
-
-class TestLaunchPinAnddedWithTheStore:
-    """``store_permits`` / ``effective_writes`` inside a launched sandbox."""
-
-    def test_a_run_launched_narrow_stays_narrow_after_a_widen(self, data_root, monkeypatch):
-        """The whole point: the operator widened, the running script did not follow."""
-        # Arrange — the run launched while standin was narrowed...
-        monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "standin=sandbox")
-        # ...and the operator has since turned writes back on (an entry that
-        # is gone IS the writes posture — nothing is ever stored to widen).
-        write_store(data_root, {"live": "sandbox"})
-
-        # Act / Assert
-        assert posture_store.store_permits("standin") is False
-        assert posture_store.effective_writes(ARMED, "standin") is False
-
-    def test_a_run_launched_writes_refuses_immediately_after_a_narrow(self, data_root, monkeypatch):
-        """The other direction lands at once — the store read follows the operator."""
-        # Arrange
-        monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "standin=writes")
-        write_store(data_root, {"standin": "sandbox"})
-
-        # Act / Assert
-        assert posture_store.store_permits("standin") is False
-        assert posture_store.effective_writes(ARMED, "standin") is False
-
-    def test_a_run_launched_writes_still_writes_while_nothing_narrows_it(
-        self, data_root, monkeypatch
-    ):
-        """The pin refuses; it never grants, and it never refuses on its own."""
-        # Arrange
-        monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "standin=writes")
-        write_store(data_root, {"live": "sandbox"})
-
-        # Act / Assert
-        assert posture_store.store_permits("standin") is True
-        assert posture_store.effective_writes(ARMED, "standin") is True
-
-    def test_the_pin_names_one_target_and_leaves_the_others_alone(self, data_root, monkeypatch):
-        """A narrowed stand-in does not sandbox the virtual accelerator."""
-        # Arrange
-        monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "standin=sandbox")
-        write_store(data_root, {})
-
-        # Act / Assert
-        assert posture_store.store_permits("va") is True
-        assert posture_store.store_permits("standin") is False
-
-    def test_an_all_targets_pin_covers_every_target(self, data_root, monkeypatch):
-        """The unknowable-target launch: most restrictive, on every machine."""
-        # Arrange
-        monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "*=sandbox")
-        write_store(data_root, {})
-
-        # Act / Assert
         for target in posture_store.CONTROL_TARGETS:
-            assert posture_store.store_permits(target) is False
-        assert posture_store.store_permits(None) is False
-
-    def test_the_pin_holds_without_a_session_key(self, data_root, monkeypatch):
-        """It is a fact about the RUN, not about the session.
-
-        The record narrows nothing here, so the pin is the only term left — and
-        a session key that vanished from the environment mid-run must not be a
-        way to shed it.
-        """
-        # Arrange
-        monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
-        monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "standin=sandbox")
-        write_store(data_root, {})
-
-        # Act / Assert
-        assert posture_store.store_permits("standin") is False
-        assert posture_store.store_permits("va") is True
-
-    def test_no_stamp_leaves_the_store_rule_exactly_as_it_was(self, data_root):
-        """Every process outside a sandbox: the term is not merely inert, it is absent."""
-        # Arrange
-        write_store(data_root, {"standin": "sandbox"})
-
-        # Act / Assert
-        assert posture_store.launch_permits("standin") is True
-        assert posture_store.store_permits("standin") is False
-        assert posture_store.store_permits("va") is True
-
-    @pytest.mark.usefixtures("data_root")
-    def test_the_pin_refuses_before_the_store_is_read(self, monkeypatch):
-        """A narrow run does not need a readable store to keep refusing.
-
-        The pin is one environment read, deliberately ahead of the file read, so
-        a sandbox on a store that has become unreadable still honours the
-        narrowing it launched under.
-        """
-        # Arrange — a store path that cannot resolve at all.
-        monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, "   ")
-        monkeypatch.setattr(
-            posture_store, "resolve_shared_data_root", lambda: (_ for _ in ()).throw(OSError())
-        )
-        monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "standin=sandbox")
-        posture_store.invalidate_cache()
-
-        # Act / Assert
-        assert control_context.record_path() is None
-        assert posture_store.store_permits("standin") is False
+            assert posture_store.launch_pin_term(target) == "pinned", target
 
 
 # ---------------------------------------------------------------------------
@@ -228,66 +93,133 @@ class TestLaunchPinAnddedWithTheStore:
 
 
 class TestExecutorStampsThePin:
-    """``_launch_posture`` reads the store once, at launch."""
+    """``_launch_posture`` asks the write verdict once, at launch, with the pin ignored."""
 
-    def test_an_unnarrowed_target_launches_writes(self, data_root):
-        write_store(data_root, {})
+    @pytest.fixture(autouse=True)
+    def _tier(self, monkeypatch):
+        monkeypatch.setattr(posture, "control_system_section", lambda: dict(ARMED_TIER))
+
+    def test_a_switched_on_target_launches_writes(self, data_root):
+        write_control_context(data_root, target="standin", switch={"standin": "on"})
 
         assert host_executor._launch_posture("standin") == "standin=writes"
 
-    def test_a_narrowed_target_launches_sandboxed(self, data_root):
-        write_store(data_root, {"standin": "sandbox"})
+    def test_a_switched_off_target_launches_sandboxed(self, data_root):
+        write_control_context(data_root, target="standin", switch={"va": "on"})
 
         assert host_executor._launch_posture("standin") == "standin=sandbox"
 
-    def test_the_narrowed_record_the_operator_wrote_is_the_one_the_launch_reads(
+    @pytest.mark.usefixtures("data_root")
+    def test_no_record_launches_sandboxed(self):
+        """No record is every switch off."""
+        assert host_executor._launch_posture("standin") == "standin=sandbox"
+
+    def test_a_tier_that_allows_nothing_launches_sandboxed(self, data_root, monkeypatch):
+        monkeypatch.setattr(posture, "control_system_section", lambda: {"type": "epics"})
+        write_control_context(data_root, target="live", switch={"live": "on"})
+
+        assert host_executor._launch_posture("live") == "live=sandbox"
+
+    def test_the_pin_this_process_inherited_is_ignored(self, data_root, monkeypatch):
+        """The pin is asked with the pin ignored, so it never merely echoes itself."""
+        write_control_context(data_root, target="standin", switch={"standin": "on"})
+        monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "*=sandbox")
+
+        assert host_executor._launch_posture("standin") == "standin=writes"
+
+    def test_the_record_the_operator_switched_is_the_one_the_launch_reads(
         self, data_root, monkeypatch
     ):
-        """The narrowing travels from the record on disk to the posture stamped.
+        """The switch travels from the record on disk to the posture stamped.
 
         The record lives one directory per identity, so a launch that resolved
         a different name than the operator's writer used would find no record
-        at all and launch the run with writes — a narrowing that never applies,
-        whose only symptom is a file nobody reads. The identity is pinned here
-        so both ends name one directory, and the launch asks through
-        ``store_permits``, the bool spelling of the store verdict, which is the
-        term the stamped posture is built from.
+        at all — every switch off, sandboxed. The identity is pinned here so
+        both ends name one directory.
         """
-        # Arrange — an operator narrowing standin, under the acting identity.
         identity = pin_identity(monkeypatch)
-        write_store(data_root, {"standin": "sandbox"})
+        write_control_context(data_root, target="standin", switch={"standin": "on"})
 
-        # Act
         stamp = host_executor._launch_posture("standin")
 
-        # Assert — the record is where the reader looks, and it is what refused.
         state_dir = state_dir_under(data_root)
         assert state_dir.name == identity
         assert (state_dir / control_context.RECORD_FILENAME).exists()
-        assert posture_store.store_permits("standin") is False
-        assert stamp == posture_store.launch_posture_stamp("standin", posture_store.POSTURE_SANDBOX)
+        assert stamp == posture_store.launch_posture_stamp("standin", posture_store.POSTURE_WRITES)
 
-    def test_an_unknowable_target_takes_the_most_restrictive_entry(self, data_root):
-        """One narrowing anywhere on the deployment pins a run that names no target."""
-        write_store(data_root, {"live": "sandbox"})
+    def test_an_unknowable_target_is_pinned_sandboxed_everywhere(self, data_root):
+        """No machine to ask the verdict about: every target, sandboxed."""
+        write_control_context(data_root, target="standin", switch={"standin": "on"})
 
         assert host_executor._launch_posture(None) == "*=sandbox"
 
-    def test_an_unknowable_target_on_an_unnarrowed_deployment_launches_writes(self, data_root):
-        write_store(data_root, {})
-
-        assert host_executor._launch_posture(None) == "*=writes"
-
     @pytest.mark.usefixtures("data_root")
-    def test_an_unreadable_store_fails_closed(self, monkeypatch):
+    def test_an_unreachable_verdict_fails_closed(self, monkeypatch):
         """Every way of not being able to answer costs a readwrite run its writes."""
 
         def boom(*args, **kwargs):
-            raise RuntimeError("store exploded")
+            raise RuntimeError("verdict exploded")
 
-        monkeypatch.setattr(posture_store, "store_permits", boom)
+        monkeypatch.setattr(posture_store, "write_verdict", boom)
 
         assert host_executor._launch_posture("standin") == "standin=sandbox"
+
+
+class TestASwitchAgainstARunningSandbox:
+    """Off reaches the running sandbox at its next write; on reaches only the next run.
+
+    The sandbox's own reference monitor asks
+    :func:`~osprey_connectors.posture_store.write_verdict` on every write, with
+    the launch pin in force — :data:`~osprey_connectors.posture_store.LAUNCH_POSTURE_ENV_VAR`
+    stamped from :func:`_launch_posture` exactly as the executor stamps it.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _tier(self, monkeypatch):
+        monkeypatch.setattr(posture, "control_system_section", lambda: dict(ARMED_TIER))
+
+    @staticmethod
+    def _launch(monkeypatch, target: str) -> str:
+        """Launch a run on *target*: compute the pin and stamp it as the sandbox sees it."""
+        monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
+        posture_store.invalidate_cache()
+        stamp = host_executor._launch_posture(target)
+        monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, stamp)
+        posture_store.invalidate_cache()
+        return stamp
+
+    @staticmethod
+    def _next_write(target: str) -> posture_store.WriteVerdict:
+        posture_store.invalidate_cache()
+        control_context.invalidate_cache()
+        return posture_store.write_verdict(ARMED_TIER, target)
+
+    def test_an_off_record_refuses_the_next_write_of_a_running_sandbox(
+        self, data_root, monkeypatch
+    ):
+        write_control_context(data_root, target="standin", switch={"standin": "on"})
+        assert self._launch(monkeypatch, "standin") == "standin=writes"
+        assert self._next_write("standin").allowed is True
+
+        turn_switch("standin", "off")
+
+        verdict = self._next_write("standin")
+        assert verdict.allowed is False
+        assert verdict.reason == "switch_off"
+
+    def test_turning_it_on_reaches_only_the_next_run(self, data_root, monkeypatch):
+        write_control_context(data_root, target="standin", switch={"va": "on"})
+        assert self._launch(monkeypatch, "standin") == "standin=sandbox"
+
+        turn_switch("standin", "on")
+
+        # The run already going stays held off by its pin ...
+        verdict = self._next_write("standin")
+        assert verdict.allowed is False
+        assert verdict.reason == "launch_pinned"
+        # ... and the next run is launched with writes, and writes.
+        assert self._launch(monkeypatch, "standin") == "standin=writes"
+        assert self._next_write("standin").allowed is True
 
 
 class TestMarkerCarriesThePin:
@@ -311,95 +243,6 @@ class TestMarkerCarriesThePin:
         assert live[0]["target"] == "standin"
         assert live[0]["launch_posture"] == "standin=sandbox"
         assert target_state.in_flight_executions() == []
-
-
-# ---------------------------------------------------------------------------
-# The executor's own gate
-# ---------------------------------------------------------------------------
-
-
-class TestDeploymentGateStoreTerm:
-    """``enforce_deployment_writes_gate`` asks the store, not only the config."""
-
-    @staticmethod
-    def _arm_the_deployment(monkeypatch):
-        """Make the deployment half say yes, so only the store can refuse."""
-        monkeypatch.setattr(
-            "osprey.services.python_executor.execution.control.get_execution_control_config",
-            lambda target=None: None,
-        )
-
-    def test_an_unknowable_target_refuses_a_narrowed_deployment(self, data_root, monkeypatch):
-        """The routed case: ``posture()`` degrades to the env answer, this does not.
-
-        With no controls-server report there is no target to resolve, so the
-        session clamp sees the environment's writes posture and lets the run
-        through. The record still holds a narrowing, and the most restrictive
-        rule is what refuses it.
-        """
-        # Arrange
-        self._arm_the_deployment(monkeypatch)
-        write_store(data_root, {"standin": "sandbox"})
-
-        # Act / Assert
-        with pytest.raises(Exception) as excinfo:
-            gates.enforce_deployment_writes_gate("readwrite", None)
-
-        message = str(excinfo.value)
-        assert "Writes are off" in message
-        assert "control-target chip in the header" in message
-        assert "could not be identified" in message
-
-    def test_a_named_narrowed_target_is_refused_and_names_itself(self, data_root, monkeypatch):
-        # Arrange
-        self._arm_the_deployment(monkeypatch)
-        write_store(data_root, {"standin": "sandbox"})
-
-        # Act / Assert
-        with pytest.raises(Exception) as excinfo:
-            gates.enforce_deployment_writes_gate("readwrite", "standin")
-
-        message = str(excinfo.value)
-        assert "'standin'" in message
-        assert "control-target chip in the header" in message
-
-    def test_an_unnarrowed_target_is_untouched(self, data_root, monkeypatch):
-        # Arrange
-        self._arm_the_deployment(monkeypatch)
-        write_store(data_root, {"standin": "sandbox"})
-
-        # Act / Assert — no raise
-        gates.enforce_deployment_writes_gate("readwrite", "va")
-
-    def test_a_readonly_run_is_never_gated_here(self, data_root, monkeypatch):
-        # Arrange
-        self._arm_the_deployment(monkeypatch)
-        write_store(data_root, {"standin": "sandbox"})
-
-        # Act / Assert — no raise
-        gates.enforce_deployment_writes_gate("readonly", None)
-
-    def test_a_deployment_that_narrowed_nothing_is_untouched(self, data_root, monkeypatch):
-        # Arrange
-        self._arm_the_deployment(monkeypatch)
-        write_store(data_root, {})
-
-        # Act / Assert — no raise
-        gates.enforce_deployment_writes_gate("readwrite", None)
-
-    @pytest.mark.usefixtures("data_root")
-    def test_an_unreadable_store_does_not_wedge_every_run(self, monkeypatch):
-        """This gate degrades; the sandbox's reference monitor is the barrier."""
-        # Arrange
-        self._arm_the_deployment(monkeypatch)
-
-        def boom(*args, **kwargs):
-            raise RuntimeError("store exploded")
-
-        monkeypatch.setattr("osprey_connectors.posture_store.store_permits", boom)
-
-        # Act / Assert — no raise
-        gates.enforce_deployment_writes_gate("readwrite", "standin")
 
 
 # ---------------------------------------------------------------------------

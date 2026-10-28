@@ -30,6 +30,7 @@ from pathlib import Path
 
 import pytest
 from tests.deployment.test_container_ownership import HOST_ROWS, PROJECT
+from tests.health._fakes import FakeProc
 
 from osprey.deployment.compose_generator import PROJECT_LABEL
 from osprey.deployment.container_ownership import (
@@ -68,31 +69,10 @@ def _ctx() -> ProbeContext:
     return ProbeContext(runtime=HealthRuntime({}), config={"project_name": "proj"})
 
 
-class _FakeProc:
-    """Minimal stand-in for an ``asyncio`` subprocess used by the probe."""
-
-    def __init__(self, stdout: bytes = b"", returncode: int = 0, hang: bool = False) -> None:
-        self._stdout = stdout
-        self.returncode: int | None = returncode
-        self._hang = hang
-        self.killed = False
-
-    async def communicate(self) -> tuple[bytes, bytes]:
-        if self._hang:
-            await asyncio.sleep(10)
-        return self._stdout, b""
-
-    def kill(self) -> None:
-        self.killed = True
-
-    async def wait(self) -> int:
-        return self.returncode or 0
-
-
 def _patch_runtime(
     monkeypatch: pytest.MonkeyPatch,
     *,
-    proc: _FakeProc | None = None,
+    proc: FakeProc | None = None,
     ps_error: Exception | None = None,
 ) -> None:
     """Patch ``get_ps_command`` and ``create_subprocess_exec`` for one test.
@@ -105,7 +85,7 @@ def _patch_runtime(
         lambda *_a, **_k: ["docker", "ps", "-a", "--format", "json"],
     )
 
-    async def _fake_exec(*_a: object, **_k: object) -> _FakeProc:
+    async def _fake_exec(*_a: object, **_k: object) -> FakeProc:
         if ps_error is not None:
             raise ps_error
         assert proc is not None
@@ -120,7 +100,7 @@ def _ndjson(*containers: dict) -> bytes:
 
 
 async def test_running_container_is_ok(monkeypatch: pytest.MonkeyPatch) -> None:
-    proc = _FakeProc(
+    proc = FakeProc(
         stdout=json.dumps(
             [{"Names": ["telemetry_store"], "State": "running", "Status": "Up 2 hours (healthy)"}]
         ).encode()
@@ -138,7 +118,7 @@ async def test_running_container_is_ok(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def test_running_but_unhealthy_is_warning(monkeypatch: pytest.MonkeyPatch) -> None:
-    proc = _FakeProc(
+    proc = FakeProc(
         stdout=json.dumps(
             [{"Names": ["web"], "State": "running", "Status": "Up 5 minutes (unhealthy)"}]
         ).encode()
@@ -153,9 +133,7 @@ async def test_running_but_unhealthy_is_warning(monkeypatch: pytest.MonkeyPatch)
 
 
 async def test_stopped_container_is_warning(monkeypatch: pytest.MonkeyPatch) -> None:
-    proc = _FakeProc(
-        stdout=json.dumps([{"Names": ["telemetry_store"], "State": "exited"}]).encode()
-    )
+    proc = FakeProc(stdout=json.dumps([{"Names": ["telemetry_store"], "State": "exited"}]).encode())
     _patch_runtime(monkeypatch, proc=proc)
 
     result = await run({"container": "telemetry_store"}, _ctx())
@@ -168,9 +146,7 @@ async def test_stopped_container_is_warning(monkeypatch: pytest.MonkeyPatch) -> 
 async def test_missing_container_is_warning_not_deployed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    proc = _FakeProc(
-        stdout=json.dumps([{"Names": ["something-else"], "State": "running"}]).encode()
-    )
+    proc = FakeProc(stdout=json.dumps([{"Names": ["something-else"], "State": "running"}]).encode())
     _patch_runtime(monkeypatch, proc=proc)
 
     result = await run({"container": "telemetry_store"}, _ctx())
@@ -200,7 +176,7 @@ async def test_no_runtime_filenotfound_is_skip(monkeypatch: pytest.MonkeyPatch) 
 
 async def test_docker_ndjson_output_parses(monkeypatch: pytest.MonkeyPatch) -> None:
     # Docker emits one JSON object per line (not a JSON array). Names is a string.
-    proc = _FakeProc(
+    proc = FakeProc(
         stdout=_ndjson(
             {"Names": "proj-postgres-1", "State": "exited"},
             {"Names": "proj-telemetry_store-1", "State": "running", "Status": "Up (healthy)"},
@@ -216,7 +192,7 @@ async def test_docker_ndjson_output_parses(monkeypatch: pytest.MonkeyPatch) -> N
 
 async def test_fuzzy_underscore_hyphen_match(monkeypatch: pytest.MonkeyPatch) -> None:
     # Dotted service name, hyphen in target, underscore in the container name.
-    proc = _FakeProc(stdout=_ndjson({"Names": "myproj_python_executor_1", "State": "running"}))
+    proc = FakeProc(stdout=_ndjson({"Names": "myproj_python_executor_1", "State": "running"}))
     _patch_runtime(monkeypatch, proc=proc)
 
     result = await run({"container": "osprey.python-executor"}, _ctx())
@@ -226,7 +202,7 @@ async def test_fuzzy_underscore_hyphen_match(monkeypatch: pytest.MonkeyPatch) ->
 
 
 async def test_ps_nonzero_exit_is_warning(monkeypatch: pytest.MonkeyPatch) -> None:
-    proc = _FakeProc(stdout=b"", returncode=1)
+    proc = FakeProc(stdout=b"", returncode=1)
     _patch_runtime(monkeypatch, proc=proc)
 
     result = await run({"container": "telemetry_store"}, _ctx())
@@ -236,7 +212,7 @@ async def test_ps_nonzero_exit_is_warning(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 async def test_query_timeout_is_warning(monkeypatch: pytest.MonkeyPatch) -> None:
-    proc = _FakeProc(hang=True)
+    proc = FakeProc(hang=True)
     _patch_runtime(monkeypatch, proc=proc)
 
     result = await run({"container": "telemetry_store", "timeout_s": 0.05}, _ctx())
@@ -247,7 +223,7 @@ async def test_query_timeout_is_warning(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 async def test_custom_name_and_category_flow_through(monkeypatch: pytest.MonkeyPatch) -> None:
-    proc = _FakeProc(stdout=json.dumps([{"Names": ["foo"], "State": "running"}]).encode())
+    proc = FakeProc(stdout=json.dumps([{"Names": ["foo"], "State": "running"}]).encode())
     _patch_runtime(monkeypatch, proc=proc)
 
     result = await run({"container": "foo", "name": "infra.foo", "category": "infra"}, _ctx())
@@ -257,7 +233,7 @@ async def test_custom_name_and_category_flow_through(monkeypatch: pytest.MonkeyP
 
 
 async def test_service_alias_is_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
-    proc = _FakeProc(
+    proc = FakeProc(
         stdout=json.dumps([{"Names": ["telemetry_store"], "State": "running"}]).encode()
     )
     _patch_runtime(monkeypatch, proc=proc)
@@ -285,7 +261,7 @@ def _row(name: str, state: str = "running", status: str = "", **labels: str) -> 
 
 
 def _serve(monkeypatch: pytest.MonkeyPatch, *rows: dict) -> None:
-    _patch_runtime(monkeypatch, proc=_FakeProc(stdout=json.dumps(list(rows)).encode()))
+    _patch_runtime(monkeypatch, proc=FakeProc(stdout=json.dumps(list(rows)).encode()))
 
 
 async def test_another_deployments_container_is_never_graded(
@@ -451,9 +427,9 @@ async def test_the_record_names_the_runtime_and_the_project(
     asked: list[tuple[object, ...]] = []
     rows = [_row("earlier-name-telemetry_store", "exited", **{PROJECT_LABEL: "earlier-name"})]
 
-    async def _fake_exec(*argv: object, **_k: object) -> _FakeProc:
+    async def _fake_exec(*argv: object, **_k: object) -> FakeProc:
         asked.append(argv)
-        return _FakeProc(stdout=json.dumps(rows).encode())
+        return FakeProc(stdout=json.dumps(rows).encode())
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
 

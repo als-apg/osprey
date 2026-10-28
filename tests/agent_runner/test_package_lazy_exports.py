@@ -12,51 +12,17 @@ The import checks run in a fresh interpreter, not on the already-populated
 
 import ast
 import importlib
-import json
-import os
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
 import osprey.agent_runner
-
-_SRC = str(Path(__file__).resolve().parents[2] / "src")
-
-
-def _modules_added_by_import(module: str) -> set[str]:
-    """Return the module names a fresh import of ``module`` adds to ``sys.modules``.
-
-    Args:
-        module: Dotted name to import in a child interpreter.
-
-    Returns:
-        Every module name the import added, stdlib included.
-
-    Raises:
-        AssertionError: If the child interpreter fails to import the module.
-    """
-    code = (
-        "import json, sys;"
-        "before = set(sys.modules);"
-        f"import {module};"
-        "print(json.dumps(sorted(set(sys.modules) - before)))"
-    )
-    result = subprocess.run(
-        [sys.executable, "-c", code],
-        capture_output=True,
-        text=True,
-        env=dict(os.environ, PYTHONPATH=_SRC),
-        check=False,
-    )
-    assert result.returncode == 0, f"fresh import of {module} failed:\n{result.stderr}"
-    return set(json.loads(result.stdout))
+from tests._fresh_import import modules_added_by_import
 
 
 def test_importing_a_leaf_costs_only_that_leaf():
     """A stdlib-only module of the package loads no sibling and no agent SDK."""
-    added = _modules_added_by_import("osprey.agent_runner.project_paths")
+    added = modules_added_by_import("osprey.agent_runner.project_paths")
 
     assert not [name for name in added if name.split(".")[0] == "claude_agent_sdk"]
     assert "osprey.agent_runner.primitives" not in added
@@ -79,14 +45,14 @@ def test_public_names_are_exactly_the_lazy_map():
 )
 def test_reading_a_tool_name_list_loads_no_agent_sdk(module):
     """The build and deploy layers read these lists and never start an agent."""
-    added = _modules_added_by_import(module)
+    added = modules_added_by_import(module)
 
     assert not [name for name in added if name.split(".")[0] == "claude_agent_sdk"]
 
 
 def test_importing_the_package_loads_no_module_of_it_and_no_agent_sdk():
     """The package root resolves its exports on access, so it imports no module."""
-    added = _modules_added_by_import("osprey.agent_runner")
+    added = modules_added_by_import("osprey.agent_runner")
 
     assert not [name for name in added if name.split(".")[0] == "claude_agent_sdk"]
     assert not [name for name in added if name.startswith("osprey.agent_runner.")]
@@ -104,7 +70,7 @@ def test_importing_the_package_loads_no_module_of_it_and_no_agent_sdk():
 )
 def test_the_build_artifact_catalog_costs_no_agent_sdk(module: str) -> None:
     """The catalog's build-time consumers never drive an agent, so they load no agent SDK."""
-    added = _modules_added_by_import(module)
+    added = modules_added_by_import(module)
 
     assert not [name for name in added if name.split(".")[0] == "claude_agent_sdk"]
 
@@ -115,7 +81,7 @@ def test_the_build_artifact_catalog_costs_no_agent_sdk(module: str) -> None:
 )
 def test_an_sdk_free_submodule_imports_without_the_sdk(module: str) -> None:
     """Deployment code and the container entrypoint read these modules without driving an agent."""
-    added = _modules_added_by_import(module)
+    added = modules_added_by_import(module)
 
     assert not [name for name in added if name.split(".")[0] == "claude_agent_sdk"]
     assert "osprey.agent_runner.primitives" not in added
@@ -145,7 +111,7 @@ def test_an_unknown_name_is_an_attribute_error() -> None:
 
 def test_importing_a_submodule_does_not_load_the_agent_sdk() -> None:
     """A module of the package costs only itself: no agent SDK, no primitives."""
-    added = _modules_added_by_import("osprey.agent_runner.provider_env")
+    added = modules_added_by_import("osprey.agent_runner.provider_env")
 
     assert "claude_agent_sdk" not in added
     assert "osprey.agent_runner.primitives" not in added

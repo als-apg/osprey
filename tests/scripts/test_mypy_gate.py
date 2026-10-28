@@ -8,21 +8,19 @@ refused rather than judged.
 
 from __future__ import annotations
 
-import importlib.util
 import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from tests._by_path import load_module
+
 # scripts/ is not a package, so the gate is loaded by path. It is deliberately not
 # registered in sys.modules: nothing in it resolves its own module name, and an
 # import-time write to sys.modules is process state no fixture can undo.
 _MODULE_PATH = Path(__file__).resolve().parents[2] / "scripts" / "mypy_gate.py"
-_spec = importlib.util.spec_from_file_location("mypy_gate", _MODULE_PATH)
-assert _spec and _spec.loader
-gate = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(gate)
+gate = load_module("mypy_gate", _MODULE_PATH)
 
 
 def test_notes_are_not_errors() -> None:

@@ -696,10 +696,16 @@ def _module_closure(entry: str) -> set[str]:
     return seen
 
 
-def _lab_head(proxied: TestClient) -> str:
-    """The ``<head>`` of the proxied Lab page."""
-    body = proxied.get(f"{PANEL}/lab").text
-    return body[: body.index("</head>")]
+def _lab_page(proxied: TestClient) -> tuple[str, str]:
+    """The ``<head>`` of one proxied Lab page and that response's script nonce.
+
+    The nonce is read off the response's own ``script-src`` (the proxy mints a
+    fresh one per response), so the head and the nonce always belong together.
+    """
+    resp = proxied.get(f"{PANEL}/lab")
+    match = re.search(r"'nonce-([^']+)'", resp.headers.get("content-security-policy", ""))
+    assert match is not None, resp.headers.get("content-security-policy")
+    return resp.text[: resp.text.index("</head>")], match.group(1)
 
 
 def test_the_lab_page_carries_the_control_target_bar(
@@ -712,10 +718,12 @@ def test_the_lab_page_carries_the_control_target_bar(
     route's own segment is the whole of "this resolves back onto the hub's
     files from inside the panel's namespace".
     """
-    head = _lab_head(proxied)
+    head, nonce = _lab_page(proxied)
     expected_src = f"{sidecar.base_url}terminal-static/js/{LAB_BAR_MODULE}"
 
-    assert f'<script type="module" src="{expected_src}"></script>' in head
+    # Nonced: the page runs under the proxy's script policy, which admits a
+    # parser-inserted tag only by this response's nonce.
+    assert f'<script nonce="{nonce}" type="module" src="{expected_src}"></script>' in head
     assert head.count(LAB_BAR_MODULE) == 1
 
     # The prefix global is the OUTER prefix. A prefix of ``/panel/jupyter``
@@ -739,8 +747,8 @@ def test_the_injected_import_map_is_scoped_to_the_bars_own_modules(
     maps the same specifier to — so the module resolves to the same file on
     both surfaces, and no rewrite pass runs over its body on the way.
     """
-    head = _lab_head(proxied)
-    raw = head.split('<script type="importmap">')[1].split("</script>")[0]
+    head, nonce = _lab_page(proxied)
+    raw = head.split(f'<script nonce="{nonce}" type="importmap">')[1].split("</script>")[0]
     import_map = json.loads(raw)
 
     scope = f"{sidecar.base_url}terminal-static/js/"
@@ -774,21 +782,52 @@ def test_the_injection_leaves_the_pages_own_encoding_declaration_readable(
     assert 0 < body.lower().index("<meta charset") < 1024
 
 
-def test_the_relayed_lab_csp_says_nothing_about_scripts(proxied: TestClient) -> None:
-    """No CSP is rewritten anywhere, because none has to be.
+def test_the_lab_page_runs_under_the_proxys_nonced_script_policy(proxied: TestClient) -> None:
+    """The Lab page's policy is the proxy's, not the one jupyter-server relayed.
 
-    jupyter-server's own policy governs framing (``frame-ancestors``) and says
-    nothing about script sources, so the injected tags run. Should a backend
-    ever grow a ``script-src`` — or a ``default-src``, which script sources
-    fall back to — the bar would silently stop loading rather than break the
-    page, and the answer would be a deliberate decision about that header. It
-    would NOT be a rewrite hidden in the proxy: relaxing a backend's own CSP on
-    its behalf is not something this proxy does.
+    Kernel output renders in this document on the console's origin, so the
+    proxy replaces the upstream policy with one whose ``script-src`` admits the
+    parser-inserted tags by a per-response nonce and Lab's static trees by
+    fully qualified path — never ``'self'``, ``'unsafe-inline'`` or
+    ``'strict-dynamic'``, any of which would let a script an agent wrote run.
+    Every ``<script>`` the page carries holds that nonce, a second response
+    mints a different one, and the page is never cached, so a 304 can never
+    hand back a stale nonce.
     """
-    csp = proxied.get(f"{PANEL}/lab").headers.get("content-security-policy", "").lower()
+    first = proxied.get(f"{PANEL}/lab")
+    csp = first.headers.get("content-security-policy", "")
+    directives = {
+        part.strip().split(" ", 1)[0]: part.strip().split(" ", 1)[1:]
+        for part in csp.split(";")
+        if part.strip()
+    }
 
-    assert "script-src" not in csp
-    assert "default-src" not in csp
+    assert set(directives) == {
+        "script-src",
+        "object-src",
+        "base-uri",
+        "frame-ancestors",
+        "form-action",
+    }, csp
+    sources = directives["script-src"][0].split()
+    nonces = [src for src in sources if src.startswith("'nonce-")]
+    assert len(nonces) == 1, csp
+    nonce = nonces[0][len("'nonce-") : -1]
+    for forbidden in ("'self'", "'unsafe-inline'", "'strict-dynamic'", "*"):
+        assert forbidden not in sources, csp
+    assert directives["object-src"] == ["'none'"]
+    assert directives["base-uri"] == ["'none'"]
+    assert directives["frame-ancestors"] == ["'self'"]
+    assert directives["form-action"] == ["'none'"]
+
+    tags = re.findall(r"<script\b[^>]*>", first.text, re.IGNORECASE)
+    assert tags, "the Lab page carries no <script> tag"
+    assert all(f'nonce="{nonce}"' in tag for tag in tags), tags
+
+    assert first.headers.get("cache-control") == "no-store"
+    assert "etag" not in first.headers
+    second = proxied.get(f"{PANEL}/lab").headers.get("content-security-policy", "")
+    assert f"'nonce-{nonce}'" not in second
 
 
 def test_a_users_own_html_file_is_served_untouched(proxied: TestClient, notebook_env: Path) -> None:

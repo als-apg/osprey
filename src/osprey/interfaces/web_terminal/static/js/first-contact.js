@@ -42,8 +42,8 @@ const PROMPT_READ = 'What can you read right now?';
 
 /**
  * The prompt every deployment offers. What the agent is ALLOWED to do is
- * per-session posture the page cannot see, so the honest move is to let the
- * agent answer it rather than to phrase it here.
+ * the login's writes switch plus refusals the page cannot see, so the honest
+ * move is to let the agent answer it rather than to phrase it here.
  */
 const PROMPT_ALLOWED = 'What are you allowed to do in this session?';
 

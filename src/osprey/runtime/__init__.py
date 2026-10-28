@@ -198,6 +198,10 @@ _pool_start_timeout_s: float | None = None
 #: The launch pin the pooled connector above was taken under. A child selects
 #: its gateway on the posture it was spawned with, so a moved pin respawns it.
 _connector_launch_pin: str | None = None
+#: Whether the write verdict allowed writes to the pooled connector's target when
+#: it was taken. A child selects its gateway on that verdict, so a turn-on or
+#: turn-off of the switch respawns it the way a moved pin does.
+_connector_writes: bool | None = None
 #: The one event loop every pool call of this process runs on, and its guard.
 _pool_loop: asyncio.AbstractEventLoop | None = None
 _pool_loop_guard = threading.Lock()
@@ -315,6 +319,25 @@ async def _pooled_connector_locked(target: str | None) -> Any:
     key = target if target is not None else baseline_target(section)
     logger.debug("Taking the connector for target %s from the connector-host pool", key)
     return await _connector_pool.connector(key)
+
+
+def _pooled_writes_allowed(target: str | None) -> bool:
+    """Whether the write verdict allows writes to the target the pool serves *target* as.
+
+    The verdict the pool spawns a child under (launch pin honoured), so a moved
+    answer is a child whose gateway no longer matches. Reads the record through
+    its signature cache: one stat when it has not changed. Never raises.
+    """
+    from osprey_connectors import posture_store
+    from osprey_connectors.types import baseline_target
+
+    try:
+        section = _control_system_section()
+        key = target if target is not None else baseline_target(section)
+    except Exception:
+        logger.debug("No write verdict for the pooled connector", exc_info=True)
+        return False
+    return posture_store.write_verdict(section, key).allowed
 
 
 def _launch_pin() -> str | None:
@@ -448,7 +471,9 @@ async def _get_connector():
     target instead of for the config's baseline type, and the same target is
     stamped onto the instance so the reference monitor inside it reads the
     session posture for the target this run was launched against. An unstamped
-    process names no target, exactly as before.
+    process is built for the deployment's baseline target
+    (:func:`osprey_connectors.types.baseline_target`), the machine the pooled
+    path serves it as, so its writes are decided by that machine's switch.
 
     A sandbox reaches the build once and reuses it for its whole life. A
     notebook kernel does not: it is re-stamped from the deployment's record
@@ -457,8 +482,11 @@ async def _get_connector():
     rather than re-pointed. In a process routed through the connector-host pool
     (:func:`_route_connector_through_pool`) that stops the stamp's child, and
     the next connector is a fresh child's; the launch pin is part of the
-    comparison there, because a child selects its gateway on the posture it was
-    spawned with. Only an unrouted process rebuilds its connector in process. The
+    comparison there, and so is whether the write verdict allows writes to the
+    target, because a child selects its gateway on the posture it was spawned
+    with: a turn-on lands the next write on a fresh child that selected the write
+    gateway, a turn-off on one that did not. Only an unrouted process rebuilds its
+    connector in process. The
     disconnect goes through :func:`_disconnect_locked` because
     ``_connector_lock`` is already held here and is not reentrant.
 
@@ -470,7 +498,7 @@ async def _get_connector():
             control-target switch is in flight. Nothing is built, and the
             connector this process already holds is left alone.
     """
-    global _runtime_connector, _connector_stamp, _connector_launch_pin
+    global _runtime_connector, _connector_stamp, _connector_launch_pin, _connector_writes
 
     _assert_not_refused()
     _claim_cell()
@@ -479,8 +507,11 @@ async def _get_connector():
         pooled = _pool_mode()
         stamp = (_stamped_target(), _stamped_generation())
         launch_pin = _launch_pin() if pooled else None
+        writes = _pooled_writes_allowed(stamp[0]) if pooled else None
         if _runtime_connector is not None and (
-            stamp != _connector_stamp or launch_pin != _connector_launch_pin
+            stamp != _connector_stamp
+            or launch_pin != _connector_launch_pin
+            or writes != _connector_writes
         ):
             logger.debug("Control target moved to %s; replacing the connector", stamp)
             await _disconnect_locked()
@@ -490,10 +521,12 @@ async def _get_connector():
                 _runtime_connector = await _pooled_connector_locked(stamp[0])
                 _connector_stamp = stamp
                 _connector_launch_pin = launch_pin
+                _connector_writes = writes
             return _runtime_connector
 
         if _runtime_connector is None:
             from osprey_connectors.factory import ConnectorFactory
+            from osprey_connectors.types import baseline_target
 
             config = _target_connector_config()
             if config is None:
@@ -504,8 +537,14 @@ async def _get_connector():
                     stamp[0],
                     config["type"],
                 )
+            # An unstamped process is on the deployment's baseline target, as the
+            # pooled path serves it: the monitor then decides its writes by that
+            # machine's switch rather than refusing a machine it cannot name.
+            target = (
+                stamp[0] if stamp[0] is not None else baseline_target(_control_system_section())
+            )
             _runtime_connector = await ConnectorFactory.create_control_system_connector(
-                config=config, control_target=stamp[0]
+                config=config, control_target=target
             )
             _connector_stamp = stamp
 
@@ -1223,7 +1262,7 @@ async def _disconnect_locked() -> None:
     not reentrant, so a rebuild that called ``cleanup_runtime`` would wait on a
     lock it is holding itself.
     """
-    global _runtime_connector, _connector_stamp, _connector_launch_pin
+    global _runtime_connector, _connector_stamp, _connector_launch_pin, _connector_writes
 
     if _runtime_connector is None:
         return
@@ -1240,6 +1279,7 @@ async def _disconnect_locked() -> None:
         _runtime_connector = None
         _connector_stamp = None
         _connector_launch_pin = None
+        _connector_writes = None
 
 
 async def cleanup_runtime() -> None:
