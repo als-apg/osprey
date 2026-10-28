@@ -39,9 +39,10 @@ check from there, so they cannot disagree about what a check is.
 
 `--changed BASE --worktree` judges the working tree instead of `HEAD`, for the
 runners and every range check alike, so staged, unstaged and untracked files
-count. Test files after `--` are added to what the range selects. `--base BASE`
-arms the checks that judge a range without scoping the tier, so
-`full --base origin/main` judges the whole tree and the range in one verdict.
+count. Test files, pytest node ids (`file.py::test`) and test directories after
+`--` are added to what the range selects. `--base BASE` arms the checks that
+judge a range without scoping the tier, so `full --base origin/main` judges the
+whole tree and the range in one verdict.
 
 **What it runs**: `uv run python scripts/check.py list` prints every check, its
 kind, its tiers and its command.
