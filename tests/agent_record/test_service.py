@@ -409,7 +409,10 @@ async def test_an_outage_answers_unavailable_and_health_shows_the_backlog(config
         assert source["backlog_lines"] == 2
         assert source["last_seen"] is not None
         assert body["spool"]["backlog_lines"] == 2
-        assert set(body["transcripts"]) == set(ids.transcript_roots(config))
+        # Every root but the host's, which the host session forwards through the spool.
+        assert set(body["transcripts"]) == set(ids.transcript_roots(config)) - {
+            ids.HOST_TRANSCRIPT_ROOT
+        }
     assert segment.exists(), "the spool is kept through the outage"
 
 

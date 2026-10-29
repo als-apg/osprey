@@ -17,8 +17,10 @@ tree, ``deployed_services`` pinned empty and a stated
 2. A host session (``host_record_launch``, in its own process) starts first.
    ``osprey up`` takes the record over: the host-local process stops, the
    stack's container answers, and the session's next step is committed by
-   it. A live ``osprey query`` uses the stack's record and starts none; a
-   second host session shares it. ``osprey down`` mid-session: the session's
+   it. A live ``osprey query`` uses the stack's record and starts none, and
+   its session reaches that record through the spool: the stack's container
+   reads no host transcript, the host session forwards it. A second host
+   session shares the record. ``osprey down`` mid-session: the session's
    supervisor starts the host-local record again and the next read answers
    with everything the stack committed. When the last session ends no
    record process is left.

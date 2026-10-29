@@ -9,12 +9,16 @@ lines of the identity :func:`~osprey.agent_record.identities.spool_source_identi
 maps the directory name to, and ``<spool root>/.otlp/<login>/`` (receiver-owned,
 written only by agent-record's OTLP receiver) the lines of the login's identity.
 An identity a line names is never read. A line's ``key`` is honoured only under
-``.otlp/``; everywhere else the key is ``sp:<identity>:<entry_id>`` (or the run
-key of a ``run`` line).
+``.otlp/``, and on a line that forwards an entry of the directory identity's
+own transcripts (a host session's, see
+:func:`~osprey.agent_record.contract.forwarded_transcript`), which keeps the
+transcript key and is ingested under the transcript route; everywhere else the
+key is ``sp:<identity>:<entry_id>`` (or the run key of a ``run`` line).
 
 **What is refused.** A kind the source may not send over its route (the
 per-source allow-list: ``run`` only from dispatch identities, ``bridge_turn``
-only from bridges), a line that is not a spool line, and a run accept naming a
+only from bridges), a forwarded transcript entry from a source that may not
+forward one, a line that is not a spool line, and a run accept naming a
 session an earlier accept from the same identity already named (first accept
 wins). A refused line is recorded under
 :func:`~osprey.agent_record.contract.refused_state_name`, counts as consumed
@@ -65,12 +69,14 @@ from osprey.agent_record.contract import (
     OTLP_SPOOL_DIR,
     ROUTE_OTLP,
     ROUTE_SPOOL,
+    ROUTE_TRANSCRIPT,
     RUN_ACCEPT,
     RUN_KEY_PREFIX,
     RUN_PHASE_FIELD,
     SEALED_SUFFIX,
     SEGMENT_MAX_BYTES,
     SURFACE_FIELD,
+    TRANSCRIPT_FORWARDING_CLASSES,
     WRITER_ERRORS_FILE,
     Entry,
     EntryInvalid,
@@ -84,6 +90,7 @@ from osprey.agent_record.contract import (
     accept_session,
     arrival_order,
     entry_from_spool_line,
+    forwarded_transcript,
     is_token,
     kind_allowed,
     parse_segment_name,
@@ -802,8 +809,21 @@ class SpoolConsumer:
             entry_id, kind = _salvage(raw)
             return None, RefusedLine(segment, entry_id, kind, str(exc))
         identity = directory.identity
-        route = ROUTE_OTLP if directory.receiver_owned else ROUTE_SPOOL
         source_class = self._class(identity)
+        if directory.receiver_owned:
+            route = ROUTE_OTLP
+        elif forwarded_transcript(line, identity):
+            route = ROUTE_TRANSCRIPT
+            if source_class not in TRANSCRIPT_FORWARDING_CLASSES:
+                return None, RefusedLine(
+                    segment,
+                    line.entry_id,
+                    line.kind,
+                    f"the {source_class} source {identity!r} may not forward transcript "
+                    "entries over the spool",
+                )
+        else:
+            route = ROUTE_SPOOL
         if not kind_allowed(line.kind, route=route, source_class=source_class):
             return None, RefusedLine(
                 segment,

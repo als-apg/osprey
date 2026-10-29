@@ -1292,7 +1292,9 @@ def host_record_launch(
     :func:`host_record_env` into *environ* (``os.environ`` by default), which
     every child (Claude Code, its MCP servers) inherits, with the OTLP block
     that sends Claude Code's log events to that record under the host login
-    (:func:`~osprey.build.claude_code_telemetry.record_telemetry_env`). The
+    (:func:`~osprey.build.claude_code_telemetry.record_telemetry_env`), and
+    the rendered config a child's drained read forwards the host's
+    transcripts for (:data:`~osprey.agent_record.host.FORWARD_CONFIG_ENV`). The
     published values are taken back out when the block ends.
 
     Raises:
@@ -1300,16 +1302,27 @@ def host_record_launch(
             example a ClickHouse project with no stack up).
     """
     from osprey.agent_record.client import URL_ENV
-    from osprey.agent_record.host import SUPERVISE_INTERVAL_S, ensure_host_record
+    from osprey.agent_record.host import (
+        FORWARD_CONFIG_ENV,
+        SUPERVISE_INTERVAL_S,
+        ensure_host_record,
+    )
+    from osprey_connectors.workspace import RENDERED_CONFIG_RELPATH
 
     env = os.environ if environ is None else environ
     if env.get(URL_ENV):
         yield None
         return
+    rendered = (
+        Path(config_path)
+        if config_path is not None
+        else (Path(repo_root) / RENDERED_CONFIG_RELPATH)
+    )
     with ensure_host_record(
         repo_root, config, config_path=config_path, supervise_s=SUPERVISE_INTERVAL_S
     ) as record:
         published = host_record_env(record, repo_root, config)
+        published[FORWARD_CONFIG_ENV] = str(rendered)
         published.update(record_telemetry_env({**env, **published}))
         previous = {key: env.get(key) for key in published}
         env.update(published)

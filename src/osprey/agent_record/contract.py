@@ -169,6 +169,12 @@ SOURCE_CLASS_KINDS: Mapping[str, frozenset[str]] = {
     KIND_BRIDGE_TURN: frozenset({SOURCE_BRIDGE}),
 }
 
+#: The source classes whose spool may carry the entries of their own
+#: transcripts, under the transcript route and keys (:func:`forwarded_transcript`):
+#: a host session forwards the transcripts Claude Code writes for the account it
+#: runs as, which no container reads.
+TRANSCRIPT_FORWARDING_CLASSES = frozenset({SOURCE_HOST})
+
 
 def kind_allowed(kind: str, *, route: str, source_class: str) -> bool:
     """Whether a source of *source_class* may send *kind* over *route*.
@@ -1314,6 +1320,7 @@ class SpoolLineInvalid(ValueError):
 
 
 _SPOOL_TOKEN_FIELDS = ("session_id", "terminal_session", "run_id", "tool_use_id")
+_SPOOL_TEXT_FIELDS = ("on_behalf_of", "agent_id", "parent_key")
 
 
 @dataclass(frozen=True)
@@ -1321,9 +1328,11 @@ class SpoolLine:
     """One JSON object per spool line.
 
     ``{"entry_id", "kind", "ts", "key"?, "session_id"?, "terminal_session"?,
-    "run_id"?, "tool_use_id"?, "on_behalf_of"?, "body"}``. Identity is never
-    read from the line: it comes from the directory the line was found in, and
-    an ``identity`` field in the line is ignored.
+    "run_id"?, "tool_use_id"?, "on_behalf_of"?, "agent_id"?, "parent_key"?,
+    "body"}``. Identity is never read from the line: it comes from the
+    directory the line was found in, and an ``identity`` field in the line is
+    ignored. ``agent_id`` and ``parent_key`` are kept only on a forwarded
+    transcript entry (:func:`forwarded_transcript`).
     """
 
     entry_id: str
@@ -1336,6 +1345,8 @@ class SpoolLine:
     run_id: str | None = None
     tool_use_id: str | None = None
     on_behalf_of: str | None = None
+    agent_id: str | None = None
+    parent_key: str | None = None
 
     def __post_init__(self) -> None:
         if not is_token(self.entry_id):
@@ -1352,7 +1363,7 @@ class SpoolLine:
             raise SpoolLineInvalid(f"spool line {self.entry_id}: body is not a JSON object")
         if self.key is not None and (not isinstance(self.key, str) or not self.key):
             raise SpoolLineInvalid(f"spool line {self.entry_id}: key must be a non-empty string")
-        for name in (*_SPOOL_TOKEN_FIELDS, "on_behalf_of"):
+        for name in (*_SPOOL_TOKEN_FIELDS, *_SPOOL_TEXT_FIELDS):
             value = getattr(self, name)
             if value is not None and not isinstance(value, str):
                 raise SpoolLineInvalid(f"spool line {self.entry_id}: {name} must be a string")
@@ -1360,7 +1371,7 @@ class SpoolLine:
     def to_json(self) -> str:
         """The line as written, without a trailing newline; unset fields omitted."""
         out: dict[str, Any] = {"entry_id": self.entry_id, "kind": self.kind, "ts": self.ts}
-        for name in ("key", *_SPOOL_TOKEN_FIELDS, "on_behalf_of"):
+        for name in ("key", *_SPOOL_TOKEN_FIELDS, *_SPOOL_TEXT_FIELDS):
             value = getattr(self, name)
             if value is not None:
                 out[name] = value
@@ -1394,13 +1405,44 @@ def parse_spool_line(raw: bytes | str) -> SpoolLine:
         run_id=data.get("run_id"),
         tool_use_id=data.get("tool_use_id"),
         on_behalf_of=data.get("on_behalf_of"),
+        agent_id=data.get("agent_id"),
+        parent_key=data.get("parent_key"),
+    )
+
+
+def forwarded_transcript(line: SpoolLine, identity: str) -> bool:
+    """Whether *line* forwards an entry of *identity*'s own transcripts.
+
+    Such a line carries the entry's transcript key (:func:`transcript_key`),
+    which names *identity*, the identity of the directory it was found in; it is
+    ingested under :data:`ROUTE_TRANSCRIPT`, and only from a source of
+    :data:`TRANSCRIPT_FORWARDING_CLASSES`. The key is the one the transcript
+    tailer gives the same entry, so an entry filed by either is filed once.
+    """
+    key = line.key
+    return isinstance(key, str) and key.startswith(f"{TRANSCRIPT_KEY_PREFIX}:{identity}:")
+
+
+def spool_line_of(entry: Entry, entry_id: str) -> SpoolLine:
+    """The spool line that forwards the transcript *entry* of its own identity."""
+    return SpoolLine(
+        entry_id=entry_id,
+        kind=entry.kind,
+        ts=entry.ts.isoformat(),
+        body=entry.body,
+        key=entry.key,
+        session_id=entry.session_id or None,
+        tool_use_id=entry.tool_use_id or None,
+        agent_id=entry.agent_id or None,
+        parent_key=entry.parent_key or None,
     )
 
 
 def spool_entry_key(line: SpoolLine, identity: str, *, receiver_owned: bool) -> str:
     """The key a spool line is stored under.
 
-    The line's own ``key`` is honoured only in a receiver-owned directory. A
+    The line's own ``key`` is honoured in a receiver-owned directory, and on a
+    forwarded transcript entry of *identity* (:func:`forwarded_transcript`). A
     ``run`` line is keyed by its run and the phase its body names. Every other
     line is ``sp:<identity>:<entry_id>``.
 
@@ -1411,6 +1453,9 @@ def spool_entry_key(line: SpoolLine, identity: str, *, receiver_owned: bool) -> 
     if receiver_owned:
         if not line.key:
             raise SpoolLineInvalid(f"receiver-owned spool line {line.entry_id} has no key")
+        return line.key
+    if forwarded_transcript(line, identity):
+        assert line.key is not None
         return line.key
     if line.kind == KIND_RUN:
         phase = line.body.get(RUN_PHASE_FIELD)
@@ -1436,13 +1481,15 @@ def entry_from_spool_line(
     """The entry a spool line becomes, before scrubbing and arrival stamping.
 
     *identity* is the trusted identity of the directory the line was found in.
-    ``on_behalf_of`` is kept only when *on_behalf_of_trusted*; a token field
-    that does not match :data:`TOKEN_RE` is dropped.
+    ``on_behalf_of`` is kept only when *on_behalf_of_trusted*, ``agent_id`` and
+    ``parent_key`` only on a forwarded transcript entry; a token field that
+    does not match :data:`TOKEN_RE` is dropped.
     """
 
     def token(value: str | None) -> str:
         return value if is_token(value) else ""
 
+    forwarded = not receiver_owned and forwarded_transcript(line, identity)
     return Entry(
         key=spool_entry_key(line, identity, receiver_owned=receiver_owned),
         kind=line.kind,
@@ -1454,6 +1501,8 @@ def entry_from_spool_line(
         terminal_session=token(line.terminal_session),
         run_id=token(line.run_id),
         tool_use_id=token(line.tool_use_id),
+        agent_id=token(line.agent_id) if forwarded else "",
+        parent_key=(line.parent_key or "") if forwarded else "",
     )
 
 

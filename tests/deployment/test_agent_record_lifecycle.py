@@ -7,8 +7,6 @@
   mounts every user's transcripts volume.
 - The image entrypoint joins the spool's and the record dir's groups and never
   chowns either.
-- A host-sessions deployment built before its first host session is told once
-  that those sessions are recorded only after a rebuild.
 - ``osprey up`` takes the record over from the host-local agent-record under
   the ensure lock (marker written, host process stopped, compose started, the
   stack's record waited for); an ensure arriving meanwhile waits and uses the
@@ -33,7 +31,7 @@ import yaml
 
 from osprey.agent_record import credentials as creds
 from osprey.agent_record import host as hr
-from osprey.agent_runner.project_paths import CLAUDE_CONFIG_DIR_ENV, claude_project_dir
+from osprey.agent_runner.project_paths import CLAUDE_CONFIG_DIR_ENV
 from osprey.deployment import container_lifecycle
 from osprey.deployment.compose_generator import (
     AGENT_RECORD_TEMPLATE_DIR,
@@ -322,85 +320,6 @@ def test_the_hand_back_comment_names_both_exceptions() -> None:
 
     for var in (SPOOL_VAR, RECORD_VAR):
         assert f"#   * {var}" in comment, var
-
-
-# ── Host sessions not yet recorded ──────────────────────────────────────────
-
-
-def _rendered(tmp_path: Path, mounts: list[Any]) -> list[str]:
-    relative = f"./build/services/{AGENT_RECORD_TEMPLATE_DIR}/docker-compose.yml"
-    path = tmp_path / relative
-    path.parent.mkdir(parents=True)
-    path.write_text(
-        yaml.safe_dump({"services": {"agent-record": {"volumes": mounts}}}), encoding="utf-8"
-    )
-    return [relative]
-
-
-@pytest.fixture
-def facts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[str]:
-    monkeypatch.setenv(CLAUDE_CONFIG_DIR_ENV, str(tmp_path / "claude-home"))
-    said: list[str] = []
-    monkeypatch.setattr(container_lifecycle, "_report_fact", said.append)
-    return said
-
-
-def _host_config(tmp_path: Path) -> dict[str, Any]:
-    return {
-        "project_name": "hello",
-        "project_root": str(tmp_path),
-        "deployment": {"host_identity": "thorsten"},
-    }
-
-
-def test_a_build_without_the_host_projects_dir_is_reported_once(
-    tmp_path: Path, facts: list[str]
-) -> None:
-    compose_files = _rendered(tmp_path, ["./var/spool:/app/hello/var/spool"])
-
-    container_lifecycle._report_unmounted_host_transcripts(
-        _host_config(tmp_path), compose_files, tmp_path
-    )
-
-    assert len(facts) == 1
-    assert "host sessions" in facts[0]
-    assert "after the first host session" in facts[0]
-    assert "`osprey build`" in facts[0]
-
-
-def test_a_build_that_mounted_the_host_projects_dir_says_nothing(
-    tmp_path: Path, facts: list[str]
-) -> None:
-    host_dir = claude_project_dir(tmp_path / "build")
-    compose_files = _rendered(
-        tmp_path, [{"type": "bind", "source": host_dir.as_posix(), "target": "/data/x"}]
-    )
-
-    container_lifecycle._report_unmounted_host_transcripts(
-        _host_config(tmp_path), compose_files, tmp_path
-    )
-
-    assert facts == []
-
-
-def test_no_host_identity_says_nothing(tmp_path: Path, facts: list[str]) -> None:
-    compose_files = _rendered(tmp_path, [])
-
-    container_lifecycle._report_unmounted_host_transcripts(
-        {"project_name": "hello", "project_root": str(tmp_path)}, compose_files, tmp_path
-    )
-
-    assert facts == []
-
-
-def test_a_build_with_no_agent_record_render_says_nothing(tmp_path: Path, facts: list[str]) -> None:
-    """A build from before agent-record rendered no bind to miss, so the host
-    directory's absence at build time is not the reason it is unmounted."""
-    container_lifecycle._report_unmounted_host_transcripts(
-        _host_config(tmp_path), ["build/services/archive/docker-compose.yml"], tmp_path
-    )
-
-    assert facts == []
 
 
 # ── The stack takes the record over from the host ───────────────────────────

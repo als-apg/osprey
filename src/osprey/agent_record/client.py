@@ -9,7 +9,11 @@ takes:
 ``wait``
     A :class:`~osprey.agent_record.contract.Drain` (or a whole
     :class:`~osprey.agent_record.contract.WaitMark`): the service waits until
-    ingest has committed what the caller's scope had pending.
+    ingest has committed what the caller's scope had pending. In a host
+    launch's children (:data:`~osprey.agent_record.host.FORWARD_CONFIG_ENV`)
+    a drained read first forwards the host's transcripts while the stack owns
+    the record (:func:`~osprey.agent_record.host.forward_for_drain`), so what
+    the host session wrote is pending when the drain is asked for.
 ``narrow_session`` / ``narrow_runs``
     A ``Source`` login's narrowing to one session or to a set of run ids.
     The service refuses either on any other login.
@@ -35,6 +39,7 @@ an empty answer as a complete one. The client retries nothing.
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -181,6 +186,15 @@ def _decode_report(response: httpx.Response, key: str | None) -> ClientAnswer:
     return ClientAnswer(data=body[key], complete=True)
 
 
+def _forward_host_transcripts() -> None:
+    """In a host launch's children, forward the host's transcripts before a drain."""
+    from osprey.agent_record.host import FORWARD_CONFIG_ENV, forward_for_drain
+
+    config_path = os.environ.get(FORWARD_CONFIG_ENV)
+    if config_path:
+        forward_for_drain(config_path)
+
+
 def _param(value: Any) -> str:
     if isinstance(value, datetime):
         return value.isoformat()
@@ -265,6 +279,8 @@ class RecordClient:
         ]
         if wait is not None:
             mark = wait if isinstance(wait, WaitMark) else WaitMark(drain=wait)
+            if mark.drain is not None:
+                _forward_host_transcripts()
             params.append(("wait", json.dumps(mark.to_json())))
         if narrow_session is not None:
             params.append(("narrow_session", narrow_session))

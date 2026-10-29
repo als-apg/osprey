@@ -1,7 +1,9 @@
 # agent-record: the one writer of this deployment's agent record. It ingests
 # what every source appends to the spool, tails the Claude Code transcripts of
-# every terminal, dispatch worker and the host build, and answers the record's
-# read API. Every deployment runs it; it is never a `deployed_services` entry.
+# every terminal and dispatch worker, and answers the record's read API. The
+# host build's transcripts, which Claude Code writes for the host account
+# alone, reach it through the spool: the host session forwards them. Every
+# deployment runs it; it is never a `deployed_services` entry.
 #
 # It runs the PROJECT image (<project>:local) that `osprey up` builds from the
 # project root, with the image's own entrypoint, which drops privileges before

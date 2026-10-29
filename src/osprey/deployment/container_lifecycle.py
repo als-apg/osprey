@@ -36,7 +36,6 @@ from osprey.deployment.compose_generator import (
     REPO_ID_LABEL,
     _copy_local_framework_for_override,
     _dedupe_compose_files,
-    agent_record_host_projects_dir,
     claude_projects_volumes,
     clean_deployment,
     compose_base_cmd,
@@ -6088,46 +6087,6 @@ def _copy_existing_transcripts(config: dict, env: Mapping[str, str] | None) -> N
         _report_fact(f"copied the existing transcripts into {volume}")
 
 
-def _report_unmounted_host_transcripts(
-    config: dict, compose_files: list[str], repo_root: Path | str
-) -> None:
-    """Say once when agent-record was rendered without the host's transcripts.
-
-    A deployment that records its host sessions (``deployment.host_identity``)
-    has agent-record mount the host build's Claude Code project directory, but
-    only when that directory existed at build time: the bind is never created.
-    Read from the rendered agent-record compose file, so the answer is the one
-    the stack is about to start with; a build with no agent-record compose file
-    rendered no bind to miss, so it says nothing.
-    """
-    from osprey.agent_record.credentials import RECORD_SERVICE
-
-    host_dir = agent_record_host_projects_dir(config, repo_root)
-    if host_dir is None:
-        return
-    rendered = [
-        Path(repo_root) / path
-        for path in compose_files
-        if Path(path).parent.name == AGENT_RECORD_TEMPLATE_DIR
-    ]
-    if not rendered:
-        return
-    for path in rendered:
-        try:
-            document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        except (OSError, yaml.YAMLError):
-            return
-        service = (document.get("services") or {}).get(RECORD_SERVICE) or {}
-        for mount in service.get("volumes") or []:
-            if isinstance(mount, dict) and mount.get("source") == host_dir.as_posix():
-                return
-    _report_fact(
-        f"host sessions are not recorded yet: {host_dir} did not exist when this "
-        "deployment was built. Run `osprey build`, then `osprey up`, after the first "
-        "host session to record them."
-    )
-
-
 # ---------------------------------------------------------------------------
 # One owner of the record: the host-local agent-record and the stack's
 # ---------------------------------------------------------------------------
@@ -6709,7 +6668,6 @@ def _start_stack(
     # container on it. Both start paths reach here, and so do the single-service
     # ups of the staging steps that follow.
     _copy_existing_transcripts(config, env)
-    _report_unmounted_host_transcripts(config, compose_files, repo_root)
 
     # Stage the archiver store and seed its history BEFORE the branch split, so
     # both deploy paths inherit it and the recorder — started by whichever `up`

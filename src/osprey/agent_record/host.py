@@ -41,6 +41,14 @@ and this module), one owner of the DuckDB file at a time.
   the record, starts the host-local process again under the same lock and
   the same rules. The holder's lease is the one it already holds, so the
   record comes back after ``osprey down`` or a crash without a second lease.
+- The stack's agent-record never reads the host's transcripts: Claude Code
+  writes them for the account that runs the session alone. While a
+  ``stack-owner`` marker is in the state directory, the host session forwards
+  them (:func:`forward_host_transcripts`): the supervisor every round, every
+  holder as it ends, a one-shot holder as it starts, and a drained read from
+  a host launch's children before it asks (:func:`forward_for_drain`). One pass
+  runs at a time, under the forward lock; a pass that finds it busy skips its
+  round.
 """
 
 from __future__ import annotations
@@ -69,11 +77,16 @@ from osprey_connectors.safety_file import atomic_replace
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey.agent_record.config import AgentRecordConfig
+    from osprey.agent_record.ingest.tailer import PollReport
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
     "FIRST_PASS_WAIT_S",
+    "FORWARD_CONFIG_ENV",
+    "FORWARD_LOCK_FILE_NAME",
+    "FORWARD_STATE_FILE_NAME",
+    "FORWARD_WAIT_S",
     "HEALTH_WAIT_S",
     "LEASE_DIR_NAME",
     "LOCK_FILE_NAME",
@@ -87,12 +100,15 @@ __all__ = [
     "any_live_lease",
     "claim_idle_stop",
     "ensure_host_record",
+    "forward_for_drain",
+    "forward_host_transcripts",
     "host_record_lock",
     "host_record_refusal",
     "host_state_dir",
     "live_leases",
     "marker_is_live",
     "running_record_pid",
+    "stack_owns_record",
     "stop_host_process",
     "stop_unheld_record",
     "write_stack_marker",
@@ -109,6 +125,13 @@ PROCESS_FILE_NAME = "agent-record.process"
 LEASE_DIR_NAME = "agent-record.leases"
 #: The host-local process's output.
 LOG_FILE_NAME = "agent-record.log"
+#: The forward lock: one pass forwarding the host's transcripts at a time.
+FORWARD_LOCK_FILE_NAME = "transcripts.forward.lock"
+#: The positions the forwarder committed, per transcript file.
+FORWARD_STATE_FILE_NAME = "transcripts.forwarded.json"
+#: Set by a host launch for its children: the rendered config whose host
+#: transcripts a drained read forwards first (:func:`forward_for_drain`).
+FORWARD_CONFIG_ENV = "OSPREY_AGENT_RECORD_FORWARD_CONFIG"
 #: Mode of every file in the state directory: the host identity's group
 #: shares the lock, the marker, the process file and the leases.
 _STATE_FILE_MODE = 0o664
@@ -124,6 +147,8 @@ LOCK_WAIT_S = 180.0
 STOP_WAIT_S = 30.0
 #: Seconds between two supervisor probes of a held record.
 SUPERVISE_INTERVAL_S = 5.0
+#: Seconds a forward a read or a holder's end asks for waits for one already running.
+FORWARD_WAIT_S = 30.0
 #: Seconds between two probes while waiting.
 _PROBE_INTERVAL_S = 0.2
 #: Seconds one health request may take.
@@ -420,6 +445,154 @@ def marker_is_live(state_dir: Path) -> bool:
     with contextlib.suppress(FileNotFoundError):
         path.unlink()
     return False
+
+
+def stack_owns_record(state_dir: Path) -> bool:
+    """Whether a ``stack-owner`` marker is in *state_dir*; read only, never removed.
+
+    The forwarder's question, asked without the ensure lock: a marker left by
+    a stack that is gone only has the host's transcripts forwarded to a spool
+    the next record ingests, which drops what it already holds.
+    """
+    try:
+        return (state_dir / MARKER_FILE_NAME).exists()
+    except OSError:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Forwarding the host's transcripts while the stack owns the record
+# ---------------------------------------------------------------------------
+
+
+@contextlib.contextmanager
+def _forward_lock(state_dir: Path, wait_s: float) -> Iterator[bool]:
+    """Hold the forward lock of *state_dir*; yields ``False`` when it stays busy past *wait_s*."""
+    state_dir.mkdir(parents=True, exist_ok=True)
+    fd = os.open(
+        state_dir / FORWARD_LOCK_FILE_NAME,
+        os.O_RDWR | os.O_CREAT | os.O_CLOEXEC,
+        _STATE_FILE_MODE,
+    )
+    try:
+        deadline = time.monotonic() + wait_s
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    yield False
+                    return
+                time.sleep(_PROBE_INTERVAL_S)
+        try:
+            yield True
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
+
+
+def _forward_secrets(repo_root: Path) -> tuple[str, ...]:
+    """The secret set scrubbed before a forwarded entry reaches the spool; none without one."""
+    value = creds.read_env_value(repo_root / creds.SERVICE_FILE, creds.SECRETS_ENV)
+    if value is None:
+        return ()
+    try:
+        return tuple(creds.decode_secret_set(value))
+    except ValueError:
+        return ()
+
+
+def forward_host_transcripts(
+    repo_root: Path | str, config: Mapping[str, Any], *, wait_s: float = 0.0
+) -> PollReport | None:
+    """Forward the host build's transcripts to the stack's record, while the stack owns it.
+
+    One pass of the transcript tailer over the host build's Claude Code project
+    directory, read as the ``host`` root exactly as the host-local record reads
+    it, into the host identity's own spool directory
+    (:mod:`osprey.agent_record.ingest.forward`). Run by the account the session
+    runs as, the one account that can read those files.
+
+    Args:
+        repo_root: The deployment repo root.
+        config: The rendered config.
+        wait_s: How long to wait for a pass another process is running.
+
+    Returns:
+        The pass's report, or ``None`` when no pass ran: the deployment records
+        no host sessions, no ``stack-owner`` marker is there, another pass held
+        the lock past *wait_s*, or the pass failed (logged). Never raises.
+    """
+    from osprey.agent_record.config import parse_agent_record_block
+    from osprey.agent_record.ingest.forward import ForwardState, SpoolForward
+    from osprey.agent_record.ingest.tailer import TranscriptTailer
+    from osprey.deployment.compose_generator import (
+        agent_record_host_projects_dir,
+        ensure_spool_dir,
+        spool_identity_dir,
+    )
+    from osprey.port_layout import resolve_port_base
+
+    root = Path(repo_root)
+    host = ids.host_identity(config)
+    if host is None:
+        return None
+    try:
+        state_dir = host_state_dir(root, config)
+        if not stack_owns_record(state_dir):
+            return None
+        projects = agent_record_host_projects_dir(dict(config), root)
+        assert projects is not None
+        with _forward_lock(state_dir, wait_s) as had:
+            if not had:
+                return None
+            ensure_spool_dir(root, host)
+            sink = SpoolForward(
+                spool_identity_dir(root, host), ForwardState(state_dir / FORWARD_STATE_FILE_NAME)
+            )
+            settings = parse_agent_record_block(config, base=resolve_port_base(config))
+            tailer = TranscriptTailer(
+                sink,
+                {ids.HOST_TRANSCRIPT_ROOT: projects},
+                config,
+                secret_set=_forward_secrets(root),
+                retention_days=settings.retention_days,
+                prefixes={ids.HOST_TRANSCRIPT_ROOT: f"{projects.name}/"},
+            )
+            report = tailer.poll_once()
+    except Exception as exc:  # the next pass retries
+        logger.warning("the host transcripts were not forwarded to the stack's record: %s", exc)
+        return None
+    for where, why in report.errors.items():
+        logger.warning("forwarding the host transcripts: %s: %s", where, why)
+    return report
+
+
+def forward_for_drain(config_path: Path | str) -> None:
+    """Forward the host's transcripts before a drained read, for the config at *config_path*.
+
+    A drain covers what the record's spool holds when it is asked, and the
+    stack's record reads no host transcript itself: a host launch's children
+    (:data:`FORWARD_CONFIG_ENV`) forward first, so a read of the session they
+    run in finds its latest lines. Never raises.
+    """
+    import yaml
+
+    from osprey.deployment.compose_generator import resolve_repo_root
+
+    path = Path(config_path)
+    try:
+        config = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        logger.warning("the host transcripts were not forwarded: %s is unreadable: %s", path, exc)
+        return
+    if not isinstance(config, dict):
+        return
+    forward_host_transcripts(
+        resolve_repo_root(config, config_path=path), config, wait_s=FORWARD_WAIT_S
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -728,6 +901,8 @@ class _Supervisor:
     again, and starts the process only under the rules an ensure spawns by:
     no live marker, no process of ours still coming up, the embedded backend.
     It never waits for the new process to answer; the next rounds see it.
+    Every round then forwards the host's transcripts while the stack owns the
+    record (:func:`forward_host_transcripts`), skipping a busy round.
     """
 
     def __init__(
@@ -770,6 +945,7 @@ class _Supervisor:
                 self.tick()
             except Exception as exc:  # a round that fails is retried next round
                 logger.warning("the agent-record supervisor round failed: %s", exc)
+            forward_host_transcripts(self._repo_root, self._config)
 
     def tick(self) -> bool:
         """One round; returns whether it started the process."""
@@ -880,7 +1056,10 @@ def ensure_host_record(
 
     Call it only when ``OSPREY_AGENT_RECORD_URL`` is not already set (a
     container is handed its record by its render). On exit the lease is
-    released, and the last holder stops the host-local process.
+    released, and the last holder stops the host-local process. While the
+    stack owns the record, the host's transcripts are forwarded to it as the
+    holder starts (one-shot), every supervisor round (long-lived) and as it
+    ends (:func:`forward_host_transcripts`).
 
     Args:
         repo_root: The deployment repo root.
@@ -922,11 +1101,16 @@ def ensure_host_record(
             root, config, state_dir, handle, settings.port, embedded, lease, path, supervise_s
         )
         supervisor.start()
+    else:
+        # A one-shot holder reads what the host's sessions left, not what it runs.
+        forward_host_transcripts(root, config, wait_s=FORWARD_WAIT_S)
     try:
         yield HostRecord(url, login, token, started=started)
     finally:
         if supervisor is not None:
             supervisor.stop()
+        # What the holder's own session wrote last reaches the stack's record.
+        forward_host_transcripts(root, config, wait_s=FORWARD_WAIT_S)
         try:
             with host_record_lock(state_dir):
                 _release(state_dir, lease)

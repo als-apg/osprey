@@ -1220,7 +1220,6 @@ def _render_compose_files(
     unrenderable = _service_existence_errors(staged_config, zones.stage)
     if unrenderable:
         raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(unrenderable))
-    _ensure_host_projects_dir(staged_config, zones.repo_root)
 
     previous = Path.cwd()
     os.chdir(zones.stage)
@@ -1254,36 +1253,6 @@ def _render_compose_files(
     # moment this returns and says the same thing.
     logger.debug("Rendered %d compose file(s)", len(compose_files))
     return dict(config)
-
-
-def _ensure_host_projects_dir(config: dict[str, Any], repo_root: Path) -> Path | None:
-    """Create the host build's Claude Code project directory when it is absent.
-
-    agent-record mounts that directory, which a host session fills, and the
-    render binds it only when it exists: ``osprey up`` starts what the build
-    rendered and re-renders nothing. Creating it here, empty and private to the
-    account (``0700``), makes every build of a deployment that records its host
-    sessions (``deployment.host_identity``) render the bind before the first
-    host session has run. A directory that already exists is left as it is.
-
-    Args:
-        config: The staged render's ``config.yml``.
-        repo_root: The deployment repo, under whose shipped build zone a host
-            session runs.
-
-    Returns:
-        The directory when this call created it, else ``None``.
-    """
-    from osprey.deployment.compose_generator import agent_record_host_projects_dir
-
-    host_dir: Path | None = agent_record_host_projects_dir(config, repo_root)
-    if host_dir is None or host_dir.exists():
-        return None
-    host_dir.parent.mkdir(parents=True, exist_ok=True)
-    host_dir.mkdir(mode=0o700)
-    # ``mkdir``'s mode is narrowed by the umask, never widened; state it outright.
-    host_dir.chmod(0o700)
-    return host_dir
 
 
 def _warn_if_deployment_running(config: dict[str, Any] | None, project_name: str) -> None:

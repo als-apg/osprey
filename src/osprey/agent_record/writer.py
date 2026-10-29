@@ -36,6 +36,10 @@ caller's key. A batch is written as one sealed segment of its own, fsynced
 before and after the seal rename, so the receiver answers 2xx only for a batch
 that is on disk.
 
+**Batch mode** is the same sealed, fsynced segment written into a source's own
+spool directory, for a sender that commits its own position only once a batch
+is on disk: a host session forwarding its transcripts (:func:`write_batch`).
+
 **Off switch.** With ``OSPREY_AGENT_RECORD_OFF=1`` in the environment,
 :func:`write` answers ``None`` before resolving a directory: nothing is created,
 appended or logged to ``.errors``. Receiver mode is agent-record's own and does
@@ -92,6 +96,7 @@ __all__ = [
     "seal_all",
     "spool_dir",
     "write",
+    "write_batch",
     "write_received",
 ]
 
@@ -478,8 +483,6 @@ def write_received(
         empty batch writes nothing and returns ``[]``. Never raises.
     """
     directory: Path | None = None
-    path: Path | None = None
-    fd: int | None = None
     try:
         directory = _receiver_dir(spool_root, login)
         built = []
@@ -487,6 +490,34 @@ def write_received(
             if not isinstance(item.key, str) or not item.key:
                 raise ValueError(f"a receiver line needs a key; got {item.key!r}")
             built.append(_build_line(item.kind, item.body, item.ids, key=item.key))
+    except Exception as exc:
+        _record_failure(directory, "batch", None, exc)
+        return None
+    return write_batch(directory, built)
+
+
+def write_batch(directory: Path | str, lines: Iterable[SpoolLine]) -> list[str] | None:
+    """Write *lines* into *directory* as one sealed, fsynced segment.
+
+    The segment is written, fsynced, sealed by rename and fsynced again through
+    its directory, so the batch is stored whole or not at all: on failure the
+    partial segment is removed. The off switch is not consulted; the caller
+    that sends a batch decides.
+
+    Args:
+        directory: An existing spool directory: a source's own, or a
+            receiver-owned one.
+        lines: The batch, in order.
+
+    Returns:
+        The lines' ``entry_id`` values in order, or ``None`` on failure. An
+        empty batch writes nothing and returns ``[]``. Never raises.
+    """
+    directory = Path(directory)
+    path: Path | None = None
+    fd: int | None = None
+    try:
+        built = list(lines)
         if not built:
             return []
         data = b"".join(_encode(line) for line in built)

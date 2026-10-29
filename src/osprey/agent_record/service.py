@@ -131,9 +131,13 @@ a default under the deployment repo root (``project_root`` of the config):
 - :data:`HOST_PROJECTS_ENV`: on the host, the host build's own Claude Code
   project directory (``<claude config dir>/projects/<encoded build dir>``).
   It is read as the ``host`` root with the relpath prefix
-  ``<encoded build dir>/``, exactly the path the stack's mount gives the same
-  files, so their state names agree and no sibling project is read. With it
-  set, a root missing under the transcripts directory is skipped.
+  ``<encoded build dir>/``, the root and prefix the host session's forwarder
+  reads the same files under while the stack owns the record, so their keys
+  and state names agree and no sibling project is read. With it set, a root
+  missing under the transcripts directory is skipped. Without it there is no
+  ``host`` root: the stack's agent-record never reads the host's transcripts,
+  which the host session forwards through the spool
+  (:func:`osprey.agent_record.host.forward_host_transcripts`).
 - :data:`CLICKHOUSE_URL_ENV` plus the account's
   :data:`~osprey.agent_record.credentials.CLICKHOUSE_USER_ENV` and
   :data:`~osprey.agent_record.credentials.CLICKHOUSE_PASSWORD_ENV`, read only
@@ -408,15 +412,17 @@ def _transcript_roots(
     Each root of :func:`~osprey.agent_record.identities.transcript_roots` is
     ``<transcripts dir>/<name>``. With :data:`HOST_PROJECTS_ENV` set the
     ``host`` root is that one project directory, prefixed with its own name,
-    and any other root that does not exist here is left out.
+    and any other root that does not exist here is left out. Without it there
+    is no ``host`` root.
     """
     roots: dict[str, Path] = {}
     prefixes: dict[str, str] = {}
     host_projects = settings.host_projects
     for name in ids.transcript_roots(config):
-        if host_projects is not None and name == ids.HOST_TRANSCRIPT_ROOT:
-            roots[name] = host_projects
-            prefixes[name] = f"{host_projects.name}/"
+        if name == ids.HOST_TRANSCRIPT_ROOT:
+            if host_projects is not None:
+                roots[name] = host_projects
+                prefixes[name] = f"{host_projects.name}/"
             continue
         path = settings.transcripts_dir / name
         if host_projects is not None and not path.is_dir():

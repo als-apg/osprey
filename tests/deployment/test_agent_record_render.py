@@ -9,11 +9,11 @@ still renders it, and it is the only thing such a profile adds.
 **It reads transcripts and nothing else of another container's.** Each terminal
 and dispatch transcripts volume is mounted whole and read-only as the transcript
 root the record names it by; no claude-config volume, no workspace, no
-credential file and no other container's env file is mounted. The host build's
-project directory is bound read-only only when it exists; the render never
-creates it, but ``osprey build`` does, so every build of a deployment that
-records its host sessions renders the bind, and it is the shipped build zone's
-directory even though a build renders with its staging root as output base.
+credential file and no other container's env file is mounted. Nothing of the
+host's is: the host build's project directory, which Claude Code writes for the
+host account alone, reaches the record through the host session's forwarder,
+and agent-record runs as the image's user. A build writes nothing into the
+host's Claude Code state.
 
 **It declares the terminal volumes as their owner does.** The web-terminal
 template renders into the other slice, so the same bare keys and labels are
@@ -48,7 +48,6 @@ from osprey.agent_record.service import (
     TRANSCRIPTS_DIR_ENV,
 )
 from osprey.agent_runner.project_paths import CLAUDE_CONFIG_DIR_ENV, claude_project_dir
-from osprey.cli.build_cmd import _ensure_host_projects_dir
 from osprey.deployment.compose_generator import (
     AGENT_RECORD_CLICKHOUSE_VOLUME,
     AGENT_RECORD_TEMPLATE_DIR,
@@ -357,137 +356,30 @@ def _host_config(tmp_path: Path) -> dict[str, Any]:
     return _config(tmp_path, deployment={"host_identity": "thorsten"})
 
 
-def test_the_host_projects_dir_is_bound_read_only_when_it_exists(tmp_path: Path) -> None:
+def test_nothing_of_the_hosts_is_mounted_and_the_images_user_runs_it(tmp_path: Path) -> None:
+    """Claude Code writes the host's transcripts for the host account alone; the
+    host session forwards them through the spool instead."""
     config = _host_config(tmp_path)
-    host_dir = claude_project_dir(tmp_path / "build")
-    host_dir.mkdir(parents=True)
-
-    binds = [m for m in _service(config)["volumes"] if isinstance(m, dict)]
-
-    assert binds == [
-        {
-            "type": "bind",
-            "source": host_dir.as_posix(),
-            "target": f"{DEFAULT_TRANSCRIPTS_DIR}/host/{host_dir.name}",
-            "read_only": True,
-            "bind": {"create_host_path": False},
-        }
-    ]
-    assert "host" in transcript_roots(config)
-
-
-def test_an_absent_host_projects_dir_is_not_rendered_and_not_created(tmp_path: Path) -> None:
-    config = _host_config(tmp_path)
-    host_dir = claude_project_dir(tmp_path / "build")
-
-    service = _service(config)
-
-    assert not [m for m in service["volumes"] if isinstance(m, dict)]
-    assert not host_dir.exists()
-    assert not host_dir.parent.exists()
-
-
-def test_no_host_identity_means_no_host_bind(tmp_path: Path) -> None:
     claude_project_dir(tmp_path / "build").mkdir(parents=True)
 
-    service = _service(_config(tmp_path))
-
-    assert not [m for m in service["volumes"] if isinstance(m, dict)]
-
-
-def test_agent_record_runs_as_the_owner_of_the_host_projects_dir(tmp_path: Path) -> None:
-    """Claude Code writes the host's transcripts ``0600``: only their owner reads them."""
-    config = _host_config(tmp_path)
-    host_dir = claude_project_dir(tmp_path / "build")
-    host_dir.mkdir(parents=True)
-    owner = host_dir.stat()
-
     service = _service(config)
 
-    assert service["user"] == f"{owner.st_uid}:{owner.st_gid}"
-    assert "group_add" not in service
-
-
-def test_without_a_host_bind_agent_record_keeps_the_images_user(tmp_path: Path) -> None:
-    service = _service(_host_config(tmp_path))
-
+    assert not [m for m in service["volumes"] if isinstance(m, dict)]
     assert "user" not in service
     assert "group_add" not in service
 
 
-class _Stat:
-    def __init__(self, uid: int, gid: int) -> None:
-        self.st_uid, self.st_gid = uid, gid
-
-
-class _Dir:
-    def __init__(self, uid: int, gid: int | None) -> None:
-        self._stat = None if gid is None else _Stat(uid, gid)
-
-    def stat(self) -> _Stat:
-        if self._stat is None:
-            raise FileNotFoundError
-        return self._stat
-
-
-def test_the_records_shared_groups_are_joined_where_they_differ_from_the_owners() -> None:
-    from osprey.deployment.compose_generator import _host_transcripts_reader
-
-    reader = _host_transcripts_reader(
-        _Dir(1001, 1001),
-        [_Dir(1001, 1001), _Dir(1001, 2500), _Dir(1001, 2400), _Dir(0, None), _Dir(0, 2500)],
-    )
-
-    assert reader == {"user": "1001:1001", "group_add": [2400, 2500]}
-
-
-def test_a_build_render_binds_the_shipped_build_zone_not_its_output_base(
+def test_the_host_projects_dir_is_the_shipped_build_zones_not_the_output_base(
     tmp_path: Path,
 ) -> None:
     # ``osprey build`` renders with ``build_dir`` replaced by its staging root
     # (``output_root="."``) and keeps the shipped value as ``deployed_build_dir``.
     config = {**_host_config(tmp_path), "build_dir": ".", "deployed_build_dir": "./build"}
-    host_dir = claude_project_dir(tmp_path / "build")
-    host_dir.mkdir(parents=True)
-    claude_project_dir(tmp_path).mkdir()
 
-    sources = [m["source"] for m in _service(config)["volumes"] if isinstance(m, dict)]
-
-    assert sources == [host_dir.as_posix()]
-
-
-def test_the_build_creates_an_absent_host_projects_dir_empty_and_private(
-    tmp_path: Path,
-) -> None:
-    config = _host_config(tmp_path)
-    host_dir = claude_project_dir(tmp_path / "build")
-    assert not host_dir.parent.exists()
-
-    assert _ensure_host_projects_dir(config, tmp_path) == host_dir
-
-    assert host_dir.is_dir()
-    assert list(host_dir.iterdir()) == []
-    assert stat.S_IMODE(host_dir.stat().st_mode) == 0o700
-    assert [m for m in _service(config)["volumes"] if isinstance(m, dict)]
-
-
-def test_the_build_leaves_an_existing_host_projects_dir_as_it_is(tmp_path: Path) -> None:
-    config = _host_config(tmp_path)
-    host_dir = claude_project_dir(tmp_path / "build")
-    host_dir.mkdir(parents=True, mode=0o755)
-    host_dir.chmod(0o755)
-    (host_dir / "session.jsonl").write_text("{}\n", encoding="utf-8")
-
-    assert _ensure_host_projects_dir(config, tmp_path) is None
-
-    assert stat.S_IMODE(host_dir.stat().st_mode) == 0o755
-    assert [p.name for p in host_dir.iterdir()] == ["session.jsonl"]
-
-
-def test_the_build_creates_nothing_without_a_host_identity(tmp_path: Path) -> None:
-    assert _ensure_host_projects_dir(_config(tmp_path), tmp_path) is None
-
-    assert not (tmp_path / "claude-home").exists()
+    assert agent_record_host_projects_dir(config, tmp_path) == claude_project_dir(
+        tmp_path / "build"
+    )
+    assert agent_record_host_projects_dir(_config(tmp_path), tmp_path) is None
 
 
 # ── A real build of every preset ────────────────────────────────────────────
@@ -497,7 +389,7 @@ PRESETS = sorted(path.stem for path in PRESETS_DIR.glob("*.yml"))
 
 
 @pytest.mark.parametrize("preset", PRESETS)
-def test_every_preset_build_creates_and_binds_the_host_projects_dir(
+def test_every_preset_build_records_host_sessions_and_writes_nothing_of_the_hosts(
     preset: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from tests._builds import init_project, run_build
@@ -507,7 +399,6 @@ def test_every_preset_build_creates_and_binds_the_host_projects_dir(
     monkeypatch.setenv("HOME", str(home))
     repo = init_project(tmp_path, preset, "demo")
     host_dir = claude_project_dir(repo / "build")
-    assert not (tmp_path / "claude-home").exists()
 
     result = run_build(repo)
 
@@ -516,15 +407,11 @@ def test_every_preset_build_creates_and_binds_the_host_projects_dir(
     assert as_built["deployment"]["host_identity"]
     # The up path reads the as-built config from the repo root: the same dir.
     assert agent_record_host_projects_dir(as_built, repo) == host_dir
-    assert host_dir.is_dir()
-    assert list(host_dir.iterdir()) == []
-    assert stat.S_IMODE(host_dir.stat().st_mode) == 0o700
-    assert not claude_project_dir(repo).exists()
+    assert not host_dir.exists()
     compose = repo / "build" / "services" / AGENT_RECORD_TEMPLATE_DIR / "docker-compose.yml"
     service = yaml.safe_load(compose.read_text(encoding="utf-8"))["services"][SERVICE_KEY]
-    binds = [m for m in service["volumes"] if isinstance(m, dict)]
-    assert [m["source"] for m in binds] == [host_dir.as_posix()]
-    assert binds[0]["target"] == f"{DEFAULT_TRANSCRIPTS_DIR}/host/{host_dir.name}"
+    assert not [m for m in service["volumes"] if isinstance(m, dict)]
+    assert "user" not in service
 
 
 # ── Host provisioning ───────────────────────────────────────────────────────

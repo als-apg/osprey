@@ -1454,7 +1454,10 @@ AGENT_RECORD_CLICKHOUSE_SYSTEM_LOG_TTL_DAYS = 30
 
 
 def agent_record_host_projects_dir(config, repo_root=None):
-    """The host build's Claude Code project directory, which agent-record reads.
+    """The host build's Claude Code project directory, which host sessions write.
+
+    The host-local agent-record reads it, and a host session forwards it to the
+    stack's agent-record while the stack owns the record.
 
     ``<claude config dir>/projects/<encoded build dir>/`` for a deployment that
     records its host sessions (``deployment.host_identity``), else ``None``.
@@ -1482,34 +1485,28 @@ def agent_record_host_projects_dir(config, repo_root=None):
     return claude_project_dir(root / str(build_dir))
 
 
-def _resolve_agent_record_render_context(config, repo_root=None):
+def _resolve_agent_record_render_context(config):
     """Build the ``osprey_agent_record`` render context for the agent-record template.
 
     agent-record is rendered for every deployment, so this is computed for every
     config. It mounts each terminal and dispatch transcripts volume whole and
     read-only under its transcripts directory, as the transcript root the record
-    names it by, and the host build's project directory when
-    :func:`agent_record_host_projects_dir` names one that exists at render time.
-    The render never creates it; ``osprey build`` does, before it renders, so
-    every build of a deployment that records its host sessions renders the bind.
+    names it by. It mounts nothing of the host's: a host session forwards its
+    own transcripts through the spool
+    (:func:`osprey.agent_record.host.forward_host_transcripts`).
 
     :param config: Configuration dictionary
     :type config: dict
-    :param repo_root: The deployment repo root; resolved from *config* when
-        ``None``
-    :type repo_root: str | pathlib.Path | None
     :return: ``port``, ``container_port``, ``env_files``, ``spool_source``,
         ``spool_dir``, ``record_source``, ``record_dir``, ``archive_source``,
         ``archive_dir``, ``transcripts_dir``,
         ``volume_roots`` (``volume``, ``root``), ``terminal_volumes`` (the
-        volumes this slice re-declares), ``host`` (``source``, ``target``,
-        or ``None``) and ``clickhouse`` (see
+        volumes this slice re-declares) and ``clickhouse`` (see
         :func:`_resolve_agent_record_clickhouse_context`)
     :rtype: dict
     """
     from osprey.agent_record import credentials as creds
     from osprey.agent_record.config import parse_agent_record_block
-    from osprey.agent_record.identities import HOST_TRANSCRIPT_ROOT
     from osprey.agent_record.service import DEFAULT_TRANSCRIPTS_DIR
     from osprey.port_layout import resolve_port_base
     from osprey.utils.workspace import ARCHIVE_DIR_RELPATH, RECORD_DIR_RELPATH, SPOOL_DIR_RELPATH
@@ -1525,21 +1522,6 @@ def _resolve_agent_record_render_context(config, repo_root=None):
             *(worker["projects_volume"] for worker in sources["workers"]),
         )
     ]
-    host = None
-    host_dir = agent_record_host_projects_dir(config, repo_root)
-    if host_dir is not None and host_dir.is_dir():
-        root = Path(repo_root) if repo_root is not None else Path(resolve_repo_root(config))
-        host = {
-            "source": host_dir.as_posix(),
-            "target": f"{DEFAULT_TRANSCRIPTS_DIR}/{HOST_TRANSCRIPT_ROOT}/{host_dir.name}",
-            **_host_transcripts_reader(
-                host_dir,
-                [
-                    root / relpath
-                    for relpath in (SPOOL_DIR_RELPATH, RECORD_DIR_RELPATH, ARCHIVE_DIR_RELPATH)
-                ],
-            ),
-        }
     env_files = list(creds.owner_files(config)[creds.RECORD_SERVICE])
     return {
         "port": parse_agent_record_block(config, base=resolve_port_base(config)).port,
@@ -1554,39 +1536,8 @@ def _resolve_agent_record_render_context(config, repo_root=None):
         "transcripts_dir": DEFAULT_TRANSCRIPTS_DIR,
         "volume_roots": volume_roots,
         "terminal_volumes": terminal_volumes,
-        "host": host,
         "clickhouse": _resolve_agent_record_clickhouse_context(config),
     }
-
-
-def _host_transcripts_reader(host_dir, shared_dirs):
-    """The ``user`` and ``group_add`` agent-record runs as to read the host's transcripts.
-
-    Claude Code writes its transcripts ``0600`` for the account running it, so
-    only that account reads them: agent-record runs as the uid and gid that own
-    the host's project directory, read off the directory rather than off the
-    process rendering, so a render made by another account still names the
-    host user. The record's own directories (the spool, the embedded store,
-    the archive) are shared through their group, which the container joins as
-    a supplementary group wherever it differs from that gid.
-
-    :param host_dir: The host build's Claude Code project directory, which exists
-    :type host_dir: pathlib.Path
-    :param shared_dirs: The record's group-shared directories on the host
-    :type shared_dirs: list[pathlib.Path]
-    :return: ``user`` (``"<uid>:<gid>"``) and ``group_add`` (sorted gids)
-    :rtype: dict
-    """
-    owner = host_dir.stat()
-    groups = set()
-    for directory in shared_dirs:
-        try:
-            gid = directory.stat().st_gid
-        except OSError:
-            continue
-        if gid != owner.st_gid:
-            groups.add(gid)
-    return {"user": f"{owner.st_uid}:{owner.st_gid}", "group_add": sorted(groups)}
 
 
 def _agent_record_source_keys(record_port):
@@ -2569,9 +2520,7 @@ def _inject_project_metadata(config):
     config_with_labels["osprey_archive"] = _resolve_archive_render_context(config)
     # agent-record's transcript roots, its spool and record binds, its
     # credential files and its loopback port. Every deployment renders it.
-    config_with_labels["osprey_agent_record"] = _resolve_agent_record_render_context(
-        config, repo_root
-    )
+    config_with_labels["osprey_agent_record"] = _resolve_agent_record_render_context(config)
     # How a bridge reaches the record's API and which login it presents.
     config_with_labels.update(
         _agent_record_source_keys(config_with_labels["osprey_agent_record"]["port"])

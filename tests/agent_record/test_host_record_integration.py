@@ -24,7 +24,9 @@ Pinned here, against real ``osprey agent-record serve`` processes:
   refuse, naming the fix, and no ``record.duckdb`` appears.
 - With a stack (an ``agent-record serve`` the test starts the way ``osprey
   up`` hands the record over, under the real takeover and hand-back
-  functions): a launcher uses the stack's record and starts none; a host
+  functions, reading no host transcript as the container reads none): a
+  launcher uses the stack's record and starts none; a host chat's session
+  reaches it through the spool, forwarded by the chat itself; a host
   session that started first keeps working after ``osprey up``, and the step
   it takes then is committed by the stack; after ``osprey down`` mid-session
   the next read answers again, the step still in it; two concurrent host
@@ -102,6 +104,7 @@ _SCRUBBED_ENV = (
     "OSPREY_TERMINAL_USER",
     "OSPREY_AGENT_RECORD_OFF",
     "OSPREY_WEB_PORT",
+    hr.FORWARD_CONFIG_ENV,
 )
 
 #: The container runtime stand-in: logs each call; ``inspect`` of a name the
@@ -747,8 +750,12 @@ def _holders(dep: Deployment, count: int = 1) -> Iterator[list[Holder]]:
 
 
 def _stand_in(dep: Deployment) -> subprocess.Popen:
-    """The stack's agent-record: the same service over the same store, with no lease watch."""
+    """The stack's agent-record: the same service over the same store, with no lease
+    watch and, like the container, no read of the host's transcripts."""
+    from osprey.agent_record import service
+
     env = hr._child_env(dep.repo, dep.config, dep.state_dir, dep.config_path)
+    env.pop(service.HOST_PROJECTS_ENV)
     log = (dep.repo / "var" / "stack-agent-record.log").open("ab")
     proc = subprocess.Popen(
         [sys.executable, "-m", "osprey.cli.main", "agent-record", "serve", "--port", str(dep.port)],
@@ -1042,6 +1049,44 @@ def test_a_launcher_uses_the_stacks_record(dep):
     assert stack.poll() is None, "the last host session stopped the stack's record"
     osprey_down(dep, stack)
     _assert_no_record_left(dep)
+
+
+def test_a_host_chat_under_the_stack_reaches_its_record_through_the_spool(dep, tmp_path):
+    stack = osprey_up(dep)
+    report = tmp_path / "claude-report.json"
+    release = tmp_path / "claude-release"
+    env = {**dep.env, "HSA_CLAUDE_REPORT": str(report), "HSA_CLAUDE_RELEASE": str(release)}
+    chat = subprocess.Popen(
+        [str(dep.osprey), "chat", "--repo", str(dep.repo), "--no-pin"],
+        cwd=str(dep.repo),
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        _await(report.exists, 240, "the chat's agent to take its turn")
+        seen = json.loads(report.read_text())
+        assert seen["env"]["OSPREY_AGENT_RECORD_URL"] == dep.url
+        assert hr._running_process(dep.state_dir) is None, "chat started a host-local record"
+        # The stack's record reads no host transcript; the chat forwards it.
+        sources = dep.host_client().health_sources()
+        assert sources.available, sources.unavailable
+        assert "host" not in sources.data["transcripts"], sources.data
+        _assert_session_in_record(dep, dep.host_client(), seen["session"], "chat")
+        assert hr.FORWARD_STATE_FILE_NAME in os.listdir(dep.state_dir)
+        release.touch()
+        output, _ = chat.communicate(timeout=120)
+        assert chat.returncode == 0, output
+    finally:
+        release.touch()
+        _terminate(chat)
+    assert stack.poll() is None, "the chat's end stopped the stack's record"
+    osprey_down(dep, stack)
+    _assert_no_record_left(dep)
+    _assert_no_container_started(dep)
 
 
 def test_a_host_session_keeps_its_record_through_up_and_down(dep):

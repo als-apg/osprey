@@ -55,17 +55,19 @@ import dataclasses
 import logging
 import os
 import stat
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from osprey.agent_record.config import DEFAULT_RETENTION_DAYS
 from osprey.agent_record.contract import (
+    AppendResult,
+    BackendHealth,
     Entry,
-    RecordBackend,
     RecordBackendError,
+    StateStore,
     TranscriptOffset,
     check_projects_relpath,
     scrub,
@@ -82,6 +84,7 @@ __all__ = [
     "FileMark",
     "PollReport",
     "SourceHealth",
+    "TranscriptSink",
     "TranscriptTailer",
 ]
 
@@ -103,6 +106,21 @@ _MAX_DEPTH = 8
 
 _DIR_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_DIRECTORY", 0)
 _FILE_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0)
+
+
+class TranscriptSink(StateStore, Protocol):
+    """Where the tailer appends what it read and keeps each file's committed position.
+
+    The record's own backend is one: the tailer commits into the record. A host
+    session's forwarder is the other: it hands the entries to its spool and
+    keeps the positions in its own state file
+    (:mod:`osprey.agent_record.ingest.forward`). Every method raises
+    :class:`~osprey.agent_record.contract.RecordBackendError` on failure.
+    """
+
+    def append(self, entries: Sequence[Entry]) -> AppendResult: ...
+
+    def health(self) -> BackendHealth: ...
 
 
 @dataclass
@@ -172,7 +190,8 @@ class TranscriptTailer:
     """Tail the transcript roots into *backend*.
 
     Args:
-        backend: The record backend; also the state store for offsets.
+        backend: Where entries go and offsets are kept: the record's backend,
+            or a host session's forwarder.
         roots: Transcript root name to the directory that plays ``projects/``
             (or, with a prefix, the directory at that prefix below it).
         config: The rendered deployment config, used to map root names to
@@ -191,7 +210,7 @@ class TranscriptTailer:
 
     def __init__(
         self,
-        backend: RecordBackend,
+        backend: TranscriptSink,
         roots: Mapping[str, Path | str],
         config: Mapping[str, Any] | None,
         *,

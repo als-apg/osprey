@@ -8,8 +8,10 @@
 {%- import "services/_env_axis.j2" as hostenv -%}
 # agent-record: the one writer of this deployment's agent record. It ingests
 # what every source appends to the spool, tails the Claude Code transcripts of
-# every terminal, dispatch worker and the host build, and answers the record's
-# read API. Every deployment runs it; it is never a `deployed_services` entry.
+# every terminal and dispatch worker, and answers the record's read API. The
+# host build's transcripts, which Claude Code writes for the host account
+# alone, reach it through the spool: the host session forwards them. Every
+# deployment runs it; it is never a `deployed_services` entry.
 #
 # It runs the PROJECT image (<project>:local) that `osprey up` builds from the
 # project root, with the image's own entrypoint, which drops privileges before
@@ -26,18 +28,6 @@ services:
     # per-project so two OSPREY projects can run an agent record on one host.
     container_name: {{ osprey_labels.project_name }}-agent-record
     command: ["osprey", "agent-record", "serve", "--host", "0.0.0.0", "--port", "{{ rec.container_port }}"]
-{%- if rec.host %}
-    # Runs as the host user who owns the host's transcripts, which Claude Code
-    # writes for that user alone; the record's own directories are reached
-    # through their group.
-    user: "{{ rec.host.user }}"
-{%- if rec.host.group_add %}
-    group_add:
-{%- for gid in rec.host.group_add %}
-      - "{{ gid }}"
-{%- endfor %}
-{%- endif %}
-{%- endif %}
     security_opt: ["no-new-privileges:true"]
     labels:
       # Recreates the container when one of its credential files changes:
@@ -85,17 +75,6 @@ services:
 {%- for root in rec.volume_roots %}
       - {{ root.volume }}:{{ rec.transcripts_dir }}/{{ root.root }}:ro
 {%- endfor %}
-{%- if rec.host %}
-      # The host build's Claude Code project directory, read-only. Rendered
-      # only when it exists, and never created: nothing is written into the
-      # host's Claude Code state.
-      - type: bind
-        source: {{ rec.host.source }}
-        target: {{ rec.host.target }}
-        read_only: true
-        bind:
-          create_host_path: false
-{%- endif %}
     networks:
       - osprey-network
     healthcheck:

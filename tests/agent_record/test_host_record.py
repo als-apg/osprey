@@ -6,8 +6,12 @@ gone when the last holder returns, the starter or a reuser that outlived it;
 a port that answers 503 or refuses the host login (another project's record)
 is never spawned over; a live ``stack-owner`` marker is never spawned under,
 and a stale one is removed; the host root read through
-``OSPREY_AGENT_RECORD_HOST_PROJECTS`` yields the same transcript state names
-as the stack's mount and never reads a sibling project; ``record.duckdb`` is
+``OSPREY_AGENT_RECORD_HOST_PROJECTS`` never reads a sibling project; while the
+stack owns the record the host session forwards the same files under the same
+state names and keys, so the stack's record files nothing twice, resumes from
+its own position, skips a busy round, scrubs the build's secrets, and runs as a
+holder starts and ends, every supervisor round and before a drained read of a
+host launch's children; ``record.duckdb`` is
 group-writable; the ClickHouse refusal and a missing service file create and
 spawn nothing; ``serve`` without ``--lease-dir`` keeps running and keeps the
 compose ``/health`` body.
@@ -39,7 +43,8 @@ from osprey.agent_record import host as hr
 from osprey.agent_record import identities as ids
 from osprey.agent_record import service
 from osprey.agent_record.backends.embedded import EmbeddedBackend
-from osprey.agent_record.contract import transcript_state_name
+from osprey.agent_record.contract import Query, ScopeFilter, transcript_state_name
+from osprey.agent_record.ingest.spool import SpoolConsumer
 from osprey.agent_record.ingest.tailer import TranscriptTailer
 from osprey.deployment.compose_generator import agent_record_host_projects_dir
 from osprey.interfaces._serving import run_app_server
@@ -316,7 +321,19 @@ def _state_names(path: Path, names: list[str]) -> dict[str, bool]:
         return {name: backend.get_state(name) is not None for name in names}
 
 
-def test_host_and_stack_roots_give_identical_state_names_and_skip_siblings(project, tmp_path):
+def _own_the_record(project: Project, monkeypatch) -> None:
+    """Play ``osprey up``'s ``stack-owner`` marker, its container running."""
+    monkeypatch.setattr(hr, "_container_running", lambda name: name == "hostrec-agent-record")
+    project.state_dir.mkdir(parents=True, exist_ok=True)
+    (project.state_dir / hr.MARKER_FILE_NAME).write_text("hostrec-agent-record\n")
+
+
+def _forwarded(project: Project) -> list[Path]:
+    spool = project.root / "var" / "spool" / HOST
+    return sorted(spool.glob("*.sealed")) if spool.is_dir() else []
+
+
+def test_a_takeover_files_nothing_twice_and_reads_no_sibling(project, monkeypatch):
     encoded = project.host_projects.name
     project.host_projects.mkdir(parents=True, exist_ok=True)
     (project.host_projects / f"{SESSION}.jsonl").write_bytes(_line(SESSION, "hello"))
@@ -335,17 +352,145 @@ def test_host_and_stack_roots_give_identical_state_names_and_skip_siblings(proje
         assert transcripts["host"]["error"] is None
         assert transcripts["host"]["files"] == 1
         assert transcripts["host"]["appended"] >= 1
-    host_names = _state_names(project.root / "var/agent_record/record.duckdb", [ours, theirs])
+    store = project.root / "var/agent_record/record.duckdb"
+    assert _state_names(store, [ours, theirs]) == {ours: True, theirs: False}
 
-    # Stack-shaped: the mount holds only the encoded dir, under the root `host`.
-    mount = tmp_path / "transcripts" / "host"
-    (mount / encoded).mkdir(parents=True)
-    (mount / encoded / f"{SESSION}.jsonl").write_bytes(_line(SESSION, "hello"))
-    with EmbeddedBackend(tmp_path / "stack.duckdb") as backend:
-        TranscriptTailer(backend, {"host": mount}, project.config).poll_once()
-    stack_names = _state_names(tmp_path / "stack.duckdb", [ours, theirs])
+    # `osprey up`: the host session forwards the same file, under the same
+    # state name, from a position of its own that starts at nothing.
+    _own_the_record(project, monkeypatch)
+    report = hr.forward_host_transcripts(project.root, project.config)
+    assert report is not None and report.errors == {}
+    assert report.appended >= 1
+    state = json.loads((project.state_dir / hr.FORWARD_STATE_FILE_NAME).read_text())
+    assert set(state) == {ours}
 
-    assert host_names == stack_names == {ours: True, theirs: False}
+    # The stack's record ingests the spool into the same store: every
+    # forwarded entry is one the host-local record already filed.
+    with EmbeddedBackend(store) as backend:
+        before = {entry.key for entry in backend.select(ScopeFilter(), Query())}
+        consumed = SpoolConsumer(
+            backend, project.root / "var" / "spool", config=project.config
+        ).consume()
+        after = {entry.key for entry in backend.select(ScopeFilter(), Query())}
+    assert consumed.refused == 0
+    assert (consumed.appended, consumed.duplicates) == (0, report.appended)
+    assert after == before
+    assert _forwarded(project) == []
+
+
+def test_without_a_stack_marker_nothing_is_forwarded(project):
+    project.host_projects.mkdir(parents=True, exist_ok=True)
+    (project.host_projects / f"{SESSION}.jsonl").write_bytes(_line(SESSION, "hello"))
+    assert hr.forward_host_transcripts(project.root, project.config) is None
+    assert _forwarded(project) == []
+    assert not (project.state_dir / hr.FORWARD_STATE_FILE_NAME).exists()
+
+
+def test_a_forward_resumes_from_its_own_position(project, monkeypatch):
+    _own_the_record(project, monkeypatch)
+    project.host_projects.mkdir(parents=True, exist_ok=True)
+    path = project.host_projects / f"{SESSION}.jsonl"
+    path.write_bytes(_line(SESSION, "one"))
+    first = hr.forward_host_transcripts(project.root, project.config)
+    assert first is not None and first.appended == 1
+    assert hr.forward_host_transcripts(project.root, project.config).appended == 0
+    with path.open("ab") as handle:
+        handle.write(_line(SESSION, "two"))
+    assert hr.forward_host_transcripts(project.root, project.config).appended == 1
+    assert len(_forwarded(project)) == 2
+
+
+def test_a_busy_forward_skips_the_round(project, monkeypatch):
+    _own_the_record(project, monkeypatch)
+    project.host_projects.mkdir(parents=True, exist_ok=True)
+    (project.host_projects / f"{SESSION}.jsonl").write_bytes(_line(SESSION, "hello"))
+    with hr._forward_lock(project.state_dir, 0.0) as had:
+        assert had
+        assert hr.forward_host_transcripts(project.root, project.config) is None
+    assert _forwarded(project) == []
+
+
+def test_a_forwarded_entry_is_scrubbed_of_the_build_secrets(project, monkeypatch):
+    secret = "s3cr3t-forwarded-value-0123456789"
+    service_file = project.root / creds.SERVICE_FILE
+    verifier = creds.read_env_value(service_file, creds.VERIFIER_ENV)
+    service_file.write_text(creds.render_service_env([verifier or ""], [secret]))
+    _own_the_record(project, monkeypatch)
+    project.host_projects.mkdir(parents=True, exist_ok=True)
+    (project.host_projects / f"{SESSION}.jsonl").write_bytes(_line(SESSION, secret))
+    assert hr.forward_host_transcripts(project.root, project.config).appended == 1
+    (segment,) = _forwarded(project)
+    (line,) = segment.read_text().splitlines()
+    assert secret not in json.dumps(json.loads(line)["body"])
+
+
+def test_a_holder_forwards_as_it_ends_while_the_stack_owns_the_record(project, monkeypatch):
+    project.host_projects.mkdir(parents=True, exist_ok=True)
+    path = project.host_projects / f"{SESSION}.jsonl"
+    path.write_bytes(_line(SESSION, "before"))
+    calls: list[float] = []
+    real = hr.forward_host_transcripts
+
+    def counting(root, config, *, wait_s=0.0):
+        calls.append(wait_s)
+        return real(root, config, wait_s=wait_s)
+
+    monkeypatch.setattr(hr, "forward_host_transcripts", counting)
+    with project.ensure():
+        # No marker: the host-local record reads the file itself.
+        assert _forwarded(project) == []
+        _own_the_record(project, monkeypatch)
+        with path.open("ab") as handle:
+            handle.write(_line(SESSION, "after"))
+    # The one-shot holder asked as it started (no marker yet: nothing forwarded)
+    # and as it ended, when the whole file went to the spool. The host-local
+    # process the marker now keeps may already have ingested the segment, so
+    # the forwarder's own position is what is read.
+    assert calls == [hr.FORWARD_WAIT_S, hr.FORWARD_WAIT_S]
+    state = json.loads((project.state_dir / hr.FORWARD_STATE_FILE_NAME).read_text())
+    (position,) = state.values()
+    assert position["offset"] == path.stat().st_size
+
+
+def test_the_supervisor_forwards_every_round_while_the_stack_owns_the_record(project, monkeypatch):
+    rounds: list[Path] = []
+    monkeypatch.setattr(
+        hr, "forward_host_transcripts", lambda root, config, **_: rounds.append(Path(root))
+    )
+    with project.ensure(supervise_s=0.05):
+        deadline = time.monotonic() + 10
+        while len(rounds) < 2 and time.monotonic() < deadline:
+            time.sleep(0.05)
+    assert len(rounds) >= 2
+    assert set(rounds) == {project.root}
+
+
+def test_a_drained_read_forwards_first_in_a_host_launchs_children(project, monkeypatch):
+    from osprey.agent_record.client import RecordClient
+    from osprey.agent_record.contract import Drain
+
+    forwarded: list[str] = []
+    monkeypatch.setattr(hr, "forward_for_drain", forwarded.append)
+    client = RecordClient("http://127.0.0.1:1", "builder", "token")
+    config_path = str(project.root / "build" / "config.yml")
+
+    monkeypatch.delenv(hr.FORWARD_CONFIG_ENV, raising=False)
+    client.list_sessions(wait=Drain())
+    assert forwarded == []
+
+    monkeypatch.setenv(hr.FORWARD_CONFIG_ENV, config_path)
+    client.list_sessions()
+    assert forwarded == []
+    client.list_sessions(wait=Drain())
+    assert forwarded == [config_path]
+
+
+def test_forward_for_drain_reads_the_rendered_config(project, monkeypatch):
+    _own_the_record(project, monkeypatch)
+    project.host_projects.mkdir(parents=True, exist_ok=True)
+    (project.host_projects / f"{SESSION}.jsonl").write_bytes(_line(SESSION, "hello"))
+    hr.forward_for_drain(project.root / "build" / "config.yml")
+    assert len(_forwarded(project)) == 1
 
 
 def test_the_service_reads_only_the_host_root_on_the_host(project, tmp_path):
