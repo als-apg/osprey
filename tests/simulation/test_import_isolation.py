@@ -23,6 +23,7 @@ def _assert_subprocess_clean(code: str) -> None:
         capture_output=True,
         text=True,
         env=env,
+        timeout=120,
     )
     assert r.returncode == 0, r.stderr
     assert "CLEAN" in r.stdout

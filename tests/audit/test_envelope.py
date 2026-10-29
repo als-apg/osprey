@@ -375,5 +375,6 @@ class TestLeafModule:
             [sys.executable, "-c", "import osprey.audit.envelope"],
             capture_output=True,
             text=True,
+            timeout=120,
         )
         assert result.returncode == 0, result.stderr

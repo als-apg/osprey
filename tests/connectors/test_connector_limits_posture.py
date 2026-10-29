@@ -16,7 +16,6 @@ per-type block behaves exactly as it did before they existed.
 """
 
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -183,12 +182,9 @@ _EPICS_VARS = [
 
 @pytest.fixture
 def clean_epics_env(monkeypatch):
-    """Snapshot EPICS_* env vars so connect()'s direct os.environ writes are restored."""
+    """Start with no EPICS_* variables; the autouse ``restore_environ`` undoes connect()'s writes."""
     for var in _EPICS_VARS:
         monkeypatch.delenv(var, raising=False)
-    yield
-    for var in _EPICS_VARS:
-        os.environ.pop(var, None)
 
 
 def _gateways() -> dict[str, Any]:

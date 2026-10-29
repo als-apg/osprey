@@ -48,7 +48,6 @@ REMAINING_SITES: dict[str, int] = {
     "tests/cli/test_web_bind.py": 1,
     "tests/cli/test_web_cmd.py": 43,
     "tests/cli/test_web_session_lifetime.py": 9,
-    "tests/connectors/test_epics_ca_softioc.py": 1,
     "tests/deployment/test_qmd_entrypoint_loopback_probe.py": 1,
     "tests/deployment/web_terminals/test_auth_serving.py": 2,
     "tests/e2e/_dispatch_harness.py": 2,

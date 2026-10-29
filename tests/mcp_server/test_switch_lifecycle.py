@@ -55,6 +55,7 @@ from osprey_connectors.ipc._verification import (
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.types import VIRTUAL_ACCELERATOR
 from osprey_connectors_tests._harness import isolated_connector_registries, state_dir_under
+from tests._live import async_wait_until
 from tests.facility.served_tree import in_process_config
 from tests.fixtures.control_context import context_for
 from tests.mcp_server._switch_harness import (
@@ -128,13 +129,15 @@ class _FakeArchiver:
         return None
 
 
-async def wait_for(predicate, timeout=SETTLE_TIMEOUT_S):
-    """Poll *predicate* on the event loop until it holds, or fail the test."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if predicate():
-            return True
-        await asyncio.sleep(0.05)
+async def wait_for(predicate):
+    """Whether *predicate* comes to hold within the settle timeout.
+
+    A bool rather than a raise, so each caller's assertion message is built
+    when it fails and can report the state it found.
+    """
+    with contextlib.suppress(AssertionError):
+        await async_wait_until(predicate, timeout=SETTLE_TIMEOUT_S)
+        return True
     return False
 
 

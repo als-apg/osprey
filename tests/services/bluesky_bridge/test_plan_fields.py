@@ -638,7 +638,9 @@ def test_importing_plan_fields_stays_import_clean() -> None:
         f"leaked = sorted(set({sorted(_BRIDGE_ONLY_MODULES)!r}) & set(sys.modules)); "
         "assert not leaked, leaked"
     )
-    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=120
+    )
     assert result.returncode == 0, (
         "importing osprey.services.bluesky_bridge.plan_fields leaked a top-level "
         f"import of a bridge-only module (child exit {result.returncode}):\n{result.stderr}"

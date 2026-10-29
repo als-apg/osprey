@@ -329,6 +329,7 @@ class TestRdflibImportIsolation:
             [sys.executable, "-c", code],
             capture_output=True,
             text=True,
+            timeout=120,
         )
         assert result.returncode == 0, (
             f"Seeder leaked into facility_knowledge namespace:\n{result.stderr}"
@@ -361,6 +362,7 @@ class TestRdflibImportIsolation:
             [sys.executable, "-c", code],
             capture_output=True,
             text=True,
+            timeout=120,
         )
         assert result.returncode == 0, (
             f"graph_seeder leaked into facility_knowledge namespace:\n{result.stderr}"
