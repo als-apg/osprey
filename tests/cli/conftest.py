@@ -13,7 +13,6 @@ import os
 from collections.abc import Callable, Iterator
 from io import StringIO
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
@@ -73,22 +72,6 @@ def _neutral_color_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def runner() -> CliRunner:
     """A Click runner for driving a command in-process."""
     return CliRunner()
-
-
-@pytest.fixture
-def restore_process_state(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Put back the working directory and ``os.environ`` a verb changes in-process.
-
-    Leak guarded: ``chat``, ``web``, ``query`` and ``sim`` chdir into the render
-    and write ``os.environ`` directly (the deployment ``.env`` overlay, the port
-    publication, the operator secret, ``OSPREY_CONFIG``). Both outlive a
-    ``CliRunner`` invocation and would otherwise reach every later test in the
-    worker. Modules whose verbs do this take it with
-    ``pytestmark = pytest.mark.usefixtures("restore_process_state")``.
-    """
-    monkeypatch.chdir(Path.cwd())
-    with patch.dict(os.environ):
-        yield
 
 
 @pytest.fixture(autouse=True)

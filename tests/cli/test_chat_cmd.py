@@ -28,8 +28,6 @@ from osprey.cli.chat_cmd import _launch_companion_servers, chat
 from tests.cli._lifecycle_build import stub_build
 from tests.cli._scoped_subprocess import patch_subprocess
 
-pytestmark = pytest.mark.usefixtures("restore_process_state")
-
 
 @pytest.fixture(autouse=True)
 def _no_managed_policy(monkeypatch: pytest.MonkeyPatch):

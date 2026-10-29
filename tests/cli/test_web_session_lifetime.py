@@ -188,17 +188,12 @@ def test_declared_env_constant_equals_the_web_auth_spelling():
 # ---------------------------------------------------------------------------
 
 
-pytestmark = pytest.mark.usefixtures("restore_process_state")
-
-
 @pytest.fixture(autouse=True)
 def _isolate_web_env(monkeypatch):
     """Start each launch test from an environment that declares nothing.
 
-    ``monkeypatch.delenv`` on a key that is already absent records NO undo, so
-    a later direct ``os.environ[...] = ...`` from inside ``web()`` would never
-    be rolled back. Forcing a ``setenv`` first makes monkeypatch track the key
-    and restore its true pre-test state either way.
+    A direct ``os.environ[...] = ...`` from inside ``web()`` is rolled back by
+    the root ``restore_environ`` guard.
     """
     from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, reset_web_credentials
 
@@ -210,8 +205,7 @@ def _isolate_web_env(monkeypatch):
         DECLARED_SESSION_STORE_DIR_ENV,
         OPERATOR_SECRET_ENV,
     ):
-        monkeypatch.setenv(key, "__unset_by_test_fixture__")
-        monkeypatch.delenv(key)
+        monkeypatch.delenv(key, raising=False)
     reset_web_credentials()
     yield
     reset_web_credentials()

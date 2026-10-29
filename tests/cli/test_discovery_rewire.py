@@ -73,9 +73,6 @@ def nested(repo: Path) -> Path:
     return deep
 
 
-pytestmark = pytest.mark.usefixtures("restore_process_state")
-
-
 @pytest.fixture(autouse=True)
 def _no_ambient_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
     """Start every test from an environment that names no deployment.
