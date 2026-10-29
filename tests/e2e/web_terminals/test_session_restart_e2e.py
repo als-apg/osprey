@@ -310,7 +310,7 @@ def _session_cookie(exchange: httpx.Response, cookie_name: str) -> tuple[str, Mo
     return raw, jar[cookie_name]
 
 
-def test_browser_session_survives_a_server_restart(tmp_path: Path) -> None:
+def test_browser_session_survives_a_server_restart(tmp_path: Path, record_port: int) -> None:
     """Stop and restart a real ``osprey web`` and prove the cookie still works.
 
     Asserts, across two launcher invocations against one repo and one port, the
@@ -333,6 +333,7 @@ def test_browser_session_survives_a_server_restart(tmp_path: Path) -> None:
                 "writes": "never",
             },
         },
+        record_port,
     )
 
     base_url = f"http://{_HOST}:{port}"

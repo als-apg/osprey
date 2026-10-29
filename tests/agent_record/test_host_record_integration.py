@@ -72,7 +72,6 @@ from osprey.agent_record.contract import (
     spool_key,
 )
 from osprey.agent_runner.project_paths import CLAUDE_CONFIG_DIR_ENV, claude_project_dir
-from osprey.interfaces._serving import free_port
 from osprey.interfaces.web_terminal.routes import session as session_routes
 from osprey.mcp_server import session as session_record
 
@@ -457,13 +456,19 @@ def _ok(result: subprocess.CompletedProcess, what: str) -> subprocess.CompletedP
     return result
 
 
-def _deploy(base: Path, name: str, env: dict[str, str], shims: Path, **edits: Any) -> Deployment:
-    """``osprey init --preset hello-world`` and ``osprey build``, nothing more."""
+def _deploy(
+    base: Path, name: str, env: dict[str, str], shims: Path, port: int, **edits: Any
+) -> Deployment:
+    """``osprey init --preset hello-world`` and ``osprey build``, nothing more.
+
+    *port* is the record's: the host-local process binds it long after the
+    config names it, so the caller holds it reserved for the deployment's life.
+    """
     from tests.e2e.profile_edits import set_pairs
 
     osprey = _osprey_bin()
     repo = base / name
-    pins = {"port_base": PORT_BASE, "agent_record": {"port": free_port(), **edits}}
+    pins = {"port_base": PORT_BASE, "agent_record": {"port": port, **edits}}
     _ok(
         _run(
             [str(osprey), "init", str(repo), "--preset", "hello-world", "--no-git"]
@@ -508,23 +513,33 @@ def module_env(tmp_path_factory) -> Iterator[tuple[Path, dict[str, str], Path]]:
 @pytest.fixture(scope="module")
 def hello_world(module_env) -> Iterator[Deployment]:
     base, env, shims = module_env
-    dep = _deploy(base, "hello", env, shims)
-    assert dep.config["agent_record"]["backend"] == "embedded"
-    try:
-        yield dep
-    finally:
-        _stop_everything(dep)
+    # Imported here: the claude shim imports this module where the harness
+    # package is not on the path.
+    from osprey_connectors_tests._harness._ports import reserved_port
+
+    with reserved_port() as port:
+        dep = _deploy(base, "hello", env, shims, port)
+        assert dep.config["agent_record"]["backend"] == "embedded"
+        try:
+            yield dep
+        finally:
+            _stop_everything(dep)
 
 
 @pytest.fixture(scope="module")
 def clickhouse(module_env) -> Iterator[Deployment]:
     base, env, shims = module_env
-    dep = _deploy(base, "clickhouse", env, shims, backend="clickhouse")
-    assert dep.config["agent_record"]["backend"] == "clickhouse"
-    try:
-        yield dep
-    finally:
-        _stop_everything(dep)
+    # Imported here: the claude shim imports this module where the harness
+    # package is not on the path.
+    from osprey_connectors_tests._harness._ports import reserved_port
+
+    with reserved_port() as port:
+        dep = _deploy(base, "clickhouse", env, shims, port, backend="clickhouse")
+        assert dep.config["agent_record"]["backend"] == "clickhouse"
+        try:
+            yield dep
+        finally:
+            _stop_everything(dep)
 
 
 def _stop_everything(dep: Deployment) -> None:
@@ -540,6 +555,18 @@ def _stop_everything(dep: Deployment) -> None:
             with hr.host_record_lock(state_dir, wait_s=30):
                 (state_dir / hr.MARKER_FILE_NAME).unlink(missing_ok=True)
                 hr.stop_host_process(state_dir, wait_s=10)
+
+
+@pytest.fixture
+def web_port() -> Iterator[int]:
+    """The port a case's ``osprey web`` is told to bind: named on its command
+    line before the server exists, so reserved for the case."""
+    # Imported here: the claude shim imports this module where the harness
+    # package is not on the path.
+    from osprey_connectors_tests._harness._ports import reserved_port
+
+    with reserved_port() as port:
+        yield port
 
 
 @pytest.fixture
@@ -803,8 +830,8 @@ def _web_login(stdout_path: Path) -> str:
     return _await(_token, 120, "osprey web to print its login URL")
 
 
-def test_a_host_web_session_records_without_a_container(dep, tmp_path):
-    port = free_port()
+def test_a_host_web_session_records_without_a_container(dep, tmp_path, web_port):
+    port = web_port
     out = tmp_path / "web.out"
     with out.open("w") as sink:
         web = subprocess.Popen(
@@ -980,10 +1007,10 @@ def test_feedback_list_answers_and_leaves_no_process(dep):
         pytest.param(["query", "hello"], id="query"),
     ],
 )
-def test_a_clickhouse_project_with_no_stack_refuses_with_the_fix(clickhouse, verb):
+def test_a_clickhouse_project_with_no_stack_refuses_with_the_fix(clickhouse, verb, web_port):
     args = list(verb)
     if args[0] == "web":
-        args += ["--port", str(free_port())]
+        args += ["--port", str(web_port)]
     else:
         args[1:1] = ["--repo", str(clickhouse.repo)]
     result = _run([str(clickhouse.osprey), *args], cwd=clickhouse.repo, env=clickhouse.env)

@@ -8,8 +8,9 @@ stamps and mints for it — ``deployment.host_identity`` in the render and the
 host login beside the profile — so a lane that writes its repo by hand states
 the identity and runs the build's credential step itself.
 
-The record listens on a port of its own (:func:`free_port`), so lanes running
-side by side never find each other's record answering.
+The record listens on a port of its own, reserved for as long as the lane
+needs it, so lanes running side by side never find each other's record
+answering.
 """
 
 from __future__ import annotations
@@ -21,19 +22,21 @@ import yaml
 
 from osprey.agent_record import credentials as record_creds
 from osprey.agent_record import host as host_record
-from osprey.interfaces._serving import free_port
 
 #: The identity the terminal's host sessions record under.
 HOST_IDENTITY = "e2e-host"
 
 
-def write_minimal_repo(repo: Path, config: dict[str, Any]) -> Path:
+def write_minimal_repo(repo: Path, config: dict[str, Any], record_port: int) -> Path:
     """Write *repo* serving *config*, with the host record's identity, port and login.
 
     Args:
         repo: The repo root to create.
         config: The render's ``config.yml`` content; ``project_root``,
             ``deployment.host_identity`` and ``agent_record.port`` are added.
+        record_port: The host record's port, which the caller holds reserved
+            (``reserved_port()``) while the terminal runs: the record binds it
+            only once the terminal starts it.
 
     Returns:
         *repo*.
@@ -42,7 +45,7 @@ def write_minimal_repo(repo: Path, config: dict[str, Any]) -> Path:
         **config,
         "project_root": str(repo),
         "deployment": {**(config.get("deployment") or {}), "host_identity": HOST_IDENTITY},
-        "agent_record": {**(config.get("agent_record") or {}), "port": free_port()},
+        "agent_record": {**(config.get("agent_record") or {}), "port": record_port},
     }
     (repo / "build").mkdir(parents=True)
     name = (config.get("system") or {}).get("name") or repo.name

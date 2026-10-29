@@ -42,7 +42,8 @@ from osprey.agent_record.backends.embedded import EmbeddedBackend
 from osprey.agent_record.contract import transcript_state_name
 from osprey.agent_record.ingest.tailer import TranscriptTailer
 from osprey.deployment.compose_generator import agent_record_host_projects_dir
-from osprey.interfaces._serving import free_port, run_app_server
+from osprey.interfaces._serving import run_app_server
+from osprey_connectors_tests._harness._ports import reserved_port
 
 HOST = "builder"
 SESSION = "5f0c9a3e-1111-4222-8333-944455556666"
@@ -68,9 +69,9 @@ def _line(session: str, text: str) -> bytes:
 class Project:
     """A deployment repo in a temp dir: rendered config, credentials, host projects dir."""
 
-    def __init__(self, root: Path, *, backend: str = "embedded", port: int | None = None):
+    def __init__(self, root: Path, *, port: int, backend: str = "embedded"):
         self.root = root
-        self.port = port or free_port()
+        self.port = port
         self.config: dict = {
             "project_name": "hostrec",
             "project_root": str(root),
@@ -102,8 +103,16 @@ def claude_dir(tmp_path, monkeypatch) -> Path:
 
 
 @pytest.fixture
-def project(tmp_path, claude_dir) -> Iterator[Project]:
-    proj = Project(tmp_path / "repo")
+def record_port() -> Iterator[int]:
+    """The port the host-local record a test may start binds: the config names it
+    before the process exists, so it is reserved for the whole test."""
+    with reserved_port() as port:
+        yield port
+
+
+@pytest.fixture
+def project(tmp_path, claude_dir, record_port) -> Iterator[Project]:
+    proj = Project(tmp_path / "repo", port=record_port)
     assert proj.host_projects.parent == claude_dir / "projects"
     yield proj
     # Never leave a process behind, whatever a test did.
@@ -396,8 +405,8 @@ def _tree(root: Path) -> set[str]:
 
 
 @pytest.mark.usefixtures("claude_dir")
-def test_the_clickhouse_refusal_creates_no_file(tmp_path):
-    project = Project(tmp_path / "repo", backend="clickhouse")
+def test_the_clickhouse_refusal_creates_no_file(tmp_path, record_port):
+    project = Project(tmp_path / "repo", port=record_port, backend="clickhouse")
     before = _tree(project.root)
     with pytest.raises(hr.HostRecordRefused, match="osprey up") as info, project.ensure():
         pass
@@ -729,10 +738,10 @@ def test_a_failed_first_pass_answers_503_so_no_one_waits_on_it(project, tmp_path
         assert response.json() == {"status": "error", "ready": False}
 
 
-def test_a_missing_host_login_names_the_build_and_the_run_time_mount(tmp_path):
+def test_a_missing_host_login_names_the_build_and_the_run_time_mount(tmp_path, record_port):
     """A bare container of the project image holds no credential file: the
     refusal says to build, or to mount the build's login file where it is read."""
-    proj = Project(tmp_path / "repo")
+    proj = Project(tmp_path / "repo", port=record_port)
     login_path = proj.root / creds.login_file(ids.login_for(HOST))
     login_path.unlink()
 
@@ -744,8 +753,8 @@ def test_a_missing_host_login_names_the_build_and_the_run_time_mount(tmp_path):
     )
 
 
-def test_a_missing_service_file_names_the_build_and_the_run_time_mount(tmp_path):
-    proj = Project(tmp_path / "repo")
+def test_a_missing_service_file_names_the_build_and_the_run_time_mount(tmp_path, record_port):
+    proj = Project(tmp_path / "repo", port=record_port)
     service_path = proj.root / creds.SERVICE_FILE
     service_path.unlink()
 

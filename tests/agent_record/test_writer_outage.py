@@ -20,12 +20,11 @@ import asyncio
 import base64
 import json
 import os
-import socket
 import subprocess
 import sys
 import time
 from collections import Counter
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -52,6 +51,7 @@ from osprey.services.auth_sidecar.app import create_app as create_sidecar_app
 from osprey.services.auth_sidecar.passwords import hash_password
 from osprey.services.auth_sidecar.revocation import STATE_DIR_ENV
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests.agent_record.test_identities import _config
 
 HOOKS_DIR = (
@@ -135,15 +135,14 @@ def record_env(tmp_path, config, spool_zone) -> dict[str, str]:
 
 
 @pytest.fixture
-def stopped_record(monkeypatch) -> str:
-    """Every record client in this process aims at a port nothing listens on."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.bind(("127.0.0.1", 0))
-        port = probe.getsockname()[1]
-    url = f"http://127.0.0.1:{port}"
-    monkeypatch.setenv(URL_ENV, url)
-    monkeypatch.setenv(creds.LOGIN_ENV, f"{TERMINAL}:{_token(TERMINAL)}")
-    return url
+def stopped_record(monkeypatch) -> Iterator[str]:
+    """Every record client in this process aims at a port nothing listens on,
+    reserved for the test and never bound."""
+    with reserved_port() as port:
+        url = f"http://127.0.0.1:{port}"
+        monkeypatch.setenv(URL_ENV, url)
+        monkeypatch.setenv(creds.LOGIN_ENV, f"{TERMINAL}:{_token(TERMINAL)}")
+        yield url
 
 
 @asynccontextmanager

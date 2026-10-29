@@ -55,9 +55,9 @@ from osprey.agent_record import host as hr
 from osprey.agent_record.client import URL_ENV, RecordClient
 from osprey.agent_record.contract import KIND_DECISION, KIND_USAGE, SPOOL_DIR_ENV, Drain
 from osprey.agent_runner.project_paths import CLAUDE_CONFIG_DIR_ENV
-from osprey.interfaces._serving import free_port
 from osprey.interfaces.web_terminal.routes import session as session_routes
 from osprey.mcp_server import session as session_record
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests.agent_record.test_host_record_integration import (
     Deployment,
     Holder,
@@ -379,7 +379,15 @@ def _chat(dep: Deployment) -> None:
 # The module fixture's ``osprey build --dev`` runs inside this case's budget,
 # ahead of one live query, one live chat and the web login.
 @pytest.mark.timeout(3600)
-def test_host_sessions_record_without_a_container(deployment):
+@pytest.fixture
+def web_port() -> Iterator[int]:
+    """The port the case's ``osprey web`` binds: named on its command line before
+    the server exists, so reserved for the case."""
+    with reserved_port() as port:
+        yield port
+
+
+def test_host_sessions_record_without_a_container(deployment, web_port):
     dep = deployment
     with _reader(dep) as client:
         before = _session_ids(client)
@@ -403,7 +411,7 @@ def test_host_sessions_record_without_a_container(deployment):
     _assert_no_record_left(dep)
 
     # A host web session reads the same sessions through its own routes.
-    port = free_port()
+    port = web_port
     out = dep.repo / "var" / "web-e2e.out"
     with out.open("w") as sink:
         web = subprocess.Popen(

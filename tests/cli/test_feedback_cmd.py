@@ -31,11 +31,23 @@ from osprey.agent_record.client import URL_ENV, ClientAnswer
 from osprey.agent_record.contract import KIND_AUDIT, KIND_FEEDBACK, Drain, spool_key
 from osprey.cli import feedback_cmd
 from osprey.cli.feedback_cmd import feedback
-from osprey.interfaces._serving import free_port
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests.agent_record.fakes import FakeRecordClient
 
 HOST = "builder"
 SESSION_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301"
+
+
+#: The port this test's record would bind, reserved for the test by
+#: :func:`_record_port`: the config names it before any record starts.
+_RECORD_PORT: list[int] = []
+
+
+@pytest.fixture(autouse=True)
+def _record_port() -> Iterator[None]:
+    with reserved_port() as port:
+        _RECORD_PORT[:] = [port]
+        yield
 
 
 def _config(root: Path, port: int) -> dict[str, Any]:
@@ -54,7 +66,7 @@ def _make_repo(tmp_path: Path, *, port: int | None = None) -> tuple[Path, dict[s
     root = (tmp_path / "deployment").resolve()
     (root / "build").mkdir(parents=True)
     (root / "profile.yml").write_text("preset: hello-world\n", encoding="utf-8")
-    config = _config(root, port or free_port())
+    config = _config(root, port or _RECORD_PORT[0])
     (root / "build" / "config.yml").write_text(yaml.safe_dump(config), encoding="utf-8")
     creds.ensure_agent_record_credentials(root, config, reader_keys=False)
     return root, config

@@ -129,6 +129,7 @@ from osprey_connectors.dotenv import (
     merge_chain,
     parse_dotenv_file,
 )
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests._container_support import docker_cli_unavailable_reason_once
 from tests._renders import tier_render
 from tests.services.auth_sidecar.mock_idp import DEFAULT_CLIENT_ID, DEFAULT_CLIENT_SECRET
@@ -710,9 +711,12 @@ def serving_stack(tmp_path: Path, *, oidc: bool = False) -> Iterator[Stack]:
     # The history page's gate secret, which a signed-in deployment serves and
     # nginx reads from its own env file: minted by the preflight function too.
     # Every config this module renders signs people in, so one call covers all.
-    ensure_agent_record_credentials(
-        deployment_root, _config(free_port(), oidc_issuer=None), reader_keys=False
-    )
+    # The grants follow the roster and the sign-in method; the config only
+    # needs some nginx port, reserved for the call and never bound.
+    with reserved_port() as unbound_port:
+        ensure_agent_record_credentials(
+            deployment_root, _config(unbound_port, oidc_issuer=None), reader_keys=False
+        )
     env_local = parse_dotenv_file(deployment_root / ENV_LOCAL_FILENAME)
     terminal_secrets = {user: env_local[terminal_secret_var(user)] for user in _USERS}
 

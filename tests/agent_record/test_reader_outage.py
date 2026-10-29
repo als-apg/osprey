@@ -57,6 +57,7 @@ from osprey.interfaces.web_terminal.routes import config as config_routes
 from osprey.interfaces.web_terminal.routes import session as session_routes
 from osprey.mcp_server.dispatch_worker import dispatch_api
 from osprey.mcp_server.session import DISPATCH_RUN_ENV
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests.agent_record.test_identities import _config
 from tests.agent_record.test_spool_consumer import _line, _sealed
 from tests.cli.test_feedback_cmd import _make_repo
@@ -125,14 +126,11 @@ def _aim(monkeypatch, url: str, identity: str = TERMINAL) -> None:
 
 
 @pytest.fixture
-def stopped_url() -> str:
-    """A loopback URL nothing listens on: agent-record is stopped."""
-    import socket
-
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.bind(("127.0.0.1", 0))
-        port = probe.getsockname()[1]
-    return f"http://127.0.0.1:{port}"
+def stopped_url() -> Iterator[str]:
+    """A loopback URL nothing listens on: agent-record is stopped. The port is
+    reserved for the test and never bound."""
+    with reserved_port() as port:
+        yield f"http://127.0.0.1:{port}"
 
 
 @pytest.fixture

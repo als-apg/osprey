@@ -330,7 +330,7 @@ def _run_executor_sandbox(tmp_path: Path, base_url: str, operator_secret: str) -
     return json.loads(sandbox_line[len("SANDBOX_RESULT ") :])
 
 
-def test_escalation_chain_is_broken_end_to_end(tmp_path: Path) -> None:
+def test_escalation_chain_is_broken_end_to_end(tmp_path: Path, record_port: int) -> None:
     """Boot a real single-user ``osprey web`` and prove the chain is broken.
 
     Asserts, against one live process reached over real sockets, all five
@@ -353,6 +353,7 @@ def test_escalation_chain_is_broken_end_to_end(tmp_path: Path) -> None:
                 "writes": "never",
             },
         },
+        record_port,
     )
     log_path = tmp_path / "server.log"
 

@@ -124,7 +124,9 @@ def _wait_for_port(host: str, port: int, proc: subprocess.Popen, timeout: float)
     return False
 
 
-def test_declared_loopback_survives_hostile_host_flag_over_real_socket(tmp_path: Path) -> None:
+def test_declared_loopback_survives_hostile_host_flag_over_real_socket(
+    tmp_path: Path, record_port: int
+) -> None:
     """The C3 chokepoint, end to end, against a real listening socket.
 
     Setup mirrors the multi-user compose exactly: the deployment DECLARES
@@ -151,7 +153,7 @@ def test_declared_loopback_survives_hostile_host_flag_over_real_socket(tmp_path:
     # minimal) repo. Without it the server exits before binding and the bind
     # assertions below never get to run.
     repo = write_minimal_repo(
-        tmp_path / "loopback-chokepoint", {"system": {"name": "loopback-chokepoint"}}
+        tmp_path / "loopback-chokepoint", {"system": {"name": "loopback-chokepoint"}}, record_port
     )
     log_path = tmp_path / "server.log"
 

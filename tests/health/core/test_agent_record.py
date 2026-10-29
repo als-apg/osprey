@@ -26,7 +26,8 @@ from osprey.agent_record.backends.embedded import EmbeddedBackend
 from osprey.agent_record.client import URL_ENV, ClientAnswer
 from osprey.health.core.agent_record import CATEGORY, agent_record
 from osprey.health.models import CheckResult, Status
-from osprey.interfaces._serving import free_port, run_app_server
+from osprey.interfaces._serving import run_app_server
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests.agent_record.test_identities import _config
 
 HEALTH_COMMAND = "osprey agent-record health"
@@ -397,8 +398,9 @@ def test_no_record_configured_says_so_as_information():
 
 
 def test_a_record_that_does_not_answer_says_so_as_information():
-    env = {URL_ENV: f"http://127.0.0.1:{free_port()}", creds.LOGIN_ENV: "alice:token"}
-    row = _unanswered(agent_record(None, environ=env)())
+    with reserved_port() as port:  # reserved for the test, and never bound
+        env = {URL_ENV: f"http://127.0.0.1:{port}", creds.LOGIN_ENV: "alice:token"}
+        row = _unanswered(agent_record(None, environ=env)())
     assert "unreachable" in row.message
 
 

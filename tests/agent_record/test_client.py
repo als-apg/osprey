@@ -22,6 +22,7 @@ import base64
 import inspect
 import json
 import time
+from collections.abc import Iterator
 from datetime import UTC, date, datetime
 
 import pytest
@@ -41,7 +42,8 @@ from osprey.agent_record.client import (
     ClientAnswer,
     RecordClient,
 )
-from osprey.interfaces._serving import free_port, run_app_server
+from osprey.interfaces._serving import run_app_server
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests.agent_record.fakes import FakeRecordClient
 from tests.agent_record.test_identities import _config
 from tests.agent_record.test_reader import BRIDGE, QS, R1, R2, S1, S3, W1, _at, _e, _seed
@@ -271,8 +273,15 @@ def test_a_non_history_login_naming_a_viewer_is_unavailable(url, login):
 # --- failures answer unavailable, never raise ------------------------------------------
 
 
-def test_a_stopped_service_is_unavailable_within_the_timeout():
-    client = RecordClient(f"http://127.0.0.1:{free_port()}", "alice", "x", timeout=2.0)
+@pytest.fixture
+def closed_port() -> Iterator[int]:
+    """A loopback port nothing listens on: reserved for the test, and never bound."""
+    with reserved_port() as port:
+        yield port
+
+
+def test_a_stopped_service_is_unavailable_within_the_timeout(closed_port):
+    client = RecordClient(f"http://127.0.0.1:{closed_port}", "alice", "x", timeout=2.0)
     started = time.monotonic()
     for name, (call, _) in _calls().items():
         answer = call(client)
@@ -510,8 +519,8 @@ def test_every_other_login_is_refused_the_export(url, login):
     assert answer.data is None and not answer.complete
 
 
-def test_health_and_export_on_a_stopped_service_are_unavailable():
-    client = RecordClient(f"http://127.0.0.1:{free_port()}", "operator", "x", timeout=2.0)
+def test_health_and_export_on_a_stopped_service_are_unavailable(closed_port):
+    client = RecordClient(f"http://127.0.0.1:{closed_port}", "operator", "x", timeout=2.0)
     for answer in (client.health_sources(), client.export()):
         assert answer.unavailable and "unreachable" in answer.unavailable
         assert answer.data is None and not answer.complete

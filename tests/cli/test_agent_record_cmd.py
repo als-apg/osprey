@@ -35,9 +35,21 @@ from osprey.agent_record.contract import KIND_AUDIT
 from osprey.agent_record.service import JOBS_CLOCK_ENV
 from osprey.cli import agent_record_cmd
 from osprey.cli.agent_record_cmd import agent_record_group
-from osprey.interfaces._serving import free_port
+from osprey_connectors_tests._harness._ports import reserved_port
 
 HOST = "builder"
+
+
+#: The port this test's record would bind, reserved for the test by
+#: :func:`_record_port`: the config names it before any record starts.
+_RECORD_PORT: list[int] = []
+
+
+@pytest.fixture(autouse=True)
+def _record_port() -> Iterator[None]:
+    with reserved_port() as port:
+        _RECORD_PORT[:] = [port]
+        yield
 
 
 def _config(root: Path, port: int, backend: str = "embedded") -> dict[str, Any]:
@@ -55,7 +67,7 @@ def _make_repo(tmp_path: Path, *, backend: str = "embedded") -> tuple[Path, dict
     root = (tmp_path / "deployment").resolve()
     (root / "build").mkdir(parents=True)
     (root / "profile.yml").write_text("preset: hello-world\n", encoding="utf-8")
-    config = _config(root, free_port(), backend)
+    config = _config(root, _RECORD_PORT[0], backend)
     (root / "build" / "config.yml").write_text(yaml.safe_dump(config), encoding="utf-8")
     creds.ensure_agent_record_credentials(root, config, reader_keys=False)
     # The archive root every build provisions (`ensure_archive_dir`).

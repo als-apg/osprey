@@ -19,6 +19,7 @@ import signal
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
@@ -37,7 +38,7 @@ from osprey.agent_runner import launcher, provider_env
 from osprey.cli.chat_cmd import chat
 from osprey.cli.query_cmd import EXIT_USAGE, query
 from osprey.cli.web_cmd import PID_FILE, web
-from osprey.interfaces._serving import free_port
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests.cli._lifecycle_build import stub_build
 from tests.cli._scoped_subprocess import patch_subprocess
 
@@ -48,13 +49,25 @@ REAL_HOST_RECORD_REFUSAL = hr.host_record_refusal
 HOST = "builder"
 
 
+#: The port this test's record would bind, reserved for the test by
+#: :func:`_record_port`: the config names it before any record starts.
+_RECORD_PORT: list[int] = []
+
+
+@pytest.fixture(autouse=True)
+def _record_port() -> Iterator[None]:
+    with reserved_port() as port:
+        _RECORD_PORT[:] = [port]
+        yield
+
+
 def _config(repo: Path, *, backend: str = "embedded", port: int | None = None) -> dict:
     return {
         "project_name": "hostlaunch",
         "project_root": str(repo),
         "build_dir": "./build",
         "deployment": {"host_identity": HOST},
-        "agent_record": {"port": port or free_port(), "backend": backend},
+        "agent_record": {"port": port or _RECORD_PORT[0], "backend": backend},
     }
 
 
