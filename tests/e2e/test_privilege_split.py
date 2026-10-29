@@ -641,6 +641,7 @@ def admin_state(admin_image, ro_image, preset_repo: Path, rendered_config: dict)
     from osprey.agent_record import credentials as creds
     from osprey.agent_record import identities as record_ids
     from osprey.agent_record.client import URL_ENV
+    from osprey_connectors.identity import AUDIT_IDENTITY_ENV
 
     tag, project = admin_image
     root = f"/app/{project}"
@@ -652,7 +653,9 @@ def admin_state(admin_image, ro_image, preset_repo: Path, rendered_config: dict)
     network, record_url = record.enter_context(_record_beside(ro_image[0], preset_repo))
 
     # As compose starts the user's terminal: its own login file, the record's
-    # URL and the user's name.
+    # URL and the user's identity. The identity is the audit rung, not
+    # OSPREY_TERMINAL_USER: that one also mounts the app under /u/<user>, a
+    # prefix only the stack's nginx strips, and this boot is reached directly.
     cid = _run_web(
         tag,
         "--network",
@@ -666,7 +669,7 @@ def admin_state(admin_image, ro_image, preset_repo: Path, rendered_config: dict)
         "-e",
         f"{URL_ENV}={record_url}",
         "-e",
-        f"OSPREY_TERMINAL_USER={user}",
+        f"{AUDIT_IDENTITY_ENV}={user}",
     )
     try:
         base_url = f"http://127.0.0.1:{_host_port(cid)}"
