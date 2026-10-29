@@ -11,7 +11,7 @@ soft-IOCs, and asserts on what came back over Channel Access.
 Two endpoints, and why they are two containers
 ----------------------------------------------
 A switch is only a switch if the two ends are different machines. This module
-therefore boots **two** ``osprey-va-full`` containers on two ephemeral ports and
+therefore boots **two** ``osprey-va-full`` containers on two reserved ports and
 gives the deployment one target each:
 
 * ``va``  -> the ``virtual_accelerator`` connector block, pointed at container V;
@@ -35,7 +35,7 @@ at both ends would be a switch that moved nothing.
 
 Ports, names and 5064
 ---------------------
-Each container binds an ephemeral port and publishes it unchanged: a Channel
+Each container binds a reserved port and publishes it unchanged: a Channel
 Access search reply carries the server's own port, so a remap would hand every
 client an address nothing answers on. That port also *names* the container: a
 fixed name is mutually destructive between concurrent runs, since each boot
@@ -88,6 +88,7 @@ from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system._base import ChannelValue
 from osprey_connectors.workspace import reset_config_cache
 from osprey_connectors_tests._harness import write_control_context
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests._approval_stamp_fixture import ApprovalStamps
 from tests._live import async_wait_until
 from tests.fixtures.control_context import (
@@ -117,7 +118,7 @@ except Exception as exc:  # pragma: no cover - depends on the installed extras
 REPO_ROOT = Path(__file__).resolve().parents[3]
 REPO_PATHS = (str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src"))
 
-#: Container-name prefixes; ``_serving`` appends the run's own ephemeral port.
+#: Container-name prefixes; ``_serving`` appends the run's own reserved port.
 CONTAINER_VA = "osprey-va-e2e-switch-va"
 CONTAINER_LIVE = "osprey-va-e2e-switch-live"
 
@@ -199,30 +200,30 @@ def _serving(prefix: str, *, state_dir: Path | None):
     container boots with; ``None`` serves the suite set
     (``e2e_conftest.SUITE_SCENARIOS``).
     """
-    port = free_port()
-    data = (
-        e2e_conftest.demo_data_run_args()
-        if state_dir is None
-        else (
-            *e2e_conftest.data_root_run_args(e2e_conftest.demo_data_dir()),
-            "-v",
-            f"{state_dir}:/state/simulation:ro",
-            "-e",
-            "VA_STATE_DIR=/state/simulation",
+    with reserved_port() as port:
+        data = (
+            e2e_conftest.demo_data_run_args()
+            if state_dir is None
+            else (
+                *e2e_conftest.data_root_run_args(e2e_conftest.demo_data_dir()),
+                "-v",
+                f"{state_dir}:/state/simulation:ro",
+                "-e",
+                "VA_STATE_DIR=/state/simulation",
+            )
         )
-    )
-    # The port is this run's alone, so the name can be nothing a concurrent run
-    # is using -- which is the point of the suffix.
-    with e2e_conftest.serving_container(
-        f"{prefix}-{port}",
-        port,
-        *data,
-        # The namespace, named: the IOC refuses to boot without one rather
-        # than picking the framework's demo channels on its own.
-        *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
-        boot_timeout=BOOT_TIMEOUT_S,
-    ):
-        yield port
+        # The port is this run's alone, so the name can be nothing a concurrent run
+        # is using -- which is the point of the suffix.
+        with e2e_conftest.serving_container(
+            f"{prefix}-{port}",
+            port,
+            *data,
+            # The namespace, named: the IOC refuses to boot without one rather
+            # than picking the framework's demo channels on its own.
+            *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
+            boot_timeout=BOOT_TIMEOUT_S,
+        ):
+            yield port
 
 
 @dataclass(frozen=True)
@@ -273,7 +274,7 @@ def raw_config(
     resolves to the ``epics`` block; ``va`` always resolves to the
     ``virtual_accelerator`` block. Both blocks name an explicit gateway port,
     which wins over ``services.virtual_accelerator.port`` — the containers bind
-    ephemeral ports and nothing may guess them.
+    reserved ports and nothing may guess them.
 
     The FR-8 posture is set (the operator acknowledgment naming this harness's
     own live endpoint) so that a switch toward ``live`` is judged on the same terms a
