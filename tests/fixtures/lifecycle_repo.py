@@ -1501,6 +1501,24 @@ panel_presets: {}
 # teams_bridge:
 #   trigger: teams-question
 #   mentions: true               # false posts the agent's @mentions as plain text
+
+# --- Applications ------------------------------------------------------------
+# The applications this deployment runs, one entry per apps/<name>/ directory
+# holding its app.yml. Listing one turns it on; to turn it off, remove the
+# entry. Its tool server is added by the build, so no tool-server key goes here,
+# and its writes follow each login's control_system.writes tier.
+#
+# apps:
+#   knob-example:
+#     config:                    # free-form; handed to the application as a file
+#       step: 0.5
+#     services:
+#       knob-example:            # a container key from its app.yml
+#         network: host          # bridge | host
+#         env: [HTTP_PROXY]      # host variables passed through
+#
+# A login (tiers/<name>.yml) chooses what its card shows: `apps: {<name>:
+# {shown: false}}`, and `lists: own` to show only what it names.
 """
 
 #: Deployment coordinates, filled in. Where this repo runs once it leaves the

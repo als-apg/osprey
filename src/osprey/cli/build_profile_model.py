@@ -48,7 +48,9 @@ from .build_profile_deploy import DeployConfig
 from .build_profile_health import health_url_key_errors
 from .build_profile_presets import is_bundled_preset_dir, resolve_triggers_path
 from .build_profile_schema import (
+    DEFAULT_LISTS_MODE,
     SECOND_LANE_PORT_STRIDE,
+    AppEntry,
     BlueskyConfig,
     BlueskyWebConfig,
     DispatchConfig,
@@ -56,6 +58,7 @@ from .build_profile_schema import (
     EnvironmentConfig,
     GChatBridgeProfileConfig,
     LifecycleConfig,
+    ListsMode,
     McpServerDef,
     NextcloudBridgeProfileConfig,
     ProfileProvenance,
@@ -452,6 +455,14 @@ class BuildProfile:
     The resolved block is written into the rendered ``config.yml`` under the
     top-level key ``agent_record`` (see :mod:`osprey.agent_record.config`).
     """
+    apps: dict[str, AppEntry] = field(default_factory=dict)
+    """The applications this deployment runs (``apps:``), by the name of their
+    ``apps/<name>/`` directory. Listing one turns it on; a login render carries
+    the deployment's entries merged with the login's ``shown`` choices."""
+    lists: ListsMode = DEFAULT_LISTS_MODE
+    """How a login's selection lists relate to the deployment's (``lists:``);
+    spelled in a login file only. Decides whether a listed application is
+    shown by default (:meth:`app_shown`)."""
     provenance: ProfileProvenance | None = None
     """What ``osprey init`` materialized this profile from (``provenance:``).
 
@@ -507,6 +518,73 @@ class BuildProfile:
         if not isinstance(self.data, str) or not self.data.strip():
             return None
         return (profile_dir / self.data).resolve()
+
+    def app_shown(self, name: str) -> bool:
+        """Whether this render's card shows application *name*.
+
+        An unlisted application is never shown. A listed one is shown when its
+        entry says so, and otherwise by the ``lists:`` default: shown under
+        ``add``, hidden under ``own``.
+
+        Args:
+            name: The application's name.
+
+        Returns:
+            Whether the card shows it.
+        """
+        entry = self.apps.get(name)
+        if entry is None:
+            return False
+        if entry.shown is not None:
+            return entry.shown
+        return self.lists == "add"
+
+    def _validate_apps(self, profile_dir: Path) -> list[str]:
+        """Return validation errors for the ``apps:`` block, closed against the manifests.
+
+        Every listed name must be an application under ``apps/<name>/``, every
+        ``services.<key>`` one of that application's containers, and every axis
+        value well-formed.
+
+        Args:
+            profile_dir: The profile root, whose ``apps/`` holds the applications.
+
+        Returns:
+            Human-readable error messages; empty when the block is valid.
+        """
+        if not self.apps:
+            return []
+        from osprey.apps.errors import AppManifestError
+        from osprey.apps.loader import load as load_apps
+
+        try:
+            manifests = {manifest.name: manifest for manifest in load_apps(profile_dir)}
+        except AppManifestError as exc:
+            return [f"apps: {exc}"]
+
+        errors: list[str] = []
+        known = ", ".join(sorted(manifests)) or "none"
+        for name, entry in sorted(self.apps.items()):
+            manifest = manifests.get(name)
+            if manifest is None:
+                errors.append(
+                    f"apps.{name} names no application: there is no apps/{name}/app.yml "
+                    f"(applications here: {known})."
+                )
+                continue
+            for key, axes in sorted(entry.services.items()):
+                where = f"apps.{name}.services.{key}"
+                if key not in manifest.containers:
+                    containers = ", ".join(sorted(manifest.containers))
+                    errors.append(
+                        f"{where} names no container of {name}: its app.yml declares {containers}."
+                    )
+                    continue
+                if axes.network is not None:
+                    errors.extend(network_mode_errors(axes.network, f"{where}.network"))
+                if axes.env is not None:
+                    errors.extend(env_names_errors(axes.env, f"{where}.env"))
+        return errors
 
     def _is_known_panel_id(self, pid: str) -> bool:
         """Return True if ``pid`` names a tab this profile's render shows.
@@ -1429,6 +1507,7 @@ class BuildProfile:
         # The one conditionally derived key, judged here where the condition
         # (whether this deployment serves web terminals) is known.
         errors.extend(health_url_key_errors(self.config))
+        errors.extend(self._validate_apps(profile_dir))
 
         if (
             self.channel_finder_mode is not None

@@ -1426,6 +1426,44 @@ def judge_retired_posture(
             )
 
 
+def _refuse_root_lists(resolved: dict[str, Any], where: str) -> None:
+    """Refuse a deployment profile spelling ``lists:``, a login-only key.
+
+    ``lists`` says whether one login's card lists the deployment's applications
+    or only its own; spelled on the root, every login silent on it would
+    inherit it through the merge.
+    """
+    if "lists" in resolved:
+        raise BuildProfileError(
+            f"{where} spells `lists`, a login key: it says whether one login's card "
+            f"lists the deployment's applications or only its own. Remove it from "
+            f"{PROFILE_FILENAME} and set it in tiers/<name>.yml."
+        )
+
+
+def _refuse_unlisted_selection(
+    host_resolved: dict[str, Any], layer: dict[str, Any], layer_rel: str
+) -> None:
+    """Refuse a login selecting an application the deployment does not list.
+
+    An application is on when the deployment's profile lists it; a login
+    selects from that list and never adds to it.
+    """
+    selected = layer.get("apps")
+    if not isinstance(selected, dict):
+        return
+    listed = host_resolved.get("apps")
+    listed_names = {str(name) for name in listed} if isinstance(listed, dict) else set()
+    unlisted = sorted({str(name) for name in selected} - listed_names)
+    if unlisted:
+        names = ", ".join(f"apps.{name}" for name in unlisted)
+        raise BuildProfileError(
+            f"{layer_rel} selects {names}, which the deployment's {PROFILE_FILENAME} "
+            f"does not list. A login selects only applications the deployment runs; "
+            f"list them under apps: in {PROFILE_FILENAME} or remove them from {layer_rel}."
+        )
+
+
 def render_document(
     kind: ProfileKind,
     host_resolved: dict[str, Any],
@@ -1486,6 +1524,7 @@ def render_document(
     elif kind is ProfileKind.APP:
         rendered = compose_app_render(host_resolved, layer, layer_rel)
     else:
+        _refuse_unlisted_selection(host_resolved, layer, layer_rel)
         rendered = _deep_merge(host_resolved, layer)
     if kind is not ProfileKind.APP or legacy:
         origin_paths = [*host_chain, *([layer_path] if layer_path is not None else [])]
@@ -1634,6 +1673,7 @@ def resolve_profile_document(
             str(Path(profile_path).resolve()),
             warn=warn,
         )
+        _refuse_root_lists(resolved, str(profile_path))
         return finish(resolved, False)
 
     layer_dir = Path(profile_path).resolve().parent.name
@@ -1681,6 +1721,7 @@ def resolve_profile_document(
         shadow_candidates=shadowed,
         preset_lineage=lineage,
     )
+    _refuse_root_lists(root_resolved, str(root_path))
     # The delta goes into the merge unresolved on purpose: it carries no
     # ``extends:`` of its own (rejected above), and _resolve_extends would
     # consume its ``exclude:`` against its own layer instead of against the

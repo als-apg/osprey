@@ -64,6 +64,11 @@ from .build_profile_model import SERVICE_AXES, BuildProfile
 from .build_profile_presets import PRESET_DATA_BUNDLE_KEY, PRESET_FACILITY_KEY
 from .build_profile_schema import (
     DEFAULT_DEVIATION_MARKER,
+    DEFAULT_LISTS_MODE,
+    LISTS_MODES,
+    LOGIN_APP_ENTRY_KEYS,
+    AppEntry,
+    AppServiceAxes,
     BlueskyConfig,
     BlueskyExternalConfig,
     BlueskyWebConfig,
@@ -260,6 +265,10 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "va_archiver",
         "agent_record",
         "provenance",
+        # The applications the deployment runs, and on a login the ones its
+        # card shows; `lists` is spelled in a login file only.
+        "apps",
+        "lists",
     }
 )
 
@@ -333,6 +342,8 @@ TIER_KIND_KEYS = (
             "mcp_servers",
             "config",
             "provenance",
+            "apps",
+            "lists",
         }
     )
     | RENDER_KEYS
@@ -394,6 +405,151 @@ _LOGGER = logging.getLogger(__name__)
 # dataclass so a new field is a known key the moment it exists. An unknown key
 # warns until RETIRED_WRITE_KEYS_REFUSED_FROM (it used to vanish silently).
 _KNOWN_MCP_SERVER_KEYS = frozenset(f.name for f in fields(McpServerDef))
+
+#: The keys of one ``apps.<name>`` entry in a profile, from its dataclass.
+_APP_ENTRY_KEYS = frozenset(f.name for f in fields(AppEntry))
+
+#: The axes one ``apps.<name>.services.<key>`` may set, from its dataclass.
+_APP_SERVICE_AXIS_KEYS = frozenset(f.name for f in fields(AppServiceAxes))
+
+
+def _app_entry_key_problem(name: str, key: str, *, login: bool) -> str | None:
+    """Why ``apps.<name>.<key>`` may not be spelled here, or ``None`` when it may.
+
+    Args:
+        name: The application's name.
+        key: The key spelled inside its entry.
+        login: Whether the entry sits in a login file, which spells only
+            :data:`LOGIN_APP_ENTRY_KEYS`.
+    """
+    spelled = f"apps.{name}.{key}"
+    legal = LOGIN_APP_ENTRY_KEYS if login else _APP_ENTRY_KEYS
+    if key in legal:
+        return None
+    if key == "enabled" and login:
+        return (
+            f"{spelled} is not a key: an application is on when the deployment's "
+            f"{PROFILE_FILENAME} lists it and off when it does not; remove the entry "
+            f"from {PROFILE_FILENAME} to turn {name} off, or set apps.{name}.shown here."
+        )
+    if key == "enabled":
+        return (
+            f"{spelled} is not a key: an application is on when it is listed and off "
+            f"when it is not; remove the entry to turn {name} off."
+        )
+    if key == "arm_writes":
+        return (
+            f"{spelled} is not a key: an application's writes are armed by the login's "
+            "control_system.writes tier; set `control_system.writes: allowed` there instead."
+        )
+    if key in _APP_ENTRY_KEYS:
+        return (
+            f"{spelled} is legal only in the deployment's {PROFILE_FILENAME}: a login "
+            f"selects an application and sets only apps.{name}.shown."
+        )
+    if key in _KNOWN_MCP_SERVER_KEYS:
+        return (
+            f"{spelled} is a tool-server key: the build projects mcp_servers.{name} "
+            f"from apps/{name}/app.yml; remove it."
+        )
+    return f"{spelled} is not a key; valid keys are: {', '.join(sorted(legal))}."
+
+
+def _app_block_problems(raw: Mapping[Any, Any], *, login: bool) -> list[str]:
+    """Every problem with the ``apps:`` and ``lists:`` keys of one document.
+
+    Shapes only: whether a listed name is an application, and whether its
+    services are that application's containers, is decided against the
+    manifests by :meth:`BuildProfile.validate`.
+
+    Args:
+        raw: The document — a login file as read, or a resolved profile.
+        login: Whether *raw* is a login file.
+
+    Returns:
+        Human-readable problems; empty when both keys are well-formed.
+    """
+    problems: list[str] = []
+    lists = raw.get("lists")
+    if lists is not None and lists not in LISTS_MODES:
+        problems.append(f"lists must be one of {', '.join(LISTS_MODES)} (got {lists!r}).")
+    apps = raw.get("apps")
+    if apps is None:
+        return problems
+    if not isinstance(apps, dict):
+        problems.append(
+            f"apps must be a mapping of application name to its entry (got {type(apps).__name__})."
+        )
+        return problems
+    for name, entry in apps.items():
+        if entry is None:
+            continue
+        if not isinstance(entry, dict):
+            problems.append(f"apps.{name} must be a mapping (got {type(entry).__name__}).")
+            continue
+        for key in entry:
+            problem = _app_entry_key_problem(name, str(key), login=login)
+            if problem:
+                problems.append(problem)
+        shown = entry.get("shown")
+        if shown is not None and not isinstance(shown, bool):
+            problems.append(f"apps.{name}.shown must be true or false (got {shown!r}).")
+        if login:
+            continue
+        config = entry.get("config")
+        if config is not None and not isinstance(config, dict):
+            problems.append(f"apps.{name}.config must be a mapping (got {type(config).__name__}).")
+        services = entry.get("services")
+        if services is None:
+            continue
+        if not isinstance(services, dict):
+            problems.append(
+                f"apps.{name}.services must be a mapping of container key to its axes "
+                f"(got {type(services).__name__})."
+            )
+            continue
+        for key, axes in services.items():
+            where = f"apps.{name}.services.{key}"
+            if axes is None:
+                continue
+            if not isinstance(axes, dict):
+                problems.append(f"{where} must be a mapping (got {type(axes).__name__}).")
+                continue
+            problems.extend(
+                f"{where}.{axis} is not a service axis; valid axes are: "
+                f"{', '.join(sorted(_APP_SERVICE_AXIS_KEYS))}. Everything else about "
+                f"the container is the application's own, in apps/{name}/."
+                for axis in sorted(set(map(str, axes)) - _APP_SERVICE_AXIS_KEYS)
+            )
+    return problems
+
+
+def _raise_app_block_problems(raw: Mapping[Any, Any], where: str, *, login: bool) -> None:
+    """Refuse the document's ``apps:``/``lists:`` keys, naming every problem at once."""
+    problems = _app_block_problems(raw, login=login)
+    if problems:
+        raise BuildProfileError(
+            f"Invalid application keys in {where}:\n" + "\n".join(f"  - {p}" for p in problems)
+        )
+
+
+def _parse_apps(raw: Mapping[str, Any]) -> dict[str, AppEntry]:
+    """Parse a resolved profile's ``apps:`` block, already shape-checked."""
+    parsed: dict[str, AppEntry] = {}
+    for name, entry in _block(raw, "apps").items():
+        entry = entry or {}
+        parsed[str(name)] = AppEntry(
+            config=dict(entry.get("config") or {}),
+            services={
+                str(key): AppServiceAxes(
+                    network=(axes or {}).get("network"), env=(axes or {}).get("env")
+                )
+                for key, axes in (entry.get("services") or {}).items()
+            },
+            shown=entry.get("shown"),
+        )
+    return parsed
+
 
 # The hook events a server's ``hooks:`` block may name — the ones
 # registry.mcp._custom_server_from_spec reads back.
@@ -986,23 +1142,33 @@ def reject_unknown_kind_keys(raw: Mapping[Any, Any], kind: ProfileKind, where: s
 
     legal = known_profile_keys(kind)
     offenders = sorted({key for key in raw if isinstance(key, str)} - legal)
-    if not offenders:
+    app_problems = _app_block_problems(raw, login=True) if kind is ProfileKind.TIER else []
+    if not offenders and not app_problems:
         return
 
-    known = sorted(legal)
-    named = []
-    for key in offenders:
-        if key in ROOT_KIND_KEYS:
-            named.append(f"{key!r} (legal only in the deployment's {PROFILE_FILENAME})")
-            continue
-        close = difflib.get_close_matches(key, known, n=1)
-        named.append(f"{key!r} (did you mean {close[0]!r}?)" if close else repr(key))
-    article = "an" if kind is ProfileKind.APP else "a"
-    raise BuildProfileError(
-        f"Unknown {kind.value} key(s) in {where}: {', '.join(named)}. "
-        f"Remove or correct them — valid keys in {article} {kind.value} are: "
-        f"{', '.join(known)}."
-    )
+    message = ""
+    if offenders:
+        known = sorted(legal)
+        named = []
+        for key in offenders:
+            if key in ROOT_KIND_KEYS:
+                named.append(f"{key!r} (legal only in the deployment's {PROFILE_FILENAME})")
+                continue
+            close = difflib.get_close_matches(key, known, n=1)
+            named.append(f"{key!r} (did you mean {close[0]!r}?)" if close else repr(key))
+        article = "an" if kind is ProfileKind.APP else "a"
+        message = (
+            f"Unknown {kind.value} key(s) in {where}: {', '.join(named)}. "
+            f"Remove or correct them — valid keys in {article} {kind.value} are: "
+            f"{', '.join(known)}."
+        )
+    if app_problems:
+        message += (
+            ("\n" if message else "")
+            + f"Invalid application keys in {where}:\n"
+            + "\n".join(f"  - {p}" for p in app_problems)
+        )
+    raise BuildProfileError(message)
 
 
 #: The ``claude_code.permissions`` keys whose value is a list of tool matchers.
@@ -1555,6 +1721,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     """
     _normalize_empty_collections(raw)
     _reject_unknown_keys(raw)
+    _raise_app_block_problems(raw, "the profile", login=False)
     _check_tick_s(raw)
     _check_default_scenarios(raw)
     _check_limits_database_path(raw)
@@ -1943,4 +2110,6 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         va_archiver=parse_va_archiver_block(raw, base=port_base),
         agent_record=parse_agent_record_block(raw, base=port_base),
         provenance=provenance,
+        apps=_parse_apps(raw),
+        lists=raw.get("lists") or DEFAULT_LISTS_MODE,
     )

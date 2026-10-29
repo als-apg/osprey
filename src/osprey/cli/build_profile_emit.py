@@ -107,6 +107,17 @@ _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "nextcloud_bridge",
         "gchat_bridge",
         "teams_bridge",
+        "apps",  # the deployment's applications, one entry per apps/<name>/
+    }
+)
+
+# Keys a login file spells and a deployment's profile.yml never does: never
+# synthesized and never offered as a template. A carried value is not stripped
+# (see above), so an emitter can write one; the build then refuses that
+# profile.yml (`_refuse_root_lists`), naming the login file as the key's home.
+_LOGIN_ONLY_KEYS: frozenset[str] = frozenset(
+    {
+        "lists",  # own | add: how a login's lists relate to the deployment's
     }
 )
 
@@ -544,6 +555,25 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #     user: operator
 #     project_path: /home/operator/projects/facility-profiles
 """,
+    "apps": """
+# --- Applications ------------------------------------------------------------
+# The applications this deployment runs, one entry per apps/<name>/ directory
+# holding its app.yml. Listing one turns it on; to turn it off, remove the
+# entry. Its tool server is added by the build, so no tool-server key goes here,
+# and its writes follow each login's control_system.writes tier.
+#
+# apps:
+#   knob-example:
+#     config:                    # free-form; handed to the application as a file
+#       step: 0.5
+#     services:
+#       knob-example:            # a container key from its app.yml
+#         network: host          # bridge | host
+#         env: [HTTP_PROXY]      # host variables passed through
+#
+# A login (tiers/<name>.yml) chooses what its card shows: `apps: {<name>:
+# {shown: false}}`, and `lists: own` to show only what it names.
+""",
     # The two long-form blocks above this module's helpers, registered here so
     # the partition has a single template table to guard.
     "mcp_servers": _MCP_SERVERS_APPENDIX,
@@ -571,6 +601,7 @@ _COMMENTED_TEMPLATE_ORDER: tuple[str, ...] = (
     "nextcloud_bridge",
     "gchat_bridge",
     "teams_bridge",
+    "apps",
 )
 
 # The six artifact-selection lists, in profile spelling. Each gets a generated
