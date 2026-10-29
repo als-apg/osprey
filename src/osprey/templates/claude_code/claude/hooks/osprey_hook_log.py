@@ -5,6 +5,7 @@ import json
 import os
 import re
 import sys
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -156,7 +157,8 @@ def is_write_call(tool_name, tool_input, short_name=None):
     an ``execution_mode``, and a readonly execution writes nothing. A missing
     mode counts as readonly, matching the server's own default. Every other
     write tool writes whenever it is called, and a *tool_input* that is not a
-    mapping is read as an empty one.
+    mapping is read as an empty one; any :class:`~collections.abc.Mapping`
+    counts, not only a dict.
 
     The carve-out keys on the SHORT name, so an ``extends`` clone of the python
     server (``mcp__pyva__execute``) keeps it rather than having every readonly
@@ -168,7 +170,7 @@ def is_write_call(tool_name, tool_input, short_name=None):
         short_name = short_tool_name(tool_name, ())
     if short_name != _EXECUTE_TOOL:
         return True
-    if not isinstance(tool_input, dict):
+    if not isinstance(tool_input, Mapping):
         tool_input = {}
     return tool_input.get("execution_mode", "readonly") != "readonly"
 

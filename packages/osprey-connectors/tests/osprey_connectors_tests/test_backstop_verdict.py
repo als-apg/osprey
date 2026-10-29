@@ -51,7 +51,7 @@ def blind(monkeypatch):
         (posture_store, "machine_kind"),
         (posture_store, "current_owner"),
         (posture_store, "owner_tier_term"),
-        (posture_store, "launch_pin_term"),
+        (posture_store, "_launch_pin_term"),
         (types, "resolve_target"),
         (types, "machine_kind"),
     ):
