@@ -290,6 +290,33 @@ def _kind_entries(client: RecordClient, kind: str, session: str) -> list[dict]:
     return [e for e in answer.data if isinstance(e, dict) and e.get("session_id") == session]
 
 
+def _transcript_ingest_state(client: RecordClient) -> str:
+    """What the record says of its transcript roots, and what the stack's container sees there."""
+    from osprey.agent_record.contract import HEALTH_SOURCES_PATH
+
+    try:
+        health = httpx.get(
+            f"{client.url}{HEALTH_SOURCES_PATH}",
+            auth=(client.login, client._password),
+            timeout=10,
+            trust_env=False,
+        ).text[:6000]
+    except httpx.HTTPError as exc:
+        health = f"unreadable: {exc}"
+    seen = ""
+    if _container_running(RECORD_CONTAINER):
+        listed = _docker(
+            "exec",
+            RECORD_CONTAINER,
+            "sh",
+            "-c",
+            'id; ls -lnaR "$OSPREY_AGENT_RECORD_TRANSCRIPTS_DIR" | head -80',
+            check=False,
+        )
+        seen = f"{listed.stdout}{listed.stderr}"
+    return f"--- record health ---\n{health}\n--- {RECORD_CONTAINER} ---\n{seen}"
+
+
 def _assert_session_recorded(client: RecordClient, session: str) -> None:
     """A tool call in the session log, the session listed, thinking, decisions and usage."""
 
@@ -298,7 +325,10 @@ def _assert_session_recorded(client: RecordClient, session: str) -> None:
         events = session_record.session_events(read.nodes, session)
         return [e for e in events if e["type"] == "tool_call"]
 
-    calls = _await(_calls, READ_TIMEOUT_S, f"session {session}'s tool calls in its log")
+    try:
+        calls = _await(_calls, READ_TIMEOUT_S, f"session {session}'s tool calls in its log")
+    except pytest.fail.Exception as exc:
+        pytest.fail(f"{exc}\n{_transcript_ingest_state(client)}")
     assert all(e["server"] == "controls" for e in calls), calls
 
     rows, answer = session_record.own_sessions(HOST_IDENTITY, client=client)
