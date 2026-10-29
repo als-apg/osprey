@@ -466,7 +466,7 @@ export function initChatAttachments(ctx) {
     for (const chip of chips) forget(chip, true);
   });
 
-  /** The chat was reset or rebound: nothing in the tray belongs to what follows. */
+  /** The chat moved to another conversation: nothing in the tray belongs to what follows. */
   function clearTray() {
     for (const chip of chips) forget(chip);
     chips = [];
@@ -596,7 +596,19 @@ export function initChatAttachments(ctx) {
     const bubble = lastOperatorBubble(messages);
     if (bubble) bubble.replaceChildren(document.createTextNode(parts.typed), chipRow(parts.names));
   });
-  onChat('reset', clearTray);
+  // The log is cleared both when the console moves to another conversation
+  // (New conversation, a session switch) and when it reads the same one again
+  // (a reconnect gap, the end of a mirrored turn, a re-bind after a hand-off).
+  // Only a move empties the tray: files attached and not yet sent belong to the
+  // conversation, and a re-read must not delete them. chat.js names the new key
+  // before it clears the log, so the key read here is the one that follows.
+  let trayKey = ctx.getKey();
+  onChat('reset', () => {
+    const key = ctx.getKey();
+    if (key === trayKey) return;
+    trayKey = key;
+    clearTray();
+  });
 
   // The tray starts empty, but the paperclip's state is painted from the start.
   sync();

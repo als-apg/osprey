@@ -104,7 +104,36 @@ def test_project_key_does_not_disturb_existing_fields(tmp_path):
         "scaffold_write_enabled",
         "config_unreadable_path",
         "tour",
+        "loopback_ports",
     }
+
+
+def test_loopback_ports_names_only_root_loopback_backends(tmp_path):
+    """Each panel whose backend is a loopback literal at its root carries its port.
+
+    The agent's tools name the gallery as ``http://127.0.0.1:<port>#focus``; the
+    browser maps a link on that port to the panel. A backend on another host,
+    or one that serves under a path, is left out, and only the port leaves the
+    server.
+    """
+    from osprey.interfaces.web_terminal.routes.proxy import _PANEL_STATE_MAP
+
+    app = _make_app(tmp_path)
+    app.state.enabled_panels = {"artifacts", "jupyter", "ariel"}
+    setattr(app.state, _PANEL_STATE_MAP["artifacts"], "http://127.0.0.1:10200")
+    setattr(app.state, _PANEL_STATE_MAP["jupyter"], "http://127.0.0.1:8899/u/alice/panel/jupyter")
+    setattr(app.state, _PANEL_STATE_MAP["ariel"], "http://ariel.example:8085")
+    app.state.custom_panels = [
+        {"id": "grafana", "label": "GRAFANA", "url": "http://localhost:3000/"},
+        {"id": "ext", "label": "EXT", "url": "http://example.org:3000"},
+    ]
+
+    with TestClient(app) as client:
+        resp = client.get("/api/panels")
+
+    assert resp.json()["loopback_ports"] == {"artifacts": 10200, "grafana": 3000}
+    assert "/u/alice/panel/jupyter" not in resp.text
+    assert "ariel.example" not in resp.text
 
 
 def test_blank_utility_targets_reach_the_browser_as_blank(tmp_path):
