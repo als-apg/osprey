@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fcntl
+import itertools
 import logging
 import os
 import signal
@@ -10,12 +11,12 @@ import struct
 import subprocess
 import sys
 import termios
-import time
 
 import pytest
 
 from osprey.interfaces.web_terminal import process_tree
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry, PtySession
+from tests._live import wait_until
 from tests._processes import kill_quietly, pid_gone, wait_gone
 from tests.interfaces.web_terminal._pty_child import (
     CHILD_HANG_CEILING,
@@ -125,26 +126,34 @@ class TestPtySession:
         session = PtySession([sys.executable, "-c", child_script])
         session.start()
         try:
-            deadline = time.monotonic() + CHILD_HANG_CEILING
-            while not ready.exists():
+
+            def handler_installed() -> bool:
                 assert session.is_alive, (
                     f"the child exited with code {session.exit_code} before installing its "
                     f"handler: {_drain(session._master_fd)!r}"
                 )
-                assert time.monotonic() < deadline, "the child never installed its handler"
-                time.sleep(0.05)
+                return ready.exists()
+
+            wait_until(
+                handler_installed, timeout=CHILD_HANG_CEILING, what="the child's SIGWINCH handler"
+            )
 
             # TIOCSWINSZ raises SIGWINCH only on a size that changed, so the
-            # two sizes alternate.
-            sizes = ((40, 120), (24, 80))
-            attempt = 0
-            deadline = time.monotonic() + CHILD_HANG_CEILING
-            while not marker.exists() and session.is_alive and time.monotonic() < deadline:
-                session.resize(*sizes[attempt % 2])
-                attempt += 1
-                round_ends = time.monotonic() + 1
-                while not marker.exists() and time.monotonic() < round_ends:
-                    time.sleep(0.05)
+            # two sizes alternate, one resize a second until the child answers.
+            sizes = itertools.cycle(((40, 120), (24, 80)))
+
+            def delivered_or_dead() -> bool:
+                if marker.exists() or not session.is_alive:
+                    return True
+                session.resize(*next(sizes))
+                return False
+
+            wait_until(
+                delivered_or_dead,
+                timeout=CHILD_HANG_CEILING,
+                interval=1.0,
+                what="SIGWINCH to reach the child",
+            )
 
             assert session.is_alive, (
                 f"the child exited with code {session.exit_code} before SIGWINCH was "

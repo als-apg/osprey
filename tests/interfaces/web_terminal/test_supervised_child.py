@@ -17,7 +17,7 @@ import sys
 import textwrap
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -30,6 +30,7 @@ from osprey.interfaces.web_terminal.supervised_child import (
     HeldSocket,
     SupervisedChild,
 )
+from tests._live import wait_until
 from tests._processes import pid_alive
 
 BINDING_MOVED = 75
@@ -71,15 +72,6 @@ CHILD = textwrap.dedent(
     sys.exit(code)
     """
 )
-
-
-def _wait_for(predicate: Callable[[], bool], timeout: float = 10.0) -> bool:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if predicate():
-            return True
-        time.sleep(0.01)
-    return predicate()
 
 
 def _ask(port: int, timeout: float = 10.0) -> tuple[int, str]:
@@ -243,7 +235,7 @@ class TestRespawn:
         assert len(set(pids)) == 21, "every request was answered by a new child"
         # The environment is rendered again for every start.
         assert [generation for _, generation in seen] == [str(n) for n in range(1, 22)]
-        assert _wait_for(lambda: child.starts == 22)
+        wait_until(lambda: child.starts == 22)
         assert harness.give_ups == 0
         assert child.running
 
@@ -253,9 +245,9 @@ class TestRespawn:
         child.start()
         for _ in range(5):
             _ask(harness.held.port)
-        assert _wait_for(lambda: child.starts == 6 and child.pid is not None)
+        wait_until(lambda: child.starts == 6 and child.pid is not None)
         # Five incarnations are gone and so are their threads.
-        assert _wait_for(lambda: len(_watcher_threads()) == before + 1)
+        wait_until(lambda: len(_watcher_threads()) == before + 1)
 
     def test_a_request_queued_while_no_child_lives_is_answered_by_the_next(
         self, harness: Harness
@@ -264,7 +256,7 @@ class TestRespawn:
         child = harness.supervise("answer", 3, backoff_s=(1.0,))
         child.start()
         first, _ = _ask(port)
-        assert _wait_for(lambda: not pid_alive(first) and child.pid is None)
+        wait_until(lambda: not pid_alive(first) and child.pid is None)
         assert child.starts == 1, "the crash is waiting out its backoff"
 
         # No child is alive: the connection is completed by the parent's
@@ -288,7 +280,7 @@ class TestRespawn:
             clock=lambda: next(ticks) * 1.5,
         )
         child.start()
-        assert _wait_for(lambda: harness.give_ups == 1, timeout=20)
+        wait_until(lambda: harness.give_ups == 1, timeout=20)
         assert child.starts == 8
         assert child.failure == FAILURE_GAVE_UP
         gaps = [b - a for a, b in itertools.pairwise(harness.spawn_times)]
@@ -298,7 +290,7 @@ class TestRespawn:
     def test_a_crash_is_respawned_after_the_backoff(self, harness: Harness) -> None:
         child = harness.supervise("exit", 1, backoff_s=(0.3,), give_up_after=3)
         child.start()
-        assert _wait_for(lambda: harness.give_ups == 1)
+        wait_until(lambda: harness.give_ups == 1)
         assert child.starts == 3
         gaps = [b - a for a, b in itertools.pairwise(harness.spawn_times)]
         assert all(gap >= 0.3 for gap in gaps)
@@ -309,7 +301,7 @@ class TestRespawn:
         )
         child.start()
         # Each crash is alone in its window, so the count never reaches two.
-        assert _wait_for(lambda: child.starts >= 5)
+        wait_until(lambda: child.starts >= 5)
         assert harness.give_ups == 0
 
     def test_a_child_that_cannot_be_started_counts_as_a_crash(
@@ -336,7 +328,7 @@ class TestRespawn:
         )
         child.start()
         try:
-            assert _wait_for(lambda: child.failure == FAILURE_GAVE_UP)
+            wait_until(lambda: child.failure == FAILURE_GAVE_UP)
             assert child.starts == 1
             assert calls == 4
         finally:
@@ -378,7 +370,7 @@ class TestContractSchedule:
         child = harness.supervise("exit", BINDING_MOVED, clock=lambda: 0.0)
         child.start()
 
-        assert _wait_for(lambda: harness.give_ups == 1, timeout=40)
+        wait_until(lambda: harness.give_ups == 1, timeout=40)
 
         assert child.starts == 5
         assert child.failure == FAILURE_GAVE_UP
@@ -413,7 +405,7 @@ class TestContractSchedule:
         child.start()
 
         # Five starts inside 20 s: no 30 s backoff was taken.
-        assert _wait_for(lambda: harness.give_ups == 1, timeout=20)
+        wait_until(lambda: harness.give_ups == 1, timeout=20)
         assert child.starts == 5
         assert child.failure == FAILURE_GAVE_UP
 
@@ -424,7 +416,7 @@ class TestStartRefused:
         child = harness.supervise("exit", START_REFUSED, backoff_s=(0.05,))
         child.start()
 
-        assert _wait_for(lambda: harness.give_ups == 1)
+        wait_until(lambda: harness.give_ups == 1)
         time.sleep(0.5)
 
         assert harness.give_ups == 1
@@ -475,9 +467,9 @@ class TestStartRefused:
     def test_start_again_after_a_refusal(self, harness: Harness) -> None:
         child = harness.supervise("exit", START_REFUSED)
         child.start()
-        assert _wait_for(lambda: harness.give_ups == 1)
+        wait_until(lambda: harness.give_ups == 1)
         child.start()
-        assert _wait_for(lambda: harness.give_ups == 2)
+        wait_until(lambda: harness.give_ups == 2)
         assert child.starts == 1
 
 
@@ -516,7 +508,7 @@ class TestStop:
     def test_stop_during_a_backoff_cancels_the_respawn(self, harness: Harness) -> None:
         child = harness.supervise("exit", 1, backoff_s=(1.0,))
         child.start()
-        assert _wait_for(lambda: child.exit_status == 1 and child.pid is None)
+        wait_until(lambda: child.exit_status == 1 and child.pid is None)
 
         began = time.monotonic()
         child.stop()
@@ -568,9 +560,7 @@ def test_the_held_socket_outlives_a_killed_child(harness: Harness) -> None:
     # A child blocked in accept() can take the next connection in the kernel
     # and die holding it, which resets the client; ask only once the
     # supervisor has reaped it and the next child is up.
-    assert _wait_for(
-        lambda: child.exit_status == -signal.SIGKILL and child.pid not in (None, first)
-    )
+    wait_until(lambda: child.exit_status == -signal.SIGKILL and child.pid not in (None, first))
 
     second, _ = _ask(port)
     assert second != first
@@ -603,7 +593,7 @@ class TestPreviousExit:
             give_up_after=10,
         )
         child.start()
-        assert _wait_for(lambda: len(self._seen(out)) >= 3, timeout=20)
+        wait_until(lambda: len(self._seen(out)) >= 3, timeout=20)
         seen = self._seen(out)
         assert seen[0] == "-"
         assert set(seen[1:]) == {"76"}
@@ -617,17 +607,17 @@ class TestPreviousExit:
         out = tmp_path / "seen.txt"
         child = harness.supervise("record", 1, str(out), "0", backoff_s=(0.05,), give_up_after=3)
         child.start()
-        assert _wait_for(lambda: harness.give_ups == 1)
+        wait_until(lambda: harness.give_ups == 1)
         assert self._seen(out) == ["-", "1", "1"]
 
     def test_a_new_start_forgets_the_previous_run(self, harness: Harness, tmp_path: Path) -> None:
         out = tmp_path / "seen.txt"
         child = harness.supervise("record", 1, str(out), "0", backoff_s=(0.05,), give_up_after=2)
         child.start()
-        assert _wait_for(lambda: harness.give_ups == 1)
+        wait_until(lambda: harness.give_ups == 1)
         assert child.exit_status == 1
         assert self._seen(out) == ["-", "1"]
 
         child.start()
-        assert _wait_for(lambda: len(self._seen(out)) >= 3)
+        wait_until(lambda: len(self._seen(out)) >= 3)
         assert self._seen(out)[2] == "-", "start() begins a run with no predecessor"
