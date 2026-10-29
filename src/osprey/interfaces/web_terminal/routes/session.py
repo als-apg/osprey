@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import re
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -554,7 +555,7 @@ def _approved_in(nodes: list[dict[str, Any]]) -> set[str]:
     )
 
 
-def _tool_use_event(node: dict[str, Any]) -> dict[str, Any]:
+def _tool_use_event(node: Mapping[str, Any]) -> dict[str, Any]:
     """The ``tool_use`` frame of a ``tool_call`` node."""
     from osprey.interfaces.web_terminal.operator_session import format_tool_name
     from osprey.interfaces.web_terminal.routes.chat import clip_input
@@ -570,7 +571,7 @@ def _tool_use_event(node: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _tool_result_event(result: dict[str, Any], tool_use_id: str, approved: set[str]) -> dict:
+def _tool_result_event(result: Mapping[str, Any], tool_use_id: str, approved: set[str]) -> dict:
     """The ``tool_result`` frame of a result node, read as the live stream reads it."""
     from osprey.interfaces.web_terminal.tool_preview import (
         tool_result_preview,

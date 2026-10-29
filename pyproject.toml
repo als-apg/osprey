@@ -188,7 +188,7 @@ dependencies = [
     # devices, and the Tiled writer/reader. Core, not optional — Bluesky is a
     # core part of OSPREY, joining PyAT above. ophyd-async's [ca] brings
     # the aioca Channel Access backend the EPICS substrate devices need.
-    "bluesky>=1.15.1",
+    "bluesky>=1.16.0",
     "ophyd-async[ca]>=0.16,<1.0",
     "tiled[client]>=0.2.14",
     # Bluesky's own client view of a Tiled catalog: `BlueskyRun` /
