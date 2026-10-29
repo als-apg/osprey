@@ -167,10 +167,11 @@ jobs:
     # outlier either: it measures through PEP 669, see COVERAGE_CORE below,
     # which costs near enough nothing). The shard axis below splits what one
     # ubuntu cell runs three ways, and the macOS cells run a trimmed sweep,
-    # which is what keeps a slow runner clear of this cap. What forces the headroom on top is a known intermittent tail worth
-    # ~12 minutes: a worker wedges mid-test and its share has to be
-    # redistributed to a replacement, or the session hangs after the last test
-    # on non-daemon threads that outlive it. Both are visible in this lane's
+    # which is what keeps a slow runner clear of this cap. What forces the
+    # headroom on top is a known intermittent tail worth ~12 minutes: a worker
+    # wedges mid-test and its share has to be redistributed to a replacement,
+    # or the session hangs after the last test on non-daemon threads that
+    # outlive it. Both are visible in this lane's
     # uploaded diagnostics, and neither is bounded by anything the suite
     # controls, so a cap tight enough to catch them also reds the runs where
     # they merely cost time. The 40-minute step cap below sat at the healthy
@@ -184,7 +185,7 @@ jobs:
         # macOS is not on this axis: its cells come from `include` below, one
         # job each over a trimmed sweep.
         os: [ubuntu-latest]
-        # Each ubuntu cell runs as three jobs, one per set of directories. `cli` is
+        # Each ubuntu cell runs as three jobs, one per directory set. `cli` is
         # tests/cli alone, the heaviest single directory (its ~120 tests that
         # run a real `osprey build` are most of that). `rest-a` is
         # tests/facility, tests/mcp_server and tests/deployment. `rest-b` is
@@ -206,8 +207,11 @@ jobs:
         # which were 53% of a macOS cell's test time. What is left -- child
         # processes and signals, path and permission semantics, native
         # binaries, the one real venv install -- is about 115 worker-minutes,
-        # ~29 minutes at -n 4 and ~45 on the slowest runner in the pool, inside
-        # the step cap below.
+        # ~29 minutes at -n 4, measured on a run already near the slow end of
+        # the pool: across 26 green macOS cells on main (2026-10-26..29) the
+        # three shards' step times summed to 36-72 minutes, 69 for that run,
+        # so the slowest runner takes ~35. That plus the ~12 minute tail
+        # described on the job cap above stays inside the step cap below.
         #
         # One job, not three, because the macOS concurrency ceiling is 5 jobs
         # across the whole account and does not move on Free, Pro or Team --

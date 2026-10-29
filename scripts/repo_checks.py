@@ -128,8 +128,8 @@ _REST_A = ("tests/facility", "tests/mcp_server", "tests/deployment")
 #: exercises, and none reaches anything whose outcome depends on the OS — no
 #: platform branch, no real child process it signals, no path or permission
 #: semantics macOS spells differently, no native binary. They were 53% of a
-#: macOS cell's test time (main run 40894334845). A file is listed whole or not
-#: at all, and a new test file runs on macOS until someone reads it.
+#: macOS cell's test time (#2150). A file is listed whole or not at all, and a
+#: new test file runs on macOS until someone reads it.
 _MACOS_REPEATS_UBUNTU = (
     # Render over an in-process `osprey build --skip-deps`, which installs
     # nothing; the build's own OS-touching steps (the directory swap, the hook
@@ -199,7 +199,8 @@ _MACOS_REPEATS_UBUNTU = (
     "tests/test_e2e_ariel_db_pin.py",
     # Facility import, layer and model logic in process. pyAT is compared
     # against itself on the same host; the replays against fixed MATLAB
-    # references (test_check_a.py) stay on macOS.
+    # references (test_check_a.py) and fixed pass counts
+    # (test_response_check.py) stay on macOS.
     "tests/facility/test_demo_seed_rules.py",
     "tests/facility/test_injector_sources.py",
     "tests/facility/test_layer_mml.py",
@@ -209,7 +210,6 @@ _MACOS_REPEATS_UBUNTU = (
     "tests/facility/test_layer_mml_wiring.py",
     "tests/facility/test_line_sources.py",
     "tests/facility/test_mml_layer_seed_once.py",
-    "tests/facility/test_response_check.py",
     "tests/simulation/test_single_pass_plugin.py",
     # Scans of the source tree: AST, text, git ls-files, import graphs.
     "tests/cli/test_lifecycle_invariants.py",
@@ -236,18 +236,14 @@ _MACOS_REPEATS_UBUNTU = (
     "tests/deployment/test_status_sections.py",
     "tests/deployment/test_up_as_built.py",
     "tests/hooks/test_approval_queue_enrichment.py",
-    "tests/hooks/test_config_drift_hook.py",
     "tests/hooks/test_hook_agreement.py",
-    "tests/infrastructure/test_live_threads.py",
     "tests/interfaces/web_terminal/test_config_routes.py",
     "tests/interfaces/web_terminal/test_facility_timezone_stamp.py",
-    "tests/mcp_server/python_executor/test_model_response_matrix.py",
     "tests/mcp_server/python_executor/test_sandbox_single_posture.py",
     "tests/mcp_server/test_error_envelope_ipc.py",
     "tests/mcp_server/test_executor_token_regression.py",
     "tests/services/ariel_search/test_image_lane.py",
     "tests/services/ariel_search/test_ingestion.py",
-    "tests/services/bluesky_bridge/test_document_plane.py",
     "tests/services/bluesky_bridge/test_plan_validation.py",
     "tests/services/bluesky_bridge/test_planspec_render.py",
     "tests/templates/test_control_system_safety_rule.py",

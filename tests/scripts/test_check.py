@@ -796,6 +796,84 @@ def test_the_macos_trim_keeps_what_macos_can_answer__mutation_trims_a_keep() -> 
     assert _trimmed_keeps(narrowed) == {pool: MACOS_KEEPS[pool]}
 
 
+#: Calls and attributes whose outcome can depend on the OS: signals, process
+#: groups, real children, links, FIFOs, sockets, platform branches. Matched in
+#: the syntax tree, so a comment or a string that names one is not a use.
+OS_SENSITIVE_USES = frozenset(
+    {
+        "os.kill",
+        "os.killpg",
+        "os.getppid",
+        "os.setsid",
+        "os.setpgrp",
+        "os.mkfifo",
+        "os.symlink",
+        "os.link",
+        "sys.platform",
+        "platform.system",
+        "subprocess.Popen",
+        "asyncio.create_subprocess_exec",
+        "asyncio.create_subprocess_shell",
+        "socket.socket",
+        "signal.*",
+        "start_new_session",
+        "symlink_to",
+        "hardlink_to",
+    }
+)
+
+#: Trimmed files that use one of those and were read and judged OS-independent
+#: anyway, with the uses that judgement covers.
+MACOS_TRIM_VETTED = {
+    # A symlinked checkout resolves to one repo identity on any POSIX host.
+    "tests/deployment/test_up_as_built.py": ("symlink_to",),
+    # The connector-host child is only killed in teardown; the assertions are
+    # about the IPC frames it sends.
+    "tests/mcp_server/test_error_envelope_ipc.py": ("asyncio.create_subprocess_exec",),
+    # Binds and closes a socket to get a port that refuses.
+    "tests/services/ariel_search/test_image_lane.py": ("socket.socket",),
+}
+
+
+def _os_sensitive_uses(source: str) -> set[str]:
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Attribute):
+            found.add(node.attr)
+            if isinstance(node.value, ast.Name):
+                found |= {f"{node.value.id}.{node.attr}", f"{node.value.id}.*"}
+        elif isinstance(node, ast.keyword) and node.arg:
+            found.add(node.arg)
+    return found & OS_SENSITIVE_USES
+
+
+def _unvetted_trims(trims: Sequence[str]) -> dict[str, list[str]]:
+    """The trimmed files that gained an OS-sensitive use nobody has judged."""
+    return {
+        path: sorted(uses)
+        for path in trims
+        if (
+            uses := _os_sensitive_uses((REPO_ROOT / path).read_text(encoding="utf-8"))
+            - set(MACOS_TRIM_VETTED.get(path, ()))
+        )
+    }
+
+
+def test_the_macos_trim_holds_no_unread_os_sensitive_use() -> None:
+    # A trimmed file that later gains a signal, link or platform branch would
+    # otherwise stay off macOS with nothing said: read it, then keep it on
+    # macOS or vet the use here.
+    trimmed = fw.UNIT_SELECTION.trims["macos"]
+    assert [p for p in MACOS_TRIM_VETTED if p not in trimmed] == []
+    assert _unvetted_trims(trimmed) == {}
+
+
+def test_the_macos_trim_holds_no_unread_os_sensitive_use__mutation_trims_a_keep() -> None:
+    pool = "tests/connectors/ipc/test_pool.py"
+    assert _unvetted_trims((pool,)) == {pool: ["os.kill", "signal.*", "subprocess.Popen"]}
+    assert _os_sensitive_uses("# os.kill is not the signal here\nx = 'socket.socket'\n") == set()
+
+
 def test_the_tiers_bound_their_pytest_runs() -> None:
     def bounds(tier: str) -> list[str]:
         script = "scripts/run_bounded.py"
