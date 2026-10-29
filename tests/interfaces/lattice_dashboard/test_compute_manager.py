@@ -11,6 +11,7 @@ import asyncio
 import json
 import os
 import sys
+from pathlib import Path
 
 import pytest
 from tests._live import async_wait_until, wait_until
@@ -115,7 +116,7 @@ class TestRefresh:
         await _settle()
         job = fake_slots.jobs[0]
 
-        spec = json.loads(open(job.argv[-2]).read())
+        spec = json.loads(Path(job.argv[-2]).read_text())
 
         assert spec["job_id"] == job.job
         assert spec["key"] == state.figure_key("da")
