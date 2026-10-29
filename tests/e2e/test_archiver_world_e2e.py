@@ -368,7 +368,9 @@ def archiver_world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         volume the fingerprint would MATCH, the seed would be skipped entirely,
         and the budget assertions would have nothing to measure.
         """
-        subprocess.run(["docker", "volume", "rm", "-f", store_volume], capture_output=True)
+        subprocess.run(
+            ["docker", "volume", "rm", "-f", store_volume], capture_output=True, timeout=60
+        )
 
     base = tmp_path_factory.mktemp("archiver_world_build")
     repo = _build_project(base)
@@ -512,7 +514,9 @@ def _recorder_logs(tail: str | None = None) -> str:
     command = ["docker", "logs"]
     if tail is not None:
         command += ["--tail", tail]
-    logs = subprocess.run([*command, _recorder_container()], capture_output=True, text=True)
+    logs = subprocess.run(
+        [*command, _recorder_container()], capture_output=True, text=True, timeout=60
+    )
     return _normalize(logs.stdout + logs.stderr)
 
 

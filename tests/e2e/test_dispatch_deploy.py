@@ -647,15 +647,19 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     # invalidates the relevant build-cache layers on rebuild.
     project = resolve_project_name({"project_name": PROJECT_NAME})
     for image in (f"{project}-dispatch:local", f"{project}:local"):
-        subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
+        subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True, timeout=120)
 
     # The web-container names are host-global fixed identifiers, so a crashed
     # prior run could have left the exact-named containers behind. Remove them
     # by exact name before deploy so this run never adopts a stale container
     # (guardrail: exact-named only, never a prune or wildcard).
     for user in (READONLY_USER, READWRITE_USER):
-        subprocess.run(["docker", "rm", "-f", _web_container(user)], capture_output=True, text=True)
-    subprocess.run(["docker", "rm", "-f", NGINX_CONTAINER], capture_output=True, text=True)
+        subprocess.run(
+            ["docker", "rm", "-f", _web_container(user)], capture_output=True, text=True, timeout=60
+        )
+    subprocess.run(
+        ["docker", "rm", "-f", NGINX_CONTAINER], capture_output=True, text=True, timeout=60
+    )
 
     try:
         up = run_command(
@@ -689,12 +693,19 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             )
         for user in (READONLY_USER, READWRITE_USER):
             subprocess.run(
-                ["docker", "rm", "-f", _web_container(user)], capture_output=True, text=True
+                ["docker", "rm", "-f", _web_container(user)],
+                capture_output=True,
+                text=True,
+                timeout=60,
             )
         remove_project_volumes(resolve_project_name({"project_name": PROJECT_NAME}))
-        subprocess.run(["docker", "rm", "-f", NGINX_CONTAINER], capture_output=True, text=True)
+        subprocess.run(
+            ["docker", "rm", "-f", NGINX_CONTAINER], capture_output=True, text=True, timeout=60
+        )
         for image in (READONLY_IMAGE, READWRITE_IMAGE):
-            subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
+            subprocess.run(
+                ["docker", "rmi", "-f", image], capture_output=True, text=True, timeout=120
+            )
 
 
 def _dump_stack_diagnostics(context: str) -> str:
