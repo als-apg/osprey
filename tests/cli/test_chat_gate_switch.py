@@ -67,7 +67,10 @@ def _no_managed_policy(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture
-def gated(monkeypatch: pytest.MonkeyPatch) -> None:
+def gated(
+    monkeypatch: pytest.MonkeyPatch,
+    restore_installed_reporter: None,  # noqa: ARG001 - snapshots the reporter before this installs one
+) -> None:
     """Put the CLI's normal starting state on the root logger.
 
     ``runner.invoke(chat, ...)`` reaches the subcommand without passing through
@@ -77,6 +80,12 @@ def gated(monkeypatch: pytest.MonkeyPatch) -> None:
 
     A live reporter goes with it: the default reporter is already the quiet one,
     so a switch asserted against that default would pass while doing nothing.
+    The reporter is a process singleton, so the restore fixture is requested
+    here rather than left to the module's ``usefixtures`` mark: a test-level
+    mark sets its fixtures up before a module-level one, which would let the
+    restore snapshot this live reporter and put it back after the test. Left
+    installed, it tells the altitude gate a lifecycle verb owns the terminal,
+    and every later CLI run on the worker paints no WARNING at all.
     """
     monkeypatch.setattr("osprey_connectors.config.load_project_dotenv", lambda *a, **k: None)
     configure_logging()
