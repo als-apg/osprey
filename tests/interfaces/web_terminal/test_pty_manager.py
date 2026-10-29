@@ -16,18 +16,16 @@ import pytest
 
 from osprey.interfaces.web_terminal import process_tree
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry, PtySession
+from tests._processes import kill_quietly, pid_gone, wait_gone
 from tests.interfaces.web_terminal._pty_child import (
     CHILD_HANG_CEILING,
     SENTINEL,
     detaching_child_script,
-    kill_quietly,
-    pid_gone,
     read_answer,
     sleeper_script,
     wait_for_exit,
     wait_for_pids,
     wait_for_report,
-    wait_gone,
 )
 
 
@@ -394,7 +392,7 @@ class TestPtyChildWaits:
         finally:
             for proc in procs:
                 proc.kill()
-                proc.wait()
+                proc.wait(timeout=30)
 
     async def test_wait_gone_fails_naming_the_pid_still_running(self):
         proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
@@ -405,7 +403,7 @@ class TestPtyChildWaits:
                 await wait_gone([proc.pid], within=0.1)
         finally:
             proc.kill()
-            proc.wait()
+            proc.wait(timeout=30)
 
     def test_hang_ceiling_sits_below_the_per_test_timeout(self):
         assert CHILD_HANG_CEILING < 300

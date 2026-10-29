@@ -8,9 +8,6 @@ while holding its output open cannot keep the gate waiting.
 
 from __future__ import annotations
 
-import contextlib
-import os
-import signal
 import sys
 import time
 from pathlib import Path
@@ -18,7 +15,8 @@ from pathlib import Path
 import pytest
 
 from tests._by_path import load_module
-from tests._processes import pid_alive
+from tests._live import wait_until
+from tests._processes import kill_quietly, pid_alive, pid_gone
 
 # scripts/ is not a package, so the gate is loaded by path. It is deliberately not
 # registered in sys.modules: nothing in it resolves its own module name, and an
@@ -42,37 +40,21 @@ _KILL_LIMIT_S = 5
 _REPORT_S = 20
 
 
-def _wait_gone(pid: int, within_s: float = 10.0) -> bool:
-    deadline = time.monotonic() + within_s
-    while time.monotonic() < deadline:
-        if not pid_alive(pid):
-            return True
-        time.sleep(0.02)
-    return not pid_alive(pid)
-
-
 def _wait_for_pid(pid_file: Path, within_s: float = 10.0) -> int:
-    deadline = time.monotonic() + within_s
-    while time.monotonic() < deadline:
+    def written() -> int | None:
         text = pid_file.read_text() if pid_file.exists() else ""
-        if text.endswith("\n"):
-            return int(text)
-        time.sleep(0.02)
-    raise AssertionError(f"{pid_file} was never written")
+        return int(text) if text.endswith("\n") else None
 
-
-def _kill(pid: int) -> None:
-    with contextlib.suppress(ProcessLookupError):
-        os.kill(pid, signal.SIGKILL)
+    return wait_until(written, timeout=within_s, what=f"{pid_file} to be written")
 
 
 def _spawning_child(pid_file: Path, *, new_session: bool, then: str) -> list[str]:
     """A command that starts a sleeping grandchild, records its pid, then runs ``then``."""
     code = (
-        "import subprocess, sys, time\n"
+        "import pathlib, subprocess, sys, time\n"
         f"g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep({_HANG_S})'],"
         f" start_new_session={new_session})\n"
-        f"open({str(pid_file)!r}, 'w').write(str(g.pid) + '\\n')\n"
+        f"pathlib.Path({str(pid_file)!r}).write_text(str(g.pid) + '\\n')\n"
         "print('child-done', flush=True)\n"
         f"{then}\n"
     )
@@ -114,7 +96,7 @@ def test_an_orphan_holding_the_output_open_cannot_block_the_read(tmp_path: Path)
         assert pid_alive(orphan)
     finally:
         if pid_file.exists():
-            _kill(_wait_for_pid(pid_file))
+            kill_quietly([_wait_for_pid(pid_file)])
 
 
 def test_a_grandchild_in_the_module_session_dies_with_the_module_on_timeout(
@@ -128,10 +110,12 @@ def test_a_grandchild_in_the_module_session_dies_with_the_module_on_timeout(
 
         grandchild = _wait_for_pid(pid_file)
         assert timed_out is True
-        assert _wait_gone(grandchild), f"grandchild {grandchild} survived its module's timeout"
+        assert pid_gone(grandchild, within=10.0), (
+            f"grandchild {grandchild} survived its module's timeout"
+        )
     finally:
         if pid_file.exists():
-            _kill(_wait_for_pid(pid_file))
+            kill_quietly([_wait_for_pid(pid_file)])
 
 
 def test_a_hung_module_is_reported_as_one_error_with_a_timed_out_line(

@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import sys
 from pathlib import Path
 
 import pytest
 from tests._live import async_wait_until, wait_until
+from tests._processes import pid_alive
 
 from osprey.interfaces.lattice_dashboard import compute as compute_mod
 from osprey.interfaces.lattice_dashboard.compute import ComputeManager
@@ -319,14 +319,6 @@ pathlib.Path({output!r}).write_text(json.dumps({{"s_pos": [0.0]}}))
 """
 
 
-def _gone(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return True
-    return False
-
-
 class TestRealChildren:
     async def test_a_relaunch_leaves_no_figure_error_and_the_new_result_lands(
         self, tmp_path, monkeypatch
@@ -353,7 +345,7 @@ class TestRealChildren:
 
         assert broadcaster.of("figure_error") == []
         assert mgr.figure_status("optics")["status"] == "ready"
-        assert _gone(first_pid)
+        assert not pid_alive(first_pid)
         await mgr.stop_all()
 
 
@@ -376,6 +368,6 @@ def test_app_shutdown_reaps_every_worker(tmp_path, monkeypatch):
             what="the workers to start",
         )
         started = [int(p.name) for p in pids.iterdir()]
-        assert not any(_gone(pid) for pid in started)
+        assert all(pid_alive(pid) for pid in started)
 
-    assert all(_gone(pid) for pid in started)
+    assert not any(pid_alive(pid) for pid in started)
