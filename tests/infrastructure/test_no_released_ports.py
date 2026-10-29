@@ -71,7 +71,6 @@ REMAINING_SITES: dict[str, int] = {
     "tests/infrastructure/test_server_launcher.py": 6,
     "tests/integration/test_tiled_export.py": 1,
     "tests/interfaces/_panel_launch.py": 1,
-    "tests/interfaces/channel_finder/test_server_launcher.py": 11,
     "tests/interfaces/web_terminal/test_jupyter_sidecar.py": 1,
     "tests/interfaces/web_terminal/test_opaque_panel_browser.py": 1,
     "tests/interfaces/web_terminal/test_panels_browser.py": 5,

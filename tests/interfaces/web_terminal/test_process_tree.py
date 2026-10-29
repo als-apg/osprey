@@ -13,12 +13,11 @@ from osprey.interfaces.web_terminal import process_tree
 from osprey.interfaces.web_terminal.process_tree import ProcessGroup
 from osprey.interfaces.web_terminal.pty_manager import PtySession
 from tests._live import wait_until
+from tests._processes import kill_quietly, pid_gone
 from tests.interfaces.web_terminal._chat_child import child_factory
 from tests.interfaces.web_terminal._pty_child import (
     CHILD_HANG_CEILING,
     detaching_child_script,
-    kill_quietly,
-    pid_gone,
     readable_rows,
     sleeper_script,
     wait_for_pids,
@@ -241,7 +240,7 @@ def test_still_running_drops_a_group_whose_members_ended():
         assert process_tree.still_running([group], readable_rows()) == [group]
     finally:
         proc.kill()
-        proc.wait()
+        proc.wait(timeout=30)
     assert pid_gone(proc.pid)
     assert process_tree.still_running([group], readable_rows()) == []
 
@@ -267,7 +266,7 @@ def test_still_running_drops_a_group_whose_members_are_unreaped_zombies():
         assert process_tree.still_running([group], readable_rows()) == []
     finally:
         proc.kill()
-        proc.wait()
+        proc.wait(timeout=30)
 
 
 def test_still_running_drops_a_reused_group_id():
@@ -281,7 +280,7 @@ def test_still_running_drops_a_reused_group_id():
         assert process_tree.still_running([group], rows) == []
     finally:
         proc.kill()
-        proc.wait()
+        proc.wait(timeout=30)
 
 
 def test_end_groups_never_signals_the_servers_own_group(monkeypatch):
@@ -551,7 +550,7 @@ def test_end_processes_skips_a_reused_pid(monkeypatch):
         assert ended == [] and survivors == []
     finally:
         proc.kill()
-        proc.wait()
+        proc.wait(timeout=30)
 
 
 def _answering(monkeypatch, answers: list[dict | BaseException]) -> list[None]:
