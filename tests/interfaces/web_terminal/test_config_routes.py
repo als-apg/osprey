@@ -739,15 +739,11 @@ class TestPutProtectedDocumentDiff:
         descends past it and the children come back unprotected. Adding one from
         nothing therefore compares equal.
 
-        It is inert, and the route's own note spells out why for each of the two
-        keys in this shape, because the mechanism is not the same for both. This
-        one is the tidy case: ``simulation.state_dir`` is read through
-        ``dotted_config_str``, which answers ``None`` for anything that is not a
-        non-empty string, so a block there reads as unset and the runtime takes
-        the default the absent key already gave. (The channel-finder
-        ``...feedback.store_path`` is *not* read that way -- it is read raw,
-        raises inside the initialization, and leaves the feedback store disabled
-        rather than defaulted. Also inert for this gate, by a different route.)
+        It is inert, and the route's own note spells out why:
+        ``simulation.state_dir`` is read through ``dotted_config_str``, which
+        answers ``None`` for anything that is not a non-empty string, so a block
+        there reads as unset and the runtime takes the default the absent key
+        already gave.
 
         What makes the residual a dead end rather than a first step is that it
         does not ratchet: putting a real value back is caught, which is the
@@ -761,24 +757,19 @@ class TestPutProtectedDocumentDiff:
         ]
 
     def test_put_protected_families_are_descent_safe_or_known_inert(self):
-        """Tripwire: a fourth exact-depth pattern must re-open the judgement above.
+        """Tripwire: a third exact-depth pattern must re-open the judgement above.
 
         A pattern is *descent-safe* when a hypothetical child of it is protected
         too -- true for every ``family.*`` pattern, and for ``artifacts.hooks``
         because ``artifacts.*`` sits beside it. The ones that are not are the
-        ones whose subtree the flatten can lose, and each of today's names a
-        path value that cannot be made to point anywhere by planting a block
-        there -- ``simulation.state_dir`` because its reader treats a block as
-        unset, the feedback store because its reader chokes on it and leaves
-        the store off. A new pattern gets neither guarantee for
-        free, so if this fails the PUT gate's note needs re-deciding, not
-        extending.
+        ones whose subtree the flatten can lose. Today that is only
+        ``simulation.state_dir``, a path value that cannot be made to point
+        anywhere by planting a block there, because its reader treats a block
+        as unset. A new pattern does not get that guarantee for free, so if
+        this fails the PUT gate's note needs re-deciding, not extending.
         """
         probe = "\x00-not-a-real-key"
-        known_inert = {
-            "simulation.state_dir",
-            "services.channel_finder.pipelines.hierarchical.feedback.store_path",
-        }
+        known_inert = {"simulation.state_dir"}
 
         leaky = {
             pattern
