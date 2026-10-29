@@ -95,6 +95,7 @@ from osprey_connectors.control_system._base import (
     ControlSystemConnector,
 )
 from osprey_connectors.ipc import _frames as frames
+from osprey_connectors.recovery import _RAISED_BY_CHILD
 
 __all__ = ["CHILD", "ChildUnresponsiveError", "ConnectorHostProxy", "raised_by_child"]
 
@@ -126,8 +127,9 @@ def _expect(reply: object, kind: type[_T], method: str) -> _T:
     return reply
 
 
-#: Attribute set on an exception decoded from the child's own error frame.
-_FROM_CHILD = "_osprey_raised_by_child"
+#: Attribute set on an exception decoded from the child's own error frame. It is
+#: the recovery policy's mark, so the policy and this proxy read one origin.
+_FROM_CHILD = _RAISED_BY_CHILD
 
 
 def raised_by_child(exc: BaseException) -> bool:
