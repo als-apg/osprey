@@ -59,6 +59,19 @@ describe('folding', () => {
     expect(run.querySelectorAll('.op-row-stack > .op-icon')).toHaveLength(3);
   });
 
+  test.each([
+    ['the operator ran every skill', [{ by: 'operator' }, { by: 'operator' }], 'Ran 2 skills'],
+    ['the agent chose them', [{}, {}], 'Used 2 skills'],
+    ['the two are mixed', [{ by: 'operator' }, {}], 'Used 2 skills'],
+  ])('a run of skills reads by who ran them: %s', (_case, inputs, label) => {
+    const { entry, actions } = setup();
+    inputs.forEach((by, i) => {
+      actions.addTool(call(`s${i}`, 'Skill', { skill: `diagnose-${i}`, ...by }));
+    });
+
+    expect(qs(entry, '.op-run .op-row-label').textContent).toBe(label);
+  });
+
   test('a single call is its own row, not a run of one', () => {
     const { entry, actions } = setup();
     actions.addTool(call('t1', 'Read', { file_path: 'a.py' }));

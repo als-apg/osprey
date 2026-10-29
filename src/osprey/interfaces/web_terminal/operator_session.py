@@ -942,6 +942,9 @@ class OperatorSession:
         # ends. ``_in_response``: the pump has read a record since the last
         # result. ``_turn_closed`` is set whenever no turn is open.
         self._pump_task: asyncio.Task | None = None
+        # Set when the pump stopped reading on its own (the child's stream
+        # ended, or the pump gave up on it): the session is dead from then on.
+        self._stream_ended = False
         self._turn_open = False
         self._pending_turn = False
         self._in_response = False
@@ -1144,6 +1147,7 @@ class OperatorSession:
         self._agent = agent
         self._agent_scope = scope
         self._started = True
+        self._stream_ended = False
         self._pump_task = asyncio.create_task(self._pump())
         logger.info("OperatorSession started (cwd=%s)", self._cwd)
 
@@ -1299,14 +1303,15 @@ class OperatorSession:
         The snapshot (a ``hello`` frame) says whether a turn is running, what it
         was asked, which permission requests are waiting and the last reading of
         the context window, so a tab that opens mid-turn can show the turn and
-        answer its cards, and one that opens mid-session shows the meter.
+        answer its cards, and one that opens mid-session shows the meter. A
+        response the CLI started on its own (no prompt behind it) is in flight too.
         """
         feed: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=_SUBSCRIBER_BUFFER)
         self._subscribers.add(feed)
         hello = {
             "type": "hello",
             "seq": self._seq,
-            "in_flight": self._turn_open or self._pending_turn,
+            "in_flight": self._turn_open or self._pending_turn or self._in_response,
             "prompt": self._turn_prompt,
             "pending": [pending.frame for pending in self._permissions.values()],
             "context": self._last_context,
@@ -1462,6 +1467,13 @@ class OperatorSession:
         feeds alone, announced by a ``turn_start`` with no prompt. A turn that
         hands work to a background agent stays open past that response's result
         until the agent reports, and the next response is read into it.
+
+        When the stream ends on its own (the child exited, or the stream
+        failed), the session stops reading as active, so the pool and the
+        hand-off door discard it and the next prompt starts a child that
+        resumes the transcript. Every feed is told with an error frame
+        (``AgentExited`` when the stream just closed), whether or not a turn is
+        open, and an open turn ends with it.
         """
         agent = self._agent
         ended: dict[str, Any] = {
@@ -1529,11 +1541,15 @@ class OperatorSession:
                 "message": f"Unexpected error: {exc}",
                 "error_type": type(exc).__name__,
             }
+        # Not active from here: a prompt that arrives now gets a new child.
+        self._stream_ended = True
         self._in_response = False
-        if self._turn_open or self._pending_turn:
+        in_turn = self._turn_open or self._pending_turn
+        if in_turn:
             self._pending_turn = False
             self._turn_open = True
-            await self._emit(ended)
+        await self._emit(ended)
+        if in_turn:
             self._close_turn()
 
     async def _emit_context(self, agent: AgentSession) -> None:
@@ -1863,7 +1879,7 @@ class OperatorSession:
 
     @property
     def is_active(self) -> bool:
-        return self._started and self._connected_agent is not None
+        return self._started and self._connected_agent is not None and not self._stream_ended
 
     @property
     def pid(self) -> int | None:

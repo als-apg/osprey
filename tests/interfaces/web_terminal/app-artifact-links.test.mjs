@@ -18,6 +18,8 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 /** The gallery's answer to the next focus request. */
 const gallery = vi.hoisted(() => ({
   status: 200,
+  /** Reject the next focus request, as a dropped connection does. */
+  fail: false,
   /** @type {{ url: string, init: RequestInit | undefined }[]} */
   focusCalls: [],
 }));
@@ -42,6 +44,7 @@ vi.hoisted(() => {
       }
       if (url.endsWith('/panel/artifacts/api/focus')) {
         gallery.focusCalls.push({ url, init });
+        if (gallery.fail) throw new TypeError('Failed to fetch');
         return { ok: gallery.status < 300, status: gallery.status, json: async () => ({}) };
       }
       throw new Error(`unstubbed fetch: ${url}`);
@@ -117,5 +120,41 @@ describe('initArtifactLinks', () => {
 
     await vi.waitFor(() => expect(control.dataset.missing).toBe('true'));
     expect(panels.navigate).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    [401, 'Your session has expired. Sign in again.'],
+    [403, 'The server refused this request'],
+    [500, 'The gallery could not be reached'],
+  ])('a %i from the gallery opens nothing and says why in the title', async (status, title) => {
+    gallery.status = status;
+    const control = mount();
+    control.click();
+
+    await vi.waitFor(() => expect(control.title).toBe(title));
+    expect(control.dataset.missing).toBeUndefined();
+    expect(panels.navigate).not.toHaveBeenCalled();
+  });
+
+  test('a 404 says the artifact is not in the gallery', async () => {
+    gallery.status = 404;
+    const control = mount();
+    control.click();
+
+    await vi.waitFor(() => expect(control.title).toBe('This artifact is not in the gallery'));
+  });
+
+  test('a gallery that cannot be reached says so in the title', async () => {
+    gallery.status = 0;
+    gallery.fail = true;
+    try {
+      const control = mount();
+      control.click();
+
+      await vi.waitFor(() => expect(control.title).toBe('The gallery could not be reached'));
+      expect(panels.navigate).not.toHaveBeenCalled();
+    } finally {
+      gallery.fail = false;
+    }
   });
 });

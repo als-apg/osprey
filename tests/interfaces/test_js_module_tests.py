@@ -105,7 +105,6 @@ WITHOUT_OWN_TEST: tuple[str, ...] = (
     "src/osprey/interfaces/web_terminal/static/js/chat-dom.js",
     "src/osprey/interfaces/web_terminal/static/js/chat-features.js",
     "src/osprey/interfaces/web_terminal/static/js/chat-icons.js",
-    "src/osprey/interfaces/web_terminal/static/js/chat-markdown.js",
     "src/osprey/interfaces/web_terminal/static/js/chat-permission.js",
     "src/osprey/interfaces/web_terminal/static/js/chat-question.js",
     "src/osprey/interfaces/web_terminal/static/js/chat-system.js",

@@ -12,7 +12,9 @@
  *   again after every render.
  * - A click asks the gallery to focus the artifact, the same request the
  *   agent's `artifact_focus` makes, and opens the artifacts panel only when
- *   the gallery accepts it. An id the gallery does not hold marks the control.
+ *   the gallery accepts it. When it does not, the control says why: the
+ *   gallery does not hold the id, the session expired, the server refused,
+ *   or the gallery could not be reached.
  */
 
 /** A hex artifact id, as the artifact store mints them. */
@@ -95,10 +97,23 @@ export function linkArtifactIds(root) {
 }
 
 /**
+ * How a request to focus an artifact ended: it is shown, or why it is not.
+ * @typedef {'shown' | 'missing' | 'expired' | 'refused' | 'unreachable'} FocusOutcome
+ */
+
+/** The control's tooltip for a focus that failed, by outcome. */
+export const FOCUS_FAILURE_TITLE = Object.freeze({
+  missing: 'This artifact is not in the gallery',
+  expired: 'Your session has expired. Sign in again.',
+  refused: 'The server refused this request',
+  unreachable: 'The gallery could not be reached',
+});
+
+/**
  * Route clicks on artifact controls under `root`.
  * @param {HTMLElement} root
- * @param {{ focusArtifact: (id: string) => Promise<boolean> }} deps -
- *   resolves true once the artifact is shown, false when it cannot be
+ * @param {{ focusArtifact: (id: string) => Promise<FocusOutcome> }} deps -
+ *   resolves 'shown' once the artifact is shown, or the reason it cannot be
  * @returns {void}
  */
 export function wireArtifactLinks(root, deps) {
@@ -110,14 +125,16 @@ export function wireArtifactLinks(root, deps) {
     e.preventDefault();
     const id = b.dataset.artifactId ?? '';
     if (!id) return;
-    void deps.focusArtifact(id).then((shown) => {
-      if (shown) {
-        delete b.dataset.missing;
+    void deps.focusArtifact(id).then((outcome) => {
+      delete b.dataset.missing;
+      delete b.dataset.unavailable;
+      if (outcome === 'shown') {
         b.title = 'Show this artifact in the workspace';
-      } else {
-        b.dataset.missing = 'true';
-        b.title = 'This artifact is not in the gallery';
+        return;
       }
+      if (outcome === 'missing') b.dataset.missing = 'true';
+      else b.dataset.unavailable = outcome;
+      b.title = FOCUS_FAILURE_TITLE[outcome];
     });
   });
 }

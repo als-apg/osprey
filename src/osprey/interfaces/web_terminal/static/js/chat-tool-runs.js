@@ -28,6 +28,7 @@ import {
   CATEGORY_ICON,
   foldKey,
   oneLine,
+  ranByOperator,
   runPhrase,
   summarizeInput,
   toolCategory,
@@ -49,6 +50,7 @@ import {
  * @property {ChatIconName} icon
  * @property {string} tool - the call's {@link toolKey}
  * @property {string} summary - its one-line input
+ * @property {boolean} byOperator - the operator ran it by a slash command
  * @property {RowState} state
  * @property {Run | null} run - the run row holding it, once folded
  * @property {HTMLElement | null} refusal - its refused write's line, once its result says so
@@ -166,7 +168,8 @@ export function createTurnActions(entry) {
       render() {
         row.label.textContent = runPhrase(
           key,
-          calls.map((call) => call.tool)
+          calls.map((call) => call.tool),
+          calls.every((call) => call.byOperator)
         );
         row.detail.textContent = oneLine(calls.map((call) => call.summary).join(', '));
         row.glyph.replaceChildren(...iconStack(calls[0]?.icon ?? 'wrench', calls.length));
@@ -271,6 +274,7 @@ export function createTurnActions(entry) {
         icon: CATEGORY_ICON[toolCategory(raw)],
         tool: toolKey(raw),
         summary: summarizeInput(event.input),
+        byOperator: ranByOperator(event.input),
         state: 'running',
         run: null,
         refusal: null,

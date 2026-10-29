@@ -1382,6 +1382,116 @@ class TestOperatorSessionConnectedAgent:
         assert client.query_calls == 0
 
 
+class _ExitingClient(FakeStreamClient):
+    """A child that exits when ``exited`` is set: its response stream then ends with no result.
+
+    Until then each prompt is answered with one text block, and with a result
+    too unless ``answers`` is False, so a turn can be left open when it exits.
+    """
+
+    def __init__(self, *, answers: bool = True) -> None:
+        super().__init__()
+        self.answers = answers
+        self.exited = asyncio.Event()
+
+    async def receive_response(self):
+        prompt = asyncio.ensure_future(self._prompts.get())
+        gone = asyncio.ensure_future(self.exited.wait())
+        await asyncio.wait({prompt, gone}, return_when=asyncio.FIRST_COMPLETED)
+        if self.exited.is_set():
+            prompt.cancel()
+            return
+        yield assistant_message([TextBlock("done")])
+        self.first_yielded.set()
+        if self.answers:
+            gone.cancel()
+            yield result_message()
+        else:
+            await gone
+
+
+class TestOperatorSessionChildExits:
+    """A child that exits leaves the session dead, and says so to whoever is reading.
+
+    A session that still read as active after its child was gone stayed pooled,
+    and every later prompt failed until the operator started a new conversation.
+    """
+
+    @pytest.mark.asyncio
+    async def test_an_idle_child_exit_ends_the_session_and_tells_every_feed(self):
+        client = _ExitingClient()
+        async with _started_session(client) as session:
+            frames = await collect_turn(session, "hi")
+            assert frames[-1]["type"] == "result"
+            feed, _hello = session.subscribe()
+
+            client.exited.set()
+            frame = await asyncio.wait_for(feed.get(), timeout=2.0)
+
+            assert frame["type"] == "error"
+            assert frame["error_type"] == "AgentExited"
+            assert session.is_active is False
+            assert session.feed_open(feed) is False
+
+    @pytest.mark.asyncio
+    async def test_a_child_exit_mid_turn_ends_the_turn_and_the_session(self):
+        client = _ExitingClient(answers=False)
+        async with _started_session(client) as session:
+            consumer, frames = start_turn(session, "hi")
+            await asyncio.wait_for(client.first_yielded.wait(), timeout=1.0)
+
+            client.exited.set()
+            await asyncio.wait_for(consumer, timeout=2.0)
+
+            assert frames[-1]["error_type"] == "AgentExited"
+            assert session.in_flight is False
+            assert session.is_active is False
+
+
+class _UnpromptedClient(FakeStreamClient):
+    """Starts a response of its own when ``speak`` is set, and ends it when ``finish`` is.
+
+    As the CLI does after a background agent reports with no prompt behind it.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.speak = asyncio.Event()
+        self.finish = asyncio.Event()
+
+    async def receive_response(self):
+        await self.speak.wait()
+        self.speak.clear()
+        yield assistant_message([TextBlock("the report")])
+        self.first_yielded.set()
+        await self.finish.wait()
+        yield result_message()
+
+
+class TestHelloInFlight:
+    """The ``hello`` snapshot says a response is under way whenever one is."""
+
+    @pytest.mark.asyncio
+    async def test_a_response_the_cli_started_on_its_own_is_in_flight(self):
+        client = _UnpromptedClient()
+        async with _started_session(client) as session:
+            feed, before = session.subscribe()
+            client.speak.set()
+            await asyncio.wait_for(client.first_yielded.wait(), timeout=1.0)
+
+            _feed, during = session.subscribe()
+            client.finish.set()
+            while (await asyncio.wait_for(feed.get(), timeout=1.0))["type"] != "result":
+                pass
+            _feed, after = session.subscribe()
+
+        assert (before["in_flight"], during["in_flight"], after["in_flight"]) == (
+            False,
+            True,
+            False,
+        )
+
+
 # ---------------------------------------------------------------------------
 # OperatorRegistry
 # ---------------------------------------------------------------------------

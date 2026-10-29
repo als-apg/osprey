@@ -235,18 +235,35 @@ const TOOL_RUN_PHRASE = Object.freeze({
 });
 
 /**
+ * Whether a tool call's input says the operator ran it by a slash command,
+ * not the agent by its own choice. Only a skill's input carries this.
+ * @param {unknown} input
+ * @returns {boolean}
+ */
+export function ranByOperator(input) {
+  return Boolean(
+    input && typeof input === 'object' && /** @type {{ by?: unknown }} */ (input).by === 'operator'
+  );
+}
+
+/**
  * The label of a run row: "Read 4 channels", "Ran 2 commands". A run of one
  * tool is phrased by that tool when it has a phrase of its own; otherwise by
- * its fold key.
+ * its fold key. A run of skills says "Ran" when the operator ran every one of
+ * them, as their rows do, and "Used" when the agent chose any.
  * @param {FoldKey} key
  * @param {readonly string[]} toolKeys - the members' {@link toolKey}s, in order
+ * @param {boolean} [allByOperator] - every member was run by the operator
  * @returns {string}
  */
-export function runPhrase(key, toolKeys) {
+export function runPhrase(key, toolKeys, allByOperator = false) {
   const n = toolKeys.length;
-  const one = toolKeys.length > 0 && toolKeys.every((k) => k === toolKeys[0]);
-  const [verb, noun] = (one && TOOL_RUN_PHRASE[toolKeys[0]]) || RUN_PHRASE[key] || ANY_RUN_PHRASE;
-  return `${verb} ${n} ${noun}${n === 1 ? '' : 's'}`;
+  const one = n > 0 && toolKeys.every((k) => k === toolKeys[0]);
+  const own =
+    one && Object.hasOwn(TOOL_RUN_PHRASE, toolKeys[0]) ? TOOL_RUN_PHRASE[toolKeys[0]] : null;
+  const [verb, noun] = own || RUN_PHRASE[key] || ANY_RUN_PHRASE;
+  const said = key === 'skill' && allByOperator ? 'Ran' : verb;
+  return `${said} ${n} ${noun}${n === 1 ? '' : 's'}`;
 }
 
 /**
@@ -259,10 +276,7 @@ export function runPhrase(key, toolKeys) {
 export function toolLabel(event) {
   const raw = event.tool_name_raw ?? event.tool_name;
   if (toolCategory(raw) === 'skill') {
-    const input = /** @type {{ by?: unknown } | null} */ (
-      event.input && typeof event.input === 'object' ? event.input : null
-    );
-    return input?.by === 'operator' ? 'Ran skill' : 'Used skill';
+    return ranByOperator(event.input) ? 'Ran skill' : 'Used skill';
   }
   return String(event.tool_name || event.tool_name_raw || 'tool');
 }

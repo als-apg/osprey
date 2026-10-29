@@ -1561,7 +1561,7 @@ html[data-ui-mode="simple"] #operator-container {
 }
 
 .op-artifact-link:focus-visible {
-  outline: 2px solid var(--border-accent);
+  outline: 2px solid var(--color-accent);
   outline-offset: 1px;
   border-radius: var(--radius-xs);
 }
@@ -1571,6 +1571,13 @@ html[data-ui-mode="simple"] #operator-container {
   text-decoration-style: solid;
   text-decoration-line: line-through;
   cursor: default;
+}
+
+/* The gallery could not be asked (session expired, refused, unreachable): the
+   artifact may exist, so the control stays clickable and is not struck through. */
+.op-artifact-link[data-unavailable] {
+  color: var(--text-muted);
+  text-decoration-style: dashed;
 }
 
 .op-artifact-link code {
@@ -1920,8 +1927,16 @@ html[data-ui-mode="simple"] #operator-container {
 }
 
 .op-loader-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-weight: var(--weight-medium);
   white-space: nowrap;
+}
+
+.op-loader-sep,
+.op-loader-time {
+  flex-shrink: 0;
 }
 
 .op-loader-sep {
@@ -2135,6 +2150,10 @@ html[data-ui-mode="simple"] #operator-container {
 }
 
 .op-slash-hint {
+  min-width: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-family: var(--font-mono);
   font-size: var(--text-base);
   color: var(--text-muted);

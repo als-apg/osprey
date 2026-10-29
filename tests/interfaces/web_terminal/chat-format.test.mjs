@@ -416,4 +416,29 @@ describe('a skill', () => {
   test('a run of skills is counted as skills', () => {
     expect(runPhrase('skill', ['skill', 'skill'])).toBe('Used 2 skills');
   });
+
+  test('a run of skills the operator ran says so; one the agent chose does not', () => {
+    expect(runPhrase('skill', ['skill', 'skill'], true)).toBe('Ran 2 skills');
+    expect(runPhrase('skill', ['skill'], true)).toBe('Ran 1 skill');
+    expect(runPhrase('skill', ['skill', 'skill'], false)).toBe('Used 2 skills');
+  });
+
+  test('a long skill name is cut in the status line', () => {
+    const label = activityLabel(skill({ skill: 'a'.repeat(200) }));
+    expect(label).toBe(`Using skill ${'a'.repeat(60)}…`);
+    expect(activityLabel(skill({ skill: 'b'.repeat(60) }))).toBe(`Using skill ${'b'.repeat(60)}…`);
+  });
+});
+
+describe('a tool named like an Object.prototype member', () => {
+  test.each(['constructor', '__proto__'])(
+    '%s labels as an unmapped tool, and folds as a run, without throwing',
+    (name) => {
+      const event = { type: 'tool_use', tool_name: name, tool_name_raw: name };
+      expect(activityLabel(event)).toBe(`Using ${name}…`);
+      expect(runPhrase('other', [name.toLowerCase(), name.toLowerCase()])).toBe(
+        'Made 2 tool calls'
+      );
+    }
+  );
 });

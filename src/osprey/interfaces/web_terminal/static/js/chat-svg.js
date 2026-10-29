@@ -15,8 +15,10 @@
  * - pass DOMPurify's SVG profile, with every element that runs code, embeds
  *   HTML, animates or loads another resource removed outright, and no `href`
  *   at all;
- * - keep no attribute whose value reaches outside the drawing through `url()`
- *   (a `url(#gradient)` reference to the drawing's own parts stays);
+ * - keep no attribute whose value reaches outside the drawing: a value may
+ *   hold `url(#id)` references to the drawing's own parts (a gradient stays),
+ *   no other `url()`, `src()` or `image-set()`, and no backslash, because a
+ *   CSS escape (`\75rl(…)`) spells a function name the checks cannot see;
  * - keep no colour outside the theme's palette ({@link PALETTE}) and no
  *   `style` attribute, so every colour it draws in is one the theme sets and
  *   it reads in light and dark alike. A part whose colour was dropped, or
@@ -75,8 +77,21 @@ const THEME_COLOUR = new RegExp(
   'i'
 );
 
-/** A `url()` that points anywhere but at the drawing's own `#id`. */
-const OUTSIDE_URL = /url\(\s*(?!['"]?\s*#)/i;
+/** A `url()` that points at the drawing's own `#id`, the one form a value may use. */
+const OWN_URL = /url\(\s*(['"]?)#[^)'"\s]*\1\s*\)/gi;
+
+/** A CSS function that can load a resource. */
+const LOADING_FUNCTION = /(?:url|src|image|image-set|cross-fade|element)\s*\(/i;
+
+/**
+ * Whether *value* may stay on an attribute: no backslash, and no resource
+ * loaded from anywhere but the drawing's own `url(#id)` parts.
+ * @param {string} value
+ * @returns {boolean}
+ */
+function staysInsideDrawing(value) {
+  return !value.includes('\\') && !LOADING_FUNCTION.test(value.replace(OWN_URL, ''));
+}
 
 /** Longer sources stay code: a callout is a glance, not a document. */
 export const MAX_SVG_SOURCE = 50_000;
@@ -107,7 +122,7 @@ export function sanitizeSvg(source, DOMPurify) {
   if (!svg) return null;
   for (const node of [svg, ...svg.querySelectorAll('*')]) {
     for (const attr of [...node.attributes]) {
-      if (OUTSIDE_URL.test(attr.value)) node.removeAttribute(attr.name);
+      if (!staysInsideDrawing(attr.value)) node.removeAttribute(attr.name);
       else if (COLOUR_ATTRS.includes(attr.name) && !THEME_COLOUR.test(attr.value.trim())) {
         node.removeAttribute(attr.name);
       }

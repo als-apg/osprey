@@ -43,7 +43,7 @@ import { activityLabel } from './chat-activity.js';
 import { renderMarkdownInto } from './chat-markdown.js';
 import { linkArtifactIds } from './artifact-links.js';
 import { emitChat } from './chat-events.js';
-import { systemFrame } from './chat-system.js';
+import { BACKGROUND_WAIT_LABEL, WORKING_LABEL, systemFrame } from './chat-system.js';
 import { endsTurn } from './chat-frames.js';
 
 export { elem } from './chat-dom.js';
@@ -110,7 +110,8 @@ function renderAgentMarkdown(el, text) {
  *   finished agent entry rendered from markdown and return it
  * @property {(turns: ChatTurn[] | null | undefined) => number} replay - render
  *   prior conversation turns, leaving the session-reset divider state
- *   untouched; returns the number of entries rendered
+ *   untouched; returns the number of entries rendered. A last agent turn whose
+ *   history has no end is left open for the live stream to continue
  * @property {() => void} beginTurn - start a turn: shows the live loader
  * @property {(event: ChatEvent) => void} handleEvent - dispatch one SSE event
  * @property {() => void} endTurn - finish the turn: hides the loader and marks
@@ -118,6 +119,8 @@ function renderAgentMarkdown(el, text) {
  * @property {() => void} reset - clear the list and all per-conversation state
  * @property {() => number} messageCount - rendered message entries so far
  *   (excludes dividers and the loader); primarily for tests
+ * @property {() => boolean} hasOpenTurn - whether an agent turn is open: one a
+ *   live stream draws, or a replayed one whose history has no end yet
  */
 
 /**
@@ -165,7 +168,7 @@ export function createChatRenderer(container, options = {}) {
   /** When the turn's last content frame landed (epoch ms): a thinking row's time starts here. */
   let lastFrameAt = 0;
   /** The loader's label: the current activity. */
-  let activity = 'Working…';
+  let activity = WORKING_LABEL;
   /** Whether the reply's text is streaming now; the status line says so. */
   let streamingText = false;
   /** The live loader, created on first use and then reused. */
@@ -178,6 +181,8 @@ export function createChatRenderer(container, options = {}) {
   const cards = new Map();
   /** Subagent rows of the turn in flight, keyed by the call's `tool_use_id`. */
   const agents = new Map();
+  /** `tool_use_id`s of the main agent's tool calls shown now and not yet answered. */
+  const openTools = new Set();
   /** Redraws each replayed AskUserQuestion from its call and result: history holds no card. */
   const questionReplay = createQuestionReplay();
 
@@ -345,6 +350,7 @@ export function createChatRenderer(container, options = {}) {
     cards.clear();
     for (const agent of agents.values()) agent.finish({ status: 'stopped' });
     agents.clear();
+    openTools.clear();
     streamingText = false;
   }
 
@@ -401,16 +407,21 @@ export function createChatRenderer(container, options = {}) {
    * divider above replayed history. Entries are appended — a caller wanting a
    * clean log calls {@link reset} first.
    *
+   * The history's last agent turn may have no end yet — no `result` and no
+   * error that ends a turn — because the agent is still on it. That turn
+   * stays open, so the live frames that follow continue it in the same entry.
+   *
    * @param {ChatTurn[] | null | undefined} turns - as served by
    *   `GET /api/session-chat`; a missing list renders nothing
    * @returns {number} entries rendered; a turn with no content is skipped
    */
   function replay(turns) {
+    const list = turns ?? [];
     const priorExchange = hasPriorExchange;
     let rendered = 0;
     replaying = true;
     try {
-      for (const turnItem of turns ?? []) {
+      for (const [index, turnItem] of list.entries()) {
         const content = turnItem?.content ?? '';
         const events = Array.isArray(turnItem?.events) ? turnItem.events : null;
         if ((turnItem.role ?? '').toLowerCase() === 'user') {
@@ -420,7 +431,8 @@ export function createChatRenderer(container, options = {}) {
           // The same path a live stream takes, so thinking, tool rows and the
           // plan come back exactly as they were drawn; `result` closes the turn.
           for (const event of events) handleEvent(event);
-          endTurn();
+          const unfinished = index === list.length - 1 && !events.some(endsTurn);
+          if (!unfinished) endTurn();
         } else if (content) {
           addAgentMessage(content);
         } else {
@@ -439,7 +451,7 @@ export function createChatRenderer(container, options = {}) {
     running = true;
     startedAt = Date.now();
     lastFrameAt = startedAt;
-    activity = 'Working…';
+    activity = WORKING_LABEL;
     streamingText = false;
     syncLoader();
   }
@@ -503,7 +515,10 @@ export function createChatRenderer(container, options = {}) {
         activity = key === QUESTION_TOOL_KEY ? 'Preparing a question…' : activityLabel(event);
         if (key === QUESTION_TOOL_KEY) {
           if (replaying) questionReplay.ask(event);
-        } else if (!HIDDEN_TOOL_KEYS.has(key)) appendToolUse(event);
+        } else if (!HIDDEN_TOOL_KEYS.has(key)) {
+          appendToolUse(event);
+          if (event.tool_use_id) openTools.add(String(event.tool_use_id));
+        }
         break;
       }
       case 'tool_start': {
@@ -521,6 +536,11 @@ export function createChatRenderer(container, options = {}) {
       }
       case 'tool_result': {
         streamingText = false;
+        // The call's phrase is over once its result is in; with no other call of
+        // the turn still open the line says the agent is working, as beginTurn does.
+        if (!event.parent_tool_use_id && openTools.delete(String(event.tool_use_id ?? ''))) {
+          if (openTools.size === 0) activity = WORKING_LABEL;
+        }
         const trace = questionReplay.answer(event);
         if (trace) {
           ensureTurn().place(trace);
@@ -583,7 +603,12 @@ export function createChatRenderer(container, options = {}) {
         if (effect.stopStreaming) streamingText = false;
         if (effect.activity) activity = effect.activity;
         if (effect.closeText && turn) turn.closeText();
-        if (effect.agentDone) agents.get(effect.agentDone.id)?.finish(effect.agentDone.outcome);
+        if (effect.agentDone) {
+          agents.get(effect.agentDone.id)?.finish(effect.agentDone.outcome);
+          // The wait is over when no background agent is left running.
+          const waiting = activity === BACKGROUND_WAIT_LABEL;
+          if (waiting && ![...agents.values()].some((a) => a.running())) activity = WORKING_LABEL;
+        }
         if (effect.notice) {
           const notice = createNotice(effect.notice);
           if (turn) turn.append(notice);
@@ -621,5 +646,6 @@ export function createChatRenderer(container, options = {}) {
     endTurn,
     reset,
     messageCount: () => count,
+    hasOpenTurn: () => running || turn !== null,
   };
 }

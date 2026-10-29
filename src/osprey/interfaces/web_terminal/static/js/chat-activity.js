@@ -29,9 +29,11 @@
  * reads as plain English ("List Panels", "Session Summary") falls through to
  * the raw-name fallback instead of earning a row. Adding one is a single line.
  *
- * Phrases cannot name the specific panel, channel, or file involved: the chat
- * route (`_strip_for_chat`) drops a `tool_use` event's `input` before it leaves
- * the server, so no arguments reach this module.
+ * Phrases cannot name the specific panel, channel, or file involved: they are
+ * fixed text per tool, whatever the call's arguments. The chat route
+ * (`_strip_for_chat` in routes/chat.py) does keep a `tool_use` event's `input`,
+ * clipped, and {@link activityLabel} reads it for one thing only: the name of
+ * a skill.
  *
  * The keyspace is server-agnostic by design: keys are short tool names with
  * the `mcp__<server>__` prefix stripped, so a name owned by two servers
@@ -206,11 +208,15 @@ export function normaliseToolName(name) {
 export function toolPhrase(event) {
   for (const name of [event.tool_name_raw, event.tool_name]) {
     if (!name) continue;
-    const phrase = TOOL_PHRASES[normaliseToolName(name)];
+    const key = normaliseToolName(name);
+    const phrase = Object.hasOwn(TOOL_PHRASES, key) ? TOOL_PHRASES[key] : null;
     if (phrase) return phrase;
   }
   return null;
 }
+
+/** Longest skill name the status line shows before it is cut. */
+const SKILL_NAME_MAX = 60;
 
 /**
  * The activity-line label for a `tool_use` event. A mapped tool reads as a
@@ -225,7 +231,8 @@ export function activityLabel(event) {
   const input = /** @type {{ skill?: unknown } | undefined} */ (event.input);
   const skill = typeof input?.skill === 'string' ? input.skill.trim() : '';
   if (skill && normaliseToolName(event.tool_name_raw ?? event.tool_name ?? '') === 'skill') {
-    return `Using skill ${skill}…`;
+    const shown = skill.slice(0, SKILL_NAME_MAX);
+    return `Using skill ${shown}…`;
   }
   const phrase = toolPhrase(event);
   if (phrase !== null) return `${phrase.charAt(0).toUpperCase()}${phrase.slice(1)}…`;

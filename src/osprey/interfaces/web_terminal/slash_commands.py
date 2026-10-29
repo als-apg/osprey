@@ -212,18 +212,46 @@ def list_chat_slash_commands(project_dir: Path) -> list[SlashCommand]:
 #: A prompt that is one slash command: ``/name``, then any arguments.
 _SLASH_PROMPT_RE = re.compile(r"^/(?P<name>[^\s/]+)(?:\s+(?P<args>.*))?$", re.DOTALL)
 
+#: A name the CLI would take for a command: a letter, then letters, digits,
+#: ``:``, ``_`` or ``-``. A first token outside this grammar (``/10``,
+#: ``/x.txt``) reads as text, not as a command.
+_COMMAND_NAME_RE = re.compile(r"[A-Za-z][A-Za-z0-9:_-]*")
+
+#: The head of the block the composer appends to a message that carries files
+#: (``static/js/chat-attach.js``), and one file line of that block.
+_ATTACHMENT_HEAD = "\n\nAttached files (read them with the Read tool):\n"
+_ATTACHMENT_LINE_RE = re.compile(r"^- (.+) \(([^()]*), ([^()]*)\)$")
+
+
+def strip_attachment_block(text: str) -> str:
+    """Return *text* without the attached-files block the composer appends to it.
+
+    The block is the last ``Attached files`` head and the file lines after it,
+    as ``splitAttachmentBlock`` in ``chat-attach.js`` reads it. Text with no
+    such block, or with a line after the head that is not a file line, is
+    returned unchanged.
+    """
+    at = text.rfind(_ATTACHMENT_HEAD)
+    if at == -1:
+        return text
+    lines = text[at + len(_ATTACHMENT_HEAD) :].split("\n")
+    if not all(_ATTACHMENT_LINE_RE.match(line) for line in lines):
+        return text
+    return text[:at]
+
 
 def operator_skill(prompt: str, project_dir: Path) -> tuple[str, str] | None:
     """The project skill an operator's prompt runs by its slash command, and its arguments.
 
     The CLI expands such a prompt into the skill without a tool call, so nothing
     in the agent's stream says a skill ran; the chat draws it from the prompt.
+    The attached-files block the composer appends is not part of the arguments.
 
     Returns:
         ``(name, args)`` when *prompt* is ``/<skill>`` (``args`` is ``""`` when
         none follow), ``None`` for any other prompt, a command file or a built-in.
     """
-    match = _SLASH_PROMPT_RE.match(prompt.strip())
+    match = _SLASH_PROMPT_RE.match(strip_attachment_block(prompt).strip())
     if match is None:
         return None
     name = match["name"]
@@ -232,6 +260,30 @@ def operator_skill(prompt: str, project_dir: Path) -> tuple[str, str] | None:
     ):
         return None
     return name, (match["args"] or "").strip()
+
+
+def unavailable_command(prompt: str, project_dir: Path) -> str | None:
+    """The slash command *prompt* asks for when the chat does not offer it.
+
+    The chat offers what :func:`list_chat_slash_commands` lists. Any other
+    command (``/login``, ``/model``, ``/config``) the CLI would run itself, so
+    the chat route refuses the prompt. A prompt whose first token is not a
+    command name is text: a path such as ``/home/x is full`` (a ``/`` inside
+    the token), or ``/10 of them`` (not a name), goes to the agent.
+
+    Returns:
+        The name typed after ``/`` when *prompt* opens with an unlisted
+        command name, else ``None``.
+    """
+    match = _SLASH_PROMPT_RE.match(strip_attachment_block(prompt).strip())
+    if match is None:
+        return None
+    name = match["name"]
+    if _COMMAND_NAME_RE.fullmatch(name) is None:
+        return None
+    if any(c.name == name for c in list_chat_slash_commands(project_dir)):
+        return None
+    return name
 
 
 def operator_skill_frames(name: str, args: str, call_id: str) -> list[dict[str, Any]]:

@@ -4,7 +4,9 @@
  *
  * {@link renderMarkdownInto} is the one path from model markdown to the DOM.
  * `marked` parses the text, DOMPurify sanitises the HTML, and only the
- * sanitised string reaches `innerHTML`. Math is typeset with KaTeX afterwards,
+ * sanitised string reaches `innerHTML`. The reply is untrusted, so a reply
+ * may not make the browser fetch from another site as it renders, and may
+ * not paint over the page ({@link sanitizeReply}). Math is typeset with KaTeX afterwards,
  * on the DOM, so KaTeX output never passes through the HTML string. A ```svg
  * block is drawn afterwards too, through chat-svg.js's own sanitising pass.
  *
@@ -28,6 +30,80 @@ function markdownGlobals() {
   return { DOMPurify: g.DOMPurify, hljs: g.hljs, katex: g.katex };
 }
 
+// ---- Sanitising ---- //
+
+/**
+ * Elements a reply may not hold: the ones that take input or send it, and
+ * style sheets. The sanitiser also uses the HTML profile only, so there is no
+ * inline SVG or MathML (KaTeX is mounted after sanitising, so it needs neither).
+ */
+const FORBID_TAGS = Object.freeze(['style', 'form', 'input', 'button', 'select', 'textarea']);
+
+/**
+ * `style` and `background` paint over the page or load from it. `srcset` lists
+ * URLs, so it is dropped rather than checked.
+ */
+const FORBID_ATTR = Object.freeze(['style', 'background', 'srcset']);
+
+/** The elements that load media, and the attributes of theirs that hold a URL. */
+const MEDIA_URL_ATTRS = Object.freeze({
+  img: ['src'],
+  source: ['src'],
+  video: ['src', 'poster'],
+  audio: ['src'],
+  track: ['src'],
+});
+
+/**
+ * Whether *value* loads from the page's own origin. A relative URL does; a
+ * `data:` URL, another site, and a value that is not a URL do not.
+ * @param {string} value
+ * @returns {boolean}
+ */
+function isOwnOrigin(value) {
+  try {
+    return new URL(value, location.href).origin === location.origin;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * DOMPurify hook: remove a media element whose URL leaves the page's origin.
+ * @param {Element} node
+ */
+function dropForeignMedia(node) {
+  const attrs = /** @type {Record<string, string[]>} */ (MEDIA_URL_ATTRS)[node.localName ?? ''];
+  if (!attrs) return;
+  if (
+    attrs.some((name) => node.hasAttribute(name) && !isOwnOrigin(node.getAttribute(name) ?? ''))
+  ) {
+    node.remove();
+  }
+}
+
+/**
+ * Sanitise a reply's HTML. The media hook is on DOMPurify only for this call,
+ * so it never reaches chat-svg.js, which sanitises with the same instance.
+ * @param {any} DOMPurify
+ * @param {string} html - marked's output
+ * @returns {string}
+ */
+function sanitizeReply(DOMPurify, html) {
+  const hooks =
+    typeof DOMPurify.addHook === 'function' && typeof DOMPurify.removeHook === 'function';
+  if (hooks) DOMPurify.addHook('afterSanitizeAttributes', dropForeignMedia);
+  try {
+    return DOMPurify.sanitize(html, {
+      USE_PROFILES: { html: true },
+      FORBID_TAGS: [...FORBID_TAGS],
+      FORBID_ATTR: [...FORBID_ATTR],
+    });
+  } finally {
+    if (hooks) DOMPurify.removeHook('afterSanitizeAttributes', dropForeignMedia);
+  }
+}
+
 // ---- Math ---- //
 
 /**
@@ -44,8 +120,15 @@ const MATH_PATTERNS = [
   [/(?<![$\d\\])\$(?![\s$])([^\n$]+?)(?<![\s\\])\$(?!\d)/g, false],
 ];
 
-/** Fenced blocks and code spans; split on it, odd parts are code and stay literal. */
-const CODE_SPLIT = /(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]+`)/;
+/**
+ * The code in a reply, which math must leave alone: a fenced block (it runs to
+ * its closing fence, which is at least as long as the opening one, or to the
+ * end of the text while the fence is still open), a multi-backtick span, and
+ * a single-line code span. A backtick fence's info string holds no backtick,
+ * so "```x```" is a span, as in CommonMark.
+ */
+const CODE_RANGE =
+  /^[ \t]*(`{3,}(?![^\n]*`)|~{3,})[^\n]*(?:\n[\s\S]*?)?(?:\n[ \t]*\1[`~]*[ \t]*(?=\n|$)|(?![\s\S]))|(`{2,})(?!`)[\s\S]*?(?<!`)\2(?!`)|`[^`\n]+`/gm;
 
 /** The placeholder a math expression rides through marked and DOMPurify as. */
 const MATH_TOKEN = /OSPREYMATH(\d+)Z/g;
@@ -58,19 +141,23 @@ const MATH_TOKEN = /OSPREYMATH(\d+)Z/g;
  * @returns {string}
  */
 function extractMath(text, found) {
-  return text
-    .split(CODE_SPLIT)
-    .map((part, i) => {
-      if (i % 2 === 1) return part;
-      for (const [re, display] of MATH_PATTERNS) {
-        part = part.replace(re, (raw, expr) => {
-          found.push({ expr, display, raw });
-          return `OSPREYMATH${found.length - 1}Z`;
-        });
-      }
-      return part;
-    })
-    .join('');
+  /** @param {string} prose */
+  const swap = (prose) => {
+    for (const [re, display] of MATH_PATTERNS) {
+      prose = prose.replace(re, (raw, expr) => {
+        found.push({ expr, display, raw });
+        return `OSPREYMATH${found.length - 1}Z`;
+      });
+    }
+    return prose;
+  };
+  let out = '';
+  let last = 0;
+  for (const m of text.matchAll(CODE_RANGE)) {
+    out += swap(text.slice(last, m.index)) + m[0];
+    last = (m.index ?? 0) + m[0].length;
+  }
+  return out + swap(text.slice(last));
 }
 
 /**
@@ -89,6 +176,12 @@ function mountMath(el, found, katex) {
   }
   for (const node of nodes) {
     const s = node.nodeValue ?? '';
+    // Code is never typeset (marked can make code of text the extraction took
+    // for math, such as an indented block): it gets its own characters back.
+    if (node.parentElement?.closest('pre, code')) {
+      node.nodeValue = s.replace(MATH_TOKEN, (token, i) => found[Number(i)]?.raw ?? token);
+      continue;
+    }
     const frag = document.createDocumentFragment();
     let last = 0;
     for (const m of s.matchAll(MATH_TOKEN)) {
@@ -109,6 +202,21 @@ function mountMath(el, found, katex) {
     }
     frag.append(s.slice(last));
     node.replaceWith(frag);
+  }
+}
+
+/**
+ * Put each table in a box that scrolls sideways, so a wide table keeps its
+ * natural width instead of being squeezed into the bubble. Done on the DOM
+ * after sanitising, so the box is not subject to the sanitiser's rules.
+ * @param {HTMLElement} el
+ */
+function wrapTables(el) {
+  for (const table of el.querySelectorAll('table')) {
+    const box = document.createElement('div');
+    box.className = 'osprey-md-table-scroll';
+    table.replaceWith(box);
+    box.append(table);
   }
 }
 
@@ -199,7 +307,7 @@ export function renderMarkdownInto(el, text, { math = false, svg = false } = {})
   const withMath = math && katex && typeof katex.render === 'function';
   let clean;
   try {
-    clean = DOMPurify.sanitize(parse(withMath ? extractMath(source, found) : source));
+    clean = sanitizeReply(DOMPurify, parse(withMath ? extractMath(source, found) : source));
   } catch {
     // Any failure in parse/sanitise falls back to inert text rather than
     // risking unsanitised markup reaching the DOM.
@@ -207,6 +315,7 @@ export function renderMarkdownInto(el, text, { math = false, svg = false } = {})
     return;
   }
   el.innerHTML = clean;
+  wrapTables(el);
   if (found.length) mountMath(el, found, katex);
   if (pendingAt >= 0) el.append(createSvgPlaceholder());
   if (svg) {

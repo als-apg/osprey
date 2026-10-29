@@ -138,6 +138,49 @@ describe('what a drawing may not carry', () => {
     expect(rect?.hasAttribute('fill')).toBe(false);
     expect(rect?.hasAttribute('style')).toBe(false);
   });
+
+  test.each([
+    ['a css-escaped url()', 'filter', '\\75rl(https://evil.example/f.svg#f)'],
+    ['a long css escape', 'mask', '\\000075rl(https://evil.example/m.svg#m)'],
+    [
+      'an escape beside an inside reference',
+      'clip-path',
+      'url(#c) \\75rl(https://evil.example/c.svg#c)',
+    ],
+    ['an outside url after an inside one', 'filter', 'url(#f) url(https://evil.example/f.svg#f)'],
+    ['an image-set()', 'mask', 'image-set("https://evil.example/c.png" 1x), auto'],
+    ['a src()', 'filter', 'src("https://evil.example/c.png"), auto'],
+  ])('%s in an attribute is removed', (_case, name, value) => {
+    const svg = drawn(
+      `<svg viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg">` +
+        `<rect width="1" height="1" ${name}='${value}'/></svg>`
+    );
+    const rect = svg?.querySelector('rect');
+    expect(rect).not.toBeNull();
+    expect(rect?.hasAttribute(name)).toBe(false);
+    expect(svg?.outerHTML).not.toContain('evil.example');
+  });
+
+  test("a reference to the drawing's own parts is kept in a filter, a mask and a clip", () => {
+    const svg = drawn(
+      '<svg viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg"><defs>' +
+        '<filter id="f"><feGaussianBlur stdDeviation="1"/></filter>' +
+        '<clipPath id="c"><rect width="5" height="5"/></clipPath></defs>' +
+        '<rect width="1" height="1" filter="url(#f)" clip-path="url(&quot;#c&quot;)"/></svg>'
+    );
+    const rect = svg?.querySelector('rect[filter]');
+    expect(rect?.getAttribute('filter')).toBe('url(#f)');
+    expect(rect?.getAttribute('clip-path')).toBe('url("#c")');
+  });
+
+  test('any attribute holding a backslash is removed', () => {
+    const svg = drawn(
+      '<svg viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg">' +
+        '<text x="1" y="5" font-family="a\\62 c">x</text></svg>'
+    );
+    expect(svg?.querySelector('text')?.hasAttribute('font-family')).toBe(false);
+    expect(svg?.querySelector('text')?.getAttribute('x')).toBe('1');
+  });
 });
 
 describe('a drawing reads in every theme', () => {

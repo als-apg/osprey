@@ -83,7 +83,7 @@ describe('renderMarkdownInto', () => {
     renderMarkdownInto(el, '# hi');
 
     expect(parse).toHaveBeenCalledWith('# hi');
-    expect(sanitize).toHaveBeenCalledWith('<p>hi</p><pre><code>x</code></pre>');
+    expect(sanitize).toHaveBeenCalledWith('<p>hi</p><pre><code>x</code></pre>', expect.any(Object));
     expect(el.innerHTML).toBe('<p>hi</p><pre><code>x</code></pre>');
     // one `pre code` block -> highlighted once
     expect(highlightElement).toHaveBeenCalledTimes(1);
@@ -405,6 +405,109 @@ describe('createChatRenderer', () => {
       expect(container.querySelector('.op-loader')).toBeNull();
     });
 
+    test("a tool's phrase leaves the line when its result arrives", () => {
+      const r = createChatRenderer(container);
+      r.beginTurn();
+      const label = () => qs(container, '.op-loader-label').textContent;
+      r.handleEvent({ type: 'tool_use', tool_name: 'Channel Read', tool_use_id: 't1', input: {} });
+      expect(label()).toBe('Reading control channels…');
+      r.handleEvent({ type: 'tool_result', tool_use_id: 't1', is_error: false, preview: '1.0' });
+      expect(label()).toBe('Working…');
+    });
+
+    test('the phrase stays while another call of the turn is still running', () => {
+      const r = createChatRenderer(container);
+      r.beginTurn();
+      const label = () => qs(container, '.op-loader-label').textContent;
+      r.handleEvent({ type: 'tool_use', tool_name: 'Channel Read', tool_use_id: 't1', input: {} });
+      r.handleEvent({ type: 'tool_use', tool_name: 'Channel Write', tool_use_id: 't2', input: {} });
+      r.handleEvent({ type: 'tool_result', tool_use_id: 't1', is_error: false, preview: '1.0' });
+      expect(label()).not.toBe('Working…');
+      r.handleEvent({ type: 'tool_result', tool_use_id: 't2', is_error: false, preview: 'ok' });
+      expect(label()).toBe('Working…');
+    });
+
+    test("a subagent's own result does not reset the line", () => {
+      const r = createChatRenderer(container);
+      r.beginTurn();
+      r.handleEvent({
+        type: 'tool_use',
+        tool_name: 'Agent',
+        tool_name_raw: 'Agent',
+        tool_use_id: 'a1',
+        input: { subagent_type: 'channel-finder', description: 'find' },
+      });
+      r.handleEvent({
+        type: 'tool_use',
+        tool_name: 'Channel Read',
+        tool_use_id: 'n1',
+        parent_tool_use_id: 'a1',
+        input: {},
+      });
+      r.handleEvent({
+        type: 'tool_result',
+        tool_use_id: 'n1',
+        parent_tool_use_id: 'a1',
+        is_error: false,
+        preview: '1.0',
+      });
+      expect(qs(container, '.op-loader-label').textContent).toBe(
+        'channel-finder · Reading control channels…'
+      );
+    });
+
+    test('"Waiting for the background agent…" ends when that agent reports', () => {
+      const r = createChatRenderer(container);
+      r.beginTurn();
+      const label = () => qs(container, '.op-loader-label').textContent;
+      r.handleEvent({
+        type: 'tool_use',
+        tool_name: 'Agent',
+        tool_name_raw: 'Agent',
+        tool_use_id: 'a1',
+        input: { subagent_type: 'channel-finder', description: 'find', run_in_background: true },
+      });
+      r.handleEvent({ type: 'system', subtype: 'background_wait' });
+      expect(label()).toBe('Waiting for the background agent…');
+      r.handleEvent({
+        type: 'system',
+        subtype: 'agent_done',
+        tool_use_id: 'a1',
+        status: 'completed',
+      });
+      expect(label()).toBe('Working…');
+    });
+
+    test('the wait goes on while a second background agent is still out', () => {
+      const r = createChatRenderer(container);
+      r.beginTurn();
+      const label = () => qs(container, '.op-loader-label').textContent;
+      for (const id of ['a1', 'a2']) {
+        r.handleEvent({
+          type: 'tool_use',
+          tool_name: 'Agent',
+          tool_name_raw: 'Agent',
+          tool_use_id: id,
+          input: { subagent_type: 'channel-finder', description: id },
+        });
+      }
+      r.handleEvent({ type: 'system', subtype: 'background_wait' });
+      r.handleEvent({
+        type: 'system',
+        subtype: 'agent_done',
+        tool_use_id: 'a1',
+        status: 'completed',
+      });
+      expect(label()).toBe('Waiting for the background agent…');
+      r.handleEvent({
+        type: 'system',
+        subtype: 'agent_done',
+        tool_use_id: 'a2',
+        status: 'completed',
+      });
+      expect(label()).toBe('Working…');
+    });
+
     test("a subagent's call starting names the agent, and draws no row", () => {
       const r = createChatRenderer(container);
       r.beginTurn();
@@ -622,6 +725,49 @@ describe('createChatRenderer', () => {
       expect(agents.length).toBe(2);
       expect(agents[0].querySelector('.op-entry-body')?.textContent).toBe('replayed');
       expect(agents[1].querySelector('.op-entry-body')?.textContent).toBe('live');
+    });
+
+    test('a replayed turn whose history has no end stays open, and the live frames continue it', () => {
+      const r = createChatRenderer(container);
+      r.replay([
+        { role: 'user', content: 'read the orbit' },
+        { role: 'assistant', content: 'Reading.', events: [{ type: 'text', content: 'Reading.' }] },
+      ]);
+      expect(r.hasOpenTurn()).toBe(true);
+      expect(container.querySelector('.op-footer')).toBeNull();
+
+      // The feed joins the turn still running.
+      r.beginTurn();
+      r.handleEvent({ type: 'text', content: 'It is flat.' });
+      r.handleEvent({ type: 'result', is_error: false, duration_ms: 4000 });
+
+      const agents = container.querySelectorAll('.op-entry.assistant');
+      expect(agents).toHaveLength(1);
+      expect([...agents[0].querySelectorAll('.op-entry-body')].map((b) => b.textContent)).toEqual([
+        'Reading.',
+        'It is flat.',
+      ]);
+      expect(agents[0].querySelectorAll('.op-footer')).toHaveLength(1);
+      expect(r.hasOpenTurn()).toBe(false);
+    });
+
+    test('a replayed turn that ended is closed, and a live frame after it opens a new entry', () => {
+      const r = createChatRenderer(container);
+      r.replay([
+        {
+          role: 'assistant',
+          content: 'Done.',
+          events: [
+            { type: 'text', content: 'Done.' },
+            { type: 'result', is_error: false },
+          ],
+        },
+      ]);
+      expect(r.hasOpenTurn()).toBe(false);
+      r.beginTurn();
+      r.handleEvent({ type: 'text', content: 'Something new.' });
+
+      expect(container.querySelectorAll('.op-entry.assistant')).toHaveLength(2);
     });
 
     test('a replayed turn with a run of calls and an approval draws exactly what the live turn drew', () => {

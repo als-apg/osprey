@@ -21,7 +21,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from osprey.agent_runner.project_paths import CLAUDE_CONFIG_DIR_ENV, claude_project_dir
-from osprey.interfaces.web_terminal.operator_session import _EXPIRED_MESSAGES
+from osprey.interfaces.web_terminal.operator_session import _ASYNC_LAUNCH_MARK, _EXPIRED_MESSAGES
 from osprey.interfaces.web_terminal.routes.session import (
     _APPROVED_CALL_NOTE,
     _DECLINED_RESULTS,
@@ -528,6 +528,25 @@ class TestReplayedSlashCommands:
         )
         assert "Base directory" not in json.dumps(turns)
 
+    def test_a_skills_row_leaves_out_the_files_attached_to_it(self, replay_client, transcripts):
+        """The live row reads its arguments without the attached-files block; so does the replay."""
+        block = (
+            "\n\nAttached files (read them with the Read tool):\n- /tmp/orbit.png (image/png, 2 KB)"
+        )
+        turns = self._replay(
+            replay_client,
+            transcripts,
+            [
+                self._echo("diagnose", f"SR03 orbit{block}"),
+                self._loaded("Base directory for this skill: /x/diagnose\n\n# Diagnose"),
+                _entry("assistant", "Looking at SR03."),
+            ],
+        )
+        # The operator's bubble keeps the block: the chat draws it as the file chips.
+        assert turns[0]["content"] == f"/diagnose SR03 orbit{block}"
+        call, *_ = turns[1]["events"]
+        assert call["input"]["args"] == "SR03 orbit"
+
     def test_a_command_file_replays_as_typed_with_no_skill_row(self, replay_client, transcripts):
         turns = self._replay(
             replay_client,
@@ -551,3 +570,176 @@ class TestReplayedSlashCommands:
             [_entry("user", "<command-name>/compact</command-name>"), _entry("user", "go on")],
         )
         assert [t["content"] for t in turns if t["role"] == "user"] == ["go on"]
+
+
+#: The marker the CLI writes when the operator stops a turn.
+INTERRUPTED = "[Request interrupted by user]"
+
+
+def _stopped(entry: dict, stop_reason: str | None) -> dict:
+    """*entry* with the stop reason CLI 2.1.300 records on each assistant entry."""
+    entry["message"]["stop_reason"] = stop_reason
+    return entry
+
+
+def _report(tool_use_id: str) -> dict:
+    """The user entry the CLI injects when a background agent reports."""
+    entry = _entry("user", "")
+    entry["message"]["content"] = (
+        f"<task-notification>\n<tool-use-id>{tool_use_id}</tool-use-id>\n"
+        "<status>completed</status>\n<summary>Agent finished</summary>\n</task-notification>"
+    )
+    return entry
+
+
+def _launched(tool_use_id: str) -> list[dict]:
+    """A subagent call the CLI sent to the background, and the result that says so."""
+    return [
+        _stopped(_agent_call(tool_use_id), "tool_use"),
+        _result(tool_use_id, f"{_ASYNC_LAUNCH_MARK} successfully. agentId: a1"),
+    ]
+
+
+def _api_error(error: str, text: str) -> dict:
+    """The assistant entry the CLI writes when the model API fails a request (CLI 2.1.228)."""
+    entry = _stopped(_entry("assistant", text), "stop_sequence")
+    entry["message"]["model"] = "<synthetic>"
+    return {**entry, "error": error, "isApiErrorMessage": True}
+
+
+class TestReplayedTurnEnds:
+    """A replayed turn ends with a result only where the transcript shows that it ended.
+
+    The transcript's last turn can still be running: a reload mid-turn reads it
+    before the agent is done. That turn replays open, so the live stream that
+    follows continues it rather than drawing a finished turn and a second one.
+    """
+
+    def _agent_turns(self, client, transcripts, entries: list[dict]) -> list[dict]:
+        _, transcript_dir = transcripts
+        _write(transcript_dir, SESSION_KEY, entries)
+        resp = client.get(f"/api/session-chat?session_id={SESSION_KEY}&events=1")
+        assert resp.status_code == 200
+        return [t for t in resp.json()["turns"] if t["role"] == "assistant"]
+
+    @pytest.mark.parametrize(
+        "tail",
+        [
+            pytest.param([_stopped(_call("toolu_1"), "tool_use")], id="waiting-on-its-call"),
+            pytest.param(
+                [_stopped(_call("toolu_1"), "tool_use"), _result("toolu_1", "1")],
+                id="reading-its-calls-result",
+            ),
+            pytest.param(
+                [
+                    _stopped(_entry("assistant", "Started the plot."), "end_turn"),
+                    _report("toolu_bg"),
+                ],
+                id="answering-a-background-agents-report",
+            ),
+            # Its answer ended, but the live turn stays open until the agent reports.
+            pytest.param(
+                [
+                    *_launched("toolu_bg"),
+                    _stopped(_entry("assistant", "The plot is on its way."), "end_turn"),
+                ],
+                id="waiting-on-its-background-agent",
+            ),
+        ],
+    )
+    def test_a_turn_still_running_replays_open(self, replay_client, transcripts, tail):
+        (turn,) = self._agent_turns(
+            replay_client, transcripts, [_entry("user", "read the orbit"), *tail]
+        )
+        assert "result" not in [e["type"] for e in turn["events"]]
+
+    def test_a_skill_the_operator_just_ran_replays_open(self, replay_client, transcripts):
+        """The agent has the skill's instructions and has not answered yet."""
+        (turn,) = self._agent_turns(
+            replay_client,
+            transcripts,
+            [
+                TestReplayedSlashCommands._echo("diagnose"),
+                TestReplayedSlashCommands._loaded("Base directory for this skill: /x/diagnose"),
+            ],
+        )
+        assert [e["type"] for e in turn["events"]] == ["tool_use", "tool_result"]
+
+    @pytest.mark.parametrize(
+        "tail",
+        [
+            pytest.param([_stopped(_entry("assistant", "It is flat."), "end_turn")], id="answered"),
+            pytest.param(
+                [_stopped(_call("toolu_1"), "tool_use"), _entry("user", INTERRUPTED)],
+                id="stopped-during-its-call",
+            ),
+            pytest.param(
+                [_stopped(_entry("assistant", "Reading"), None), _entry("user", INTERRUPTED)],
+                id="stopped-while-it-wrote",
+            ),
+            # An entry that records no stop reason gives no sign the turn went on.
+            pytest.param([_entry("assistant", "It is flat.")], id="no-stop-reason"),
+            pytest.param(
+                [
+                    *_launched("toolu_bg"),
+                    _stopped(_entry("assistant", "The plot is on its way."), "end_turn"),
+                    _report("toolu_bg"),
+                    _stopped(_entry("assistant", "Here it is."), "end_turn"),
+                ],
+                id="its-background-agent-reported",
+            ),
+        ],
+    )
+    def test_a_turn_that_ended_replays_with_its_result(self, replay_client, transcripts, tail):
+        (turn,) = self._agent_turns(
+            replay_client, transcripts, [_entry("user", "read the orbit"), *tail]
+        )
+        last = turn["events"][-1]
+        assert (last["type"], last["is_error"]) == ("result", False)
+
+    def test_a_turn_a_later_prompt_follows_has_ended(self, replay_client, transcripts):
+        """However its last entry reads, the operator's next prompt came after it."""
+        first, _second = self._agent_turns(
+            replay_client,
+            transcripts,
+            [
+                _entry("user", "read the orbit"),
+                _stopped(_call("toolu_1"), "tool_use"),
+                _entry("user", "never mind, read the tunes"),
+                _stopped(_entry("assistant", "Reading."), "end_turn"),
+            ],
+        )
+        assert first["events"][-1]["type"] == "result"
+
+    def test_an_api_error_replays_as_the_live_error_and_a_failed_turn(
+        self, replay_client, transcripts
+    ):
+        from osprey.agent_runner.events import ApiErrorEvent
+        from osprey.interfaces.web_terminal.operator_session import _event_to_wire
+
+        failure = "Failed to authenticate: OAuth session expired and could not be refreshed"
+        (turn,) = self._agent_turns(
+            replay_client,
+            transcripts,
+            [_entry("user", "read the orbit"), _api_error("authentication_failed", failure)],
+        )
+
+        error, text, result = turn["events"]
+        assert error == _event_to_wire(ApiErrorEvent(error="authentication_failed"))
+        assert text == {"type": "text", "content": failure}
+        assert result["type"] == "result"
+        assert result["is_error"] is True
+
+    def test_a_turn_that_recovered_from_an_api_error_did_not_fail(self, replay_client, transcripts):
+        """The outcome is the turn's last answer: one that came after the error succeeded."""
+        (turn,) = self._agent_turns(
+            replay_client,
+            transcripts,
+            [
+                _entry("user", "read the orbit"),
+                _api_error("rate_limit", "API Error: Rate limited"),
+                _report("toolu_bg"),
+                _stopped(_entry("assistant", "The plot is done."), "end_turn"),
+            ],
+        )
+        assert turn["events"][-1]["is_error"] is False
