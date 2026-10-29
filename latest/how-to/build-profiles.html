@@ -1229,7 +1229,10 @@ uses:</p>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> merges that overlay over <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> before it renders
 anything, and says which variant it used in its output. Tiers and apps are rendered
-for the same host, so a stack cannot come up half-configured for another one.</p>
+for the same host, so a stack cannot come up half-configured for another one: each
+sees the overlay through the <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> it merges over. An overlay that adds a
+<code class="docutils literal notranslate"><span class="pre">services:</span></code> entry therefore adds it to the deployment, and the tier and app renders
+stay attached to it like any other service the deployment runs.</p>
 <p>The overlays are committed: which hosts a deployment has is part of what the
 deployment is. The choice between them is not — <code class="docutils literal notranslate"><span class="pre">.env.variant</span></code> is covered by
 the generated <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code> along with the rest of the <code class="docutils literal notranslate"><span class="pre">.env*</span></code> family, so
