@@ -405,6 +405,24 @@ class Stack:
             self.host_session.stop()
             self.host_session = None
 
+    @property
+    def record_port(self) -> int:
+        block = self.config.get("agent_record") or {}
+        return int(block.get("port") or default_port("agent_record", base=PORT_BASE))
+
+    @property
+    def url(self) -> str:
+        return f"http://127.0.0.1:{self.record_port}"
+
+    @property
+    def archive_root(self) -> Path:
+        return self.repo / ARCHIVE_DIR_RELPATH
+
+    def operator_auth(self) -> tuple[str, str]:
+        token = read_login(self.repo / login_file(OPERATOR_IDENTITY), OPERATOR_IDENTITY)
+        assert token, "no operator credential at the repo root"
+        return OPERATOR_IDENTITY, token
+
 
 class HostSession:
     """The host session's forwarding of its transcripts, as its supervisor runs it.
@@ -428,24 +446,6 @@ class HostSession:
     def stop(self) -> None:
         self._stopped.set()
         self._thread.join(timeout=host_record.FORWARD_WAIT_S)
-
-    @property
-    def record_port(self) -> int:
-        block = self.config.get("agent_record") or {}
-        return int(block.get("port") or default_port("agent_record", base=PORT_BASE))
-
-    @property
-    def url(self) -> str:
-        return f"http://127.0.0.1:{self.record_port}"
-
-    @property
-    def archive_root(self) -> Path:
-        return self.repo / ARCHIVE_DIR_RELPATH
-
-    def operator_auth(self) -> tuple[str, str]:
-        token = read_login(self.repo / login_file(OPERATOR_IDENTITY), OPERATOR_IDENTITY)
-        assert token, "no operator credential at the repo root"
-        return OPERATOR_IDENTITY, token
 
 
 @dataclass(frozen=True)
