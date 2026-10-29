@@ -115,7 +115,7 @@ e2e modules pin (5064, 15064-15067, 15080, 18090-18110, 18191-18194, 19080-19085
 thousand-port block a deployment claims from ``deployment.port_base``
 (10000-10999 at the default base).
 Every listener it needs is per-run and picked free: the emulator's published port comes
-from the fixture's own free-port pick, the dispatcher and worker take :func:`free_port`
+from the fixture's own reserved port, the dispatcher and worker take :func:`reserved_port`
 (they are per-run subprocesses with no need to be predictable, and a pin would collide
 with a developer's own running stack), and the Chat and GCS fakes bind ``127.0.0.1:0``.
 
@@ -669,7 +669,7 @@ def _write_triggers(dst: Path, worker_port: int) -> None:
 
 @pytest.fixture(scope="module")
 def dispatch_stack(built_repo: Path, tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict]:
-    """A real worker + dispatcher pair as subprocesses on free ports.
+    """A real worker + dispatcher pair as subprocesses on reserved ports.
 
     Module-scoped: the bridge is what these tests exercise, and the pair carries no state
     any assertion reads (every observation is made through the bridge's own dedup store),

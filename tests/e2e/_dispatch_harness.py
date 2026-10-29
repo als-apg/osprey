@@ -23,7 +23,7 @@ from typing import Any
 
 import pytest
 
-from osprey.interfaces._serving import free_port
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests.e2e._deploy_support import (
     find_osprey_console_script,
     format_failure,
@@ -150,58 +150,57 @@ def running_dispatch_stack(
     health_timeout: float,
     run_cap_sec: int | None = None,
 ) -> Iterator[dict]:
-    """A real worker + dispatcher pair on free ports, torn down on the way out.
+    """A real worker + dispatcher pair on reserved ports, torn down on the way out.
 
     ``write_triggers(triggers_path, worker_port)`` writes the triggers document the
     dispatcher runs, once the worker's port is known. Yields the two base URLs, the
     repo and the worker process (whose output a failure message may want).
     """
-    worker_port = free_port()
-    dispatcher_port = free_port()
-    write_triggers(triggers_path, worker_port)
+    with reserved_port() as worker_port, reserved_port() as dispatcher_port:
+        write_triggers(triggers_path, worker_port)
 
-    worker_proc: subprocess.Popen | None = None
-    dispatcher_proc: subprocess.Popen | None = None
-    try:
-        worker_proc = start_worker(
-            repo,
-            worker_port,
-            token=token,
-            health_timeout=health_timeout,
-            run_cap_sec=run_cap_sec,
-        )
-        dispatcher_env = {
-            **os.environ,
-            "TRIGGERS_YML": str(triggers_path),
-            "EVENT_DISPATCHER_TOKEN": token,
-            "DISPATCH_WORKER_TOKEN": token,
-            "FASTMCP_TRANSPORT": "http",
-            "FASTMCP_PORT": str(dispatcher_port),
-            "FASTMCP_HOST": "127.0.0.1",
-            "MCP_TRANSPORT": "http",
-            "MCP_PORT": str(dispatcher_port),
-            "CLAUDECODE": "",
-        }
-        dispatcher_proc = subprocess.Popen(  # fixed argv, no shell
-            [sys.executable, "-m", "osprey.dispatch"],
-            cwd=str(repo),
-            env=dispatcher_env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-        )
-        wait_for_health(
-            f"http://127.0.0.1:{dispatcher_port}/health", health_timeout, proc=dispatcher_proc
-        )
+        worker_proc: subprocess.Popen | None = None
+        dispatcher_proc: subprocess.Popen | None = None
+        try:
+            worker_proc = start_worker(
+                repo,
+                worker_port,
+                token=token,
+                health_timeout=health_timeout,
+                run_cap_sec=run_cap_sec,
+            )
+            dispatcher_env = {
+                **os.environ,
+                "TRIGGERS_YML": str(triggers_path),
+                "EVENT_DISPATCHER_TOKEN": token,
+                "DISPATCH_WORKER_TOKEN": token,
+                "FASTMCP_TRANSPORT": "http",
+                "FASTMCP_PORT": str(dispatcher_port),
+                "FASTMCP_HOST": "127.0.0.1",
+                "MCP_TRANSPORT": "http",
+                "MCP_PORT": str(dispatcher_port),
+                "CLAUDECODE": "",
+            }
+            dispatcher_proc = subprocess.Popen(  # fixed argv, no shell
+                [sys.executable, "-m", "osprey.dispatch"],
+                cwd=str(repo),
+                env=dispatcher_env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            wait_for_health(
+                f"http://127.0.0.1:{dispatcher_port}/health", health_timeout, proc=dispatcher_proc
+            )
 
-        yield {
-            "dispatcher_url": f"http://127.0.0.1:{dispatcher_port}",
-            "worker_url": f"http://127.0.0.1:{worker_port}",
-            "repo": repo,
-            "worker_proc": worker_proc,
-        }
-    finally:
-        terminate(dispatcher_proc)
-        terminate(worker_proc)
+            yield {
+                "dispatcher_url": f"http://127.0.0.1:{dispatcher_port}",
+                "worker_url": f"http://127.0.0.1:{worker_port}",
+                "repo": repo,
+                "worker_proc": worker_proc,
+            }
+        finally:
+            terminate(dispatcher_proc)
+            terminate(worker_proc)
 
 
 def await_bridge(bridge: Any, what: str, probe: Callable[[], Any], timeout: float) -> Any:

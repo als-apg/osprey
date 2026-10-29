@@ -368,7 +368,9 @@ def archiver_world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         volume the fingerprint would MATCH, the seed would be skipped entirely,
         and the budget assertions would have nothing to measure.
         """
-        subprocess.run(["docker", "volume", "rm", "-f", store_volume], capture_output=True)
+        subprocess.run(
+            ["docker", "volume", "rm", "-f", store_volume], capture_output=True, timeout=60
+        )
 
     base = tmp_path_factory.mktemp("archiver_world_build")
     repo = _build_project(base)
@@ -391,14 +393,7 @@ def archiver_world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     osprey_bin = _orm_stack.find_osprey_console_script()
 
     # Force a fresh --dev image so the deployed recorder runs CURRENT source.
-    # Exact-named image only. E2E_REUSE_IMAGES=1 skips it for fast local
-    # iteration on the test itself; never set it in CI.
-    if not os.environ.get("E2E_REUSE_IMAGES"):
-        subprocess.run(
-            ["docker", "rmi", "-f", _orm_stack.va_image(PROJECT_NAME)],
-            capture_output=True,
-            text=True,
-        )
+    _orm_stack.force_image_rebuild(_orm_stack.va_image(PROJECT_NAME))
 
     # Before the deploy, not only after: a run that died without reaching its
     # teardown (a killed session, a crashed fixture) leaves the volume behind,
@@ -519,7 +514,9 @@ def _recorder_logs(tail: str | None = None) -> str:
     command = ["docker", "logs"]
     if tail is not None:
         command += ["--tail", tail]
-    logs = subprocess.run([*command, _recorder_container()], capture_output=True, text=True)
+    logs = subprocess.run(
+        [*command, _recorder_container()], capture_output=True, text=True, timeout=60
+    )
     return _normalize(logs.stdout + logs.stderr)
 
 
@@ -1002,11 +999,9 @@ def test_recorder_idles_on_the_in_process_simulator_and_resumes_after_the_flip(a
     yaml.preserve_quotes = True
 
     def _set_serving(venue: str) -> None:
-        with open(config_path) as handle:
-            config = yaml.load(handle)
+        config = yaml.load(config_path)
         config["control_system"]["connector"]["virtual_accelerator"]["serving"] = venue
-        with open(config_path, "w") as handle:
-            yaml.dump(config, handle)
+        yaml.dump(config, config_path)
 
     poll_sec = int((archiver_world.config.get("va_archiver") or {}).get("recorder_poll_sec", 30))
     # The window each claim is measured over, once the recorder has SAID which
