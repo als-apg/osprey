@@ -38,8 +38,8 @@ superseded and not supported with this release.
 
 ### Changed
 
-- The EPICS connector and the connector-host pool choose the write gateway from
-  the write verdict: a connector whose writes are allowed routes through
+- **Breaking change:** the EPICS connector and the connector-host pool choose
+  the write gateway from the write verdict: a connector whose writes are allowed routes through
   `gateways.write_access`, otherwise it stays on `read_only`. A write allowed
   after the gateway was chosen is refused as `switching` until the connector
   reconnects. A machine with only a write gateway reads through it while its
@@ -48,8 +48,8 @@ superseded and not supported with this release.
 
 ### Removed
 
-- Names only the framework used leave the public API before the first stable
-  release. From `workspace`: the layer directories (`TIERS_DIRNAME`,
+- **Breaking change:** names only the framework used leave the public API
+  before the first stable release. From `workspace`: the layer directories (`TIERS_DIRNAME`,
   `APPS_DIRNAME`, `LAYER_DIR_KINDS`, `LAYER_DIRNAMES`, `RETIRED_LAYER_DIRS`,
   `layer_dir_kind`), `PROFILE_FILENAME`, `STATE_DIR_NAME`, `IMAGE_DIR_NAME`,
   `container_image_context`, `RUNTIME_DATA_DIR_NAME`, `AUDIT_DIR_RELPATH`,
