@@ -279,7 +279,6 @@ class StoreIndexWatcher:
             observer_factory: Builds the watchdog observer — see
                 :data:`ObserverFactory`.
         """
-        self._workspace_root = workspace_root
         self._broadcaster = broadcaster
         self._observer_factory = observer_factory
         self._observer: BaseObserver | None = None
