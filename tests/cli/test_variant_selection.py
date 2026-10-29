@@ -678,6 +678,28 @@ class TestVariantOverlaysTheDeployment:
         with pytest.raises(BuildProfileError, match="tiers/readonly.yml spells 'services'"):
             resolve_build_document(tier, None, (_overlay(armed_repo, "armed"),))
 
+    def test_an_apps_own_model_outranks_a_variants(self, lifecycle_repo: Path) -> None:
+        """The variant reaches an app as host facts; the app's ``model:`` still wins."""
+        _write_variant(lifecycle_repo, "armed", SERVICE_OVERLAY + "model: claude-sonnet-5\n")
+        app = lifecycle_repo / "apps" / "logbook.yml"
+        app.write_text(app.read_text(encoding="utf-8") + "\nmodel: claude-haiku-4-5\n")
+        overlay = _overlay(lifecycle_repo, "armed")
+
+        root = resolve_build_document(lifecycle_repo / PROFILE_FILENAME, None, (overlay,))
+        resolved = resolve_build_document(app, None, (overlay,))
+
+        assert root.profile.model == "claude-sonnet-5"
+        assert resolved.profile.model == "claude-haiku-4-5"
+
+    def test_a_tier_default_model_is_refused_naming_the_tier(self, armed_repo: Path) -> None:
+        tier = armed_repo / TIERS_DIRNAME / "readonly.yml"
+        document = yaml.safe_load(tier.read_text(encoding="utf-8"))
+        document.setdefault("config", {})["claude_code.default_model"] = "claude-sonnet-5"
+        tier.write_text(yaml.safe_dump(document), encoding="utf-8")
+
+        with pytest.raises(BuildProfileError, match=r"Remove it from tiers/readonly\.yml\."):
+            resolve_build_document(tier, None, (_overlay(armed_repo, "armed"),))
+
     def test_selecting_a_variant_moves_a_layers_fingerprint(self, lifecycle_repo: Path) -> None:
         """The render is built over the varied root, so its stamp must see the variant."""
         tier = lifecycle_repo / TIERS_DIRNAME / "readonly.yml"
