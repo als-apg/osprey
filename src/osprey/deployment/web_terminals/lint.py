@@ -893,8 +893,10 @@ def _check_port_overlap(
         base = base_ports.get(family)
         if base is None:
             continue
-        for index in [*range(len(users)), *app_indices]:
-            entries.append((base + index, f"web_terminals.{base_field}[index={index}]"))
+        entries.extend(
+            (base + index, f"web_terminals.{base_field}[index={index}]")
+            for index in [*range(len(users)), *app_indices]
+        )
 
     # nginx's own listener, the one port the stack is reached on from off-host.
     # Resolved rather than read off the key: an unset `nginx_port` is not an
@@ -1242,21 +1244,19 @@ def _check_render_charset(web_terminals: dict[str, Any]) -> list[Finding]:
     (``web-terminal-<render>:latest``) and a path component (``/app/<project>``,
     local-mode image tags); it's held to the same charset as usernames,
     ``^[a-z0-9][a-z0-9_-]*$`` (see :func:`_check_username_charset`)."""
-    findings: list[Finding] = []
-    for render_name in _render_catalog(web_terminals):
-        if isinstance(render_name, str) and not USERNAME_CHARSET_RE.fullmatch(render_name):
-            findings.append(
-                Finding(
-                    severity="error",
-                    code="web_terminals.invalid_render_charset",
-                    message=(
-                        f"modules.web_terminals.renders key {render_name!r} does not "
-                        f"match {USERNAME_CHARSET_RE.pattern!r} (tier and app names become "
-                        "image-tag suffixes and path components)"
-                    ),
-                )
-            )
-    return findings
+    return [
+        Finding(
+            severity="error",
+            code="web_terminals.invalid_render_charset",
+            message=(
+                f"modules.web_terminals.renders key {render_name!r} does not "
+                f"match {USERNAME_CHARSET_RE.pattern!r} (tier and app names become "
+                "image-tag suffixes and path components)"
+            ),
+        )
+        for render_name in _render_catalog(web_terminals)
+        if isinstance(render_name, str) and not USERNAME_CHARSET_RE.fullmatch(render_name)
+    ]
 
 
 def _check_render_seed_base(web_terminals: dict[str, Any]) -> list[Finding]:
@@ -2140,14 +2140,14 @@ def _check_privileged_tier_exposure(
     # `access: any` to widen (see `_check_user_access` on why that is a carried
     # key rather than a finding), and the deployment-wide arm above already
     # names every privileged entry once.
-    for problem in shared_card_privileged_problems(resolved, absolute):
-        findings.append(
-            Finding(
-                severity="error",
-                code="web_terminals.shared_card_privileged",
-                message=problem,
-            )
+    findings.extend(
+        Finding(
+            severity="error",
+            code="web_terminals.shared_card_privileged",
+            message=problem,
         )
+        for problem in shared_card_privileged_problems(resolved, absolute)
+    )
     return findings
 
 
@@ -2595,20 +2595,18 @@ def _check_unknown_tier_reference(
     if dispatch_tier in sources:
         sources[dispatch_tier].append("dispatch.tier")
 
-    findings: list[Finding] = []
-    for name in unknown:
-        for source in sources[name]:
-            findings.append(
-                Finding(
-                    severity="error",
-                    code="web_terminals.unknown_tier_reference",
-                    message=(
-                        f"{source} references tier {name!r}, which names no tier: there "
-                        f"is no {_canonical_delta_reference(name, RENDER_KIND_TIER)}"
-                    ),
-                )
-            )
-    return findings
+    return [
+        Finding(
+            severity="error",
+            code="web_terminals.unknown_tier_reference",
+            message=(
+                f"{source} references tier {name!r}, which names no tier: there "
+                f"is no {_canonical_delta_reference(name, RENDER_KIND_TIER)}"
+            ),
+        )
+        for name in unknown
+        for source in sources[name]
+    ]
 
 
 # --- mode-coherence checks --------------------------------------------------
@@ -3299,20 +3297,20 @@ def _check_render_extra_mounts(web_terminals: dict[str, Any]) -> list[Finding]:
                 )
             )
             continue
-        for mount in raw:
-            if not _is_valid_mount_string(mount):
-                findings.append(
-                    Finding(
-                        severity="error",
-                        code="web_terminals.render_invalid_extra_mount",
-                        message=(
-                            f"modules.web_terminals.renders[{render_name!r}]."
-                            f"extra_mounts entry {mount!r} is not a valid compose volume "
-                            "string; expected 'source:target' or 'source:target:mode' "
-                            "with non-empty colon-separated parts"
-                        ),
-                    )
-                )
+        findings.extend(
+            Finding(
+                severity="error",
+                code="web_terminals.render_invalid_extra_mount",
+                message=(
+                    f"modules.web_terminals.renders[{render_name!r}]."
+                    f"extra_mounts entry {mount!r} is not a valid compose volume "
+                    "string; expected 'source:target' or 'source:target:mode' "
+                    "with non-empty colon-separated parts"
+                ),
+            )
+            for mount in raw
+            if not _is_valid_mount_string(mount)
+        )
     return findings
 
 

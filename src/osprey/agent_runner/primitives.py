@@ -523,9 +523,7 @@ def combined_text(result: SDKWorkflowResult) -> str:
         non-empty tool-result string, joined by spaces.
     """
     parts = list(result.text_blocks)
-    for trace in result.tool_traces:
-        if trace.result:
-            parts.append(trace.result)
+    parts.extend(trace.result for trace in result.tool_traces if trace.result)
     return " ".join(parts).lower()
 
 

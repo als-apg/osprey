@@ -1126,8 +1126,9 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
             # the spec this section already holds, because the resolver's own
             # records for them are INFO and the drift check below resolves the
             # provider a second time: one report, one sentence per fact.
-            for sentence in dropped_alias_key_facts(spec):
-                troubles.append((sentence, DROPPED_ALIAS_KEY_REMEDY))
+            troubles.extend(
+                (sentence, DROPPED_ALIAS_KEY_REMEDY) for sentence in dropped_alias_key_facts(spec)
+            )
             substitution = alias_substitution(spec)
             if substitution:
                 troubles.append((substitution, ALIAS_SUBSTITUTION_REMEDY))

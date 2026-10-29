@@ -602,18 +602,20 @@ class ResetPlan:
         ]
 
         lines.append(f"  containers ({len(self.containers)})")
-        for resource in self.containers:
-            lines.append(f"    {resource.name}")
+        lines.extend(f"    {resource.name}" for resource in self.containers)
         lines.append(f"  volumes ({len(self.volumes)}) — the data in them is not recoverable")
-        for resource in self.volumes:
-            lines.append(f"    {resource.name}")
+        lines.extend(f"    {resource.name}" for resource in self.volumes)
         lines.append(f"  images ({len(self.images)}) — rebuilt by the next `osprey up`")
-        for resource in self.images:
-            lines.append(f"    {resource.name}  ({OSPREY_PROJECT_LABEL}={self.project} verified)")
+        lines.extend(
+            f"    {resource.name}  ({OSPREY_PROJECT_LABEL}={self.project} verified)"
+            for resource in self.images
+        )
 
         lines.append("  files")
-        for path in self.paths:
-            lines.append(f"    {_relative_to(path, self.repo_root)}{self._path_note(path)}")
+        lines.extend(
+            f"    {_relative_to(path, self.repo_root)}{self._path_note(path)}"
+            for path in self.paths
+        )
         for block in self.env_blocks:
             keys = ", ".join(block.keys)
             lines.append(f"    {COMPOSE_ENV_FILENAME}  minted block '{block.banner}' — {keys}")
@@ -769,8 +771,9 @@ class ResetPlan:
                 "it is left entirely alone."
             )
 
-        for path in outside:
-            lines.append(f"    {path}  the agent-data root, which is OUTSIDE this repo")
+        lines.extend(
+            f"    {path}  the agent-data root, which is OUTSIDE this repo" for path in outside
+        )
         if outside:
             lines.append(
                 "      agent_data.base_dir puts it there. Reset removes directories outright, "
@@ -787,12 +790,11 @@ class ResetPlan:
         return lines
 
     def _unidentified_lines(self) -> list[str]:
-        lines = []
-        for resource in self.unidentified:
-            lines.append(
-                f"    {resource.kind} {resource.name}  carries no {REPO_ID_LABEL} label, so it "
-                "cannot be proved to be this repo's"
-            )
+        lines = [
+            f"    {resource.kind} {resource.name}  carries no {REPO_ID_LABEL} label, so it "
+            "cannot be proved to be this repo's"
+            for resource in self.unidentified
+        ]
         if self.unidentified:
             lines.append(
                 "      Containers are labelled when they are CREATED, so one started before "

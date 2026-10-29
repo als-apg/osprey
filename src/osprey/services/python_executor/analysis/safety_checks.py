@@ -85,12 +85,13 @@ def check_imports(code: str) -> list[str]:
         tree = ast.parse(code)
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
-                for alias in node.names:
-                    if alias.name in _PROHIBITED_IMPORTS:
-                        issues.append(f"Prohibited import detected: {alias.name}")
-            elif isinstance(node, ast.ImportFrom):
-                if node.module in _PROHIBITED_IMPORTS:
-                    issues.append(f"Prohibited import detected: {node.module}")
+                issues.extend(
+                    f"Prohibited import detected: {alias.name}"
+                    for alias in node.names
+                    if alias.name in _PROHIBITED_IMPORTS
+                )
+            elif isinstance(node, ast.ImportFrom) and node.module in _PROHIBITED_IMPORTS:
+                issues.append(f"Prohibited import detected: {node.module}")
     except SyntaxError:
         pass  # Syntax errors handled by check_syntax
     return issues
@@ -131,9 +132,11 @@ def check_readonly_imports(code: str) -> list[str]:
             names = [node.module]
         else:
             continue
-        for name in names:
-            if name.split(".")[0] in _READONLY_DENIED_IMPORTS:
-                issues.append(f"Import of '{name}' is not allowed in readonly mode")
+        issues.extend(
+            f"Import of '{name}' is not allowed in readonly mode"
+            for name in names
+            if name.split(".")[0] in _READONLY_DENIED_IMPORTS
+        )
     return issues
 
 

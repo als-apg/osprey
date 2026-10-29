@@ -105,17 +105,16 @@ async def _read_stored_row(repository: Any, attachment_id: str) -> dict[str, Any
 
     if not (await repository.schema_facts()).has_copy_state:
         return None
-    async with repository.pool.connection() as conn:
-        async with conn.cursor(row_factory=dict_row) as cur:
-            await cur.execute(
-                f"""
-                SELECT {", ".join(ATTACHMENT_ROW_COLUMNS)}
-                FROM attachment_files
-                WHERE attachment_id = %(attachment_id)s
-                """,
-                {"attachment_id": attachment_id},
-            )
-            row = await cur.fetchone()
+    async with repository.pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            f"""
+            SELECT {", ".join(ATTACHMENT_ROW_COLUMNS)}
+            FROM attachment_files
+            WHERE attachment_id = %(attachment_id)s
+            """,
+            {"attachment_id": attachment_id},
+        )
+        row = await cur.fetchone()
     return dict(row) if row else None
 
 

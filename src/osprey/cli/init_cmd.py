@@ -1187,7 +1187,7 @@ def _point_at_set(ctx: click.Context, param: click.Parameter, value: str | None)
         click.UsageError: Whenever the flag was given at all.
     """
     if value is None or ctx.resilient_parsing:
-        return None
+        return
     raise click.UsageError(
         f"There is no --{param.name.replace('_', '-')} option. {param.name} is a "
         f"profile setting, so it is baked in with --set: --set {param.name}={value}"

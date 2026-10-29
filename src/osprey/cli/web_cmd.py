@@ -1272,14 +1272,14 @@ def _start_detached(host: str, port: int, shell: str | None, repo_root: Path) ->
 
     log_path = repo_root / LOG_FILE
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_fh = open(log_path, "w")
-    proc = subprocess.Popen(
-        cmd,
-        stdout=log_fh,
-        stderr=subprocess.STDOUT,
-        start_new_session=True,
-    )
-    log_fh.close()  # child retains its own fd copy
+    # Closed as soon as the child is spawned: it retains its own fd copy.
+    with open(log_path, "w") as log_fh:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=log_fh,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
 
     _write_pid(repo_root, proc.pid)
 

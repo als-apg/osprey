@@ -117,10 +117,7 @@ def build_claude_launch_argv(cc_config: dict, *, no_pin: bool = False) -> list[s
             ``no_pin`` is ``False``).
     """
     cli_version = None if no_pin else pinned_cli_version(cc_config)
-    if cli_version is None:
-        base = [CLI_NAME]
-    else:
-        base = ["npx", "-y", f"{_CLI_PACKAGE}@{cli_version}"]
+    base = [CLI_NAME] if cli_version is None else ["npx", "-y", f"{_CLI_PACKAGE}@{cli_version}"]
     return base + _SETTING_SOURCES_ARGS + _MCP_ISOLATION_ARGS
 
 

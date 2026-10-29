@@ -119,7 +119,7 @@ def _parse_time(value: Any) -> datetime | None:
     if not isinstance(value, str):
         return None
     try:
-        moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        moment = datetime.fromisoformat(value)
     except ValueError:
         return None
     return moment if moment.tzinfo else moment.replace(tzinfo=UTC)

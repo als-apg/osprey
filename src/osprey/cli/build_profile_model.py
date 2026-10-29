@@ -551,11 +551,11 @@ class BuildProfile:
                     f"environment.{label} must be a list of strings (got {type(entries).__name__})"
                 )
                 continue
-            for entry in entries:
-                if not isinstance(entry, str) or not entry.strip():
-                    errors.append(
-                        f"environment.{label} entries must be non-empty strings (got {entry!r})"
-                    )
+            errors.extend(
+                f"environment.{label} entries must be non-empty strings (got {entry!r})"
+                for entry in entries
+                if not isinstance(entry, str) or not entry.strip()
+            )
 
         # inherit_exclude only means something when there is a venv base to
         # exclude distributions *from*. A bare interpreter carries no installed
@@ -662,20 +662,19 @@ class BuildProfile:
         Returns:
             Human-readable error messages; empty when every key is a string.
         """
-        errors: list[str] = []
-        for name in self.services:
-            if not isinstance(name, str):
-                errors.append(
-                    f"services keys must be strings (got {name!r}); a bare "
-                    "yes/no/on/off in YAML parses as a boolean — quote the service name"
-                )
+        errors: list[str] = [
+            f"services keys must be strings (got {name!r}); a bare "
+            "yes/no/on/off in YAML parses as a boolean — quote the service name"
+            for name in self.services
+            if not isinstance(name, str)
+        ]
         if isinstance(self.config, dict):
-            for key in self.config:
-                if not isinstance(key, str):
-                    errors.append(
-                        f"config keys must be strings (got {key!r}); a bare "
-                        "yes/no/on/off in YAML parses as a boolean — quote the key"
-                    )
+            errors.extend(
+                f"config keys must be strings (got {key!r}); a bare "
+                "yes/no/on/off in YAML parses as a boolean — quote the key"
+                for key in self.config
+                if not isinstance(key, str)
+            )
         return errors
 
     def _service_axis_declarations(self, axis: str) -> Iterator[tuple[str, Any, str]]:
@@ -803,11 +802,11 @@ class BuildProfile:
         for name, value, key in self._service_axis_declarations("bind_env"):
             errors.extend(bind_env_errors(value, key))
             bound.add(name)
-        for name in sorted(silent & bound):
-            errors.append(
-                f"services.{name} declares both `listens: false` and `bind_env:`; a "
-                "service that opens no socket has no bind address. Remove one."
-            )
+        errors.extend(
+            f"services.{name} declares both `listens: false` and `bind_env:`; a "
+            "service that opens no socket has no bind address. Remove one."
+            for name in sorted(silent & bound)
+        )
         return errors
 
     def _validate_env_axis(self) -> list[str]:
@@ -1571,9 +1570,11 @@ class BuildProfile:
                     )
 
         # Validate env var names
-        for var in self.env.required:
-            if not ENV_NAME_RE.match(var):
-                errors.append(f"Invalid env var name: {var}")
+        errors.extend(
+            f"Invalid env var name: {var}"
+            for var in self.env.required
+            if not ENV_NAME_RE.match(var)
+        )
 
         # `pinned` names the same kind of thing as `required` and is held to the
         # same pattern. It is checked harder on shape because a deploy-side probe
@@ -1584,9 +1585,11 @@ class BuildProfile:
             spelled = type(self.env.pinned).__name__
             errors.append(f"env.pinned must be a list of env var names (got {spelled})")
         else:
-            for var in self.env.pinned:
-                if not isinstance(var, str) or not ENV_NAME_RE.match(var):
-                    errors.append(f"Invalid env.pinned var name: {var!r}")
+            errors.extend(
+                f"Invalid env.pinned var name: {var!r}"
+                for var in self.env.pinned
+                if not isinstance(var, str) or not ENV_NAME_RE.match(var)
+            )
 
         # Validate env file path
         if self.env.file:
@@ -1598,9 +1601,11 @@ class BuildProfile:
         errors.extend(self._validate_environment())
 
         # Validate dependencies
-        for dep in self.dependencies:
-            if not isinstance(dep, str) or not dep.strip():
-                errors.append(f"Dependency must be a non-empty string: {dep!r}")
+        errors.extend(
+            f"Dependency must be a non-empty string: {dep!r}"
+            for dep in self.dependencies
+            if not isinstance(dep, str) or not dep.strip()
+        )
 
         # Validate requires_osprey_version specifier
         if self.requires_osprey_version:
@@ -1693,13 +1698,13 @@ class BuildProfile:
                     f"(got {type(members).__name__})"
                 )
                 continue
-            for member in members:
-                if not self._is_known_panel_id(member):
-                    errors.append(
-                        f"Unknown panel_presets[{preset_name!r}] member {member!r}: not in "
-                        f"web_panels (the selection is what shows a tab) and not universal "
-                        f"({sorted(UNIVERSAL_PANELS)})"
-                    )
+            errors.extend(
+                f"Unknown panel_presets[{preset_name!r}] member {member!r}: not in "
+                f"web_panels (the selection is what shows a tab) and not universal "
+                f"({sorted(UNIVERSAL_PANELS)})"
+                for member in members
+                if not self._is_known_panel_id(member)
+            )
 
         # Validate the artifact_server override block (gallery server settings
         # + custom category definitions)
@@ -1712,11 +1717,11 @@ class BuildProfile:
             )
         else:
             _allowed = {"host", "port", "auto_launch", "categories"}
-            for unknown in sorted(set(self.artifact_server) - _allowed):
-                errors.append(
-                    f"artifact_server.{unknown} is not a supported key "
-                    f"(must be one of {sorted(_allowed)})"
-                )
+            errors.extend(
+                f"artifact_server.{unknown} is not a supported key "
+                f"(must be one of {sorted(_allowed)})"
+                for unknown in sorted(set(self.artifact_server) - _allowed)
+            )
             raw_categories = self.artifact_server.get("categories", {})
             if not isinstance(raw_categories, dict):
                 errors.append("artifact_server.categories must be a mapping of category ids")

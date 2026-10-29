@@ -1707,7 +1707,7 @@ keys:
     default: {}
   archiver.doocs_archiver.avg_window:
     rendered: false
-    evidence: 'config\.get\("avg_window", None\)'
+    evidence: 'config\.get\("avg_window"\)'
     note: >-
       Centered moving average, in seconds, applied to the samples a read
       returns. Unset returns the raw samples.

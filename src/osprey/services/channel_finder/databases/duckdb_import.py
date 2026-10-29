@@ -115,8 +115,7 @@ def _import_families(con: duckdb.DuckDBPyConnection, db: MiddleLayerDatabase) ->
     rows = []
     for system_info in db.list_systems():
         system = system_info["name"]
-        for fam in db.list_families(system):
-            rows.append((system, fam["name"], fam["description"]))
+        rows.extend((system, fam["name"], fam["description"]) for fam in db.list_families(system))
     if not rows:
         return 0
     con.execute("DELETE FROM families")

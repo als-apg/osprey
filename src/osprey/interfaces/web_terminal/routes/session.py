@@ -150,7 +150,7 @@ async def session_summary(request: Request):
         store = ArtifactStore(request.app.state.workspace_dir)
         session_id = request.query_params.get("session_id")
         entries = store.list_entries(
-            session_filter=session_id if session_id else None,
+            session_filter=session_id or None,
             # Session material, not a shipped example.
             exclude_examples=True,
         )
@@ -519,9 +519,11 @@ def _subagent_events(path: Path, parent: str) -> list[dict[str, Any]]:
         blocks = entry.get("message", {}).get("content", [])
         if not isinstance(blocks, list):
             continue  # the prompt the agent was started with
-        for event in _block_events(blocks, assistant=kind == "assistant", approved=approved):
-            if event["type"] != "thinking":
-                events.append({**event, "parent_tool_use_id": parent})
+        events.extend(
+            {**event, "parent_tool_use_id": parent}
+            for event in _block_events(blocks, assistant=kind == "assistant", approved=approved)
+            if event["type"] != "thinking"
+        )
     return events
 
 

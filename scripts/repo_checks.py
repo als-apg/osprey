@@ -435,9 +435,12 @@ def _select_vitest(
             if not any(f.startswith(fallback) and f.endswith(guard.TEST_SUFFIXES) for f in files):
                 return Selection(WHOLE)
             chosen.append(fallback)
-        elif name in VITEST_WIDE_NAMES or path == VITEST_SETUP:
-            return Selection(WHOLE)
-        elif path.endswith(JS_SUFFIXES) and path.startswith(("tests/", "src/")):
+        elif (
+            name in VITEST_WIDE_NAMES
+            or path == VITEST_SETUP
+            or path.endswith(JS_SUFFIXES)
+            and path.startswith(("tests/", "src/"))
+        ):
             return Selection(WHOLE)
     return _paths(chosen)
 

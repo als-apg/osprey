@@ -367,7 +367,7 @@ class TranscriptReader:
         # In-flight Tasks (tool_use seen but no result yet) still carry
         # subagent_type in their input, so include them in task_meta so the
         # agent shows its proper name while the subagent is still running.
-        for _tid, (block, ts) in task_uses.items():
+        for block, ts in task_uses.values():
             task_input = block.get("input", {})
             agent_type = task_input.get("subagent_type", task_input.get("description", ""))
             task_meta.append(

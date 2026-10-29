@@ -708,8 +708,7 @@ def _parse_index(index_path: Path) -> list[ConceptEntry]:
 
         # Normalise: strip leading slash, strip .md suffix.
         clean = href.lstrip("/")
-        if clean.endswith(".md"):
-            clean = clean[:-3]
+        clean = clean.removesuffix(".md")
         if not clean:
             continue
 

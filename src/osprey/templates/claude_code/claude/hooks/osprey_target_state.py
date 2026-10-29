@@ -1328,7 +1328,7 @@ def launch_pin_term(target):
         return "unreadable"
     if launch_posture != POSTURE_SANDBOX:
         return "none"
-    if stamped == LAUNCH_POSTURE_ALL_TARGETS or not target or stamped == target:
+    if stamped in (LAUNCH_POSTURE_ALL_TARGETS, target) or not target:
         return "pinned"
     return "none"
 

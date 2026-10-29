@@ -516,15 +516,11 @@ def configured_ledger_identities(config: Mapping[str, Any] | None) -> list[str]:
 def _existing_directories(audit_root: Path | None) -> list[str]:
     if audit_root is None:
         return []
-    names: list[str] = []
     try:
         with os.scandir(audit_root) as entries:
-            for entry in entries:
-                if entry.is_dir(follow_symlinks=False):
-                    names.append(entry.name)
+            return [entry.name for entry in entries if entry.is_dir(follow_symlinks=False)]
     except OSError:
         return []
-    return names
 
 
 def ledger_identities(config: Mapping[str, Any] | None, audit_root: Path | None) -> list[str]:
@@ -657,9 +653,11 @@ def non_regular_ledgers(audit_root: Path) -> list[Path]:
     found: list[Path] = []
     for identity in _existing_directories(audit_root):
         with contextlib.suppress(OSError), os.scandir(Path(audit_root) / identity) as entries:
-            for entry in entries:
-                if entry.name.endswith(".jsonl") and not entry.is_file(follow_symlinks=False):
-                    found.append(Path(entry.path))
+            found.extend(
+                Path(entry.path)
+                for entry in entries
+                if entry.name.endswith(".jsonl") and not entry.is_file(follow_symlinks=False)
+            )
     return sorted(found)
 
 

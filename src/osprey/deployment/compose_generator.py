@@ -1060,8 +1060,10 @@ def _resolve_qmd_corpora(config, repo_root):
     if mirror_path is not None:
         corpora.append(corpus(QMD_ARIEL_COLLECTION, mirror_path))
 
-    for declared in resolved.corpora:
-        corpora.append(corpus(declared.name, declared.source, declared.index, declared.index_dir))
+    corpora.extend(
+        corpus(declared.name, declared.source, declared.index, declared.index_dir)
+        for declared in resolved.corpora
+    )
 
     return corpora
 
@@ -1245,14 +1247,14 @@ def _resolve_archive_render_context(config):
 
     terminals = []
     if "archive" in deployed:
-        for user in roster_user_names((config.get("modules") or {}).get("web_terminals")):
-            terminals.append(
-                {
-                    "user": user,
-                    "volume": f"{user}{CLAUDE_CONFIG_VOLUME_SUFFIX}",
-                    "agent_data_volume": f"{user}-agent-data",
-                }
-            )
+        terminals.extend(
+            {
+                "user": user,
+                "volume": f"{user}{CLAUDE_CONFIG_VOLUME_SUFFIX}",
+                "agent_data_volume": f"{user}-agent-data",
+            }
+            for user in roster_user_names((config.get("modules") or {}).get("web_terminals"))
+        )
 
     workers = []
     if "dispatch_worker" in deployed:

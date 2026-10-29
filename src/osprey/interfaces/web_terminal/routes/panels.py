@@ -1690,8 +1690,7 @@ async def get_mcp_servers(request: Request):
         return []
 
     try:
-        servers = await get_mcp_servers_cached(mcp_json_path, project_dir, timeout=10.0)
-        return servers
+        return await get_mcp_servers_cached(mcp_json_path, project_dir, timeout=10.0)
     except Exception:
         logger.warning("mcp-servers: introspection failed", exc_info=True)
         return []

@@ -313,7 +313,7 @@ class StoreIndexWatcher:
 
         # Schedule a watch on each directory that contains an index file
         watched = set()
-        for _filename, dir_path in self._watch_dirs.items():
+        for dir_path in self._watch_dirs.values():
             dir_str = str(dir_path)
             if dir_str not in watched:
                 dir_path.mkdir(parents=True, exist_ok=True)
