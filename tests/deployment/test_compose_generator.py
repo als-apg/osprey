@@ -2235,8 +2235,7 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
 
     # -- execution_method: subprocess (the only backend OSPREY ships) --------
     yaml = YAML()
-    with open(project_dir / "config.yml") as fh:
-        config = yaml.load(fh)
+    config = yaml.load(project_dir / "config.yml")
     assert config["execution"]["execution_method"] == "subprocess", (
         "the rendered config must name the backend that actually runs agent "
         "Python; the deploy config overrides nothing here"
