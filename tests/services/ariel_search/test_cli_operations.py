@@ -1613,31 +1613,35 @@ class TestGetStatusModuleHealth:
         }
 
     async def test_checks_run_concurrently(self, monkeypatch):
-        """Two checks of 4 s each finish in under 6 s together."""
+        """Each check answers only once both have started, so both answer only together.
+
+        Run one after the other, the first check waits alone until the
+        per-check timeout reports it unreachable.
+        """
         import asyncio
-        import time
 
         from osprey.models.providers.health import HealthResult
 
-        async def four_seconds():
-            await asyncio.sleep(4)
+        both_started = asyncio.Barrier(2)
+
+        async def meet():
+            await both_started.wait()
             return HealthResult(True, "OK", None)
 
         _patch_service(monkeypatch, _StubService(repository=_status_repo()))
         _patch_modules(
             monkeypatch,
             {
-                "qmd_export": _HealthModule("qmd_export", check=four_seconds),
-                "text_embedding": _HealthModule("text_embedding", check=four_seconds),
+                "qmd_export": _HealthModule("qmd_export", check=meet),
+                "text_embedding": _HealthModule("text_embedding", check=meet),
             },
         )
 
-        started = time.monotonic()
         out = await ops.get_status(_enable("qmd_export", "text_embedding"))
 
-        assert time.monotonic() - started < 6
-        assert _health(out, "qmd_export")["reachable"] is True
-        assert _health(out, "text_embedding")["reachable"] is True
+        healthy = {"reachable": True, "reason": None, "probed_from": "this process"}
+        assert _health(out, "qmd_export") == healthy
+        assert _health(out, "text_embedding") == healthy
 
 
 @pytest.fixture
