@@ -43,6 +43,7 @@ from typing import Any
 import pytest
 
 from osprey.interfaces._serving import free_port
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests.va._collection import assert_module_collected
 
 # Loopback only, on an ephemeral port of this module's own -- an inherited
@@ -430,34 +431,35 @@ def live(tmp_path_factory: pytest.TempPathFactory) -> Iterator[_Served]:
     state = root / "state"
     state.mkdir()
     _activate(state, STUCK_SCENARIO)
-    env = {
-        "VA_DATA_DIR": str(root / "data"),
-        "VA_STATE_DIR": str(state),
-        "VA_INSTANCE": INSTANCE,
-        "VA_POLL_INTERVAL_S": str(TICK_S),
-        "EPICS_PVAS_SERVER_PORT": str(free_port()),
-        "EPICS_PVAS_BROADCAST_PORT": str(free_port()),
-        "EPICS_PVAS_AUTO_BEACON_ADDR_LIST": "NO",
-        "EPICS_PVAS_BEACON_ADDR_LIST": "127.0.0.1",
-        "EPICS_CA_SERVER_PORT": CA_PORT,
-        "EPICS_CAS_SERVER_PORT": CA_PORT,
-        "EPICS_CAS_AUTO_BEACON_ADDR_LIST": "NO",
-        "EPICS_CAS_BEACON_ADDR_LIST": "127.0.0.1",
-    }
-    from osprey_connectors.control_system._ca_loop import get_ca_loop
+    with reserved_port() as pva_port, reserved_port() as broadcast_port:
+        env = {
+            "VA_DATA_DIR": str(root / "data"),
+            "VA_STATE_DIR": str(state),
+            "VA_INSTANCE": INSTANCE,
+            "VA_POLL_INTERVAL_S": str(TICK_S),
+            "EPICS_PVAS_SERVER_PORT": str(pva_port),
+            "EPICS_PVAS_BROADCAST_PORT": str(broadcast_port),
+            "EPICS_PVAS_AUTO_BEACON_ADDR_LIST": "NO",
+            "EPICS_PVAS_BEACON_ADDR_LIST": "127.0.0.1",
+            "EPICS_CA_SERVER_PORT": CA_PORT,
+            "EPICS_CAS_SERVER_PORT": CA_PORT,
+            "EPICS_CAS_AUTO_BEACON_ADDR_LIST": "NO",
+            "EPICS_CAS_BEACON_ADDR_LIST": "127.0.0.1",
+        }
+        from osprey_connectors.control_system._ca_loop import get_ca_loop
 
-    _on_ca_loop(get_ca_loop().point_at(CA_CLIENT_ENV))
-    served = _Served(env)
-    try:
-        deadline = time.monotonic() + STARTUP_TIMEOUT_S
-        while _caget(LIVE_RB) is None:
-            if not served.alive():
-                pytest.fail("the entrypoint exited before it served")
-            if time.monotonic() > deadline:
-                pytest.fail("the entrypoint never served")
-        yield served
-    finally:
-        served.stop()
+        _on_ca_loop(get_ca_loop().point_at(CA_CLIENT_ENV))
+        served = _Served(env)
+        try:
+            deadline = time.monotonic() + STARTUP_TIMEOUT_S
+            while _caget(LIVE_RB) is None:
+                if not served.alive():
+                    pytest.fail("the entrypoint exited before it served")
+                if time.monotonic() > deadline:
+                    pytest.fail("the entrypoint never served")
+            yield served
+        finally:
+            served.stop()
 
 
 def _wait_until(predicate: Any, *, timeout: float = SETTLE_TIMEOUT_S) -> Any:

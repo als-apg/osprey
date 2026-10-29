@@ -90,11 +90,10 @@ REMAINING_SITES: dict[str, int] = {
     "tests/stores/test_gallery_launch_on_save.py": 1,
     "tests/test_graphdb_container.py": 1,
     "tests/va/e2e/conftest.py": 2,
-    "tests/va/e2e/test_bench_ioc_live.py": 1,
     "tests/va/e2e/test_substrate_parity.py": 1,
     "tests/va/e2e/test_target_switch.py": 1,
-    "tests/va/test_apply_fault.py": 4,
-    "tests/va/test_lume_pva_seam.py": 4,
+    "tests/va/test_apply_fault.py": 2,
+    "tests/va/test_lume_pva_seam.py": 2,
 }
 
 _TOKEN = re.compile(r"\.bind\b|free_port\b")

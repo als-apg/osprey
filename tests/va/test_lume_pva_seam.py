@@ -57,6 +57,7 @@ import pytest
 import yaml
 
 from osprey.interfaces._serving import free_port
+from osprey_connectors_tests._harness._ports import reserved_port
 
 pytest.importorskip(
     "lume_pva_apg",
@@ -723,27 +724,28 @@ def _served(
     stub: bool = False,
     first_pass_fault: str | None = None,
 ) -> Iterator[_Server]:
-    spec = {
-        "view": str(view_dir),
-        "state": None if state_dir is None else str(state_dir),
-        "tick": tick_interval_s,
-        "ca_port": CA_PORTS[server],
-        "pva_port": str(free_port()),
-        "pva_broadcast": str(free_port()),
-        "physics": physics,
-        "stub": stub,
-        "first_pass_fault": first_pass_fault,
-        "health_file": str(view_dir.parent / f"{server}-health" / "health.json"),
-    }
-    view = json.loads((view_dir / "variables.json").read_text(encoding="utf-8"))
-    from osprey_connectors.control_system._ca_loop import get_ca_loop
+    with reserved_port() as pva_port, reserved_port() as broadcast_port:
+        spec = {
+            "view": str(view_dir),
+            "state": None if state_dir is None else str(state_dir),
+            "tick": tick_interval_s,
+            "ca_port": CA_PORTS[server],
+            "pva_port": str(pva_port),
+            "pva_broadcast": str(broadcast_port),
+            "physics": physics,
+            "stub": stub,
+            "first_pass_fault": first_pass_fault,
+            "health_file": str(view_dir.parent / f"{server}-health" / "health.json"),
+        }
+        view = json.loads((view_dir / "variables.json").read_text(encoding="utf-8"))
+        from osprey_connectors.control_system._ca_loop import get_ca_loop
 
-    _on_ca_loop(get_ca_loop().point_at(CA_CLIENT_ENV))
-    served = _Server(spec, view, state_dir)
-    try:
-        yield served
-    finally:
-        served.stop()
+        _on_ca_loop(get_ca_loop().point_at(CA_CLIENT_ENV))
+        served = _Server(spec, view, state_dir)
+        try:
+            yield served
+        finally:
+            served.stop()
 
 
 # =============================================================================
