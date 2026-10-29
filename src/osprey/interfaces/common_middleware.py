@@ -55,6 +55,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 logger = logging.getLogger("osprey.interfaces.middleware")
 
 __all__ = [
+    "APP_PANEL_VENDOR_MOUNT",
     "ASSET_CORS_HEADERS",
     "AUDITED_REFUSAL_STATUSES",
     "AUDIT_ACCOUNT_HEADER",
@@ -117,26 +118,54 @@ __all__ = [
 ]
 
 
+#: Where an application panel's backend serves its panel directory's
+#: ``vendor/`` (``apps/<name>/panel/vendor/``): the panel is served at the
+#: backend's root, so its vendor files sit under this mount.
+APP_PANEL_VENDOR_MOUNT = "/vendor/"
+
+_IMMUTABLE = "public, max-age=31536000, immutable"
+_UNCACHED = "no-cache, no-store, must-revalidate"
+
+
+def _is_served_vendor_path(path: str) -> bool:
+    """Whether ``path`` is a vendor file this process serves itself.
+
+    True for OSPREY's own ``/static/…/vendor/`` trees and an application
+    panel's :data:`APP_PANEL_VENDOR_MOUNT`. Never for proxied panel traffic
+    (``/panel/<id>/…``, whose headers are its upstream's) or a cap path.
+    """
+    if is_panel_cap_path(path):
+        return False
+    if path.startswith("/static/"):
+        return "/vendor/" in path
+    return path.startswith(APP_PANEL_VENDOR_MOUNT)
+
+
 class NoCacheStaticMiddleware(BaseHTTPMiddleware):
     """Control browser caching for static assets and API responses.
 
-    Vendor assets (versioned filenames like plotly-3.3.1.min.js) are cached
-    aggressively — they never change without a filename bump, but only for a
-    200: an error or redirect on a vendor path is uncached, so it cannot
-    outlive the deploy that produced it. All other
-    static/API paths are uncached to avoid stale code after updates.
+    Vendor files (versioned names like plotly-3.3.1.min.js) are cached
+    aggressively — they never change without a name bump. That holds only for
+    the vendor files this process serves (:func:`_is_served_vendor_path`), only
+    for a ``GET``/``HEAD`` answered 200, and never over a route's own
+    ``no-store``: an error or redirect on a vendor path is uncached, so it
+    cannot outlive the deploy that produced it. Proxied panel traffic keeps its
+    upstream's headers. All other static/API paths are uncached to avoid stale
+    code after updates.
     """
 
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
         path = request.url.path
-        if "/vendor/" in path and path.startswith("/static/"):
-            if response.status_code == 200:
-                response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        if _is_served_vendor_path(path):
+            if "no-store" in response.headers.get("Cache-Control", "").lower():
+                pass
+            elif request.method in ("GET", "HEAD") and response.status_code == 200:
+                response.headers["Cache-Control"] = _IMMUTABLE
             else:
-                response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+                response.headers["Cache-Control"] = _UNCACHED
         elif path.startswith(("/static/", "/api/")):
-            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Cache-Control"] = _UNCACHED
         return response
 
 
