@@ -14,6 +14,7 @@ from osprey.services.ariel_search.exceptions import (
     ModuleNotEnabledError,
     SearchExecutionError,
     SearchTimeoutError,
+    VocabularyError,
 )
 
 
@@ -267,6 +268,20 @@ class TestConfigurationError:
         assert exc.category == ErrorCategory.CONFIGURATION
         assert exc.is_retriable is False
         assert exc.config_key == "database.uri"
+
+    def test_remedy_is_none_unless_given(self) -> None:
+        """A raiser that names no fix leaves the remedy empty."""
+        assert ConfigurationError("Invalid config", config_key="database.uri").remedy is None
+
+    def test_remedy_is_stored_when_given(self) -> None:
+        exc = ConfigurationError("Invalid config", config_key="database.uri", remedy="set it")
+        assert exc.remedy == "set it"
+
+    def test_subclass_remedy_keeps_answering(self) -> None:
+        """A subclass's class-level remedy is not shadowed by an instance default."""
+        exc = VocabularyError(["ariel.vocabulary.path: file not found"])
+        assert "remedy" not in vars(exc)
+        assert exc.remedy == VocabularyError.remedy
 
 
 class TestModuleNotEnabledError:

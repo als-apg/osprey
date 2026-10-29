@@ -313,7 +313,7 @@ class TestGetStatus:
         out = await ops.get_status(dict(_DB))
 
         assert out["status"] == "unhealthy"
-        assert out["errors"] == [refusal.message]
+        assert out["errors"] == [f"{refusal.message}. {refusal.remedy}"]
         assert "osprey ariel" in out["errors"][0]
         assert "search_modules.semantic" in out["errors"][0]
         assert out["embedding_tables"][0]["table"] == "text_embeddings_nomic"
@@ -1063,13 +1063,13 @@ class TestRunSearch:
         self, monkeypatch, fake_pool_factory
     ):
         # Neither the connection hint nor the missing-schema hint may claim it:
-        # the repository's own message already names the fix.
+        # the repository's own refusal names the fix.
         refusal = await _missing_table_refusal(fake_pool_factory)
         _patch_service(monkeypatch, _StubService(refusal=refusal))
 
         out = await ops.run_search(dict(_DB), "q", "keyword", 5)
 
-        assert out == {"error": refusal.message}
+        assert out == {"error": f"{refusal.message}. {refusal.remedy}"}
 
     async def test_success_projects_answer_sources_and_entries(self, monkeypatch):
         result = SimpleNamespace(

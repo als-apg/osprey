@@ -168,7 +168,14 @@ def test_service_is_constructed_despite_config_errors(tmp_path: Path, service_do
     _assert_no_banner(caplog, "DATABASE NOT AVAILABLE")
 
 
-def test_missing_embedding_table_degrades_search_only(tmp_path: Path, service_double, caplog):
+@pytest.mark.parametrize(
+    "remedy",
+    ["Run `osprey ariel quickstart`", None],
+    ids=["refusal-names-its-fix", "refusal-names-no-fix"],
+)
+def test_missing_embedding_table_degrades_search_only(
+    tmp_path: Path, service_double, caplog, remedy
+):
     """A missing embedding table makes the configuration invalid; browse still answers."""
     from osprey.interfaces.ariel import create_app
     from osprey.interfaces.ariel.app import REMEDY_NAMED_KEY
@@ -189,7 +196,9 @@ def test_missing_embedding_table_degrades_search_only(tmp_path: Path, service_do
         },
     )
     service_double.verify_search_model_table = AsyncMock(
-        side_effect=ConfigurationError(refusal, config_key="search_modules.semantic.model")
+        side_effect=ConfigurationError(
+            refusal, config_key="search_modules.semantic.model", remedy=remedy
+        )
     )
     service_double.repository.search_by_time_range = AsyncMock(return_value=[])
     create = AsyncMock(return_value=service_double)
@@ -205,7 +214,7 @@ def test_missing_embedding_table_degrades_search_only(tmp_path: Path, service_do
     payload = capabilities.json()
     assert payload["status"] == "configuration_invalid"
     assert payload["config_errors"] == [refusal]
-    assert payload["remedy"] == REMEDY_NAMED_KEY
+    assert payload["remedy"] == (remedy or REMEDY_NAMED_KEY)
     assert entries.status_code == 200
     assert app.state.ariel_service is service_double
     assert refusal in _banner(caplog, "CONFIGURATION INVALID")

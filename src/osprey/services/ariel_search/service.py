@@ -271,7 +271,7 @@ class ARIELSearchService:
         semantic search disabled it asks the database nothing.
 
         Raises:
-            ConfigurationError: The embedding table is missing; the message
+            ConfigurationError: The embedding table is missing; its remedy
                 names the fix.
             DatabaseQueryError: The database could not be asked.
         """

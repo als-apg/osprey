@@ -790,7 +790,9 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
             try:
                 await service.verify_search_model_table()
             except ConfigurationError as refusal:
-                errors.append(refusal.message)
+                errors.append(
+                    f"{refusal.message}. {refusal.remedy}" if refusal.remedy else refusal.message
+                )
             markers: dict[str, str] = {}
             caption_marker = caption_model_id(config)
             if caption_marker is not None:
@@ -2734,6 +2736,7 @@ async def run_search(config_dict: dict, query: str, mode: str | None, limit: int
         Result dict, or ``{"error": ...}`` when the search could not run.
     """
     from osprey.services.ariel_search import create_ariel_service
+    from osprey.services.ariel_search.exceptions import ConfigurationError
     from osprey.services.ariel_search.models import normalize_search_mode
 
     if not config_dict:
@@ -2772,6 +2775,9 @@ async def run_search(config_dict: dict, query: str, mode: str | None, limit: int
                 "reasoning": result.reasoning,
                 "entries": [_entry_summary(e) for e in entries],
             }
+    except ConfigurationError as e:
+        # A configuration refusal names its own fix.
+        return {"error": f"{e.message}. {e.remedy}" if e.remedy else e.message}
     except Exception as e:
         msg = str(e)
         if "connection" in msg.lower() or "connect" in msg.lower():
