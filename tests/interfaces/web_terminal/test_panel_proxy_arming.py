@@ -1,14 +1,17 @@
 """Application panels on the panel proxy: declared agent routes and write arming.
 
 An application panel is a config-defined panel whose ``web.panels.<id>`` block
-names the application it serves (``app``). Two facts ride on that block:
+names the application it serves (``app``) and the exact ``{method, path}``
+pairs (``agent_routes``, backend-root-relative) the terminal admits on the
+panel token, composed as ``/panel/<id><path>``.
 
-* ``agent_routes`` — the exact ``{method, path}`` pairs (backend-root-relative)
-  the terminal admits on the panel token, composed as ``/panel/<id><path>``;
-* ``arm_writes`` — whether this login arms the application. Missing reads as
-  false. On a login that does not arm it, the panel hop forwards only safe
-  methods and refuses every other method and every websocket upgrade, naming
-  the login and the application, before anything leaves the terminal.
+The application is armed for writes by the login's ``control_system.writes``
+tier: only ``allowed`` arms it. On any other tier — ``never``, ``unknown`` (the
+login's rung cannot be read), or no readable render at all — the panel hop forwards only safe methods and
+refuses every other method and every websocket upgrade, naming the login and
+the application, before anything leaves the terminal. A disabled block never
+reaches the proxy, so its application is never armed. The block carries no
+arming key of its own: ``arm_writes`` is refused at load.
 
 A panel without ``app`` — a built-in panel, or a config-defined panel of the
 non-application shape — keeps every method and its sockets.
@@ -20,6 +23,7 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
@@ -30,6 +34,7 @@ from osprey.interfaces.web_terminal.routes.proxy import (
     _PANEL_STATE_MAP,
     configured_agent_routes,
 )
+from tests.interfaces._asgi import OPERATOR_SECRET, PANEL_TOKEN
 from tests.interfaces.web_terminal._proxy_fakes import _FakeConnect, _patch_connect, panel_app
 from tests.interfaces.web_terminal._started_app import started_client
 
@@ -46,13 +51,13 @@ WRITE_PATH = "/api/set"
 #: One built-in panel, taken from the registry-derived map rather than named.
 BUILTIN_PANEL_ID, BUILTIN_STATE_ATTR = sorted(_PANEL_STATE_MAP.items())[0]
 
-PANEL_TOKEN = "panel-token-value"
-OPERATOR_SECRET = "operator-secret-value"
+#: The login whose tier the proxy reads.
+LOGIN = "alice"
 
 
-def _app_panel(*, arm_writes: bool | None, panel_id: str = PANEL_ID) -> dict:
+def _app_panel(*, panel_id: str = PANEL_ID) -> dict:
     """A config-defined application panel as ``_load_panel_config`` forwards it."""
-    panel = {
+    return {
         "id": panel_id,
         "label": panel_id.upper(),
         "url": "http://127.0.0.1:9300",
@@ -60,9 +65,6 @@ def _app_panel(*, arm_writes: bool | None, panel_id: str = PANEL_ID) -> dict:
         "app": APP_NAME,
         "agentRoutes": [{"method": "GET", "path": STATE_PATH}],
     }
-    if arm_writes is not None:
-        panel["armWrites"] = arm_writes
-    return panel
 
 
 #: A config-defined panel of the non-application shape: no ``app``, no arming.
@@ -74,30 +76,64 @@ PLAIN_PANEL = {
 }
 
 
-@pytest.fixture
-def workspace_dir(tmp_path):
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
-    return ws
+@pytest.fixture(autouse=True)
+def _fresh_render_memo(monkeypatch):
+    """Every test reads its render as ``LOGIN``."""
+    monkeypatch.setenv("OSPREY_TERMINAL_USER", LOGIN)
 
 
-def _boot(workspace_dir, *, arm_writes):
-    gen = panel_app(workspace_dir, [_app_panel(arm_writes=arm_writes), dict(PLAIN_PANEL)])
+def _render(tmp_path, control_system: dict):
+    path = tmp_path / "config.yml"
+    path.write_text(yaml.safe_dump({"control_system": control_system}), encoding="utf-8")
+    return path
+
+
+def _boot(workspace_dir, config_path):
+    gen = panel_app(workspace_dir, [_app_panel(), dict(PLAIN_PANEL)])
     for app, client in gen:
         setattr(app.state, BUILTIN_STATE_ATTR, "http://127.0.0.1:9200")
+        app.state.config_path = config_path
         yield app, client
 
 
 @pytest.fixture
 def unarmed(workspace_dir):
-    """An app whose application panel declares no ``arm_writes`` (read as false)."""
-    yield from _boot(workspace_dir, arm_writes=None)
+    """An app with no readable render: the login's tier is not ``allowed``."""
+    yield from _boot(workspace_dir, None)
 
 
 @pytest.fixture
-def armed(workspace_dir):
-    """An app on a login that arms the application."""
-    yield from _boot(workspace_dir, arm_writes=True)
+def unreadable(workspace_dir, tmp_path):
+    """An app whose render exists but does not parse: an unreadable tier is not ``allowed``."""
+    path = tmp_path / "config.yml"
+    path.write_text("control_system: {writes: allowed\n", encoding="utf-8")
+    yield from _boot(workspace_dir, path)
+
+
+@pytest.fixture
+def armed(workspace_dir, tmp_path):
+    """An app on a login whose tier is ``allowed``."""
+    yield from _boot(workspace_dir, _render(tmp_path, {"writes": "allowed"}))
+
+
+@pytest.fixture
+def login_never(workspace_dir, tmp_path):
+    """A writes-allowed deployment whose own rung holds this login at ``never``."""
+    config = _render(tmp_path, {"writes": "allowed", "login_tiers": {LOGIN: "never"}})
+    yield from _boot(workspace_dir, config)
+
+
+@pytest.fixture
+def login_unknown(workspace_dir, tmp_path):
+    """A writes-allowed deployment whose tier map does not name this login."""
+    config = _render(tmp_path, {"writes": "allowed", "login_tiers": {"bob": "allowed"}})
+    yield from _boot(workspace_dir, config)
+
+
+@pytest.fixture
+def deployment_never(workspace_dir, tmp_path):
+    """A deployment whose tier is ``never``."""
+    yield from _boot(workspace_dir, _render(tmp_path, {"writes": "never"}))
 
 
 def _capture(app) -> list[tuple[str, str]]:
@@ -133,7 +169,6 @@ class TestPanelSpec:
                 PANEL_ID: {
                     "url": "http://127.0.0.1:9300",
                     "app": APP_NAME,
-                    "arm_writes": True,
                     "agent_routes": [
                         {"method": "get", "path": STATE_PATH},
                         {"method": "POST", "path": WRITE_PATH},
@@ -143,7 +178,7 @@ class TestPanelSpec:
         )
 
         assert panel["app"] == APP_NAME
-        assert panel["armWrites"] is True
+        assert "armWrites" not in panel
         assert panel["agentRoutes"] == [
             {"method": "GET", "path": STATE_PATH},
             {"method": "POST", "path": WRITE_PATH},
@@ -153,8 +188,31 @@ class TestPanelSpec:
         (panel,) = _load({"plain": {"url": "http://127.0.0.1:9301"}})
 
         assert panel["app"] is None
-        assert panel["armWrites"] is False
         assert panel["agentRoutes"] == []
+
+    @pytest.mark.parametrize("value", [True, False])
+    def test_arm_writes_refused_naming_the_tier_key(self, value):
+        with pytest.raises(
+            ValueError,
+            match=rf"web\.panels\.{PANEL_ID}\.arm_writes.*control_system\.writes",
+        ):
+            _load(
+                {
+                    PANEL_ID: {
+                        "url": "http://127.0.0.1:9300",
+                        "app": APP_NAME,
+                        "arm_writes": value,
+                    }
+                }
+            )
+
+    def test_disabled_application_block_is_not_forwarded(self):
+        """A disabled block never reaches the proxy, so its application is never armed."""
+        custom = _load(
+            {PANEL_ID: {"url": "http://127.0.0.1:9300", "app": APP_NAME, "enabled": False}}
+        )
+
+        assert custom == []
 
     @pytest.mark.parametrize(
         "routes",
@@ -181,9 +239,9 @@ class TestAgentRoutes:
     def test_composed_under_the_panel_prefix(self):
         routes = configured_agent_routes(
             [
-                _app_panel(arm_writes=False),
+                _app_panel(),
                 {
-                    **_app_panel(arm_writes=False, panel_id="rooted"),
+                    **_app_panel(panel_id="rooted"),
                     "agentRoutes": [{"method": "GET", "path": "/"}],
                 },
             ]
@@ -270,25 +328,43 @@ class TestUnarmedHttp:
 
         assert resp.status_code == 403
         assert APP_NAME in resp.text
-        assert "this login" in resp.text
+        assert f"'{LOGIN}'" in resp.text
         assert sent == []
 
-    def test_refusal_names_the_login(self, unarmed):
-        app, client = unarmed
-        app.state.terminal_user = "alice"
+    def test_refusal_names_the_login(self, login_never):
+        app, client = login_never
+        app.state.terminal_user = LOGIN
         _capture(app)
 
         resp = client.post(f"/panel/{PANEL_ID}{WRITE_PATH}")
 
         assert resp.status_code == 403
-        assert "'alice'" in resp.text
+        assert f"'{LOGIN}'" in resp.text
         assert f"'{APP_NAME}'" in resp.text
 
-    def test_unarmed_explicitly_is_refused_too(self, workspace_dir):
-        for app, client in panel_app(workspace_dir, [_app_panel(arm_writes=False)]):
-            sent = _capture(app)
-            assert client.post(f"/panel/{PANEL_ID}{WRITE_PATH}").status_code == 403
-            assert sent == []
+    @pytest.mark.parametrize("fixture", ["login_never", "deployment_never"])
+    def test_tier_never_is_refused(self, request, fixture):
+        app, client = request.getfixturevalue(fixture)
+        sent = _capture(app)
+
+        assert client.post(f"/panel/{PANEL_ID}{WRITE_PATH}").status_code == 403
+        assert sent == []
+
+    def test_unreadable_render_is_refused(self, unreadable):
+        """A render that cannot be parsed leaves the application unarmed (fail closed)."""
+        app, client = unreadable
+        sent = _capture(app)
+
+        assert client.post(f"/panel/{PANEL_ID}{WRITE_PATH}").status_code == 403
+        assert sent == []
+
+    def test_tier_unknown_is_refused(self, login_unknown):
+        """A login the tier map does not name is ``unknown``, and ``unknown`` does not arm."""
+        app, client = login_unknown
+        sent = _capture(app)
+
+        assert client.post(f"/panel/{PANEL_ID}{WRITE_PATH}").status_code == 403
+        assert sent == []
 
     @pytest.mark.parametrize("method", ["GET", "HEAD", "OPTIONS"])
     def test_safe_methods_forwarded(self, unarmed, method):
@@ -367,6 +443,18 @@ class TestWebsocket:
         fake = _open(client, f"/panel/{PANEL_ID}/ws")
 
         assert fake.target == "ws://127.0.0.1:9300/ws"
+
+    def test_login_never_application_socket_refused(self, login_never):
+        _app, client = login_never
+        fake = _FakeConnect()
+
+        with _patch_connect(fake):
+            with pytest.raises(WebSocketDisconnect) as closed:
+                with client.websocket_connect(f"/panel/{PANEL_ID}/ws"):
+                    pass
+
+        assert closed.value.code == 4003
+        assert fake.target is None
 
     def test_non_application_socket_unaffected(self, unarmed):
         _app, client = unarmed
