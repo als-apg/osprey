@@ -89,6 +89,7 @@ Skipped entirely when docker is unavailable.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import http.cookiejar
 import json
@@ -100,6 +101,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -555,8 +557,76 @@ class TestReadOnlyRenderZone:
 # ── the admin tier: config writes survive the split ──────────────────────────
 
 
+#: The port the record listens on inside its container, as compose runs it.
+_RECORD_CONTAINER_PORT = 8000
+
+
+def _admin_render_user(rendered_config: dict, project: str) -> str:
+    """The roster user whose tier renders *project*: the terminal the admin image runs."""
+    web_terminals = rendered_config["modules"]["web_terminals"]
+    for entry in web_terminals["users"]:
+        if (
+            isinstance(entry, dict)
+            and web_terminals["renders"][entry["tier"]]["project"] == project
+        ):
+            return entry["name"]
+    raise AssertionError(f"no roster user runs the {project} render")
+
+
+@contextlib.contextmanager
+def _record_beside(deployment_tag: str, preset_repo: Path) -> Iterator[tuple[str, str]]:
+    """An agent-record from the deployment's image on a network of its own.
+
+    A tier image is a terminal of the stack, and a terminal reads the record
+    compose runs beside it: this runs that service, with the build's service
+    file, and yields the network and the record's URL on it.
+    """
+    from osprey.agent_record import credentials as creds
+    from osprey.agent_record import service as record_service
+
+    token = uuid.uuid4().hex[:8]
+    network = f"{TAG_PREFIX}-net-{token}"
+    name = f"{TAG_PREFIX}-record-{token}"
+    base = "/tmp/agent-record"
+    made = _docker("network", "create", network, timeout=60)
+    assert made.returncode == 0, made.stderr
+    try:
+        run = _docker(
+            "run",
+            "-d",
+            "--name",
+            name,
+            "--network",
+            network,
+            "--env-file",
+            str(preset_repo / creds.SERVICE_FILE),
+            "-e",
+            f"{record_service.SPOOL_ROOT_ENV}={base}/spool",
+            "-e",
+            f"{record_service.RECORD_DIR_ENV}={base}/record",
+            "-e",
+            f"{record_service.ARCHIVE_DIR_ENV}={base}/archive",
+            "-e",
+            f"{record_service.TRANSCRIPTS_DIR_ENV}={base}/transcripts",
+            deployment_tag,
+            "sh",
+            "-c",
+            f"mkdir -p {base}/spool {base}/record {base}/archive {base}/transcripts && "
+            "exec osprey agent-record serve --host 0.0.0.0 "
+            f"--port {_RECORD_CONTAINER_PORT}",
+            timeout=120,
+        )
+        assert run.returncode == 0, f"docker run failed: {run.stderr}"
+        try:
+            yield network, f"http://{name}:{_RECORD_CONTAINER_PORT}"
+        finally:
+            _docker("rm", "-f", name, timeout=120)
+    finally:
+        _docker("network", "rm", network, timeout=60)
+
+
 @pytest.fixture(scope="module")
-def admin_state(admin_image, preset_repo: Path, tmp_path_factory):
+def admin_state(admin_image, ro_image, preset_repo: Path, rendered_config: dict):
     """Drive the admin tier's whole config-write lifecycle once, and snapshot it.
 
     One container, one restart, four assertions — because the restart is the
@@ -568,19 +638,35 @@ def admin_state(admin_image, preset_repo: Path, tmp_path_factory):
     the multi-user compose service mounts it, because the reserved-record probe
     below needs the durable store that only exists when it is there.
     """
+    from osprey.agent_record import credentials as creds
+    from osprey.agent_record import identities as record_ids
+    from osprey.agent_record.client import URL_ENV
+
     tag, project = admin_image
     root = f"/app/{project}"
     render = f"{root}/build"
     settings = f"{render}/.claude/settings.json"
     volume = f"{TAG_PREFIX}-cfg-{uuid.uuid4().hex[:8]}"
+    user = _admin_render_user(rendered_config, project)
+    record = contextlib.ExitStack()
+    network, record_url = record.enter_context(_record_beside(ro_image[0], preset_repo))
 
+    # As compose starts the user's terminal: its own login file, the record's
+    # URL and the user's name.
     cid = _run_web(
         tag,
+        "--network",
+        network,
         "-v",
         f"{volume}:{CLAUDE_CONFIG_DIR}",
         "-e",
         f"CLAUDE_CONFIG_DIR={CLAUDE_CONFIG_DIR}",
-        *record_credential_mounts(preset_repo, project, tmp_path_factory.mktemp("admin-creds")),
+        "--env-file",
+        str(preset_repo / creds.login_file(record_ids.login_for(user))),
+        "-e",
+        f"{URL_ENV}={record_url}",
+        "-e",
+        f"OSPREY_TERMINAL_USER={user}",
     )
     try:
         base_url = f"http://127.0.0.1:{_host_port(cid)}"
@@ -683,6 +769,7 @@ def admin_state(admin_image, preset_repo: Path, tmp_path_factory):
     finally:
         _docker("rm", "-f", cid, timeout=120)
         _docker("volume", "rm", "-f", volume, timeout=60)
+        record.close()
 
 
 class TestAdminTierConfigWrites:
