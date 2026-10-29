@@ -75,7 +75,6 @@ from tests._renders import tier_render
 from tests.deployment.web_terminals._nginx import (
     HISTORY_ORIGIN_MARKER,
     nginx_directives,
-    nginx_location_body,
     render_nginx,
 )
 
@@ -303,6 +302,14 @@ _RETIRED_KEY_ROSTER = [
 # --------------------------------------------------------------------------
 
 
+def _location_body(conf: str, header: str) -> str:
+    locations = _locations(conf)
+    assert header in locations, (
+        f"no {header!r} location in the rendered fragment: {sorted(locations)}"
+    )
+    return locations[header]
+
+
 def test_rendered_header_names_are_the_sidecar_s_own_spelling() -> None:
     """The template writes the header names as literals — nginx conf has no way
     to import a Python constant — so the four spellings are held together by
@@ -339,7 +346,7 @@ def test_gated_user_location_forwards_every_identity_header_from_the_auth_answer
     the account that fails OPEN — the container falls back to comparing the
     subject and marks the request a mismatch."""
     # Arrange / Act
-    body = nginx_location_body(render_nginx(_auth_config(_TWO_USERS)), "/u/alice/")
+    body = _location_body(render_nginx(_auth_config(_TWO_USERS)), "/u/alice/")
 
     # Assert
     for header, variable in _IDENTITY:
@@ -378,8 +385,8 @@ def test_the_retired_login_key_renders_a_gated_location_like_any_other() -> None
     is gated and forwards the sidecar's answer exactly as its neighbour does."""
     # Arrange / Act
     nginx_conf = render_nginx(_auth_config(_RETIRED_KEY_ROSTER))
-    ariel = nginx_directives(nginx_location_body(nginx_conf, "/u/ariel/"))
-    alice = nginx_directives(nginx_location_body(nginx_conf, "/u/alice/"))
+    ariel = nginx_directives(_location_body(nginx_conf, "/u/ariel/"))
+    alice = nginx_directives(_location_body(nginx_conf, "/u/alice/"))
 
     # Assert — identical directives once the user's name and upstream port are
     # masked out
@@ -510,7 +517,7 @@ def test_the_internal_verify_target_clears_every_identity_header() -> None:
     a clear here a client's forged subject arrives at the sidecar looking like
     something the perimeter established."""
     # Arrange / Act
-    body = nginx_location_body(render_nginx(_auth_config(_ONE_USER)), "= /_osprey_auth/alice")
+    body = _location_body(render_nginx(_auth_config(_ONE_USER)), "= /_osprey_auth/alice")
 
     # Assert
     assert _clear(SUBJECT_HEADER) in body
@@ -523,7 +530,7 @@ def test_the_public_auth_prefix_clears_every_identity_header() -> None:
     where a session comes from. That makes it reachable by anyone, so it is the
     one an unauthenticated client would forge into."""
     # Arrange / Act
-    body = nginx_location_body(render_nginx(_auth_config(_ONE_USER)), "/auth/")
+    body = _location_body(render_nginx(_auth_config(_ONE_USER)), "/auth/")
 
     # Assert
     assert _clear(SUBJECT_HEADER) in body
@@ -543,7 +550,7 @@ def test_the_gated_location_forwards_instead_of_also_clearing() -> None:
     and reload of every auth-on deployment.
     """
     # Arrange / Act
-    body = nginx_location_body(render_nginx(_auth_config(_ONE_USER)), "/u/alice/")
+    body = _location_body(render_nginx(_auth_config(_ONE_USER)), "/u/alice/")
 
     # Assert
     for header, variable in _IDENTITY:
@@ -643,7 +650,7 @@ def test_open_render_injects_each_users_own_secret_with_no_gate_in_front() -> No
 
     # Assert — each location pulls in its OWN user's snippet…
     for index, (user, other) in enumerate((("alice", "bob"), ("bob", "alice"))):
-        body = nginx_directives(nginx_location_body(nginx_conf, f"/u/{user}/"))
+        body = nginx_directives(_location_body(nginx_conf, f"/u/{user}/"))
         assert _secret_include(user) in body
         assert _secret_include(other) not in body
 
@@ -682,7 +689,7 @@ def test_open_injecting_location_leaves_the_secret_name_to_the_include_alone(
     only: the second directive lives in a file `nginx -T` resolves at start.
     """
     # Arrange / Act
-    body = nginx_directives(nginx_location_body(render_nginx(config), "/u/alice/"))
+    body = nginx_directives(_location_body(render_nginx(config), "/u/alice/"))
 
     # Assert — claimed, by the include…
     assert _secret_include("alice") in body
@@ -700,7 +707,7 @@ def test_open_render_injects_every_location_including_the_retired_key() -> None:
 
     # Assert
     for user in ("alice", "ariel"):
-        body = nginx_directives(nginx_location_body(nginx_conf, f"/u/{user}/"))
+        body = nginx_directives(_location_body(nginx_conf, f"/u/{user}/"))
         assert _secret_include(user) in body
         assert _clear(TERMINAL_SECRET_HEADER) not in body
 

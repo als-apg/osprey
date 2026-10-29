@@ -59,7 +59,6 @@ from tests._container_support import docker_cli_unavailable_reason_once
 from tests._renders import tier_render
 from tests.deployment.web_terminals._nginx import (
     nginx_directives,
-    nginx_location_body,
     nginx_terminals_part,
 )
 
@@ -302,6 +301,26 @@ def _config_file_sections(dump: str) -> dict[str, str]:
     if current is not None:
         sections[current] = "\n".join(lines)
     return sections
+
+
+def _location_body(conf: str, user: str) -> str:
+    """The brace-matched body of *user*'s ``location /u/<user>/ { ... }`` block.
+
+    Used to prove which secret ``include`` a given location carries: string
+    counting over the whole file could not tell a directive inside alice's
+    location from one inside bob's.
+    """
+    marker = f"location /u/{user}/ {{"
+    start = conf.index(marker)
+    depth = 0
+    for i in range(start, len(conf)):
+        if conf[i] == "{":
+            depth += 1
+        elif conf[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return conf[start : i + 1]
+    raise AssertionError(f"unterminated location block for {user!r}")
 
 
 def test_default_gated_off_render_passes_nginx_t() -> None:
@@ -761,7 +780,7 @@ def test_secret_include_is_scoped_per_user_with_no_cross_leak() -> None:
 
         # That snippet is reached ONLY from this user's own location — its
         # include appears inside `/u/<user>/` and no other user's snippet does.
-        location_body = nginx_location_body(default_conf, user)
+        location_body = _location_body(default_conf, user)
         assert f"include {snippet_path};" in location_body
         for other in others:
             assert f"secret-{other}.conf" not in location_body
@@ -908,7 +927,7 @@ def test_no_location_forwards_the_browsers_whole_cookie_jar() -> None:
     # Every gated user authenticates by the header nginx injected, so its
     # cookie is cut outright.
     for user in users:
-        gated = nginx_location_body(default_conf, user)
+        gated = _location_body(default_conf, user)
         assert 'proxy_set_header Cookie "";' in gated
 
 
@@ -1029,12 +1048,12 @@ def test_every_terminal_location_clears_credentials_nginx_did_not_set() -> None:
     default_conf = _config_file_sections(result.stdout)[_DEFAULT_CONF_PATH]
 
     for user in users:
-        body = nginx_location_body(default_conf, user)
+        body = _location_body(default_conf, user)
         assert 'proxy_set_header Authorization "";' in body
 
     # Injected in every gated location, so cleared in none of them.
     for user in users:
-        gated = nginx_location_body(default_conf, user)
+        gated = _location_body(default_conf, user)
         assert f'proxy_set_header {TERMINAL_SECRET_HEADER} "";' not in gated
         assert f"include /etc/nginx/osprey/secret-{user}.conf;" in gated
 
