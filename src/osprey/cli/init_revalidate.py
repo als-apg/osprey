@@ -2491,6 +2491,18 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
     # An app made by an earlier run that stopped before its users moved: the
     # users still pinned to it move now.
     tiers_left = {stem for stem, layer in layers.items() if layer.rel not in deletes}
+    # The model provider is a deployment fact: a tier that spells one is
+    # refused at build, and which provider the deployment runs is the
+    # operator's call, so the key is named here rather than moved or dropped.
+    for stem in sorted(tiers_left):
+        layer = layers[stem]
+        data = _safe_load(writes.get(layer.rel, layer.text), layer.rel)
+        if isinstance(data, dict) and "provider" in data:
+            steps.append(
+                f"{layer.rel} spells `provider: {data['provider']}`, which a tier may not: "
+                f"the provider lives in {PROFILE_FILENAME}; remove it from {layer.rel} and set "
+                f"it in {PROFILE_FILENAME} if every login should run on it"
+            )
     for stem, path in existing_apps.items():
         if stem in apps or stem in tiers_left:
             continue
