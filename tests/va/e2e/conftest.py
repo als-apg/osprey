@@ -63,6 +63,7 @@ import pytest
 import yaml
 
 from osprey.interfaces._serving import free_port
+from tests.e2e._deploy_support import find_osprey_console_script
 
 # Re-exported: the modules of this directory read the image under test and its
 # remedy as ``e2e_conftest.IMAGE`` and ``e2e_conftest.IMAGE_REMEDY``.
@@ -150,7 +151,6 @@ def _render_limits_view() -> Path:
 # import-time required because lanes read the bands at import
 # (``LIMITS_OVERRIDES`` in test_limits_enforcement), before any fixture runs.
 LIMITS_DB_PATH = _render_limits_view()
-OSPREY_CLI = REPO_ROOT / ".venv" / "bin" / "osprey"
 
 #: The instance every container of this suite serves as, and the ``docker
 #: run`` arguments naming it. The entrypoint refuses a boot without one.
@@ -610,7 +610,14 @@ class VaProject:
         baseline.
         """
         return subprocess.run(
-            [str(OSPREY_CLI), "sim", "apply", *SUITE_SCENARIOS, *scenario_names, "--no-seed"],
+            [
+                str(find_osprey_console_script()),
+                "sim",
+                "apply",
+                *SUITE_SCENARIOS,
+                *scenario_names,
+                "--no-seed",
+            ],
             cwd=self.project_dir,
             capture_output=True,
             text=True,
