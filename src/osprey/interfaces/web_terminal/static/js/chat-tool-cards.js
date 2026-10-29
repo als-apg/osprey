@@ -2,18 +2,29 @@
 /**
  * OSPREY Web Terminal — Simple-mode operator chat: tool calls.
  *
- * The tool-call group and what it holds: one chip per tool call, one chip per
- * subagent call with its own trace nested inside, and the group that folds the
- * chips away once the agent moves on. An approval card waiting on a call sits
- * under that call's chip, which carries the operator's answer once it is given.
+ * The rows a tool call is drawn as: one row per tool call, and one row per
+ * subagent call with its own trace nested inside. Both are action rows
+ * (chat-row.js): the category glyph in the gutter, the tool's name, its
+ * one-line input, and the status at the right edge. An approval card waiting on
+ * a call sits under that call's row, which carries the operator's answer once
+ * it is given. The turn's rows are placed and folded into runs by
+ * chat-tool-runs.js.
  *
  * @module chat-tool-cards
  */
 
 import { chatIcon } from './chat-icons.js';
 import { formatToolResult, inputView } from './chat-format.js';
-import { button, elem } from './chat-dom.js';
-import { CATEGORY_ICON, oneLine, summarizeInput, toolCategory } from './chat-tool-vocab.js';
+import { elem } from './chat-dom.js';
+import { createRow } from './chat-row.js';
+import {
+  CATEGORY_ICON,
+  foldKey,
+  oneLine,
+  summarizeInput,
+  toolCategory,
+  toolLabel,
+} from './chat-tool-vocab.js';
 
 /** @typedef {import('./chat-dom.js').WireEvent} WireEvent */
 
@@ -50,7 +61,11 @@ import { CATEGORY_ICON, oneLine, summarizeInput, toolCategory } from './chat-too
  */
 
 /**
- * @typedef {ToolRow & { el: HTMLElement, finish: (outcome: ToolOutcome) => void }} ToolChip
+ * `refusal` is the line a refused write drew ({@link refusalLine}), or null:
+ * the chip puts it in its own row, after the row's body, so it reads without
+ * opening anything. A row that holds the chip folded away (a run, a subagent)
+ * moves the line under itself.
+ * @typedef {ToolRow & { el: HTMLElement, finish: (outcome: ToolOutcome) => void, refusal: HTMLElement | null }} ToolChip
  */
 
 /**
@@ -61,6 +76,7 @@ import { CATEGORY_ICON, oneLine, summarizeInput, toolCategory } from './chat-too
 
 /**
  * @typedef {object} AgentChip
+ * @property {HTMLElement} el
  * @property {string} name - the subagent type, e.g. `facility-knowledge`
  * @property {(event: WireEvent) => ToolChip} addTool - file one of its tool calls
  * @property {(text: string) => void} addText - file one of its messages
@@ -68,15 +84,6 @@ import { CATEGORY_ICON, oneLine, summarizeInput, toolCategory } from './chat-too
  * @property {() => boolean} running
  * @property {boolean} hasCard - a card is filed under the agent's own row now
  * @property {(card: HTMLElement) => CardPlacement} file
- */
-
-/**
- * @typedef {object} ToolGroup
- * @property {HTMLElement} el
- * @property {(event: WireEvent) => ToolChip} addTool
- * @property {(event: WireEvent, renderText: (el: HTMLElement, text: string) => void) => AgentChip} addAgent
- * @property {() => void} settle - fold away, unless the operator chose its state
- *   or an agent or a waiting card in it is still working (it folds when the last one is done)
  */
 
 /**
@@ -95,32 +102,6 @@ export function refusalLine(outcome) {
   return line;
 }
 
-/**
- * A chip whose finish also hands a refused write's line to `show`.
- * @param {ToolChip} chip
- * @param {(line: HTMLElement) => void} show
- * @returns {ToolChip}
- */
-function showingRefusal(chip, show) {
-  return {
-    el: chip.el,
-    finish(outcome) {
-      chip.finish(outcome);
-      const line = refusalLine(outcome);
-      if (line) show(line);
-    },
-    get hasCard() {
-      return chip.hasCard;
-    },
-    file: chip.file,
-  };
-}
-
-/** @returns {HTMLElement} */
-function spinner() {
-  return elem('span', 'op-spin');
-}
-
 /** What a row's decision badge says. */
 const DECISION_LABEL = Object.freeze({
   allowed: 'Allowed by you',
@@ -131,9 +112,9 @@ const DECISION_LABEL = Object.freeze({
 
 /**
  * Where a row's approval card goes: directly under the row, and the decision
- * badge goes in the row's header, before its status. `openFor` takes whatever
- * holds the row open while the card waits (its group, a subagent's trace) and
- * returns the release.
+ * badge goes in the row's head, before its status. `openFor` takes whatever
+ * holds the row in view while the card waits (a subagent's trace) and returns
+ * the release.
  * @param {HTMLElement} el - the row
  * @param {HTMLElement} status - the row's status; the badge goes before it
  * @param {() => () => void} openFor
@@ -171,57 +152,50 @@ function cardSlot(el, status, openFor) {
   };
 }
 
+/** Nothing holds a top-level row in view: it is never folded away while a card waits. */
+export const NO_HOLD = () => () => {};
+
 /**
- * One tool call: category icon, display name, a one-line input summary, and a
+ * One tool call: category glyph, display name, a one-line input summary, and a
  * status that is a spinner until its result lands and then a check or a red x.
- * A click opens the full input and the result preview.
+ * A click opens the full input and the result preview. A control-system write
+ * is marked as one (`data-kind="control-write"`), so it reads heavier. A write
+ * the hooks refused also shows its phrase under the row, outside what opens.
  * @param {WireEvent} event
- * @param {() => () => void} openFor - takes what holds the row open while its card waits
+ * @param {() => () => void} [openFor] - takes what holds the row in view while its card waits
  * @returns {ToolChip}
  */
-function createToolChip(event, openFor) {
-  const name = String(event.tool_name || event.tool_name_raw || 'tool');
-  const el = elem('div', 'op-tool');
-  el.dataset.state = 'running';
-
-  const head = button('op-tool-head');
-  head.setAttribute('aria-expanded', 'false');
-  const icon = chatIcon(CATEGORY_ICON[toolCategory(event.tool_name_raw ?? event.tool_name)]);
-  icon.classList.add('op-tool-icon');
-  const status = elem('span', 'op-tool-status');
-  status.append(spinner());
-  head.append(
-    icon,
-    elem('span', 'op-tool-name', name),
-    elem('span', 'op-tool-input', summarizeInput(event.input)),
-    status
-  );
-
-  const detail = elem('div', 'op-tool-detail');
-  detail.hidden = true;
-  const result = resultBlock('Waiting for the result…');
+export function createToolChip(event, openFor = NO_HOLD) {
+  const raw = event.tool_name_raw ?? event.tool_name;
+  const row = createRow({
+    className: 'op-tool',
+    kind: foldKey(raw),
+    glyph: chatIcon(CATEGORY_ICON[toolCategory(raw)]),
+    label: toolLabel(event),
+    detail: summarizeInput(event.input),
+  });
+  const result = resultSection('Waiting for the result…');
   const inputBox = elem('div', 'op-tool-pre');
   inputBox.append(inputView(event.input));
-  detail.append(section('Input', inputBox), section('Result', result.el));
-  head.addEventListener('click', () => {
-    const open = detail.hidden;
-    detail.hidden = !open;
-    el.classList.toggle('open', Boolean(open));
-    head.setAttribute('aria-expanded', String(open));
-  });
-  el.append(head, detail);
+  row.body.append(section('Input', inputBox), result.el);
+  row.head.addEventListener('click', () => row.setOpen(!row.isOpen()));
 
-  const slot = cardSlot(el, status, openFor);
+  const slot = cardSlot(row.el, row.status, openFor);
+  let refusal = /** @type {HTMLElement | null} */ (null);
   return {
-    el,
+    el: row.el,
     finish(outcome) {
-      el.dataset.state = outcome.is_error ? 'error' : 'done';
-      status.replaceChildren(chatIcon(outcome.is_error ? 'x' : 'check'));
+      row.setState(outcome.is_error ? 'error' : 'done');
       const preview = outcome.preview ?? '';
       result.set(preview ? formatToolResult(preview) : '(no output)', {
         shortened: Boolean(preview && outcome.truncated),
         failed: Boolean(outcome.is_error),
       });
+      refusal = refusalLine(outcome);
+      if (refusal) row.el.append(refusal);
+    },
+    get refusal() {
+      return refusal;
     },
     get hasCard() {
       return slot.hasCard;
@@ -231,36 +205,46 @@ function createToolChip(event, openFor) {
 }
 
 /**
- * A labelled block inside an expanded chip.
+ * A labelled block inside an opened row: a rounded box whose header cell
+ * carries the title, and *meta* at its right edge when given.
  * @param {string} title
  * @param {HTMLElement} content
+ * @param {HTMLElement} [meta]
  * @returns {HTMLElement}
  */
-function section(title, content) {
+function section(title, content, meta) {
+  const head = elem('div', 'op-tool-section-head');
+  head.append(elem('span', 'op-tool-label', title));
+  if (meta) head.append(meta);
+  const body = elem('div', 'op-tool-section-body');
+  body.append(content);
   const node = elem('div', 'op-tool-section');
-  node.append(elem('span', 'op-tool-label', title), content);
+  node.append(head, body);
   return node;
 }
 
 /** @typedef {{ shortened: boolean, failed: boolean }} ResultState */
 
 /**
- * A call's RESULT: its text in a preformatted block, with a quiet note under it when the
- * server shortened the text.
+ * A call's Result section: its text in a preformatted block, with a quiet note
+ * in the header when the server shortened the text. A failed call marks the
+ * whole section.
  * @param {string} waiting - the text shown until the result lands
  * @returns {{ el: HTMLElement, set: (text: string, state: ResultState) => void }}
  */
-function resultBlock(waiting) {
+function resultSection(waiting) {
   const pre = elem('pre', 'op-tool-pre', waiting);
   const note = elem('span', 'op-tool-note', 'shortened');
   note.hidden = true;
-  const el = elem('div', 'op-tool-result');
-  el.append(pre, note);
+  const el = section('Result', pre, note);
+  el.classList.add('op-tool-result');
   return {
     el,
     set(text, { shortened, failed }) {
       pre.textContent = text;
       pre.classList.toggle('op-tool-error', failed);
+      if (failed) el.dataset.state = 'error';
+      else delete el.dataset.state;
       note.hidden = !shortened;
     },
   };
@@ -270,52 +254,40 @@ function resultBlock(waiting) {
 const ASYNC_LAUNCH_MARK = 'Async agent launched';
 
 /**
- * One subagent call as a chip: the agent type, its task, and a live note of
- * what it is doing. Opened, it shows the agent's own tool calls and messages,
- * nested, so they never read as the main agent's. A background agent stays
- * running past its launch result until its report lands.
+ * One subagent call as a row: the agent glyph, the agent type, its task, and a
+ * live note of what it is doing. Opened, it shows the agent's own tool calls
+ * and messages, nested, so they never read as the main agent's. A background
+ * agent stays running past its launch result until its report lands. A write
+ * the hooks refused inside it shows its phrase under the agent's row, in call
+ * order, so the closed trace does not hide it.
  * @param {WireEvent} event - the `Agent`/`Task` tool_use
  * @param {(el: HTMLElement, text: string) => void} renderText - markdown renderer
  * @param {() => void} onSettled - called once, when the agent finishes
- * @param {() => () => void} openGroup - takes the group open while a card in the agent waits; returns the release
- * @returns {{ el: HTMLElement } & AgentChip}
+ * @returns {AgentChip}
  */
-function createAgentChip(event, renderText, onSettled, openGroup) {
+export function createAgentChip(event, renderText, onSettled) {
   const input = event.input && typeof event.input === 'object' ? event.input : {};
   const name = String(input.subagent_type || 'agent');
-  const el = elem('div', 'op-tool op-agent');
-  el.dataset.state = 'running';
-
-  const head = button('op-tool-head');
-  head.setAttribute('aria-expanded', 'false');
-  const icon = chatIcon('agent');
-  icon.classList.add('op-tool-icon');
+  const row = createRow({
+    className: 'op-tool op-agent',
+    kind: 'agent',
+    glyph: chatIcon('agent'),
+    label: name,
+    detail: oneLine(String(input.description || '')),
+  });
   const note = elem('span', 'op-agent-note');
-  const status = elem('span', 'op-tool-status');
-  status.append(spinner());
-  head.append(
-    icon,
-    elem('span', 'op-tool-name', name),
-    elem('span', 'op-tool-input', oneLine(String(input.description || ''))),
-    note,
-    status
-  );
+  row.status.before(note);
 
   const trace = elem('div', 'op-agent-trace');
   const empty = elem('span', 'op-agent-empty', 'Nothing yet.');
   trace.append(empty);
-  const result = resultBlock('Waiting for the agent…');
-  const detail = elem('div', 'op-tool-detail');
-  detail.hidden = true;
-  detail.append(section('Activity', trace), section('Result', result.el));
+  const result = resultSection('Waiting for the agent…');
+  row.body.append(section('Activity', trace), result.el);
   // The trace opens on the operator's word, and by itself while a card in it waits.
   let chosen = false;
   let holds = 0;
   function showTrace() {
-    const open = holds > 0 || chosen;
-    detail.hidden = !open;
-    el.classList.toggle('open', open);
-    head.setAttribute('aria-expanded', String(open));
+    row.setOpen(holds > 0 || chosen);
   }
   /** Keep the trace open while a card under one of its rows waits; returns the release. */
   function holdTrace() {
@@ -329,12 +301,11 @@ function createAgentChip(event, renderText, onSettled, openGroup) {
       showTrace();
     };
   }
-  head.addEventListener('click', () => {
+  row.head.addEventListener('click', () => {
     if (holds > 0) return;
     chosen = !chosen;
     showTrace();
   });
-  el.append(head, detail);
 
   /** The agent's own last message: its report, when the outcome carries none. */
   let lastText = '';
@@ -342,6 +313,13 @@ function createAgentChip(event, renderText, onSettled, openGroup) {
   let latest = '';
   let phase = 'Working';
   let settled = false;
+  /** The agent's own tool calls, in the order it made them. */
+  const calls = /** @type {ToolChip[]} */ ([]);
+
+  /** Its refused writes' lines, under the agent's row and outside its trace. */
+  function showRefusals() {
+    row.el.append(...calls.flatMap((call) => (call.refusal ? [call.refusal] : [])));
+  }
 
   function renderNote() {
     const count = tools > 0 ? `${tools} tool call${tools === 1 ? '' : 's'}` : '';
@@ -355,8 +333,7 @@ function createAgentChip(event, renderText, onSettled, openGroup) {
     settled = true;
     const failed = Boolean(outcome.is_error) || outcome.status === 'failed';
     const stopped = outcome.status === 'stopped';
-    el.dataset.state = failed ? 'error' : stopped ? 'stopped' : 'done';
-    status.replaceChildren(chatIcon(failed ? 'x' : stopped ? 'stop' : 'check'));
+    row.setState(failed ? 'error' : stopped ? 'stopped' : 'done');
     const preview = outcome.preview ? formatToolResult(outcome.preview) : '';
     const text = outcome.summary || preview || lastText;
     result.set(text || (stopped ? 'Stopped.' : '(no report)'), {
@@ -367,26 +344,33 @@ function createAgentChip(event, renderText, onSettled, openGroup) {
     onSettled();
   }
 
-  const slot = cardSlot(el, status, openGroup);
+  const slot = cardSlot(row.el, row.status, NO_HOLD);
 
   return {
-    el,
+    el: row.el,
     name,
     addTool(toolEvent) {
       empty.remove();
       tools += 1;
       latest = String(toolEvent.tool_name || toolEvent.tool_name_raw || '');
       renderNote();
-      const chip = createToolChip(toolEvent, () => {
-        const releaseTrace = holdTrace();
-        const releaseGroup = openGroup();
-        return () => {
-          releaseTrace();
-          releaseGroup();
-        };
-      });
+      const chip = createToolChip(toolEvent, holdTrace);
       trace.append(chip.el);
-      return chip;
+      calls.push(chip);
+      return {
+        el: chip.el,
+        finish(outcome) {
+          chip.finish(outcome);
+          showRefusals();
+        },
+        get refusal() {
+          return chip.refusal;
+        },
+        get hasCard() {
+          return chip.hasCard;
+        },
+        file: chip.file,
+      };
     },
     addText(text) {
       if (!text.trim()) return;
@@ -401,7 +385,7 @@ function createAgentChip(event, renderText, onSettled, openGroup) {
       // A background agent's launch result is not its end: it reports later.
       if (!outcome.status && (outcome.preview ?? '').includes(ASYNC_LAUNCH_MARK)) {
         phase = 'In background';
-        el.dataset.state = 'background';
+        row.setState('background');
         renderNote();
         return;
       }
@@ -412,157 +396,5 @@ function createAgentChip(event, renderText, onSettled, openGroup) {
       return slot.hasCard;
     },
     file: slot.file,
-  };
-}
-
-/**
- * A run of consecutive tool calls as one collapsible row. It stays open while
- * the turn works through it and folds itself away once the agent moves on —
- * unless the operator opened or closed it, and then the state is theirs. An
- * approval card waiting in it holds it open. A subagent counts on its own, so
- * the folded row still says what it did: "1 agent finished · 3 tool calls".
- * A write the hooks refused, its own or a subagent's, puts its phrase under
- * the group's list, where folding does not hide it.
- * @returns {ToolGroup}
- */
-export function createToolGroup() {
-  const el = elem('div', 'op-tools open');
-  const head = button('op-tools-head');
-  head.setAttribute('aria-expanded', 'true');
-  const chevron = chatIcon('chevron');
-  chevron.classList.add('op-tools-chevron');
-  const label = elem('span', 'op-tools-label');
-  const status = elem('span', 'op-tools-status');
-  head.append(chevron, label, status);
-  const list = elem('div', 'op-tools-list');
-  const refusals = elem('div', 'op-tools-refusals');
-  refusals.hidden = true;
-  el.append(head, list, refusals);
-
-  /** @param {HTMLElement} line - a refused write's phrase */
-  function showRefusal(line) {
-    refusals.hidden = false;
-    refusals.append(line);
-  }
-
-  let total = 0;
-  let running = 0;
-  let failed = 0;
-  let agents = 0;
-  let agentsRunning = 0;
-  let open = true;
-  /** Whether the turn has moved on from this group. */
-  let settled = false;
-  /** Whether the operator opened or closed it; then `chosen` is their state. */
-  let operatorChose = false;
-  let chosen = true;
-  /** Cards waiting in the group, and whatever else holds it open while they wait. */
-  let holds = 0;
-
-  function render() {
-    const parts = [];
-    if (agents > 0) {
-      const noun = `agent${agents === 1 ? '' : 's'}`;
-      parts.push(agentsRunning > 0 ? `${agents} ${noun} working` : `${agents} ${noun} finished`);
-    }
-    if (total > 0 || agents === 0) parts.push(`${total} tool call${total === 1 ? '' : 's'}`);
-    if (failed > 0) parts.push(`${failed} failed`);
-    label.textContent = parts.join(' · ');
-    const busy = running + agentsRunning > 0;
-    status.dataset.state = busy ? 'running' : failed > 0 ? 'failed' : 'done';
-    status.replaceChildren(busy ? spinner() : chatIcon(failed > 0 ? 'x' : 'check'));
-  }
-
-  /** @param {boolean} on */
-  function setOpen(on) {
-    open = on;
-    el.classList.toggle('open', on);
-    head.setAttribute('aria-expanded', String(on));
-    list.hidden = !on;
-  }
-
-  /**
-   * The group's state: open while a card in it waits; the operator's own choice
-   * once they made one; otherwise folded once the turn has moved on and nothing
-   * in it is still running.
-   */
-  function apply() {
-    if (holds > 0) setOpen(true);
-    else if (operatorChose) setOpen(chosen);
-    else setOpen(!(settled && agentsRunning === 0));
-  }
-
-  /** Keep the group open while a card in it waits; returns the release. */
-  function holdOpen() {
-    holds += 1;
-    apply();
-    let released = false;
-    return () => {
-      if (released) return;
-      released = true;
-      holds -= 1;
-      apply();
-    };
-  }
-
-  head.addEventListener('click', () => {
-    if (holds > 0) return;
-    operatorChose = true;
-    chosen = !open;
-    apply();
-  });
-  render();
-
-  return {
-    el,
-    addTool(event) {
-      total += 1;
-      running += 1;
-      render();
-      const chip = showingRefusal(createToolChip(event, holdOpen), showRefusal);
-      list.append(chip.el);
-      let done = false;
-      return {
-        el: chip.el,
-        finish(outcome) {
-          if (done) return;
-          done = true;
-          running -= 1;
-          if (outcome.is_error) failed += 1;
-          chip.finish(outcome);
-          render();
-        },
-        get hasCard() {
-          return chip.hasCard;
-        },
-        file: chip.file,
-      };
-    },
-    addAgent(event, renderText) {
-      agents += 1;
-      agentsRunning += 1;
-      render();
-      const chip = createAgentChip(
-        event,
-        renderText,
-        () => {
-          agentsRunning -= 1;
-          if (chip.el.dataset.state === 'error') failed += 1;
-          render();
-          apply();
-        },
-        holdOpen
-      );
-      // The agent's trace is collapsed; its refused writes surface on the group.
-      const addNested = chip.addTool;
-      chip.addTool = (toolEvent) => showingRefusal(addNested(toolEvent), showRefusal);
-      list.append(chip.el);
-      return chip;
-    },
-    settle() {
-      // An agent or a card still waiting keeps the group in view; it folds once they are done.
-      settled = true;
-      apply();
-    },
   };
 }

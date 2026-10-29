@@ -13,6 +13,7 @@ import { initChatAttachments } from './chat-attach.js';
 import { initChatAttention } from './chat-attention.js';
 import { initChatContext } from './chat-context.js';
 import { initChatExport } from './chat-export.js';
+import { initChatTasks } from './chat-tasks.js';
 
 /**
  * @typedef {object} ChatFeatureContext
@@ -39,4 +40,5 @@ export function initChatFeatures(ctx) {
   initChatExport(ctx);
   initChatContext(ctx);
   initChatAttachments(ctx);
+  initChatTasks(ctx);
 }
