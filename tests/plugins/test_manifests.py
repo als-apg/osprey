@@ -744,6 +744,7 @@ def _run_git(*args: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
         check=False,
+        timeout=60,
     )
     if result.returncode not in (0, 1):
         pytest.fail(f"git {' '.join(args)} exited {result.returncode}: {result.stderr.strip()}")
@@ -803,6 +804,7 @@ def test_validate_strict(tmp_path: Path) -> None:
         capture_output=True,
         text=True,
         check=False,
+        timeout=120,
     )
     assert result.returncode == 0, (
         f"plugin validate --strict exited {result.returncode}\n"

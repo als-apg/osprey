@@ -44,6 +44,7 @@ def modules_added_by_import(module: str, *, preload: Collection[str] = ()) -> se
         text=True,
         env=dict(os.environ, PYTHONPATH=_SRC),
         check=False,
+        timeout=120,
     )
     assert result.returncode == 0, f"fresh import of {module} failed:\n{result.stderr}"
     return set(json.loads(result.stdout))

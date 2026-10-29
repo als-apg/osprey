@@ -375,7 +375,7 @@ def export_baseline(sha: str, destination: Path) -> list[Path]:
             tree carries no ``src`` directory.
     """
     archive = subprocess.run(
-        ["git", "archive", sha], cwd=REPO_ROOT, capture_output=True, check=False
+        ["git", "archive", sha], cwd=REPO_ROOT, capture_output=True, check=False, timeout=120
     )
     if archive.returncode != 0:
         raise RuntimeError(
@@ -460,6 +460,7 @@ def _run_cli(
         capture_output=True,
         text=True,
         check=False,
+        timeout=600,
     )
 
 
@@ -723,6 +724,7 @@ def _resolved_baseline(sha: str) -> str | None:
         capture_output=True,
         text=True,
         check=False,
+        timeout=60,
     )
     return resolved.stdout.strip() if resolved.returncode == 0 else None
 

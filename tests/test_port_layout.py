@@ -177,6 +177,7 @@ def _fresh_import_modules(*, without_git: bool = False) -> list[str]:
         text=True,
         env=_child_env(without_git=without_git),
         check=False,
+        timeout=120,
     )
     assert result.returncode == 0, f"fresh import of osprey.port_layout failed:\n{result.stderr}"
     return json.loads(result.stdout)

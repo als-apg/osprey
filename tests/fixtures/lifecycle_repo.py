@@ -3375,6 +3375,7 @@ def _git_init(root: Path) -> None:
             env=env,
             check=True,
             capture_output=True,
+            timeout=60,
         )
 
     run("init", "--quiet", "--initial-branch", "main")
