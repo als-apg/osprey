@@ -75,8 +75,7 @@ from ruamel.yaml.tokens import CommentToken
 
 from osprey.profiles.providers import PROVIDERS_FILENAME
 from osprey.utils.config_writer import _yaml as _ROUND_TRIP
-from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.workspace import (
+from osprey.utils.workspace import (
     APPS_DIRNAME,
     LAYER_DIRNAMES,
     PROFILE_FILENAME,
@@ -84,6 +83,7 @@ from osprey_connectors.workspace import (
     TIERS_DIRNAME,
     layer_dir_kind,
 )
+from osprey_connectors.errors import BuildProfileError
 
 from .build_profile_document import (
     _WEB_TERMINALS,

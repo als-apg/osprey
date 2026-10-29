@@ -54,11 +54,7 @@ from osprey.deployment.web_terminals.render import (
     AUTH_SIDECAR_AUDIT_IDENTITY,
     render_web_terminals,
 )
-from osprey_connectors.workspace import (
-    PRE_UPGRADE_AUDIT_RELPATH,
-    SPOOL_DIR_RELPATH,
-    STATE_DIR_RELPATH,
-)
+from osprey.utils.workspace import PRE_UPGRADE_AUDIT_RELPATH, SPOOL_DIR_RELPATH, STATE_DIR_RELPATH
 
 from .web_terminals.test_golden_render import EXAMPLE_CONFIG
 

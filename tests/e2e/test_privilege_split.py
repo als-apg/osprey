@@ -113,7 +113,7 @@ from osprey.deployment.web_terminals.naming import web_container_name
 from osprey.deployment.web_terminals.seeding import seed_user_containers
 from osprey.deployment.wheel_build import _copy_local_framework_for_override
 from osprey.port_layout import default_port
-from osprey_connectors.workspace import container_image_context
+from osprey.utils.workspace import container_image_context
 from tests._container_support import docker_cli_unavailable_reason_once
 from tests.e2e._image_record import record_credential_mounts
 

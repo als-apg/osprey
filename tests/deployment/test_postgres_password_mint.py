@@ -68,7 +68,7 @@ def test_ariel_db_password_mints_under_writes_enabled_and_subprocess_execution(
     bluesky-scoped test to generalize across the token map.
 
     Both spellings are covered: ``local`` is the legacy name for the same
-    subprocess backend (see ``osprey_connectors.config.resolve_execution_method``)
+    subprocess backend (see ``osprey.utils.execution_method.resolve_execution_method``)
     and is the value the deleted guard keyed on.
     """
     monkeypatch.setattr(

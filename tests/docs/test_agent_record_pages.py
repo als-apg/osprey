@@ -19,11 +19,7 @@ from osprey.bridges.core.pipeline import HISTORY_RECORD_KEY
 from osprey.cli.agent_record_cmd import agent_record_group
 from osprey.health.core.agent_record import BACKLOG_BEHIND_S, EXPORT_LAG_ALLOWED_DAYS
 from osprey.services.archive.run import SOURCE_TABLE
-from osprey_connectors.workspace import (
-    ARCHIVE_DIR_RELPATH,
-    PRE_UPGRADE_AUDIT_RELPATH,
-    SPOOL_DIR_RELPATH,
-)
+from osprey.utils.workspace import ARCHIVE_DIR_RELPATH, PRE_UPGRADE_AUDIT_RELPATH, SPOOL_DIR_RELPATH
 
 _DOCS = Path(__file__).resolve().parents[2] / "docs/source"
 _AGENT_RECORD = _DOCS / "how-to/health-and-monitoring/agent-record.rst"

@@ -59,8 +59,8 @@ from click.testing import CliRunner, Result
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
 from osprey.models.provider_registry import PROVIDER_API_KEYS
+from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.dotenv import parse_dotenv_file
-from osprey_connectors.workspace import TIERS_DIRNAME
 
 # The provider key value the whole suite tracks. `hello-world` selects the
 # anthropic provider, so this is the one key `osprey init` seeds.

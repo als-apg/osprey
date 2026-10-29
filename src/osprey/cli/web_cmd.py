@@ -38,7 +38,8 @@ import click
 
 from osprey.deployment.qmd_service import is_loopback_bind
 from osprey.port_layout import default_port, resolve_port_base
-from osprey_connectors.workspace import STATE_DIR_NAME, agent_data_base_dir, anchored_path
+from osprey.utils.workspace import STATE_DIR_NAME
+from osprey_connectors.workspace import agent_data_base_dir, anchored_path
 
 from . import output
 from .repo_resolver import find_repo_root, repo_option

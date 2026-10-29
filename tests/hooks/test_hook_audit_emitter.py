@@ -262,7 +262,7 @@ class TestSchemaParity:
         assert emitter.EXECUTION_MODE_ENV == osprey_posture.POSTURE_ENV_VAR
 
     def test_spool_relpath_matches_the_frameworks(self, emitter):
-        from osprey_connectors.workspace import SPOOL_DIR_RELPATH
+        from osprey.utils.workspace import SPOOL_DIR_RELPATH
 
         assert emitter.SPOOL_DIR_RELPATH == SPOOL_DIR_RELPATH
 

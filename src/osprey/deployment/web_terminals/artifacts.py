@@ -873,7 +873,7 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         shared_corpus_gid,
     )
     from osprey.utils.facility import facility_name
-    from osprey_connectors.workspace import APPS_DIRNAME
+    from osprey.utils.workspace import APPS_DIRNAME
 
     root = Path(repo_root)
     launch_token_renders_by_lane = check_bash_launch_token_conflict(config, root)

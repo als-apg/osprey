@@ -1,7 +1,7 @@
 """The execution backend is resolved at build, on the rendered config (issue #465).
 
 ``execution.execution_method`` is read by every container's python executor
-through :func:`osprey_connectors.config.resolve_execution_method` — at its FIRST
+through :func:`osprey.utils.execution_method.resolve_execution_method` — at its FIRST
 ``execute`` call. A profile's ``config:`` overlay can write any value into the
 render, and nothing on the build path used to read it back, so a typo
 survived ``osprey build``, ``osprey up`` and MCP startup and surfaced as a
@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey_connectors import config as config_module
+from osprey.utils import execution_method as execution_method_module
 from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 PROFILE = """\
@@ -35,9 +35,9 @@ config:
 @pytest.fixture(autouse=True)
 def _reset_container_warning():
     """The resolver warns about ``container`` once per process; start clean."""
-    config_module._container_method_warned = False
+    execution_method_module._container_method_warned = False
     yield
-    config_module._container_method_warned = False
+    execution_method_module._container_method_warned = False
 
 
 def _build_repo(tmp_path: Path, monkeypatch, override: str):

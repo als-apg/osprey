@@ -49,10 +49,10 @@ from osprey.profiles.providers import PROVIDERS_FILENAME
 # ``osprey_connectors.config`` into this module's import closure, so naming it
 # here adds no load time to the CLI's lazy-command budget. Imported rather than
 # restated — see :data:`PROTECTED_CONFIG_KEYS`.
-from osprey_connectors.config import RUNTIME_WRITE_PATH_KEYS
+from osprey.utils.workspace import LAYER_DIRNAMES, RUNTIME_WRITE_PATH_KEYS, STATE_DIR_NAME
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
-from osprey_connectors.workspace import BUILD_DIR_NAME, LAYER_DIRNAMES, STATE_DIR_NAME
+from osprey_connectors.workspace import BUILD_DIR_NAME
 
 if TYPE_CHECKING:
     from osprey.facility.errors import FacilityBuildError
@@ -596,7 +596,7 @@ FACILITY_AUTHORING_ROUTE = "data/facility/"
 #: one level, and a trailing ``*`` covers the family prefix itself along with
 #: everything below it — see :func:`is_protected_key` for the full rule.
 #:
-#: :data:`~osprey_connectors.config.RUNTIME_WRITE_PATH_KEYS` is *imported and
+#: :data:`~osprey.utils.workspace.RUNTIME_WRITE_PATH_KEYS` is *imported and
 #: unpacked*, never restated: that tuple is already the single list of keys
 #: whose value names a path something writes at run time, and a second copy here
 #: would drift the moment a key is added there. Those keys qualify under the

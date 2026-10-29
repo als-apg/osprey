@@ -20,7 +20,7 @@ Two anchors, two groups of tests:
    SPOOL_DIR_RELPATH / <identity>``) must name the writer's directory exactly.
    ``ResetPlan.audit_dir`` is the pre-upgrade audit tree the purge still
    deletes, which must be
-   :data:`~osprey_connectors.workspace.PRE_UPGRADE_AUDIT_RELPATH` under the
+   :data:`~osprey.utils.workspace.PRE_UPGRADE_AUDIT_RELPATH` under the
    same repo root; it is included in the equality on purpose.
 
 2. **``hook_config.json`` anchors on the RENDER zone**, one level below the
@@ -43,7 +43,7 @@ from osprey.agent_record.contract import SPOOL_DIR_ENV
 from osprey.cli.templates.manager import TemplateManager
 from osprey.deployment.reset import ResetPlan
 from osprey.mcp_server import audit_middleware as am
-from osprey_connectors import workspace
+from osprey.utils import workspace
 from tests._preset_data import create_project_as_built
 from tests.hooks.conftest import import_hook
 

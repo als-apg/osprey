@@ -28,6 +28,7 @@ from tests.cli.test_host_launch_record import (  # noqa: F401 - fixtures request
     _config,
     _deploy,
     _launch_stubs,
+    _record_port,
     _restore_process_state,
     fake_ensure,
     real_record,

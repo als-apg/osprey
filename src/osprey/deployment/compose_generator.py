@@ -1388,7 +1388,7 @@ def _resolve_archive_render_context(config):
     :rtype: dict
     """
     from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS
-    from osprey_connectors.workspace import ARCHIVE_DIR_RELPATH
+    from osprey.utils.workspace import ARCHIVE_DIR_RELPATH
 
     config = config or {}
     deployed = {str(name) for name in config.get("deployed_services") or []}
@@ -1512,11 +1512,7 @@ def _resolve_agent_record_render_context(config, repo_root=None):
     from osprey.agent_record.identities import HOST_TRANSCRIPT_ROOT
     from osprey.agent_record.service import DEFAULT_TRANSCRIPTS_DIR
     from osprey.port_layout import resolve_port_base
-    from osprey_connectors.workspace import (
-        ARCHIVE_DIR_RELPATH,
-        RECORD_DIR_RELPATH,
-        SPOOL_DIR_RELPATH,
-    )
+    from osprey.utils.workspace import ARCHIVE_DIR_RELPATH, RECORD_DIR_RELPATH, SPOOL_DIR_RELPATH
 
     config = config or {}
     container_project_dir = PurePosixPath(_CONTAINER_APP_ROOT) / resolve_project_name(config)
@@ -2418,7 +2414,7 @@ def _inject_project_metadata(config):
     # and the path its writer resolves cannot be spelled apart. The state
     # zone's source is `osprey_state_zone_mount_source`: the simulator's
     # scenario directory already holds `osprey_state_mount_source`.
-    from osprey_connectors.workspace import SPOOL_DIR_RELPATH, STATE_DIR_RELPATH
+    from osprey.utils.workspace import SPOOL_DIR_RELPATH, STATE_DIR_RELPATH
 
     for zone, relpath, source_key in (
         ("spool", SPOOL_DIR_RELPATH, "osprey_spool_mount_source"),
@@ -3085,7 +3081,7 @@ def spool_identity_dir(repo_root, identity):
     :rtype: pathlib.Path
     :raises ValueError: If *identity* is outside the username charset
     """
-    from osprey_connectors.workspace import SPOOL_DIR_RELPATH
+    from osprey.utils.workspace import SPOOL_DIR_RELPATH
 
     return _zone_identity_dir(repo_root, SPOOL_DIR_RELPATH, identity, "spool")
 
@@ -3106,7 +3102,7 @@ def state_identity_dir(repo_root, identity):
     :rtype: pathlib.Path
     :raises ValueError: If *identity* is outside the username charset
     """
-    from osprey_connectors.workspace import STATE_DIR_RELPATH
+    from osprey.utils.workspace import STATE_DIR_RELPATH
 
     return _zone_identity_dir(repo_root, STATE_DIR_RELPATH, identity, "state")
 
@@ -3211,7 +3207,7 @@ def ensure_agent_record_dirs(repo_root, relative_to=None):
     :rtype: list[pathlib.Path]
     """
     from osprey.agent_record.contract import OTLP_SPOOL_DIR
-    from osprey_connectors.workspace import RECORD_DIR_RELPATH, SPOOL_DIR_RELPATH
+    from osprey.utils.workspace import RECORD_DIR_RELPATH, SPOOL_DIR_RELPATH
 
     spool = Path(repo_root) / SPOOL_DIR_RELPATH
     targets = [spool, spool / OTLP_SPOOL_DIR, Path(repo_root) / RECORD_DIR_RELPATH]
@@ -3257,7 +3253,7 @@ def ensure_archive_dir(repo_root, relative_to=None):
     :return: The archive root, or ``None`` when it could not be provisioned
     :rtype: pathlib.Path | None
     """
-    from osprey_connectors.workspace import ARCHIVE_DIR_RELPATH
+    from osprey.utils.workspace import ARCHIVE_DIR_RELPATH
 
     target = Path(repo_root) / ARCHIVE_DIR_RELPATH
     gid = _ensure_group_shared_dir(
@@ -3885,8 +3881,9 @@ def simulator_log_mount_sources():
     :return: ``{instance key: bind source}``
     :rtype: dict[str, str]
     """
+    from osprey.utils.workspace import SIMULATOR_STANDIN_LOG_SUBDIR
     from osprey_connectors.types import LIVE_STANDIN, VIRTUAL_ACCELERATOR
-    from osprey_connectors.workspace import SIMULATOR_LOG_DIR_RELPATH, SIMULATOR_STANDIN_LOG_SUBDIR
+    from osprey_connectors.workspace import SIMULATOR_LOG_DIR_RELPATH
 
     base = PurePosixPath(SIMULATOR_LOG_DIR_RELPATH)
     return {
@@ -3945,7 +3942,8 @@ def ensure_simulator_log_dirs(repo_root, relative_to=None):
         be provisioned or the platform reports none
     :rtype: int | None
     """
-    from osprey_connectors.workspace import SIMULATOR_LOG_DIR_RELPATH, SIMULATOR_STANDIN_LOG_SUBDIR
+    from osprey.utils.workspace import SIMULATOR_STANDIN_LOG_SUBDIR
+    from osprey_connectors.workspace import SIMULATOR_LOG_DIR_RELPATH
 
     log_dir = Path(repo_root) / SIMULATOR_LOG_DIR_RELPATH
     gid = _ensure_group_shared_dir(
@@ -3977,7 +3975,7 @@ def guarded_run_relpath():
     :rtype: str
     """
     from osprey.runtime.guarded_run import GUARDED_RUN_DIR
-    from osprey_connectors.workspace import STATE_DIR_NAME
+    from osprey.utils.workspace import STATE_DIR_NAME
 
     return f"{STATE_DIR_NAME}/{GUARDED_RUN_DIR}"
 

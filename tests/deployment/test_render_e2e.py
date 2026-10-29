@@ -37,7 +37,7 @@ from osprey.cli.repo_resolver import PROFILE_FILENAME
 from osprey.deployment.staleness import DriftState, check_drift
 from osprey.deployment.web_terminals.render_images import verify_renders
 from osprey.deployment.web_terminals.roster import RENDER_CATALOG_REQUIRED, resolve_cards
-from osprey_connectors.workspace import APPS_DIRNAME, TIERS_DIRNAME
+from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
 from tests.cli._lifecycle_build import invoke_build_in, rendered_config
 from tests.fixtures.lifecycle_repo import (
     EXEMPLAR_DIRNAME,

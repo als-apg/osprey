@@ -166,7 +166,7 @@ async def entry_get(
         # TypedDict -- dict access, not attribute access. Localize the three
         # timestamp fields through the shared egress helper so single-entry get
         # matches search/browse (serialize_entry) instead of emitting raw UTC.
-        from osprey_connectors.config import to_facility_iso
+        from osprey.utils.facility import to_facility_iso
 
         result: dict[str, Any] = {
             "entry_id": entry["entry_id"],

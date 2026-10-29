@@ -11,7 +11,6 @@ import functools
 import logging
 import math
 import numbers
-import os
 import sys
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
@@ -19,22 +18,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from osprey_connectors import posture_store
 from osprey_connectors.control_system.write_door import open_door
-
-if TYPE_CHECKING:
-    # Type-checking only, and every annotation naming it is a string:
-    # ``posture_store`` imports THIS module for :func:`is_readonly_run`, so a
-    # load-time import here is the cycle both modules document. The functions
-    # that need the names at runtime import them inside their own bodies.
-    #
-    # What that pairing costs: ``typing.get_type_hints()`` raises ``NameError``
-    # on ``ControlSystemConnector`` and on :func:`_monitor_verdict`, whose
-    # string annotations name this type and nothing else in this module's
-    # runtime namespace does. A reader of annotations — a schema generator, a
-    # doc builder, a test — has to supply the name itself.
-    from osprey_connectors.posture_store import WriteVerdict
+from osprey_connectors.posture_env import is_readonly_run
+from osprey_connectors.posture_store import WriteVerdict
 
 logger = logging.getLogger("osprey_connectors.control_system")
 
@@ -305,40 +294,6 @@ class ChannelWriteResult:
         return as_number(self.observed_value)
 
 
-def is_readonly_run() -> bool:
-    """True when this process must refuse control-system writes, whatever it is.
-
-    Two things set ``OSPREY_EXECUTION_MODE=readonly``, and this answers yes to
-    both:
-
-    * the **deployment**, when the whole run is started read-only — the
-      variable is on every process the deployment owns, the MCP servers
-      included, so ``mcp__controls__channel_write`` is refused right here
-      rather than only by the (best-effort) hook chain;
-    * the **python executor**, onto the sandbox subprocess of a run submitted
-      with ``execution_mode="readonly"`` — so the per-run claim is enforceable
-      at runtime, independent of the pre-execution pattern scan.
-
-    Both are refusals; only the operator-facing wording differs, which
-    :func:`_verdict_refusal` decides through
-    :func:`_in_mcp_server_process` — the discriminator, because the two are
-    the same variable at the same value and only the process tells them apart.
-
-    An operator's narrowing of ONE control target is deliberately NOT here: it
-    never lived in the environment, and is read from the deployment's
-    control-context record instead. So outside these two the variable is unset
-    and the answer is still not "writes" by itself — the deployment's
-    ``control_system`` section and that record both apply, and
-    :func:`_monitor_verdict` decides on them through
-    :func:`osprey_connectors.posture_store.write_verdict`.
-
-    The comparison is by VALUE, never presence: ``readwrite`` is the writes
-    posture, and a stale or misspelled value must not silently sandbox
-    anything.
-    """
-    return os.environ.get("OSPREY_EXECUTION_MODE") == "readonly"
-
-
 #: Package path of the OSPREY MCP servers, as consecutive parts of the file
 #: they are launched with (``python -m osprey.mcp_server.<server>`` sets
 #: ``sys.argv[0]`` to that package's ``__main__.py``).
@@ -418,19 +373,15 @@ def _monitor_verdict(control_target: str | None) -> "WriteVerdict":
 
     Never raises; reads the record at most once.
     """
-    # Imported here: ``posture_store`` imports this module for
-    # :func:`is_readonly_run`, so the two must not import each other while loading.
-    from osprey_connectors.posture_store import write_verdict
-
     if is_readonly_run():
-        return write_verdict({}, control_target, owner=None)
+        return posture_store.write_verdict({}, control_target, owner=None)
     try:
         from osprey_connectors.config import get_config_value
 
         section: Any = get_config_value("control_system", {})
     except (FileNotFoundError, RuntimeError):
         section = {}
-    return write_verdict(section, control_target, owner=None)
+    return posture_store.write_verdict(section, control_target, owner=None)
 
 
 def _verdict_refusal(

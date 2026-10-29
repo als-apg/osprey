@@ -499,6 +499,8 @@ def test_writer_imports_only_the_stdlib_and_its_allowed_helpers():
         "osprey.agent_record.contract",
         "osprey_connectors.identity",
         "osprey_connectors.workspace",
+        # The repo layout's names, where the spool root is spelled.
+        "osprey.utils.workspace",
     }
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):

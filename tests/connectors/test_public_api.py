@@ -342,3 +342,28 @@ def test_every_private_top_level_module_is_protected():
     assert private <= set(contract["protected_modules"]), sorted(
         private - set(contract["protected_modules"])
     )
+
+
+def test_every_top_level_module_has_a_layer():
+    # `connectors-layers` orders the package's top-level modules; one left out
+    # of every layer is held to nothing, so an upward import from it, or into
+    # it, passes unseen. A module added to the package has to be given a layer.
+    config = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
+    contract = next(
+        c for c in config["tool"]["importlinter"]["contracts"] if c["id"] == "connectors-layers"
+    )
+    layered = {
+        name.strip()
+        for layer in contract["layers"]
+        for name in re.split(r"[|:]", layer)
+        if name.strip()
+    }
+    # `_version` is written by the build and gitignored (see above); nothing
+    # imports it.
+    top_level = {
+        f"osprey_connectors.{path.stem}"
+        for path in ROOT.glob("*.py")
+        if path.stem not in {"__init__", "_version"}
+    } | {f"osprey_connectors.{path.parent.name}" for path in ROOT.glob("*/__init__.py")}
+
+    assert top_level <= layered, sorted(top_level - layered)

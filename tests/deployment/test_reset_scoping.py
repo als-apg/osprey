@@ -58,7 +58,7 @@ from osprey.deployment.reset import (
     reset_deployment,
     strip_env_blocks,
 )
-from osprey_connectors.workspace import TIERS_DIRNAME
+from osprey.utils.workspace import TIERS_DIRNAME
 from tests._renders import tier_render
 from tests._text import flat
 

@@ -21,7 +21,6 @@ import pytest
 from rich.logging import RichHandler
 
 from osprey_connectors.logger import _QUIET_THIRD_PARTY_LOGGERS
-from osprey_connectors.workspace import SPOOL_DIR_RELPATH
 from osprey_connectors_tests._harness import (
     _env_scope_guard,
     _live_threads,
@@ -246,7 +245,7 @@ _AGENT_DATA_MARKER = _REPO_ROOT / "var" / "agent_data"
 #: ``OSPREY_SPOOL_DIR`` is unset, watched by :func:`no_spool_in_the_repo`. It
 #: hangs off the same resolver as the agent-data root, so the two leak together
 #: and are watched together.
-_SPOOL_MARKER = _REPO_ROOT / SPOOL_DIR_RELPATH
+_SPOOL_MARKER = _REPO_ROOT / "var" / "spool"
 
 #: The directory as it was when this conftest was imported — the only moment
 #: guaranteed to precede every test and every higher-scoped fixture. A

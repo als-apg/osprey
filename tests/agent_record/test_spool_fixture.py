@@ -13,7 +13,7 @@ import pytest
 
 from osprey.agent_record import contract as c
 from osprey.agent_record import identities, writer
-from osprey_connectors.workspace import SPOOL_DIR_RELPATH
+from osprey.utils.workspace import SPOOL_DIR_RELPATH
 from osprey_connectors_tests._harness import _guards, _repo_cleanliness
 from osprey_connectors_tests._paths import REPO_ROOT
 

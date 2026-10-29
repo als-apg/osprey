@@ -52,7 +52,7 @@ from osprey.services.python_executor.execution.wrapper import (
     READONLY_REFUSAL_MARKER,
     ExecutionWrapper,
 )
-from osprey_connectors.workspace import PRE_UPGRADE_AUDIT_RELPATH, RETIRED_LAYER_DIRS, TIERS_DIRNAME
+from osprey.utils.workspace import PRE_UPGRADE_AUDIT_RELPATH, RETIRED_LAYER_DIRS, TIERS_DIRNAME
 
 _GUARD_BANNER = "OSPREY filesystem guard"
 

@@ -83,7 +83,7 @@ def chat_uploads_dir(config: dict, project_dir: Path) -> str:
     root anchors on the repo this render sits in. Resolved as the server resolves
     it, so a symlinked repo path reads the same on both sides.
     """
-    from osprey_connectors.workspace import CHAT_UPLOADS_SUBDIR
+    from osprey.utils.workspace import CHAT_UPLOADS_SUBDIR
 
     return _spellable(str(_resolved_agent_data_root(config, project_dir) / CHAT_UPLOADS_SUBDIR))
 

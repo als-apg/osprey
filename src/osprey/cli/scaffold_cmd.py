@@ -56,10 +56,10 @@ from osprey.cli.repo_resolver import find_repo_root, repo_option
 from osprey.cli.styles import console
 from osprey.cli.templates.manager import TemplateManager
 from osprey.docs_links import setup_remedy
+from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIR_KINDS, TIERS_DIRNAME
 from osprey_connectors.config import load_project_config
 from osprey_connectors.errors import ConfigurationError
 from osprey_connectors.logger import get_logger
-from osprey_connectors.workspace import APPS_DIRNAME, LAYER_DIR_KINDS, TIERS_DIRNAME
 
 if TYPE_CHECKING:
     from osprey.cli.scaffold_layers import LayerKind

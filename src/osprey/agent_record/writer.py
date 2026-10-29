@@ -46,8 +46,9 @@ in the directory's ``.errors`` file for the consumer to report on health, and
 answered with ``None``. Callers test the result for truthiness.
 
 The module is stdlib-only (beside :mod:`osprey.agent_record.contract`, which is
-stdlib-only too, and the connectors' identity and workspace helpers, imported
-lazily), so the hook emitter can mirror it under a pinning test.
+stdlib-only too, the connectors' identity and workspace helpers and the repo
+layout's names, imported lazily), so the hook emitter can mirror it under a
+pinning test.
 """
 
 from __future__ import annotations
@@ -152,12 +153,9 @@ def spool_dir() -> Path:
     if configured:
         return Path(configured)
 
+    from osprey.utils.workspace import SPOOL_DIR_RELPATH
     from osprey_connectors.identity import acting_identity
-    from osprey_connectors.workspace import (
-        SPOOL_DIR_RELPATH,
-        load_osprey_config,
-        resolve_project_root,
-    )
+    from osprey_connectors.workspace import load_osprey_config, resolve_project_root
 
     identity = check_identity(acting_identity())
     return resolve_project_root(load_osprey_config()) / SPOOL_DIR_RELPATH / identity

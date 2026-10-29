@@ -113,7 +113,7 @@ from osprey.agent_runner.project_paths import (
 from osprey.deployment.compose_generator import ensure_spool_dir, resolve_project_name
 from osprey.port_layout import default_port
 from osprey.services.archive.manifest import MANIFEST_NAME
-from osprey_connectors.workspace import ARCHIVE_DIR_RELPATH, SPOOL_DIR_RELPATH
+from osprey.utils.workspace import ARCHIVE_DIR_RELPATH, SPOOL_DIR_RELPATH
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 

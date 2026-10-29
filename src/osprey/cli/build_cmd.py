@@ -60,14 +60,10 @@ from osprey.utils.config_writer import (
     load_config_document,
     save_config_document,
 )
+from osprey.utils.workspace import IMAGE_DIR_NAME, STATE_DIR_NAME, STATE_ZONE_DIRS
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
-from osprey_connectors.workspace import (
-    BUILD_DIR_NAME,
-    IMAGE_DIR_NAME,
-    STATE_DIR_NAME,
-    STATE_ZONE_DIRS,
-)
+from osprey_connectors.workspace import BUILD_DIR_NAME
 
 from .build_environment import (
     _create_project_venv,
@@ -1583,7 +1579,7 @@ def _resolve_rendered_execution_method(render_dir: Path) -> list[str]:
     """Run the execution-backend resolver on a render, writing back what runs.
 
     ``execution.execution_method`` is read by every container's python
-    executor through :func:`osprey_connectors.config.resolve_execution_method`
+    executor through :func:`osprey.utils.execution_method.resolve_execution_method`
     — at its first ``execute`` call. A profile's ``config:`` overlay writes
     whatever it says into the render and nothing else reads it back, so a
     typo used to survive build, deploy and MCP startup. The same resolver
@@ -1596,7 +1592,7 @@ def _resolve_rendered_execution_method(render_dir: Path) -> list[str]:
     Returns:
         The refusal, as one message, or nothing.
     """
-    from osprey_connectors.config import resolve_execution_method
+    from osprey.utils.execution_method import resolve_execution_method
 
     config_path = render_dir / "config.yml"
     config = _rendered_config(render_dir)

@@ -510,7 +510,7 @@ def _child_env(
 ) -> dict[str, str]:
     from osprey.agent_record import service
     from osprey.deployment.compose_generator import agent_record_host_projects_dir
-    from osprey_connectors.workspace import RECORD_DIR_RELPATH, SPOOL_DIR_RELPATH
+    from osprey.utils.workspace import RECORD_DIR_RELPATH, SPOOL_DIR_RELPATH
 
     verifier, secrets = _service_secrets(repo_root)
     host_projects = agent_record_host_projects_dir(dict(config), repo_root)

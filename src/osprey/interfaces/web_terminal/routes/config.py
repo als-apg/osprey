@@ -496,38 +496,27 @@ async def put_config(body: ConfigUpdate, request: Request):
 
     Note:
         One residual is known and deliberate. For a protected pattern that is
-        *not* a trailing-wildcard family -- ``config.yml`` has three:
-        ``artifacts.hooks``, ``simulation.state_dir`` and the channel-finder
-        ``...feedback.store_path`` -- the flatten descends past the pattern's
-        depth when the node there is a mapping, and the children come back
-        unprotected. ``artifacts.hooks`` is covered anyway by the ``artifacts.*``
-        family beside it. The other two both name a *path*, and neither can be
-        made to point somewhere by planting a block there -- but for different
-        reasons, and the difference is worth stating because only one of them is
-        the tidy one:
+        *not* a trailing-wildcard family -- ``config.yml`` has two:
+        ``artifacts.hooks`` and ``simulation.state_dir`` -- the flatten descends
+        past the pattern's depth when the node there is a mapping, and the
+        children come back unprotected. ``artifacts.hooks`` is covered anyway by
+        the ``artifacts.*`` family beside it. ``simulation.state_dir`` names a
+        *path*, and it cannot be made to point somewhere by planting a block
+        there: it is read through ``dotted_config_str``, which answers ``None``
+        for anything that is not a non-empty string. A block there reads as
+        unset, so the runtime takes its default.
 
-        * ``simulation.state_dir`` is read through ``dotted_config_str``, which
-          answers ``None`` for anything that is not a non-empty string. A block
-          there reads as unset, so the runtime takes its default.
-        * ``...feedback.store_path`` is read *raw* --
-          ``server_context.py`` does ``feedback_config["store_path"]`` behind a
-          truthiness guard that a non-empty mapping passes. It reaches
-          ``resolve_cf_state_path``, ``Path(dict)`` raises ``TypeError``, and the
-          ``except Exception`` around the initialization swallows it. The
-          feedback store is therefore left *disabled*, not defaulted.
-
-        Both outcomes are inert for this gate's purpose -- neither repoints a
+        That outcome is inert for this gate's purpose -- it does not repoint a
         write at an attacker-named location, which is what the key is protected
-        for -- and the second is a degradation of an optional store, logged at
-        warning level. Neither ratchets, either: every transition that would put
-        a real value back (mapping to scalar, absent to scalar) makes the
-        protected leaf appear, which this diff refuses. Sealing such a node as a
-        whole value cannot be done here without over-refusing: through the
-        public matcher a node like ``services`` is indistinguishable from a
-        genuine exact-depth key, being protected only as an *ancestor* of one,
-        and sealing it would refuse every unprotected edit under ``services.*``.
+        for. Nor does it ratchet: every transition that would put a real value
+        back (mapping to scalar, absent to scalar) makes the protected leaf
+        appear, which this diff refuses. Sealing such a node as a whole value
+        cannot be done here without over-refusing: through the public matcher a
+        node like ``simulation`` is indistinguishable from a genuine exact-depth
+        key, being protected only as an *ancestor* of one, and sealing it would
+        refuse every unprotected edit under ``simulation.*``.
         ``test_put_protected_families_are_descent_safe_or_known_inert`` is the
-        tripwire: it fails if a fourth exact-depth pattern is ever added, so the
+        tripwire: it fails if a third exact-depth pattern is ever added, so the
         judgement is re-made rather than inherited.
     """
     _require_config_panel(request)

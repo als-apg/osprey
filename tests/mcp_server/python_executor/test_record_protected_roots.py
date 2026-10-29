@@ -24,13 +24,13 @@ from osprey.mcp_server.python_executor.executor import (
 )
 from osprey.services.python_executor.execution.path_policy import path_policy_issues
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
-from osprey_connectors.workspace import (
+from osprey.utils.workspace import (
     ARCHIVE_DIR_RELPATH,
-    BUILD_DIR_NAME,
     RECORD_DIR_RELPATH,
     SPOOL_DIR_RELPATH,
     STATE_DIR_RELPATH,
 )
+from osprey_connectors.workspace import BUILD_DIR_NAME
 
 RECORD_ROOTS = (SPOOL_DIR_RELPATH, RECORD_DIR_RELPATH, STATE_DIR_RELPATH, ARCHIVE_DIR_RELPATH)
 

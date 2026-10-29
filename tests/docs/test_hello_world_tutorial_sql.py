@@ -20,7 +20,7 @@ import pytest
 from osprey.agent_record import archive
 from osprey.agent_record import contract as c
 from osprey.agent_record.backends.embedded import EmbeddedBackend
-from osprey_connectors.workspace import ARCHIVE_DIR_RELPATH
+from osprey.utils.workspace import ARCHIVE_DIR_RELPATH
 from tests.agent_record.contract_suite import _kit as k
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

@@ -118,6 +118,7 @@ from osprey.services.auth_sidecar.roster_env import (
     env_var_suffix,
     env_var_suffix_collisions,
 )
+from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIR_KINDS
 from osprey_connectors.dotenv import parse_dotenv_file
 from osprey_connectors.types import (
     TARGET_LIVE,
@@ -127,7 +128,6 @@ from osprey_connectors.types import (
     resolve_target,
     speaks_channel_access,
 )
-from osprey_connectors.workspace import APPS_DIRNAME, LAYER_DIR_KINDS
 
 # Both listeners in the gated auth/TLS seam are config-driven: nginx's TLS
 # listener is `tls.port` and the auth sidecar's is `auth.port`. Neither default
@@ -1508,8 +1508,8 @@ def _profile_app_layers(
         from osprey.cli.build_profile_document import _read_profile_document
         from osprey.cli.build_profile_merge import _resolve_extends, render_document
         from osprey.cli.profile_root import ProfileKind
+        from osprey.utils.workspace import PROFILE_FILENAME
         from osprey_connectors.errors import BuildProfileError
-        from osprey_connectors.workspace import PROFILE_FILENAME
 
         app_raw = _read_profile_document(app_file, build_profile)
         if not isinstance(app_raw, dict):

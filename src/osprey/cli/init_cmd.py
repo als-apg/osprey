@@ -39,11 +39,11 @@ from typing import TYPE_CHECKING
 import click
 
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
+from osprey.utils.workspace import LAYER_DIR_KINDS, STATE_ZONE_DIRS
 from osprey_connectors.dotenv import ENV_SHARED_FILENAME
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.types import CLI_CONTROL_SYSTEM_TYPES, LIVE_STANDIN
-from osprey_connectors.workspace import LAYER_DIR_KINDS, STATE_ZONE_DIRS
 
 from . import output
 from .profile_conventions import BUILD_OUTPUT_DIR, STATE_DIR, convention_for
@@ -833,7 +833,7 @@ def _reinstate_held_source_zone(target: Path) -> None:
     way instead of silently left to fail that rename. Failing to put a source
     zone back is the one outcome this function must never reach quietly.
     """
-    from osprey_connectors.workspace import STATE_DIR_NAME
+    from osprey.utils.workspace import STATE_DIR_NAME
 
     from .build_cmd import _clear_leftover
     from .profile_cmd import MATERIALIZED_SOURCE_ENTRIES

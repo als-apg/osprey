@@ -32,7 +32,7 @@ from click.testing import CliRunner
 from osprey.cli.main import cli
 from osprey.deployment.members import WORKSPACE_MEMBERS
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
-from osprey_connectors.workspace import PRE_UPGRADE_AUDIT_RELPATH
+from osprey.utils.workspace import PRE_UPGRADE_AUDIT_RELPATH
 from tests.deployment._cache_mounts import assert_build_caches_mounted
 from tests.deployment._pip_probe import primer_pip_argv
 from tests.deployment._proxy_idiom import assert_apt_runs_carry_proxy_idiom

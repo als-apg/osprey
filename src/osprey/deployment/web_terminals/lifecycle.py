@@ -134,10 +134,10 @@ from osprey.deployment.web_terminals.roster import (
 )
 from osprey.services.auth_sidecar.roster_env import env_var_suffix
 from osprey.utils.config_writer import config_replace_list
+from osprey.utils.workspace import STATE_DIR_NAME
 from osprey_connectors.config import ConfigBuilder
 from osprey_connectors.dotenv import parse_dotenv_file
 from osprey_connectors.logger import get_logger
-from osprey_connectors.workspace import STATE_DIR_NAME
 
 logger = get_logger("deployment.lifecycle")
 

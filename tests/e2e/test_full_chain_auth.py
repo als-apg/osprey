@@ -195,8 +195,8 @@ from osprey.services.auth_sidecar.identity_headers import (
 )
 from osprey.services.auth_sidecar.revocation import REVOCATION_FILE_NAME
 from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME
+from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.config import ConfigBuilder
-from osprey_connectors.workspace import TIERS_DIRNAME
 from tests.e2e._deploy_support import (
     RUNTIME,
     container_id,
@@ -2001,7 +2001,7 @@ def _record_ingest_state(repo: Path) -> str:
     from osprey.agent_record.contract import HEALTH_SOURCES_PATH
     from osprey.agent_record.credentials import login_file, read_login
     from osprey.port_layout import resolve_port_base
-    from osprey_connectors.workspace import SPOOL_DIR_RELPATH
+    from osprey.utils.workspace import SPOOL_DIR_RELPATH
 
     config = _rendered_config(repo)
     block = config.get("agent_record") or {}

@@ -25,8 +25,8 @@ from osprey.deployment.web_terminals.render_naming import (
     render_projection,
 )
 from osprey.deployment.web_terminals.roster import resolve_cards, served_renders
+from osprey.utils.workspace import RETIRED_LAYER_DIRS
 from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.workspace import RETIRED_LAYER_DIRS
 from tests.cli._lifecycle_build import invoke_build, rendered_config
 from tests.fixtures.lifecycle_repo import build_exemplar_repo, preserved_environ
 

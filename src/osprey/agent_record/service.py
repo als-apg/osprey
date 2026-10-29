@@ -340,12 +340,8 @@ def _jobs_clock(env: Mapping[str, str]) -> datetime | None:
 
 
 def _settings(config: Mapping[str, Any], env: Mapping[str, str]) -> _Settings:
-    from osprey_connectors.workspace import (
-        ARCHIVE_DIR_RELPATH,
-        RECORD_DIR_RELPATH,
-        SPOOL_DIR_RELPATH,
-        resolve_project_root,
-    )
+    from osprey.utils.workspace import ARCHIVE_DIR_RELPATH, RECORD_DIR_RELPATH, SPOOL_DIR_RELPATH
+    from osprey_connectors.workspace import resolve_project_root
 
     record = parse_agent_record_block(config)
     root = resolve_project_root(config)

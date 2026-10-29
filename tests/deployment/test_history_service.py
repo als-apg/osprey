@@ -27,7 +27,7 @@ from osprey.deployment.compose_generator import (
     service_audit_identities,
 )
 from osprey.port_layout import default_port, resolve_port_base
-from osprey_connectors.workspace import SPOOL_DIR_RELPATH, STATE_DIR_RELPATH
+from osprey.utils.workspace import SPOOL_DIR_RELPATH, STATE_DIR_RELPATH
 from tests._renders import tier_render
 
 HISTORY_ORIGIN = "http://dls-deploy.dls.example.org:10002"

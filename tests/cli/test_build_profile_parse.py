@@ -31,8 +31,8 @@ from pathlib import Path
 import pytest
 
 from osprey.cli.build_profile import ServiceDef, _parse_profile, load_profile
+from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.workspace import TIERS_DIRNAME
 
 pytestmark = pytest.mark.usefixtures("facility_data_tree")
 

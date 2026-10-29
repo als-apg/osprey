@@ -21,7 +21,7 @@ from osprey.agent_record import archive
 from osprey.agent_record import contract as c
 from osprey.services.archive.manifest import MANIFEST_NAME
 from osprey.services.archive.run import ArchiveTree
-from osprey_connectors.workspace import ARCHIVE_DIR_RELPATH
+from osprey.utils.workspace import ARCHIVE_DIR_RELPATH
 
 from . import _kit as k
 

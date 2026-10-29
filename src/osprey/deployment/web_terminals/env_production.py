@@ -15,6 +15,7 @@ from pathlib import Path
 import yaml
 
 from osprey.cli.output import report_fact
+from osprey.deployment.dotenv import ENV_USERS_BANNER, compose_unsafe_vars, format_env_line
 from osprey.deployment.errors import ComposeInterpolationError
 from osprey.deployment.web_terminals.roster import (
     ServedRender,
@@ -24,10 +25,7 @@ from osprey.deployment.web_terminals.roster import (
 from osprey_connectors.dotenv import (
     ENV_CHAIN_FILENAMES,
     ENV_LOCAL_FILENAME,
-    ENV_USERS_BANNER,
     chain_files,
-    compose_unsafe_vars,
-    format_env_line,
     merge_chain,
     parse_dotenv_file,
 )

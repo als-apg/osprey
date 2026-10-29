@@ -378,7 +378,6 @@ def _chat(dep: Deployment) -> None:
 
 # The module fixture's ``osprey build --dev`` runs inside this case's budget,
 # ahead of one live query, one live chat and the web login.
-@pytest.mark.timeout(3600)
 @pytest.fixture
 def web_port() -> Iterator[int]:
     """The port the case's ``osprey web`` binds: named on its command line before
@@ -387,6 +386,7 @@ def web_port() -> Iterator[int]:
         yield port
 
 
+@pytest.mark.timeout(3600)
 def test_host_sessions_record_without_a_container(deployment, web_port):
     dep = deployment
     with _reader(dep) as client:
