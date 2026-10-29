@@ -906,7 +906,7 @@ def boot_va_container(project: VaProject) -> Iterator[VaProject]:
     (containment rule); created, logged and torn down by that same name
     regardless of how the block exits, and by no other. On the way in, this
     process's Channel Access environment is pointed at the container's
-    published port.
+    published port, and on the way out it is put back.
 
     A plain context manager rather than the fixture body so a caller can boot
     the container without a pytest session.
@@ -943,33 +943,35 @@ def boot_va_container(project: VaProject) -> Iterator[VaProject]:
     if result.returncode != 0:
         raise RuntimeError(f"docker run failed: {result.stdout}\n{result.stderr}")
 
-    os.environ["EPICS_CA_NAME_SERVERS"] = f"localhost:{CA_PORT}"
-    os.environ["EPICS_CA_AUTO_ADDR_LIST"] = "NO"
-    os.environ.pop("EPICS_CA_ADDR_LIST", None)
-    os.environ.pop("EPICS_CA_SERVER_PORT", None)
+    with patch.dict(
+        os.environ,
+        {"EPICS_CA_NAME_SERVERS": f"localhost:{CA_PORT}", "EPICS_CA_AUTO_ADDR_LIST": "NO"},
+    ):
+        os.environ.pop("EPICS_CA_ADDR_LIST", None)
+        os.environ.pop("EPICS_CA_SERVER_PORT", None)
 
-    deadline = time.monotonic() + CONTAINER_BOOT_TIMEOUT_S
-    served = False
-    while time.monotonic() < deadline:
-        if _readiness_pv_served():
-            served = True
-            break
-        time.sleep(0.5)
+        deadline = time.monotonic() + CONTAINER_BOOT_TIMEOUT_S
+        served = False
+        while time.monotonic() < deadline:
+            if _readiness_pv_served():
+                served = True
+                break
+            time.sleep(0.5)
 
-    if not served:
-        logs = subprocess.run(
-            ["docker", "logs", CONTAINER_NAME], capture_output=True, text=True, timeout=10
-        )
-        _docker_rm(CONTAINER_NAME)
-        raise RuntimeError(
-            f"VA container never came up (no value for {READINESS_ADDRESS} after "
-            f"{CONTAINER_BOOT_TIMEOUT_S}s). Container logs:\n{logs.stdout}\n{logs.stderr}"
-        )
+        if not served:
+            logs = subprocess.run(
+                ["docker", "logs", CONTAINER_NAME], capture_output=True, text=True, timeout=10
+            )
+            _docker_rm(CONTAINER_NAME)
+            raise RuntimeError(
+                f"VA container never came up (no value for {READINESS_ADDRESS} after "
+                f"{CONTAINER_BOOT_TIMEOUT_S}s). Container logs:\n{logs.stdout}\n{logs.stderr}"
+            )
 
-    try:
-        yield project
-    finally:
-        _docker_rm(CONTAINER_NAME)
+        try:
+            yield project
+        finally:
+            _docker_rm(CONTAINER_NAME)
 
 
 @pytest.fixture(scope="session")
