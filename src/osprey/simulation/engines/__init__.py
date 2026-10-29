@@ -49,6 +49,11 @@ class EnginePlugin(Protocol):
                                             it as a facility-file defect; a return with
                                             no column is refused with the ``unsolved``
                                             map
+    ``scenario_stops(wiring, faults)``      ``(fault, detail, remedy)`` per refusal of a  no scenario stops
+                                            scenario's faults on the model, channel-
+                                            keyed ones included, without a deck load;
+                                            each stops the build ``engine-invalid``
+                                            with the plug-in's remedy
     ``REFUSAL_ERRORS``                      the exceptions meaning "the request is not    no exception is a request refusal
                                             one this engine answers"; stand-in until
                                             lume-base states it

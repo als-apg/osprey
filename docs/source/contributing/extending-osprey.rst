@@ -303,7 +303,8 @@ What a plug-in is given and asked for:
   the five functions above, and ``isinstance(module, EnginePlugin)`` checks a
   module states them. Its docstring lists the optional functions ---
   ``error_text``, ``fault_variables``, ``polynomial_kicks``,
-  ``response_matrix`` --- and what a model whose engine lacks each gets.
+  ``response_matrix``, ``scenario_stops`` --- and what a model whose engine
+  lacks each gets.
 
 What the container keeps the same for every engine:
 
