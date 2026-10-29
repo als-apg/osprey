@@ -80,7 +80,7 @@ from osprey.interfaces._serving import free_port, run_app_server
 from tests.interfaces._browser import open_hub_page as _open_page
 from tests.interfaces._browser import rail_entry as _rail_entry
 from tests.interfaces._hub import hub_app
-from tests.interfaces._panel_launch import DEFAULT_ARTIFACT_URL, publish_artifact_url
+from tests.interfaces._panel_launch import UNSERVED, Unserved, publish_artifact_url
 
 # ---------------------------------------------------------------------------
 # Playwright availability guard
@@ -167,7 +167,7 @@ def _live_server(
     allow_runtime: bool = False,
     # The shared unserved address — never the artifact slot at the default
     # base, which a real deployment on this host serves for real.
-    artifact_url: str | None = DEFAULT_ARTIFACT_URL,
+    artifact_url: str | None | Unserved = UNSERVED,
     artifact_config_delay: float = 0.0,
     project_cwd: str | None = None,
     ui_mode: str | None = None,

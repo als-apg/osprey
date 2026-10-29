@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import socket
 
 import pytest
 
@@ -37,6 +36,7 @@ from osprey.port_layout import (
     block_range,
     default_port,
 )
+from osprey_connectors_tests._harness._ports import bound_socket
 
 #: A second base, far from the default, for the two-deployments-on-one-host
 #: scenario. Every expectation below is derived from it rather than written out,
@@ -94,15 +94,9 @@ def _write_compose(tmp_path, name, services):
 @pytest.fixture
 def listening_port():
     """Bind, listen, and yield a loopback ``(socket, port)``; close on teardown."""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind(("127.0.0.1", 0))
-    sock.listen(1)
-    port = sock.getsockname()[1]
-    try:
-        yield sock, port
-    finally:
-        sock.close()
+    with bound_socket() as sock:
+        sock.listen(1)
+        yield sock, sock.getsockname()[1]
 
 
 class TestParsing:

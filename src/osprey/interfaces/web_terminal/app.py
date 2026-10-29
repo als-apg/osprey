@@ -11,6 +11,7 @@ import importlib
 import json
 import os
 import shlex
+import sys
 from collections import deque
 from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
@@ -84,6 +85,7 @@ from osprey.utils.seconds import positive_seconds
 from osprey_connectors.config import get_facility_timezone
 
 if TYPE_CHECKING:
+    import socket
     from collections.abc import AsyncIterator
 
     from jinja2.runtime import Context
@@ -3056,6 +3058,7 @@ def run_web(
     project_dir: str | None = None,
     *,
     browser_url: str | None = None,
+    sock: socket.socket | None = None,
 ) -> None:
     """Run the web terminal server.
 
@@ -3076,10 +3079,28 @@ def run_web(
             login-required page, whereas the token URL exchanges for a cookie and
             redirects to the clean URL. Keyword-only and defaulted so every other
             caller keeps the bare-URL behavior unchanged.
+        sock: The listening socket to serve on, already bound to *host* and
+            *port*; the caller that passes one owns its close. Omitted, the
+            server binds *host*:*port* itself.
     """
     import uvicorn
+    from uvicorn.main import STARTUP_FAILURE
 
-    _open_browser_when_ready(browser_url or f"http://{host}:{port}")
+    from osprey.interfaces._serving import listening_socket
 
-    app = create_app(config_path=config_path, shell_command=shell_command, project_dir=project_dir)
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    owned = sock is None
+    if sock is None:
+        sock = listening_socket(host, port)
+    try:
+        _open_browser_when_ready(browser_url or f"http://{host}:{port}")
+
+        app = create_app(
+            config_path=config_path, shell_command=shell_command, project_dir=project_dir
+        )
+        server = uvicorn.Server(uvicorn.Config(app, host=host, port=port, log_level="info"))
+        server.run(sockets=[sock])
+    finally:
+        if owned:
+            sock.close()
+    if not server.started:
+        sys.exit(STARTUP_FAILURE)

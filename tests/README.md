@@ -489,7 +489,10 @@ with run_app_server(app) as url:   # the app listens on a socket it owns
 
 Where the number must be known before the server binds (a config file, a
 subprocess argument), hold a `reserved_port()` from
-`osprey_connectors_tests._harness._ports` for as long as the server needs it.
+`osprey_connectors_tests._harness._ports` for as long as the server needs it;
+in a test, the `reserve_port` fixture hands out such ports, held until the test
+ends. Where a port must be busy (a bind-conflict test), hold a `bound_socket()`
+from the same module.
 
 Never hardcode a port number, and never pick one by binding port 0 and
 releasing it (`free_port()`, `find_free_port()`, or an inline
