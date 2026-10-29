@@ -24,6 +24,7 @@ from osprey.dispatch.sources import epics_ca
 from osprey.dispatch.sources.epics_ca import EpicsCaSource, _PvWatcher
 from osprey.dispatch.trigger_config import TriggerConfig
 from osprey_connectors.control_system._base import ChannelValue
+from tests import _live
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -226,11 +227,14 @@ class _FireRecorder:
             return [payload for _, payload in self._calls]
 
     def wait_until(self, count: int, timeout: float = 2.0) -> bool:
-        """Block until at least ``count`` dispatches have run (or timeout)."""
-        deadline = time.monotonic() + timeout
-        while self.call_count < count and time.monotonic() < deadline:
-            time.sleep(0.005)
-        return self.call_count >= count
+        """Block until at least ``count`` dispatches have run; fail the test on timeout."""
+        _live.wait_until(
+            lambda: self.call_count >= count,
+            timeout=timeout,
+            interval=0.005,
+            what=f"{count} dispatch(es)",
+        )
+        return True
 
     @staticmethod
     def settle(grace: float = 0.15) -> None:
