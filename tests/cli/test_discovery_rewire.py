@@ -294,6 +294,7 @@ class TestDetachedServerHandle:
             capture_output=True,
             text=True,
             check=True,
+            timeout=60,
         )
         assert status.stdout == ""
 

@@ -9501,7 +9501,12 @@ def _run_version_check(tmp_path: Path, version: str, files: list[str]) -> int:
         (dist / name).write_text("")
     env = {**os.environ, "VERSION": version}
     return subprocess.run(
-        ["bash", "-c", step["run"]], cwd=tmp_path, env=env, capture_output=True, text=True
+        ["bash", "-c", step["run"]],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
     ).returncode
 
 
@@ -9682,7 +9687,12 @@ def test_the_framework_version_check_refuses_a_connectors_artifact(tmp_path: Pat
 
     def run() -> int:
         return subprocess.run(
-            ["bash", "-c", step["run"]], cwd=tmp_path, env=env, capture_output=True, text=True
+            ["bash", "-c", step["run"]],
+            cwd=tmp_path,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
         ).returncode
 
     for name in (
@@ -9820,6 +9830,7 @@ def _git_in(cwd: Path, *args: str) -> str:
         capture_output=True,
         text=True,
         check=True,
+        timeout=60,
     )
     return done.stdout.strip()
 
@@ -9844,7 +9855,7 @@ def test_the_on_main_check_refuses_a_commit_main_cannot_reach(tmp_path: Path) ->
     def run(sha: str) -> subprocess.CompletedProcess[str]:
         env = {**os.environ, "TAG_SHA": sha, "TAG_NAME": "v2026.10.0"}
         return subprocess.run(
-            ["bash", "-c", script], cwd=clone, env=env, capture_output=True, text=True
+            ["bash", "-c", script], cwd=clone, env=env, capture_output=True, text=True, timeout=60
         )
 
     assert run(on_main).returncode == 0
@@ -11146,7 +11157,7 @@ def _staged_siblings(release: dict[str, Any], tmp_path: Path) -> list[str]:
         (dist / name).write_text("")
     sibling = tmp_path / "sibling"
     script = _release_staging_script(release).replace(RELEASE_SIBLING_DIR, str(sibling))
-    subprocess.run(["bash", "-euo", "pipefail", "-c", script], cwd=tmp_path, check=True)
+    subprocess.run(["bash", "-euo", "pipefail", "-c", script], cwd=tmp_path, check=True, timeout=60)
     return sorted(p.name for p in sibling.iterdir())
 
 

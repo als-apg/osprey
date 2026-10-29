@@ -1809,7 +1809,7 @@ def test_the_queueserver_applies_its_lane_identity_before_the_manager_starts(
         f' || echo "WARNING: control identity {identity} not applied; this lane writes as root"'
         " >&2; exec start-re-manager"
     )
-    subprocess.run(["sh", "-n", "-c", script], check=True)
+    subprocess.run(["sh", "-n", "-c", script], check=True, timeout=60)
 
 
 @pytest.mark.parametrize("rename_exit", [0, 1])
@@ -1834,6 +1834,7 @@ def test_the_manager_starts_whether_or_not_the_rename_lands(
         capture_output=True,
         text=True,
         check=False,
+        timeout=60,
     )
 
     assert result.returncode == 0, result.stderr

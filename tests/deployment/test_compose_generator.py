@@ -6427,6 +6427,7 @@ def _head_dispatcher_render() -> str:
             capture_output=True,
             text=True,
             check=True,
+            timeout=60,
         ).stdout
     except (OSError, subprocess.CalledProcessError) as exc:  # pragma: no cover - env-dependent
         pytest.skip(f"cannot read the committed template: {exc}")

@@ -266,7 +266,12 @@ def _build_harness_image(tmp_path: Path) -> str:
     dockerfile = _harness_dockerfile()
     tag = f"osprey-auth-serving-harness:{hashlib.sha256(dockerfile.encode()).hexdigest()[:12]}"
 
-    if subprocess.run(["docker", "image", "inspect", tag], capture_output=True).returncode == 0:
+    if (
+        subprocess.run(
+            ["docker", "image", "inspect", tag], capture_output=True, timeout=60
+        ).returncode
+        == 0
+    ):
         return tag
 
     context = tmp_path / "harness"
@@ -297,7 +302,9 @@ def _ensure_image(reference: str) -> None:
     Pulling up front with a bounded retry keeps a registry hiccup from being
     reported as a failure of the perimeter.
     """
-    present = subprocess.run(["docker", "image", "inspect", reference], capture_output=True)
+    present = subprocess.run(
+        ["docker", "image", "inspect", reference], capture_output=True, timeout=60
+    )
     if present.returncode == 0:
         return
     pulled = None
@@ -550,7 +557,7 @@ def _rendered_upstream_ports(nginx_conf: str) -> dict[str, int]:
 
 def _docker_logs(name: str) -> str:
     result = subprocess.run(
-        ["docker", "logs", "--tail", "40", name], capture_output=True, text=True
+        ["docker", "logs", "--tail", "40", name], capture_output=True, text=True, timeout=60
     )
     return f"--- {name} ---\n{result.stdout}\n{result.stderr}"
 

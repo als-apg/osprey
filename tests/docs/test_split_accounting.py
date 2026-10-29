@@ -58,7 +58,7 @@ class SyntheticSplit:
         (self.docs_root / "old").mkdir(parents=True)
         (self.docs_root / "old" / "page.rst").write_text(OLD_PAGE, encoding="utf-8")
         for args in (["init", "-q"], ["add", "-A"]):
-            subprocess.run(["git", "-C", str(root), *args], check=True)
+            subprocess.run(["git", "-C", str(root), *args], check=True, timeout=60)
         subprocess.run(
             [
                 "git",
@@ -73,6 +73,7 @@ class SyntheticSplit:
                 "baseline",
             ],
             check=True,
+            timeout=60,
         )
         # The tree as it looks after the split: Beta has moved to its own page.
         (self.docs_root / "old" / "page.rst").write_text(

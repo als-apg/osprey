@@ -232,7 +232,9 @@ class TestLayerSplit:
 
     def test_every_run_parses_under_sh(self, service):
         for body in _run_bodies(_dockerfile(service)):
-            result = subprocess.run(["sh", "-n", "-c", body], capture_output=True, text=True)
+            result = subprocess.run(
+                ["sh", "-n", "-c", body], capture_output=True, text=True, timeout=60
+            )
             assert result.returncode == 0, (
                 f"{service}: invalid shell syntax in a RUN body:\n{body}\n{result.stderr}"
             )
@@ -344,6 +346,7 @@ def _probe_wheel_body(body: str, tmp_path, *, with_wheel: bool):
         capture_output=True,
         text=True,
         env=env,
+        timeout=60,
     )
     return result, ctx
 
@@ -445,7 +448,9 @@ def _probe_deps_body(body: str, tmp_path, *, with_manifest: bool):
     rewritten = body.replace("/tmp/deps-ctx", str(ctx)).replace(
         "/var/lib/apt/lists", str(apt_lists)
     )
-    result = subprocess.run(["sh", "-c", rewritten], capture_output=True, text=True, env=env)
+    result = subprocess.run(
+        ["sh", "-c", rewritten], capture_output=True, text=True, env=env, timeout=60
+    )
     return result, ctx
 
 

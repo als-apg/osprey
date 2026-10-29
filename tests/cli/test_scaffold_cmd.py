@@ -1063,6 +1063,7 @@ def test_main_cli_lists_scaffold_not_prompts():
         capture_output=True,
         text=True,
         check=True,
+        timeout=120,
     )
     assert "scaffold" in result.stdout
     # The old name must not appear as a command — match only at line start with

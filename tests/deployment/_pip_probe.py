@@ -51,7 +51,9 @@ def primer_pip_argv(body: str, tmp_path: Path, env: dict[str, str]) -> list[str]
     rewritten = body.replace("/tmp/deps-ctx", str(ctx)).replace(
         "/var/lib/apt/lists", str(apt_lists)
     )
-    result = subprocess.run(["sh", "-c", rewritten], capture_output=True, text=True, env=run_env)
+    result = subprocess.run(
+        ["sh", "-c", rewritten], capture_output=True, text=True, env=run_env, timeout=60
+    )
     assert result.returncode == 0, (
         f"deps RUN failed under the stub:\n{result.stdout}\n{result.stderr}"
     )

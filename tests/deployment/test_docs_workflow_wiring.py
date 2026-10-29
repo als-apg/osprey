@@ -990,6 +990,7 @@ def _plan_output_keys() -> set[str]:
         capture_output=True,
         text=True,
         check=True,
+        timeout=120,
     )
     return {line.split("=", 1)[0] for line in result.stdout.splitlines() if "=" in line}
 

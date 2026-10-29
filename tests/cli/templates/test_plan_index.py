@@ -397,6 +397,7 @@ def test_importing_the_builder_does_not_import_bluesky(tmp_path: Path) -> None:
         cwd=tmp_path,
         env=env,
         check=False,
+        timeout=120,
     )
 
     assert result.returncode == 0, result.stderr

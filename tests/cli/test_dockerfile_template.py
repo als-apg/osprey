@@ -609,7 +609,9 @@ class TestDockerfileContent:
         """
         for project in (hello_project, deps_project):
             for body in self._run_command_bodies((project / "Dockerfile").read_text()):
-                result = subprocess.run(["sh", "-n", "-c", body], capture_output=True, text=True)
+                result = subprocess.run(
+                    ["sh", "-n", "-c", body], capture_output=True, text=True, timeout=60
+                )
                 assert result.returncode == 0, (
                     f"invalid shell syntax in a rendered RUN body:\n{body}\n{result.stderr}"
                 )
@@ -639,6 +641,7 @@ def _probe_wheel_body(body: str, tmp_path, *, with_wheel: bool):
         capture_output=True,
         text=True,
         env=env,
+        timeout=60,
     )
     return result, ctx
 
@@ -671,7 +674,9 @@ def _probe_ca_body(body: str, tmp_path, *, staged: bool, arg: str):
     rewritten = body.replace("/tmp/ca-ctx", str(ctx)).replace(
         "/usr/local/share/ca-certificates", str(store)
     )
-    result = subprocess.run(["sh", "-c", rewritten], capture_output=True, text=True, env=env)
+    result = subprocess.run(
+        ["sh", "-c", rewritten], capture_output=True, text=True, env=env, timeout=60
+    )
     return result, ctx, store
 
 
@@ -727,7 +732,9 @@ def _probe_deps_body(
     rewritten = body.replace("/tmp/deps-ctx", str(ctx)).replace(
         "/var/lib/apt/lists", str(apt_lists)
     )
-    result = subprocess.run(["sh", "-c", rewritten], capture_output=True, text=True, env=env)
+    result = subprocess.run(
+        ["sh", "-c", rewritten], capture_output=True, text=True, env=env, timeout=60
+    )
     return result, ctx
 
 

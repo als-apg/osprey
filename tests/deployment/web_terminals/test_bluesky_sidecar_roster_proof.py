@@ -205,7 +205,12 @@ def _build_harness_image(tmp_path: Path) -> tuple[str, bool]:
     dockerfile = _harness_dockerfile()
     tag = f"osprey-bluesky-roster-harness:{hashlib.sha256(dockerfile.encode()).hexdigest()[:12]}"
 
-    if subprocess.run(["docker", "image", "inspect", tag], capture_output=True).returncode == 0:
+    if (
+        subprocess.run(
+            ["docker", "image", "inspect", tag], capture_output=True, timeout=60
+        ).returncode
+        == 0
+    ):
         return tag, False
 
     context = tmp_path / "harness"
