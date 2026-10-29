@@ -115,6 +115,7 @@ from osprey.deployment.wheel_build import _copy_local_framework_for_override
 from osprey.port_layout import default_port
 from osprey_connectors.workspace import container_image_context
 from tests._container_support import docker_cli_unavailable_reason_once
+from tests.e2e._image_record import record_credential_mounts
 
 _DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 
@@ -437,7 +438,12 @@ def admin_image(preset_repo: Path, admin_project: str):
 
 
 def _run_web(tag: str, *extra: str) -> str:
-    """Start a container on the image's own CMD, port published on loopback."""
+    """Start a container on the image's own CMD, port published on loopback.
+
+    The CMD is ``osprey web``, which holds the agent record: *extra* carries the
+    record's credentials (:func:`tests.e2e._image_record.record_credential_mounts`),
+    supplied at run time like every other secret.
+    """
     name = f"{TAG_PREFIX}-{uuid.uuid4().hex[:8]}"
     run = _docker(
         "run",
@@ -458,7 +464,7 @@ def _run_web(tag: str, *extra: str) -> str:
 
 
 @pytest.fixture(scope="class")
-def ro_container(ro_image):
+def ro_container(ro_image, preset_repo: Path, tmp_path_factory):
     """The base image, running its real CMD (``osprey web``), healthy.
 
     The real CMD and not ``sleep infinity``: the uid assertion below is about
@@ -471,7 +477,9 @@ def ro_container(ro_image):
     and the second one's health wait is where that shows up.
     """
     tag, project = ro_image
-    cid = _run_web(tag)
+    cid = _run_web(
+        tag, *record_credential_mounts(preset_repo, project, tmp_path_factory.mktemp("ro-creds"))
+    )
     try:
         _wait_for_health(f"http://127.0.0.1:{_host_port(cid)}", cid)
         yield SimpleNamespace(cid=cid, project=project, root=f"/app/{project}")
@@ -534,7 +542,7 @@ class TestReadOnlyRenderZone:
 
 
 @pytest.fixture(scope="module")
-def admin_state(admin_image):
+def admin_state(admin_image, preset_repo: Path, tmp_path_factory):
     """Drive the admin tier's whole config-write lifecycle once, and snapshot it.
 
     One container, one restart, four assertions — because the restart is the
@@ -558,6 +566,7 @@ def admin_state(admin_image):
         f"{volume}:{CLAUDE_CONFIG_DIR}",
         "-e",
         f"CLAUDE_CONFIG_DIR={CLAUDE_CONFIG_DIR}",
+        *record_credential_mounts(preset_repo, project, tmp_path_factory.mktemp("admin-creds")),
     )
     try:
         base_url = f"http://127.0.0.1:{_host_port(cid)}"
