@@ -255,8 +255,11 @@ class TestGetMcpServersCached:
         ) as mock_introspect:
             await get_mcp_servers_cached(mcp_file, str(tmp_path))
 
-            # Modify file to change mtime
+            # Modify the file, and move its mtime past the cached one: two writes
+            # inside one filesystem timestamp tick would otherwise share it.
             mcp_file.write_text(json.dumps({"mcpServers": {"new": {}}}))
+            stamp = mcp_file.stat().st_mtime_ns + 10_000_000_000
+            os.utime(mcp_file, ns=(stamp, stamp))
 
             await get_mcp_servers_cached(mcp_file, str(tmp_path))
             assert mock_introspect.call_count == 2
