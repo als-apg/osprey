@@ -158,9 +158,36 @@ class FaultRoster:
             ``options``, ``element``).
     """
 
-    def __init__(self, engine: str, slots: Mapping[str, Any]) -> None:
+    def __init__(
+        self,
+        engine: str,
+        slots: Mapping[str, Any],
+        *,
+        wiring: list[dict[str, Any]] | None = None,
+        scenario_stops: Any = None,
+    ) -> None:
         self.engine = engine
         self.slots = dict(slots)
+        self._wiring = list(wiring or [])
+        self._scenario_stops = scenario_stops
+
+    def stops(self, faults: Mapping[str, Any]) -> list[tuple[str, str, str]]:
+        """The engine's refusals of one scenario's faults on this model.
+
+        Args:
+            faults: The scenario's faults on the model, by key, channel-keyed
+                ones included.
+
+        Returns:
+            ``(fault, detail, remedy)`` per refusal; none when the plug-in
+            states no ``scenario_stops``.
+        """
+        if self._scenario_stops is None:
+            return []
+        return [
+            (str(fault), str(detail), str(remedy))
+            for fault, detail, remedy in self._scenario_stops(self._wiring, dict(faults))
+        ]
 
     def fields(self, address: str) -> dict[str, Any]:
         """The fault fields ``address`` carries, each with its slot."""
@@ -202,7 +229,8 @@ def fault_roster(
 
     Returns:
         The roster; ``None`` when no plug-in is registered under the model's
-        engine name. A plug-in without ``fault_variables`` declares no faults.
+        engine name. A plug-in without ``fault_variables`` declares no faults;
+        one without ``scenario_stops`` refuses no scenario.
     """
     from osprey.simulation.engines import ENTRY_POINT_GROUP
 
@@ -218,7 +246,9 @@ def fault_roster(
     ]
     declare = getattr(plugin, "fault_variables", None)
     slots = declare(wiring) if declare is not None else {}
-    return FaultRoster(name, slots)
+    return FaultRoster(
+        name, slots, wiring=wiring, scenario_stops=getattr(plugin, "scenario_stops", None)
+    )
 
 
 def _direction(channels: Mapping[str, Mapping[str, Any]], record: Mapping[str, Any]) -> str:
@@ -670,7 +700,10 @@ def check_scenario_engines(document: Mapping[str, Any]) -> list[FacilityBuildErr
 
     A key under ``faults.<model>`` that names no channel must be one of the
     fault names the model's engine declares (``engine-invalid`` otherwise);
-    its value is coerced as a float and held to that fault's range.
+    its value is coerced as a float and held to that fault's range. The
+    engine's optional ``scenario_stops(wiring, faults)`` sees every fault of
+    the model, channel-keyed ones included, and each refusal it returns is an
+    ``engine-invalid`` stop carrying the plug-in's remedy.
 
     Args:
         document: The combined document, its wiring slots filled.
@@ -691,12 +724,23 @@ def check_scenario_engines(document: Mapping[str, Any]) -> list[FacilityBuildErr
             model = models.get(str(model_name))
             if model is None or not isinstance(targets, dict):
                 continue
-            keys = sorted((k for k in targets if str(k) not in channels), key=str)
-            if not keys:
-                continue
             if str(model_name) not in rosters:
                 rosters[str(model_name)] = fault_roster(model, channels)
             roster = rosters[str(model_name)]
+            if roster is not None:
+                errors.extend(
+                    _error(
+                        "engine-invalid",
+                        name,
+                        files,
+                        f"`faults.{model_name}.{fault}`: {detail}",
+                        remedy,
+                    )
+                    for fault, detail, remedy in roster.stops(targets)
+                )
+            keys = sorted((k for k in targets if str(k) not in channels), key=str)
+            if not keys:
+                continue
             for key in keys:
                 errors.extend(
                     _named_fault(name, files, str(model_name), str(key), targets[key], roster)
