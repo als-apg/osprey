@@ -4,7 +4,8 @@ Runs in its own model-free lane (``agent-record-e2e``): no test here names a
 provider or reaches a model. The transcripts it reads are the captured Claude
 Code sessions under ``tests/fixtures/agent_record/``, replayed into the host
 build's project directory, beside a synthetic 2.1.300-shaped session the test
-writes itself.
+writes itself, and forwarded to the stack's record the way a host session
+forwards them.
 
 Two cases, one per backend and preset: ``hello-world`` on the embedded record
 and ``control-assistant`` on the ClickHouse record. Each deploys under this
@@ -12,8 +13,10 @@ module's own project name and port block with a stated
 ``deployment.host_identity``, and runs the real ``osprey build`` and
 ``osprey up``. Both verbs run with ``CLAUDE_CONFIG_DIR`` and ``HOME`` pointed
 into the case's temp tree; the host build's Claude Code project directory is
-created there, holding the transcripts, BEFORE the build, so the render mounts
-it into agent-record. The developer's own ``~/.claude`` gains nothing.
+created there, holding the transcripts. The render mounts nothing of it: once
+the stack is up, the case forwards it every supervisor round as a host session
+does (``host.forward_host_transcripts``), until the reset. The developer's own
+``~/.claude`` gains nothing.
 
 What each case proves, read back through the read API:
 
@@ -57,6 +60,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import uuid
 from collections import Counter
@@ -71,6 +75,7 @@ import httpx
 import pytest
 import yaml
 
+from osprey.agent_record import host as host_record
 from osprey.agent_record import writer
 from osprey.agent_record.archive import EXPORT_FILE, EXPORT_SUBDIR, exported_days
 from osprey.agent_record.attribution import REQUESTER_FIELD
@@ -390,9 +395,39 @@ class Stack:
     backend: str
     replay: Replay
     config: dict[str, Any] = field(default_factory=dict)
+    host_session: HostSession | None = None
 
     def reload(self) -> None:
         self.config = yaml.safe_load((self.repo / "build" / "config.yml").read_text())
+
+    def stop_host_session(self) -> None:
+        if self.host_session is not None:
+            self.host_session.stop()
+            self.host_session = None
+
+
+class HostSession:
+    """The host session's forwarding of its transcripts, as its supervisor runs it.
+
+    The stack's agent-record reads no host transcript: Claude Code writes them
+    for the host account alone, and a host session forwards them through the
+    spool every supervisor round (``host.forward_host_transcripts``).
+    """
+
+    def __init__(self, repo: Path) -> None:
+        self._repo = repo
+        self._config = yaml.safe_load((repo / "build" / "config.yml").read_text())
+        self._stopped = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="host-forward", daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        while not self._stopped.wait(host_record.SUPERVISE_INTERVAL_S):
+            host_record.forward_host_transcripts(self._repo, self._config)
+
+    def stop(self) -> None:
+        self._stopped.set()
+        self._thread.join(timeout=host_record.FORWARD_WAIT_S)
 
     @property
     def record_port(self) -> int:
@@ -653,8 +688,8 @@ def _deploy(
     if init.returncode != 0:
         pytest.fail(f"osprey init failed (rc={init.returncode}):\n{init.stdout}\n{init.stderr}")
 
-    # Created before the build: the render mounts the host project directory
-    # only when it exists, and never creates it.
+    # The host session's transcripts, which the stack's agent-record never
+    # mounts: the host session forwards them once the stack owns the record.
     host_project_dir = claude_project_dir(repo / "build")
     assert host_project_dir.is_relative_to(config_dir), host_project_dir
     _write_host_transcript(host_project_dir, transcript)
@@ -675,12 +710,14 @@ def _deploy(
         _build(stack)
         _provision_test_writers(repo)
         rendered = (repo / "build" / "services" / "agent_record" / "docker-compose.yml").read_text()
-        assert host_project_dir.as_posix() in rendered, (
-            "the render does not mount the host build's project directory"
+        assert host_project_dir.as_posix() not in rendered, (
+            "the render mounts the host build's project directory"
         )
         _up(stack)
+        stack.host_session = HostSession(repo)
         yield stack
     finally:
+        stack.stop_host_session()
         down = _run([str(osprey), "down"], cwd=repo, env=env, timeout=300)
         if down.returncode != 0:
             print(f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}")
@@ -1185,6 +1222,8 @@ def _reset_keeps_then_purges(stack: Stack, day: date, *, reread: tuple[str, set[
         return _volume_exists(RECORD_STORE_VOLUME)
 
     assert record_present(), "no record before the reset"
+    # The host session ends before the reset takes the spool and state away.
+    stack.stop_host_session()
     _verb(stack, "reset", "-y")
     assert record_present(), "a plain reset removed the record"
     assert parquet.is_file(), "a plain reset removed the record's archive"

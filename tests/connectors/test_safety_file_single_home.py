@@ -45,7 +45,7 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("src/osprey/agent_record/writer.py", "_seal"): (
         "renames an open spool segment to its sealed name, never over an existing file"
     ),
-    ("src/osprey/agent_record/writer.py", "write_received"): (
+    ("src/osprey/agent_record/writer.py", "write_batch"): (
         "seals a fresh spool segment under a new name, never over an existing file"
     ),
     ("src/osprey/cli/build_cmd.py", "_clear_leftover"): "sets an existing build entry aside",
