@@ -1059,13 +1059,13 @@ def _expect_collapsed_thinking(entry, reasoning: str) -> None:
     """*entry* carries one finished, collapsed thinking row that opens on *reasoning*."""
     row = entry.locator(".op-thinking")
     expect(row).to_have_count(1, timeout=10_000)
-    expect(row).not_to_have_class(re.compile(r"\blive\b"))
-    head = row.locator(".op-thinking-head")
+    expect(row).to_have_attribute("data-state", "done")
+    head = row.locator(".op-row-head")
     expect(head).to_have_attribute("aria-expanded", "false")
-    expect(row.locator(".op-thinking-body")).to_be_hidden()
+    expect(row.locator(".op-row-body")).to_be_hidden()
     head.click()
-    expect(row.locator(".op-thinking-body")).to_be_visible()
-    expect(row.locator(".op-thinking-body")).to_have_text(reasoning)
+    expect(row.locator(".op-row-body")).to_be_visible()
+    expect(row.locator(".op-row-body")).to_have_text(reasoning)
 
 
 def test_live_turn_shows_a_collapsed_thinking_summary(tmp_path, chromium_browser):
@@ -1093,8 +1093,8 @@ def test_replayed_turns_show_their_thinking_collapsed(tmp_path, chromium_browser
 
     The record serves the turns the session's transcript holds. The first agent
     turn reasoned and shows its summary; the second's block was ``omitted``
-    (written with no text) and shows nothing. No tool input or result is drawn
-    for a turn that made no call.
+    (written with no text) and shows a row that does not open. No tool input or
+    result is drawn for a turn that made no call.
     """
     with live_chat_server(tmp_path) as (base_url, _app):
         page = _open_chat_page(chromium_browser, base_url)
@@ -1132,7 +1132,10 @@ def test_replayed_turns_show_their_thinking_collapsed(tmp_path, chromium_browser
         expect(entries.nth(1)).to_contain_text("it is back in place")
 
         _expect_collapsed_thinking(entries.nth(0), "compare BPM 3 with its neighbours")
-        expect(entries.nth(1).locator(".op-thinking")).to_have_count(0)
+        hidden = entries.nth(1).locator(".op-thinking")
+        expect(hidden).to_have_count(1)
+        expect(hidden).to_have_class(re.compile(r"\bempty\b"))
+        expect(hidden.locator(".op-row-head")).to_be_disabled()
         expect(page.locator(f"{_OP} .op-tools")).to_have_count(0)
 
         page.close()

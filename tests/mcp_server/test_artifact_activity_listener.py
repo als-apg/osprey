@@ -27,7 +27,7 @@ from unittest.mock import patch
 import pytest
 
 from osprey.mcp_server import artifact_activity
-from osprey.stores.artifact_store import ArtifactStore
+from osprey.stores.artifact_store import RUN_RECORD_KEY, ArtifactStore
 
 DRAIN_TIMEOUT = 5.0
 
@@ -92,7 +92,7 @@ def save_figure(store: ArtifactStore, title: str = "Beam profile") -> None:
 
 
 def save_run_bookkeeping(store: ArtifactStore) -> None:
-    """The two records every ``execute`` run writes on its own."""
+    """The two records every ``execute`` run writes on its own, marked as the executor marks them."""
     store.save_file(
         file_content=b"{}",
         filename="run.ipynb",
@@ -100,6 +100,7 @@ def save_run_bookkeeping(store: ArtifactStore) -> None:
         title="Notebook: plot the orbit",
         mime_type="application/x-ipynb+json",
         tool_source="execute",
+        metadata={RUN_RECORD_KEY: True},
     )
     store.save_data(
         tool="execute",
@@ -140,8 +141,9 @@ def test_execute_run_with_figure_emits_one_frame(project, notified):
     assert "execute" in kwargs["detail"]
 
 
-def test_deliberately_saved_notebook_still_emits(project, notified):
-    """The filter keys on the auto-save sources, not on the notebook type alone."""
+@pytest.mark.parametrize("tool_source", ["artifact_register", "execute"])
+def test_deliberately_saved_notebook_still_emits(project, notified, tool_source):
+    """A notebook without the run-record mark emits, even one the executed code saved."""
     from osprey.mcp_server.startup import initialize_workspace_singletons
 
     initialize_workspace_singletons()
@@ -153,7 +155,7 @@ def test_deliberately_saved_notebook_still_emits(project, notified):
         artifact_type="notebook",
         title="Orbit analysis",
         mime_type="application/x-ipynb+json",
-        tool_source="artifact_register",
+        tool_source=tool_source,
     )
     wait_drained()
 

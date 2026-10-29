@@ -301,6 +301,27 @@ describe('sendPrompt: transport failures', () => {
     expect(err.message).toBe('HTTP 409: Conflict');
   });
 
+  test('a refused command carries the command it names', async () => {
+    const body = {
+      detail: { error: 'command_not_available', command: 'login', message: 'not here' },
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ...streamResponse([], { ok: false, status: 400, statusText: 'Bad Request' }),
+        json: async () => body,
+      }))
+    );
+
+    const cb = collector();
+    chat.sendPrompt('c', '/login', cb.handlers);
+    await vi.waitFor(() => expect(cb.onClose).toHaveBeenCalledTimes(1));
+
+    const err = cb.onError.mock.calls[0][0];
+    expect(err.slug).toBe('command_not_available');
+    expect(err.command).toBe('login');
+  });
+
   test('a non-JSON rejection body is not itself a failure', async () => {
     vi.stubGlobal(
       'fetch',
@@ -775,6 +796,40 @@ describe('followChat', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(onEvent).not.toHaveBeenCalled();
+    feed.close();
+  });
+
+  test('each 204 tells the caller that no agent runs for the chat', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 204, body: null }))
+    );
+    const onNoAgent = vi.fn();
+
+    const feed = chat.followChat('c', { onEvent: vi.fn(), onNoAgent });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onNoAgent).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(onNoAgent).toHaveBeenCalledTimes(2);
+    feed.close();
+  });
+
+  test('a feed that answers says nothing about a missing agent', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        streamResponse([frame({ type: 'hello', seq: 0, in_flight: false, pending: [] })])
+      )
+    );
+    const onEvent = vi.fn();
+    const onNoAgent = vi.fn();
+
+    const feed = chat.followChat('c', { onEvent, onNoAgent });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'hello' }));
+    expect(onNoAgent).not.toHaveBeenCalled();
     feed.close();
   });
 

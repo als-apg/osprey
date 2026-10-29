@@ -340,6 +340,13 @@ EXAMPLE_ORIGIN = "demo"
 run: the example the gallery seeds into an empty workspace. Listed by the
 gallery, hidden from every agent-facing listing (``exclude_examples``)."""
 
+RUN_RECORD_KEY = "run_record"
+"""``metadata`` key, set to True, on an artifact that records a script run rather
+than holding its result: the approval hook's Pre-Execution Review notebook, and the
+executor's notebook and result record. Plots and files the script saves carry no
+such key. The gallery's Simple layout keeps these out of its result card and lists
+them under "Script runs"."""
+
 EXAMPLE_REMOVED_SENTINEL = ".example-removed"
 """File in the artifact directory written when an example is deleted, so no
 later launch seeds it again. Removing the file brings the example back."""

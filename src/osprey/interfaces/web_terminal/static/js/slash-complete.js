@@ -21,6 +21,27 @@
 
 import { el } from '/design-system/js/dom.js';
 import { fuzzyMatch } from '/design-system/js/fuzzy.js';
+import { chatIcon } from './chat-icons.js';
+
+/**
+ * The tag at a suggestion's right edge: what kind of command it is, and for a
+ * skill whether the agent may also run it on its own ("manual" when it may not).
+ * @param {import('./chat-client.js').SlashCommand} command
+ * @returns {HTMLElement}
+ */
+export function kindTag(command) {
+  const tag = el('span', 'op-slash-kind');
+  tag.dataset.kind = command.kind;
+  if (command.kind === 'skill') {
+    tag.append(chatIcon('skill'), command.agent_invocable ? 'skill' : 'skill · manual');
+    tag.title = command.agent_invocable
+      ? 'A skill. The agent may also use it on its own.'
+      : 'A skill only you run. The agent does not use it on its own.';
+  } else {
+    tag.textContent = command.kind === 'builtin' ? 'built-in' : 'command';
+  }
+  return tag;
+}
 
 /** A message the list is active for: one token beginning with `/`. */
 const SLASH_TOKEN = /^\/\S*$/;
@@ -124,7 +145,7 @@ export function attachSlashComplete(textarea, { load, mount }) {
       }
       const desc = el('span', 'op-slash-desc');
       desc.textContent = command.description;
-      row.append(desc);
+      row.append(desc, kindTag(command));
       // Keep focus in the message box: the click accepts, the press must not blur.
       row.addEventListener('mousedown', (e) => e.preventDefault());
       row.addEventListener('click', () => accept(i));

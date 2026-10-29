@@ -642,6 +642,59 @@ class TestChatResumesTheKeysTranscript:
         assert frames[0] == {"type": "session_reset"}
 
 
+class TestChatRefusesUnlistedCommands:
+    """A slash command the chat does not offer never reaches the agent.
+
+    The chat offers the project's skills and commands and the built-ins
+    ``/clear`` and ``/compact``. Any other ``/name`` (``/login``, ``/model``)
+    the CLI would run itself, so the route refuses it before a turn opens.
+    """
+
+    @staticmethod
+    def _client(project, session):
+        registry = _FakeRegistry(session=session)
+        app = _make_chat_app(registry)
+        app.state.project_cwd = str(project)
+        return registry, TestClient(app)
+
+    @staticmethod
+    def _project(tmp_path):
+        skill = tmp_path / ".claude" / "skills" / "diagnose" / "SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_text("Body\n", encoding="utf-8")
+        return tmp_path
+
+    @pytest.mark.parametrize(("prompt", "name"), [("/login", "login"), ("/model opus", "model")])
+    def test_an_unlisted_command_is_refused_before_a_turn_opens(self, tmp_path, prompt, name):
+        session = _FakeChatSession([{"type": "result", "is_error": False}])
+        registry, client = self._client(self._project(tmp_path), session)
+        feed, _hello = session.subscribe()
+
+        resp = client.post("/api/chat", json={"prompt": prompt, "chat_id": "c1"})
+
+        assert resp.status_code == 400
+        detail = resp.json()["detail"]
+        assert detail["error"] == "command_not_available"
+        assert detail["command"] == name
+        # No child was asked for, no prompt was sent, and no turn_start went out.
+        assert registry.calls == []
+        assert session.prompts == []
+        assert feed.empty()
+
+    @pytest.mark.parametrize(
+        "prompt",
+        ["/clear", "/compact keep the notes", "/diagnose SR03", "/home/x/y is full"],
+    )
+    def test_a_listed_command_or_a_path_goes_through(self, tmp_path, prompt):
+        session = _FakeChatSession([{"type": "result", "is_error": False}])
+        _registry, client = self._client(self._project(tmp_path), session)
+
+        resp = client.post("/api/chat", json={"prompt": prompt, "chat_id": "c1"})
+
+        assert resp.status_code == 200
+        assert session.prompts == [prompt]
+
+
 class TestInterruptEndpoint:
     """POST /api/chat/{chat_id}/interrupt — signal-only, never releases."""
 
@@ -662,6 +715,30 @@ class TestChatEventsRoute:
         resp = client.get("/api/chat/fresh/events")
         assert resp.status_code == 204
         assert resp.content == b""
+
+    def test_the_frame_that_says_the_agent_ended_reaches_the_feed(self):
+        """The child can exit before the feed reads again; its last frame still goes out."""
+        ended = {
+            "type": "error",
+            "message": "The agent process ended.",
+            "error_type": "AgentExited",
+        }
+
+        class _EndsAsItIsFollowed(_FakeChatSession):
+            def subscribe(self):
+                feed, hello = super().subscribe()
+                # What the pump does when the stream closes: dead, then the frame.
+                self._stream_ended = True
+                feed.put_nowait({**ended, "seq": 1})
+                return feed, hello
+
+        session = _EndsAsItIsFollowed([])
+        client = TestClient(_make_chat_app(_FakeRegistry(session=session)))
+
+        frames = _data_frames(client.get("/api/chat/c1/events").text)
+
+        assert [f["type"] for f in frames] == ["hello", "error"]
+        assert frames[1]["error_type"] == "AgentExited"
 
 
 # ===========================================================================
@@ -1297,6 +1374,70 @@ class TestChatTurnRelease:
             assert payload["is_error"] is False
 
             await registry.cleanup_all()
+
+    async def test_a_child_that_exits_while_idle_is_replaced_by_the_next_prompt(
+        self, transcripts_on_disk
+    ):
+        """The next prompt starts a new child that resumes the same transcript.
+
+        A dead child left in the pool as active answered every later prompt with
+        a connection error until the operator started a new conversation.
+        """
+        created: list[_ExitingSdkClient] = []
+
+        def factory(options=None):  # noqa: ARG001
+            client = _ExitingSdkClient(_clean_responder("ok"))
+            created.append(client)
+            return client
+
+        with patch.object(chat_module, "HAS_SDK", True), sdk_seam(factory) as options:
+            registry = OperatorRegistry()
+            req = _req(registry)
+            await _collect_sse(
+                await chat_module.chat(req, chat_module.ChatRequest(prompt="p1", chat_id="c"))
+            )
+            first = registry.get_chat_session("c")
+            transcripts_on_disk.add("c")  # the first child wrote its transcript
+
+            created[0].exited.set()
+            for _ in range(40):
+                if not first.is_active:
+                    break
+                await asyncio.sleep(0.05)
+
+            f2 = await _collect_sse(
+                await chat_module.chat(req, chat_module.ChatRequest(prompt="p2", chat_id="c"))
+            )
+
+            assert len(created) == 2
+            assert created[1].prompts == ["p2"]
+            assert options[1].resume == "c"
+            assert any(f.get("type") == "text" and f.get("content") == "ok" for f in f2)
+            assert any(f.get("type") == "result" and f.get("is_error") is False for f in f2)
+            await registry.cleanup_all()
+
+
+class _ExitingSdkClient(_ScriptedSdkClient):
+    """A scripted client whose child exits when ``exited`` is set.
+
+    The SDK's response stream then ends with no result, as it does when the
+    CLI process is gone.
+    """
+
+    def __init__(self, responder) -> None:
+        super().__init__(responder)
+        self.exited = asyncio.Event()
+
+    async def receive_response(self):
+        prompt = asyncio.ensure_future(self._prompts.get())
+        gone = asyncio.ensure_future(self.exited.wait())
+        await asyncio.wait({prompt, gone}, return_when=asyncio.FIRST_COMPLETED)
+        if self.exited.is_set():
+            prompt.cancel()
+            return
+        gone.cancel()
+        async for message in self.responder(self, prompt.result()):
+            yield message
 
 
 class TestChatStripOnTheWire:

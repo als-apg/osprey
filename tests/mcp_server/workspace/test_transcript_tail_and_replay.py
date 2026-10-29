@@ -101,11 +101,21 @@ class TestIsBookkeepingEntry:
         """An entry flagged isMeta is bookkeeping whatever it holds."""
         assert is_bookkeeping_entry(_slash_command(_ts(0), "model")) is True
 
-    def test_command_name_without_meta_flag(self):
+    @pytest.mark.parametrize(
+        "text",
+        [
+            pytest.param(f"{COMMAND_NAME_PREFIX}/clear</command-name>", id="built-in"),
+            # CLI 2.1.300 writes a skill's echo this way, with no isMeta flag.
+            pytest.param(
+                "<command-message>demo-gallery</command-message>\n"
+                f"{COMMAND_NAME_PREFIX}/demo-gallery</command-name>",
+                id="skill",
+            ),
+        ],
+    )
+    def test_command_echo_without_meta_flag(self, text):
         """The slash-command echo counts even when isMeta is absent."""
-        entry = _user(_ts(0), f"{COMMAND_NAME_PREFIX}/clear</command-name>")
-
-        assert is_bookkeeping_entry(entry) is True
+        assert is_bookkeeping_entry(_user(_ts(0), text)) is True
 
     def test_local_command_stdout(self):
         """Captured slash-command output is bookkeeping."""

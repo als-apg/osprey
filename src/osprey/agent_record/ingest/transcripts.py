@@ -10,7 +10,8 @@ Each content block of a line becomes its own entry, keyed
 
 - ``prompt`` — a user line's text, or one of its image or document blocks;
 - ``answer`` — an assistant text block, with the line's ``message.usage``
-  token counts (the record's only copy of them);
+  token counts (the record's only copy of them), and ``api_error``, the kind
+  of failure, on an answer the model API failed (``isApiErrorMessage``);
 - ``thinking`` — the block's ``thinking`` text, kept even when empty (an
   ``omitted`` display writes the block with no text); ``redacted_thinking``
   is a ``thinking`` entry flagged ``redacted``;
@@ -297,6 +298,8 @@ def _assistant_entries(line: _Line, message: Mapping[str, Any], content: list) -
                     body[field_name] = message[name]
             if line.obj.get("requestId"):
                 body["request_id"] = line.obj["requestId"]
+            if line.obj.get("isApiErrorMessage") and isinstance(line.obj.get("error"), str):
+                body["api_error"] = line.obj["error"]
             entries.append(line.entry(KIND_ANSWER, index, body))
         elif btype == "thinking":
             text = block.get("thinking")
