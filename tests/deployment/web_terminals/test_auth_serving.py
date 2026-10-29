@@ -85,7 +85,7 @@ import textwrap
 import time
 import uuid
 from collections.abc import Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from importlib.metadata import requires as distribution_requires
 from pathlib import Path
@@ -113,7 +113,6 @@ from osprey.deployment.web_terminals.render import (
     TERMINAL_SECRET_HEADER,
     render_web_terminals,
 )
-from osprey.interfaces._serving import free_port
 from osprey.interfaces.common_middleware import PANEL_CAP_SEGMENT
 from osprey.services.auth_sidecar.app import (
     DEFAULT_OIDC_CLIENT_ID_ENV,
@@ -128,6 +127,7 @@ from osprey_connectors.dotenv import (
     merge_chain,
     parse_dotenv_file,
 )
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests._container_support import docker_cli_unavailable_reason_once
 from tests._renders import tier_render
 from tests.services.auth_sidecar.mock_idp import DEFAULT_CLIENT_ID, DEFAULT_CLIENT_SECRET
@@ -747,15 +747,16 @@ def serving_stack(tmp_path: Path, *, oidc: bool = False) -> Iterator[Stack]:
     idp_port: int | None = None
     idp_issuer: str | None = None
 
+    held = ExitStack()
     try:
-        # A port free a moment ago can be taken before docker binds it (the
-        # window is real: rendering and three container starts sit inside it),
-        # and the daemon reports that as an opaque failure. Re-render on a
-        # fresh port rather than turning a lost race into a red test.
+        # Docker binds each published port itself, so each port is reserved and
+        # held until the containers are gone. A service outside the test suite
+        # can still hold a port in the reserved band, which the daemon reports
+        # as an opaque failure, so a failed start re-renders on fresh ports.
         for attempt in range(3):
-            nginx_port = free_port()
+            nginx_port = held.enter_context(reserved_port())
             if oidc:
-                idp_port = free_port()
+                idp_port = held.enter_context(reserved_port())
                 idp_issuer = f"http://127.0.0.1:{idp_port}"
             artifacts = render_web_terminals(
                 _config(nginx_port, oidc_issuer=idp_issuer),
@@ -967,6 +968,7 @@ def serving_stack(tmp_path: Path, *, oidc: bool = False) -> Iterator[Stack]:
         # would collide with its name.
         for name in names:
             subprocess.run(["docker", "rm", "-f", name], capture_output=True, timeout=60)
+        held.close()
 
 
 @pytest.fixture(scope="module")

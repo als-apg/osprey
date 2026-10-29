@@ -38,7 +38,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import yaml
 
-from osprey.interfaces._serving import free_port
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
 from osprey_connectors_tests._harness import (
     DEFAULT_GENERATION,
@@ -1704,14 +1703,14 @@ async def test_manage_window_unknown_app_no_emit():
 # ── terminal down: real helper against a dead port ──────────────────────────
 
 
-async def test_focus_result_unchanged_when_terminal_down(tmp_path, monkeypatch):
+async def test_focus_result_unchanged_when_terminal_down(reserve_port, tmp_path, monkeypatch):
     """Real notify_agent_activity against a dead port: tool result unchanged."""
     monkeypatch.chdir(tmp_path)
     artifact_id = await _save_artifact(title="Down Terminal")
 
     from osprey.mcp_server.workspace.tools.focus_tools import artifact_focus
 
-    port = free_port()
+    port = reserve_port()
     # Gallery acknowledges the POST (a gallery failure is a tool error by
     # contract); only the TERMINAL is down here — the notify half under test.
     with (
@@ -1732,7 +1731,9 @@ async def test_focus_result_unchanged_when_terminal_down(tmp_path, monkeypatch):
     assert data["title"] == "Down Terminal"
 
 
-async def test_channel_write_result_unchanged_when_terminal_down(tmp_path, monkeypatch):
+async def test_channel_write_result_unchanged_when_terminal_down(
+    reserve_port, tmp_path, monkeypatch
+):
     """Real notify_agent_activity against a dead port: write result unchanged."""
     from osprey.mcp_server.control_system.server_context import initialize_server_context
 
@@ -1745,7 +1746,7 @@ async def test_channel_write_result_unchanged_when_terminal_down(tmp_path, monke
     mock_connector = AsyncMock()
     mock_connector.write_channel.return_value = write_result
 
-    port = free_port()
+    port = reserve_port()
     conn_patch, validator_patch = _channel_write_patches(mock_connector)
     with (
         conn_patch,

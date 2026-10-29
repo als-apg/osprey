@@ -4,8 +4,10 @@ The dispatch tutorial sweep, the allowlist-parity lane and the three chat-bridge
 lanes (Google Chat, Microsoft Teams, Nextcloud Talk) all run the same pair: a
 control-assistant repo built once with ``osprey init`` + ``osprey build``, then
 ``python -m osprey.mcp_server.dispatch_worker`` and ``python -m osprey.dispatch``
-started on free loopback ports with this interpreter, wired exactly as the
-compose templates wire the deployed services.
+started with this interpreter, wired exactly as the compose templates wire the
+deployed services. Each binds port 0 and names the port it got in uvicorn's
+startup line, which :func:`tests.e2e._server_port.bound_port` reads back from the
+log file the process writes to.
 """
 
 from __future__ import annotations
@@ -23,12 +25,50 @@ from typing import Any
 
 import pytest
 
-from osprey.interfaces._serving import free_port
 from tests.e2e._deploy_support import (
     find_osprey_console_script,
     format_failure,
     wait_for_health,
 )
+from tests.e2e._server_port import UVICORN_STARTUP, bound_port
+
+#: Lines of a child's log a failure message carries.
+_LOG_TAIL_LINES = 40
+
+
+def log_tail(log: Path) -> str:
+    """The tail of a child's log, for failure messages."""
+    try:
+        lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return "(no captured output)"
+    tail = "\n".join(lines[-_LOG_TAIL_LINES:])
+    return f"--- subprocess log (tail) ---\n{tail}" if tail else "(no captured output)"
+
+
+def _spawn_server(
+    argv: list[str], *, cwd: Path, env: Mapping[str, str], log: Path, health_timeout: float
+) -> tuple[subprocess.Popen, int]:
+    """Start a server child logging to *log*; return it and the port it bound, once healthy.
+
+    The child binds port 0 itself, so the port is read from its startup line and is
+    the one it holds: no other process can have taken it in between.
+    """
+    with log.open("w") as log_fh:
+        proc = subprocess.Popen(  # fixed argv, no shell
+            argv, cwd=str(cwd), env=dict(env), stdout=log_fh, stderr=subprocess.STDOUT
+        )
+    try:
+        port = bound_port(log, UVICORN_STARTUP, child=proc, timeout=health_timeout)
+        url = f"http://127.0.0.1:{port}/health"
+        try:
+            wait_for_health(url, health_timeout, proc=proc)
+        except AssertionError as exc:
+            raise AssertionError(f"{exc}\n{log_tail(log)}") from exc
+    except BaseException:
+        terminate(proc)
+        raise
+    return proc, port
 
 
 def terminate(proc: subprocess.Popen | None) -> None:
@@ -101,13 +141,13 @@ def build_repo(
 
 def start_worker(
     repo: Path,
-    port: int,
+    log: Path,
     *,
     token: str,
     health_timeout: float,
     run_cap_sec: int | None = None,
-) -> subprocess.Popen:
-    """Start the dispatch worker on ``port`` and wait for its ``/health``.
+) -> tuple[subprocess.Popen, int]:
+    """Start the dispatch worker, logging to *log*; return it and its port once healthy.
 
     The repo root and the render's config one level down are passed exactly as the
     dispatch_worker compose template wires the deployed worker. ``run_cap_sec`` is
@@ -117,7 +157,7 @@ def start_worker(
     """
     env = {
         **os.environ,
-        "DISPATCH_WORKER_PORT": str(port),
+        "DISPATCH_WORKER_PORT": "0",
         "DISPATCH_WORKER_TOKEN": token,
         "OSPREY_PROJECT_DIR": str(repo),
         "CONFIG_FILE": str(repo / "build" / "config.yml"),
@@ -125,19 +165,13 @@ def start_worker(
     }
     if run_cap_sec is not None:
         env["DISPATCH_TIMEOUT_SEC"] = str(run_cap_sec)
-    proc = subprocess.Popen(  # fixed argv, no shell
+    return _spawn_server(
         [sys.executable, "-m", "osprey.mcp_server.dispatch_worker"],
-        cwd=str(repo),
+        cwd=repo,
         env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
+        log=log,
+        health_timeout=health_timeout,
     )
-    try:
-        wait_for_health(f"http://127.0.0.1:{port}/health", health_timeout, proc=proc)
-    except BaseException:
-        terminate(proc)
-        raise
-    return proc
 
 
 @contextlib.contextmanager
@@ -150,47 +184,45 @@ def running_dispatch_stack(
     health_timeout: float,
     run_cap_sec: int | None = None,
 ) -> Iterator[dict]:
-    """A real worker + dispatcher pair on free ports, torn down on the way out.
+    """A real worker + dispatcher pair, each on the port it bound, torn down on the way out.
 
     ``write_triggers(triggers_path, worker_port)`` writes the triggers document the
-    dispatcher runs, once the worker's port is known. Yields the two base URLs, the
-    repo and the worker process (whose output a failure message may want).
+    dispatcher runs, once the worker's port is known. The two logs sit beside
+    ``triggers_path``. Yields the two base URLs, the repo, the worker process and
+    its log (whose tail a failure message may want).
     """
-    worker_port = free_port()
-    dispatcher_port = free_port()
-    write_triggers(triggers_path, worker_port)
+    worker_log = triggers_path.parent / "worker.log"
+    dispatcher_log = triggers_path.parent / "dispatcher.log"
 
     worker_proc: subprocess.Popen | None = None
     dispatcher_proc: subprocess.Popen | None = None
     try:
-        worker_proc = start_worker(
+        worker_proc, worker_port = start_worker(
             repo,
-            worker_port,
+            worker_log,
             token=token,
             health_timeout=health_timeout,
             run_cap_sec=run_cap_sec,
         )
+        write_triggers(triggers_path, worker_port)
         dispatcher_env = {
             **os.environ,
             "TRIGGERS_YML": str(triggers_path),
             "EVENT_DISPATCHER_TOKEN": token,
             "DISPATCH_WORKER_TOKEN": token,
             "FASTMCP_TRANSPORT": "http",
-            "FASTMCP_PORT": str(dispatcher_port),
+            "FASTMCP_PORT": "0",
             "FASTMCP_HOST": "127.0.0.1",
             "MCP_TRANSPORT": "http",
-            "MCP_PORT": str(dispatcher_port),
+            "MCP_PORT": "0",
             "CLAUDECODE": "",
         }
-        dispatcher_proc = subprocess.Popen(  # fixed argv, no shell
+        dispatcher_proc, dispatcher_port = _spawn_server(
             [sys.executable, "-m", "osprey.dispatch"],
-            cwd=str(repo),
+            cwd=repo,
             env=dispatcher_env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-        )
-        wait_for_health(
-            f"http://127.0.0.1:{dispatcher_port}/health", health_timeout, proc=dispatcher_proc
+            log=dispatcher_log,
+            health_timeout=health_timeout,
         )
 
         yield {
@@ -198,6 +230,7 @@ def running_dispatch_stack(
             "worker_url": f"http://127.0.0.1:{worker_port}",
             "repo": repo,
             "worker_proc": worker_proc,
+            "worker_log": worker_log,
         }
     finally:
         terminate(dispatcher_proc)

@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import ast
 import re
-import shutil
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -44,69 +43,7 @@ RELEASING_HELPERS = frozenset({"free_port", "find_free_port"})
 
 #: Files that still pick a released port, relative to the repository root,
 #: sorted, each with its number of sites.
-REMAINING_SITES: dict[str, int] = {
-    "src/osprey/interfaces/_serving.py": 1,
-    "tests/cli/test_als_lane.py": 1,
-    "tests/cli/test_web_cmd.py": 43,
-    "tests/cli/test_web_session_lifetime.py": 9,
-    "tests/connectors/test_epics_ca_softioc.py": 1,
-    "tests/deployment/test_qmd_entrypoint_loopback_probe.py": 1,
-    "tests/deployment/web_terminals/test_auth_serving.py": 2,
-    "tests/e2e/_dispatch_harness.py": 2,
-    "tests/e2e/_orm_stack.py": 1,
-    "tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py": 1,
-    "tests/e2e/fixtures/gchat_pubsub_emulator.py": 1,
-    "tests/e2e/test_dispatch_allowlist_parity.py": 1,
-    "tests/e2e/test_target_switch_agentic.py": 1,
-    "tests/e2e/test_va_substrate_equivalence.py": 1,
-    "tests/e2e/web_terminals/test_loopback_chokepoint.py": 1,
-    "tests/e2e/web_terminals/test_session_restart_e2e.py": 1,
-    "tests/e2e/web_terminals/test_terminal_auth_e2e.py": 1,
-    "tests/fixtures/bench_ioc.py": 1,
-    "tests/health/core/test_ariel.py": 1,
-    "tests/hooks/test_approval_queue_enrichment.py": 3,
-    "tests/hooks/test_notebook_update_hook.py": 1,
-    "tests/hooks/test_osprey_panels_context.py": 1,
-    "tests/hooks/test_panels_context_hook.py": 3,
-    "tests/infrastructure/test_server_launcher.py": 6,
-    "tests/integration/test_tiled_export.py": 1,
-    "tests/interfaces/channel_finder/test_server_launcher.py": 11,
-    "tests/interfaces/web_terminal/test_jupyter_sidecar.py": 1,
-    "tests/interfaces/web_terminal/test_opaque_panel_browser.py": 1,
-    "tests/interfaces/web_terminal/test_panels_browser.py": 5,
-    "tests/interfaces/web_terminal/test_panels_collab_browser.py": 1,
-    "tests/mcp_server/bluesky/test_draft_tools_emit.py": 1,
-    "tests/mcp_server/test_artifact_store.py": 2,
-    "tests/mcp_server/test_backend_emit_sites.py": 2,
-    "tests/mcp_server/test_endpoint_prober.py": 1,
-    "tests/pty/conftest.py": 1,
-    "tests/services/ariel_search/integration/test_default_deployment_degrades.py": 1,
-    "tests/services/ariel_search/integration/test_enhance_image_modules.py": 1,
-    "tests/services/ariel_search/test_attachment_fetch.py": 1,
-    "tests/services/ariel_search/test_hybrid_search.py": 1,
-    "tests/services/ariel_search/test_image_caption.py": 4,
-    "tests/services/ariel_search/test_image_embedding.py": 1,
-    "tests/services/ariel_search/test_image_lane.py": 1,
-    "tests/services/ariel_search/test_llama_stub.py": 1,
-    "tests/services/ariel_search/test_provider_resolver.py": 8,
-    "tests/services/ariel_search/test_semantic_search.py": 1,
-    "tests/services/ariel_search/test_vision_errors.py": 1,
-    "tests/services/bluesky_bridge/test_data_route.py": 1,
-    "tests/stores/test_gallery_launch_on_save.py": 1,
-    "tests/test_graphdb_container.py": 1,
-    "tests/va/e2e/conftest.py": 2,
-    "tests/va/e2e/test_bench_ioc_live.py": 1,
-    "tests/va/e2e/test_bluesky_lanes.py": 1,
-    "tests/va/e2e/test_live_standin.py": 2,
-    "tests/va/e2e/test_model_status_va.py": 2,
-    "tests/va/e2e/test_per_target_posture.py": 1,
-    "tests/va/e2e/test_planted_journal.py": 1,
-    "tests/va/e2e/test_substrate_parity.py": 1,
-    "tests/va/e2e/test_target_switch.py": 2,
-    "tests/va/e2e/test_va_put_surface.py": 2,
-    "tests/va/test_apply_fault.py": 4,
-    "tests/va/test_lume_pva_seam.py": 4,
-}
+REMAINING_SITES: dict[str, int] = {}
 
 _TOKEN = re.compile(r"\.bind\b|free_port\b")
 
@@ -266,15 +203,25 @@ def test_a_held_or_explicit_port_is_no_site(source):
     assert released_port_count(source) == 0
 
 
-def _copy_tree(tmp_path: Path) -> Path:
+#: A listed file of the synthetic trees below, with the one site it holds.
+_LISTED = {"tests/listed/test_listed.py": 1}
+
+_ONE_SITE = "from osprey.interfaces._serving import free_port\nPORT = free_port()\n"
+
+
+def _tree(tmp_path: Path) -> Path:
+    """A repository with the walked trees and one listed file holding its site."""
     root = tmp_path / "repo"
     for tree in TREES:
         (root / tree).mkdir(parents=True)
-    for relative in REMAINING_SITES:
-        target = root / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(REPO_ROOT / relative, target)
+    for relative in _LISTED:
+        (root / relative).parent.mkdir(parents=True)
+        (root / relative).write_text(_ONE_SITE)
     return root
+
+
+def test_the_synthetic_tree_passes_the_ratchet(tmp_path):
+    assert ratchet_failures(released_port_sites(_tree(tmp_path)), _LISTED) == []
 
 
 @pytest.mark.parametrize(
@@ -283,11 +230,11 @@ def _copy_tree(tmp_path: Path) -> Path:
     ids=["framework-suite", "connectors-suite"],
 )
 def test_a_planted_site_fails_the_ratchet(tmp_path, planted_path):
-    root = _copy_tree(tmp_path)
+    root = _tree(tmp_path)
     planted = root / planted_path
     planted.parent.mkdir(parents=True)
-    planted.write_text("from osprey.interfaces._serving import free_port\nPORT = free_port()\n")
-    failures = ratchet_failures(released_port_sites(root), REMAINING_SITES)
+    planted.write_text(_ONE_SITE)
+    failures = ratchet_failures(released_port_sites(root), _LISTED)
     assert len(failures) == 1
     assert failures[0].startswith(f"{planted_path}: 1 pick-and-release")
     assert "bind port 0 in the server" in failures[0]
@@ -295,20 +242,20 @@ def test_a_planted_site_fails_the_ratchet(tmp_path, planted_path):
 
 
 def test_a_grown_listed_file_fails_the_ratchet(tmp_path):
-    root = _copy_tree(tmp_path)
-    grown = next(iter(REMAINING_SITES))
+    root = _tree(tmp_path)
+    (grown,) = _LISTED
     with (root / grown).open("a", encoding="utf-8") as handle:
         handle.write("\n\ndef _planted():\n    return free_port()\n")
-    failures = ratchet_failures(released_port_sites(root), REMAINING_SITES)
+    failures = ratchet_failures(released_port_sites(root), _LISTED)
     assert len(failures) == 1
-    assert failures[0].startswith(f"{grown}: {REMAINING_SITES[grown] + 1} pick-and-release")
+    assert failures[0].startswith(f"{grown}: 2 pick-and-release")
 
 
 def test_a_converted_file_fails_the_ratchet_until_it_is_delisted(tmp_path):
-    root = _copy_tree(tmp_path)
-    converted = next(iter(REMAINING_SITES))
+    root = _tree(tmp_path)
+    (converted,) = _LISTED
     (root / converted).write_text('"""Converted."""\n')
-    failures = ratchet_failures(released_port_sites(root), REMAINING_SITES)
+    failures = ratchet_failures(released_port_sites(root), _LISTED)
     assert failures == [f"{converted}: no released port left; delete it from REMAINING_SITES"]
 
 
