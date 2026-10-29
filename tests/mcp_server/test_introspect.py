@@ -29,28 +29,25 @@ class TestResolveEnvValue:
     def test_plain_string(self):
         assert _resolve_env_value("hello") == "hello"
 
-    def test_var_with_default_missing(self):
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("MISSING_VAR", None)
-            assert _resolve_env_value("${MISSING_VAR:-fallback}") == "fallback"
+    def test_var_with_default_missing(self, monkeypatch):
+        monkeypatch.delenv("MISSING_VAR", raising=False)
+        assert _resolve_env_value("${MISSING_VAR:-fallback}") == "fallback"
 
     def test_var_with_default_present(self):
         with patch.dict(os.environ, {"MY_VAR": "real_value"}):
             assert _resolve_env_value("${MY_VAR:-fallback}") == "real_value"
 
-    def test_var_without_default_missing(self):
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("MISSING_VAR", None)
-            assert _resolve_env_value("${MISSING_VAR}") == ""
+    def test_var_without_default_missing(self, monkeypatch):
+        monkeypatch.delenv("MISSING_VAR", raising=False)
+        assert _resolve_env_value("${MISSING_VAR}") == ""
 
     def test_var_without_default_present(self):
         with patch.dict(os.environ, {"MY_VAR": "value"}):
             assert _resolve_env_value("${MY_VAR}") == "value"
 
-    def test_empty_default(self):
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("MISSING_VAR", None)
-            assert _resolve_env_value("${MISSING_VAR:-}") == ""
+    def test_empty_default(self, monkeypatch):
+        monkeypatch.delenv("MISSING_VAR", raising=False)
+        assert _resolve_env_value("${MISSING_VAR:-}") == ""
 
     def test_multiple_vars(self):
         with patch.dict(os.environ, {"A": "1", "B": "2"}):
