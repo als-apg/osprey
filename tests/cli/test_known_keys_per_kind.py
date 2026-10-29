@@ -98,13 +98,13 @@ def test_root_set_is_todays_schema() -> None:
     assert known_profile_keys(ProfileKind.ROOT) == _KNOWN_PROFILE_KEYS
 
 
-def test_tier_set_is_root_minus_deployment_keys_plus_render_keys() -> None:
+def test_tier_set_admits_no_deployment_key_and_every_render_key() -> None:
+    """The login set itself is pinned in ``test_login_key_set.py``."""
     assert ROOT_ONLY_KEYS == _DEPLOYMENT_KEYS
     assert RENDER_KEYS == {"extra_mounts", "seed_base", "image"}
-    assert known_profile_keys(ProfileKind.TIER) == (
-        (_KNOWN_PROFILE_KEYS - _DEPLOYMENT_KEYS) | {"extra_mounts", "seed_base", "image"}
-    )
-    assert TIER_KIND_KEYS.isdisjoint(_DEPLOYMENT_KEYS)
+    assert known_profile_keys(ProfileKind.TIER) == TIER_KIND_KEYS
+    assert TIER_KIND_KEYS.isdisjoint(_DEPLOYMENT_KEYS | {"port_base", "connector"})
+    assert RENDER_KEYS <= TIER_KIND_KEYS
 
 
 def test_app_set_is_the_agent_definition() -> None:

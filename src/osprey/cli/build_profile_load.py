@@ -287,10 +287,56 @@ ROOT_ONLY_KEYS = frozenset(
     }
 )
 
-#: The known keys of a tier: the root set minus the deployment's own keys, plus
-#: the per-render keys. A tier adds to the deployment's agent and never
-#: inherits from elsewhere or subtracts.
-TIER_KIND_KEYS = (ROOT_KIND_KEYS - ROOT_ONLY_KEYS) | RENDER_KEYS
+#: Root keys a login may not spell beside :data:`ROOT_ONLY_KEYS`: the facts of
+#: the deployment (its connector, model provider, port block, shared services,
+#: install and schema stamp), which are one per deployment, never one per
+#: access level. A login may pick a ``model`` the deployment's provider serves.
+LOGIN_DEPLOYMENT_FACTS = frozenset(
+    {
+        "connector",
+        "provider",
+        "port_base",
+        "dispatch",
+        "bluesky",
+        "bluesky_web",
+        "virtual_accelerator",
+        "nextcloud_bridge",
+        "gchat_bridge",
+        "teams_bridge",
+        "va_archiver",
+        "artifact_server",
+        "requires_osprey_version",
+        "osprey_install",
+        "python_env",
+    }
+)
+
+#: The known keys of a tier (a login), declared by name: what the card's agent
+#: is, the ``provenance:`` block ``osprey init`` writes, and the per-render
+#: keys. A login adds to the deployment's agent and never inherits from
+#: elsewhere, subtracts, or restates a deployment fact.
+TIER_KIND_KEYS = (
+    frozenset(
+        {
+            "name",
+            "model",
+            "channel_finder_mode",
+            "claude_md_template",
+            "default_panel",
+            "panel_presets",
+            "hooks",
+            "rules",
+            "skills",
+            "agents",
+            "output_styles",
+            "web_panels",
+            "mcp_servers",
+            "config",
+            "provenance",
+        }
+    )
+    | RENDER_KEYS
+)
 
 #: The known keys of an app: a whole agent definition (lists, brief, config and
 #: tool servers), the model it runs, plus the per-render keys. The model is an

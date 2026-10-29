@@ -445,6 +445,20 @@ def test_a_user_pinned_to_a_tier_with_no_file_is_reported(tmp_path: Path) -> Non
     )
 
 
+def test_a_tier_that_spells_provider_is_a_manual_step_naming_the_file(tmp_path: Path) -> None:
+    root = _previous_release_repo(tmp_path / "als-exemplar")
+    layer_file = root / f"{RETIRED_CATALOG_KEY}" / "readonly.yml"
+    layer_file.write_text(
+        layer_file.read_text(encoding="utf-8") + "provider: cborg\n", encoding="utf-8"
+    )
+
+    result = _revalidate(root)
+
+    assert result.exit_code == 0, result.output
+    assert "tiers/readonly.yml spells `provider: cborg`" in result.output
+    assert "the provider lives in profile.yml" in result.output
+
+
 # ── Operator content the rewrite must not lose ──────────────────────────────
 
 
