@@ -3,7 +3,11 @@
 
 All vendor assets (JS libraries, CSS, fonts) are declared in
 vendor_manifest.json, which pairs each asset with its CDN URL, a SHA256
-checksum, and one or more local target directories.
+checksum, and one or more local target directories. A target is either a
+directory relative to this ``interfaces`` package, or an object
+``{"dir": ..., "base": "package"}`` naming a directory relative to the whole
+``osprey`` package — how a service's own panel (``services/<name>/panel/``)
+receives a file it loads from ``vendor/`` beside its page.
 
 By default, interfaces serve CDN URLs directly — no setup required.
 Firewalled deployments (e.g. the LBL control room) opt into local bundles
@@ -22,10 +26,21 @@ import ssl
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, cast
 
 MANIFEST_PATH = Path(__file__).parent / "vendor_manifest.json"
+
+#: The directory ``"interfaces"``-based targets resolve against by default.
+INTERFACES_DIR = Path(__file__).parent
+
+#: The directory ``"package"``-based targets resolve against by default: the
+#: installed ``osprey`` package, wherever it was installed.
+PACKAGE_DIR = INTERFACES_DIR.parent
+
+#: The two bases a manifest target can name.
+_BASES = ("interfaces", "package")
 
 # `osprey vendor fetch` runs during image builds (OSPREY_OFFLINE=1), where a
 # momentary DNS or route failure reaching the public CDN would otherwise abort
@@ -161,86 +176,117 @@ def _fetch_one(
         )
 
 
+def _target_spec(target: str | dict[str, str]) -> tuple[str, str]:
+    """A manifest target as ``(base, dir)``; a bare string is interfaces-based."""
+    if isinstance(target, str):
+        return "interfaces", target
+    base = target.get("base", "interfaces")
+    if base not in _BASES:
+        raise ValueError(f"vendor manifest target {target!r} names an unknown base {base!r}")
+    return base, target["dir"]
+
+
+def _normalized(directory: str) -> str:
+    return directory.strip().strip("/")
+
+
+def _entries(manifest: dict[str, Any]) -> list[tuple[str, str, str, str, str]]:
+    """Every file the manifest delivers, as ``(base, dir, filename, url, sha256)``."""
+    entries: list[tuple[str, str, str, str, str]] = []
+    for asset in manifest.get("assets", []):
+        for target in asset["targets"]:
+            base, directory = _target_spec(target)
+            entries.append((base, directory, asset["filename"], asset["url"], asset["sha256"]))
+    for bundle in manifest.get("font_bundles", []):
+        base, directory = _target_spec(bundle["target"])
+        for filename, sha256 in bundle["files"].items():
+            entries.append((base, directory, filename, bundle["base_url"] + filename, sha256))
+    return entries
+
+
+def _select(
+    entries: list[tuple[str, str, str, str, str]], targets: Sequence[str] | None
+) -> list[tuple[str, str, str, str, str]]:
+    """The entries whose target directory is one of ``targets``; all when ``None``.
+
+    Directories compare without leading/trailing slashes. A requested directory
+    no entry delivers to raises, so a misspelt filter fails the build instead of
+    fetching nothing.
+    """
+    if targets is None:
+        return entries
+    wanted = {_normalized(t) for t in targets}
+    known = {_normalized(directory) for _, directory, *_ in entries}
+    unknown = sorted(wanted - known)
+    if unknown:
+        raise ValueError(
+            f"unknown vendor target(s): {', '.join(unknown)}. "
+            f"Known targets: {', '.join(sorted(known))}"
+        )
+    return [entry for entry in entries if _normalized(entry[1]) in wanted]
+
+
 def fetch_all(
-    base_dir: Path | None = None, quiet: bool = False, insecure: bool | None = None
+    base_dir: Path | None = None,
+    quiet: bool = False,
+    insecure: bool | None = None,
+    targets: Sequence[str] | None = None,
+    package_dir: Path | None = None,
 ) -> list[str]:
-    """Download all vendor assets declared in the manifest.
+    """Download the vendor assets declared in the manifest.
 
     Idempotent: skips files that already exist with a matching checksum.
     Returns list of files that were actually downloaded (not skipped).
 
     ``insecure`` skips TLS cert verification (SHA256 still enforced). If
     None, falls back to the ``OSPREY_VENDOR_INSECURE`` env var.
+
+    ``targets`` restricts the fetch to those target directories (as written in
+    the manifest, slashes optional); ``None`` fetches every target. An unknown
+    directory raises ``ValueError`` before anything is downloaded.
+
+    ``base_dir`` and ``package_dir`` are where interfaces-based and
+    package-based targets resolve; they default to :data:`INTERFACES_DIR` and
+    :data:`PACKAGE_DIR`.
     """
-    if base_dir is None:
-        base_dir = Path(__file__).parent
+    roots = {"interfaces": base_dir or INTERFACES_DIR, "package": package_dir or PACKAGE_DIR}
     if insecure is None:
         insecure = bool(os.environ.get("OSPREY_VENDOR_INSECURE"))
 
-    manifest = _load_manifest()
+    selected = _select(_entries(_load_manifest()), targets)
     downloaded: list[str] = []
-
-    for asset in manifest.get("assets", []):
-        for target in asset["targets"]:
-            dest = base_dir / target / asset["filename"]
-            if dest.exists() and _sha256(dest) == asset["sha256"]:
-                continue
-            if not quiet:
-                print(f"  {asset['filename']} → {target}")
-            _fetch_one(asset["url"], dest, asset["sha256"], insecure=insecure)
-            downloaded.append(str(dest))
-
-    for bundle in manifest.get("font_bundles", []):
-        base_url = bundle["base_url"]
-        target_dir = base_dir / bundle["target"]
-        for filename, sha256 in bundle["files"].items():
-            dest = target_dir / filename
-            if dest.exists() and _sha256(dest) == sha256:
-                continue
-            if not quiet:
-                print(f"  {filename} → {bundle['target']}")
-            _fetch_one(base_url + filename, dest, sha256, insecure=insecure)
-            downloaded.append(str(dest))
-
+    for base, directory, filename, url, sha256 in selected:
+        dest = roots[base] / directory / filename
+        if dest.exists() and _sha256(dest) == sha256:
+            continue
+        if not quiet:
+            print(f"  {filename} → {directory}")
+        _fetch_one(url, dest, sha256, insecure=insecure)
+        downloaded.append(str(dest))
     return downloaded
 
 
-def verify_all(base_dir: Path | None = None) -> tuple[list[str], list[str]]:
+def verify_all(
+    base_dir: Path | None = None, package_dir: Path | None = None
+) -> tuple[list[str], list[str]]:
     """Verify all vendor assets exist and have correct checksums.
 
     Returns (ok_files, problems) where problems is a list of human-readable
-    error strings.
+    error strings. ``base_dir`` and ``package_dir`` resolve targets as in
+    :func:`fetch_all`.
     """
-    if base_dir is None:
-        base_dir = Path(__file__).parent
-
-    manifest = _load_manifest()
+    roots = {"interfaces": base_dir or INTERFACES_DIR, "package": package_dir or PACKAGE_DIR}
     ok: list[str] = []
     problems: list[str] = []
-
-    for asset in manifest.get("assets", []):
-        for target in asset["targets"]:
-            rel = str(Path(target) / asset["filename"])
-            dest = base_dir / rel
-            if not dest.exists():
-                problems.append(f"MISSING: {rel}")
-            elif _sha256(dest) != asset["sha256"]:
-                problems.append(f"CHECKSUM MISMATCH: {rel}")
-            else:
-                ok.append(str(dest))
-
-    for bundle in manifest.get("font_bundles", []):
-        target_dir = base_dir / bundle["target"]
-        for filename, sha256 in bundle["files"].items():
-            rel = str(Path(bundle["target"]) / filename)
-            dest = target_dir / filename
-            if not dest.exists():
-                problems.append(f"MISSING: {rel}")
-            elif _sha256(dest) != sha256:
-                problems.append(f"CHECKSUM MISMATCH: {rel}")
-            else:
-                ok.append(str(dest))
-
+    for base, directory, filename, _url, sha256 in _entries(_load_manifest()):
+        rel = str(Path(directory) / filename)
+        dest = roots[base] / rel
+        if not dest.exists():
+            problems.append(f"MISSING: {rel}")
+        elif _sha256(dest) != sha256:
+            problems.append(f"CHECKSUM MISMATCH: {rel}")
+        else:
+            ok.append(str(dest))
     return ok, problems
 
 
