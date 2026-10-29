@@ -225,9 +225,9 @@ class TestHeldSocket:
         argv = [sys.executable, "-c", probe, str(held.fd)]
         # close_fds=False is the widest inheritance Popen offers: the fd still
         # does not cross, because it is not inheritable.
-        assert subprocess.run(argv, close_fds=False, check=False).returncode == 3
-        assert subprocess.run(argv, check=False).returncode == 3
-        assert subprocess.run(argv, pass_fds=(held.fd,), check=False).returncode == 0
+        assert subprocess.run(argv, close_fds=False, check=False, timeout=60).returncode == 3
+        assert subprocess.run(argv, check=False, timeout=60).returncode == 3
+        assert subprocess.run(argv, pass_fds=(held.fd,), check=False, timeout=60).returncode == 0
 
 
 class TestRespawn:

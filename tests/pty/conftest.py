@@ -181,6 +181,7 @@ def _cli(*args: str, cwd: Path, env: Mapping[str, str]) -> subprocess.CompletedP
         capture_output=True,
         text=True,
         check=False,
+        timeout=180,
     )
 
 

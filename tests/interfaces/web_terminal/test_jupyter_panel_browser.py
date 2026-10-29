@@ -317,6 +317,7 @@ def _assert_nothing_outlived(*patterns: str) -> None:
             capture_output=True,
             text=True,
             check=False,
+            timeout=30,
         )
         if found.returncode != 0:
             return
@@ -340,6 +341,7 @@ def _describe(pids: list[str]) -> str:
             capture_output=True,
             text=True,
             check=False,
+            timeout=30,
         )
         described.append(f"  {pid}: {shown.stdout.strip() or '<gone>'}")
     return "\n".join(described)

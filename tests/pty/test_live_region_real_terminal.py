@@ -438,12 +438,9 @@ class PtyProcess:
         that no one is going to answer would sit there indefinitely, holding
         its repo copy, its pty and its stub log open.
         """
-        try:
+        with contextlib.suppress(OSError):  # pragma: no cover - already reaped
             self._process.kill()
-        except OSError:  # pragma: no cover - already reaped
-            pass
-        else:
-            self._process.wait()
+        self._process.wait(timeout=30)
         self._close_master()
 
     def finish(self, *, timeout: float = RUN_TIMEOUT) -> PtyRun:
@@ -463,7 +460,7 @@ class PtyProcess:
             exit_code = self._process.wait(timeout=30)
         except subprocess.TimeoutExpired:  # pragma: no cover - defensive
             self._process.kill()
-            exit_code = self._process.wait()
+            exit_code = self._process.wait(timeout=30)
 
         terminal = Terminal()
         terminal.feed(bytes(self._buffer).decode("utf-8", "replace"))
