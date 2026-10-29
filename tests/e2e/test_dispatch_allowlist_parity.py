@@ -50,7 +50,7 @@ from pathlib import Path
 import pytest
 
 from osprey.agent_runner.tool_policy import PASSTHROUGH_TOOLS
-from osprey.interfaces._serving import free_port
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests._live import wait_until
 from tests.e2e._dispatch_harness import build_repo, start_worker, terminate
 from tests.e2e.provider import E2E_MODEL, e2e_provider
@@ -147,9 +147,9 @@ def approval_off_repo(built_repo: Path, tmp_path_factory: pytest.TempPathFactory
 
 
 def _start_worker(repo: Path) -> tuple[subprocess.Popen, str]:
-    port = free_port()
-    proc = start_worker(repo, port, token=TOKEN, health_timeout=HEALTH_TIMEOUT_SEC)
-    return proc, f"http://127.0.0.1:{port}"
+    with reserved_port() as port:
+        proc = start_worker(repo, port, token=TOKEN, health_timeout=HEALTH_TIMEOUT_SEC)
+        return proc, f"http://127.0.0.1:{port}"
 
 
 @pytest.fixture

@@ -105,6 +105,7 @@ from osprey_connectors.control_context import (
 )
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.types import TARGET_LIVE, TARGET_VA
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests.e2e.judge import LLMJudge
 from tests.e2e.profile_edits import set_pairs
 from tests.e2e.sdk_helpers import (
@@ -137,7 +138,6 @@ from tests.fixtures.bench_ioc import (
     caget,
     caput,
     docker,
-    free_port,
     require_bench_image,
 )
 from tests.va.e2e import _image as va_image
@@ -655,19 +655,18 @@ def switch_deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Swit
     _require_va_image()
 
     workspace = tmp_path_factory.mktemp("target_switch_agentic")
-    va_port = free_port()
-
-    with bench_ioc(prefix="osprey-target-switch-agentic-bench") as bench:
-        corrector_start = caget(bench.port, CORRECTOR_SP)
-        repo = _init_and_build(workspace, bench_port=bench.port, va_port=va_port)
-        with _virtual_accelerator(va_port, repo) as va_name:
-            yield SwitchDeployment(
-                repo=repo,
-                bench=bench,
-                va_port=va_port,
-                va_container=va_name,
-                corrector_start=corrector_start,
-            )
+    with reserved_port() as va_port:
+        with bench_ioc(prefix="osprey-target-switch-agentic-bench") as bench:
+            corrector_start = caget(bench.port, CORRECTOR_SP)
+            repo = _init_and_build(workspace, bench_port=bench.port, va_port=va_port)
+            with _virtual_accelerator(va_port, repo) as va_name:
+                yield SwitchDeployment(
+                    repo=repo,
+                    bench=bench,
+                    va_port=va_port,
+                    va_container=va_name,
+                    corrector_start=corrector_start,
+                )
 
 
 # ---------------------------------------------------------------------------
