@@ -54,8 +54,6 @@ import sys
 import time
 from typing import Any
 
-from osprey_connectors_tests._harness._ports import reserved_port
-
 # The CA-client worker. Dispatched before this module imports pytest or any
 # osprey package, so the client process stays a bare aioca client.
 
@@ -203,6 +201,7 @@ from osprey_connectors.simulation.view import (  # noqa: E402
     Channel,
     SimulatorView,
 )
+from osprey_connectors_tests._harness._ports import reserved_port  # noqa: E402
 from tests.va._collection import assert_module_collected  # noqa: E402
 from tests.va.e2e import conftest as e2e_conftest  # noqa: E402
 
