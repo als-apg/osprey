@@ -1528,9 +1528,17 @@ def _resolve_agent_record_render_context(config, repo_root=None):
     host = None
     host_dir = agent_record_host_projects_dir(config, repo_root)
     if host_dir is not None and host_dir.is_dir():
+        root = Path(repo_root) if repo_root is not None else Path(resolve_repo_root(config))
         host = {
             "source": host_dir.as_posix(),
             "target": f"{DEFAULT_TRANSCRIPTS_DIR}/{HOST_TRANSCRIPT_ROOT}/{host_dir.name}",
+            **_host_transcripts_reader(
+                host_dir,
+                [
+                    root / relpath
+                    for relpath in (SPOOL_DIR_RELPATH, RECORD_DIR_RELPATH, ARCHIVE_DIR_RELPATH)
+                ],
+            ),
         }
     env_files = list(creds.owner_files(config)[creds.RECORD_SERVICE])
     return {
@@ -1549,6 +1557,36 @@ def _resolve_agent_record_render_context(config, repo_root=None):
         "host": host,
         "clickhouse": _resolve_agent_record_clickhouse_context(config),
     }
+
+
+def _host_transcripts_reader(host_dir, shared_dirs):
+    """The ``user`` and ``group_add`` agent-record runs as to read the host's transcripts.
+
+    Claude Code writes its transcripts ``0600`` for the account running it, so
+    only that account reads them: agent-record runs as the uid and gid that own
+    the host's project directory, read off the directory rather than off the
+    process rendering, so a render made by another account still names the
+    host user. The record's own directories (the spool, the embedded store,
+    the archive) are shared through their group, which the container joins as
+    a supplementary group wherever it differs from that gid.
+
+    :param host_dir: The host build's Claude Code project directory, which exists
+    :type host_dir: pathlib.Path
+    :param shared_dirs: The record's group-shared directories on the host
+    :type shared_dirs: list[pathlib.Path]
+    :return: ``user`` (``"<uid>:<gid>"``) and ``group_add`` (sorted gids)
+    :rtype: dict
+    """
+    owner = host_dir.stat()
+    groups = set()
+    for directory in shared_dirs:
+        try:
+            gid = directory.stat().st_gid
+        except OSError:
+            continue
+        if gid != owner.st_gid:
+            groups.add(gid)
+    return {"user": f"{owner.st_uid}:{owner.st_gid}", "group_add": sorted(groups)}
 
 
 def _agent_record_source_keys(record_port):

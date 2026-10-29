@@ -26,6 +26,18 @@ services:
     # per-project so two OSPREY projects can run an agent record on one host.
     container_name: {{ osprey_labels.project_name }}-agent-record
     command: ["osprey", "agent-record", "serve", "--host", "0.0.0.0", "--port", "{{ rec.container_port }}"]
+{%- if rec.host %}
+    # Runs as the host user who owns the host's transcripts, which Claude Code
+    # writes for that user alone; the record's own directories are reached
+    # through their group.
+    user: "{{ rec.host.user }}"
+{%- if rec.host.group_add %}
+    group_add:
+{%- for gid in rec.host.group_add %}
+      - "{{ gid }}"
+{%- endfor %}
+{%- endif %}
+{%- endif %}
     security_opt: ["no-new-privileges:true"]
     labels:
       # Recreates the container when one of its credential files changes:

@@ -395,6 +395,52 @@ def test_no_host_identity_means_no_host_bind(tmp_path: Path) -> None:
     assert not [m for m in service["volumes"] if isinstance(m, dict)]
 
 
+def test_agent_record_runs_as_the_owner_of_the_host_projects_dir(tmp_path: Path) -> None:
+    """Claude Code writes the host's transcripts ``0600``: only their owner reads them."""
+    config = _host_config(tmp_path)
+    host_dir = claude_project_dir(tmp_path / "build")
+    host_dir.mkdir(parents=True)
+    owner = host_dir.stat()
+
+    service = _service(config)
+
+    assert service["user"] == f"{owner.st_uid}:{owner.st_gid}"
+    assert "group_add" not in service
+
+
+def test_without_a_host_bind_agent_record_keeps_the_images_user(tmp_path: Path) -> None:
+    service = _service(_host_config(tmp_path))
+
+    assert "user" not in service
+    assert "group_add" not in service
+
+
+class _Stat:
+    def __init__(self, uid: int, gid: int) -> None:
+        self.st_uid, self.st_gid = uid, gid
+
+
+class _Dir:
+    def __init__(self, uid: int, gid: int | None) -> None:
+        self._stat = None if gid is None else _Stat(uid, gid)
+
+    def stat(self) -> _Stat:
+        if self._stat is None:
+            raise FileNotFoundError
+        return self._stat
+
+
+def test_the_records_shared_groups_are_joined_where_they_differ_from_the_owners() -> None:
+    from osprey.deployment.compose_generator import _host_transcripts_reader
+
+    reader = _host_transcripts_reader(
+        _Dir(1001, 1001),
+        [_Dir(1001, 1001), _Dir(1001, 2500), _Dir(1001, 2400), _Dir(0, None), _Dir(0, 2500)],
+    )
+
+    assert reader == {"user": "1001:1001", "group_add": [2400, 2500]}
+
+
 def test_a_build_render_binds_the_shipped_build_zone_not_its_output_base(
     tmp_path: Path,
 ) -> None:
