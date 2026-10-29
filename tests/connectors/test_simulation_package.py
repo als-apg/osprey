@@ -77,7 +77,9 @@ def test_overlap_record_prints_its_log_origin():
 def _modules_after(statement: str) -> set[str]:
     """The modules a fresh interpreter holds after running ``statement``."""
     code = f"import sys; {statement}; print('\\n'.join(sorted(sys.modules)))"
-    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=120
+    )
     assert result.returncode == 0, result.stderr
     return set(result.stdout.split())
 

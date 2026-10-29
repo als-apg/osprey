@@ -322,7 +322,7 @@ class TestImportIsolation:
             assert "duckdb" not in sys.modules
             """
         )
-        subprocess.run([sys.executable, "-c", script], check=True)
+        subprocess.run([sys.executable, "-c", script], check=True, timeout=120)
 
     def test_a_missing_index_is_answered_without_importing_duckdb(self):
         """The health check asks about paths that do not exist."""
@@ -338,7 +338,7 @@ class TestImportIsolation:
             assert "duckdb" not in sys.modules
             """
         )
-        subprocess.run([sys.executable, "-c", script], check=True)
+        subprocess.run([sys.executable, "-c", script], check=True, timeout=120)
 
     def test_the_package_exports_the_reader_lazily(self):
         from osprey.services.channel_finder import graph_index

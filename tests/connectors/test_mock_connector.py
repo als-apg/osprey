@@ -901,6 +901,7 @@ class TestMockArchiverReproducibility:
                 text=True,
                 env=env,
                 check=True,
+                timeout=120,
             )
             runs.append(json.loads(proc.stdout.strip().splitlines()[-1]))
 
