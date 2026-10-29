@@ -26,9 +26,7 @@ from __future__ import annotations
 import base64
 import json
 import os
-import shutil
 import subprocess
-import sys
 import time
 import uuid
 from collections.abc import Mapping
@@ -40,19 +38,10 @@ import yaml
 
 from osprey.deployment import telemetry_config as tc
 from osprey.deployment import telemetry_credentials as creds
+from tests.e2e._deploy_support import find_osprey_console_script, format_failure
 
 VERB_TIMEOUT_S = 600
 ROW_TIMEOUT_S = 120.0
-
-
-def _osprey_bin() -> Path:
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError("Could not locate the 'osprey' console script.")
 
 
 class _Case:
@@ -69,7 +58,7 @@ class _Case:
         self.project = project_name
         self.port_base = port_base
         self.repo = workdir / project_name
-        self.osprey = _osprey_bin()
+        self.osprey = find_osprey_console_script()
         self.env = {
             k: v
             for k, v in {**os.environ, **osprey_env}.items()
@@ -95,10 +84,7 @@ class _Case:
             env=self.env,
             check=False,
         )
-        assert result.returncode == 0, (
-            f"osprey {' '.join(args)} failed (rc={result.returncode}):\n"
-            f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
-        )
+        assert result.returncode == 0, format_failure(f"osprey {' '.join(args)}", result)
 
     def sweep(self) -> None:
         """Remove this case's containers and volumes by exact name."""

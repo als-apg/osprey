@@ -38,7 +38,6 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 import textwrap
 import threading
 import time
@@ -84,6 +83,7 @@ from osprey.deployment.telemetry_gateway import (
 )
 from osprey.health.core.telemetry_gateway import fed_identities
 from osprey_connectors.workspace import AUDIT_DIR_RELPATH, TIERS_DIRNAME
+from tests.e2e._deploy_support import find_osprey_console_script, format_failure
 from tests.e2e._volumes import remove_project_volumes
 
 pytestmark = [
@@ -201,16 +201,6 @@ class Stack:
         raise AssertionError(f"{name} holds no {key}")
 
 
-def _osprey_bin() -> Path:
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError("Could not locate the 'osprey' console script.")
-
-
 def _env() -> dict[str, str]:
     return {k: v for k, v in os.environ.items() if k not in _SCRUBBED_ENV}
 
@@ -225,10 +215,7 @@ def _verb(stack: Stack, *args: str, timeout: int = VERB_TIMEOUT_S) -> subprocess
     """Run an ``osprey`` verb in the repo; ``pytest.fail`` on a non-zero exit."""
     result = _run([str(stack.osprey), *args], cwd=stack.repo, timeout=timeout)
     if result.returncode != 0:
-        pytest.fail(
-            f"osprey {' '.join(args)} failed (rc={result.returncode}):\n"
-            f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
-        )
+        pytest.fail(format_failure(f"osprey {' '.join(args)}", result))
     return result
 
 
@@ -250,7 +237,7 @@ def _remove_project_containers() -> None:
 @pytest.fixture(scope="module")
 def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Stack]:
     """``osprey init`` + ``build`` + ``up`` the hello-world preset; tear it down after."""
-    osprey = _osprey_bin()
+    osprey = find_osprey_console_script()
     base = tmp_path_factory.mktemp("telemetry_store_e2e")
     repo = base / PROJECT_NAME
 

@@ -70,9 +70,9 @@ from pathlib import Path
 import httpx
 import pytest
 
+from osprey.interfaces._serving import free_port
 from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
 from tests.e2e.web_terminals.test_terminal_auth_e2e import (
-    _free_port,
     _operator_secret_from_url,
     _read_login_url,
 )
@@ -315,7 +315,7 @@ def test_browser_session_survives_a_server_restart(tmp_path: Path) -> None:
     Asserts, across two launcher invocations against one repo and one port, the
     four properties enumerated in the module docstring.
     """
-    port = _free_port()
+    port = free_port()
 
     # `osprey web` serves a deployment repo's RENDER: it walks up to the nearest
     # `profile.yml` and refuses when the repo has no `build/config.yml` to serve,

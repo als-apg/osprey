@@ -49,6 +49,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from unittest.mock import patch
 
 import click
 import pytest
@@ -101,16 +102,12 @@ def _sanitized_provider_env() -> Iterator[None]:
     suite. ``monkeypatch`` is not used because the module-scoped fixture below
     is set up before pytest's function-scoped environment guards exist.
     """
-    saved = dict(os.environ)
-    try:
+    with patch.dict(os.environ):
         for var in PROVIDER_API_KEYS.values():
             if var:
                 os.environ.pop(var, None)
         os.environ[PROVIDER_VAR] = PROFILE_KEY_VALUE
         yield
-    finally:
-        os.environ.clear()
-        os.environ.update(saved)
 
 
 def _invoke(cli: click.Command, args: list[str]) -> Result:

@@ -50,6 +50,7 @@ from pathlib import Path
 import pytest
 
 from osprey.cli.web_cmd import DECLARED_BIND_ENV, resolve_bind_host
+from osprey.interfaces._serving import free_port
 from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV
 
 pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke, pytest.mark.model_free]
@@ -57,16 +58,6 @@ pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke, pytest.mark.model_free]
 _READY_TIMEOUT = 15.0
 _OFFHOST_CONNECT_TIMEOUT = 2.0
 _TEARDOWN_TIMEOUT = 5.0
-
-
-def _free_port() -> int:
-    """Reserve then release an OS-assigned port so nothing is listening on it.
-
-    Mirrors the identical idiom in ``tests/cli/test_web_bind.py::_free_port``.
-    """
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
 
 
 def _routable_ipv4_addresses() -> list[str]:
@@ -151,7 +142,7 @@ def test_declared_loopback_survives_hostile_host_flag_over_real_socket(tmp_path:
         "meaningful left to probe if that assumption doesn't hold."
     )
 
-    free_port = _free_port()
+    port = free_port()
     # `osprey web` serves a deployment repo's RENDER: it walks up from the
     # working directory to the nearest `profile.yml` and refuses when that repo
     # has no `build/config.yml` to serve. So the directory it runs in has to be
@@ -174,7 +165,7 @@ def test_declared_loopback_survives_hostile_host_flag_over_real_socket(tmp_path:
         "--host",
         "0.0.0.0",  # the hostile flag; DECLARED_BIND_ENV below must win anyway
         "--port",
-        str(free_port),
+        str(port),
         "--shell",
         "true",  # avoid spawning `claude`; the PTY just runs /usr/bin/true
         "--skip-preflight",  # avoid companion-port/provider pre-flight probes
@@ -213,18 +204,18 @@ def test_declared_loopback_survives_hostile_host_flag_over_real_socket(tmp_path:
         )
 
     try:
-        ready = _wait_for_port("127.0.0.1", free_port, proc, timeout=_READY_TIMEOUT)
+        ready = _wait_for_port("127.0.0.1", port, proc, timeout=_READY_TIMEOUT)
         if not ready:
             exit_code = proc.poll()
             log_contents = log_path.read_text(encoding="utf-8", errors="replace")
             pytest.fail(
-                f"Server never became reachable on 127.0.0.1:{free_port} within "
+                f"Server never became reachable on 127.0.0.1:{port} within "
                 f"{_READY_TIMEOUT}s (proc exit code: {exit_code}).\n"
                 f"--- server log ---\n{log_contents}"
             )
 
         # -- 1. Loopback assertion: the server is up and loopback-reachable. --
-        with socket.create_connection(("127.0.0.1", free_port), timeout=2):
+        with socket.create_connection(("127.0.0.1", port), timeout=2):
             pass  # connection succeeding is the assertion
 
         # -- 2. Guarded off-host probe: the discriminating assertion. --------
@@ -237,7 +228,7 @@ def test_declared_loopback_survives_hostile_host_flag_over_real_socket(tmp_path:
 
         lan_ip = lan_ips[0]
         with pytest.raises(ConnectionRefusedError):
-            with socket.create_connection((lan_ip, free_port), timeout=_OFFHOST_CONNECT_TIMEOUT):
+            with socket.create_connection((lan_ip, port), timeout=_OFFHOST_CONNECT_TIMEOUT):
                 pass  # pragma: no cover - reaching here IS the regression
     finally:
         proc.terminate()

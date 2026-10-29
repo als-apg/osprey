@@ -18,18 +18,9 @@ from osprey.bridges.core.history import (
     HistoryStore,
     shorten_answer,
 )
+from tests.bridges.conftest import FakeClock
 
 DAY = 24 * 60 * 60
-
-
-class FakeClock:
-    """Monotone-ish injectable clock: reads return ``t``; tests set ``t``."""
-
-    def __init__(self, t: float = 1_000_000.0):
-        self.t = t
-
-    def __call__(self) -> float:
-        return self.t
 
 
 def _write(path, data: dict) -> None:

@@ -72,6 +72,8 @@ import pytest
 import websockets
 from websockets.sync.client import connect as ws_connect
 
+from osprey.interfaces._serving import free_port
+
 pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke, pytest.mark.model_free]
 
 _READY_TIMEOUT = 20.0
@@ -89,17 +91,6 @@ _PANEL_TOKEN = "e2e-panel-token-vXnQ2p7Lr9"
 
 #: Matches the launcher's ``Open: http://<host>:<port>/?token=<secret>`` line.
 _OPEN_URL_RE = re.compile(r"Open:\s*(http://\S+\?token=\S+)")
-
-
-def _free_port() -> int:
-    """Reserve then release an OS-assigned port so nothing is listening on it.
-
-    Mirrors ``test_loopback_chokepoint.py::_free_port`` and
-    ``tests/cli/test_web_bind.py::_free_port``.
-    """
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
 
 
 def _wait_for_port(host: str, port: int, proc: subprocess.Popen, timeout: float) -> bool:
@@ -344,7 +335,7 @@ def test_escalation_chain_is_broken_end_to_end(tmp_path: Path) -> None:
     Asserts, against one live process reached over real sockets, all five
     properties enumerated in the module docstring.
     """
-    port = _free_port()
+    port = free_port()
 
     # `osprey web` serves a deployment repo's RENDER: it walks up to the nearest
     # `profile.yml` and refuses when the repo has no `build/config.yml` to serve,
