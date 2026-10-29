@@ -36,6 +36,7 @@ from fastapi.responses import JSONResponse
 
 from osprey.agent_record import credentials as creds
 from osprey.agent_record import host as hr
+from osprey.agent_record import identities as ids
 from osprey.agent_record import service
 from osprey.agent_record.backends.embedded import EmbeddedBackend
 from osprey.agent_record.contract import transcript_state_name
@@ -726,3 +727,31 @@ def test_a_failed_first_pass_answers_503_so_no_one_waits_on_it(project, tmp_path
             time.sleep(0.02)
         assert response.status_code == 503
         assert response.json() == {"status": "error", "ready": False}
+
+
+def test_a_missing_host_login_names_the_build_and_the_run_time_mount(tmp_path):
+    """A bare container of the project image holds no credential file: the
+    refusal says to build, or to mount the build's login file where it is read."""
+    proj = Project(tmp_path / "repo")
+    login_path = proj.root / creds.login_file(ids.login_for(HOST))
+    login_path.unlink()
+
+    why = hr.host_record_refusal(proj.root, proj.config)
+
+    assert why == (
+        f"the host login file {login_path} is missing: run `osprey build`, or, in a "
+        f"container, mount the build's login file at {login_path}"
+    )
+
+
+def test_a_missing_service_file_names_the_build_and_the_run_time_mount(tmp_path):
+    proj = Project(tmp_path / "repo")
+    service_path = proj.root / creds.SERVICE_FILE
+    service_path.unlink()
+
+    why = hr.host_record_refusal(proj.root, proj.config)
+
+    assert why == (
+        f"{service_path} is missing or incomplete, so agent-record cannot start: run "
+        f"`osprey build`, or, in a container, mount the build's service file at {service_path}"
+    )

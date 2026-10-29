@@ -499,7 +499,8 @@ def _service_secrets(repo_root: Path) -> tuple[str, str]:
     if verifier is None or secrets is None:
         raise HostRecordRefused(
             f"{service_file} is missing or incomplete, so agent-record cannot start: "
-            "run `osprey build`"
+            f"run `osprey build`, or, in a container, mount the build's service file at "
+            f"{service_file}"
         )
     return verifier, secrets
 
@@ -835,8 +836,10 @@ def _host_site(root: Path, config: Mapping[str, Any]) -> _HostSite:
     login = ids.login_for(host)
     token = creds.read_login(root / creds.login_file(login), login)
     if token is None:
+        path = root / creds.login_file(login)
         raise HostRecordRefused(
-            f"the host login file {root / creds.login_file(login)} is missing: run `osprey build`"
+            f"the host login file {path} is missing: run `osprey build`, or, in a container, "
+            f"mount the build's login file at {path}"
         )
     settings = parse_agent_record_block(config, base=resolve_port_base(config))
     url = f"http://127.0.0.1:{settings.port}"
