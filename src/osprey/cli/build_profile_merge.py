@@ -1539,7 +1539,11 @@ class ResolvedProfileDocument:
 
 
 def resolve_profile_document(
-    raw: dict[str, Any], profile_path: Path, *, warn: bool = True
+    raw: dict[str, Any],
+    profile_path: Path,
+    *,
+    warn: bool = True,
+    root_overlays: Sequence[dict[str, Any]] = (),
 ) -> ResolvedProfileDocument:
     """Resolve a profile document, following the implicit render merge.
 
@@ -1564,6 +1568,13 @@ def resolve_profile_document(
             skip. The loader is the user-facing surface, so it keeps the
             warnings. The same flag gates the write-posture warnings of
             :func:`judge_retired_posture`.
+        root_overlays: Host-variant overlays, already read. They lay over the
+            DEPLOYMENT — the root ``profile.yml`` — before its ``extends`` is
+            resolved: over ``raw`` when it is the root, over the root beside
+            it when ``raw`` is a tier or app. A layer therefore sees the
+            variant only through the root it merges over, and the layer-file
+            refusals judge what the layer file itself spells, never what the
+            host's variant said.
 
     Returns:
         The resolved document and its anchor.
@@ -1605,6 +1616,8 @@ def resolve_profile_document(
         )
 
     if not is_layer:
+        for overlay in root_overlays:
+            normalized = _deep_merge(normalized, overlay)
         chain: list[Path] = []
         resolved = _resolve_extends(
             normalized,
@@ -1657,6 +1670,8 @@ def resolve_profile_document(
     root_raw = _read_profile_document(root_path)
     if not isinstance(root_raw, dict):
         raise BuildProfileError(f"Profile root must be a YAML mapping: {root_path}")
+    for overlay in root_overlays:
+        root_raw = _deep_merge(root_raw, overlay)
     host_chain: list[Path] = []
     root_resolved = _resolve_extends(
         dict(root_raw),
@@ -2034,8 +2049,9 @@ def compute_profile_hash(profile_path: Path) -> str | None:
     whose variant arrived as an argument would be a fingerprint two call sites
     could spell differently — the exact way a stale build goes unnoticed. Read
     off the directory, both sides of the comparison see the same selection, and
-    a directory with no ``.env.variant`` (a layer's, a preset's) folds
-    nothing.
+    a directory with no ``.env.variant`` (a preset's) folds nothing. A tier or
+    app reads it off its deployment root, because the variant reaches its
+    render through that root.
     """
     try:
         from .variant_selection import active_variant_overlay
@@ -2044,6 +2060,7 @@ def compute_profile_hash(profile_path: Path) -> str | None:
         raw = _read_profile_document(path)
         if not isinstance(raw, dict):
             return None
-        return _hash_resolved_profile(raw, path, overlay=active_variant_overlay(path.parent))
+        root_dir, _kind = resolve_profile_root(path)
+        return _hash_resolved_profile(raw, path, overlay=active_variant_overlay(root_dir))
     except Exception:
         return None
