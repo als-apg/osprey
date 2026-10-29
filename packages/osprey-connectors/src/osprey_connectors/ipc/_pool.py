@@ -183,11 +183,7 @@ from typing import Any
 
 from osprey_connectors import posture_store
 from osprey_connectors.config import resolve_env_vars, unresolved_placeholders
-from osprey_connectors.control_system._base import (
-    ChannelValue,
-    ChannelWriteResult,
-    is_readonly_run,
-)
+from osprey_connectors.control_system._base import ChannelValue, ChannelWriteResult
 from osprey_connectors.ipc._host import START_PHASES
 from osprey_connectors.ipc._launch import (
     AttributedReader,
@@ -210,6 +206,7 @@ from osprey_connectors.ipc._verification import (
     readonly_gateway_refusal,
     verify_host_report,
 )
+from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.process import DEFAULT_TERMINATE_GRACE_S, reap_exit_code, terminate
 from osprey_connectors.types import TRANSPORT_CA, machine_kind
 

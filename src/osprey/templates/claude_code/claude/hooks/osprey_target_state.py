@@ -995,7 +995,7 @@ def is_readonly_run():
     """Whether this process is a read-only run.
 
     A value comparison, never a presence check — the same semantics as
-    ``osprey_connectors.control_system.is_readonly_run`` and the executor's
+    ``osprey_connectors.posture_env.is_readonly_run`` and the executor's
     posture clamp: only the exact ``"readonly"`` string sandboxes a session.
     """
     return os.environ.get(EXECUTION_MODE_ENV_VAR) == SANDBOX_MODE

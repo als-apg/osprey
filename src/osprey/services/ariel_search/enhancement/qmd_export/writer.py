@@ -43,7 +43,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote
 
-from osprey_connectors.config import to_facility_iso
+from osprey.utils.facility import to_facility_iso
 from osprey_connectors.safety_file import atomic_replace
 
 if TYPE_CHECKING:

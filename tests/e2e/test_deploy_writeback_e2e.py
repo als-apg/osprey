@@ -93,8 +93,8 @@ import pytest
 import yaml
 
 from osprey.deployment.reset import MINTED_ENV_BANNERS
+from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.dotenv import parse_dotenv_text
-from osprey_connectors.workspace import TIERS_DIRNAME
 from tests.e2e._deploy_support import (
     RUNTIME,
     find_osprey_console_script,

@@ -38,8 +38,8 @@ from osprey import __version__
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.port_layout import CA_DEFAULT_PORT, PVA_DEFAULT_PORT
 from osprey.profiles.providers import compute_providers_hash, packaged_catalog_path
+from osprey.utils.workspace import LAYER_DIR_KINDS, TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.workspace import LAYER_DIR_KINDS, TIERS_DIRNAME
 
 from .build_profile_load import _PROFILE_SCHEMA_MIN_OSPREY
 from .build_profile_merge import _deep_merge, _resolve_extends, compute_preset_hash

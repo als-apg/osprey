@@ -23,7 +23,8 @@ import yaml
 
 import osprey.runtime._run_state as _run_state
 from osprey.runtime.guarded_run import GUARDED_RUN_DIR, LOCK_FILE_NAME
-from osprey_connectors.workspace import STATE_DIR_NAME, reset_config_cache
+from osprey.utils.workspace import STATE_DIR_NAME
+from osprey_connectors.workspace import reset_config_cache
 
 #: An ``approval`` block that puts every tool's call to a human.
 ASKING = {"enabled": True, "default_policy": "always"}

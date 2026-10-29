@@ -45,6 +45,7 @@ import os
 from typing import TYPE_CHECKING, Any
 
 from osprey.audit.envelope import POSTURE_SOURCE_PROCESS, POSTURE_SOURCES
+from osprey_connectors.posture_env import POSTURE_ENV_VAR, SANDBOX_MODE, is_readonly_run
 
 if TYPE_CHECKING:
     from osprey_connectors.posture_store import WriteVerdict
@@ -69,9 +70,11 @@ __all__ = [
     "verdict",
 ]
 
-#: The session posture, carried into every child of a Web Terminal session,
-#: MCP servers included.
-POSTURE_ENV_VAR = "OSPREY_EXECUTION_MODE"
+#: :data:`POSTURE_ENV_VAR`, :data:`SANDBOX_MODE` and :func:`is_readonly_run` are
+#: :mod:`osprey_connectors.posture_env`'s, re-exported so the recorders keep one
+#: import: the session posture's variable, the one value of it that sandboxes,
+#: and the first term of the write verdict. A standard-library leaf, so importing
+#: it keeps this module a leaf.
 
 #: How the posture in :data:`POSTURE_ENV_VAR` was established, and the audit
 #: session id it belongs to. Stamped by the Web Terminal spawn sites and
@@ -105,11 +108,6 @@ OSPREY_AGENT_DATA_ROOT = "OSPREY_AGENT_DATA_ROOT"
 #: never inherited stale, because the executor pops all three variables when it
 #: has no target to name.
 CONTROL_TARGET_ENV_VAR = "OSPREY_CONTROL_TARGET"
-
-#: The one value of :data:`POSTURE_ENV_VAR` that sandboxes a session. A *value*
-#: comparison, never a presence check: the writes posture sets the same
-#: variable.
-SANDBOX_MODE = "readonly"
 
 #: How the ledger spells the two postures — the Web Terminal's vocabulary, not
 #: the environment variable's. Records from surfaces that never see
@@ -183,19 +181,6 @@ def verdict() -> WriteVerdict:
     except Exception:  # write_verdict never raises by contract; refuse if it does
         logger.debug("Write verdict could not be reached; refusing", exc_info=True)
         return WriteVerdict(allowed=False, reason="record_unavailable", target=None, kind=None)
-
-
-def is_readonly_run() -> bool:
-    """Whether this process was started as a deployment-wide read-only run.
-
-    The first term of the write verdict, spelled once here for the surfaces
-    that explain a refusal, so they cannot ask it differently from the verdict. A **value** comparison,
-    never a presence check, deliberately mirroring ``osprey_connectors``'
-    ``is_readonly_run``: the writes posture and a readwrite run set the same
-    variable, so a presence check would claim a read-only run for every process
-    whose environment carries it for any other reason.
-    """
-    return os.environ.get(POSTURE_ENV_VAR) == SANDBOX_MODE
 
 
 def posture_source(declared: str | None = None) -> str:

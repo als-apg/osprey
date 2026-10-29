@@ -180,7 +180,7 @@ def audit_dir() -> Path:
     Anchored on the project root resolver, so a record lands in the repo whose
     operation was audited rather than in whatever directory the emitting
     process happens to run from, and spelled with
-    :data:`~osprey_connectors.workspace.AUDIT_DIR_RELPATH` so the writer's path and
+    :data:`~osprey.utils.workspace.AUDIT_DIR_RELPATH` so the writer's path and
     the container's mounted path come from one constant.
 
     Imported lazily and kept as its own function for the same two reasons the
@@ -189,11 +189,8 @@ def audit_dir() -> Path:
     the MCP middleware and the HTTP layer without dragging the workspace
     resolver (and its config load) behind it.
     """
-    from osprey_connectors.workspace import (
-        AUDIT_DIR_RELPATH,
-        load_osprey_config,
-        resolve_project_root,
-    )
+    from osprey.utils.workspace import AUDIT_DIR_RELPATH
+    from osprey_connectors.workspace import load_osprey_config, resolve_project_root
 
     return resolve_project_root(load_osprey_config()) / AUDIT_DIR_RELPATH
 

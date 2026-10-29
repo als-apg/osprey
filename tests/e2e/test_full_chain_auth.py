@@ -198,8 +198,8 @@ from osprey.services.auth_sidecar.identity_headers import (
 )
 from osprey.services.auth_sidecar.revocation import REVOCATION_FILE_NAME
 from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME
+from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.config import ConfigBuilder
-from osprey_connectors.workspace import TIERS_DIRNAME
 from tests.e2e._deploy_support import (
     RUNTIME,
     container_id,

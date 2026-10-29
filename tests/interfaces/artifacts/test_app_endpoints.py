@@ -649,7 +649,7 @@ class TestIndexArtifactDirMeta:
         ids=["default", "two-segment", "single-segment", "absolute", "home", "mismatched"],
     )
     def test_agent_artifact_dir_spells_each_layout(self, root, base_dir, expected):
-        from osprey_connectors.workspace import repo_root_for_agent_data
+        from osprey.utils.workspace import repo_root_for_agent_data
 
         root_path = Path(root)
         repo_root = repo_root_for_agent_data(root_path, base_dir)

@@ -23,7 +23,8 @@ from osprey.deployment.web_terminals.render_images import (
     verify_renders,
 )
 from osprey.deployment.web_terminals.roster import resolve_cards
-from osprey_connectors.workspace import BUILD_DIR_NAME, IMAGE_DIR_NAME
+from osprey.utils.workspace import IMAGE_DIR_NAME
+from osprey_connectors.workspace import BUILD_DIR_NAME
 from tests.cli._lifecycle_build import invoke_build
 from tests.fixtures.lifecycle_repo import build_exemplar_repo, preserved_environ
 

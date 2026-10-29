@@ -19,18 +19,20 @@ import stat
 
 import pytest
 
+from osprey.deployment.dotenv import (
+    ENV_MERGED_BANNER,
+    compose_unsafe_vars_in_chain,
+    format_env_line,
+    write_env_merged,
+)
 from osprey_connectors.dotenv import (
     ENV_CHAIN_FILENAMES,
     ENV_LOCAL_FILENAME,
-    ENV_MERGED_BANNER,
     ENV_SHARED_FILENAME,
     chain_files,
-    compose_unsafe_vars_in_chain,
-    format_env_line,
     merge_chain,
     parse_dotenv_file,
     parse_dotenv_text,
-    write_env_merged,
 )
 
 

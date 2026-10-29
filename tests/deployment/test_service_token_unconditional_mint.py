@@ -36,7 +36,7 @@ from osprey.deployment import container_lifecycle
 from tests.deployment._dotenv import project_env, read_dotenv
 
 # The legacy spelling ("local") and the honest one ("subprocess") name the same
-# backend (see ``osprey_connectors.config.resolve_execution_method``). "local" is the
+# backend (see ``osprey.utils.execution_method.resolve_execution_method``). "local" is the
 # value the deleted guard keyed on, so it is the one a regression would most
 # plausibly reintroduce — cover both wherever the posture is varied.
 _SUBPROCESS_METHODS = ("local", "subprocess")
