@@ -77,6 +77,7 @@ __all__ = [
     "guarded_run_dir",
     "guarded_run_target",
     "lock",
+    "target_limits_off",
 ]
 
 #: The directory under the repo's state zone (``var/``) holding one
@@ -474,6 +475,29 @@ def guarded_run_dir(target: str | None) -> Path:
     return directory
 
 
+def target_limits_off(target: str) -> bool:
+    """Whether limits checking is explicitly off for the control target *target*.
+
+    The target's limits posture
+    (:func:`osprey_connectors.types.target_limits_posture`, the one reader the
+    hook, the executor and the tool layer share) over the resolved config's
+    ``control_system`` section: off only when the posture is complete and
+    states ``enabled: false``. Silence and an unreadable block are not off.
+
+    Args:
+        target: A control-target name, as :func:`guarded_run_target` resolves it.
+
+    Returns:
+        ``True`` only for a complete posture with ``enabled`` ``False``.
+    """
+    from osprey_connectors.types import target_limits_posture
+    from osprey_connectors.workspace import load_osprey_config
+
+    section = load_osprey_config().get("control_system")
+    posture = target_limits_posture(section if isinstance(section, dict) else {}, target)
+    return not posture.incomplete and posture.enabled is False
+
+
 def _utc_now() -> str:
     """The current UTC time as ISO-8601 to the second."""
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -619,8 +643,9 @@ def lock(
     context's owner, the target and the process's control identity from
     :data:`ENV_CONTROL_IDENTITY`) is written into the lock file and emptied on
     release. The hold keeps *context*; a context whose ``target`` or
-    ``approved_target`` is not the resolved target is refused before anything
-    is opened. The lock is held by this
+    ``approved_target`` is not the resolved target, or whose ``limits_off`` is
+    not :func:`target_limits_off` of it, is refused before anything is opened.
+    The lock is held by this
     process, not by the thread that took it: a thread or task the body starts
     runs under it. A process holds one run lock at a time; asking again, from
     any thread, is busy like any second run, and asking for another target is
@@ -644,8 +669,9 @@ def lock(
     Raises:
         OspreyWriteRefused: This is a readonly run; no lock was taken.
         RuntimeError: This process holds the run lock on another target;
-            *context* names another target than the resolved one; or a join
-            names a context other than the held one.
+            *context* names another target than the resolved one, or says
+            limits checking is off when the target's posture does not (or the
+            reverse); or a join names a context other than the held one.
         GuardedRunDirError: The guarded-run directory cannot be resolved, a
             directory on the way is a link, or the lock is a link, has more
             than one hard link or is not a regular file.
@@ -661,6 +687,12 @@ def lock(
         raise RuntimeError(
             f"a run on {name} cannot hold a context for target {context.target} "
             f"admitted on {context.approved_target}"
+        )
+    if context is not None and context.limits_off != target_limits_off(name):
+        said = "off" if context.limits_off else "on"
+        raise RuntimeError(
+            f"a run on {name} cannot hold a context that says limits checking is {said}: "
+            f"the target's limits posture says otherwise"
         )
     identity = os.environ.get(ENV_CONTROL_IDENTITY) or None
     owner = None if context is None else context.owner
