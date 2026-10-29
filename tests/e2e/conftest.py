@@ -4,6 +4,7 @@
 See tests/e2e/README.md for details.
 """
 
+import contextlib
 import json
 import os
 import sys
@@ -109,11 +110,8 @@ def pytest_collection_finish(session):
         else:
             lane = "unmarked"
         lanes[item.nodeid] = lane
-    try:
-        with open(lanes_path, "w") as f:
-            json.dump(lanes, f, indent=1)
-    except Exception:
-        pass
+    with contextlib.suppress(Exception):
+        Path(lanes_path).write_text(json.dumps(lanes, indent=1))
 
 
 def _run_names_a_provider() -> bool:

@@ -999,11 +999,9 @@ def test_recorder_idles_on_the_in_process_simulator_and_resumes_after_the_flip(a
     yaml.preserve_quotes = True
 
     def _set_serving(venue: str) -> None:
-        with open(config_path) as handle:
-            config = yaml.load(handle)
+        config = yaml.load(config_path)
         config["control_system"]["connector"]["virtual_accelerator"]["serving"] = venue
-        with open(config_path, "w") as handle:
-            yaml.dump(config, handle)
+        yaml.dump(config, config_path)
 
     poll_sec = int((archiver_world.config.get("va_archiver") or {}).get("recorder_poll_sec", 30))
     # The window each claim is measured over, once the recorder has SAID which
