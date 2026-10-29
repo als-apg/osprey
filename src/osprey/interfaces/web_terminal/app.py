@@ -85,6 +85,7 @@ from osprey.profiles.web_panels import (
 from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY, panel_url_state_attr
 from osprey.utils.seconds import positive_seconds
 from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.types import WRITES_KEY
 
 if TYPE_CHECKING:
     import socket
@@ -1447,7 +1448,8 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
         ValueError: When a declared panel id is one no request for that panel
             could be routed or forwarded with (:func:`panel_id_refusal`). The
             message names the config key, the id and the class, because the
-            operator who wrote the id is the only one who can change it.
+            operator who wrote the id is the only one who can change it. Also a
+            block that spells the retired ``arm_writes``, naming the tier key.
     """
     try:
         from osprey_connectors.workspace import load_osprey_config
@@ -1487,6 +1489,15 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
         if refusal is not None:
             raise ValueError(refusal)
 
+        # An application is armed by the login's write tier, never by a second
+        # key on its panel: a block still spelling one, on or off, is refused
+        # rather than read as a grant it no longer is.
+        if isinstance(spec, dict) and "arm_writes" in spec:
+            raise ValueError(
+                f"web.panels.{panel_id}.arm_writes is retired: an application panel "
+                f"is armed for writes by the login's `{WRITES_KEY}` tier"
+            )
+
         # One predicate for builtin and custom blocks alike: the build writes
         # `enabled` onto every block from the profile's `web_panels` selection,
         # so a block this render carries for a tab it does not select is off.
@@ -1519,11 +1530,10 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
                     # of its own `path` (see routes/proxy.py) — for a backend that
                     # serves a prefix its `path` does not cover.
                     "rewritePrefixes": spec.get("rewrite_prefixes") or [],
-                    # The application this panel serves, whether this login arms
-                    # it for writes (missing → False), and the exact routes the
-                    # panel credential may reach on it (routes/proxy.py).
+                    # The application this panel serves (armed for writes by the
+                    # login's tier, routes/proxy.py) and the exact routes the
+                    # panel credential may reach on it.
                     "app": spec.get("app"),
-                    "armWrites": bool(spec.get("arm_writes", False)),
                     "agentRoutes": _panel_agent_routes(str(panel_id), spec.get("agent_routes")),
                 }
             )

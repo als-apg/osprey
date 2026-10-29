@@ -53,6 +53,7 @@ from urllib.parse import ParseResult, urljoin, urlparse, urlunsplit
 import httpx
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response, StreamingResponse
+from starlette.concurrency import run_in_threadpool
 from starlette.websockets import WebSocketState
 from websockets.asyncio.client import connect as _WebSocketConnect
 
@@ -78,6 +79,11 @@ from osprey.interfaces.common_middleware import (
 from osprey.interfaces.opaque_origin import document_headers
 from osprey.interfaces.web_auth import get_web_credentials
 from osprey.interfaces.web_terminal.panel_cap import opaque_panel_kind, verify_request_cap
+from osprey.interfaces.web_terminal.routes.websocket import (
+    _login_tier,
+    _rendered_config,
+    _section_of,
+)
 from osprey.profiles.web_panels import SIDECAR_PANELS
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS, panel_url_state_attr
 from osprey.utils.http_proxy import HOP_BY_HOP
@@ -210,20 +216,36 @@ def configured_agent_routes(custom_panels: list[dict]) -> frozenset[tuple[str, s
     return frozenset(pairs)
 
 
-def _unarmed_application(scope: Request | WebSocket, panel_id: str) -> str | None:
+def _login_arms_writes(config_path: Path | None) -> bool:
+    """Whether the acting login's ``control_system.writes`` tier is ``allowed`` here.
+
+    The same per-login tier the header chip shows (``_login_tier``): the
+    deployment's tier, then the login's own rung. ``never`` and ``unknown`` do
+    not arm. The owner's per-machine switch is not read here: the write itself
+    meets it downstream. Blocking (it reads the render); call it off the loop.
+    """
+    section = _section_of(_rendered_config(config_path))
+    return _login_tier(section, acting_identity()) == "allowed"
+
+
+async def _unarmed_application(scope: Request | WebSocket, panel_id: str) -> str | None:
     """The application ``panel_id`` serves, when this login does not arm it.
 
     ``None`` for a panel that names no application — a built-in panel, a
     runtime registration, a config-defined panel of the non-application shape —
-    and for an application panel this login arms. A missing ``armWrites`` is
-    read as false.
+    and for an application panel on a login whose write tier is ``allowed``.
+    A disabled panel block never reaches ``custom_panels``, so its application
+    is never armed here.
     """
     for panel in getattr(scope.app.state, "custom_panels", []):
         if panel.get("id") == panel_id:
             application = panel.get("app")
-            if application and not panel.get("armWrites", False):
-                return str(application)
-            return None
+            if not application:
+                return None
+            config_path = getattr(scope.app.state, "config_path", None)
+            if await run_in_threadpool(_login_arms_writes, config_path):
+                return None
+            return str(application)
     return None
 
 
@@ -1740,7 +1762,7 @@ async def _forward_to_panel(
     # a write method is refused before anything leaves the terminal.
     method = request.method.upper()
     if is_write_method(method):
-        application = _unarmed_application(request, panel_id)
+        application = await _unarmed_application(request, panel_id)
         if application is not None:
             return Response(
                 content=_unarmed_refusal(request, application, method),
@@ -2098,7 +2120,7 @@ async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
 
     # A socket to an application panel is a write path: refused on a login
     # that does not arm the application, before any credential is attached.
-    application = _unarmed_application(websocket, panel_id)
+    application = await _unarmed_application(websocket, panel_id)
     if application is not None:
         # A close reason is capped at 123 bytes on the wire.
         reason = _unarmed_refusal(websocket, application, "WebSocket")
