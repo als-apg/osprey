@@ -14,6 +14,7 @@ when docker is unavailable.
 
 from __future__ import annotations
 
+import contextlib
 import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -25,6 +26,7 @@ from osprey.deployment import telemetry_config as tc
 from osprey.deployment import telemetry_gateway as gw
 from osprey.deployment.telemetry_credentials import INGEST_PASSWORD_ENV
 from tests._container_support import docker_cli_unavailable_reason
+from tests._live import wait_until
 
 _DOCKER_UNAVAILABLE = docker_cli_unavailable_reason()
 
@@ -131,7 +133,6 @@ def test_the_ledger_chain_reads_real_lines(tmp_path: Path) -> None:
     Exporters are swapped for ``debug`` so no store is needed; everything
     between the file and the exporter is the rendered configuration.
     """
-    import time
 
     from osprey.audit.envelope import AuditEnvelope
     from osprey.audit.writer import _encode
@@ -220,13 +221,17 @@ def test_the_ledger_chain_reads_real_lines(tmp_path: Path) -> None:
     )
     try:
         logs = ""
-        for _ in range(60):
-            time.sleep(1)
+
+        def seven_records() -> bool:
+            nonlocal logs
             logs = subprocess.run(
                 ["docker", "logs", name], capture_output=True, text=True, timeout=60
             ).stderr
-            if logs.count("LogRecord #") >= 7:
-                break
+            return logs.count("LogRecord #") >= 7
+
+        # A shortfall is reported by the count assertion below, with the log.
+        with contextlib.suppress(AssertionError):
+            wait_until(seven_records, timeout=60, interval=1, what="seven exported records")
     finally:
         subprocess.run(["docker", "rm", "-f", name], capture_output=True, timeout=60)
 
