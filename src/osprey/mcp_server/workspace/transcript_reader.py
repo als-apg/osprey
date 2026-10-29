@@ -23,13 +23,17 @@ MAX_CHAT_MESSAGE_LENGTH = 2000
 
 # Claude Code writes this marker as a synthetic user entry when a turn is
 # cancelled, and wraps slash-command echoes and their captured output in these
-# tags. Both are the TUI's own bookkeeping, not conversation.
+# tags. Both are the TUI's own bookkeeping, not conversation. A slash command's
+# echo opens with ``<command-name>`` for a built-in and with
+# ``<command-message>`` for a skill or a project command.
 INTERRUPT_MARKER = "[Request interrupted by user"
 COMMAND_NAME_PREFIX = "<command-name>"
+COMMAND_MESSAGE_PREFIX = "<command-message>"
+COMMAND_ECHO_PREFIXES = (COMMAND_NAME_PREFIX, COMMAND_MESSAGE_PREFIX)
 LOCAL_COMMAND_STDOUT_PREFIX = "<local-command-stdout>"
 LOCAL_COMMAND_STDERR_PREFIX = "<local-command-stderr>"
 LOCAL_COMMAND_PREFIXES = (LOCAL_COMMAND_STDOUT_PREFIX, LOCAL_COMMAND_STDERR_PREFIX)
-_BOOKKEEPING_PREFIXES = (COMMAND_NAME_PREFIX, *LOCAL_COMMAND_PREFIXES)
+_BOOKKEEPING_PREFIXES = (*COMMAND_ECHO_PREFIXES, *LOCAL_COMMAND_PREFIXES)
 
 # A transcript grows without bound, but the tail rule only ever looks at its
 # newest message entry, so only this much of the end is read.

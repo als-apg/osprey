@@ -768,7 +768,10 @@ Each host names the one it wants in ``.env.variant`` at the repository root:
 
 ``osprey build`` merges that overlay over ``profile.yml`` before it renders
 anything, and says which variant it used in its output. Tiers and apps are rendered
-for the same host, so a stack cannot come up half-configured for another one.
+for the same host, so a stack cannot come up half-configured for another one: each
+sees the overlay through the ``profile.yml`` it merges over. An overlay that adds a
+``services:`` entry therefore adds it to the deployment, and the tier and app renders
+stay attached to it like any other service the deployment runs.
 
 The overlays are committed: which hosts a deployment has is part of what the
 deployment is. The choice between them is not — ``.env.variant`` is covered by

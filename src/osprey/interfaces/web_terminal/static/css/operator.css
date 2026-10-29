@@ -3,8 +3,9 @@
    Simple mode swaps the xterm PTY for this chat. It fills the terminal card's
    body and inherits that flat card's chrome, so this file styles the chat
    interior on the shared design tokens: one column of turns, the operator's own
-   turns as soft bubbles, the agent's as plain reading text, and quiet inline
-   blocks (thinking, tool calls, plan, approvals) that fold away once settled.
+   turns as soft bubbles, the agent's as plain reading text, and the agent's
+   actions (thinking, tool calls, subagents) as one timeline of quiet rows,
+   with the plan and the approval cards between them.
 
    The chat face is the UI's display face, declared once on the console root as --chat-font and
    used for prose and controls. Code, tool inputs and numbers stay on
@@ -19,6 +20,28 @@
    therefore tears down no DOM and either view restores exactly on toggle-back. */
 .operator-container {
   --chat-font: var(--font-display);
+  /* The chat's text scale. The fleet's text steps are sized for terminal
+     chrome; the chat is read, so inside it every step is set 1-2px larger,
+     and the chat's rules keep naming the same steps. Replies and the composer
+     (`--text-xl`) read at 16px, action rows and cards at 14.5px. */
+  --text-2xs: 9px;
+  --text-xs: 10px;
+  --text-sm: 11px;
+  --text-base: 12.5px;
+  --text-md: 13.5px;
+  --text-lg: 14.5px;
+  --text-xl: 16px;
+  --text-2xl: 18px;
+  --text-3xl: 20px;
+  /* Thinking's colour: a pink for the brain, so a thought in progress reads
+     apart from the accent blue of a running tool and the gold of a working
+     subagent. light-dark() picks the value for the theme's colour scheme: a
+     deep rose on the light backgrounds, a bright one on the dark. Both hold at
+     least 6:1 against the terminal background and 5.3:1 against the elevated
+     surface. */
+  --op-think: light-dark(#b5206b, #f27ab8); /* hygiene-allow-color: thinking's pink has no fleet token; one value per colour scheme */
+  /* The gutter every action row's glyph sits in; the turn's timeline runs through its middle. */
+  --op-gutter: 25px;
   display: none;
   flex-direction: column;
   width: 100%;
@@ -63,8 +86,8 @@ html[data-ui-mode="simple"] #operator-container {
 
 .op-icon {
   flex-shrink: 0;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
 }
 
 /* ---- Session bar ---- */
@@ -415,8 +438,8 @@ html[data-ui-mode="simple"] #operator-container {
 .op-spin {
   display: inline-block;
   flex-shrink: 0;
-  width: 11px;
-  height: 11px;
+  width: 13px;
+  height: 13px;
   border-radius: var(--radius-full);
   border: 1.5px solid var(--border-default);
   border-top-color: var(--color-accent);
@@ -429,176 +452,163 @@ html[data-ui-mode="simple"] #operator-container {
   }
 }
 
-/* ---- Thinking (collapsible, collapsed by default) ---- */
+/* ---- Action rows: the turn's timeline ---- */
 
-.op-thinking {
+/* Every action of a turn — a thought, a tool call, a run of calls, a subagent —
+   is one row of the same shape: a glyph in the gutter, a short verb phrase, a
+   dimmed detail, and the status at the right edge. The rows share the gutter
+   column, and a hairline through it joins consecutive rows into a timeline. */
+.op-row {
+  position: relative;
+  min-width: 0;
   font-size: var(--text-lg);
   color: var(--text-secondary);
 }
 
-.op-thinking-head {
-  display: inline-flex;
+.op-row-head {
+  display: flex;
   align-items: center;
-  gap: 6px;
-  margin-left: -6px;
-  padding: 4px 6px;
+  gap: var(--space-2);
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 26px;
+  margin: 0;
+  padding: 2px var(--space-2) 2px 0;
   background: transparent;
   border: 0;
   border-radius: var(--radius-md);
   color: inherit;
   font-family: var(--chat-font);
   font-size: var(--text-lg);
+  text-align: left;
   cursor: pointer;
 }
 
-.op-thinking-head:hover {
+.op-row-head:hover {
   background: var(--neutral-tint-06);
   color: var(--text-primary);
 }
 
-.op-thinking-glyph {
-  color: var(--color-accent-light);
-}
-
-.op-thinking-chevron {
-  transition: transform var(--wt-transition-fast);
-}
-
-.op-thinking.open .op-thinking-chevron {
-  transform: rotate(90deg);
-}
-
-.op-thinking.empty .op-thinking-chevron {
-  display: none;
-}
-
-.op-thinking.empty .op-thinking-head {
+.op-row-head:disabled {
   cursor: default;
 }
 
-/* Wide display equations scroll inside the reply rather than widening it. */
-.operator-container .katex-display {
-  overflow-x: auto;
-  overflow-y: hidden;
-}
-
-.op-thinking-body {
-  margin: 6px 0 0 8px;
-  padding-left: 12px;
-  border-left: 1px solid var(--border-default);
-  max-height: 260px;
-  overflow-y: auto;
-  white-space: pre-wrap;
-  font-size: var(--text-lg);
-  line-height: var(--leading-normal);
-  color: var(--text-muted);
-}
-
-/* ---- Tool calls: one collapsible group per run of calls ---- */
-
-.op-tools {
-  font-size: var(--text-lg);
-}
-
-.op-tools-head {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
-  margin-left: -6px;
-  padding: 4px 6px;
+.op-row-head:disabled:hover {
   background: transparent;
-  border: 0;
-  border-radius: var(--radius-md);
-  color: var(--text-secondary);
-  font-family: var(--chat-font);
-  font-size: var(--text-lg);
-  text-align: left;
-  cursor: pointer;
+  color: inherit;
 }
 
-.op-tools-head:hover {
-  background: var(--neutral-tint-06);
-  color: var(--text-primary);
+.op-row-gutter {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 var(--op-gutter);
+  height: 25px;
 }
 
-.op-tools-chevron {
-  transition: transform var(--wt-transition-fast);
+/* Each kind of action has its own live colour: a tool the accent blue,
+   thinking its pink, a subagent the secondary gold. The glyph takes it while
+   the action runs, and the breathing halo is a tint of it. */
+.op-row {
+  --op-row-live: var(--color-accent);
 }
 
-.op-tools.open .op-tools-chevron {
-  transform: rotate(90deg);
+.op-row[data-kind="thinking"] {
+  --op-row-live: var(--op-think);
 }
 
-.op-tools-label {
-  white-space: nowrap;
+.op-row[data-kind="agent"] {
+  --op-row-live: var(--color-accent-secondary);
 }
 
-.op-tools-status {
+/* The glyph box: a circle the timeline passes behind. Same glyph, state by
+   effect: muted once settled, the kind's live colour while running, the error
+   tint when the action failed. */
+.op-row-glyph {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  color: var(--color-accent-light);
+  justify-content: center;
+  width: 23px;
+  height: 23px;
+  border-radius: var(--radius-full);
+  color: var(--text-muted);
+  transition: color var(--duration-base) ease;
 }
 
-.op-tools-status[data-state="done"] {
-  color: var(--color-success);
+.op-row-glyph .op-icon {
+  width: 16px;
+  height: 16px;
 }
 
-.op-tools-status[data-state="failed"] {
+.op-row[data-state="running"] > .op-row-head .op-row-glyph,
+.op-row[data-state="background"] > .op-row-head .op-row-glyph {
+  color: var(--op-row-live);
+}
+
+.op-row[data-state="error"] > .op-row-head .op-row-glyph {
   color: var(--color-error);
 }
 
-.op-tools-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 4px 0 2px 8px;
-  padding-left: 10px;
-  border-left: 1px solid var(--border-default);
+/* The breathing glyph: only the turn's current action carries it
+   (chat-tool-runs.js hands `pulse` to the row that started last). The glyph
+   itself breathes, its colour easing between a softened and the full live
+   colour of its kind; nothing is drawn around it. */
+.op-row.pulse > .op-row-head .op-row-glyph .op-icon {
+  animation: op-breathe 1.8s ease-in-out infinite; /* hygiene-allow-scale: breathing cadence, slower than any transition token */
 }
 
-/* ---- Tool call chip ---- */
-
-.op-tool {
-  min-width: 0;
-  background: var(--bg-panel);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
+@keyframes op-breathe {
+  0%,
+  100% {
+    color: color-mix(in srgb, var(--op-row-live) 45%, var(--text-muted));
+    opacity: 0.7;
+  }
+  50% {
+    color: var(--op-row-live);
+    opacity: 1;
+  }
 }
 
-.op-tool-head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-  min-width: 0;
-  padding: 6px 10px;
-  background: transparent;
-  border: 0;
-  color: var(--text-secondary);
-  font-family: var(--chat-font);
-  font-size: var(--text-md);
-  text-align: left;
-  cursor: pointer;
+/* The timeline: a hairline down the gutter's middle, above and below the
+   glyph, carried across the gap to the next row. The first row of a stretch
+   starts at its glyph and the last ends at its own; a card or a text block
+   between rows breaks the line, as it breaks the stretch. */
+.op-row::before,
+.op-row::after {
+  content: '';
+  position: absolute;
+  left: calc(var(--op-gutter) / 2 - 0.5px);
+  width: 1px;
+  background: var(--border-default);
+  pointer-events: none;
 }
 
-.op-tool-head:hover {
-  background: var(--neutral-tint-06);
+.op-row::before {
+  top: calc(-1 * var(--space-2));
+  height: calc(var(--space-2) + 3px);
 }
 
-.op-tool-icon {
-  color: var(--text-muted);
+.op-row::after {
+  top: 23px;
+  bottom: 0;
 }
 
-.op-tool-name {
+.op-row:not(.op-row + .op-row)::before,
+.op-row:not(:has(+ .op-row))::after {
+  display: none;
+}
+
+.op-row-label {
   flex-shrink: 0;
-  font-weight: var(--weight-medium);
-  color: var(--text-primary);
   white-space: nowrap;
+  font-weight: var(--weight-medium);
 }
 
-.op-tool-input {
+.op-row-detail {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -609,20 +619,222 @@ html[data-ui-mode="simple"] #operator-container {
   color: var(--text-muted);
 }
 
-.op-tool-status {
-  display: inline-flex;
-  flex-shrink: 0;
+.op-row-detail:empty {
+  display: none;
 }
 
-.op-tool[data-state="done"] .op-tool-status {
+/* The status slot keeps one size through every state, so a row settles
+   without moving. */
+.op-row-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin-left: auto;
+  color: var(--text-muted);
+}
+
+.op-row[data-state="done"] > .op-row-head .op-row-status {
   color: var(--color-success);
 }
 
-.op-tool[data-state="error"] .op-tool-status {
+.op-row[data-state="error"] > .op-row-head .op-row-status {
   color: var(--color-error);
 }
 
-/* The operator's answer to a call's approval, shown in the call's header. */
+.op-row-chevron {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform var(--wt-transition-fast);
+}
+
+.op-row.open > .op-row-head .op-row-chevron {
+  transform: rotate(90deg);
+}
+
+/* What a row opens to hangs off the timeline, indented past the gutter. */
+.op-row-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-1) var(--op-gutter);
+  padding: var(--space-1) 0 var(--space-1) var(--space-2);
+}
+
+/* ---- Thinking: the brain row, collapsed by default ---- */
+
+.op-thinking.empty > .op-row-head .op-row-chevron {
+  display: none;
+}
+
+/* The reasoning opens in the same box as a tool's sections, with no header:
+   the row already says what it is and how long it took. */
+.op-thinking > .op-row-body {
+  display: block;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  white-space: pre-wrap;
+  font-size: var(--text-lg);
+  line-height: var(--leading-normal);
+  color: var(--text-muted);
+}
+
+/* ---- The OSPREY mark: the live status line's bird ---- */
+
+/* Sprite frames: the mark at rest unless a flight shows another. */
+.op-osprey-mid,
+.op-osprey-down {
+  opacity: 0;
+}
+
+/* The wingbeat: level, down, level, up, a frame each quarter of a cycle. The
+   loader beats for as long as the turn works; a live finish of the reasoning
+   beats twice, quicker, then rolls 360°. */
+.op-loader-bird path {
+  animation-timing-function: step-end;
+  animation-duration: 480ms; /* hygiene-allow-scale: sprite frame cadence, 120ms a frame */
+  animation-iteration-count: infinite;
+}
+
+.op-loader-bird.flying path {
+  animation-duration: 280ms; /* hygiene-allow-scale: sprite frame cadence, 70ms a frame */
+  animation-iteration-count: 2;
+}
+
+.op-loader-bird.flying {
+  animation: op-osprey-roll 640ms ease-in-out 560ms; /* hygiene-allow-scale: roll follows the two 280ms wingbeats */
+}
+
+@keyframes op-osprey-roll {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.op-loader-bird .op-osprey-up {
+  animation-name: op-osprey-up;
+}
+
+.op-loader-bird .op-osprey-mid {
+  animation-name: op-osprey-mid;
+}
+
+.op-loader-bird .op-osprey-down {
+  animation-name: op-osprey-down;
+}
+
+@keyframes op-osprey-up {
+  0% {
+    opacity: 0;
+  }
+  75% {
+    opacity: 1;
+  }
+}
+
+@keyframes op-osprey-mid {
+  0% {
+    opacity: 1;
+  }
+  25% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  75% {
+    opacity: 0;
+  }
+}
+
+@keyframes op-osprey-down {
+  0% {
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Wide display equations scroll inside the reply rather than widening it. */
+.operator-container .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* ---- Runs: consecutive calls of one kind, folded into one row ---- */
+
+/* The run row's glyph is a short stack of its calls' icons, one offset behind
+   the next, each backed so the one above reads whole. */
+.op-row-stack .op-icon {
+  position: absolute;
+  width: 13px;
+  height: 13px;
+  padding: 1px;
+  border-radius: var(--radius-xs);
+  background: var(--bg-terminal);
+}
+
+.op-row-stack .op-icon:nth-child(1) {
+  transform: translate(-4px, 3px);
+}
+
+.op-row-stack .op-icon:nth-child(2) {
+  transform: translate(-1px, 0);
+}
+
+.op-row-stack .op-icon:nth-child(3) {
+  transform: translate(2px, -3px);
+}
+
+.op-row-stack .op-icon:nth-child(4) {
+  transform: translate(5px, -6px);
+}
+
+/* A failure inside the run surfaces on its row. */
+.op-run-failed {
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: var(--text-base);
+  color: var(--color-error);
+}
+
+/* The calls a run opens to: a nested stretch of the timeline. */
+.op-run-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* ---- Tool call row ---- */
+
+/* A control-system write reads heavier than a read: the glyph's stroke and
+   the verb both gain weight, and the row keeps the operator's answer in view
+   (it never folds into a run). */
+.op-row[data-kind="control-write"] > .op-row-head .op-row-label {
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+.op-row[data-kind="control-write"] > .op-row-head .op-row-glyph .op-icon {
+  stroke-width: 2.5;
+}
+
+.op-tool {
+  min-width: 0;
+}
+
+/* The operator's answer to a call's approval, shown in the call's row. */
 .op-tool-decision {
   flex-shrink: 0;
   padding: 0 6px;
@@ -650,27 +862,61 @@ html[data-ui-mode="simple"] #operator-container {
   color: var(--color-error);
 }
 
-.op-tool-detail {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: 6px 10px 10px 30px;
-  border-top: 1px solid var(--border-default);
+/* A refused write's phrase: under the row that shows the call (its own, a run's,
+   a subagent's), outside the body that opens, in the failed row's red. */
+.op-tool-refusal {
+  margin: 2px 0 var(--space-1) var(--op-gutter);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--error-tint-08);
+  color: var(--color-error);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
 }
 
+/* A section of an opened row (Input, Result, Activity): a rounded box like the
+   task bar and the cards, its title in a header cell over a hairline. */
 .op-tool-section {
   display: flex;
   flex-direction: column;
-  gap: 4px;
   min-width: 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+}
+
+.op-tool-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 6px var(--space-3);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.op-tool-section-body {
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
 }
 
 .op-tool-label {
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-muted);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+}
+
+/* A failed call's Result: the box takes the error colour, not just its text. */
+.op-tool-result[data-state="error"] {
+  border-color: color-mix(in srgb, var(--color-error) 45%, var(--border-default));
+}
+
+.op-tool-result[data-state="error"] > .op-tool-section-head {
+  border-bottom-color: color-mix(in srgb, var(--color-error) 30%, var(--border-default));
+}
+
+.op-tool-result[data-state="error"] .op-tool-label {
+  color: var(--color-error);
 }
 
 .op-tool-pre {
@@ -727,19 +973,73 @@ html[data-ui-mode="simple"] #operator-container {
   font-style: italic;
 }
 
-.op-tool-result {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
 .op-tool-note {
   font-size: var(--text-sm);
   color: var(--text-muted);
 }
 
-/* ---- Subagent chip: a tool chip whose detail nests the agent's own work ---- */
+/* ---- SVG callout: a drawing in an agent reply (chat-svg.js) ---- */
+
+/* The same rounded box as a row's sections. The drawing inherits the reply's
+   font and draws with currentColor and the theme's tokens, so it follows the
+   theme; it is never drawn wider than the reply. */
+.op-svg {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+  padding: var(--space-3);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+}
+
+.op-svg-art {
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+  color: var(--text-primary);
+}
+
+/* A part with no colour of its own draws in the reply's text colour, not
+   SVG's default black, so it reads in dark themes too. */
+.op-svg-art svg {
+  max-width: 100%;
+  height: auto;
+  font-family: var(--chat-font);
+  fill: currentColor;
+}
+
+.op-svg-source > summary {
+  width: fit-content;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.op-svg-source > summary:hover {
+  color: var(--text-primary);
+}
+
+.op-svg-source > pre {
+  max-height: 240px;
+  margin: var(--space-2) 0 0;
+  overflow: auto;
+}
+
+/* A drawing still streaming: the callout's frame with one quiet line, so the
+   reply does not fill with the code the drawing is made of. */
+.op-svg-pending {
+  align-items: center;
+  justify-content: center;
+  min-height: 72px;
+}
+
+.op-svg-pending-label {
+  font-size: var(--text-md);
+}
+
+/* ---- Subagent row: a tool row whose body nests the agent's own work ---- */
 
 .op-agent-note {
   flex-shrink: 0;
@@ -748,16 +1048,7 @@ html[data-ui-mode="simple"] #operator-container {
   white-space: nowrap;
 }
 
-.op-agent[data-state="running"] .op-tool-icon,
-.op-agent[data-state="background"] .op-tool-icon {
-  color: var(--color-accent);
-}
-
-.op-agent[data-state="done"] .op-tool-status {
-  color: var(--color-success);
-}
-
-.op-agent[data-state="stopped"] .op-tool-status {
+.op-row[data-state="stopped"] > .op-row-head .op-row-status {
   color: var(--text-muted);
 }
 
@@ -769,9 +1060,13 @@ html[data-ui-mode="simple"] #operator-container {
   overflow-y: auto;
 }
 
+/* Past its max-height the trace scrolls: its rows keep their height rather
+   than shrink to fit (a tool row's overflow: hidden would let it shrink to a sliver). */
+.op-agent-trace > * {
+  flex-shrink: 0;
+}
+
 .op-agent-text {
-  padding-left: 10px;
-  border-left: 2px solid var(--border-default);
   font-size: var(--text-md);
   color: var(--text-secondary);
 }
@@ -781,95 +1076,183 @@ html[data-ui-mode="simple"] #operator-container {
   color: var(--text-muted);
 }
 
-/* ---- Plan (one task card, rewritten in place) ---- */
+/* ---- Task bar (the agent's task list, pinned above the composer) ---- */
 
-.op-tasks {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-3);
+.op-taskbar {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  width: min(calc(100% - 2 * var(--space-3)), 46rem);
+  margin: 0 auto var(--space-2);
   background: var(--bg-panel);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-2xl);
-  font-size: var(--text-lg);
+  overflow: hidden;
 }
 
-.op-tasks-head {
+.op-taskbar[hidden] {
+  display: none;
+}
+
+.op-taskbar-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: var(--space-2);
+  box-sizing: border-box;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: 0;
+  font: inherit;
   font-size: var(--text-md);
-  font-weight: var(--weight-medium);
   color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
 }
 
-.op-tasks-count {
+.op-taskbar-head:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+  border-radius: var(--radius-2xl);
+}
+
+.op-taskbar-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.op-taskbar-icon .op-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.op-taskbar[data-state="running"] .op-taskbar-icon {
+  color: var(--color-accent);
+}
+
+.op-taskbar[data-state="done"] .op-taskbar-icon {
+  color: var(--color-success);
+}
+
+.op-taskbar-title {
+  flex-shrink: 0;
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+}
+
+.op-taskbar-count {
+  flex-shrink: 0;
   font-family: var(--font-mono);
   font-size: var(--text-base);
   font-variant-numeric: tabular-nums;
   color: var(--text-muted);
 }
 
-.op-task-list {
+.op-taskbar-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.op-taskbar-track {
+  flex-shrink: 0;
+  width: 56px;
+  height: 4px;
+  border-radius: var(--radius-full);
+  background: var(--border-default);
+  overflow: hidden;
+}
+
+.op-taskbar-fill {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+  transition: width var(--wt-transition-fast);
+}
+
+.op-taskbar[data-state="done"] .op-taskbar-fill {
+  background: var(--color-success);
+}
+
+.op-taskbar-chevron {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--text-muted);
+  transition: transform var(--wt-transition-fast);
+}
+
+.op-taskbar.open .op-taskbar-chevron {
+  transform: rotate(90deg);
+}
+
+.op-taskbar-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  max-height: 40vh;
   margin: 0;
-  padding: 0;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  overflow-y: auto;
   list-style: none;
+  border-top: 1px solid var(--border-default);
 }
 
-.op-task {
+.op-taskbar-list[hidden] {
+  display: none;
+}
+
+.op-taskbar-item {
   display: flex;
   align-items: center;
   gap: 10px;
   min-width: 0;
+  font-size: var(--text-md);
   color: var(--text-primary);
 }
 
-.op-task-glyph {
+/* A task's glyph: an open circle while it waits, the live accent breathing
+   while it is in hand (the same breath as the current action row), and a
+   green check once done. */
+.op-taskbar-glyph {
+  --op-row-live: var(--color-accent);
+
   display: inline-flex;
-  align-items: center;
-  justify-content: center;
   flex-shrink: 0;
-  box-sizing: border-box;
-  width: 14px;
-  height: 14px;
-  border-radius: var(--radius-full);
+  color: var(--text-muted);
+}
+
+.op-taskbar-glyph .op-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.op-taskbar-item[data-status="in_progress"] .op-taskbar-glyph {
+  color: var(--op-row-live);
+}
+
+.op-taskbar-item[data-status="in_progress"] .op-taskbar-glyph .op-icon {
+  animation: op-breathe 1.8s ease-in-out infinite; /* hygiene-allow-scale: breathing cadence, slower than any transition token */
+}
+
+.op-taskbar-item[data-status="completed"] .op-taskbar-glyph {
   color: var(--color-success);
 }
 
-.op-task-glyph .op-icon {
-  width: 10px;
-  height: 10px;
+.op-taskbar-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
-.op-task[data-status="pending"] .op-task-glyph {
-  border: 1.5px solid var(--text-muted);
-}
-
-.op-task[data-status="in_progress"] .op-task-glyph {
-  border: 1.5px solid var(--border-default);
-  border-top-color: var(--color-accent);
-  animation: op-spin 0.8s linear infinite; /* hygiene-allow-scale: decorative spinner cadence */
-}
-
-.op-task[data-status="completed"] .op-task-glyph {
-  background: var(--success-tint-08);
-}
-
-.op-task[data-status="in_progress"] .op-task-text {
+.op-taskbar-item[data-status="in_progress"] .op-taskbar-text {
   font-weight: var(--weight-medium);
 }
 
-.op-task[data-status="completed"] .op-task-text {
+.op-taskbar-item[data-status="completed"] .op-taskbar-text {
   color: var(--text-muted);
   text-decoration: line-through;
-}
-
-.op-task-text {
-  min-width: 0;
-  overflow-wrap: anywhere;
 }
 
 /* ---- Cards: approval and question ---- */
@@ -1072,20 +1455,133 @@ html[data-ui-mode="simple"] #operator-container {
   color: var(--color-error);
 }
 
-.op-card-answers {
+/* A settled question: one line naming the outcome and what was asked, which
+   opens to every question and its answer. */
+.op-qtrace-head {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  max-width: 100%;
+  margin-left: -6px;
+  padding: 2px 6px;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-md);
+  font-family: var(--chat-font);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.op-qtrace-head:hover {
+  background: var(--neutral-tint-06);
+  color: var(--text-primary);
+}
+
+.op-qtrace-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.op-qtrace-status,
+.op-qtrace-chevron {
+  color: var(--text-muted);
+}
+
+.op-card[data-state="answered"] .op-qtrace-status {
+  color: var(--color-success);
+}
+
+.op-qtrace-chevron {
+  transition: transform var(--wt-transition-fast);
+}
+
+.op-qtrace-head[aria-expanded="true"] .op-qtrace-chevron {
+  transform: rotate(90deg);
+}
+
+.op-qtrace-body {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin: 0 0 0 22px;
-  padding: 0;
-  list-style: none;
+  gap: var(--space-3);
+  margin: 6px 0 0 8px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border-default);
+}
+
+.op-qtrace-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+
+.op-qtrace-q {
+  margin: 0;
   font-size: var(--text-md);
+  line-height: var(--leading-normal);
   color: var(--text-secondary);
 }
 
-.op-card-answers strong {
+.op-qtrace-a {
+  margin: 0;
+  font-size: var(--text-lg);
   font-weight: var(--weight-medium);
+  line-height: var(--leading-normal);
   color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.op-qtrace-a[data-empty="true"] {
+  font-weight: var(--weight-regular);
+  color: var(--text-muted);
+}
+
+/* An artifact id in an agent answer: a link-styled control that shows the
+   artifact in the workspace. Reads as the agent's own text. */
+.op-artifact-link {
+  display: inline;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  color: var(--color-accent-light);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.op-artifact-link:hover {
+  text-decoration-style: solid;
+}
+
+.op-artifact-link:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+  border-radius: var(--radius-xs);
+}
+
+.op-artifact-link[data-missing="true"] {
+  color: var(--text-muted);
+  text-decoration-style: solid;
+  text-decoration-line: line-through;
+  cursor: default;
+}
+
+/* The gallery could not be asked (session expired, refused, unreachable): the
+   artifact may exist, so the control stays clickable and is not struck through. */
+.op-artifact-link[data-unavailable] {
+  color: var(--text-muted);
+  text-decoration-style: dashed;
+}
+
+.op-artifact-link code {
+  color: inherit;
 }
 
 /* Question cards */
@@ -1328,15 +1824,42 @@ html[data-ui-mode="simple"] #operator-container {
   opacity: 0.9;
 }
 
-/* ---- Turn footer ---- */
+/* ---- Turn footer: how long, then what happened, in the rows' small icons ---- */
 
 .op-footer {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   margin-top: 2px;
   font-size: var(--text-md);
   color: var(--text-muted);
+}
+
+.op-footer-part {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.op-footer-sep {
+  opacity: 0.6;
+}
+
+.op-footer .op-icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* The actions' icons, side by side and small: the glyphs the turn's rows wore. */
+.op-footer-stack {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.op-footer-error {
+  color: var(--color-error);
 }
 
 /* ---- Error card ---- */
@@ -1404,8 +1927,16 @@ html[data-ui-mode="simple"] #operator-container {
 }
 
 .op-loader-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-weight: var(--weight-medium);
   white-space: nowrap;
+}
+
+.op-loader-sep,
+.op-loader-time {
+  flex-shrink: 0;
 }
 
 .op-loader-sep {
@@ -1419,62 +1950,16 @@ html[data-ui-mode="simple"] #operator-container {
   color: var(--text-muted);
 }
 
-/* The 3×3 pixel grid: nine 4px cells, the lit wave running diagonally. */
-.op-loader-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 4px);
-  gap: 1.5px;
+/* The OSPREY mark at the header lockup's scale, beating its wings in the
+   status line's own colour while the turn works. The mark is the brand: it
+   flies here and in the header, and nowhere on the rows. The roll spins the
+   whole box, so it must be free to paint outside it. */
+.op-loader-bird {
   flex-shrink: 0;
+  width: 24px;
+  height: 12px;
+  overflow: visible;
 }
-
-.op-loader-cell {
-  width: 4px;
-  height: 4px;
-  border-radius: var(--radius-xs);
-  background: var(--text-primary);
-  opacity: 0.15;
-  animation: op-pixel 650ms ease-in-out infinite; /* hygiene-allow-scale: decorative pixel-wave cadence */
-}
-
-@keyframes op-pixel {
-  0%,
-  100% {
-    opacity: 0.15;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-/* hygiene-allow-scale-start: per-cell phase offsets of the pixel wave (decorative) */
-.op-loader-cell:nth-child(1) {
-  animation-delay: 90ms;
-}
-.op-loader-cell:nth-child(2) {
-  animation-delay: 180ms;
-}
-.op-loader-cell:nth-child(3) {
-  animation-delay: 270ms;
-}
-.op-loader-cell:nth-child(4) {
-  animation-delay: 0ms;
-}
-.op-loader-cell:nth-child(5) {
-  animation-delay: 90ms;
-}
-.op-loader-cell:nth-child(6) {
-  animation-delay: 180ms;
-}
-.op-loader-cell:nth-child(7) {
-  animation-delay: 90ms;
-}
-.op-loader-cell:nth-child(8) {
-  animation-delay: 180ms;
-}
-.op-loader-cell:nth-child(9) {
-  animation-delay: 270ms;
-}
-/* hygiene-allow-scale-end */
 
 /* ---- Composer: one rounded surface holding the box and its toolbar ---- */
 
@@ -1665,6 +2150,10 @@ html[data-ui-mode="simple"] #operator-container {
 }
 
 .op-slash-hint {
+  min-width: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-family: var(--font-mono);
   font-size: var(--text-base);
   color: var(--text-muted);
@@ -1678,13 +2167,38 @@ html[data-ui-mode="simple"] #operator-container {
   color: var(--text-secondary);
 }
 
+/* The kind of a suggestion, at the row's right edge: a quiet pill, the skill one
+   with the skill glyph the chat's skill rows carry. */
+.op-slash-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 0 6px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-full);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.op-slash-kind .op-icon {
+  width: 12px;
+  height: 12px;
+}
+
+.op-slash-kind[data-kind="skill"] {
+  color: var(--text-secondary);
+}
+
 /* ---- Motion preference ---- */
 
 @media (prefers-reduced-motion: reduce) {
   .op-shimmer,
   .op-spin,
-  .op-loader-cell,
-  .op-task[data-status="in_progress"] .op-task-glyph {
+  .op-loader-bird path,
+  .op-loader-bird.flying,
+  .op-taskbar-item[data-status="in_progress"] .op-taskbar-glyph .op-icon {
     animation: none;
   }
 
@@ -1692,8 +2206,13 @@ html[data-ui-mode="simple"] #operator-container {
     background-position: 50% 50%;
   }
 
-  .op-loader-cell {
+  .op-loader-bird {
     opacity: 0.6;
+  }
+
+  /* No breathing: the live colour alone marks the current action. */
+  .op-row.pulse > .op-row-head .op-row-glyph .op-icon {
+    animation: none;
   }
 }
 
@@ -1763,10 +2282,13 @@ html[data-ui-mode="simple"] #operator-container {
    there on touch screens, which have no hover. */
 .op-reply-copy {
   display: inline-flex;
+  /* The agent's entry is a flex column, which would stretch the control
+     to the full width; it keeps to its icon and label. */
+  align-self: flex-start;
   align-items: center;
-  gap: var(--space-1);
+  gap: 6px;
   margin-top: var(--space-1);
-  padding: 2px 8px;
+  padding: 4px 12px 4px 10px;
   font-family: var(--chat-font);
   font-size: var(--text-sm);
   color: var(--text-muted);

@@ -18,6 +18,8 @@ import {
   getPanelStandaloneUrl,
 } from './panel-manager.js';
 import { wireAgentLinks } from './agent-links.js';
+import { wireArtifactLinks } from './artifact-links.js';
+import { fetchJSON, withPrefix } from './api.js';
 import '/design-system/js/components/osprey-drawer.js';
 import { initSettings } from './settings.js';
 import { initMemoryGallery } from './memory-gallery.js';
@@ -82,6 +84,11 @@ document.addEventListener('DOMContentLoaded', () => {
     initAgentLinks();
   } catch (err) {
     console.error('Failed to init agent answer links:', err);
+  }
+  try {
+    initArtifactLinks();
+  } catch (err) {
+    console.error('Failed to init artifact links:', err);
   }
   // Before the panel manager creates any iframe, so no contribution can
   // arrive without a listener.
@@ -412,18 +419,82 @@ function initBars() {
  * hosted is read at click time, so a panel whose URL has not resolved opens in
  * a new tab instead.
  *
+ * A loopback link to a panel backend's port (the address the agent's tools
+ * name, e.g. the gallery's `http://127.0.0.1:<port>#focus`) is that panel too.
+ * The ports come from `/api/panels`' `loopback_ports`, read once here; until
+ * they arrive, or if the read fails, such a link opens in a new tab as before.
+ *
  * Exported so the wiring can be driven directly in tests: the bootstrap above
  * runs on DOMContentLoaded, which has already fired by then.
+ *
+ * @returns {Promise<void>} settles once the loopback ports are read (or not)
  */
 export function initAgentLinks() {
   const operatorRoot = document.getElementById('operator-container');
-  if (!operatorRoot) return;
+  if (!operatorRoot) return Promise.resolve();
+  /** @type {ReadonlyMap<string, string>} backend port -> panel id */
+  let loopbackPorts = new Map();
   wireAgentLinks(operatorRoot, {
     prefix: window.__OSPREY_PREFIX__ || '',
     isHostedPanel: (id) => getPanelStandaloneUrl(id) !== null,
+    loopbackPorts: () => loopbackPorts,
     openPanel: navigateAndActivatePanel,
     openWindow: (url, target, features) => {
       window.open(url, target, features);
+    },
+  });
+  return fetchJSON('/api/panels').then(
+    (config) => {
+      /** @type {Record<string, unknown>} */
+      const ports = config?.loopback_ports ?? {};
+      loopbackPorts = new Map(
+        Object.entries(ports)
+          .filter(([, port]) => Number.isInteger(port))
+          .map(([id, port]) => [String(port), id])
+      );
+    },
+    (err) => {
+      console.warn('Agent links: panel ports unavailable:', err);
+    }
+  );
+}
+
+/** The panel that hosts the artifact gallery. */
+const ARTIFACTS_PANEL_ID = 'artifacts';
+
+/**
+ * Make an artifact id in a Simple-view agent answer show that artifact: the
+ * gallery is asked to focus it through the hub's panel proxy (the request the
+ * agent's `artifact_focus` makes), and the artifacts panel opens once it has.
+ * Focusing first means a gallery that loads only now reads the new focus on
+ * its first `GET /api/focus`.
+ *
+ * Exported so the wiring can be driven directly in tests: the bootstrap above
+ * runs on DOMContentLoaded, which has already fired by then.
+ */
+export function initArtifactLinks() {
+  const operatorRoot = document.getElementById('operator-container');
+  if (!operatorRoot) return;
+  wireArtifactLinks(operatorRoot, {
+    focusArtifact: async (id) => {
+      let res;
+      try {
+        res = await fetch(withPrefix(`/panel/${ARTIFACTS_PANEL_ID}/api/focus`), {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ artifact_id: id }),
+        });
+      } catch {
+        return 'unreachable';
+      }
+      if (!res.ok) {
+        if (res.status === 404) return 'missing';
+        if (res.status === 401) return 'expired';
+        if (res.status === 403) return 'refused';
+        return 'unreachable';
+      }
+      navigateAndActivatePanel(ARTIFACTS_PANEL_ID, '');
+      return 'shown';
     },
   });
 }

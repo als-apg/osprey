@@ -464,6 +464,9 @@ def _inject_html_snippet(html_bytes: bytes, snippet: str) -> bytes:
 class FocusRequest(BaseModel):
     artifact_id: str
     fullscreen: bool = False
+    #: Set by a sender acting on its own (the approval hook), not for a person or
+    #: an agent that chose the artifact; broadcast so a layout can tell them apart.
+    automatic: bool = False
 
 
 class PinRequest(BaseModel):
@@ -1076,6 +1079,8 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         event: dict[str, Any] = {"type": "focus", "domain": "artifact", "id": req.artifact_id}
         if req.fullscreen:
             event["fullscreen"] = True
+        if req.automatic:
+            event["automatic"] = True
         broadcaster.broadcast(event)
         return {"status": "ok", "artifact_id": req.artifact_id}
 

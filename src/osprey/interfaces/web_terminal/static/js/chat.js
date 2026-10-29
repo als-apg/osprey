@@ -6,7 +6,8 @@
  * inside #operator-container, binds it to the tab's session pointer, and owns
  * the streaming/idle UI state, turning user intent (submit, stop, switch view)
  * into transport calls. All rendering and sanitisation live in the renderer;
- * all networking and SSE parsing live in the client, and the copy for refusals
+ * all networking and SSE parsing live in the client; what the live feed's
+ * frames mean for the log lives in chat-follow.js, and the copy for refusals
  * and failures lives in chat-notices.js. This file holds no innerHTML and no
  * parsing, so the interesting logic stays in the unit-tested modules.
  *
@@ -37,7 +38,7 @@ import {
 import { createChatRenderer, elem } from './chat-render.js';
 import { buildConsole } from './chat-console.js';
 import { emitChat } from './chat-events.js';
-import { endsTurn, isResponseFrame } from './chat-frames.js';
+import { createTurnFollower } from './chat-follow.js';
 import { initChatFeatures } from './chat-features.js';
 import { handoffRefusal, HANDOFF_FALLBACK, transportNotice } from './chat-notices.js';
 import {
@@ -134,14 +135,26 @@ export function initChat(containerId = 'operator-container') {
    */
   let feed = /** @type {import('./chat-client.js').ChatFeed | null} */ (null);
 
-  /**
-   * How the console is following a turn it did not send: `live` saw it start
-   * (another tab's prompt, or the CLI's own response), `joined` came in part-way
-   * (a reload, a second tab opened mid-turn) and re-reads the transcript when
-   * it ends; null when it is not following one.
-   * @type {null | 'live' | 'joined'}
-   */
-  let mirroring = null;
+  /** What the feed's frames mean for the log: the turns this tab did not send. */
+  const follower = createTurnFollower({
+    renderer,
+    draw,
+    fetchHistory,
+    key: () => boundKey,
+    sending: () => handle !== null,
+    setStreaming,
+    dismissInvitation: () => {
+      emptyState?.remove();
+      emptyState = null;
+    },
+    scrollToBottom: () => scrollToBottom(),
+    redraw: (turns) => {
+      renderer.reset();
+      emptyState = null;
+      renderer.replay(turns);
+      inviteIfEmpty();
+    },
+  });
 
   /** Whether a turn is streaming. */
   let streaming = false;
@@ -430,6 +443,7 @@ export function initChat(containerId = 'operator-container') {
   function resetLog() {
     handle?.abort();
     handle = null;
+    follower.logChanged();
     renderer.reset();
     emptyState = null;
     setStreaming(false);
@@ -438,11 +452,12 @@ export function initChat(containerId = 'operator-container') {
   /**
    * Point the console at *key*: clear the log, then replay what the session
    * has already said so the Simple view opens on the conversation rather than
-   * on an empty console.
+   * on an empty console. A turn the transcript shows still running is left
+   * open; the feed's snapshot then says whether it goes on.
    * @param {string} key
    * @returns {Promise<void>}
    */
-  async function bindTo(key, { keepFeed = false } = {}) {
+  async function bindTo(key) {
     boundKey = key;
     resetLog();
     if (isSimpleMode()) notifySessionChange(key);
@@ -461,7 +476,7 @@ export function initChat(containerId = 'operator-container') {
     scrollToBottom();
     // Follow the agent from here on, so a turn still running — after a reload,
     // or sent from another tab — keeps drawing.
-    if (!keepFeed) follow(key);
+    follow(key);
   }
 
   /**
@@ -470,11 +485,14 @@ export function initChat(containerId = 'operator-container') {
    */
   function follow(key) {
     feed?.close();
-    mirroring = null;
+    follower.restart();
     const mine = followChat(key, {
       onEvent: (frame) => {
         // A closed feed can still hand over a frame it had already read.
-        if (feed === mine && boundKey === key) onFeedFrame(frame);
+        if (feed === mine && boundKey === key) follower.frame(frame);
+      },
+      onNoAgent: () => {
+        if (feed === mine && boundKey === key) follower.noAgent();
       },
     });
     feed = mine;
@@ -499,65 +517,6 @@ export function initChat(containerId = 'operator-container') {
     const pinned = isPinned();
     renderer.handleEvent(event);
     if (pinned) scrollToBottom();
-  }
-
-  /**
-   * One frame from the feed: the snapshot it opens with, then everything the
-   * agent does. The feed is closed while this tab's own turn streams, so what
-   * it brings is a turn sent elsewhere (another tab) or never sent (the CLI
-   * answering a background agent's report).
-   * @param {import('./chat-client.js').ChatEvent} frame
-   */
-  function onFeedFrame(frame) {
-    if (frame.type === 'hello') {
-      if (frame.in_flight && !mirroring) {
-        startMirror('joined', null);
-        for (const pending of frame.pending ?? []) draw(pending);
-      }
-      // The window's last reading, so the meter is right on a tab that opens mid-session.
-      if (frame.context) draw(frame.context);
-      return;
-    }
-    if (frame.type === 'turn_start') {
-      if (!mirroring) startMirror('live', frame.prompt ?? null);
-      return;
-    }
-    if (!mirroring) {
-      // Part of a response this tab is not drawing yet (its start came before
-      // the feed connected); join it. A notice on its own just draws.
-      if (!isResponseFrame(frame)) {
-        draw(frame);
-        return;
-      }
-      startMirror('joined', null);
-    }
-    draw(frame);
-    if (endsTurn(frame)) endMirror();
-  }
-
-  /**
-   * Start drawing a turn this tab did not send.
-   * @param {'live' | 'joined'} how
-   * @param {string | null} prompt - the operator's prompt, when the turn has one
-   */
-  function startMirror(how, prompt) {
-    mirroring = how;
-    emptyState?.remove();
-    emptyState = null;
-    if (prompt) renderer.addUserMessage(prompt);
-    setStreaming(true);
-    renderer.beginTurn();
-    scrollToBottom();
-  }
-
-  function endMirror() {
-    const joined = mirroring === 'joined';
-    mirroring = null;
-    setStreaming(false);
-    renderer.endTurn();
-    // A turn joined part-way missed what it said before the feed connected;
-    // the transcript has all of it.
-    if (joined) void bindTo(boundKey, { keepFeed: true });
   }
 
   /**
@@ -636,29 +595,36 @@ export function initChat(containerId = 'operator-container') {
     textarea.value = '';
     slash.close();
     autoResize();
-    scrollToBottom();
     setStreaming(true);
     renderer.beginTurn();
+    // After beginTurn: its status line lands at the foot of the log, and a log
+    // left above it is no longer pinned, so the reply would not be followed.
+    scrollToBottom();
 
     pauseFeed();
+    follower.logChanged();
     const sent = sendTransforms.reduce((text, transform) => transform(text), prompt);
+    /** Whether any frame of the turn came back: the agent has the prompt. */
+    let answered = false;
     const current = sendPrompt(boundKey, sent, {
       onEvent: (event) => {
+        answered = true;
         if (event.type !== 'turn_start') draw(event);
       },
       onError: (err) => {
-        const refusal = handoffRefusal(err);
-        if (!refusal) {
-          showNotice(transportNotice(err));
-          return;
-        }
-        // The other view holds the session, so the prompt never ran. Take the
+        // A send that no frame answered never reached the agent. Take the
         // bubble back and return the text to the input the operator typed it
-        // in; the overlay carries the one thing left to do.
-        entry.remove();
-        textarea.value = prompt;
-        autoResize();
-        showHandoffRefused(refusal);
+        // in, as the files attached to it return to the tray.
+        if (!answered) {
+          entry.remove();
+          textarea.value = prompt;
+          autoResize();
+        }
+        // The other view holds the session; the overlay carries the one thing
+        // left to do.
+        const refusal = handoffRefusal(err);
+        if (refusal) showHandoffRefused(refusal);
+        else showNotice(transportNotice(err));
       },
       onClose: () => {
         // A turn that a reset cut short can close after its successor has started;
@@ -676,7 +642,7 @@ export function initChat(containerId = 'operator-container') {
   /** Stop the in-flight turn: interrupt server-side first, then abort locally. */
   async function stop() {
     const current = handle;
-    if (!current && !mirroring) return;
+    if (!current && !follower.following()) return;
     stopBtn.disabled = true;
     // Interrupt the server turn first, then abort the local fetch. Either
     // arrival order is safe server-side; the abort makes the client stop
