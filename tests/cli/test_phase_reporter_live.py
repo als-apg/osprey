@@ -61,7 +61,7 @@ _HEARTBEAT_MARK = "(running "
 _SPINNER_FRAMES = re.compile(f"[{re.escape(Spinner('dots').frames)}]")
 
 
-pytestmark = pytest.mark.usefixtures("parked_monitor", "restore_installed_reporter")
+pytestmark = pytest.mark.usefixtures("parked_monitor")
 
 
 def recording_console() -> tuple[Console, io.StringIO]:
