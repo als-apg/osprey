@@ -22,7 +22,7 @@ from osprey.cli.build_profile_deploy import deploy_aware_config_errors
 from osprey.cli.build_profile_merge import compute_preset_hash
 from osprey.cli.profile_root import ProfileKind, layer_files
 from osprey.cli.repo_resolver import find_repo_root
-from osprey_connectors.workspace import APPS_DIRNAME, TIERS_DIRNAME
+from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
 from tests.fixtures.lifecycle_repo import (
     APP_PRESETS,
     EXEMPLAR_DIRNAME,

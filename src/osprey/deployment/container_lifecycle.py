@@ -48,6 +48,12 @@ from osprey.deployment.compose_generator import (
 )
 from osprey.deployment.compose_watch import watched_compose_up
 from osprey.deployment.deploy_summary import log_endpoint_summary
+from osprey.deployment.dotenv import (
+    atomic_write,
+    compose_unsafe_vars,
+    compose_unsafe_vars_in_chain,
+    write_env_merged,
+)
 from osprey.deployment.errors import (
     ArchiverClientMissingError,
     ComposeInterpolationError,
@@ -108,21 +114,17 @@ from osprey.deployment.web_terminals.render_images import (
 )
 from osprey.deployment.web_terminals.roster import dispatch_tier_name, resolve_cards
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
+from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME, container_image_context
 from osprey_connectors.config import config_anchored_at, load_project_config
 from osprey_connectors.dotenv import (
     ENV_CHAIN_FILENAMES,
     ENV_LOCAL_FILENAME,
     ENV_SHARED_FILENAME,
-    atomic_write,
     chain_files,
-    compose_unsafe_vars,
-    compose_unsafe_vars_in_chain,
     merge_chain,
     parse_dotenv_file,
-    write_env_merged,
 )
 from osprey_connectors.logger import get_logger
-from osprey_connectors.workspace import RUNTIME_DATA_DIR_NAME, container_image_context
 
 logger = get_logger("deployment.lifecycle")
 
@@ -424,7 +426,7 @@ def _bluesky_curve_dir(lane_key: str = _BLUESKY_LANE_ONE) -> Path:
     bridge refuses to bind its proxy.
 
     Under ``data/.runtime/`` — the reserved runtime-output subpath
-    (:data:`~osprey_connectors.workspace.RUNTIME_DATA_DIR_NAME`) that the
+    (:data:`~osprey.utils.workspace.RUNTIME_DATA_DIR_NAME`) that the
     build-drift fold never hashes and the build never stages. Certificates are
     minted by ``osprey up`` itself, so anywhere else in ``data/`` every
     successful start would mark its own build OUT OF DATE and the scaffolded
@@ -2616,7 +2618,7 @@ def _build_project_image(
     :param build_context: The container repo this image is built from —
         ``<repo>/build/.image/<project>``, which ``osprey build`` rendered
         against the ``/app/<project>`` path the container sees rather than this
-        host's (:func:`osprey_connectors.workspace.container_image_context`). Passed
+        host's (:func:`osprey.utils.workspace.container_image_context`). Passed
         explicitly because it is the one thing here that is NOT the compose
         project directory. Building from ``<repo>/build`` instead would produce
         an image whose every recorded path — ``project_root``, and the
@@ -3843,7 +3845,7 @@ def _preflight_env_shadowing(
     **Names only, never values.** Which variable diverged is the actionable
     fact; what either side holds is a secret, and a warning is the one place a
     secret would leak into a terminal, a CI log and a bug report at once. Same
-    rule as :func:`osprey_connectors.dotenv.compose_unsafe_vars` and the build's own
+    rule as :func:`osprey.deployment.dotenv.compose_unsafe_vars` and the build's own
     divergence warning.
 
     :param compose_files: The compose files this deploy will start, in ``-f``
@@ -5570,7 +5572,7 @@ def _guard_ledger_feed(config, project_dir: Path) -> list:
         quarantine_hostile_ledgers,
     )
     from osprey.health.core.telemetry_gateway import unfed_directories
-    from osprey_connectors.workspace import AUDIT_DIR_RELPATH
+    from osprey.utils.workspace import AUDIT_DIR_RELPATH
 
     audit_root = project_dir / AUDIT_DIR_RELPATH
     if not audit_root.is_dir():

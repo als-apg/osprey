@@ -85,7 +85,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -94,24 +93,19 @@ import pytest
 import yaml
 
 from osprey.deployment.reset import MINTED_ENV_BANNERS
+from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.dotenv import parse_dotenv_text
-from osprey_connectors.workspace import TIERS_DIRNAME
+from tests.e2e._deploy_support import (
+    RUNTIME,
+    find_osprey_console_script,
+    format_failure,
+    runtime_cli,
+    volume_exists,
+)
+from tests.e2e._orm_stack import seed_repo_env
 from tests.e2e.profile_edits import set_pairs
 
 pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.dockerbuild]
-
-# ---------------------------------------------------------------------------
-# Container runtime selection — same contract as tests/e2e/test_deploy_lifecycle.py:
-# ``docker`` by default, ``podman`` opt-in via OSPREY_E2E_RUNTIME (the CI podman
-# lane sets it). Any other value fails clearly at collection time rather than
-# silently falling back to docker.
-# ---------------------------------------------------------------------------
-_SUPPORTED_RUNTIMES = ("docker", "podman")
-RUNTIME = os.environ.get("OSPREY_E2E_RUNTIME", "docker")
-if RUNTIME not in _SUPPORTED_RUNTIMES:
-    raise RuntimeError(
-        f"OSPREY_E2E_RUNTIME={RUNTIME!r} is not supported; expected one of {_SUPPORTED_RUNTIMES}"
-    )
 
 # ---------------------------------------------------------------------------
 # Identity. One deployment name per case — the repo DIRECTORY name, which the
@@ -173,21 +167,11 @@ _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 # ---------------------------------------------------------------------------
 
 
-def _find_osprey_console_script() -> Path:
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError("Could not locate the 'osprey' console script.")
-
-
 def _child_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     """The environment every ``osprey`` subprocess in this file runs under.
 
     ``CONTAINER_RUNTIME`` structurally couples the deploy-side runtime to the
-    assert-side :func:`_runtime_cli` runtime. ``OSPREY_PIP_SPEC`` is the
+    assert-side :func:`runtime_cli` runtime. ``OSPREY_PIP_SPEC`` is the
     documented operator escape from the unreleased-version pin refusal; no image
     is built here, so its value is inert — but it stays a loud failure so that a
     future change which *does* reach an image build cannot silently install a
@@ -217,23 +201,12 @@ def _run_osprey(
     extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [str(_find_osprey_console_script()), *args],
+        [str(find_osprey_console_script()), *args],
         cwd=str(cwd),
         capture_output=True,
         text=True,
         timeout=timeout,
         env=_child_env(extra_env),
-    )
-
-
-def _runtime_cli(*args: str, timeout: int = 30) -> subprocess.CompletedProcess:
-    return subprocess.run([RUNTIME, *args], capture_output=True, text=True, timeout=timeout)
-
-
-def _fmt(label: str, result: subprocess.CompletedProcess) -> str:
-    return (
-        f"{label} failed (rc={result.returncode}):\n"
-        f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
     )
 
 
@@ -313,33 +286,18 @@ def _init_and_build(base_dir: Path, name: str, preset: str, edits: dict[str, Any
         cwd=base_dir,
         timeout=BUILD_TIMEOUT_SEC,
     )
-    assert init.returncode == 0, _fmt(f"osprey init {name}", init)
+    assert init.returncode == 0, format_failure(f"osprey init {name}", init)
 
     build = _run_osprey(
         ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
         cwd=base_dir,
         timeout=BUILD_TIMEOUT_SEC,
     )
-    assert build.returncode == 0, _fmt(f"osprey build {name}", build)
+    assert build.returncode == 0, format_failure(f"osprey build {name}", build)
     assert (repo / "build" / "config.yml").is_file(), f"osprey build rendered nothing in {repo}"
 
-    _seed_repo_env(repo)
+    seed_repo_env(repo)
     return repo
-
-
-def _seed_repo_env(repo: Path) -> None:
-    """Give the repo the ``.env`` ``osprey up`` refuses to start without.
-
-    The repo root's ``.env`` is the deployment's whole secret store and the file
-    every compose invocation is pointed at, so ``up`` aborts when it is absent.
-    ``osprey init`` writes one only when the shell exports a key for the
-    profile's provider, and these cases deliberately run with every relevant
-    variable stripped (see :func:`_child_env`) — this is the ``cp .env.example
-    .env`` the CLI itself recommends, done for the operator.
-    """
-    env_path = repo / ".env"
-    if not env_path.exists():
-        shutil.copy(repo / ".env.example", env_path)
 
 
 def _env_of(path: Path) -> dict[str, str]:
@@ -372,12 +330,8 @@ def _volume_names(project_name: str) -> tuple[str, ...]:
     return (f"{project_name}_ariel_postgres_data",)
 
 
-def _volume_exists(name: str) -> bool:
-    return _runtime_cli("volume", "inspect", name, timeout=15).returncode == 0
-
-
 def _container_exists(name: str) -> bool:
-    return _runtime_cli("inspect", "--type", "container", name, timeout=15).returncode == 0
+    return runtime_cli("inspect", "--type", "container", name, timeout=15).returncode == 0
 
 
 def _psql(project_name: str, password: str, sql: str) -> subprocess.CompletedProcess:
@@ -393,7 +347,7 @@ def _psql(project_name: str, password: str, sql: str) -> subprocess.CompletedPro
     address instead lands on the ``scram-sha-256`` rule, where ``PGPASSWORD`` is
     genuinely checked against what the volume was initialized with.
     """
-    return _runtime_cli(
+    return runtime_cli(
         "exec",
         "-e",
         f"PGPASSWORD={password}",
@@ -456,10 +410,10 @@ def _teardown_project(project_name: str) -> None:
     one exact volume, or is the project-scoped ``compose down`` the guardrail
     allows (label-based, containers/networks only, never ``-v``).
     """
-    _runtime_cli("rm", "-f", _pg_container(project_name))
-    _runtime_cli("compose", "-p", project_name, "down", timeout=120)
+    runtime_cli("rm", "-f", _pg_container(project_name))
+    runtime_cli("compose", "-p", project_name, "down", timeout=120)
     for volume in _volume_names(project_name):
-        _runtime_cli("volume", "rm", volume)
+        runtime_cli("volume", "rm", volume)
 
 
 @pytest.fixture(autouse=True)
@@ -467,7 +421,7 @@ def _require_container_runtime() -> None:
     """Skip the module gracefully off a runtime host (CLI absent or daemon down)."""
     if shutil.which(RUNTIME) is None:
         pytest.skip(f"{RUNTIME} not available")
-    if _runtime_cli("ps", timeout=15).returncode != 0:
+    if runtime_cli("ps", timeout=15).returncode != 0:
         pytest.skip(f"{RUNTIME} daemon not responding")
 
 
@@ -515,7 +469,7 @@ def test_minted_secrets_survive_a_rebuild_and_a_redeploy(tmp_path: Path) -> None
 
         # -- 2. first deploy: mint -> .env -> containers ----------------------
         up1 = _run_osprey(["up", "-d"], repo)
-        assert up1.returncode == 0, _fmt("osprey up (first)", up1)
+        assert up1.returncode == 0, format_failure("osprey up (first)", up1)
 
         assert env_path.stat().st_mode & 0o777 == 0o600, (
             "the repo .env holds this deployment's secrets and must be kept private"
@@ -538,10 +492,10 @@ def test_minted_secrets_survive_a_rebuild_and_a_redeploy(tmp_path: Path) -> None
             minted[DB_PASSWORD_VAR],
             "create table wb_witness (note text); insert into wb_witness values ('pre-rebuild')",
         )
-        assert seeded.returncode == 0, _fmt("seed the witness row", seeded)
+        assert seeded.returncode == 0, format_failure("seed the witness row", seeded)
 
         volumes = _volume_names(project_name)
-        assert all(_volume_exists(volume) for volume in volumes), (
+        assert all(volume_exists(volume) for volume in volumes), (
             f"expected the named volume to exist after the first deploy: {volumes}"
         )
 
@@ -556,7 +510,7 @@ def test_minted_secrets_survive_a_rebuild_and_a_redeploy(tmp_path: Path) -> None
             cwd=tmp_path,
             timeout=BUILD_TIMEOUT_SEC,
         )
-        assert rebuild.returncode == 0, _fmt("osprey build (re-render)", rebuild)
+        assert rebuild.returncode == 0, format_failure("osprey build (re-render)", rebuild)
         assert (repo / "build" / "config.yml").is_file(), "the rebuild rendered nothing"
 
         rebuilt_env = _env_of(env_path)
@@ -578,8 +532,10 @@ def test_minted_secrets_survive_a_rebuild_and_a_redeploy(tmp_path: Path) -> None
         # deployment's containers and network and leaves the named volume —
         # exactly the "same volumes, new containers" state the claim needs.
         down = _run_osprey(["down"], repo)
-        assert down.returncode == 0, _fmt("osprey down (between rebuild and redeploy)", down)
-        assert all(_volume_exists(volume) for volume in volumes), (
+        assert down.returncode == 0, format_failure(
+            "osprey down (between rebuild and redeploy)", down
+        )
+        assert all(volume_exists(volume) for volume in volumes), (
             "`osprey down` removed a named volume — it must tear down containers "
             "only, or the redeploy below would meet a fresh store and prove nothing "
             "about the secret surviving"
@@ -593,15 +549,17 @@ def test_minted_secrets_survive_a_rebuild_and_a_redeploy(tmp_path: Path) -> None
 
         # -- 6. redeploy: same volumes, new containers, same secrets ----------
         up2 = _run_osprey(["up", "-d"], repo)
-        assert up2.returncode == 0, _fmt("osprey up (after rebuild)", up2)
-        assert all(_volume_exists(volume) for volume in volumes), (
+        assert up2.returncode == 0, format_failure("osprey up (after rebuild)", up2)
+        assert all(volume_exists(volume) for volume in volumes), (
             "the redeploy did not run against the volumes the first deploy created"
         )
 
         _assert_store_authenticates(project_name, minted)
 
         witness = _psql(project_name, minted[DB_PASSWORD_VAR], "select note from wb_witness")
-        assert witness.returncode == 0, _fmt("read the witness row after the rebuild", witness)
+        assert witness.returncode == 0, format_failure(
+            "read the witness row after the rebuild", witness
+        )
         assert witness.stdout.strip() == "pre-rebuild", (
             "the witness row is gone — the redeploy came up against a fresh volume, so "
             "'the secret survived' would have been vacuously true"
@@ -643,7 +601,7 @@ def test_divergent_shell_export_never_overwrites_the_pinned_secret(tmp_path: Pat
         env_path = repo / ".env"
 
         up1 = _run_osprey(["up", "-d"], repo)
-        assert up1.returncode == 0, _fmt("osprey up (baseline)", up1)
+        assert up1.returncode == 0, format_failure("osprey up (baseline)", up1)
         minted = _env_of(env_path)
         pinned = minted[DB_PASSWORD_VAR]
         assert pinned != divergent
@@ -655,7 +613,7 @@ def test_divergent_shell_export_never_overwrites_the_pinned_secret(tmp_path: Pat
         _assert_store_authenticates(project_name, minted)
 
         up2 = _run_osprey(["up", "-d"], repo, extra_env={DB_PASSWORD_VAR: divergent})
-        assert up2.returncode == 0, _fmt("osprey up (divergent export)", up2)
+        assert up2.returncode == 0, format_failure("osprey up (divergent export)", up2)
 
         output = _squash(up2)
 

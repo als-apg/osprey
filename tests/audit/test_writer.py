@@ -1040,7 +1040,9 @@ class TestAuditDirSeam:
         monkeypatch.setattr(workspace, "load_osprey_config", lambda: {}, raising=False)
         monkeypatch.setattr(workspace, "resolve_project_root", lambda cfg: tmp_path, raising=False)
 
-        assert writer.audit_dir() == tmp_path / workspace.AUDIT_DIR_RELPATH
+        from osprey.utils.workspace import AUDIT_DIR_RELPATH
+
+        assert writer.audit_dir() == tmp_path / AUDIT_DIR_RELPATH
 
     def test_it_is_imported_lazily(self):
         """Kept inside the function so the writer stays importable from the

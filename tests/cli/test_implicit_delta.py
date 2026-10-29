@@ -31,8 +31,8 @@ import pytest
 from osprey.cli.build_cmd import _profile_data_bundle
 from osprey.cli.build_profile import compute_profile_hash
 from osprey.cli.build_profile_load import load_profile, load_profile_document
+from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.workspace import TIERS_DIRNAME
 
 # The top-level ``agents:``/``skills:`` lists select BUILT-IN library artifacts
 # and nothing else — ``validate_artifacts`` rejects any other name — so the
@@ -375,29 +375,36 @@ def test_a_bare_non_library_name_records_a_file_omission(host: Path) -> None:
     assert load_profile_document(render).excluded_artifacts == frozenset({"agents/orbit-writer"})
 
 
-def test_a_mismatched_category_prefix_is_rejected(host: Path) -> None:
-    """The key and the prefix disagree about which artifact is meant.
+@pytest.mark.parametrize(
+    ("exclude", "match"),
+    [
+        # The key and the prefix disagree about which artifact is meant. Guessing
+        # either way excludes the wrong file or nothing at all, both of which look
+        # like the exclusion worked.
+        pytest.param("  agents: [skills/diagnose]\n", "skills", id="a_mismatched_category_prefix"),
+        # ``hooks:`` has no convention directory, so the prefix is a mistake there
+        # too: passed through as a literal hook name it would match nothing and
+        # read as a successful exclusion.
+        pytest.param(
+            "  hooks: [agents/channel-finder]\n",
+            "agents",
+            id="a_qualified_prefix_under_a_non_convention_field",
+        ),
+        pytest.param(
+            "  provider: [anthropic]\n",
+            "unknown or non-list field",
+            id="a_field_that_is_neither_list_nor_convention_dir",
+        ),
+        pytest.param("  skills: not-a-list\n", "must be a list", id="a_non_list_exclude_value"),
+        # A mapping where a name belongs used to surface as a bare ``TypeError``.
+        pytest.param("  skills:\n    - a: 1\n", "exclude.skills", id="a_non_string_exclude_entry"),
+    ],
+)
+def test_a_malformed_exclusion_is_rejected(host: Path, exclude: str, match: str) -> None:
+    """An ``exclude:`` entry that cannot name one artifact is refused, not guessed at."""
+    render = _excluding(host, "reader", f"name: Reader\nexclude:\n{exclude}")
 
-    Guessing either way excludes the wrong file or nothing at all, both of
-    which look like the exclusion worked.
-    """
-    render = _excluding(host, "reader", "name: Reader\nexclude:\n  agents: [skills/diagnose]\n")
-
-    with pytest.raises(BuildProfileError, match="skills"):
-        load_profile(render)
-
-
-def test_a_qualified_prefix_under_a_non_convention_field_is_rejected_too(host: Path) -> None:
-    """``hooks:`` has no convention directory, so the prefix is a mistake there too.
-
-    Passing it through as a literal hook name would match nothing and read as a
-    successful exclusion.
-    """
-    render = _excluding(
-        host, "reader", "name: Reader\nexclude:\n  hooks: [agents/channel-finder]\n"
-    )
-
-    with pytest.raises(BuildProfileError, match="agents"):
+    with pytest.raises(BuildProfileError, match=match):
         load_profile(render)
 
 
@@ -440,28 +447,6 @@ def test_a_dict_shaped_declaration_is_dropped_with_its_files(host: Path) -> None
 
     assert sorted(loaded.profile.mcp_servers) == ["other"]
     assert loaded.excluded_artifacts == frozenset({"mcp_servers/facility"})
-
-
-def test_a_field_that_is_neither_list_nor_convention_dir_is_rejected(host: Path) -> None:
-    render = _excluding(host, "reader", "name: Reader\nexclude:\n  provider: [anthropic]\n")
-
-    with pytest.raises(BuildProfileError, match="unknown or non-list field"):
-        load_profile(render)
-
-
-def test_a_non_list_exclude_value_is_rejected(host: Path) -> None:
-    render = _excluding(host, "reader", "name: Reader\nexclude:\n  skills: not-a-list\n")
-
-    with pytest.raises(BuildProfileError, match="must be a list"):
-        load_profile(render)
-
-
-def test_a_non_string_exclude_entry_is_rejected(host: Path) -> None:
-    """A mapping where a name belongs used to surface as a bare ``TypeError``."""
-    render = _excluding(host, "reader", "name: Reader\nexclude:\n  skills:\n    - a: 1\n")
-
-    with pytest.raises(BuildProfileError, match="exclude.skills"):
-        load_profile(render)
 
 
 def test_an_exclusion_matching_nothing_is_warned_about(host: Path, caplog) -> None:

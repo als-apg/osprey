@@ -27,20 +27,18 @@ reaches.
 from __future__ import annotations
 
 import json
-import os
 import shutil
 from pathlib import Path
 
 import pytest
 import yaml
-from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build as build_command
 from osprey.cli.repo_resolver import PROFILE_FILENAME
 from osprey.deployment.staleness import DriftState, check_drift
 from osprey.deployment.web_terminals.render_images import verify_renders
 from osprey.deployment.web_terminals.roster import RENDER_CATALOG_REQUIRED, resolve_cards
-from osprey_connectors.workspace import APPS_DIRNAME, TIERS_DIRNAME
+from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
+from tests.cli._lifecycle_build import invoke_build_in, rendered_config
 from tests.fixtures.lifecycle_repo import (
     EXEMPLAR_DIRNAME,
     build_exemplar_repo,
@@ -50,10 +48,6 @@ from tests.fixtures.lifecycle_repo import (
 #: Every test here renders for real — seconds each, not milliseconds — which is
 #: the property that makes them worth having and the reason they are marked.
 pytestmark = pytest.mark.slow
-
-#: A build with no venv and no lifecycle hooks. Neither is what these tests are
-#: about, and a real dependency install would dominate their runtime.
-CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
 
 #: The exemplar's two renders, and the simulator's own
 #: ``control_system.connector.virtual_accelerator.writes_enabled`` value each
@@ -65,18 +59,9 @@ RENDER_WRITES = {"readonly": "never", "readwrite": "allowed"}
 
 def _run_build(repo: Path) -> None:
     """Render ``build/`` the way an operator standing in the repo would."""
-    previous = Path.cwd()
-    os.chdir(repo)
-    try:
-        with preserved_environ():
-            result = CliRunner().invoke(build_command, CI_FLAGS)
-    finally:
-        os.chdir(previous)
+    with preserved_environ():
+        result = invoke_build_in(repo)
     assert result.exit_code == 0, result.output
-
-
-def _as_built_config(repo: Path) -> dict:
-    return yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
 
 
 def _resolved_users(config: dict) -> list[dict]:
@@ -217,7 +202,7 @@ def test_no_render_carries_the_repos_secrets_into_the_output_zone(built_repo):
 
 def test_a_start_accepts_the_renders_the_build_left(built_repo, monkeypatch):
     """The whole of what a start does about renders: read them and agree."""
-    config = _as_built_config(built_repo)
+    config = rendered_config(built_repo)
     # As the start verbs do: `up` chdirs into the repo before provisioning, and
     # the catalog's `project_path` values are repo-relative (`build/<name>`).
     monkeypatch.chdir(built_repo)
@@ -233,7 +218,7 @@ def test_a_start_refuses_a_missing_render_and_names_the_build(built_repo, monkey
     one command that can produce the directory, and not left with a start that
     quietly fills it in.
     """
-    config = _as_built_config(built_repo)
+    config = rendered_config(built_repo)
     monkeypatch.chdir(built_repo)
     removed = _render_project(built_repo, "readonly")
     shutil.rmtree(removed)
@@ -258,7 +243,7 @@ def test_a_rebuild_restores_the_render_a_start_would_not(built_repo, monkeypatch
     _run_build(built_repo)
 
     assert removed.is_dir()
-    config = _as_built_config(built_repo)
+    config = rendered_config(built_repo)
     verify_renders(config, _resolved_users(config), repo_root=built_repo)
 
 
@@ -322,13 +307,8 @@ def test_a_render_that_will_not_resolve_leaves_the_previous_build_untouched(buil
         "name: Broken\ndata: [this is not a path]\n", encoding="utf-8"
     )
 
-    previous = Path.cwd()
-    os.chdir(built_repo)
-    try:
-        with preserved_environ():
-            result = CliRunner().invoke(build_command, CI_FLAGS)
-    finally:
-        os.chdir(previous)
+    with preserved_environ():
+        result = invoke_build_in(built_repo)
     assert result.exit_code != 0, result.output
 
     after = {
@@ -381,7 +361,7 @@ def test_a_catalog_entry_whose_delta_was_deleted_is_not_told_to_rewrite_itself(
     references, and the two ways out are restoring it or removing the tier from
     the roster that references it.
     """
-    config = _as_built_config(built_repo)
+    config = rendered_config(built_repo)
     monkeypatch.chdir(built_repo)
     (built_repo / TIERS_DIRNAME / "readwrite.yml").unlink()
     shutil.rmtree(_render_project(built_repo, "readwrite"))
@@ -431,13 +411,8 @@ def test_a_repo_with_no_render_catalog_is_refused_by_the_build(tmp_path: Path):
     repo = build_exemplar_repo(tmp_path / EXEMPLAR_DIRNAME, seed_env=True)
     _remove_render_layer(repo)
 
-    previous = Path.cwd()
-    os.chdir(repo)
-    try:
-        with preserved_environ():
-            result = CliRunner().invoke(build_command, CI_FLAGS)
-    finally:
-        os.chdir(previous)
+    with preserved_environ():
+        result = invoke_build_in(repo)
 
     assert result.exit_code != 0
     assert RENDER_CATALOG_REQUIRED in " ".join(result.output.split())

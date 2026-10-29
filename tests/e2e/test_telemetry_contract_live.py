@@ -27,7 +27,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import threading
 import uuid
 from collections.abc import Iterator, Mapping
@@ -43,6 +42,7 @@ import yaml
 from osprey.build.claude_code_telemetry import TELEMETRY_LOGIN_ENV, TERMINAL_SESSION_ENV
 from osprey.cli.templates.scaffolding import _DEFAULT_CLAUDE_CLI_VERSION
 from osprey.deployment import telemetry_config as tc
+from tests.e2e._deploy_support import find_osprey_console_script
 from tests.e2e.profile_edits import set_pairs
 from tests.e2e.provider import build_model, build_provider, e2e_provider
 
@@ -92,11 +92,14 @@ REDACTED = "<redacted>"
 #: say nothing about the CLI's shape, so a live run may carry them although
 #: the fixture does not.
 _TRANSIENT_EVENTS = frozenset({"api_error"})
-#: Event names the CLI's background housekeeping emits. It starts on a timer
-#: that does not hold the process open, so a turn that ends first never emits
-#: them; whether a run carries them says how long it lasted, not what shape
-#: the CLI speaks. Neither side of the comparison holds them.
-_HOUSEKEEPING_EVENTS = frozenset({"retention_sweep"})
+#: Event names the CLI emits from work that runs beside the turn rather than
+#: in it: the retention sweep starts on a timer that does not hold the process
+#: open, and ``mcp_server_connection`` reports the project's MCP servers coming
+#: up while the turn is already under way. Whether a run carries them depends
+#: on how the two raced, not on what shape the CLI speaks: one capture of the
+#: pinned version has them and the next does not. Neither side of the
+#: comparison holds them.
+_HOUSEKEEPING_EVENTS = frozenset({"retention_sweep", "mcp_server_connection"})
 _BASIC = re.compile(r"^Basic ([A-Za-z0-9+/]+=*)$")
 
 
@@ -164,16 +167,6 @@ def sink() -> Iterator[Sink]:
 # --------------------------------------------------------------------------- #
 
 
-def _osprey_bin() -> Path:
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError("Could not locate the 'osprey' console script.")
-
-
 def _clean_env() -> dict[str, str]:
     return {
         k: v
@@ -223,7 +216,7 @@ def pinned_cli(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, str]:
 @pytest.fixture(scope="module")
 def project(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A built hello-world repo whose telemetry block is ``backend: gateway``, ``http/json``."""
-    osprey = _osprey_bin()
+    osprey = find_osprey_console_script()
     base = tmp_path_factory.mktemp("telemetry_contract")
     repo = base / PROJECT_NAME
     provider = build_provider(e2e_provider())
@@ -334,6 +327,24 @@ def structure(requests: list[Mapping[str, Any]]) -> dict[str, Any]:
         "resource_keys": sorted(resource_keys),
         "metrics": sorted(metrics),
     }
+
+
+def contract_events(
+    expected: Mapping[str, list[str]], live: Mapping[str, list[str]]
+) -> tuple[dict[str, list[str]], dict[str, list[str]], dict[str, list[str]]]:
+    """The events both sides are held to, and the event names that differ.
+
+    Housekeeping events leave both sides; a transient event may appear live
+    without the fixture. Returns ``(expected, live, drift)``, where *drift*
+    maps ``missing`` and ``extra`` to sorted event names.
+    """
+    kept_expected = {n: k for n, k in expected.items() if n not in _HOUSEKEEPING_EVENTS}
+    kept_live = {n: k for n, k in live.items() if n not in _HOUSEKEEPING_EVENTS}
+    drift = {
+        "missing": sorted(set(kept_expected) - set(kept_live)),
+        "extra": sorted(set(kept_live) - set(kept_expected) - _TRANSIENT_EVENTS),
+    }
+    return kept_expected, kept_live, drift
 
 
 def header_shape(authorization: str, login: str | None = None) -> str:
@@ -479,19 +490,15 @@ def test_the_pinned_cli_speaks_the_otlp_shape_the_fixture_records(
         f"re-capture with {CAPTURE_ENV}=1 under a provider key"
     )
     expected = structure(recorded["requests"])
-    for events in (expected["events"], live["events"]):
-        for name in _HOUSEKEEPING_EVENTS:
-            events.pop(name, None)
-    missing = sorted(set(expected["events"]) - set(live["events"]))
-    extra = sorted(set(live["events"]) - set(expected["events"]) - _TRANSIENT_EVENTS)
-    assert not missing and not extra, (
+    expected_events, live_events, drift = contract_events(expected["events"], live["events"])
+    assert not drift["missing"] and not drift["extra"], (
         "event names differ from the fixture",
-        {"missing": missing, "extra": extra},
+        drift,
     )
-    for name, keys in expected["events"].items():
-        assert live["events"][name] == keys, (
+    for name, keys in expected_events.items():
+        assert live_events[name] == keys, (
             f"attribute keys of {name!r} differ from the fixture",
-            sorted(set(live["events"][name]) ^ set(keys)),
+            sorted(set(live_events[name]) ^ set(keys)),
         )
     assert live["resource_keys"] == expected["resource_keys"], (
         "resource keys differ from the fixture",

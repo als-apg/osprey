@@ -4,13 +4,24 @@ This provider uses LiteLLM as the backend for unified API access.
 CBORG is LBNL's OpenAI-compatible proxy service.
 """
 
-from .litellm_adapter import check_litellm_health, execute_litellm_completion
-from .litellm_delegating import LiteLLMDelegatingProvider
+from .litellm_adapter import (
+    check_litellm_embedding_health,
+    check_litellm_health,
+    execute_litellm_completion,
+    execute_litellm_embedding,
+)
+from .litellm_delegating import LiteLLMEmbeddingDelegatingProvider
 
-__all__ = ["CBorgProviderAdapter", "check_litellm_health", "execute_litellm_completion"]
+__all__ = [
+    "CBorgProviderAdapter",
+    "check_litellm_embedding_health",
+    "check_litellm_health",
+    "execute_litellm_completion",
+    "execute_litellm_embedding",
+]
 
 
-class CBorgProviderAdapter(LiteLLMDelegatingProvider):
+class CBorgProviderAdapter(LiteLLMEmbeddingDelegatingProvider):
     """CBORG (LBNL) provider implementation using LiteLLM."""
 
     # Metadata (single source of truth)
@@ -24,6 +35,8 @@ class CBorgProviderAdapter(LiteLLMDelegatingProvider):
     models_probe = "bearer"
     default_model_id = "anthropic/claude-haiku"  # Claude Haiku via CBORG for general use
     health_check_model_id = "anthropic/claude-haiku"  # Fast and cost-effective for health checks
+    default_embedding_model_id = "lbl/nomic-embed-text"
+    health_check_embedding_model_id = "lbl/nomic-embed-text"
 
     # API key acquisition information
     api_key_url = "https://cborg.lbl.gov"
@@ -48,4 +61,5 @@ class CBorgProviderAdapter(LiteLLMDelegatingProvider):
     gateway = "litellm"  # a LiteLLM proxy — requests carry the acting identity
     supports_native_structured_output = True  # proxies to models with native json_schema support
 
-    # execute_completion / check_health inherited from LiteLLMDelegatingProvider.
+    # execute_completion / check_health and the text-embedding pair are inherited
+    # from LiteLLMEmbeddingDelegatingProvider.

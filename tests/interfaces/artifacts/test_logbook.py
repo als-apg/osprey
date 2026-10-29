@@ -80,15 +80,6 @@ def _patch_model_resolution():
 class TestLogbookCompose:
     """Tests for POST /api/logbook/compose."""
 
-    @pytest.fixture
-    def app_client(self, tmp_path):
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.artifacts.app import create_app
-
-        app = create_app(workspace_root=tmp_path)
-        return TestClient(app)
-
     def test_compose_requires_id(self, app_client):
         """422 when no artifact_id provided."""
         resp = app_client.post("/api/logbook/compose", json={})
@@ -194,15 +185,6 @@ class TestLogbookCompose:
 
 class TestLogbookSubmit:
     """Tests for POST /api/logbook/submit."""
-
-    @pytest.fixture
-    def app_client(self, tmp_path):
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.artifacts.app import create_app
-
-        app = create_app(workspace_root=tmp_path)
-        return TestClient(app)
 
     def test_submit_creates_draft(self, app_client, tmp_path):
         """Draft JSON written to workspace/drafts/."""
@@ -353,15 +335,6 @@ class TestAssemblePrompt:
         result = assemble_prompt(detail_level="nonexistent")
         assert DETAIL_FRAGMENTS["standard"] in result
 
-    @pytest.fixture
-    def app_client(self, tmp_path):
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.artifacts.app import create_app
-
-        app = create_app(workspace_root=tmp_path)
-        return TestClient(app)
-
     def test_assemble_endpoint(self, app_client):
         """POST /api/logbook/assemble-prompt returns assembled prompt."""
         resp = app_client.post(
@@ -397,15 +370,6 @@ class TestAssemblePrompt:
 
 class TestComposeWithSteering:
     """Tests for compose endpoint with steering/custom_prompt fields."""
-
-    @pytest.fixture
-    def app_client(self, tmp_path):
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.artifacts.app import create_app
-
-        app = create_app(workspace_root=tmp_path)
-        return TestClient(app)
 
     def test_compose_backward_compat(self, app_client):
         """POST with only artifact_id (no steering) still uses legacy prompt."""
@@ -657,14 +621,6 @@ class TestComposeWithSteering:
 class TestLogbookModels:
     """GET /api/logbook/models fills the compose panel's selector."""
 
-    @pytest.fixture
-    def app_client(self, tmp_path):
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.artifacts.app import create_app
-
-        return TestClient(create_app(workspace_root=tmp_path))
-
     def test_lists_the_served_models_with_display_names(self, app_client):
         p1, p2 = _patch_model_resolution()
         with p1, p2:
@@ -697,15 +653,6 @@ class TestUserPromptContent:
     ``mock_llm.call_args.kwargs["chat_request"].messages[1].content`` to
     assert on the user prompt that is actually sent.
     """
-
-    @pytest.fixture
-    def app_client(self, tmp_path):
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.artifacts.app import create_app
-
-        app = create_app(workspace_root=tmp_path)
-        return TestClient(app)
 
     def _get_user_prompt(self, mock_llm) -> str:
         """Extract the user message content from the mocked LLM call."""

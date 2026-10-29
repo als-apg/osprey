@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import subprocess
+
 import pytest
 
 from osprey.deployment.compose_generator import _reset_wheel_build_cache
@@ -158,3 +160,55 @@ def _empty_host_for_the_ownership_check(monkeypatch):
     monkeypatch.setattr(
         "osprey.deployment.container_lifecycle._ownership_probe", lambda config: _EmptyHost()
     )
+
+
+@pytest.fixture
+def stub_deploy_up(monkeypatch, tmp_path):
+    """Factory: run ``deploy_up`` in ``tmp_path`` with no host underneath it.
+
+    Call it with the config ``prepare_compose_files`` should answer (``None``
+    leaves that collaborator to the test) and it stubs the runtime checks and
+    the compose child, returning a dict whose ``"cmd"`` is the last argv the
+    child was given.
+
+    ``seam`` picks where the child is stubbed. ``"run_captured"`` is the one
+    seam every deploy child goes through: a watched capture (the image builds
+    pass ``on_line=``) reads its child through a pipe instead of
+    ``subprocess.run``, so a ``subprocess.run`` stub would be walked straight
+    past and the test would run a real build. ``"subprocess.run"`` keeps
+    ``run_captured`` itself real, which re-wraps the result to carry its spool
+    path — so either way the stand-in is a real completed process, and it
+    ignores the redirection keywords it is passed.
+    """
+    from osprey.deployment import container_lifecycle
+
+    def _stub(config: dict | None = None, *, seam: str = "run_captured") -> dict:
+        captured: dict = {}
+
+        monkeypatch.chdir(tmp_path)
+        if config is not None:
+            monkeypatch.setattr(
+                container_lifecycle,
+                "prepare_compose_files",
+                lambda *a, **k: (config, ["docker-compose.yml"]),
+            )
+        monkeypatch.setattr(
+            container_lifecycle, "verify_runtime_is_running", lambda config: (True, "")
+        )
+        monkeypatch.setattr(
+            container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+        )
+
+        def _fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            return subprocess.CompletedProcess(list(cmd), 0)
+
+        if seam == "run_captured":
+            monkeypatch.setattr(container_lifecycle, "run_captured", _fake_run)
+        elif seam == "subprocess.run":
+            monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
+        else:
+            raise ValueError(f"unknown seam {seam!r}")
+        return captured
+
+    return _stub

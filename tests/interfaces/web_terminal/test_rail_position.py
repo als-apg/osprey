@@ -115,13 +115,6 @@ class TestResolveRailPositionWithFamily:
 # ---- Render + API paths: startup resolves web.rail_position from config ----
 
 
-@pytest.fixture
-def workspace_dir(tmp_path):
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
-    return ws
-
-
 def _started(workspace_dir, configured_position, configured_theme="main"):
     """Start the app with ``web.rail_position`` (``None`` omits the key) and ``web.theme``."""
     web = {} if configured_position is None else {"rail_position": configured_position}

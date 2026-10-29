@@ -17,15 +17,15 @@ from pathlib import Path
 
 import pytest
 import yaml
-from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.deployment.web_terminals.render_images import (
     render_build_profile_shape_problem,
     verify_renders,
 )
 from osprey.deployment.web_terminals.roster import resolve_cards
-from osprey_connectors.workspace import BUILD_DIR_NAME, IMAGE_DIR_NAME
+from osprey.utils.workspace import IMAGE_DIR_NAME
+from osprey_connectors.workspace import BUILD_DIR_NAME
+from tests.cli._lifecycle_build import invoke_build
 from tests.fixtures.lifecycle_repo import build_exemplar_repo, preserved_environ
 
 PROJECT = "als-exemplar"
@@ -60,9 +60,7 @@ def built(tmp_path_factory: pytest.TempPathFactory) -> dict:
     try:
         with pytest.MonkeyPatch.context() as patch, preserved_environ():
             patch.chdir(outside)
-            result = CliRunner().invoke(
-                build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"]
-            )
+            result = invoke_build(repo)
     finally:
         root.removeHandler(records)
         root.setLevel(previous_level)

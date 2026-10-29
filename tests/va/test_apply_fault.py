@@ -34,7 +34,6 @@ import importlib.util
 import json
 import multiprocessing
 import os
-import socket
 import time
 from collections.abc import Coroutine, Iterator, Mapping
 from pathlib import Path
@@ -43,19 +42,14 @@ from typing import Any
 
 import pytest
 
-
-def _free_port() -> str:
-    """An unused loopback TCP port, as a string ready for the environment."""
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return str(probe.getsockname()[1])
-
+from osprey.interfaces._serving import free_port
+from tests.va._collection import assert_module_collected
 
 # Loopback only, on an ephemeral port of this module's own -- an inherited
 # EPICS_CA_SERVER_PORT may be one another module's server already listens on --
 # with the server and CAS ports equal: a search reply carries the server's own
 # port, so a server listening anywhere else hands clients a dead address.
-CA_PORT = _free_port()
+CA_PORT = str(free_port())
 # What this module's client searches with. libca reads its settings once, when
 # the process's CA context is created, and other modules collected into the same
 # process write their own at import (test_lume_pva_seam.py names an address list
@@ -72,7 +66,7 @@ CA_CLIENT_ENV: dict[str, str | None] = {
 # import-time required because libca reads the repeater port when the first CA
 # context in the process is created, which may be another module's, before any
 # of this module's fixtures run; point_at does not carry it.
-os.environ.setdefault("EPICS_CA_REPEATER_PORT", _free_port())
+os.environ.setdefault("EPICS_CA_REPEATER_PORT", str(free_port()))
 
 # Floor for this module's own test count -- a guard against a refactor that
 # leaves the file importable but empty, which would otherwise pass silently.
@@ -441,8 +435,8 @@ def live(tmp_path_factory: pytest.TempPathFactory) -> Iterator[_Served]:
         "VA_STATE_DIR": str(state),
         "VA_INSTANCE": INSTANCE,
         "VA_POLL_INTERVAL_S": str(TICK_S),
-        "EPICS_PVAS_SERVER_PORT": _free_port(),
-        "EPICS_PVAS_BROADCAST_PORT": _free_port(),
+        "EPICS_PVAS_SERVER_PORT": str(free_port()),
+        "EPICS_PVAS_BROADCAST_PORT": str(free_port()),
         "EPICS_PVAS_AUTO_BEACON_ADDR_LIST": "NO",
         "EPICS_PVAS_BEACON_ADDR_LIST": "127.0.0.1",
         "EPICS_CA_SERVER_PORT": CA_PORT,
@@ -626,10 +620,4 @@ class TestLiveInstance:
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
     """Vacuous-green guard: an empty or half-collected module fails here."""
-    collected = [
-        item
-        for item in request.session.items
-        if item.nodeid.split("::")[0].endswith("test_apply_fault.py")
-    ]
-
-    assert len(collected) >= MIN_COLLECTED_TESTS
+    assert_module_collected(request, __file__, MIN_COLLECTED_TESTS)

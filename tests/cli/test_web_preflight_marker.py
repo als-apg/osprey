@@ -20,18 +20,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from click.testing import CliRunner
 
 from osprey.cli.web_cmd import AUDIT_DIR_ENV, PREFLIGHT_REFUSED_MARKER, web
 from tests.cli._lifecycle_build import stub_build
 
 #: One refusal finding, in the shape ``_preflight`` actually returns them.
 FINDING = "port 8081 is already in use by another process (artifact server)"
-
-
-@pytest.fixture
-def runner():
-    return CliRunner()
 
 
 @pytest.fixture

@@ -28,15 +28,12 @@ Skips cleanly when the chromium headless binary is not installed.
 
 from __future__ import annotations
 
-import pathlib
 from typing import TYPE_CHECKING
 
 import pytest
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
 
-from tests.interfaces.conftest import _run_app_server
+from osprey.interfaces._serving import run_app_server
+from tests.interfaces.design_system._dispatch_dashboard import create_dispatch_dashboard_app
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -47,14 +44,6 @@ pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
 VIEWPORT = {"width": 1100, "height": 900}
 
-DESIGN_SYSTEM_STATIC_DIR = (
-    pathlib.Path(__file__).resolve().parents[3]
-    / "src"
-    / "osprey"
-    / "interfaces"
-    / "design_system"
-    / "static"
-)
 
 SESSION_ID = "3f8a1c02-0000-4000-8000-abcdefabcdef"
 RUN_ID = "run-with-everything"
@@ -139,39 +128,10 @@ STATE = {
 HISTORY_URL = "https://readers.example.org:10002/history/"
 
 
-def _create_dispatch_dashboard_app(history_url: str = "") -> FastAPI:
-    """Serve the real ``render_dashboard_html()`` output beside the real design system."""
-    from osprey.dispatch.dashboard import render_dashboard_html
-
-    app = FastAPI()
-    app.mount(
-        "/design-system", StaticFiles(directory=DESIGN_SYSTEM_STATIC_DIR), name="design-system"
-    )
-
-    @app.get("/", response_class=HTMLResponse)
-    async def root() -> str:
-        return str(
-            render_dashboard_html(
-                facility_name="Test Facility",
-                channel_strip_prefix="SR:",
-                history_url=history_url,
-            )
-        )
-
-    return app
-
-
-@pytest.fixture
-def dashboard_url() -> Iterator[str]:
-    """The dashboard as the dispatcher serves it."""
-    with _run_app_server(_create_dispatch_dashboard_app()) as base_url:
-        yield base_url
-
-
 @pytest.fixture
 def dashboard_url_with_history() -> Iterator[str]:
     """The dashboard of a deployment that serves the history page."""
-    with _run_app_server(_create_dispatch_dashboard_app(HISTORY_URL)) as base_url:
+    with run_app_server(create_dispatch_dashboard_app(history_url=HISTORY_URL)) as base_url:
         yield base_url
 
 

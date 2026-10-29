@@ -43,22 +43,9 @@ from osprey_connectors.types import (
     LIVE_STANDIN,
     SET_CONTROL_SYSTEM_TYPES,
 )
+from tests._text import flat
 
-
-@pytest.fixture(autouse=True)
-def _facility_data_tree(tmp_path: Path) -> None:
-    """The tree every profile's ``data:`` key names, beside the profile.
-
-    ``data:`` is required of a repo profile and must resolve to a real
-    directory, so without this each profile below would report one extra
-    failure about a key none of these tests is about.
-    """
-    (tmp_path / "data").mkdir(exist_ok=True)
-
-
-def _flat(text: str) -> str:
-    """Collapse whitespace so assertions survive terminal line wrapping."""
-    return " ".join(text.split())
+pytestmark = pytest.mark.usefixtures("facility_data_tree")
 
 
 # ── the shorthand is part of the schema ──────────────────────────────────────
@@ -354,7 +341,7 @@ def test_init_exits_non_zero_on_an_invalid_connector(tmp_path: Path) -> None:
     )
 
     assert result.exit_code != 0
-    assert "did you mean 'virtual_accelerator'?" in _flat(result.output)
+    assert "did you mean 'virtual_accelerator'?" in flat(result.output)
     assert not (target / "profile.yml").exists()
 
 
@@ -496,7 +483,7 @@ def test_init_still_refuses_the_stand_in_as_a_flag(tmp_path: Path) -> None:
     )
 
     assert result.exit_code != 0
-    assert "There is no --connector option" in _flat(result.output)
+    assert "There is no --connector option" in flat(result.output)
     assert not (target / "profile.yml").exists()
 
 
@@ -506,6 +493,6 @@ def test_init_help_names_every_initable_connector_and_the_stand_in() -> None:
     result = CliRunner().invoke(init, ["--help"])
 
     assert result.exit_code == 0, result.output
-    flat = _flat(result.output)
-    assert ", ".join(CLI_CONTROL_SYSTEM_TYPES) in flat
-    assert LIVE_STANDIN in flat
+    text = flat(result.output)
+    assert ", ".join(CLI_CONTROL_SYSTEM_TYPES) in text
+    assert LIVE_STANDIN in text

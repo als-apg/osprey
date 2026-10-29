@@ -11,9 +11,9 @@ import asyncio
 import json
 import os
 import sys
-import time
 
 import pytest
+from tests._live import async_wait_until, wait_until
 
 from osprey.interfaces.lattice_dashboard import compute as compute_mod
 from osprey.interfaces.lattice_dashboard.compute import ComputeManager
@@ -326,14 +326,6 @@ def _gone(pid: int) -> bool:
     return False
 
 
-async def _until(predicate, timeout_s: float = 20.0) -> None:
-    deadline = time.monotonic() + timeout_s
-    while not predicate():
-        if time.monotonic() > deadline:
-            raise AssertionError("condition not met in time")
-        await asyncio.sleep(0.05)
-
-
 class TestRealChildren:
     async def test_a_relaunch_leaves_no_figure_error_and_the_new_result_lands(
         self, tmp_path, monkeypatch
@@ -344,13 +336,19 @@ class TestRealChildren:
         sleeper, pids = _script_argv(tmp_path / "first", _SLEEPER)
         monkeypatch.setattr(compute_mod, "worker_argv", sleeper)
         mgr.refresh_one("optics")
-        await _until(lambda: any(pids.iterdir()))
+        await async_wait_until(
+            lambda: any(pids.iterdir()), timeout=20.0, what="the first worker to start"
+        )
         (first_pid,) = (int(p.name) for p in pids.iterdir())
 
         writer, _ = _script_argv(tmp_path / "second", _WRITER)
         monkeypatch.setattr(compute_mod, "worker_argv", writer)
         mgr.refresh_one("optics")
-        await _until(lambda: bool(broadcaster.of("figure_ready")))
+        await async_wait_until(
+            lambda: broadcaster.of("figure_ready"),
+            timeout=20.0,
+            what="the relaunched figure to land",
+        )
 
         assert broadcaster.of("figure_error") == []
         assert mgr.figure_status("optics")["status"] == "ready"
@@ -360,21 +358,22 @@ class TestRealChildren:
 
 def test_app_shutdown_reaps_every_worker(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
-    from tests.interfaces.lattice_dashboard.test_app import _write_render
+    from tests.interfaces.lattice_dashboard._render import write_render
 
     from osprey.interfaces.lattice_dashboard.app import create_app
 
     sleeper, pids = _script_argv(tmp_path / "work", _SLEEPER)
     monkeypatch.setattr(compute_mod, "worker_argv", sleeper)
-    render = _write_render(tmp_path / "render", served=["SR"], models={"SR": {"solve": "periodic"}})
+    render = write_render(tmp_path / "render", served=["SR"], models={"SR": {"solve": "periodic"}})
     app = create_app(workspace_root=tmp_path / "ws", render_root=render)
 
     with TestClient(app):
         # The startup resolve launches the fast figures.
-        deadline = time.monotonic() + 20
-        while len(list(pids.iterdir())) < len(FAST_FIGURES):
-            assert time.monotonic() < deadline, "the workers never started"
-            time.sleep(0.05)
+        wait_until(
+            lambda: len(list(pids.iterdir())) >= len(FAST_FIGURES),
+            timeout=20.0,
+            what="the workers to start",
+        )
         started = [int(p.name) for p in pids.iterdir()]
         assert not any(_gone(pid) for pid in started)
 

@@ -41,11 +41,8 @@ dispatcher needed. Requires als-apg credentials; skips cleanly without.
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
-import sys
-import time
 import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
@@ -53,14 +50,11 @@ from pathlib import Path
 import pytest
 
 from osprey.agent_runner.tool_policy import PASSTHROUGH_TOOLS
+from osprey.interfaces._serving import free_port
+from tests._live import wait_until
+from tests.e2e._dispatch_harness import build_repo, start_worker, terminate
 from tests.e2e.provider import E2E_MODEL, e2e_provider
-from tests.e2e.test_dispatch_tutorial import (
-    HEALTH_TIMEOUT_SEC,
-    _find_osprey_console_script,
-    _free_port,
-    _terminate,
-    _wait_for_health,
-)
+from tests.e2e.test_dispatch_tutorial import HEALTH_TIMEOUT_SEC
 
 TOKEN = "parity-e2e-token"
 RUN_TIMEOUT_SEC = 320.0  # worker's own DISPATCH_TIMEOUT (300s) + polling slack
@@ -96,47 +90,12 @@ def _denied_by_policy(result_text: str | None) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _run_osprey(argv: list[str], cwd: Path, timeout: int = 300) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [str(_find_osprey_console_script()), *argv],
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env={**os.environ, "CLAUDECODE": ""},
-    )
-
-
 @pytest.fixture(scope="module")
 def built_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Init + build a real control-assistant deployment repo once per module."""
-    base = tmp_path_factory.mktemp("parity_build")
-    repo = base / "proj"
-
-    init = _run_osprey(
-        [
-            "init",
-            str(repo),
-            "--preset",
-            "control-assistant",
-            "--no-git",
-            "--set",
-            f"provider={e2e_provider()}",
-            "--set",
-            f"model={E2E_MODEL}",
-        ],
-        cwd=base,
+    return build_repo(
+        tmp_path_factory.mktemp("parity_build"), provider=e2e_provider(), model=E2E_MODEL
     )
-    if init.returncode != 0:
-        pytest.fail(f"osprey init failed (rc={init.returncode}):\n{init.stdout}\n{init.stderr}")
-
-    build = _run_osprey(
-        ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
-        cwd=base,
-    )
-    if build.returncode != 0:
-        pytest.fail(f"osprey build failed (rc={build.returncode}):\n{build.stdout}\n{build.stderr}")
-    return repo
 
 
 def _copy_repo(src: Path, dst: Path) -> Path:
@@ -188,26 +147,9 @@ def approval_off_repo(built_repo: Path, tmp_path_factory: pytest.TempPathFactory
 
 
 def _start_worker(repo: Path) -> tuple[subprocess.Popen, str]:
-    port = _free_port()
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "osprey.mcp_server.dispatch_worker"],
-        cwd=str(repo),
-        env={
-            **os.environ,
-            "DISPATCH_WORKER_PORT": str(port),
-            "DISPATCH_WORKER_TOKEN": TOKEN,
-            # Repo root + the render's config one level down, exactly as the
-            # dispatch_worker compose template wires the deployed worker.
-            "OSPREY_PROJECT_DIR": str(repo),
-            "CONFIG_FILE": str(repo / "build" / "config.yml"),
-            "CLAUDECODE": "",
-        },
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
-    url = f"http://127.0.0.1:{port}"
-    _wait_for_health(f"{url}/health", HEALTH_TIMEOUT_SEC, proc)
-    return proc, url
+    port = free_port()
+    proc = start_worker(repo, port, token=TOKEN, health_timeout=HEALTH_TIMEOUT_SEC)
+    return proc, f"http://127.0.0.1:{port}"
 
 
 @pytest.fixture
@@ -218,7 +160,7 @@ def worker(request) -> Iterator[str]:
     try:
         yield url
     finally:
-        _terminate(proc)
+        terminate(proc)
 
 
 def _http_json(url: str, payload: dict | None = None) -> dict:
@@ -240,13 +182,14 @@ def dispatch_and_wait(worker_url: str, prompt: str, allowed_tools: list[str]) ->
         {"prompt": prompt, "allowed_tools": allowed_tools, "max_turns": 15},
     )
     run_id = accepted["run_id"]
-    deadline = time.monotonic() + RUN_TIMEOUT_SEC
-    while time.monotonic() < deadline:
+
+    def finished() -> dict | None:
         run = _http_json(f"{worker_url}/dispatch/{run_id}")
-        if run.get("status") not in ("running", "pending"):
-            return run
-        time.sleep(3.0)
-    pytest.fail(f"dispatch run {run_id} did not finish within {RUN_TIMEOUT_SEC}s")
+        return run if run.get("status") not in ("running", "pending") else None
+
+    return wait_until(
+        finished, timeout=RUN_TIMEOUT_SEC, interval=3.0, what=f"dispatch run {run_id} to finish"
+    )
 
 
 def _calls(run: dict, prefix: str) -> list[dict]:

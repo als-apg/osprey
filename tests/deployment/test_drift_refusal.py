@@ -26,7 +26,7 @@ import pytest
 
 from osprey.deployment import staleness
 from osprey.deployment.staleness import DriftState
-from osprey_connectors.workspace import TIERS_DIRNAME
+from osprey.utils.workspace import TIERS_DIRNAME
 
 
 def _write(path: Path, text: str) -> Path:

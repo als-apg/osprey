@@ -35,6 +35,7 @@ from osprey.port_layout import (
     default_port,
     resolve_port_base,
 )
+from osprey.utils.workspace import PROFILE_FILENAME
 from osprey_connectors.call_timeout import refuse_renamed_timeout_keys
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.simulation import TICK_KEY, resolve_tick_s
@@ -48,7 +49,6 @@ from osprey_connectors.types import (
     retired_type_message,
     talks_to_network,
 )
-from osprey_connectors.workspace import PROFILE_FILENAME
 
 from .build_profile_archiver import _expand_dotted, parse_va_archiver_block
 from .build_profile_deploy import _limits_block_leaf, _rendered_leaf_paths, parse_deploy_block
@@ -287,11 +287,13 @@ ROOT_ONLY_KEYS = frozenset(
 TIER_KIND_KEYS = (ROOT_KIND_KEYS - ROOT_ONLY_KEYS) | RENDER_KEYS
 
 #: The known keys of an app: a whole agent definition (lists, brief, config and
-#: tool servers) plus the per-render keys. The deployment's provider, model,
-#: services and roster stay the host's.
+#: tool servers), the model it runs, plus the per-render keys. The model is an
+#: id the host's provider serves, and an app that names none runs the host's.
+#: The deployment's provider, services and roster stay the host's.
 APP_KIND_KEYS = frozenset(
     {
         "name",
+        "model",
         "hooks",
         "rules",
         "skills",

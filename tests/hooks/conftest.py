@@ -28,11 +28,14 @@ import json
 import os
 import subprocess
 import sys
+import time
 from itertools import count
 from pathlib import Path
 
 import pytest
 import yaml
+
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 HOOKS_DIR = (
     Path(__file__).parents[2] / "src" / "osprey" / "templates" / "claude_code" / "claude" / "hooks"
@@ -201,10 +204,100 @@ def import_hook(name):
         sys.path[:] = [entry for entry in sys.path if os.path.abspath(entry) != hooks_dir]
 
 
+def ask_reason(result):
+    """The reason an approval prompt shows, asserting the hook asked."""
+    assert result is not None
+    output = result["hookSpecificOutput"]
+    assert output["permissionDecision"] == "ask"
+    return output["permissionDecisionReason"]
+
+
+def pending_review_items(root):
+    """The items in the feedback hook's ``pending_reviews.json`` under *root*, or ``{}``.
+
+    The store lives under the agent-data root: it is written while the agent runs,
+    and a project's ``data/`` tree is build-owned while ``build/`` is re-rendered by
+    every build. No config names a ``base_dir`` in these runs, so the hook resolves
+    the framework default read here.
+    """
+    store = root / DEFAULT_AGENT_DATA_BASE_DIR / "feedback" / "pending_reviews.json"
+    if not store.exists():
+        return {}
+    return json.loads(store.read_text()).get("items", {})
+
+
 @pytest.fixture
 def hook_module():
     """Give a test :func:`import_hook` without importing anything itself."""
     return import_hook
+
+
+@pytest.fixture
+def approval(hook_module, monkeypatch):
+    """The `osprey_approval` module, imported through the test seam.
+
+    Every test starts with the prompt's pre-flight budget unspent. The hook
+    stamps its entry instant at import, which in the process that serves one
+    prompt is when that prompt began; a test worker keeps the module for its
+    whole life, so without this a row's budget would depend on how long the
+    worker had been running and a slow suite would render trajectories
+    differently from a fast one.
+
+    The plan lanes' URLs must come from the config under test, not from a
+    variable a developer happens to export, so those are cleared too.
+    """
+    module = hook_module("osprey_approval")
+    monkeypatch.setattr(module, "_HOOK_ENTERED_AT", time.monotonic())
+    for name in ("BLUESKY_BRIDGE_URL", "BLUESKY_VA_BRIDGE_URL", "BLUESKY_LIVE_BRIDGE_URL"):
+        monkeypatch.delenv(name, raising=False)
+    return module
+
+
+@pytest.fixture
+def reader(approval):
+    """The reader module the approval hook actually bound at import time.
+
+    Taken off the hook rather than imported here: the point is that the hook's
+    own binding resolves, and a separate import could pass while the hook's
+    sibling-import path was broken.
+    """
+    module = approval._target_state
+    assert module is not None, "the approval hook did not bind osprey_target_state"
+    return module
+
+
+@pytest.fixture
+def bridge_calls():
+    """Recorder for the (base_url, path) pairs the approval hook asks the bridge for."""
+    return []
+
+
+@pytest.fixture
+def fake_bridge(approval, bridge_calls, monkeypatch):
+    """Factory replacing the hook's bridge verbs with a routing table.
+
+    Takes ``{path: body}``; an unmapped path yields `None`, which is exactly what
+    the real helper returns for a 404, an unreachable bridge or a malformed
+    body — so a route left out of the table is a genuine failure case, not a
+    test-harness gap. ``post=True`` answers ``_bridge_post_json`` from the same
+    table. Every call is recorded with its base URL, which on a two-lane
+    deployment is the only evidence of which lane a queue came from.
+    """
+
+    def _install(routes: dict[str, object], *, post=False):
+        def _get(base_url, path, _timeout=3.0):
+            bridge_calls.append((base_url, path))
+            return routes.get(path)
+
+        def _post(base_url, path, _body, _timeout):
+            bridge_calls.append((base_url, path))
+            return routes.get(path)
+
+        monkeypatch.setattr(approval, "_bridge_get_json", _get)
+        if post:
+            monkeypatch.setattr(approval, "_bridge_post_json", _post)
+
+    return _install
 
 
 #: Module-level memos in ``osprey_hook_log``, all of them ``None`` when cold.

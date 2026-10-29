@@ -15,6 +15,7 @@ from typing import Any, TypedDict
 from zoneinfo import available_timezones
 
 from osprey.facility import FACILITY_FILE, fold_code
+from osprey_connectors import config as connector_config
 
 __all__ = [
     "DEFAULT_FACILITY_ZONE",
@@ -26,6 +27,7 @@ __all__ = [
     "facility_name",
     "identity_record",
     "is_zone_name",
+    "to_facility_iso",
 ]
 
 #: The zone every reader falls back to and every preset pins.
@@ -213,3 +215,26 @@ def closest_zone_name(name: str) -> str | None:
             return zone
     matches = get_close_matches(name, sorted(zones), n=1, cutoff=0.8)
     return matches[0] if matches else None
+
+
+def to_facility_iso(value: Any) -> str | None:
+    """Render a value as a facility-local ISO-8601 string with explicit offset.
+
+    The single shared timestamp-egress transform for agent- and operator-facing
+    output (the ARIEL MCP ``serialize_entry``/``entry_get`` and the ARIEL web
+    responses). An aware datetime is converted to the facility zone; a naive
+    datetime is treated as facility-local wall-clock via
+    :func:`~osprey_connectors.config.localize_facility` (never the box ``$TZ``);
+    ``None`` passes through; anything else degrades to ``str(value)`` so callers
+    never crash on an unexpected shape.
+    """
+    if value is None:
+        return None
+    if hasattr(value, "astimezone"):  # a datetime
+        # localize_facility stamps the naive case; astimezone converts aware
+        # values into the facility zone for display.
+        # Read through the module, so the zone is the one the connector
+        # package's config resolver answers at call time.
+        zone = connector_config.get_facility_timezone()
+        return str(connector_config.localize_facility(value).astimezone(zone).isoformat())
+    return str(value)

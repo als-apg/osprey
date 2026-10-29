@@ -34,7 +34,7 @@ from osprey.cli.init_cmd import init
 from osprey.cli.main import cli
 from osprey.cli.set_cmd import set as set_cmd
 from osprey.cli.validate_cmd import validate
-from osprey_connectors.workspace import TIERS_DIRNAME
+from osprey.utils.workspace import TIERS_DIRNAME
 
 PROFILE = "profile.yml"
 READONLY = Path(TIERS_DIRNAME) / "readonly.yml"

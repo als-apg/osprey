@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -16,7 +14,7 @@ from osprey.interfaces.web_terminal.claude_code_files import (
 )
 from osprey.interfaces.web_terminal.ownership import reserved_write_channel
 from osprey.interfaces.web_terminal.routes.config import router as config_router
-from osprey_connectors.identity import acting_identity
+from tests._audit_ledger import ledger_records
 
 
 @pytest.fixture
@@ -60,10 +58,7 @@ def service(project_dir):
 
 def _audit_records(zone):
     """Every ``claude_setup`` record written under *zone*, oldest first."""
-    log = zone / acting_identity() / f"{SURFACE_CLAUDE_SETUP}.jsonl"
-    if not log.exists():
-        return []
-    return [json.loads(line) for line in log.read_text().splitlines() if line.strip()]
+    return ledger_records(zone, SURFACE_CLAUDE_SETUP)
 
 
 class TestListFiles:

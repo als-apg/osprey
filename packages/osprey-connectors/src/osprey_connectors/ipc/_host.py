@@ -200,6 +200,7 @@ from typing import Any
 
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc._exceptions import encode_exception
+from osprey_connectors.posture_env import POSTURE_ENV_VAR, SANDBOX_MODE, is_readonly_run
 
 __all__ = [
     "EXIT_INIT_FAILED",
@@ -558,8 +559,6 @@ def _post_connect_report(
     connector: Any, connector_type: str, target: str, section: dict[str, Any]
 ) -> dict[str, Any]:
     """Describe what ``connect()`` configured, for the parent to verify."""
-    from osprey_connectors.control_system._base import is_readonly_run
-
     connector_block = (section.get("connector") or {}).get(connector_type) or {}
     gateways = connector_block.get("gateways") or {}
     if not isinstance(gateways, dict):
@@ -635,7 +634,7 @@ async def _build_connector(
         os.environ["CONFIG_FILE"] = str(config_file)
     if payload.get("execution_mode") == "readonly":
         # Restriction only: an inherited readonly claim is never cleared here.
-        os.environ["OSPREY_EXECUTION_MODE"] = "readonly"
+        os.environ[POSTURE_ENV_VAR] = SANDBOX_MODE
 
     from osprey_connectors import types
     from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors

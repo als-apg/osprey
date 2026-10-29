@@ -36,7 +36,8 @@ from osprey.interfaces.ariel.api.schemas import (
     SearchResponse,
     StatusResponse,
 )
-from osprey_connectors.config import get_facility_timezone, to_facility_iso
+from osprey.utils.facility import to_facility_iso
+from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:

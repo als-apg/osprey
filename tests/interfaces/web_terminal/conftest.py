@@ -59,6 +59,13 @@ no-durable-store notice in ``ownership`` — and the deployment-identity
 variables a developer shell may export are unset, so an "unset" row means
 unset.
 
+``workspace_dir`` is the empty watched directory most app tests boot over;
+``_started_app.terminal_client`` is the boot itself. ``ws_app`` and ``sessions_dir``
+are the unstarted app and the transcript directory the ``/ws/terminal`` suites
+drive through the harness in ``_ws``. ``agent_data_root`` and ``ledger`` are
+the throwaway record root and the captured audit ledger of the posture and
+target route suites (``_control_context`` holds their helpers).
+
 Two non-autouse builders serve the tests that ask for them:
 :func:`bar_items_app` boots the whole app with both agent-data stores on
 ``tmp_path``, and :func:`bare_route_app` mounts routers on a bare ``FastAPI``
@@ -221,6 +228,91 @@ def web_identity_env_unset(monkeypatch):
     """
     for name in _WEB_IDENTITY_ENV:
         monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture
+def workspace_dir(tmp_path) -> Path:
+    """An empty watched directory, ``tmp_path / "_agent_data"``."""
+    ws = tmp_path / "_agent_data"
+    ws.mkdir()
+    return ws
+
+
+@pytest.fixture
+def ws_app(tmp_path) -> Iterator[FastAPI]:
+    """The app the ``/ws/terminal`` suites drive, built over ``tmp_path`` and not started.
+
+    Each test enters its own ``TestClient``; the spawn is swapped out through
+    ``_ws.patch_spawn``, so the shell command is never run.
+    """
+    from osprey.interfaces.web_terminal.app import create_app
+
+    with patch(
+        "osprey.interfaces.web_terminal.app._load_web_config",
+        return_value={"watch_dir": str(tmp_path / "ws")},
+    ):
+        yield create_app(shell_command="fake-not-used", project_dir=str(tmp_path))
+
+
+@pytest.fixture
+def sessions_dir(tmp_path, monkeypatch) -> Path:
+    """Point ``SessionDiscovery`` at an empty transcript directory and return it."""
+    from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
+
+    sessions = tmp_path / "claude_sessions"
+    sessions.mkdir()
+    monkeypatch.setattr(SessionDiscovery, "_resolve_sessions_dir", lambda self: sessions)
+    return sessions
+
+
+@pytest.fixture
+def agent_data_root(tmp_path, monkeypatch) -> Iterator[Path]:
+    """Point every resolver at one throwaway agent-data root, verdict env clean.
+
+    ``OSPREY_AGENT_DATA_ROOT`` is the single stamp the record reader and
+    ``posture_store`` both prefer — the stamp this feature puts in every
+    session child's environment. Patching ``resolve_shared_data_root`` instead
+    would redirect only one of them: ``posture_store`` binds the resolver at
+    import, so the other half would write into the repository's own
+    ``var/agent_data``. Every variable that changes a write verdict behind a
+    test's back — a stamped owner, a bound tree, a launch pin, a read-only run
+    — is cleared, so each case states the one it means. Both caches are
+    dropped on the way in and out.
+    """
+    from osprey_connectors import control_context, posture_store
+    from osprey_connectors_tests._harness import VERDICT_ENV_VARS, state_dir_under
+
+    root = tmp_path / "agent_data"
+    state_dir_under(root).mkdir(parents=True)
+    for name in VERDICT_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
+    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
+    yield root
+    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
+
+
+@pytest.fixture
+def ledger() -> Iterator[list[dict]]:
+    """Capture every audit record a request would have written.
+
+    Patches ``osprey.audit.writer.record``, which BOTH recorders resolve at
+    call time — a route's ``record_and_mark`` and
+    ``HttpAuditMiddleware._emit_audit_record`` — so the count is the true
+    number of ledger lines one request produces, not just the route's own.
+    """
+    from osprey.audit import writer as audit_writer
+
+    records: list[dict] = []
+
+    def _record(**fields):
+        records.append(fields)
+        return Path("/dev/null/ledger.jsonl")
+
+    with patch.object(audit_writer, "record", side_effect=_record):
+        yield records
 
 
 @pytest.fixture

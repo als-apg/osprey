@@ -65,7 +65,6 @@ import os
 import shutil
 import stat
 import subprocess
-import sys
 import time
 import urllib.error
 import urllib.request
@@ -89,6 +88,12 @@ from osprey_connectors.identity import acting_identity
 from osprey_connectors.posture_store import POSTURE_SANDBOX
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.types import CONTROL_TARGETS, TARGET_VA
+from tests.e2e._deploy_support import (
+    find_osprey_console_script,
+    format_failure,
+    run_command,
+    wait_for_health,
+)
 from tests.e2e._mcp_sse import any_answer_succeeded, sse_payloads, tool_result
 from tests.e2e._orm_stack import VA_PVA_PORT
 from tests.e2e._volumes import remove_project_volumes
@@ -216,27 +221,6 @@ pytestmark = [
 ]
 
 
-def _find_osprey_console_script() -> Path:
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError("Could not locate the 'osprey' console script.")
-
-
-def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        cmd,
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env={**os.environ, "CLAUDECODE": ""},
-    )
-
-
 def _docker_capture(cmd: list[str]) -> str:
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     return ((proc.stdout or "") + (proc.stderr or "")).strip() or "(no output)"
@@ -349,34 +333,28 @@ def single_user_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path
     if not os.environ.get("ALS_APG_API_KEY"):
         pytest.skip("ALS_APG_API_KEY not set")
 
-    osprey_bin = _find_osprey_console_script()
+    osprey_bin = find_osprey_console_script()
     base = tmp_path_factory.mktemp("single_user_narrowing_build")
     repo = base / PROJECT_NAME
 
-    init = _run(
+    init = run_command(
         [str(osprey_bin), "init", str(repo), *INIT_PRESET_ARGS],
         cwd=base,
         timeout=300,
     )
     if init.returncode != 0:
-        pytest.fail(
-            f"osprey init failed (rc={init.returncode}):\n"
-            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
-        )
+        pytest.fail(format_failure("osprey init", init))
 
     # Before the build, so the render the dispatcher loads carries them.
     _append_probe_triggers(repo)
 
-    build = _run(
+    build = run_command(
         [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         cwd=base,
         timeout=300,
     )
     if build.returncode != 0:
-        pytest.fail(
-            f"osprey build failed (rc={build.returncode}):\n"
-            f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
-        )
+        pytest.fail(format_failure("osprey build", build))
     rendered = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
     assert dispatch_tier_name(rendered) == WORKER_TIER, (
         f"the build runs the dispatch workers at {dispatch_tier_name(rendered)!r}, not "
@@ -412,13 +390,12 @@ def single_user_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path
         subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
 
     try:
-        up = _run([str(osprey_bin), "up", "-d", "--dev"], cwd=repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
+        up = run_command(
+            [str(osprey_bin), "up", "-d", "--dev"], cwd=repo, timeout=DEPLOY_UP_TIMEOUT_SEC
+        )
         if up.returncode != 0:
-            pytest.fail(
-                f"osprey up failed (rc={up.returncode}):\n"
-                f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
-            )
-        _wait_for_health(f"{DISPATCHER_URL}/health", HEALTH_TIMEOUT_SEC)
+            pytest.fail(format_failure("osprey up", up))
+        wait_for_health(f"{DISPATCHER_URL}/health", HEALTH_TIMEOUT_SEC)
         # A healthy dispatcher does not mean a healthy worker: the worker runs
         # the heavier project image and boots later. Gate on its proxied feed so
         # no row races a still-warming worker, and a worker that never comes up
@@ -426,7 +403,7 @@ def single_user_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path
         _wait_for_worker_feed(HEALTH_TIMEOUT_SEC)
         yield repo
     finally:
-        down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
+        down = run_command([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
             print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
@@ -434,21 +411,6 @@ def single_user_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path
         # Volumes are deliberately kept by `down`; remove this project's own via
         # the shared label-scoped sweep. Exact-named only, never a prune.
         remove_project_volumes(resolve_project_name({"project_name": PROJECT_NAME}))
-
-
-def _wait_for_health(url: str, timeout: float) -> None:
-    deadline = time.monotonic() + timeout
-    last_err = "(no response yet)"
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # localhost
-                if resp.status == 200:
-                    return
-                last_err = f"HTTP {resp.status}"
-        except (urllib.error.URLError, ConnectionError, OSError) as exc:
-            last_err = str(exc)
-        time.sleep(1.0)
-    raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
 
 
 def _dump_stack_diagnostics(context: str) -> str:

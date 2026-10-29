@@ -57,7 +57,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from tests.interfaces.conftest import _run_app_server
+from tests.interfaces._launchers import launch_artifacts
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -101,11 +101,7 @@ def gallery_url(tmp_path, monkeypatch) -> Iterator[str]:
     No fixture artifacts are seeded — the browse layout and both handles exist
     whether or not the tree has content, and this suite asserts geometry only.
     """
-    monkeypatch.chdir(tmp_path)
-    from osprey.interfaces.artifacts.app import create_app
-
-    app = create_app(workspace_root=tmp_path)
-    with _run_app_server(app) as base_url:
+    with launch_artifacts(tmp_path, monkeypatch) as base_url:
         yield base_url
 
 

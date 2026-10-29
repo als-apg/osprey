@@ -29,9 +29,9 @@ from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
 from osprey.cli.templates.manifest import calculate_file_checksums
 from osprey.interfaces.channel_finder.app import feedback_dir
+from osprey_connectors.config import ConfigBuilder
 from osprey_connectors.config import (
-    ConfigBuilder,
-    find_runtime_write_paths_under_data,
+    _runtime_write_paths_under_data as find_runtime_write_paths_under_data,
 )
 from osprey_connectors.workspace import agent_data_base_dir
 

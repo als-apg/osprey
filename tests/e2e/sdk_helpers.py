@@ -207,21 +207,6 @@ def is_claude_code_available() -> bool:
         return False
 
 
-def has_anthropic_api_key() -> bool:
-    """Check if ANTHROPIC_API_KEY is set."""
-    return bool(os.environ.get("ANTHROPIC_API_KEY"))
-
-
-def has_als_apg_api_key() -> bool:
-    """Check if ALS_APG_API_KEY is set.
-
-    The als-apg gateway authenticates with this token; the safety/SDK E2E
-    suite skip-gates on it because the Claude Code CLI subprocess reaches the
-    gateway through the project's `.env`.
-    """
-    return bool(os.environ.get("ALS_APG_API_KEY"))
-
-
 #: The ARIEL database a run uses when it names none: a Postgres on the host's
 #: standard port, the one tests/e2e/README.md tells a developer to run.
 _DEFAULT_ARIEL_DB_URI = "postgresql://ariel:ariel@localhost:5432/ariel"
@@ -1205,6 +1190,35 @@ def _harvest_subagent_traces(
                     if matched is not None:
                         matched.result = _result_text(block.get("content"))
                         matched.is_error = bool(block.get("is_error"))
+
+
+def print_run_summary(title: str, result: SDKWorkflowResult) -> None:
+    """Print what a live run did, under ``title``: tools, turns, cost, approvals, results.
+
+    Debug output only -- shown under ``pytest -s`` or with a failure -- so a run that
+    went wrong is diagnosable from its log without paying for it again. Approval
+    decisions are printed for a :class:`HookObservedResult`.
+    """
+    print(f"\n--- {title} ---")
+    print(f"  tools called ({len(result.tool_traces)}): {result.tool_names}")
+    print(f"  num_turns: {result.num_turns}")
+    print(f"  cost: ${result.cost_usd:.4f}" if result.cost_usd else "  cost: N/A")
+    hook_events = getattr(result, "hook_events", None)
+    if hook_events is not None:
+        print(f"  hook_events: {len(hook_events)}")
+        for evt in hook_events:
+            print(f"    {evt.tool_name}: {evt.decision}")
+    for trace in result.tool_traces:
+        error_flag = " [ERROR]" if trace.is_error else ""
+        parent_flag = (
+            f" (sub-agent: {trace.parent_tool_use_id})" if trace.parent_tool_use_id else ""
+        )
+        print(f"  tool: {trace.name}{error_flag}{parent_flag}")
+        print(f"    input keys: {list(trace.input)}")
+        if trace.result:
+            print(f"    result preview: {trace.result[:300]}")
+    for block in result.text_blocks[:3]:
+        print(f"  text: {block[:200]}")
 
 
 def assert_agent_ran(result: SDKWorkflowResult) -> None:
