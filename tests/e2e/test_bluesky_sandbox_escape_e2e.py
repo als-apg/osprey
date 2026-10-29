@@ -328,7 +328,7 @@ def _get(path: str) -> tuple[int, Any]:
 
 
 def _post(path: str, body: dict, headers: dict | None = None) -> tuple[int, dict]:
-    return _queue_drive.request(BRIDGE_URL, path, "POST", body, extra_headers=headers, timeout=30.0)
+    return _queue_drive.request(BRIDGE_URL, path, "POST", body, headers=headers, timeout=30.0)
 
 
 def _patch(path: str, body: dict) -> tuple[int, Any]:
