@@ -758,7 +758,8 @@ name = "The connector package's top-level modules, in layers"
 # archiver reads the simulator view the in-process control-system connector
 # names, so the archivers sit above the control-system connectors. The posture
 # store, the config loader and their kin sit below every connector, and the
-# leaves at the bottom import nothing from the package.
+# leaves at the bottom import nothing from the package at module scope (the
+# `types` exceptions are named in `ignore_imports` below).
 #
 # The read-only predicate lives in `posture_env`, a leaf, so the posture store
 # no longer imports the control-system connectors that consult it.

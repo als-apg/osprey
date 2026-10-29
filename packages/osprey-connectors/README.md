@@ -58,7 +58,7 @@ second. import-linter also holds this package to never importing `osprey`, and
 holds every top-level module of it in layers: the connector host above the
 factory, the factory above the archivers, the archivers above the
 control-system connectors, those above the simulation core, and the posture
-store, config loading and the standard-library leaves (`posture_env`, `types`,
+store, config loading and the bottom layer (`posture_env`, `types`,
 `identity`, ...) below them all.
 
 ## Import map
@@ -87,7 +87,7 @@ removed; the table maps each old path to the public spelling that replaces it.
 
 Not everything those modules held moved here. The deployment repo's layout
 (layer directories, the image staging area, the audit and archive zones)
-stayed with the framework, in a new `osprey.utils.workspace` that holds only
+belongs to the framework, in a new `osprey.utils.workspace` that holds only
 those names. The executor's vocabulary and the
 facility timestamp formatter are the framework's `osprey.utils.execution_method`
 and `osprey.utils.facility`, and writing `.env` files is

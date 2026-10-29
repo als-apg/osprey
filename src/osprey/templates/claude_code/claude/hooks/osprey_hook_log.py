@@ -199,7 +199,8 @@ def get_project_dir(hook_input=None):
 
 #: The marker that makes a directory a deployment repo root, and the name of the
 #: render zone inside it. Kept in step with ``osprey.cli.repo_resolver``,
-#: ``osprey.utils.workspace`` and ``osprey_connectors.workspace``; spelled out
+#: ``osprey.utils.workspace`` and ``osprey_connectors.workspace``'s private
+#: copy; spelled out
 #: here rather than imported because a hook can be executed by a bare system
 #: ``python3`` with no ``osprey`` on its path, and the derivation below has to
 #: work under exactly that interpreter.
