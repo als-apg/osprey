@@ -72,7 +72,16 @@ Quickstart
    cd build/.image/my-project              # the context the build rendered
    docker build -t my-project -f build/Dockerfile .
    cd -                                    # back to the deployment repo root
-   docker run --rm -p 10100:10100 --env-file .env my-project
+   docker run --rm -p 10100:10100 --env-file .env \
+     -v "$PWD/.env.agent-record.login.$USER:/app/my-project/.env.agent-record.login.$USER:ro" \
+     -v "$PWD/.env.agent-record.service:/app/my-project/.env.agent-record.service:ro" \
+     my-project
+
+The terminal holds the agent record; like the provider key, its login and
+service file are supplied at run time and never enter the image. The build
+writes both readable by the building account alone (``$USER`` above), so where
+that account's uid is not 1000, the image's ``osprey`` user, mount copies that
+user can read.
 
 Then open http://localhost:10100. The container's ``osprey web`` prints a login
 URL (``…/?token=…``) to its logs at startup; open that URL to set your session
@@ -623,6 +632,8 @@ Two kinds of state are worth persisting across container restarts:
 .. code-block:: bash
 
    docker run --rm -p 10100:10100 --env-file .env \
+     -v "$PWD/.env.agent-record.login.$USER:/app/my-project/.env.agent-record.login.$USER:ro" \
+     -v "$PWD/.env.agent-record.service:/app/my-project/.env.agent-record.service:ro" \
      -v my-project-agent-data:/app/my-project/var/agent_data \
      -v my-project-home:/home/osprey \
      my-project
@@ -666,7 +677,10 @@ matches the usual amd64 deployment target:
 .. code-block:: bash
 
    docker build --platform linux/amd64 -t my-project .
-   docker run --platform linux/amd64 --rm -p 10100:10100 --env-file .env my-project
+   docker run --platform linux/amd64 --rm -p 10100:10100 --env-file .env \
+     -v "$PWD/.env.agent-record.login.$USER:/app/my-project/.env.agent-record.login.$USER:ro" \
+     -v "$PWD/.env.agent-record.service:/app/my-project/.env.agent-record.service:ro" \
+     my-project
 
 Customizing
 ===========
