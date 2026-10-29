@@ -7,9 +7,10 @@ The guards here keep that blast radius contained.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
@@ -19,6 +20,8 @@ from click.testing import CliRunner
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.text import Text
+
+from osprey_connectors_tests._harness._ports import reserved_port
 
 # The gold-standard three-zone deployment repo, re-exported so every lifecycle
 # test under tests/cli/ can ask for it by name. Defined in tests/fixtures/ with
@@ -455,3 +458,17 @@ def terminal_probe(
             root.removeHandler(probe_handler)
         elif previous_console is not None:
             probe_handler.console = previous_console
+
+
+@pytest.fixture
+def reserve_port() -> Iterator[Callable[[], int]]:
+    """Hand out loopback ports, each held until the test ends.
+
+    Every call takes a fresh ``reserved_port()`` (tests/README.md, "Ports"): a
+    port below the ephemeral range whose lock this test holds, so no other
+    socket on the host is handed it and two calls in one test never return the
+    same number — the premise of every test that pits a flag port against a
+    declared one.
+    """
+    with contextlib.ExitStack() as stack:
+        yield lambda: stack.enter_context(reserved_port())
