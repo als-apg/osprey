@@ -20,11 +20,10 @@ import pytest
 
 import osprey.templates.claude_code.claude.hooks.osprey_hook_log as hook_log
 import osprey.templates.claude_code.claude.hooks.osprey_target_state as twin
-from osprey_connectors import posture_store
+from osprey_connectors import posture_store, write_target
 from osprey_connectors.write_target import (
     FALLBACK_WRITE_TOOLS,
     UNRESOLVED,
-    short_tool_name,
     write_target_for_tool,
 )
 from osprey_connectors_tests._harness import (
@@ -158,7 +157,7 @@ def _both(
     hook_input = {"tool_name": tool, "tool_input": tool_input, "cwd": str(_repo(tmp_path))}
     prefixes = [*hook_config.get("server_prefixes", ())]
     short = hook_log.short_tool_name(tool, prefixes)
-    assert short_tool_name(tool, prefixes) == short
+    assert write_target._short_tool_name(tool, prefixes) == short
     package = write_target_for_tool(config, tool, tool_input, hook_config=hook_config)
     hooked = twin.hook_write_target(config, tool, short, hook_input)
     return (

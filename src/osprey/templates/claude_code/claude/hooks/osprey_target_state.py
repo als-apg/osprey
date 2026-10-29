@@ -1309,7 +1309,7 @@ def published_machine_kind(target, *, state_dir=None, hook_input=None):
 def launch_pin_term(target):
     """The launch pin as a verdict term: ``"none"``, ``"pinned"`` or ``"unreadable"``.
 
-    Mirrors ``posture_store.launch_pin_term``: no stamp is ``none``; a
+    Mirrors ``posture_store._launch_pin_term``: no stamp is ``none``; a
     ``<t>=sandbox`` stamp pins *target* when ``<t>`` is it, is ``*``, or
     *target* is empty; a ``<t>=writes`` stamp is ``none``; anything unparseable
     is ``unreadable``, which refuses like a pin.

@@ -40,9 +40,6 @@ __all__ = [
     "UNRESOLVED",
     "Unresolved",
     "frame_target",
-    "is_write_call",
-    "is_write_tool",
-    "short_tool_name",
     "write_target_for_tool",
 ]
 
@@ -115,7 +112,7 @@ class Unresolved:
 UNRESOLVED = Unresolved()
 
 
-def is_write_tool(tool_name: str, write_tools: Any) -> bool:
+def _is_write_tool(tool_name: str, write_tools: Any) -> bool:
     """Whether *tool_name* is covered by *write_tools*: exact names and ``.*`` matchers."""
     for entry in write_tools or ():
         if not isinstance(entry, str):
@@ -129,7 +126,7 @@ def is_write_tool(tool_name: str, write_tools: Any) -> bool:
     return False
 
 
-def is_write_call(tool_input: Any, short_name: str) -> bool:
+def _is_write_call(tool_input: Any, short_name: str) -> bool:
     """Whether this call writes: only a readonly (or modeless) ``execute`` does not."""
     if short_name != _EXECUTE_TOOL:
         return True
@@ -138,7 +135,7 @@ def is_write_call(tool_input: Any, short_name: str) -> bool:
     return bool(tool_input.get("execution_mode", "readonly") != "readonly")
 
 
-def short_tool_name(tool_name: str, prefixes: Any) -> str:
+def _short_tool_name(tool_name: str, prefixes: Any) -> str:
     """*tool_name* without its server prefix; the longest matching prefix wins.
 
     With no prefix matching, the ``mcp__<server>__<tool>`` shape decides, and a
@@ -172,14 +169,14 @@ def _is_facility_tool(tool_name: str, hook_config: Mapping[str, Any]) -> bool:
     """
     declared = hook_config.get(_FACILITY_WRITES_KEY)
     if isinstance(declared, list):
-        if is_write_tool(tool_name, declared):
+        if _is_write_tool(tool_name, declared):
             return True
     else:
         for entry in hook_config.get("write_tools") or ():
             if (
                 isinstance(entry, str)
                 and entry.endswith(_MATCHER_WILDCARD)
-                and is_write_tool(tool_name, [entry])
+                and _is_write_tool(tool_name, [entry])
             ):
                 return True
     extras = hook_config.get(_FACILITY_EXTRAS_KEY) or ()
@@ -283,11 +280,11 @@ def write_target_for_tool(
     try:
         hooks: Mapping[str, Any] = hook_config if isinstance(hook_config, Mapping) else {}
         write_tools = hooks.get("write_tools", FALLBACK_WRITE_TOOLS)
-        if not is_write_tool(tool_name, write_tools):
+        if not _is_write_tool(tool_name, write_tools):
             return None
         if short_name is None:
-            short_name = short_tool_name(tool_name, _hook_prefixes(hooks))
-        if not is_write_call(tool_input, short_name):
+            short_name = _short_tool_name(tool_name, _hook_prefixes(hooks))
+        if not _is_write_call(tool_input, short_name):
             return None
         if _is_facility_tool(tool_name, hooks):
             return TARGET_LIVE
