@@ -731,6 +731,71 @@ def test_the_shards_cover_the_sweep_roots__mutation_drops_an_ignore() -> None:
     assert "--ignore=tests/cli" not in selection
 
 
+#: Files the macOS trim must keep, each for what it exercises that ubuntu
+#: cannot answer for macOS. Not the whole kept set: the ones a later trim is
+#: most likely to reach for, because each is slow.
+MACOS_KEEPS = {
+    "tests/test_offline_build_env.py": "the one real venv install (arm64 wheels)",
+    "tests/connectors/ipc/test_pool.py": "child spawn, SIGKILL and replace",
+    "tests/connectors/ipc/test_host_child.py": "the getppid watchdog written for macOS",
+    "tests/mcp_server/test_switch_lifecycle.py": "real connector-host children",
+    "tests/mcp_server/test_sandbox_guard_characterization.py": "TMPDIR and /private/var",
+    "tests/services/python_executor/test_secret_zone_guard.py": "case-insensitive APFS",
+    "tests/hooks/test_approval_hook.py": "symlink, hard link and FIFO matrix",
+    "tests/interfaces/web_terminal/test_scaffold_gallery_service.py": "symlink containment",
+    "tests/interfaces/web_terminal/test_supervised_child.py": "process groups, held socket",
+    "tests/interfaces/web_terminal/test_jupyter_sidecar.py": "killpg and parent death",
+    "tests/deployment/test_compose_generator.py": "setgid directories, O_NOFOLLOW",
+    "tests/facility/test_check_a.py": "pyAT against fixed MATLAB references",
+    "tests/connectors/test_epics_ca_softioc.py": "native EPICS libraries",
+    "tests/agent_runner/test_unrendered_mcp_servers.py": "the native claude binary",
+    "tests/scripts/test_run_bounded.py": "killpg and signal forwarding",
+    "tests/cli/test_web_cmd.py": "real socket binds",
+}
+
+
+def test_the_macos_trim_is_the_whole_sweep_minus_its_files() -> None:
+    unit = fw.UNIT_SELECTION
+    trimmed = [f"--ignore={path}" for path in unit.trims["macos"]]
+    assert fw.unit_argv("full", shard="macos") == [
+        *unit.roots,
+        *trimmed,
+        *SWEEP_IGNORES,
+        *SWEEP_MARKER,
+    ]
+
+
+def test_the_macos_trim_names_existing_test_files_the_sweep_runs() -> None:
+    # pytest ignores a path that does not exist without a word, so a renamed
+    # file would leave the trim with nothing said; a directory would drop
+    # files nobody read.
+    unit = fw.UNIT_SELECTION
+    trimmed = unit.trims["macos"]
+    swept = {path for path, _lane in unit.ignores}
+    assert len(set(trimmed)) == len(trimmed)
+    assert [p for p in trimmed if not (REPO_ROOT / p).is_file()] == []
+    assert [p for p in trimmed if not Path(p).name.startswith("test_")] == []
+    assert [p for p in trimmed if p in swept or p.startswith("tests/e2e/")] == []
+
+
+def _trimmed_keeps(unit: Any) -> dict[str, str]:
+    """The keeps the macOS selection of *unit* leaves out, with why each matters."""
+    selection = fw.unit_argv("full", shard="macos", unit=unit)
+    return {p: why for p, why in MACOS_KEEPS.items() if f"--ignore={p}" in selection}
+
+
+def test_the_macos_trim_keeps_what_macos_can_answer() -> None:
+    assert [p for p in MACOS_KEEPS if not (REPO_ROOT / p).is_file()] == []
+    assert _trimmed_keeps(fw.UNIT_SELECTION) == {}
+
+
+def test_the_macos_trim_keeps_what_macos_can_answer__mutation_trims_a_keep() -> None:
+    unit = fw.UNIT_SELECTION
+    pool = "tests/connectors/ipc/test_pool.py"
+    narrowed = dataclasses.replace(unit, trims={"macos": (*unit.trims["macos"], pool)})
+    assert _trimmed_keeps(narrowed) == {pool: MACOS_KEEPS[pool]}
+
+
 def test_the_tiers_bound_their_pytest_runs() -> None:
     def bounds(tier: str) -> list[str]:
         script = "scripts/run_bounded.py"

@@ -11475,6 +11475,68 @@ def test_the_unit_shards_cover_the_test_tree__mutation_drops_a_matrix_shard() ->
         test_the_unit_shards_cover_the_test_tree_exactly_once(mutated)
 
 
+# ---------------------------------------------------------------------------
+# The unit lane's macOS cells are one trimmed job each
+# ---------------------------------------------------------------------------
+#
+# The macOS concurrency ceiling is 5 jobs for the whole account, so a macOS
+# cell is one job running the check's `macos` trim, added through `include`,
+# never a product of the os and shard axes (three jobs a cell).
+
+UNIT_MACOS_TRIM = "macos"
+
+
+def _unit_macos_cells(wf: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
+    """The cells the unit matrix's `include` adds, on a pull request and on
+    every other event, read from its one fromJSON expression."""
+    include = _jobs(wf)[UNIT_TEST_JOB]["strategy"]["matrix"].get("include", "")
+    match = re.fullmatch(
+        r"\$\{\{ fromJSON\(github\.event_name == 'pull_request' && '(\[.*?\])' \|\| '(\[.*?\])'\) \}\}",
+        str(include),
+    )
+    assert match, f"unit matrix include is not the per-event fromJSON: {include!r}"
+    return {"pull_request": json.loads(match[1]), "other": json.loads(match[2])}
+
+
+def _macos_cell_problems(wf: dict[str, Any]) -> list[str]:
+    matrix = _jobs(wf)[UNIT_TEST_JOB]["strategy"]["matrix"]
+    problems = []
+    if "macos-latest" in matrix["os"]:
+        problems.append(
+            f"macos-latest is on the os axis, so each shard is a macOS job: {matrix['os']}"
+        )
+    if UNIT_MACOS_TRIM in matrix["shard"]:
+        problems.append(f"'{UNIT_MACOS_TRIM}' is on the shard axis, so ubuntu runs it too")
+    if UNIT_MACOS_TRIM not in framework_checks.UNIT_SELECTION.trims:
+        problems.append(f"the check declares no '{UNIT_MACOS_TRIM}' trim")
+    expected = {"pull_request": ["3.12"], "other": ["3.11", "3.12"]}
+    for event, cells in _unit_macos_cells(wf).items():
+        for cell in cells:
+            if cell != {**cell, "os": "macos-latest", "shard": UNIT_MACOS_TRIM}:
+                problems.append(f"{event} cell is not one macOS '{UNIT_MACOS_TRIM}' job: {cell}")
+        versions = sorted(cell.get("python-version", "") for cell in cells)
+        if versions != expected[event]:
+            problems.append(f"{event} runs macOS on {versions}, not {expected[event]}")
+    return problems
+
+
+def test_the_unit_macos_cells_are_one_trimmed_job_each(workflow: dict[str, Any]) -> None:
+    assert _macos_cell_problems(workflow) == []
+
+
+def test_the_unit_macos_cells_are_one_trimmed_job_each__mutation_puts_macos_on_the_axis() -> None:
+    mutated = _load_workflow()
+    _jobs(mutated)[UNIT_TEST_JOB]["strategy"]["matrix"]["os"].append("macos-latest")
+    assert any("on the os axis" in p for p in _macos_cell_problems(mutated))
+
+
+def test_the_unit_macos_cells_are_one_trimmed_job_each__mutation_runs_a_shard() -> None:
+    mutated = _load_workflow()
+    matrix = _jobs(mutated)[UNIT_TEST_JOB]["strategy"]["matrix"]
+    matrix["include"] = matrix["include"].replace('"shard":"macos"', '"shard":"cli"', 1)
+    assert any("is not one macOS 'macos' job" in p for p in _macos_cell_problems(mutated))
+
+
 def test_the_unit_lane_runs_the_two_uid_log_case__mutation_moves_it_to_another_shard() -> None:
     """The case's directory leaves the shard the pin names, so the pinned
     shard name no longer says where the case runs."""
