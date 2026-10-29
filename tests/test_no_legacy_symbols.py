@@ -1,8 +1,8 @@
 """Release-gate test: no legacy renamed symbols survive.
 
 Walks ``src/``, ``tests/``, ``docs/source/`` and ``packages/`` (sources only;
-vendored trees and ``changelog.d/`` fragments, which record removals by name,
-are skipped) and asserts that none of the legacy names appear anywhere.
+vendored trees, ``changelog.d/`` fragments and a package's ``CHANGELOG.md``,
+which record removals by name, are skipped) and asserts that none of the legacy names appear anywhere.
 
 Eight rename generations are guarded. The first seven are plain substrings
 with no per-file exclusions — if a legitimate match shows up later, the rename
@@ -229,7 +229,8 @@ WRITE_POSTURE_EXEMPTIONS: dict[str, frozenset[str]] = {
 ROOTS = ("src", "tests", "docs/source", "packages")
 # Never walked: caches, vendored and built trees, and changelog fragments (a
 # removal entry names what it removed; the root ``changelog.d`` is outside the
-# roots for the same reason).
+# roots for the same reason). A package's ``CHANGELOG.md`` is where its
+# fragments are folded at release, so it is skipped by name for that reason too.
 SKIP_DIRS = frozenset(
     {
         "__pycache__",
@@ -242,6 +243,7 @@ SKIP_DIRS = frozenset(
         "changelog.d",
     }
 )
+SKIP_FILES = frozenset({"CHANGELOG.md"})
 SCAN_SUFFIXES = (
     ".py",
     ".md",
@@ -270,6 +272,7 @@ def _scan_roots(repo_root: Path = _REPO_ROOT, roots: tuple[str, ...] = ROOTS) ->
         return (
             path.resolve() in SELF_ALLOWLIST
             or ".bak" in path.name
+            or path.name in SKIP_FILES
             or bool(SKIP_DIRS.intersection(path.relative_to(repo_root).parts))
         )
 
@@ -374,6 +377,10 @@ def test_planted_name_in_packages_fails(tmp_path: Path) -> None:
     log = tmp_path / "packages" / "osprey-demo" / "changelog.d"
     log.mkdir()
     (log / "x.removed.md").write_text("`launch_permits` is gone.\n")
+    # Nor is the package changelog those fragments are folded into.
+    (tmp_path / "packages" / "osprey-demo" / "CHANGELOG.md").write_text(
+        "`launch_permits` is gone.\n"
+    )
     exemptions = {
         "packages/osprey-demo/src/osprey_demo/exempt.py": frozenset({"store_permits"}),
     }
