@@ -6,16 +6,19 @@ Guarded Run Contract
 
 A guarded run is the lock a read-write ``execute`` or ``execute_file`` run and
 a ``pyaml_measure`` run hold on their control target, so two runs never drive
-one machine at once. No other write path takes part.
+one machine at once. No other write path takes part, except the command write,
+which fires only under a held lock.
 :ref:`Guarded Runs <architecture-safety-chain-guarded-run>` places it among
 the write paths and says what it does not cover. This page is the exact
 behaviour: where the lock lives, who holds it, whose run its record names,
-what a second run is told, and what a stopped run leaves.
+what a second run is told, what a command write admits, and what a stopped run
+leaves.
 
 Every write made under the lock is an ordinary write. It goes through the
 connector like any other, so the kill switch, the limits check and the
 control-target check of :doc:`/architecture/safety-chain` all apply to it. The
-lock adds no check of its own to those writes; it replaces none of them.
+lock adds no check of its own to those writes, beyond what it admits a command
+write on; it replaces none of them.
 
 One run per target
 ==================
@@ -66,6 +69,41 @@ anything is opened.
   (nobody when it names none), that same target as the admitted one, which
   the executor checked before it started the sandbox, and the target's limits
   posture. Nothing about the sandbox's writes changes.
+
+Command write
+=============
+
+``osprey.runtime.guarded_run.command_write(connector, addresses, value)``
+fires one value at a batch of commands (arm a monitor, request a shot) under
+the run lock. A command is the facility's word, never the caller's: a channel
+of the rendered facility definition whose role is ``setpoint`` and whose
+signal ends in ``command``. With no rendered facility definition, no command
+fires.
+
+The whole batch is refused, before anything is written, unless:
+
+- the process holds the run lock with a record;
+- the account the write path names is the record's account, and the record
+  names one;
+- the batch names each command once;
+- the connector drives the record's target;
+- the record's limits state is still the target's;
+- the connector carries a limits validator that is not the fail-safe one, or
+  limits checking is off for the target;
+- every address is a command, and passes the validator in its own mode, as a
+  setpoint write does.
+
+The approval of the call that leads here is its caller's to check; a command
+write reads none. The batch then goes out through the connector in one call,
+unconfirmed, so the kill switch and the control-target check apply to it as to
+any write. Its phases reach ``osprey.runtime.record_writes`` as a batch
+write's do, but the commands fired are the call's own, never read back from
+that recorder. A channel error the batch raises names the commands of the batch
+not refused, which went out or may have (``commands_fired``). Every call, refused or not,
+files one audit record on the ``command_write`` surface whose ``detail`` is
+``commands_fired=<address>,…``. When the batch call itself raises, what went
+out is unknown: the record's reason is ``outcome_unknown`` and its ``detail``
+is ``commands_attempted=<address>,…``, the whole batch.
 
 The process holds it
 ====================

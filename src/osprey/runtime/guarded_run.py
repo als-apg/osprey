@@ -29,6 +29,12 @@ target, from this or any other process or container, raises
 :class:`OspreyRunBusy` naming the holder before it starts. A readonly run
 raises :class:`OspreyWriteRefused` before the lock is taken.
 
+:func:`command_write` is how a run that holds the lock with a context fires
+commands: a batch the run's owner, its target, its limits posture, the
+rendered facility definition and the connector's limits validator, in its own
+mode, all admit, refused whole before anything is written when any of them
+does not. Every call files one audit record naming the commands that fired.
+
 The lock belongs to the process, not to the thread that took it. A process
 holds one run lock at a time, kept in :mod:`osprey.runtime._run_state`; a
 thread that asks again is busy like any second run, and a caller that means to
@@ -55,12 +61,14 @@ import contextlib
 import errno
 import fcntl
 import json
+import logging
 import os
 import stat
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from pathlib import Path
+from typing import Any
 
 from osprey.runtime import _run_state
 from osprey.runtime._run_state import ActionContext
@@ -70,10 +78,12 @@ __all__ = [
     "GUARDED_RUN_DIR",
     "GUARDED_RUN_DIR_MODE",
     "LOCK_FILE_NAME",
+    "SURFACE_COMMAND_WRITE",
     "ActionContext",
     "GuardedRunDirError",
     "OspreyRunBusy",
     "OspreyWriteRefused",
+    "command_write",
     "guarded_run_dir",
     "guarded_run_target",
     "lock",
@@ -109,6 +119,14 @@ _FILES_ONLY = "the guarded-run directory holds files only"
 
 #: The mode a lock file created here gets, whatever the umask.
 _FILE_MODE = 0o664
+
+#: The audit surface every :func:`command_write` call files one record on.
+SURFACE_COMMAND_WRITE = "command_write"
+
+#: The trailing word of a vocabulary signal that makes a setpoint a command
+#: (the write word :data:`osprey.facility.pairing.WRITE_WORDS` pairs no
+#: readback with, ``*_command`` in the facility vocabulary).
+_COMMAND_WORD = "command"
 
 
 class OspreyWriteRefused(Exception):
@@ -750,3 +768,286 @@ def lock(
         yield directory
     finally:
         _release(hold)
+
+
+def _facility_commands() -> frozenset[str]:
+    """The command channels of the rendered facility definition.
+
+    ``facility.json`` of the render this process reads its config from: every
+    channel whose role is ``setpoint`` and whose vocabulary signal ends in the
+    word ``command``. A channel with no role is a readback and never a command.
+
+    Raises:
+        OspreyWriteRefused: There is no rendered facility definition, or it
+            cannot be read.
+    """
+    from osprey.channel_roster.sources import facility_file_path
+    from osprey_connectors.workspace import load_osprey_config
+
+    path = facility_file_path(load_osprey_config())
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise OspreyWriteRefused(
+            f"no command fires without the rendered facility definition ({path} is missing)"
+        ) from None
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise OspreyWriteRefused(
+            f"the rendered facility definition {path} cannot be read: {exc}"
+        ) from None
+    channels = document.get("channels") if isinstance(document, dict) else None
+    commands: set[str] = set()
+    for channel in channels if isinstance(channels, list) else ():
+        if not isinstance(channel, dict) or channel.get("role") != "setpoint":
+            continue
+        signal = channel.get("signal")
+        if isinstance(signal, str) and signal.rpartition("_")[2] == _COMMAND_WORD:
+            commands.add(str(channel.get("id")))
+    return frozenset(commands)
+
+
+def _admit(connector: Any, batch: list[str], value: Any, context: ActionContext | None) -> None:
+    """Refuse the batch unless every condition :func:`command_write` names holds.
+
+    Raises:
+        OspreyWriteRefused: A condition does not hold.
+        ChannelLimitsViolationError: An address fails the connector's validator.
+    """
+    from osprey_connectors.posture_store import NO_OWNER, current_owner
+
+    if not batch:
+        raise OspreyWriteRefused("a command write names no command")
+    seen: set[str] = set()
+    for address in batch:
+        if address in seen:
+            raise OspreyWriteRefused("a command write names each command once", address)
+        seen.add(address)
+    if context is None:
+        raise OspreyWriteRefused(
+            "a command write needs this process to hold a run lock with a context"
+        )
+    owner = current_owner()
+    if context.owner is None or owner is NO_OWNER or owner != context.owner:
+        named = "nobody" if owner is NO_OWNER else repr(owner)
+        runs_for = "nobody" if context.owner is None else repr(context.owner)
+        raise OspreyWriteRefused(
+            f"a command write acts for {named}, not for the run's owner {runs_for}"
+        )
+    stamped = getattr(connector, "_control_target", None)
+    if stamped is None:
+        raise OspreyWriteRefused("the connector names no control target")
+    try:
+        target = guarded_run_target(stamped)
+    except GuardedRunDirError as exc:
+        raise OspreyWriteRefused(f"the connector's control target is unusable: {exc}") from None
+    if target != context.target:
+        raise OspreyWriteRefused(
+            f"the connector drives {target}; the run was admitted on {context.target}"
+        )
+    if context.limits_off != target_limits_off(target):
+        raise OspreyWriteRefused(
+            f"the run's limits_off is not what {target}'s limits posture says now"
+        )
+    validator = getattr(connector, "_limits_validator", None)
+    if validator is None and not context.limits_off:
+        raise OspreyWriteRefused(
+            "the connector carries no enforcing limits validator and limits checking "
+            f"is not off for {target}"
+        )
+    if validator is not None and getattr(validator, "failsafe_reason", None) is not None:
+        raise OspreyWriteRefused(
+            f"the connector carries no enforcing limits validator: {validator.failsafe_reason}"
+        )
+    commands = _facility_commands()
+    for address in batch:
+        if address not in commands:
+            raise OspreyWriteRefused("not a command of the facility definition", address)
+    if validator is not None:
+        read_current = connector.current_value_reader()
+        for address in batch:
+            validator.validate(address, value, read_current=read_current)
+
+
+#: The audit reason of a command write whose batch call raised: the batch was
+#: admitted and handed to the connector, and what reached hardware is unknown.
+_OUTCOME_UNKNOWN = "outcome_unknown"
+
+
+def _audit(
+    context: ActionContext | None,
+    fired: list[str],
+    refusal: BaseException | None,
+    *,
+    attempted: list[str] | None = None,
+) -> None:
+    """File the one audit record of a command write; never raises.
+
+    The record names, in ``detail``, ``commands_fired=<address>,…``: the
+    commands that went out, in order, empty when none did. When the batch
+    call itself raised (*attempted* given), what went out is unknown: the
+    reason is ``outcome_unknown`` and ``detail`` is
+    ``commands_attempted=<address>,…``, the whole admitted batch.
+    """
+    try:
+        from osprey.audit import posture, writer
+        from osprey.audit.envelope import DECISION_ALLOWED, DECISION_REFUSED
+
+        writer.record(
+            surface=SURFACE_COMMAND_WRITE,
+            posture=posture.posture(),
+            posture_source=posture.posture_source(),
+            session=None,
+            on_behalf_of=None if context is None else context.owner,
+            subject="unknown" if context is None else context.target,
+            decision=DECISION_ALLOWED if refusal is None else DECISION_REFUSED,
+            reason=(
+                "fired"
+                if refusal is None
+                else _OUTCOME_UNKNOWN
+                if attempted is not None
+                else type(refusal).__name__
+            ),
+            detail=(
+                "commands_fired=" + ",".join(fired)
+                if attempted is None
+                else "commands_attempted=" + ",".join(attempted)
+            ),
+        )
+    except Exception:  # the audit trail degrades; the write's outcome does not
+        logging.getLogger(__name__).warning("Could not record a command write", exc_info=True)
+
+
+async def command_write(connector: Any, addresses: Sequence[str], value: Any) -> list[str]:
+    """Fire *value* at every command in *addresses* on *connector*, in one batch.
+
+    A command is a setpoint whose write acts and holds no setting (arming a
+    monitor, requesting a shot). Command-ness is the facility definition's,
+    never the caller's: a command is a channel of the rendered facility
+    definition whose role is ``setpoint`` and whose signal ends in
+    ``command``. The batch is refused whole, before anything is written,
+    unless every one of these holds:
+
+    * this process holds a run lock with an :class:`ActionContext`;
+    * the batch names each command once;
+    * the owner the write path reads
+      (:func:`osprey_connectors.posture_store.current_owner`) is that
+      context's owner, and the context names one;
+    * the connector's control target, its ``baseline`` resolved as
+      :func:`guarded_run_target` resolves it, is the context's target;
+    * the context's ``limits_off`` is still :func:`target_limits_off` of it;
+    * the connector's limits validator is not the fail-safe one that stands
+      in for a database that could not be loaded, and the connector carries
+      a validator at all unless limits checking is off for the target;
+    * every address is a command of the facility definition and passes the
+      connector's validator in the validator's own mode, read with the
+      connector's own reader: under ``optional`` a command with no limits
+      record is written with no limits, under ``exclusive`` it is refused,
+      and a record's bounds always apply.
+
+    The approval of the call that leads here is its caller's to have checked;
+    no approval field is read here. The connector's own write path judges the
+    write posture of every command, as it does every write. A command holds no
+    setting, so there is nothing to re-read: the batch goes out as one
+    ``write_multiple_channels`` call with ``confirm=False``, and every result
+    goes through :func:`~osprey_connectors.control_system.raise_for_write_result`.
+    The connector is the caller's own; nothing here reaches the sandbox's
+    connector, target pin or validator.
+
+    Every call, refused or not, files one record on the audit surface
+    :data:`SURFACE_COMMAND_WRITE` naming the commands that fired. When the
+    batch call itself raises, some commands may have gone out before it did:
+    the record names the whole batch as attempted, outcome unknown, and the
+    connector's exception propagates. Each command's phases are reported to
+    :func:`osprey.runtime.record_writes` as a ``write_channels`` batch reports
+    its own. The commands fired are this call's own: read from the batch, its
+    results and a refusal raised partway, never from a recorder that other
+    writers in the process also feed.
+
+    Args:
+        connector: The connector the run writes through.
+        addresses: The commands to fire, in order.
+        value: The value written to each of them.
+
+    Returns:
+        The addresses fired, in order.
+
+    Raises:
+        OspreyWriteRefused: A condition above does not hold; nothing was
+            written.
+        ChannelLimitsViolationError: An address fails the validator; nothing
+            was written.
+        ChannelWriteBlockedError: A result came back refused.
+        ChannelWriteFailedError: A result came back failed, mismatched or
+            unconfirmed. A :class:`~osprey_connectors.errors.ChannelError`
+            raised by the batch, or for one of its results, carries
+            ``commands_fired``: the addresses of the batch, in order, that
+            were not refused, the commands that went out or may have.
+    """
+    from osprey.runtime import (
+        _WRITE_PHASE_ATTEMPT,
+        _WRITE_PHASE_REFUSED,
+        _notify_outcome,
+        _notify_write,
+        _phase_for_outcome,
+    )
+    from osprey_connectors.control_system import raise_for_write_result
+    from osprey_connectors.errors import (
+        ChannelError,
+        ChannelLimitsViolationError,
+        ChannelWriteBlockedError,
+    )
+
+    batch = list(addresses)
+    with _run_state.LOCK:
+        hold = _run_state.STATE.hold
+    context = None if hold is None else hold.context
+    try:
+        _admit(connector, batch, value, context)
+    except BaseException as exc:
+        _audit(context, [], exc)
+        raise
+    for address in batch:
+        _notify_write(address, _WRITE_PHASE_ATTEMPT)
+    try:
+        results = await connector.write_multiple_channels(
+            [(address, value) for address in batch], confirm=False
+        )
+    except BaseException as exc:
+        # A refusal raised partway names the one command it refused; every
+        # other command's outcome is unknown and may have gone out.
+        refused = (
+            exc.channel_address
+            if isinstance(exc, ChannelLimitsViolationError | ChannelWriteBlockedError)
+            and exc.channel_address in batch
+            else None
+        )
+        if refused is not None:
+            _notify_write(refused, _WRITE_PHASE_REFUSED)
+        fired = [address for address in batch if address != refused]
+        if isinstance(exc, ChannelError):
+            exc.commands_fired = fired
+        _audit(context, fired, exc, attempted=batch)
+        raise
+    for result in results:
+        _notify_outcome(result.channel_address, result.outcome)
+    # The results come back in batch order, one per command; a command with no
+    # result has an unknown outcome and may have gone out.
+    outcomes = [result.outcome for result in results]
+    outcomes += [None] * (len(batch) - len(outcomes))
+    fired = [
+        address
+        for address, outcome in zip(batch, outcomes, strict=False)
+        if _phase_for_outcome(outcome) != _WRITE_PHASE_REFUSED
+    ]
+    try:
+        for result in results:
+            try:
+                raise_for_write_result(result)
+            except ChannelError as exc:
+                exc.commands_fired = fired
+                raise
+    except BaseException as exc:
+        _audit(context, fired, exc)
+        raise
+    _audit(context, fired, None)
+    return fired

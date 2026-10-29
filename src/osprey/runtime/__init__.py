@@ -720,8 +720,9 @@ def record_writes() -> "Iterator[list[tuple[str, str]]]":
     """Record the writes this process makes while the block is open.
 
     Yields a list that grows by one ``(address, phase)`` record each time a
-    write made through :func:`write_channel` or :func:`write_channels`, on any
-    thread, reaches a phase:
+    write made through :func:`write_channel`, :func:`write_channels` or
+    :func:`osprey.runtime.guarded_run.command_write`, on any thread, reaches a
+    phase:
 
     * ``"attempt"``: the target pin and the limits net passed; the connector
       call comes next.
