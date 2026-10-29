@@ -75,7 +75,7 @@ def request(
     *,
     token: str | None = None,
     owner: str | None = None,
-    extra_headers: dict[str, str] | None = None,
+    headers: dict[str, str] | None = None,
     timeout: float = 20.0,
 ) -> tuple[int, Any]:
     """One HTTP call, returning ``(status, parsed_body)`` for 2xx AND 4xx/5xx.
@@ -84,7 +84,7 @@ def request(
     assert on, so an error status is a normal result here, never an exception
     to propagate. A body that is not JSON comes back as text. *owner* is sent
     as ``X-Osprey-Owner``, the header the bridge reads who queued an item from;
-    *extra_headers* are any others the caller needs.
+    *headers* are any others the caller needs.
 
     ``body=None`` on a non-GET sends a genuinely EMPTY body (``b""``, so the
     request still carries ``Content-Length: 0``) with NO content-type -- which
@@ -92,7 +92,7 @@ def request(
     needs no parameters at all.
     """
     content = json.dumps(body).encode("utf-8") if body is not None else None
-    headers: dict[str, str] = {}
+    headers = dict(headers or {})
     if content is not None:
         headers["Content-Type"] = "application/json"
     elif method != "GET":
@@ -101,8 +101,6 @@ def request(
         headers[LAUNCH_TOKEN_HEADER] = token
     if owner:
         headers[OWNER_HEADER] = owner
-    if extra_headers:
-        headers.update(extra_headers)
     resp = httpx.request(  # localhost only
         method,
         f"{base_url}{path}",

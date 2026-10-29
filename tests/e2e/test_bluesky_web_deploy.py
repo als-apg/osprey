@@ -190,7 +190,7 @@ def _request(
     body: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
 ) -> tuple[int, Any]:
-    return _queue_drive.request(base, path, method, body, extra_headers=headers, timeout=15.0)
+    return _queue_drive.request(base, path, method, body, headers=headers, timeout=15.0)
 
 
 def _sidecar_get(path: str) -> tuple[int, Any]:
