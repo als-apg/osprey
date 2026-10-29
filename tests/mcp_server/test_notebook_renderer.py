@@ -6,7 +6,7 @@ Covers:
   - get_or_render_html: caching behavior, one cache file per mode
 """
 
-import time
+import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -17,6 +17,17 @@ from osprey.stores.notebook_renderer import (
     get_or_render_html,
     render_notebook_to_html,
 )
+
+
+def _backdate(path):
+    """Move *path*'s mtime ten seconds into the past and return the new value.
+
+    The notebook rewritten next is then strictly newer than the cached render,
+    whatever the filesystem's timestamp resolution.
+    """
+    stamp = path.stat().st_mtime_ns - 10_000_000_000
+    os.utime(path, ns=(stamp, stamp))
+    return path.stat().st_mtime
 
 
 class TestCreateNotebookFromCode:
@@ -188,13 +199,13 @@ class TestGetOrRenderHtml:
 
         cache_dir = tmp_path / "cache2"
         _, html_path = get_or_render_html(nb_path, cache_dir=cache_dir)
-        first_mtime = html_path.stat().st_mtime
-
-        # Small delay to ensure mtime would differ if re-rendered
-        time.sleep(0.05)
+        # Stamp the render a second past the notebook: still fresh, and a time a
+        # re-render now could not leave behind.
+        stamp = nb_path.stat().st_mtime_ns + 1_000_000_000
+        os.utime(html_path, ns=(stamp, stamp))
 
         _, html_path2 = get_or_render_html(nb_path, cache_dir=cache_dir)
-        assert html_path2.stat().st_mtime == first_mtime
+        assert html_path2.stat().st_mtime_ns == stamp
 
     def test_invalidates_stale_cache(self, tmp_path):
         """Cache is regenerated when notebook is newer than cached HTML."""
@@ -205,10 +216,9 @@ class TestGetOrRenderHtml:
 
         cache_dir = tmp_path / "cache3"
         _, html_path = get_or_render_html(nb_path, cache_dir=cache_dir)
-        first_mtime = html_path.stat().st_mtime
+        first_mtime = _backdate(html_path)
 
-        # Wait, then update the notebook (newer mtime)
-        time.sleep(0.05)
+        # Update the notebook: now newer than the cached render
         nb2 = create_notebook_from_code(code="STALE_UPDATED_MARKER", description="Updated")
         with open(nb_path, "w") as f:
             nbformat.write(nb2, f)
@@ -251,9 +261,8 @@ class TestGetOrRenderHtml:
         cache_dir = tmp_path / "cache_offline_stale"
 
         _, html_path = get_or_render_html(nb_path, cache_dir=cache_dir)
-        first_mtime = html_path.stat().st_mtime
+        first_mtime = _backdate(html_path)
 
-        time.sleep(0.05)
         nb2 = create_notebook_from_code(code="OFFLINE_UPDATED_MARKER", description="Updated")
         with open(nb_path, "w") as handle:
             nbformat.write(nb2, handle)
