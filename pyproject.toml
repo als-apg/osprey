@@ -780,6 +780,7 @@ layers = [
     "osprey_connectors.control_system",
     "osprey_connectors.simulation",
     "osprey_connectors.settle",
+    "osprey_connectors.recovery",
     "osprey_connectors.errors | osprey_connectors.write_target",
     "osprey_connectors.control_context : osprey_connectors.posture_store",
     "osprey_connectors.logger",
