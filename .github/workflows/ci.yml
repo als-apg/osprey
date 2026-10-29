@@ -166,12 +166,12 @@ jobs:
     # spread is the runner pool, not the suite (the coverage cell is no
     # outlier either: it measures through PEP 669, see COVERAGE_CORE below,
     # which costs near enough nothing). The shard axis below splits what one
-    # ubuntu cell runs three ways, and the macOS cells run a trimmed sweep,
+    # ubuntu cell runs three ways and the macOS cells run a trimmed sweep,
     # which is what keeps a slow runner clear of this cap. What forces the
-    # headroom on top is a known intermittent tail worth ~12 minutes: a worker
-    # wedges mid-test and its share has to be redistributed to a replacement,
-    # or the session hangs after the last test on non-daemon threads that
-    # outlive it. Both are visible in this lane's
+    # headroom on top is a known intermittent tail worth ~12 minutes: a
+    # worker wedges mid-test and its share has to be redistributed to a
+    # replacement, or the session hangs after the last test on non-daemon
+    # threads that outlive it. Both are visible in this lane's
     # uploaded diagnostics, and neither is bounded by anything the suite
     # controls, so a cap tight enough to catch them also reds the runs where
     # they merely cost time. The 40-minute step cap below sat at the healthy
@@ -182,8 +182,7 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ['3.11', '3.12', '3.14']
-        # macOS is not on this axis: its cells come from `include` below, one
-        # job each over a trimmed sweep.
+        # macOS cells come from `include` below, not from this axis.
         os: [ubuntu-latest]
         # Each ubuntu cell runs as three jobs, one per directory set. `cli` is
         # tests/cli alone, the heaviest single directory (its ~120 tests that
@@ -203,36 +202,17 @@ jobs:
         # Runner-minutes are unchanged by the split.
         shard: [cli, rest-a, rest-b]
         # A macOS cell is ONE job, `shard: macos`: the whole sweep minus the
-        # files repo_checks.py lists as repeating ubuntu (_MACOS_REPEATS_UBUNTU),
-        # which were 53% of a macOS cell's test time. What is left -- child
-        # processes and signals, path and permission semantics, native
-        # binaries, the one real venv install -- is about 115 worker-minutes,
-        # ~29 minutes at -n 4, measured on a run already near the slow end of
-        # the pool: across 26 green macOS cells on main (2026-10-26..29) the
-        # three shards' step times summed to 36-72 minutes, 69 for that run,
-        # so the slowest runner takes ~35. That plus the ~12 minute tail
-        # described on the job cap above stays inside the step cap below.
+        # files repo_checks.py lists in _MACOS_REPEATS_UBUNTU. One job, not one
+        # per shard, because the macOS concurrency ceiling is 5 jobs across the
+        # whole account (it moves only on Enterprise): a main push takes 2
+        # slots and a PR 1. The trimmed sweep is sized so the slowest runner
+        # plus the ~12 minute tail described on the job cap above fits the
+        # step cap below.
         #
-        # One job, not three, because the macOS concurrency ceiling is 5 jobs
-        # across the whole account and does not move on Free, Pro or Team --
-        # only on Enterprise -- and it is what main pushes waited on. At three
-        # jobs a cell, one PR and one main push (6 jobs) already exceeded it:
-        # every green main run between 2026-10-17 and 2026-10-27 had a macOS job
-        # start 8-25 minutes late, up to 71 on a busy day, while the ubuntu
-        # jobs were done by minute 28. At one job a cell, a main push takes 2
-        # slots and a PR 1.
-        #
-        # Pull requests run the 3.12 cell; every other event runs 3.11 and 3.12.
-        # Dropping to ZERO macOS cells on PRs was considered and rejected. The
-        # merge commit a PR creates is itself a push to main, so main-push runs
-        # do exercise macOS on every merge -- but that is detection after the
-        # fact, not prevention, and a broken main is rebased onto by every
-        # other in-flight PR.
-        #
-        # 3.12 is the PR's macOS cell so it pairs with the 3.12/ubuntu
-        # coverage cell: same interpreter, different OS, so a failure isolates
-        # to the OS. 3.11 stays covered on ubuntu, and on macOS everywhere
-        # except pull requests.
+        # Pull requests run 3.12 only, paired with the 3.12/ubuntu coverage
+        # cell so a failure isolates to the OS; every other event adds 3.11.
+        # Zero macOS cells on PRs was rejected: a main push catches a break
+        # only after the merge, and every in-flight PR rebases onto it.
         #
         # 3.14 runs on ubuntu only, on every event. It is in the matrix for the
         # interpreter's own removals -- behaviour 3.11 and 3.12 only warn about
@@ -291,9 +271,9 @@ jobs:
       # have passed anyway; the value is deliberately loose for that reason, and
       # tightening it is how this lane starts flaking. 55 was sized when a cell
       # ran the whole suite and the slowest healthy one took ~41 min; a shard
-      # runs about half of it or less, and the trimmed macOS sweep about the
-      # same as a whole cell then, so the same cap leaves room for the
-      # slowest runner in the pool AND the tail. The previous 40 was sized for
+      # runs about half of it or less and the trimmed macOS sweep about as
+      # long as that cell, so the same cap leaves room for the slowest runner
+      # in the pool AND the tail. The previous 40 was sized for
       # a ~18 min cell and became the healthy runtime itself.
       timeout-minutes: 55
       env:
@@ -455,9 +435,8 @@ jobs:
         # tests/cli alone, `rest-a` is tests/facility, tests/mcp_server and
         # tests/deployment, and `rest-b` is everything else, the connectors
         # package's own suite included; tests/deployment/test_ci_workflow_wiring.py
-        # holds that the three cover tests/ exactly once. `macos` is no part of
-        # that partition: it is the whole sweep minus the files the check lists
-        # as repeating ubuntu.
+        # holds that the three cover tests/ exactly once. `macos` is outside
+        # that partition: the whole sweep minus the check's macOS trim.
         #
         # The check leaves three integration modules out of the sweep by name.
         # Each renders and builds a real project, and each is run by name in a

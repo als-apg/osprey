@@ -11479,21 +11479,18 @@ def test_the_unit_shards_cover_the_test_tree__mutation_drops_a_matrix_shard() ->
 # The unit lane's macOS cells are one trimmed job each
 # ---------------------------------------------------------------------------
 #
-# The macOS concurrency ceiling is 5 jobs for the whole account, so a macOS
-# cell is one job running the check's `macos` trim, added through `include`,
-# never a product of the os and shard axes (three jobs a cell).
+# The account's macOS ceiling is 5 concurrent jobs, so a macOS cell is one
+# `include` job running the check's `macos` trim, never os x shard.
 
 UNIT_MACOS_TRIM = "macos"
 
-#: macOS jobs each event may hold against the account's ceiling of 5: a main
-#: push takes 2 slots and a pull request 1, so one push and three PRs fit.
+#: macOS jobs per event against the ceiling of 5: one push and three PRs fit.
 UNIT_MACOS_BUDGET = {"pull_request": 1, "other": 2}
 
 
 def _unit_macos_cells(wf: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
-    """The cells the unit matrix's `include` adds, on a pull request and on
-    every other event, read from the two JSON arrays in its fromJSON
-    expression (pull request first), whatever the spacing around them."""
+    """The unit matrix's `include` cells per event, from the two JSON arrays
+    in its fromJSON expression (pull request first)."""
     include = str(_jobs(wf)[UNIT_TEST_JOB]["strategy"]["matrix"].get("include", ""))
     arrays = re.findall(r"'(\[[^']*\])'", include)
     assert re.search(r"github\.event_name\s*==\s*'pull_request'\s*&&", include) and (
@@ -11523,8 +11520,7 @@ def _macos_cell_problems(wf: dict[str, Any]) -> list[str]:
                 f"{event} runs {len(event_cells)} macOS jobs, over its "
                 f"{UNIT_MACOS_BUDGET[event]} of the account's 5"
             )
-    # The PR's one macOS cell pairs with the ubuntu coverage cell, so a failure
-    # there isolates to the OS rather than the interpreter.
+    # Paired with the ubuntu coverage cell, a PR macOS failure isolates to the OS.
     coverage = _coverage_cell_version(wf)
     pr_versions = [cell.get("python-version") for cell in cells["pull_request"]]
     if pr_versions != [coverage]:
@@ -11552,8 +11548,8 @@ def test_the_unit_macos_cells_are_one_trimmed_job_each__mutation_runs_a_shard() 
 
 
 def test_the_unit_macos_cells_are_one_trimmed_job_each__mutation_moves_the_pr_cell() -> None:
-    """The PR's macOS cell leaves the coverage cell's interpreter, so a macOS
-    failure on a PR no longer isolates to the OS."""
+    """Off the coverage cell's interpreter, a PR macOS failure no longer
+    isolates to the OS."""
     mutated = _load_workflow()
     matrix = _jobs(mutated)[UNIT_TEST_JOB]["strategy"]["matrix"]
     original = matrix["include"]
@@ -11565,7 +11561,7 @@ def test_the_unit_macos_cells_are_one_trimmed_job_each__mutation_moves_the_pr_ce
 
 
 def test_the_unit_macos_cells_are_one_trimmed_job_each__mutation_adds_a_pr_cell() -> None:
-    """A second macOS cell on PRs is the three-PRs-exceed-the-ceiling regression."""
+    """A second PR macOS cell lets one push and three PRs exceed the ceiling."""
     mutated = _load_workflow()
     matrix = _jobs(mutated)[UNIT_TEST_JOB]["strategy"]["matrix"]
     original = matrix["include"]

@@ -731,9 +731,9 @@ def test_the_shards_cover_the_sweep_roots__mutation_drops_an_ignore() -> None:
     assert "--ignore=tests/cli" not in selection
 
 
-#: Files the macOS trim must keep, each for what it exercises that ubuntu
-#: cannot answer for macOS. Not the whole kept set: the ones a later trim is
-#: most likely to reach for, because each is slow.
+#: Files the macOS trim must keep, with what each exercises that ubuntu
+#: cannot answer for. Not the whole kept set: the slow ones a later trim is
+#: most likely to reach for.
 MACOS_KEEPS = {
     "tests/test_offline_build_env.py": "the one real venv install (arm64 wheels)",
     "tests/connectors/ipc/test_pool.py": "child spawn, SIGKILL and replace",
@@ -766,9 +766,8 @@ def test_the_macos_trim_is_the_whole_sweep_minus_its_files() -> None:
 
 
 def test_the_macos_trim_names_existing_test_files_the_sweep_runs() -> None:
-    # pytest ignores a path that does not exist without a word, so a renamed
-    # file would leave the trim with nothing said; a directory would drop
-    # files nobody read.
+    # pytest silently accepts an --ignore of a missing path, so a rename would
+    # void the entry unnoticed; a directory would trim files nobody read.
     unit = fw.UNIT_SELECTION
     trimmed = unit.trims["macos"]
     swept = {path for path, _lane in unit.ignores}
@@ -796,9 +795,8 @@ def test_the_macos_trim_keeps_what_macos_can_answer__mutation_trims_a_keep() -> 
     assert _trimmed_keeps(narrowed) == {pool: MACOS_KEEPS[pool]}
 
 
-#: Calls and attributes whose outcome can depend on the OS: signals, process
-#: groups, real children, links, FIFOs, sockets, platform branches. Matched in
-#: the syntax tree, so a comment or a string that names one is not a use.
+#: Uses whose outcome can depend on the OS. Matched in the syntax tree, so a
+#: comment or a string that names one is not a use.
 OS_SENSITIVE_USES = frozenset(
     {
         "os.kill",
@@ -822,13 +820,11 @@ OS_SENSITIVE_USES = frozenset(
     }
 )
 
-#: Trimmed files that use one of those and were read and judged OS-independent
-#: anyway, with the uses that judgement covers.
+#: Trimmed files read and judged OS-independent despite these uses.
 MACOS_TRIM_VETTED = {
     # A symlinked checkout resolves to one repo identity on any POSIX host.
     "tests/deployment/test_up_as_built.py": ("symlink_to",),
-    # The connector-host child is only killed in teardown; the assertions are
-    # about the IPC frames it sends.
+    # The child is only killed in teardown; the assertions are on its frames.
     "tests/mcp_server/test_error_envelope_ipc.py": ("asyncio.create_subprocess_exec",),
     # Binds and closes a socket to get a port that refuses.
     "tests/services/ariel_search/test_image_lane.py": ("socket.socket",),
@@ -860,9 +856,8 @@ def _unvetted_trims(trims: Sequence[str]) -> dict[str, list[str]]:
 
 
 def test_the_macos_trim_holds_no_unread_os_sensitive_use() -> None:
-    # A trimmed file that later gains a signal, link or platform branch would
-    # otherwise stay off macOS with nothing said: read it, then keep it on
-    # macOS or vet the use here.
+    # A trimmed file that gains a signal, link or platform branch would stay
+    # off macOS silently: read it, then keep it on macOS or vet the use here.
     trimmed = fw.UNIT_SELECTION.trims["macos"]
     assert [p for p in MACOS_TRIM_VETTED if p not in trimmed] == []
     assert _unvetted_trims(trimmed) == {}

@@ -56,9 +56,8 @@ class UnitSelection:
     #: Shard name to (paths, extra ignores); the shards cover the roots exactly once.
     shards: dict[str, tuple[tuple[str, ...], tuple[str, ...]]]
     dist: tuple[str, ...]
-    #: Trim name to the test files it leaves out of the whole sweep. A trim is
-    #: selected with ``--shard`` like a shard but is no part of the partition:
-    #: it is the roots minus its files, run as one job.
+    #: Trim name to the test files it leaves out of the roots. Selected with
+    #: ``--shard``, but outside the partition: one job over everything else.
     trims: dict[str, tuple[str, ...]]
 
 
@@ -124,16 +123,14 @@ TEST_MIRRORS: tuple[tuple[str, str], ...] = (
 #: The test directories of the ``rest-a`` shard.
 _REST_A = ("tests/facility", "tests/mcp_server", "tests/deployment")
 
-#: The files the macOS cells leave to ubuntu: each was read for what it
-#: exercises, and none reaches anything whose outcome depends on the OS — no
-#: platform branch, no real child process it signals, no path or permission
-#: semantics macOS spells differently, no native binary. They were 53% of a
-#: macOS cell's test time (#2150). A file is listed whole or not at all, and a
+#: The files the macOS cells leave to ubuntu: each was read, and none reaches
+#: anything whose outcome depends on the OS — no platform branch, no real
+#: child process it signals, no path or permission semantics macOS spells
+#: differently, no native binary. A file is listed whole or not at all, and a
 #: new test file runs on macOS until someone reads it.
 _MACOS_REPEATS_UBUNTU = (
-    # Render over an in-process `osprey build --skip-deps`, which installs
-    # nothing; the build's own OS-touching steps (the directory swap, the hook
-    # chmod, realpath matching) stay covered by the files kept on macOS.
+    # In-process `osprey build --skip-deps` renders, which install nothing;
+    # the build's OS-touching steps stay covered by files kept on macOS.
     "tests/cli/test_answer_provenance_render.py",
     "tests/cli/test_build_cmd.py",
     "tests/cli/test_build_config_edit_session.py",
@@ -197,10 +194,8 @@ _MACOS_REPEATS_UBUNTU = (
     "tests/facility/test_simulator_view.py",
     "tests/integration/test_data_checksum_stability.py",
     "tests/test_e2e_ariel_db_pin.py",
-    # Facility import, layer and model logic in process. pyAT is compared
-    # against itself on the same host; the replays against fixed MATLAB
-    # references (test_check_a.py) and fixed pass counts
-    # (test_response_check.py) stay on macOS.
+    # Facility logic in process; pyAT is only compared against itself here,
+    # while the fixed-reference replays stay on macOS.
     "tests/facility/test_demo_seed_rules.py",
     "tests/facility/test_injector_sources.py",
     "tests/facility/test_layer_mml.py",
@@ -228,8 +223,7 @@ _MACOS_REPEATS_UBUNTU = (
     "tests/services/facility_knowledge/test_import_isolation.py",
     "tests/test_no_legacy_symbols.py",
     "tests/test_retired_store_words.py",
-    # Logic over a faked runtime, subprocess or clock, or a protocol that is
-    # the same on any POSIX host.
+    # Logic over a faked runtime, subprocess or clock, or a POSIX-wide protocol.
     "tests/connectors/test_mock_connector.py",
     "tests/deployment/test_container_lifecycle.py",
     "tests/deployment/test_down_restart_gates.py",
@@ -253,8 +247,7 @@ _MACOS_REPEATS_UBUNTU = (
     # Chromium only: the engine is the same on both hosts.
     "tests/interfaces/artifacts/test_opaque_origin_browser.py",
     "tests/interfaces/design_system/test_osprey_drawer.py",
-    # Shell run as PID 1 in a Linux image: ubuntu is the faithful host, and
-    # macOS's bash-as-sh would only test the harness.
+    # Shell run as PID 1 in a Linux image: ubuntu is the faithful host.
     "tests/cli/test_dockerfile_template.py",
     "tests/deployment/test_entrypoint_script.py",
 )
