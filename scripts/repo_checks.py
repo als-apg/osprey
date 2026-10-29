@@ -130,7 +130,7 @@ _REST_A = ("tests/facility", "tests/mcp_server", "tests/deployment")
 #: new test file runs on macOS until someone reads it.
 _MACOS_REPEATS_UBUNTU = (
     # In-process `osprey build --skip-deps` renders, which install nothing;
-    # the build's OS-touching steps stay covered by files kept on macOS.
+    # the build's directory swap stays on macOS in test_build_swap.py.
     "tests/cli/test_answer_provenance_render.py",
     "tests/cli/test_build_cmd.py",
     "tests/cli/test_build_config_edit_session.py",
@@ -139,6 +139,7 @@ _MACOS_REPEATS_UBUNTU = (
     "tests/cli/test_build_hierarchy_embedding.py",
     "tests/cli/test_build_preset.py",
     "tests/cli/test_build_profile_ariel_sync.py",
+    "tests/cli/test_build_zero_arg.py",
     "tests/cli/test_channel_finder_graph_tools.py",
     "tests/cli/test_claude_code_integration.py",
     "tests/cli/test_claude_regen.py",
