@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 from docs.screenshots import video_overlay
@@ -161,4 +162,4 @@ def test_move_cursor_nonpositive_steps_moves_once(steps):
 
 
 def test_overlay_module_never_sleeps():
-    assert "time.sleep" not in open(video_overlay.__file__).read()
+    assert "time.sleep" not in Path(video_overlay.__file__).read_text(encoding="utf-8")
