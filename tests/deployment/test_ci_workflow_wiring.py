@@ -115,6 +115,8 @@ TARGET_SWITCH_JOB = "target-switch-e2e"
 #: second step in the one above because it needs the LLM secret and the CLI,
 #: and lane-level `if:` gating is the only granularity GitHub offers.
 TARGET_SWITCH_AGENTIC_JOB = "target-switch-agentic-e2e"
+#: Saves the qmd sidecar layer cache in main's scope; see the qmd section below.
+QMD_WARMUP_JOB = "qmd-cache-warmup"
 VA_LIVE_JOB = "va-live-e2e"
 VA_BLUESKY_JOB = "va-bluesky-deploy-e2e"
 #: The run step of each lane that executes modules from tests/va/e2e/. The
@@ -12497,6 +12499,9 @@ _GATED_LANES = [
     # sessions on real API budget, goes unwatched.
     TARGET_SWITCH_AGENTIC_JOB,
     GRAPH_RESEED_JOB,
+    # A warm-up that fails leaves every PR downloading the qmd models again;
+    # the gate on main is where that shows.
+    QMD_WARMUP_JOB,
 ]
 
 
@@ -12546,7 +12551,6 @@ def test_all_checks_passed_gates_on_lane__mutation_drops_check_pr_lane_line(job:
 
 QMD_IMAGE_ACTION = "./.github/actions/build-qmd-image"
 QMD_IMAGE_ACTION_YML = REPO_ROOT / ".github" / "actions" / "build-qmd-image" / "action.yml"
-QMD_WARMUP_JOB = "qmd-cache-warmup"
 QMD_WARMUP_CONDITION = "github.event_name == 'push' && github.ref == 'refs/heads/main'"
 QMD_IMAGE_ENV = "OSPREY_QMD_IMAGE"
 QMD_IMAGE_TAG = "osprey-qmd:ci"
@@ -12753,20 +12757,6 @@ def test_the_warmup_runs_only_on_pushes_to_main__mutation_forgets_warm_mode() ->
     mutated = copy.deepcopy(_load_workflow())
     _find_named_step(mutated, QMD_WARMUP_JOB, "Warm the qmd layer cache").pop("with")
     assert len(_warmup_problems(mutated)) == 1
-
-
-def test_all_checks_passed_needs_the_qmd_warmup(workflow: dict[str, Any]) -> None:
-    """A warm-up that fails leaves every PR downloading the models again; the
-    gate on main is where that shows."""
-    assert QMD_WARMUP_JOB in _jobs(workflow)[GATE_JOB]["needs"]
-    assert f"needs.{QMD_WARMUP_JOB}.result" in _gate_run_text(workflow)
-
-
-def test_all_checks_passed_needs_the_qmd_warmup__mutation_drops_needs_entry() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[GATE_JOB]["needs"].remove(QMD_WARMUP_JOB)
-    with pytest.raises(AssertionError):
-        test_all_checks_passed_needs_the_qmd_warmup(mutated)
 
 
 def _qmd_deploy_problems(wf: dict[str, Any]) -> list[str]:
