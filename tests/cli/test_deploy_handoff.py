@@ -29,7 +29,7 @@ _PROVIDER = "anthropic"
 _SECRET_VAR = "ANTHROPIC_API_KEY"
 
 
-pytestmark = pytest.mark.usefixtures("parked_monitor", "restore_installed_reporter")
+pytestmark = pytest.mark.usefixtures("parked_monitor")
 
 
 class SeamRecorder(PhaseReporter):

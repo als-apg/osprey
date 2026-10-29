@@ -56,9 +56,6 @@ def fake_clock(monkeypatch):
     return install
 
 
-pytestmark = pytest.mark.usefixtures("restore_installed_reporter")
-
-
 def test_format_elapsed_seconds_and_minutes():
     assert format_elapsed(0.0) == "0.0s"
     assert format_elapsed(3.44) == "3.4s"
