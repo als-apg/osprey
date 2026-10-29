@@ -25,6 +25,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -200,23 +201,20 @@ _SMOKE_HOOK_CONFIG = {
 
 def _run_hook(hook_name, tool_name, tool_input, config_path, cwd, hook_config=None):
     """Run a single hook script as a subprocess."""
-    import tempfile
-
     hook_script = HOOKS_DIR / hook_name
     stdin_data = json.dumps({"tool_name": tool_name, "tool_input": tool_input})
     env = os.environ.copy()
     env["OSPREY_CONFIG"] = str(config_path)
     env["CONFIG_FILE"] = str(config_path)
 
-    # Write hook_config.json to a temp file for the subprocess
-    hc_file = None
-    if hook_config is not None:
-        hc_file = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
-        json.dump(hook_config, hc_file)
-        hc_file.close()
-        env["OSPREY_HOOK_CONFIG"] = hc_file.name
+    # The hook reads hook_config.json from a path, so it goes in a scratch
+    # directory that is removed once the hook has exited.
+    with tempfile.TemporaryDirectory() as scratch:
+        if hook_config is not None:
+            hc_file = Path(scratch) / "hook_config.json"
+            hc_file.write_text(json.dumps(hook_config))
+            env["OSPREY_HOOK_CONFIG"] = str(hc_file)
 
-    try:
         result = subprocess.run(
             [sys.executable, str(hook_script)],
             input=stdin_data,
@@ -224,27 +222,25 @@ def _run_hook(hook_name, tool_name, tool_input, config_path, cwd, hook_config=No
             text=True,
             env=env,
             cwd=str(cwd),
+            timeout=60,
         )
-        assert result.returncode == 0, (
-            f"Hook {hook_name} failed (exit {result.returncode}): {result.stderr}"
-        )
-        stdout = result.stdout.strip()
-        if not stdout:
-            return None
-        for line in reversed(stdout.split("\n")):
-            line = line.strip()
-            if line.startswith("{"):
-                try:
-                    return json.loads(line)
-                except json.JSONDecodeError:
-                    pass
-        try:
-            return json.loads(stdout)
-        except json.JSONDecodeError:
-            return None
-    finally:
-        if hc_file is not None:
-            os.unlink(hc_file.name)
+    assert result.returncode == 0, (
+        f"Hook {hook_name} failed (exit {result.returncode}): {result.stderr}"
+    )
+    stdout = result.stdout.strip()
+    if not stdout:
+        return None
+    for line in reversed(stdout.split("\n")):
+        line = line.strip()
+        if line.startswith("{"):
+            try:
+                return json.loads(line)
+            except json.JSONDecodeError:
+                pass
+    try:
+        return json.loads(stdout)
+    except json.JSONDecodeError:
+        return None
 
 
 def _run_hook_chain(tool_name, tool_input, config_path, cwd):
