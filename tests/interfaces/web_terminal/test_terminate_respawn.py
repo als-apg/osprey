@@ -28,9 +28,7 @@ from unittest.mock import patch
 
 import pytest
 from fastapi import HTTPException
-from fastapi.testclient import TestClient
 
-from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.chat_session_pool import (
     ChatSessionPool,
     ChatSessionTerminatedError,
@@ -44,6 +42,7 @@ from osprey.interfaces.web_terminal.routes import chat as chat_routes
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey_connectors import posture_store
 from tests.interfaces.web_terminal._fakes import PoolChatSession, created_first
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 # A Claude session-file stem: the PTY topology's key.
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
@@ -53,13 +52,6 @@ CHAT_A = "cccccccc-1111-2222-3333-444444444444"
 # The operator websocket's per-connection key — outside the posture surface's
 # closed grammar, and deliberately so (see TestOperatorSessionsGetNoRuntimeFlip).
 OPERATOR_KEY = "operator-dddddddd"
-
-
-@pytest.fixture
-def workspace_dir(tmp_path):
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
-    return ws
 
 
 @pytest.fixture
@@ -87,13 +79,8 @@ def shared_root(tmp_path, monkeypatch):
 # ``shared_root`` stamps the agent-data root the app under test reads.
 @pytest.fixture
 def client(workspace_dir, shared_root):  # noqa: ARG001
-    with patch(
-        "osprey.interfaces.web_terminal.app._load_web_config",
-        return_value={"watch_dir": str(workspace_dir)},
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as test_client:
-            yield test_client
+    with terminal_client(workspace_dir) as test_client:
+        yield test_client
 
 
 @contextmanager

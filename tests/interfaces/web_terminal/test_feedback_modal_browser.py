@@ -36,8 +36,7 @@ from unittest.mock import patch
 
 import pytest
 
-from tests.interfaces._panel_launch import publish_artifact_url
-from tests.interfaces.conftest import _apply_all, _run_app_server
+from tests.interfaces._hub import hub_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -132,27 +131,11 @@ def _hub_server(workspace_dir: Path, data_root: Path) -> Iterator[str]:
     Yields:
         The hub's base URL.
     """
-    patches = [
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=({"artifacts"}, [], None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(),
-        ),
+    with hub_server(
+        workspace_dir,
         patch("osprey_connectors.workspace.resolve_shared_data_root", return_value=data_root),
-    ]
-    with _apply_all(patches):
-        from osprey.interfaces.web_terminal.app import create_app
-
-        app = create_app(shell_command=["echo", "hello"])
-        with _run_app_server(app) as base_url:
-            yield base_url
+    ) as (base_url, _app):
+        yield base_url
 
 
 def _open_hub_page(browser: Browser, url: str) -> Page:

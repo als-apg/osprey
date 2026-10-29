@@ -38,6 +38,7 @@ from osprey.interfaces.web_terminal.session_handoff import (
     acquire_surface,
     get_state,
 )
+from tests._live import async_wait_until
 from tests.interfaces.web_terminal._fakes import (
     FakeChatPool,
     FakeChatSession,
@@ -333,27 +334,13 @@ def wait_returns(reason: str, *, before=None):
 
 async def until(predicate, *, timeout: float = 5.0) -> None:
     """Spin the loop (real time) until *predicate* holds."""
-    deadline = time.monotonic() + timeout
-    while not predicate():
-        if time.monotonic() >= deadline:
-            raise AssertionError("condition not reached in time")
-        await asyncio.sleep(0.001)
+    await async_wait_until(predicate, timeout=timeout, interval=0.001)
 
 
 async def ticks(app: SimpleNamespace, n: int) -> None:
     """Let the wait take *n* more looks (each look ends in one fake sleep)."""
     target = len(app.clock.sleeps) + n
     await until(lambda: len(app.clock.sleeps) >= target)
-
-
-def assert_registered(app: SimpleNamespace, plan: AcquirePlan, channel: object) -> None:
-    """The pending slot and the reservation an accepted plan leaves behind."""
-    pending = get_state(app).pending[plan.key]
-    assert pending.channel is channel
-    assert pending.surface == plan.surface
-    assert pending.task is not None
-    assert registry(app).is_reserved(plan.key)
-    assert plan.channel is channel
 
 
 def assert_released(app: SimpleNamespace) -> None:

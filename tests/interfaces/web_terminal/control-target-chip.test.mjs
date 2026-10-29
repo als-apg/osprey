@@ -54,6 +54,8 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
+import { FakeEventSource, stubEventSource } from '../_support/event-source.mjs';
+
 const MODULE = '../../../src/osprey/interfaces/web_terminal/static/js/control-target-chip.js';
 
 /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/control-target-chip.js')} */
@@ -267,29 +269,6 @@ function mountFixtureWithoutShell() {
   document.querySelector('[data-bar-item="control-target"]')?.remove();
 }
 
-/**
- * happy-dom ships no EventSource. A class stub keeps api.js's shared-stream
- * path real: frames are delivered as the browser would, as `onmessage` with a
- * string payload api.js parses, and the socket closes when the last
- * subscriber stops.
- */
-class FakeEventSource {
-  /** @type {FakeEventSource[]} */
-  static opened = [];
-  /** @param {string} url */
-  constructor(url) {
-    this.url = url;
-    this.readyState = 1;
-    this.closed = false;
-    /** @type {((e: {data: string}) => void)|null} */
-    this.onmessage = null;
-    FakeEventSource.opened.push(this);
-  }
-  close() {
-    this.closed = true;
-  }
-}
-
 /** Drain the microtask/timer queue the async handlers chain through. */
 async function flush() {
   for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0));
@@ -319,8 +298,7 @@ function pushFrame(/** @type {any} */ frame) {
 }
 
 beforeEach(async () => {
-  FakeEventSource.opened = [];
-  vi.stubGlobal('EventSource', FakeEventSource);
+  stubEventSource({ open: true });
   vi.resetModules();
   served = viewOf();
   stubFetch();

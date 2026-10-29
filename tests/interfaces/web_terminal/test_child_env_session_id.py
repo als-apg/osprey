@@ -34,10 +34,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
 
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
-from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.operator_session import (
     POSTURE_SOURCE_LIVE,
     POSTURE_SOURCE_SPAWN,
@@ -45,6 +43,7 @@ from osprey.interfaces.web_terminal.operator_session import (
 )
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey_connectors import posture_store, workspace
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 SESSION_ID_ENV = "OSPREY_SESSION_ID"
 
@@ -57,13 +56,6 @@ OPERATOR_KEY = "operator-deadbeef"
 # --------------------------------------------------------------------------- #
 # Harness
 # --------------------------------------------------------------------------- #
-
-
-@pytest.fixture
-def workspace_dir(tmp_path):
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
-    return ws
 
 
 @pytest.fixture
@@ -90,13 +82,8 @@ def shared_root(tmp_path, monkeypatch):
 def client(workspace_dir, shared_root):  # noqa: ARG001
     @contextmanager
     def _make():
-        with patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ):
-            app = create_app(shell_command="echo")
-            with TestClient(app) as test_client:
-                yield test_client
+        with terminal_client(workspace_dir) as test_client:
+            yield test_client
 
     with _make() as c:
         yield c

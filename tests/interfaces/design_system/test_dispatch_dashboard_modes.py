@@ -35,29 +35,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
-
-from tests.interfaces.conftest import _run_app_server
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
-
     from playwright.sync_api import Browser, Page
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
 VIEWPORT = {"width": 1100, "height": 900}
 
-DESIGN_SYSTEM_STATIC_DIR = (
-    __import__("pathlib").Path(__file__).resolve().parents[3]
-    / "src"
-    / "osprey"
-    / "interfaces"
-    / "design_system"
-    / "static"
-)
 
 #: Surfaces Simple mode must remove that are *visible in Expert on load*, so a
 #: passing assertion here can only mean the mode rule did the hiding. Keyed by
@@ -76,33 +61,6 @@ EXPERT_ONLY_SCREENS = {
     "#view-triggers": "the trigger list",
     "#view-trigger": "the trigger detail, including the payload editor",
 }
-
-
-def _create_dispatch_dashboard_app() -> FastAPI:
-    """Serve the real ``render_dashboard_html()`` output beside the real design system.
-
-    Mirrors ``test_visual.py``'s helper of the same name: the dashboard is
-    rendered HTML mounted into the event-dispatcher server in production, so a
-    minimal real app is the honest way to drive it.
-    """
-    from osprey.dispatch.dashboard import render_dashboard_html
-
-    app = FastAPI()
-    app.mount(
-        "/design-system", StaticFiles(directory=DESIGN_SYSTEM_STATIC_DIR), name="design-system"
-    )
-
-    @app.get("/", response_class=HTMLResponse)
-    async def root() -> str:
-        return str(render_dashboard_html(facility_name="Test Facility", channel_strip_prefix="SR:"))
-
-    return app
-
-
-@pytest.fixture
-def dashboard_url() -> Iterator[str]:
-    with _run_app_server(_create_dispatch_dashboard_app()) as base_url:
-        yield base_url
 
 
 def _open(page: Page, base_url: str, mode: str) -> None:

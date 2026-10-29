@@ -47,10 +47,8 @@ from unittest.mock import patch
 
 import pytest
 import yaml
-from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal import control_context_owner
-from osprey.interfaces.web_terminal.app import create_app
 from osprey.mcp_server.control_system import (
     connector_host_manager,
     target_eligibility,
@@ -66,6 +64,8 @@ from osprey_connectors_tests._harness import (
     write_control_context,
     write_server_report,
 )
+from tests.interfaces.web_terminal._control_context import only_alive
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
 CHAT_A = "cccccccc-1111-2222-3333-444444444444"
@@ -289,13 +289,6 @@ def agent_data_root(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def workspace_dir(tmp_path):
-    ws = tmp_path / "_watch"
-    ws.mkdir()
-    return ws
-
-
-@pytest.fixture
 def make_client(agent_data_root, workspace_dir, tmp_path):
     """Build an app + TestClient over the stamped root.
 
@@ -315,16 +308,11 @@ def make_client(agent_data_root, workspace_dir, tmp_path):
         with patch.object(
             control_context_owner.ControlContextOwnerTask, "start", lambda self: None
         ):
-            with patch(
-                "osprey.interfaces.web_terminal.app._load_web_config",
-                return_value={"watch_dir": str(workspace_dir)},
-            ):
-                app = create_app(shell_command="echo")
-                with TestClient(app) as test_client:
-                    test_client.app.state.config_path = (
-                        render(tmp_path=tmp_path) if config_path is None else config_path
-                    )
-                    yield test_client
+            with terminal_client(workspace_dir) as test_client:
+                test_client.app.state.config_path = (
+                    render(tmp_path=tmp_path) if config_path is None else config_path
+                )
+                yield test_client
 
     return _make
 
@@ -336,26 +324,6 @@ def client(make_client):
 
 
 # -- harness ----------------------------------------------------------------
-
-
-@contextmanager
-def only_alive(*pids):
-    """Report exactly *pids* as running processes.
-
-    One patch reaches every reader in the request: ``control_context`` owns the
-    predicate, and ``target_state.is_process_alive`` — which the marker sweep
-    calls — delegates to it at call time.
-    """
-    wanted = {int(p) for p in pids}
-
-    def alive(pid):
-        try:
-            return int(pid) in wanted
-        except (TypeError, ValueError):
-            return False
-
-    with patch.object(control_context, "is_process_alive", side_effect=alive):
-        yield
 
 
 def stamp(age_s=0.0):

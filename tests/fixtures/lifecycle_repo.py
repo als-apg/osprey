@@ -1722,7 +1722,8 @@ APP_LOGBOOK_YML = """\
 #
 # A complete agent definition of its own: the lists below are its whole
 # selection, and nothing is inherited from profile.yml's lists or subtracted
-# from them. Services, data, provider and model are profile.yml's, and its
+# from them. Services, data and provider are profile.yml's, and so is the model
+# unless a top-level `model:` here names one the provider serves. Its
 # config: keys are laid over profile.yml's. To see the combined result:
 #   osprey validate apps/logbook.yml
 #
@@ -1841,7 +1842,8 @@ APP_KNOWLEDGE_YML = """\
 #
 # A complete agent definition of its own: the lists below are its whole
 # selection, and nothing is inherited from profile.yml's lists or subtracted
-# from them. Services, data, provider and model are profile.yml's, and its
+# from them. Services, data and provider are profile.yml's, and so is the model
+# unless a top-level `model:` here names one the provider serves. Its
 # config: keys are laid over profile.yml's. To see the combined result:
 #   osprey validate apps/knowledge.yml
 #
@@ -1949,7 +1951,8 @@ APP_CHANNEL_FINDER_YML = """\
 #
 # A complete agent definition of its own: the lists below are its whole
 # selection, and nothing is inherited from profile.yml's lists or subtracted
-# from them. Services, data, provider and model are profile.yml's, and its
+# from them. Services, data and provider are profile.yml's, and so is the model
+# unless a top-level `model:` here names one the provider serves. Its
 # config: keys are laid over profile.yml's. To see the combined result:
 #   osprey validate apps/channel-finder.yml
 #

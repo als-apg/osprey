@@ -982,7 +982,6 @@ class TestOperatorSessionResumeOptions:
 
     @pytest.mark.asyncio
     async def test_two_keyless_sessions_do_not_share_an_identity(self):
-
         with sdk_seam() as first:
             await OperatorSession(cwd="/tmp", env={"PATH": "/usr/bin"}).start()
         with sdk_seam() as second:

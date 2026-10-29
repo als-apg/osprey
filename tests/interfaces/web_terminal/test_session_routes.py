@@ -11,35 +11,22 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
 
 from osprey.agent_record.client import ClientAnswer
 from osprey.agent_record.contract import Drain
-from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.routes import session as session_routes
 from tests.agent_record.fakes import FakeRecordClient
 from tests.interfaces.web_terminal._fakes import FakePtySession, PoolChatSession
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 SESSION_KEY = "11111111-2222-3333-4444-555555555555"
 CLEARED_TRANSCRIPT = "99999999-8888-7777-6666-555555555555"
 
 
 @pytest.fixture
-def workspace_dir(tmp_path):
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
-    return ws
-
-
-@pytest.fixture
 def client(workspace_dir):
-    with patch(
-        "osprey.interfaces.web_terminal.app._load_web_config",
-        return_value={"watch_dir": str(workspace_dir)},
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as c:
-            yield c
+    with terminal_client(workspace_dir) as c:
+        yield c
 
 
 @pytest.fixture

@@ -36,9 +36,9 @@ from osprey.agent_record.backends.embedded import EmbeddedBackend
 from osprey.agent_record.client import RecordClient
 from osprey.history import viewer
 from osprey.history.app import create_app
+from osprey.interfaces._serving import run_app_server
 from osprey_connectors.dotenv import parse_dotenv_file
 from tests.agent_record.test_identities import _config
-from tests.interfaces.conftest import _run_app_server
 from tests.interfaces.design_system.test_dispatch_run_crosslinks import HISTORY_LINK_LABEL
 
 if TYPE_CHECKING:
@@ -150,7 +150,7 @@ def record(tmp_path_factory) -> Iterator[dict[str, str]]:
     with EmbeddedBackend(root / "record.duckdb") as backend:
         backend.append(ENTRIES)
         app = service.create_app(config=config, backend=backend, env=env)
-        with _run_app_server(app) as url:
+        with run_app_server(app) as url:
             yield {"url": url, "token": token}
 
 
@@ -209,7 +209,7 @@ def history_origin(record: dict[str, str]) -> Iterator[str]:
         )
 
     app = create_app(env={}, max_days=30, client_for=client_for)
-    with _run_app_server(_nginx_stand_in(app, _SignedIn)) as base_url:
+    with run_app_server(_nginx_stand_in(app, _SignedIn)) as base_url:
         yield base_url
 
 
@@ -238,14 +238,14 @@ def _dashboard_app(history_url: str) -> FastAPI:
 @pytest.fixture
 def dashboard_url(history_origin: str) -> Iterator[str]:
     """The dashboard of a deployment that serves the history page."""
-    with _run_app_server(_dashboard_app(f"{history_origin}/history/")) as base_url:
+    with run_app_server(_dashboard_app(f"{history_origin}/history/")) as base_url:
         yield base_url
 
 
 @pytest.fixture
 def dashboard_url_without_history() -> Iterator[str]:
     """The dashboard of a deployment with no history page."""
-    with _run_app_server(_dashboard_app("")) as base_url:
+    with run_app_server(_dashboard_app("")) as base_url:
         yield base_url
 
 

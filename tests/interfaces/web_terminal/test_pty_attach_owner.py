@@ -22,17 +22,21 @@ The pool's LRU behaviour around attachment lives in
 from __future__ import annotations
 
 import sys
-import uuid as uuid_mod
 from unittest.mock import MagicMock, patch
 
 import pytest
 from starlette.testclient import TestClient
 
-from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
-from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
-from tests.interfaces.web_terminal._fakes import FakePtySession
-from tests.interfaces.web_terminal._ws import recv_frame, recv_json
+from tests.interfaces.web_terminal._ws import (
+    new_session_id,
+    patch_spawn,
+    recv_frame,
+    recv_json,
+    resume_url,
+    seed_session_file,
+    send_resize,
+)
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
 
@@ -51,19 +55,6 @@ def _mock_session(alive: bool = True) -> MagicMock:
     return s
 
 
-def _uuid() -> str:
-    return str(uuid_mod.uuid4())
-
-
-def _resume_url(session_id: str) -> str:
-    return f"/ws/terminal?session_id={session_id}&mode=resume"
-
-
-def _send_resize(ws, cols: int = 80, rows: int = 24):
-    """Send the initial resize the handler waits for before spawning."""
-    ws.send_json({"type": "resize", "cols": cols, "rows": rows})
-
-
 def _recv_close(ws, max_frames: int = 30) -> dict:
     """The close frame that ends the socket, skipping anything sent first."""
     seen = []
@@ -73,43 +64,6 @@ def _recv_close(ws, max_frames: int = 30) -> dict:
             return raw
         seen.append(raw.get("text") or raw["type"])
     raise AssertionError(f"No close frame within {max_frames} frames. Got: {seen}")
-
-
-@pytest.fixture()
-def app(tmp_path):
-    """A web terminal app pointed at a temp project dir."""
-    with patch(
-        "osprey.interfaces.web_terminal.app._load_web_config",
-        return_value={"watch_dir": str(tmp_path / "ws")},
-    ):
-        yield create_app(shell_command="fake-not-used", project_dir=str(tmp_path))
-
-
-@pytest.fixture()
-def sessions_dir(tmp_path, monkeypatch):
-    """Point ``SessionDiscovery`` at a tmp transcript directory."""
-    d = tmp_path / "claude_sessions"
-    d.mkdir()
-    monkeypatch.setattr(SessionDiscovery, "_resolve_sessions_dir", lambda self: d)
-    return d
-
-
-def _seed_session_file(sessions_dir, session_id: str) -> None:
-    (sessions_dir / f"{session_id}.jsonl").write_text("")
-
-
-def _patch_spawn(app):
-    """Replace ``_spawn_session`` so no real PTY is created."""
-    reg = app.state.pty_registry
-    spawned: list[FakePtySession] = []
-
-    def tracked_spawn(*_args, **_kwargs):
-        s = FakePtySession()
-        spawned.append(s)
-        return s
-
-    reg._spawn_session = tracked_spawn
-    return reg, spawned
 
 
 # ---------------------------------------------------------------------------
@@ -235,14 +189,14 @@ class TestAttachmentOwnership:
 class TestTerminalWsAttachment:
     """``terminal_ws`` holds one token and honours a refused attach."""
 
-    def test_connect_holds_the_key_and_releases_it_on_disconnect(self, app, sessions_dir):
+    def test_connect_holds_the_key_and_releases_it_on_disconnect(self, ws_app, sessions_dir):
         """The key is attached while the socket is open, and free but still pooled after it."""
-        sid = _uuid()
-        _seed_session_file(sessions_dir, sid)
-        with TestClient(app) as client:
-            reg, spawned = _patch_spawn(app)
-            with client.websocket_connect(_resume_url(sid)) as ws:
-                _send_resize(ws)
+        sid = new_session_id()
+        seed_session_file(sessions_dir, sid)
+        with TestClient(ws_app) as client:
+            reg, spawned = patch_spawn(ws_app)
+            with client.websocket_connect(resume_url(sid)) as ws:
+                send_resize(ws)
                 recv_json(ws, "session_info")
                 assert reg.is_attached(sid) is True
 
@@ -251,19 +205,19 @@ class TestTerminalWsAttachment:
             assert reg.get_session(sid) is spawned[0]
             assert spawned[0].is_alive
 
-    def test_a_switch_moves_the_attachment_and_releases_both_keys(self, app, sessions_dir):
+    def test_a_switch_moves_the_attachment_and_releases_both_keys(self, ws_app, sessions_dir):
         """One token per handler: it detaches the old key and takes the new.
 
         Both keys are free after the socket closes, which is only true if the
         token the switch detached with is the token the connect attached with.
         """
-        initial, target = _uuid(), _uuid()
-        _seed_session_file(sessions_dir, initial)
-        _seed_session_file(sessions_dir, target)
-        with TestClient(app) as client:
-            reg, _ = _patch_spawn(app)
-            with client.websocket_connect(_resume_url(initial)) as ws:
-                _send_resize(ws)
+        initial, target = new_session_id(), new_session_id()
+        seed_session_file(sessions_dir, initial)
+        seed_session_file(sessions_dir, target)
+        with TestClient(ws_app) as client:
+            reg, _ = patch_spawn(ws_app)
+            with client.websocket_connect(resume_url(initial)) as ws:
+                send_resize(ws)
                 recv_json(ws, "session_info")
                 ws.send_json({"type": "switch_session", "session_id": target})
                 recv_json(ws, "session_switched")
@@ -274,30 +228,30 @@ class TestTerminalWsAttachment:
             assert reg.is_attached(initial) is False
             assert reg.is_attached(target) is False
 
-    def test_a_refused_attach_closes_the_socket_with_4409(self, app, sessions_dir):
+    def test_a_refused_attach_closes_the_socket_with_4409(self, ws_app, sessions_dir):
         """A key someone else is reading is not served half a terminal."""
-        sid = _uuid()
-        _seed_session_file(sessions_dir, sid)
-        with TestClient(app) as client:
-            reg, _ = _patch_spawn(app)
+        sid = new_session_id()
+        seed_session_file(sessions_dir, sid)
+        with TestClient(ws_app) as client:
+            reg, _ = patch_spawn(ws_app)
             reg.attach_session = lambda key, owner: False
 
-            with client.websocket_connect(_resume_url(sid)) as ws:
-                _send_resize(ws)
+            with client.websocket_connect(resume_url(sid)) as ws:
+                send_resize(ws)
                 message = _recv_close(ws)
 
         assert message["code"] == 4409
 
-    def test_a_refused_switch_closes_the_socket_with_4409(self, app, sessions_dir):
+    def test_a_refused_switch_closes_the_socket_with_4409(self, ws_app, sessions_dir):
         """Same refusal on the switch path, once the old key is released."""
-        initial, target = _uuid(), _uuid()
-        _seed_session_file(sessions_dir, initial)
-        _seed_session_file(sessions_dir, target)
-        with TestClient(app) as client:
-            reg, _ = _patch_spawn(app)
+        initial, target = new_session_id(), new_session_id()
+        seed_session_file(sessions_dir, initial)
+        seed_session_file(sessions_dir, target)
+        with TestClient(ws_app) as client:
+            reg, _ = patch_spawn(ws_app)
 
-            with client.websocket_connect(_resume_url(initial)) as ws:
-                _send_resize(ws)
+            with client.websocket_connect(resume_url(initial)) as ws:
+                send_resize(ws)
                 recv_json(ws, "session_info")
                 reg.attach_session = lambda key, owner: False
 

@@ -293,11 +293,13 @@ ROOT_ONLY_KEYS = frozenset(
 TIER_KIND_KEYS = (ROOT_KIND_KEYS - ROOT_ONLY_KEYS) | RENDER_KEYS
 
 #: The known keys of an app: a whole agent definition (lists, brief, config and
-#: tool servers) plus the per-render keys. The deployment's provider, model,
-#: services and roster stay the host's.
+#: tool servers), the model it runs, plus the per-render keys. The model is an
+#: id the host's provider serves, and an app that names none runs the host's.
+#: The deployment's provider, services and roster stay the host's.
 APP_KIND_KEYS = frozenset(
     {
         "name",
+        "model",
         "hooks",
         "rules",
         "skills",

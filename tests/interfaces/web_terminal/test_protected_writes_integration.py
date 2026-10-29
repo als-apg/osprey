@@ -65,40 +65,8 @@ from osprey.audit.protected import POSTURE_SOURCE_ENV_VAR, PROTECTED_SURFACES
 from osprey.cli.profile_conventions import RESERVED_PATH_CHANNELS, is_reserved_write
 from osprey.cli.templates.manager import TemplateManager
 from osprey.interfaces.web_auth import PANEL_TOKEN_ENV
-from osprey.interfaces.web_terminal.app import create_app
-from tests._preset_data import bundle_data_root
-
-
-def _create_project(manager: TemplateManager, **kwargs) -> Path:
-    """``create_project`` plus the three steps a real build takes next.
-
-    A build renders the framework template, overlays the resolved profile's
-    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
-    regenerates ``.claude/`` from the finished config. The template carries
-    only derived and profile-field-derived keys, so a fixture that stops after
-    the render holds half a config — the declarative half is the preset's, and
-    the artifacts rendered before it landed do not know about the deployment's
-    control system, services or servers. These fixtures render from a bundle
-    rather than from a profile, so they overlay the preset ``osprey init``
-    pairs with that bundle.
-    """
-    from osprey.cli.build_profile import resolve_build_profile
-    from osprey.utils.config_writer import config_update_fields
-
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
-    preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", bundle_data_root(bundle))
-    project = manager.create_project(**kwargs)
-    profile, _preset_dir = resolve_build_profile(None, preset=preset)
-    config_update_fields(project / "config.yml", profile.config)
-    manager.generate_manifest(
-        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
-    )
-    # The build's last render, and the one that ships: `create_project` wrote
-    # `.claude/` from a config.yml that did not yet carry the preset's block.
-    manager.regenerate_claude_code(project)
-    return project
-
+from tests._preset_data import create_project_as_built
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 SETUP_MOD = "osprey.mcp_server.workspace.tools.setup"
 
@@ -143,7 +111,7 @@ def _baked_project(tmp_path_factory) -> Path:
     before it writes, and the per-test copy carries the ownership edits.
     """
     manager = TemplateManager()
-    project_dir = _create_project(
+    project_dir = create_project_as_built(
         manager,
         project_name="protected-writes",
         output_dir=tmp_path_factory.mktemp("protected-writes-bake"),
@@ -207,20 +175,13 @@ def client(project_dir, tmp_path):
     """
     watch_dir = tmp_path / "watch"
     watch_dir.mkdir()
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(watch_dir)},
-        ),
+    with terminal_client(
+        watch_dir,
         patch("osprey.interfaces.web_terminal.app._launch_enabled_sidecars", new=AsyncMock()),
-    ):
-        app = create_app(
-            config_path=project_dir / "config.yml",
-            shell_command="echo",
-            project_dir=str(project_dir),
-        )
-        with TestClient(app) as test_client:
-            yield test_client
+        config_path=project_dir / "config.yml",
+        project_dir=str(project_dir),
+    ) as test_client:
+        yield test_client
 
 
 # ── Readers ──────────────────────────────────────────────────────────

@@ -57,19 +57,20 @@ def test_load_json_document_missing_file_raises(tmp_path: Path) -> None:
         load_json_document(tmp_path / "missing.json")
 
 
-def test_load_json_document_invalid_json_raises(tmp_path: Path) -> None:
-    path = tmp_path / "bad.json"
-    path.write_text("{not valid json", encoding="utf-8")
+@pytest.mark.parametrize(
+    ("text", "complaint"),
+    [
+        pytest.param("{not valid json", "invalid JSON", id="invalid-json"),
+        pytest.param("[1, 2, 3]", "must be a JSON object", id="non-object-root"),
+    ],
+)
+def test_load_json_document_rejects_a_bad_document(
+    tmp_path: Path, text: str, complaint: str
+) -> None:
+    path = tmp_path / "doc.json"
+    path.write_text(text, encoding="utf-8")
 
-    with pytest.raises(TokenModelError, match="invalid JSON"):
-        load_json_document(path)
-
-
-def test_load_json_document_non_object_root_raises(tmp_path: Path) -> None:
-    path = tmp_path / "list.json"
-    path.write_text("[1, 2, 3]", encoding="utf-8")
-
-    with pytest.raises(TokenModelError, match="must be a JSON object"):
+    with pytest.raises(TokenModelError, match=complaint):
         load_json_document(path)
 
 
@@ -163,31 +164,27 @@ def test_flatten_document_rejects_value_and_children_mixed() -> None:
         flatten_document(document, source_file=Path("x.json"))
 
 
-def test_flatten_document_rejects_non_object_child() -> None:
-    document = {"bg": "not-an-object"}
-
-    with pytest.raises(TokenModelError, match="expected an object"):
-        flatten_document(document, source_file=Path("x.json"))
-
-
-def test_flatten_document_rejects_non_string_type() -> None:
-    document = {"bg": {"$value": "#000", "$type": 5}}
-
-    with pytest.raises(TokenModelError, match="\\$type must be a string"):
-        flatten_document(document, source_file=Path("x.json"))
-
-
-def test_flatten_document_rejects_non_string_description() -> None:
-    document = {"bg": {"$value": "#000", "$description": 5}}
-
-    with pytest.raises(TokenModelError, match="\\$description must be a string"):
-        flatten_document(document, source_file=Path("x.json"))
-
-
-def test_flatten_document_rejects_non_object_extensions() -> None:
-    document = {"bg": {"$value": "#000", "$extensions": "nope"}}
-
-    with pytest.raises(TokenModelError, match="\\$extensions must be an object"):
+@pytest.mark.parametrize(
+    ("document", "complaint"),
+    [
+        pytest.param({"bg": "not-an-object"}, "expected an object", id="non-object-child"),
+        pytest.param(
+            {"bg": {"$value": "#000", "$type": 5}}, "\\$type must be a string", id="non-string-type"
+        ),
+        pytest.param(
+            {"bg": {"$value": "#000", "$description": 5}},
+            "\\$description must be a string",
+            id="non-string-description",
+        ),
+        pytest.param(
+            {"bg": {"$value": "#000", "$extensions": "nope"}},
+            "\\$extensions must be an object",
+            id="non-object-extensions",
+        ),
+    ],
+)
+def test_flatten_document_rejects_a_malformed_token(document: dict, complaint: str) -> None:
+    with pytest.raises(TokenModelError, match=complaint):
         flatten_document(document, source_file=Path("x.json"))
 
 

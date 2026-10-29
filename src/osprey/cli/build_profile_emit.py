@@ -1117,7 +1117,8 @@ def _layer_header(
     The two kinds say different things about the host because they ARE
     different things: a tier is a delta that only adds to the host, while an
     app is a whole agent definition that brings its own lists and borrows only
-    the host's services, data, provider and config.
+    the host's services, data, provider and config — and the host's model,
+    unless it names its own.
     """
     if kind == TIERS_DIRNAME:
         lead = (
@@ -1133,7 +1134,8 @@ def _layer_header(
             f"#\n"
             f"# A complete agent definition of its own: the lists below are its whole\n"
             f"# selection, and nothing is inherited from {host}'s lists or subtracted\n"
-            f"# from them. Services, data, provider and model are {host}'s, and its\n"
+            f"# from them. Services, data and provider are {host}'s, and so is the model\n"
+            f"# unless a top-level `model:` here names one the provider serves. Its\n"
             f"# config: keys are laid over {host}'s. To see the combined result:\n"
         )
     word = LAYER_DIR_KINDS[kind]

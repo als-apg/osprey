@@ -33,8 +33,8 @@ import pytest
 from osprey.agent_record.client import ClientAnswer
 from osprey.history import viewer
 from osprey.history.app import create_app
+from osprey.interfaces._serving import run_app_server
 from tests.agent_record.fakes import FakeRecordClient
-from tests.interfaces.conftest import _run_app_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -292,7 +292,7 @@ def record() -> Record:
 def _history_page(record: Record) -> Iterator[str]:
     """The page behind the stand-in; yields the origin the browser opens ``/history/`` on."""
     app = create_app(env={}, max_days=30, client_for=record.client_for)
-    with _run_app_server(_nginx_stand_in(app)) as base_url:
+    with run_app_server(_nginx_stand_in(app)) as base_url:
         yield base_url
 
 

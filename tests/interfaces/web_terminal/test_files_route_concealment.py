@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.file_watcher import FileEventBroadcaster
 from osprey.interfaces.web_terminal.routes.files import router
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 
 @pytest.fixture
@@ -322,30 +323,26 @@ class TestStateKeyContract:
     routes read to the attributes app.py publishes."""
 
     def test_the_lifespan_publishes_the_attributes_these_routes_read(self, tmp_path):
-        from osprey.interfaces.web_terminal.app import PANEL_STATUS_DIRNAME, create_app
+        from osprey.interfaces.web_terminal.app import PANEL_STATUS_DIRNAME
         from osprey.interfaces.web_terminal.routes.files import _CONCEALED_STORES
 
         workspace_dir = tmp_path / "_agent_data"
         workspace_dir.mkdir()
 
-        with (
-            patch(
-                "osprey.interfaces.web_terminal.app._load_web_config",
-                return_value={"watch_dir": str(workspace_dir)},
-            ),
+        with terminal_client(
+            workspace_dir,
             patch(
                 "osprey_connectors.workspace.resolve_shared_data_root",
                 return_value=workspace_dir,
             ),
-        ):
-            with TestClient(create_app(shell_command="echo")) as client:
-                assert client.app.state.bar_items_dir == workspace_dir / "bar_items"
-                assert client.app.state.panel_status_dir == workspace_dir / PANEL_STATUS_DIRNAME
-                for attribute, _label in _CONCEALED_STORES:
-                    assert getattr(client.app.state, attribute, None) is not None, attribute
+        ) as client:
+            assert client.app.state.bar_items_dir == workspace_dir / "bar_items"
+            assert client.app.state.panel_status_dir == workspace_dir / PANEL_STATUS_DIRNAME
+            for attribute, _label in _CONCEALED_STORES:
+                assert getattr(client.app.state, attribute, None) is not None, attribute
 
     def test_a_saved_bar_layout_never_reaches_the_file_panel(self, tmp_path):
-        from osprey.interfaces.web_terminal.app import BAR_LAYOUT_VERSION, create_app
+        from osprey.interfaces.web_terminal.app import BAR_LAYOUT_VERSION
 
         workspace_dir = tmp_path / "_agent_data"
         workspace_dir.mkdir()
@@ -356,11 +353,8 @@ class TestStateKeyContract:
                 found.extend(paths(child))
             return found
 
-        with (
-            patch(
-                "osprey.interfaces.web_terminal.app._load_web_config",
-                return_value={"watch_dir": str(workspace_dir)},
-            ),
+        with terminal_client(
+            workspace_dir,
             patch(
                 "osprey_connectors.workspace.resolve_shared_data_root",
                 return_value=workspace_dir / "agent_data",
@@ -368,26 +362,25 @@ class TestStateKeyContract:
             # The artifact server would otherwise write under that root from a
             # thread that outlives the test.
             patch("osprey.infrastructure.server_launcher.ensure_web_server", lambda key: None),
-        ):
-            with TestClient(create_app(shell_command="echo")) as client:
-                saved = client.put(
-                    "/api/bar-items",
-                    json={
-                        "version": BAR_LAYOUT_VERSION,
-                        "rev": 0,
-                        "header": [{"type": "logo"}],
-                        "status": [],
-                        "header_visible": True,
-                        "status_visible": True,
-                    },
-                )
-                assert saved.status_code == 200
+        ) as client:
+            saved = client.put(
+                "/api/bar-items",
+                json={
+                    "version": BAR_LAYOUT_VERSION,
+                    "rev": 0,
+                    "header": [{"type": "logo"}],
+                    "status": [],
+                    "header_visible": True,
+                    "status_visible": True,
+                },
+            )
+            assert saved.status_code == 200
 
-                tree = client.get("/api/files/tree").json()
-                assert [path for path in paths(tree) if "bar_items" in path] == []
+            tree = client.get("/api/files/tree").json()
+            assert [path for path in paths(tree) if "bar_items" in path] == []
 
-                resp = client.get("/api/files/content/agent_data/bar_items/layout.json")
-                assert resp.status_code == 404
+            resp = client.get("/api/files/content/agent_data/bar_items/layout.json")
+            assert resp.status_code == 404
 
 
 class TestSessionScopedWorkspace:
