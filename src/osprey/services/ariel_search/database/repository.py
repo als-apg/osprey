@@ -2611,12 +2611,14 @@ class ARIELRepository:
                     raise ConfigurationError(
                         "search_modules.semantic.model: semantic search is enabled "
                         f"for model '{model}', but this database has no embedding "
-                        f"table for it ('{table_name}'). Run `osprey ariel quickstart` "
-                        "-- it creates the table, which needs the pgvector extension "
-                        "and the model listed under "
-                        "enhancement_modules.text_embedding.models -- or set "
-                        "search_modules.semantic.enabled: false.",
+                        f"table for it ('{table_name}')",
                         config_key="search_modules.semantic.model",
+                        remedy=(
+                            "Run `osprey ariel quickstart` -- it creates the table, "
+                            "which needs the pgvector extension and the model listed "
+                            "under enhancement_modules.text_embedding.models -- or set "
+                            "search_modules.semantic.enabled: false"
+                        ),
                     )
         except ConfigurationError:
             raise

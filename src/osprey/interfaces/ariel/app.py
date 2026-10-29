@@ -465,7 +465,7 @@ def _create_lifespan(config_path: str | Path | None = None):
                 except ConfigurationError as table_error:
                     config_errors.append(table_error.message)
                     if config_status != CONFIG_STATUS_INVALID:
-                        config_remedy = REMEDY_NAMED_KEY
+                        config_remedy = table_error.remedy or REMEDY_NAMED_KEY
                     config_status = CONFIG_STATUS_INVALID
             except Exception as e:
                 logger.warning(

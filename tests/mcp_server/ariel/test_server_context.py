@@ -222,8 +222,9 @@ def test_initialize_refuses_a_malformed_entry_text_budget(tmp_path, monkeypatch)
 
 _TABLE_MISSING = (
     "search_modules.semantic.model: semantic search is enabled for model 'm', "
-    "but this database has no embedding table for it ('text_embeddings_m')."
+    "but this database has no embedding table for it ('text_embeddings_m')"
 )
+_TABLE_REMEDY = "Run `osprey ariel quickstart`, or set search_modules.semantic.enabled: false"
 
 
 def _write_semantic_project(project_dir, *, semantic_enabled=True):
@@ -264,8 +265,10 @@ def _service_factory(outcomes):
     return create, built, repository
 
 
-def _table_missing():
-    return ConfigurationError(_TABLE_MISSING, config_key="search_modules.semantic.model")
+def _table_missing(remedy=_TABLE_REMEDY):
+    return ConfigurationError(
+        _TABLE_MISSING, config_key="search_modules.semantic.model", remedy=remedy
+    )
 
 
 async def test_service_refuses_missing_embedding_table_and_caches_nothing(tmp_path, monkeypatch):
@@ -280,9 +283,26 @@ async def test_service_refuses_missing_embedding_table_and_caches_nothing(tmp_pa
             await ctx.service()
 
     assert captured["envelope"]["error_message"] == _TABLE_MISSING
+    assert captured["envelope"]["suggestions"] == [_TABLE_REMEDY]
     assert len(built) == 1
     built[0].aclose.assert_awaited_once()
     assert ctx._service is None
+
+
+async def test_service_refusal_without_a_remedy_suggests_nothing(tmp_path, monkeypatch, caplog):
+    """A refusal that names no fix is rendered without one, and no restart is advised."""
+    monkeypatch.chdir(tmp_path)
+    _write_semantic_project(tmp_path)
+    ctx = initialize_ariel_context()
+    create, _, _ = _service_factory([_table_missing(remedy=None)])
+
+    with patch("osprey.services.ariel_search.service.create_ariel_service", new=create):
+        with assert_raises_error(error_type="service_unavailable") as captured:
+            await ctx.service()
+
+    assert captured["envelope"]["suggestions"] == []
+    assert "Remedy" not in caplog.text
+    assert "restart" not in caplog.text
 
 
 async def test_service_serves_once_the_table_exists(tmp_path, monkeypatch):

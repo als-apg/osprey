@@ -271,11 +271,14 @@ class TestErrorWrapping:
         message = exc_info.value.message
         assert message.startswith("search_modules.semantic.model:")
         assert "text_embeddings_nomic_embed_text" in message
-        assert "osprey ariel quickstart" in message
-        assert "search_modules.semantic.enabled: false" in message
         lowered = message.lower()
         for misleading in ("relation", "does not exist", "connect"):
             assert misleading not in lowered
+        remedy = exc_info.value.remedy
+        assert remedy is not None
+        assert "osprey ariel quickstart" in remedy
+        assert "search_modules.semantic.enabled: false" in remedy
+        assert remedy not in message
 
     async def test_validate_search_model_table_treats_missing_row_as_absent(
         self,

@@ -172,12 +172,17 @@ class ARIELContext:
         Returns:
             The same exception, so the caller can ``raise`` it.
         """
-        remedy = getattr(error, "remedy", "fix the named key in config.yml and restart")
         # Every validate() message already leads with its own dotted key, so the
         # key is not repeated here.
-        logger.error(
-            "ARIEL MCP server refusing to %s: %s. Remedy: %s", refused, error.message, remedy
-        )
+        if error.remedy:
+            logger.error(
+                "ARIEL MCP server refusing to %s: %s. Remedy: %s",
+                refused,
+                error.message,
+                error.remedy,
+            )
+        else:
+            logger.error("ARIEL MCP server refusing to %s: %s", refused, error.message)
         return error
 
     @property
@@ -205,9 +210,10 @@ class ARIELContext:
 
         Raises:
             ToolError: A ``service_unavailable`` refusal carrying the message of
-                the ``ConfigurationError`` the probe raised: semantic search is
-                enabled for a model whose embedding table the database lacks.
-                Nothing is cached, so the next call probes again.
+                the ``ConfigurationError`` the probe raised, and its remedy as
+                the suggestion when it names one: semantic search is enabled
+                for a model whose embedding table the database lacks. Nothing
+                is cached, so the next call probes again.
             DatabaseQueryError: The database could not be asked for the table.
         """
         if self._service is not None:
@@ -236,8 +242,11 @@ class ARIELContext:
                     logger.debug("Error closing unopened ARIEL service (ignored)", exc_info=True)
                 if isinstance(error, ConfigurationError):
                     ARIELContext._refuse(error, refused="open the ARIEL service")
-                    remedy = getattr(error, "remedy", None)
-                    make_error("service_unavailable", error.message, [remedy] if remedy else [])
+                    make_error(
+                        "service_unavailable",
+                        error.message,
+                        [error.remedy] if error.remedy else [],
+                    )
                 raise
             self._service = service
             logger.info("ARIELContext: created ARIEL service")

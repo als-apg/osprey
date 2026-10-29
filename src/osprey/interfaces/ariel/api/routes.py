@@ -778,14 +778,13 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
 
     except ConfigurationError as e:
         # A configuration the host contradicts: 503, the detail names the key
-        # and the fix.
+        # and the fix. The message leads with its key, so the key is not
+        # repeated.
         errors = getattr(e, "errors", None)
         first = errors[0] if errors else e.message
-        remedy = getattr(e, "remedy", None)
-        detail = f"{e.config_key}: {first}"
         raise HTTPException(
             status_code=503,
-            detail=f"{detail}. {remedy}" if remedy else detail,
+            detail=f"{first}. {e.remedy}" if e.remedy else first,
         ) from e
     except PatternError as e:
         # Defensive: the keyword module turns a rejected pattern into an ERROR
