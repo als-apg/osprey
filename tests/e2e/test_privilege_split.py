@@ -347,11 +347,25 @@ def preset_repo(tmp_path_factory) -> Path:
 
     ``--no-git`` because nothing reads history and the tmp tree may sit inside
     another repository; ``--skip-deps``/``--skip-lifecycle`` because the images
-    install their own dependencies and no service is started here.
+    install their own dependencies and no service is started here. The images
+    boot on their own, outside any stack, where a terminal's agent record is
+    the host-local one, which keeps the embedded backend: a ClickHouse store
+    runs only in a stack.
     """
     repo = tmp_path_factory.mktemp("privilege-split") / REPO_NAME
     runner = CliRunner()
-    created = runner.invoke(cli, ["init", str(repo), "--preset", PRESET, "--no-git"])
+    created = runner.invoke(
+        cli,
+        [
+            "init",
+            str(repo),
+            "--preset",
+            PRESET,
+            "--no-git",
+            "--set",
+            "agent_record.backend=embedded",
+        ],
+    )
     assert created.exit_code == 0, created.output
     built = runner.invoke(cli, ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
     assert built.exit_code == 0, built.output
