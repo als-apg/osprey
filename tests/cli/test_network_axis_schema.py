@@ -29,32 +29,14 @@ from osprey.cli.build_profile_schema import (
     VALID_NETWORK_MODES,
     network_mode_errors,
 )
-from osprey_connectors.errors import BuildProfileError
+from tests.cli._profiles import validation_errors
 
-
-@pytest.fixture(autouse=True)
-def _facility_data_tree(tmp_path: Path) -> None:
-    """The tree every profile's ``data:`` key names, beside the profile.
-
-    ``data:`` is required of every repo profile and must resolve to a real
-    directory, so without this each profile below would report one extra
-    failure about a key none of these tests is about.
-    """
-    (tmp_path / "data").mkdir(exist_ok=True)
-
-
-def _errors(profile: BuildProfile, profile_dir: Path) -> list[str]:
-    """Validate ``profile`` and return the individual accumulated failures."""
-    with pytest.raises(BuildProfileError) as exc:
-        profile.validate(profile_dir)
-    header, _, body = str(exc.value).partition(":\n  - ")
-    assert header == "Build profile validation failed"
-    return body.split("\n  - ")
+pytestmark = pytest.mark.usefixtures("facility_data_tree")
 
 
 def _network_errors(profile: BuildProfile, profile_dir: Path) -> list[str]:
     """Return only the failures that mention a ``network`` key."""
-    return [e for e in _errors(profile, profile_dir) if "network" in e]
+    return [e for e in validation_errors(profile, profile_dir) if "network" in e]
 
 
 def _triggers(tmp_path: Path, name: str = "trig.yml") -> str:
@@ -337,7 +319,7 @@ def test_boolean_service_name_is_reported_not_crashed(tmp_path: Path) -> None:
     """A bare `on:` service name arrives as a bool key and must not crash the scan."""
     raw = yaml.safe_load("name: netaxis\nservices:\n  on:\n    template: osprey.postgresql\n")
     assert True in raw["services"]
-    messages = _errors(_parse_profile(raw), tmp_path)
+    messages = validation_errors(_parse_profile(raw), tmp_path)
     assert any(
         m.startswith("services keys must be strings (got True)") and "quote the service name" in m
         for m in messages
@@ -348,7 +330,7 @@ def test_boolean_config_key_is_reported_not_crashed(tmp_path: Path) -> None:
     """A bare `off:` config key arrives as a bool key and must not crash the scan."""
     raw = yaml.safe_load("name: netaxis\nconfig:\n  off: 1\n")
     assert False in raw["config"]
-    messages = _errors(_parse_profile(raw), tmp_path)
+    messages = validation_errors(_parse_profile(raw), tmp_path)
     assert any(
         m.startswith("config keys must be strings (got False)") and "quote the key" in m
         for m in messages
@@ -369,7 +351,7 @@ def test_network_failures_accumulate_with_unrelated_ones(tmp_path: Path) -> None
             )
         },
     )
-    messages = _errors(profile, tmp_path)
+    messages = validation_errors(profile, tmp_path)
     assert "Profile 'name' is required" in messages
     assert any("(got 'in-context')" in message for message in messages)
     assert "services.gchat_bridge.network must be one of bridge, host (got 'hostnet')" in messages

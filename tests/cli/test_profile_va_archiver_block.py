@@ -53,11 +53,6 @@ if TYPE_CHECKING:
 SERVED_ADDRESSES = "data/simulator/addresses.json"
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 #: The leaf that serves the simulator from its container. The profiles below
 #: extend hello-world, which serves it in process, so a profile about the served
 #: simulator states the venue.

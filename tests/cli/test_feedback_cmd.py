@@ -342,19 +342,27 @@ class TestStreamFailures:
         with pytest.raises(FeedbackReadError):
             next(stream)
 
-    def test_stream_malformed_document_names_the_byte_offset(self):
-        """Corruption inside a record is reported at the record's offset."""
-        stream = [b'{"id": "fb-1"}{"id": , }']
-
-        with pytest.raises(FeedbackReadError, match=r"byte offset 14"):
-            list(iter_json_documents(stream))
-
-    def test_stream_trailing_garbage_names_the_byte_offset(self):
-        """Bytes after the last record that start no document are an error."""
-        stream = [b'{"id": "fb-1"} not json']
-
-        with pytest.raises(FeedbackReadError, match=r"byte offset 15"):
-            list(iter_json_documents(stream))
+    @pytest.mark.parametrize(
+        ("chunk", "match"),
+        [
+            # Corruption inside a record is reported at the record's offset.
+            pytest.param(b'{"id": "fb-1"}{"id": , }', r"byte offset 14", id="malformed_document"),
+            # Bytes after the last record that start no document are an error.
+            pytest.param(b'{"id": "fb-1"} not json', r"byte offset 15", id="trailing_garbage"),
+            # A truncated header must not be mistaken for a valid number.
+            pytest.param(b"1234", r"byte offset 0", id="bare_scalar_document"),
+            # A non-UTF-8 byte is named where it sits, not where its record does.
+            pytest.param(b'{"excerpt": "\xff"}', r"UTF-8 at byte offset 13", id="invalid_utf8"),
+            # A stream ending mid-character is truncation, not a clean end.
+            pytest.param(
+                b'{"excerpt": "3\xc2', r"UTF-8 at byte offset 14", id="multibyte_truncated_at_eof"
+            ),
+        ],
+    )
+    def test_stream_corruption_names_its_byte_offset(self, chunk, match):
+        """A stream that is not a run of JSON objects fails, naming where it went wrong."""
+        with pytest.raises(FeedbackReadError, match=match):
+            list(iter_json_documents([chunk]))
 
     def test_stream_offsets_count_bytes_not_characters(self):
         """Offsets are stream byte offsets, so a caller can seek on them."""
@@ -372,25 +380,6 @@ class TestStreamFailures:
             list(iter_json_documents(stream))
 
         assert "list" in str(caught.value)
-
-    def test_stream_rejects_a_bare_scalar_document(self):
-        """A truncated header must not be mistaken for a valid number."""
-        with pytest.raises(FeedbackReadError, match=r"byte offset 0"):
-            list(iter_json_documents([b"1234"]))
-
-    def test_stream_rejects_invalid_utf8_at_its_byte_offset(self):
-        """A non-UTF-8 byte is named where it sits, not where its record does."""
-        stream = [b'{"excerpt": "\xff"}']
-
-        with pytest.raises(FeedbackReadError, match=r"UTF-8 at byte offset 13"):
-            list(iter_json_documents(stream))
-
-    def test_stream_rejects_a_multibyte_character_truncated_at_eof(self):
-        """A stream ending mid-character is truncation, not a clean end."""
-        stream = [b'{"excerpt": "3\xc2']
-
-        with pytest.raises(FeedbackReadError, match=r"UTF-8 at byte offset 14"):
-            list(iter_json_documents(stream))
 
 
 class TestVolumeReader:

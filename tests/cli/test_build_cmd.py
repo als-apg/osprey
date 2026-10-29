@@ -22,6 +22,7 @@ from osprey.cli.build_profile import (
 from osprey.cli.channel_finder_cmd import FILE_DATABASE_PARADIGMS
 from osprey_connectors.errors import BuildProfileError
 from tests._preset_data import bundle_data_root
+from tests.cli._lifecycle_build import invoke_build
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1989,15 +1990,6 @@ def _mode_repo(tmp_path: Path, paradigm: str) -> Path:
     return repo
 
 
-def _render(repo: Path):
-    """Render *repo*'s build zone through the real verb."""
-    from click.testing import CliRunner
-
-    from osprey.cli.build_cmd import build
-
-    return CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
-
-
 # Every paradigm whose store is a channel-database file, derived from the
 # registry so a new paradigm cannot be added without landing here. ``graph`` is
 # excluded by the same subtraction the CLI's ``click.Choice`` lists use: its
@@ -2029,7 +2021,7 @@ def test_build_renders_each_index_as_its_view(tmp_path: Path, paradigm: str) -> 
     """
     repo = _mode_repo(tmp_path, paradigm)
 
-    result = _render(repo)
+    result = invoke_build(repo)
     assert result.exit_code == 0, (
         f"build failed (exit={result.exit_code})\n"
         f"--- output ---\n{result.output}\n"
@@ -3031,7 +3023,6 @@ class TestVAArchiverConfigDerivation:
         return the RENDER — the directory whose config.yml the deploy reads."""
         from click.testing import CliRunner
 
-        from osprey.cli.build_cmd import build
         from osprey.cli.init_cmd import init
 
         repo = tmp_path / project_name
@@ -3040,7 +3031,7 @@ class TestVAArchiverConfigDerivation:
         runner = CliRunner()
         result = runner.invoke(init, argv)
         assert result.exit_code == 0, result.output
-        result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+        result = invoke_build(repo)
         assert result.exit_code == 0, result.output
         return repo / "build"
 
@@ -3147,7 +3138,6 @@ def test_graph_mode_renders_its_search_index_and_no_paradigm_database(tmp_path: 
     """
     from click.testing import CliRunner
 
-    from osprey.cli.build_cmd import build
     from osprey.cli.init_cmd import init
 
     repo = tmp_path / "graphed"
@@ -3163,7 +3153,7 @@ def test_graph_mode_renders_its_search_index_and_no_paradigm_database(tmp_path: 
         ],
     )
     assert created.exit_code == 0, created.output
-    rendered = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    rendered = invoke_build(repo)
     assert rendered.exit_code == 0, rendered.output
     render = repo / "build"
 

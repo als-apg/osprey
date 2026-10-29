@@ -54,6 +54,7 @@ from osprey.cli.build_posture_check import (
     missing_posture_errors,
 )
 from osprey.facility.errors import FacilityBuildError
+from tests.cli._lifecycle_build import rendered_config
 
 #: The presets the feature converts, and the ones the floor has to leave alone.
 PRESETS: tuple[str, ...] = (
@@ -556,7 +557,7 @@ def test_each_preset_builds_green(preset: str, built_preset: Any) -> None:
     own output if either verb refuses.
     """
     repo = built_preset(preset)
-    rendered = yaml.safe_load((repo / "build" / "config.yml").read_text())
+    rendered = rendered_config(repo)
     assert missing_posture_errors(rendered, _selected_hooks(repo)) == []
 
 

@@ -12,15 +12,8 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
-from click.testing import CliRunner
 
 from osprey.cli.main import LazyGroup, cli, main
-
-
-@pytest.fixture
-def runner():
-    """Provide a Click CLI runner for testing."""
-    return CliRunner()
 
 
 class TestLazyGroup:

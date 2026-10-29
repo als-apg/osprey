@@ -16,7 +16,6 @@ import os
 import socket
 
 import pytest
-from click.testing import CliRunner
 
 # Imported for effect: ``server_launcher`` builds its ``_launchers`` dict once,
 # at import, by comprehending ``FRAMEWORK_WEB_SERVERS``. A test below stands
@@ -34,11 +33,6 @@ from osprey.cli.web_cmd import (
 )
 from osprey.port_layout import DEFAULT_PORT_BASE
 from tests.cli._lifecycle_build import stub_build
-
-
-@pytest.fixture
-def runner():
-    return CliRunner()
 
 
 @pytest.fixture(autouse=True)

@@ -25,10 +25,10 @@ from osprey.cli.build_cmd import (
     _bundled_service_names,
     _render_compose_files,
     _service_existence_errors,
-    build,
 )
 from osprey.cli.init_cmd import init
 from osprey_connectors.errors import BuildProfileError
+from tests.cli._lifecycle_build import invoke_build
 
 
 def _stage(root: Path, config: dict[str, Any]) -> SimpleNamespace:
@@ -166,7 +166,7 @@ def test_the_refusal_is_an_ordinary_build_error_not_an_unexpected_one(
     assert created.exit_code == 0, created.output
 
     with caplog.at_level(logging.ERROR):
-        result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+        result = invoke_build(repo)
 
     assert result.exit_code != 0
     text = caplog.text
