@@ -826,13 +826,27 @@ def test_lint_empty_access_list_is_an_error() -> None:
     assert "empty access list" in offenders[0].message
 
 
-def test_lint_unknown_access_prefix_is_an_error() -> None:
-    """A member carrying a prefix outside the vocabulary is refused, quoting the
+@pytest.mark.parametrize(
+    ("member", "reason"),
+    [
+        pytest.param("team:controls", "unknown prefix", id="unknown-prefix"),
+        # `group:` is the kind the vocabulary is expected to grow next, so lint
+        # refuses it by name — "not supported yet" is a different instruction to
+        # an operator than "unknown prefix".
+        pytest.param("group:operators", "not supported yet", id="group-prefix"),
+        # Only `self` and `roster` are written bare. A word that names no kind at
+        # all is the slip a reader of the shorthands makes, so the refusal says
+        # which members carry a prefix rather than only that this one is wrong.
+        pytest.param("everyone", "names no principal kind", id="bare-word"),
+    ],
+)
+def test_lint_access_member_outside_the_vocabulary_is_an_error(member: str, reason: str) -> None:
+    """A member outside the vocabulary is refused with its reason, quoting the
     member so the operator knows which line to edit."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "alice", "index": 0, "access": ["team:controls"]}
+        {"name": "alice", "index": 0, "access": [member]}
     ]
 
     # Act
@@ -841,8 +855,8 @@ def test_lint_unknown_access_prefix_is_an_error() -> None:
     # Assert
     offenders = [f for f in _errors(findings) if f.code == "web_terminals.invalid_user_access"]
     assert len(offenders) == 1
-    assert "'team:controls'" in offenders[0].message
-    assert "unknown prefix" in offenders[0].message
+    assert f"'{member}'" in offenders[0].message
+    assert reason in offenders[0].message
 
 
 def test_lint_non_string_access_member_is_an_error() -> None:
@@ -862,46 +876,6 @@ def test_lint_non_string_access_member_is_an_error() -> None:
     assert len(offenders) == 1
     assert "'alice'" in offenders[0].message
     assert "not a string" in offenders[0].message
-
-
-def test_lint_group_access_member_says_not_supported_yet() -> None:
-    """`group:` is the kind the vocabulary is expected to grow next, so lint
-    refuses it by name — "not supported yet" is a different instruction to an
-    operator than "unknown prefix"."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [
-        {"name": "alice", "index": 0, "access": ["group:operators"]}
-    ]
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    offenders = [f for f in _errors(findings) if f.code == "web_terminals.invalid_user_access"]
-    assert len(offenders) == 1
-    assert "'group:operators'" in offenders[0].message
-    assert "not supported yet" in offenders[0].message
-
-
-def test_lint_bare_access_word_outside_the_vocabulary_is_an_error() -> None:
-    """Only `self` and `roster` are written bare. A word that names no kind at
-    all is the slip a reader of the shorthands makes, so the refusal says which
-    members carry a prefix rather than only that this one is wrong."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [
-        {"name": "alice", "index": 0, "access": ["everyone"]}
-    ]
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    offenders = [f for f in _errors(findings) if f.code == "web_terminals.invalid_user_access"]
-    assert len(offenders) == 1
-    assert "'everyone'" in offenders[0].message
-    assert "names no principal kind" in offenders[0].message
 
 
 def test_lint_user_access_member_with_whitespace_is_an_error() -> None:
@@ -1676,18 +1650,36 @@ def test_lint_local_mode_project_path_not_a_directory_is_an_error(tmp_path) -> N
     assert any(f.code == "web_terminals.render_project_path_not_dir" for f in errors)
 
 
-def test_lint_local_mode_missing_dockerfile_is_an_error(tmp_path) -> None:
-    """A project_path directory with no Dockerfile can't be built."""
+@pytest.mark.parametrize(
+    ("present", "missing_code"),
+    [
+        # A project_path directory with no Dockerfile can't be built.
+        pytest.param("config.yml", "render_missing_dockerfile", id="no-dockerfile"),
+        # One with no config.yml can't be existence-checked for its own
+        # project_name, and can't confirm the render's identity.
+        pytest.param("Dockerfile", "render_missing_config_yml", id="no-config-yml"),
+    ],
+)
+@pytest.mark.parametrize("build_profile", [False, True], ids=["unbuilt", "with-build-profile"])
+def test_lint_local_mode_incomplete_project_dir_is_an_error(
+    tmp_path, present: str, missing_code: str, build_profile: bool
+) -> None:
+    """A local-mode project_path directory missing its Dockerfile or config.yml is
+    a hard error. A build_profile does NOT rescue a directory that already exists
+    but is incomplete: the warning is for a render that has not happened yet, and
+    a directory that is there but missing one of the two is a partial render."""
     # Arrange
     project_dir = tmp_path / "als-assistant"
     project_dir.mkdir()
-    (project_dir / "config.yml").write_text("project_name: als-assistant\n")
+    contents = {"config.yml": "project_name: als-assistant\n", "Dockerfile": "FROM scratch\n"}
+    (project_dir / present).write_text(contents[present])
+    extra = {"build_profile": f"{TIERS_DIRNAME}/assistant.yml"} if build_profile else {}
     config = _render_config(
         web_terminals={
             "image_source": "local",
             "renders": {
                 "assistant": tier_render(
-                    "assistant", "als-assistant", project_path=str(project_dir)
+                    "assistant", "als-assistant", project_path=str(project_dir), **extra
                 ),
             },
         }
@@ -1698,33 +1690,11 @@ def test_lint_local_mode_missing_dockerfile_is_an_error(tmp_path) -> None:
 
     # Assert
     errors = _errors(findings)
-    assert any(f.code == "web_terminals.render_missing_dockerfile" for f in errors)
-
-
-def test_lint_local_mode_missing_config_yml_is_an_error(tmp_path) -> None:
-    """A project_path directory with no config.yml can't be existence-checked
-    for its own project_name, and can't confirm the render's identity."""
-    # Arrange
-    project_dir = tmp_path / "als-assistant"
-    project_dir.mkdir()
-    (project_dir / "Dockerfile").write_text("FROM scratch\n")
-    config = _render_config(
-        web_terminals={
-            "image_source": "local",
-            "renders": {
-                "assistant": tier_render(
-                    "assistant", "als-assistant", project_path=str(project_dir)
-                ),
-            },
-        }
-    )
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    errors = _errors(findings)
-    assert any(f.code == "web_terminals.render_missing_config_yml" for f in errors)
+    assert any(f.code == f"web_terminals.{missing_code}" for f in errors)
+    if build_profile:
+        assert not any(
+            f.code == "web_terminals.render_project_path_not_rendered_yet" for f in findings
+        )
 
 
 def test_lint_local_mode_well_formed_project_path_reports_no_error(tmp_path) -> None:
@@ -1888,68 +1858,6 @@ def test_lint_local_mode_missing_project_path_without_build_profile_stays_an_err
     # Assert
     errors = _errors(findings)
     assert any(f.code == "web_terminals.render_project_path_not_dir" for f in errors)
-    assert not any(f.code == "web_terminals.render_project_path_not_rendered_yet" for f in findings)
-
-
-def test_lint_local_mode_partial_render_missing_dockerfile_stays_an_error(tmp_path) -> None:
-    """A build_profile does NOT rescue a directory that already exists but is
-    incomplete. The warning is for a render that has not happened yet; a
-    directory that is there but missing its Dockerfile is a partial render, and
-    that stays a hard error."""
-    # Arrange
-    project_dir = tmp_path / "als-assistant"
-    project_dir.mkdir()
-    (project_dir / "config.yml").write_text("project_name: als-assistant\n")
-    config = _render_config(
-        web_terminals={
-            "image_source": "local",
-            "renders": {
-                "assistant": tier_render(
-                    "assistant",
-                    "als-assistant",
-                    project_path=str(project_dir),
-                    build_profile=f"{TIERS_DIRNAME}/assistant.yml",
-                ),
-            },
-        }
-    )
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    errors = _errors(findings)
-    assert any(f.code == "web_terminals.render_missing_dockerfile" for f in errors)
-    assert not any(f.code == "web_terminals.render_project_path_not_rendered_yet" for f in findings)
-
-
-def test_lint_local_mode_partial_render_missing_config_yml_stays_an_error(tmp_path) -> None:
-    """Same partial-render rule for a missing config.yml inside an existing dir:
-    the build_profile does not demote it."""
-    # Arrange
-    project_dir = tmp_path / "als-assistant"
-    project_dir.mkdir()
-    (project_dir / "Dockerfile").write_text("FROM scratch\n")
-    config = _render_config(
-        web_terminals={
-            "image_source": "local",
-            "renders": {
-                "assistant": tier_render(
-                    "assistant",
-                    "als-assistant",
-                    project_path=str(project_dir),
-                    build_profile=f"{TIERS_DIRNAME}/assistant.yml",
-                ),
-            },
-        }
-    )
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    errors = _errors(findings)
-    assert any(f.code == "web_terminals.render_missing_config_yml" for f in errors)
     assert not any(f.code == "web_terminals.render_project_path_not_rendered_yet" for f in findings)
 
 

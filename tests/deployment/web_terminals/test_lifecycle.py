@@ -155,62 +155,68 @@ def _ps_json(names, *, project: str = "demo-project") -> str:
     )
 
 
-@pytest.fixture
-def fake_runtime(monkeypatch):
-    """Patch subprocess.run + get_runtime_command; return the list of captured argvs."""
-    calls: list[list[str]] = []
+def _install_fake_runtime(monkeypatch, *, image_labels=None, down_result=None):
+    """Patch subprocess.run + get_runtime_command; return ``(calls, listing)``.
 
-    def _fake_run(
-        argv,
-        capture_output=True,  # noqa: ARG001 - subprocess.run's keywords
-        text=True,  # noqa: ARG001 - subprocess.run's keywords
-        env=None,  # noqa: ARG001 - subprocess.run's keywords
-        check=False,  # noqa: ARG001 - subprocess.run's keywords
-        **kwargs,
-    ):
+    ``calls`` records every emitted argv. ``listing`` is a mutable
+    ``{"containers": [...], "volumes": [...]}`` dict that answers ``ps -a`` and
+    ``volume ls`` discovery — empty, it answers both with no output. Passing
+    ``image_labels`` makes ``image inspect`` answer from it, and passing
+    ``down_result`` makes ``compose down`` answer with its exit code/stderr;
+    otherwise both succeed silently like every other argv.
+    """
+    calls: list[list[str]] = []
+    listing: dict[str, list[str]] = {"containers": [], "volumes": []}
+
+    def _fake_run(argv, **kwargs):
         calls.append(list(argv))
+        if argv[1:3] == ["ps", "-a"]:
+            return subprocess.CompletedProcess(
+                argv, returncode=0, stdout=_ps_json(listing["containers"]), stderr=""
+            )
+        if argv[1:3] == ["volume", "ls"]:
+            return subprocess.CompletedProcess(
+                argv, returncode=0, stdout="\n".join(listing["volumes"]), stderr=""
+            )
+        if image_labels is not None and argv[1:3] == ["image", "inspect"]:
+            tag = argv[3]
+            if tag not in image_labels:
+                return subprocess.CompletedProcess(
+                    argv, returncode=1, stdout="", stderr=f"Error: no such image: {tag}"
+                )
+            label_value = image_labels[tag]
+            labels_json = (
+                "null" if label_value is None else f'{{"com.osprey.project":"{label_value}"}}'
+            )
+            return subprocess.CompletedProcess(argv, returncode=0, stdout=labels_json, stderr="")
+        if down_result is not None and "down" in argv:
+            return subprocess.CompletedProcess(
+                argv, returncode=down_result["returncode"], stdout="", stderr=down_result["stderr"]
+            )
         return subprocess.CompletedProcess(argv, returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(lifecycle.subprocess, "run", _fake_run)
     monkeypatch.setattr(lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"])
     monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None: (True, ""))
+    return calls, listing
+
+
+@pytest.fixture
+def fake_runtime(monkeypatch):
+    """Patch subprocess.run + get_runtime_command; return the list of captured argvs."""
+    calls, _listing = _install_fake_runtime(monkeypatch)
     return calls
 
 
 @pytest.fixture
 def fake_runtime_prune(monkeypatch):
-    """Like ``fake_runtime``, but also stubs ``ps -a``/``volume ls`` discovery output.
+    """Like ``fake_runtime``, but also returns the ``ps -a``/``volume ls`` listing.
 
-    Returns ``(calls, listing)``: ``calls`` records every emitted argv (same
-    contract as ``fake_runtime``); ``listing`` is a mutable
-    ``{"containers": [...], "volumes": [...]}`` dict tests populate *before*
-    calling ``prune_users`` to control what the (mocked) runtime reports as
-    existing containers/volumes.
+    Returns ``(calls, listing)``: tests populate ``listing`` *before* calling
+    ``prune_users`` to control what the (mocked) runtime reports as existing
+    containers/volumes.
     """
-    calls: list[list[str]] = []
-    listing: dict[str, list[str]] = {"containers": [], "volumes": []}
-
-    def _fake_run(
-        argv,
-        capture_output=True,  # noqa: ARG001 - subprocess.run's keywords
-        text=True,  # noqa: ARG001 - subprocess.run's keywords
-        env=None,  # noqa: ARG001 - subprocess.run's keywords
-        check=False,  # noqa: ARG001 - subprocess.run's keywords
-        **kwargs,
-    ):
-        calls.append(list(argv))
-        if argv[1:3] == ["ps", "-a"]:
-            stdout = _ps_json(listing["containers"])
-        elif argv[1:3] == ["volume", "ls"]:
-            stdout = "\n".join(listing["volumes"])
-        else:
-            stdout = ""
-        return subprocess.CompletedProcess(argv, returncode=0, stdout=stdout, stderr="")
-
-    monkeypatch.setattr(lifecycle.subprocess, "run", _fake_run)
-    monkeypatch.setattr(lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"])
-    monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None: (True, ""))
-    return calls, listing
+    return _install_fake_runtime(monkeypatch)
 
 
 @pytest.fixture
@@ -231,48 +237,11 @@ def fake_runtime_nuke(monkeypatch):
     this host); a tag present with value ``None`` simulates an image that
     exists but carries no ``com.osprey.project`` label at all.
     """
-    calls: list[list[str]] = []
-    listing: dict[str, list[str]] = {"containers": [], "volumes": []}
     down_result = {"returncode": 0, "stderr": ""}
     image_labels: dict[str, str | None] = {}
-
-    def _fake_run(
-        argv,
-        capture_output=True,  # noqa: ARG001 - subprocess.run's keywords
-        text=True,  # noqa: ARG001 - subprocess.run's keywords
-        env=None,  # noqa: ARG001 - subprocess.run's keywords
-        check=False,  # noqa: ARG001 - subprocess.run's keywords
-        **kwargs,
-    ):
-        calls.append(list(argv))
-        if argv[1:3] == ["ps", "-a"]:
-            return subprocess.CompletedProcess(
-                argv, returncode=0, stdout=_ps_json(listing["containers"]), stderr=""
-            )
-        if argv[1:3] == ["volume", "ls"]:
-            return subprocess.CompletedProcess(
-                argv, returncode=0, stdout="\n".join(listing["volumes"]), stderr=""
-            )
-        if argv[1:3] == ["image", "inspect"]:
-            tag = argv[3]
-            if tag not in image_labels:
-                return subprocess.CompletedProcess(
-                    argv, returncode=1, stdout="", stderr=f"Error: no such image: {tag}"
-                )
-            label_value = image_labels[tag]
-            labels_json = (
-                "null" if label_value is None else f'{{"com.osprey.project":"{label_value}"}}'
-            )
-            return subprocess.CompletedProcess(argv, returncode=0, stdout=labels_json, stderr="")
-        if "down" in argv:
-            return subprocess.CompletedProcess(
-                argv, returncode=down_result["returncode"], stdout="", stderr=down_result["stderr"]
-            )
-        return subprocess.CompletedProcess(argv, returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr(lifecycle.subprocess, "run", _fake_run)
-    monkeypatch.setattr(lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"])
-    monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None: (True, ""))
+    calls, listing = _install_fake_runtime(
+        monkeypatch, image_labels=image_labels, down_result=down_result
+    )
     return calls, listing, down_result, image_labels
 
 

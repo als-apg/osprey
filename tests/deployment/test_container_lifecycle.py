@@ -25,6 +25,8 @@ from osprey.deployment.errors import (
     UnmetPreconditionsError,
 )
 from osprey.deployment.web_terminals import postup_hooks, provision, render_images
+from tests.deployment._dotenv import project_env
+from tests.deployment._fake_run import completed
 
 
 @pytest.fixture(autouse=True)
@@ -104,7 +106,7 @@ def captured_argv(monkeypatch, tmp_path):
     def _fake_run(cmd, env=None, check=False, **kwargs):  # noqa: ARG001 - subprocess.run's keywords
         captured["cmd"] = cmd
         captured["env"] = env
-        return _FakeCompletedProcess(returncode=0)
+        return completed(returncode=0)
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
     monkeypatch.setattr(
@@ -168,18 +170,11 @@ def _clean_token_env(monkeypatch):
     monkeypatch.delenv("DISPATCH_WORKER_TOKEN", raising=False)
 
 
-def _parse_env(tmp_path):
-    from osprey_connectors.dotenv import parse_dotenv_file
-
-    p = tmp_path / ".env"
-    return parse_dotenv_file(p) if p.is_file() else {}
-
-
 @pytest.mark.usefixtures("captured_argv")
 def test_deploy_up_generates_tokens_when_unset(_clean_token_env, tmp_path):
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
 
-    env = _parse_env(tmp_path)
+    env = project_env(tmp_path)
     assert env.get("EVENT_DISPATCHER_TOKEN") and env["EVENT_DISPATCHER_TOKEN"] != "dev-token"
     assert env.get("DISPATCH_WORKER_TOKEN") and env["DISPATCH_WORKER_TOKEN"] != "dev-token"
     # token_urlsafe(32) → ~43 url-safe chars
@@ -189,9 +184,9 @@ def test_deploy_up_generates_tokens_when_unset(_clean_token_env, tmp_path):
 @pytest.mark.usefixtures("captured_argv")
 def test_token_generation_is_idempotent(_clean_token_env, tmp_path):
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
-    first = _parse_env(tmp_path)
+    first = project_env(tmp_path)
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
-    second = _parse_env(tmp_path)
+    second = project_env(tmp_path)
 
     assert first["EVENT_DISPATCHER_TOKEN"] == second["EVENT_DISPATCHER_TOKEN"]
     assert first["DISPATCH_WORKER_TOKEN"] == second["DISPATCH_WORKER_TOKEN"]
@@ -207,7 +202,7 @@ def test_existing_env_token_is_preserved(_clean_token_env, tmp_path):
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
-    env = _parse_env(tmp_path)
+    env = project_env(tmp_path)
     assert env["EVENT_DISPATCHER_TOKEN"] == "my-real-token"  # untouched
     assert env.get("DISPATCH_WORKER_TOKEN")  # the missing one was generated
 
@@ -219,7 +214,7 @@ def test_process_env_token_not_written_to_dotenv(monkeypatch, tmp_path):
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
-    env = _parse_env(tmp_path)
+    env = project_env(tmp_path)
     # A token resolvable from the process env is not duplicated into .env.
     assert "EVENT_DISPATCHER_TOKEN" not in env
     assert env.get("DISPATCH_WORKER_TOKEN")
@@ -243,7 +238,7 @@ def test_tokens_are_minted_into_the_repo_root_not_the_cwd(_clean_token_env, monk
 
     container_lifecycle.deploy_up(str(repo / "config.yml"), detached=True)
 
-    assert _parse_env(repo).get("EVENT_DISPATCHER_TOKEN")
+    assert project_env(repo).get("EVENT_DISPATCHER_TOKEN")
     assert not (elsewhere / ".env").exists()
 
 
@@ -261,9 +256,7 @@ def test_non_dispatch_deploy_generates_no_tokens(monkeypatch, _clean_token_env, 
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
-    monkeypatch.setattr(
-        container_lifecycle.subprocess, "run", lambda *a, **k: _FakeCompletedProcess()
-    )
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda *a, **k: completed())
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
@@ -348,7 +341,7 @@ def captured_web_runs(monkeypatch, tmp_path):
 
     def _fake_run(cmd, env=None, check=False, **kwargs):  # noqa: ARG001 - subprocess.run's keywords
         calls.append({"cmd": list(cmd), "env": env})
-        return _FakeCompletedProcess(returncode=0)
+        return completed(returncode=0)
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
     return {"calls": calls, "written": written}
@@ -565,7 +558,7 @@ def captured_combined_runs(monkeypatch, tmp_path):
 
     def _fake_run(cmd, env=None, check=False, **kwargs):  # noqa: ARG001 - subprocess.run's keywords
         calls.append({"cmd": list(cmd), "env": env})
-        return _FakeCompletedProcess(returncode=0)
+        return completed(returncode=0)
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
     monkeypatch.setattr(
@@ -666,15 +659,6 @@ def test_combined_deploy_services_up_never_pulls(captured_combined_runs, tmp_pat
 # ---------------------------------------------------------------------------
 
 
-class _FakeCompletedProcess:
-    """Minimal stand-in for subprocess.CompletedProcess."""
-
-    def __init__(self, returncode=0, stdout="", stderr=""):
-        self.returncode = returncode
-        self.stdout = stdout
-        self.stderr = stderr
-
-
 def test_web_deploy_docker_runtime_linger_adds_no_subprocess_calls(captured_web_runs, tmp_path):
     """captured_web_runs defaults to docker -- the post-up hook's linger step
     must add zero subprocess calls beyond the ordinary rm preflight + pull + up
@@ -711,7 +695,7 @@ def test_web_deploy_callsenable_linger_in_post_up_hook(monkeypatch, tmp_path):
     monkeypatch.setattr(
         container_lifecycle.subprocess,
         "run",
-        lambda *a, **k: _FakeCompletedProcess(returncode=0),
+        lambda *a, **k: completed(returncode=0),
     )
 
     linger_calls = []
@@ -806,7 +790,7 @@ def _mode_wiring_collab(monkeypatch, tmp_path):
 
     def _fake_run(cmd, **kwargs):
         calls.append({"cmd": list(cmd), "env": kwargs.get("env")})
-        return _FakeCompletedProcess(returncode=0)
+        return completed(returncode=0)
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
     return calls
@@ -942,7 +926,7 @@ def test_local_mode_verifies_renders_then_ensure_env_production_then_build_then_
     monkeypatch.setattr(
         container_lifecycle.subprocess,
         "run",
-        lambda *a, **k: order.append("compose") or _FakeCompletedProcess(returncode=0),
+        lambda *a, **k: order.append("compose") or completed(returncode=0),
     )
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
@@ -1058,7 +1042,7 @@ def test_registry_mode_calls_ensure_env_production_before_pull_before_up(
             order.append("nginx_recreate")
         else:
             order.append("pull" if "pull" in cmd else "up")
-        return _FakeCompletedProcess(returncode=0)
+        return completed(returncode=0)
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
 
@@ -1117,7 +1101,7 @@ def test_deploy_up_runs_verify_script_when_present_ignoring_exit_code(
     def _fake_run(cmd, **kwargs):
         _mode_wiring_collab.append({"cmd": list(cmd), "env": kwargs.get("env")})
         is_verify_call = cmd[:1] == ["bash"]
-        return _FakeCompletedProcess(returncode=1 if is_verify_call else 0)
+        return completed(returncode=1 if is_verify_call else 0)
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
 
@@ -1304,7 +1288,7 @@ def _capture_services_down_and_web_down(monkeypatch):
 
     def _fake_run_captured(cmd, **kwargs):
         captured.update(args=list(cmd), env=kwargs.get("env"), down_order=next(order))
-        return _FakeCompletedProcess(returncode=0)
+        return completed(returncode=0)
 
     monkeypatch.setattr(container_lifecycle, "run_captured", _fake_run_captured)
     monkeypatch.setattr(
@@ -1375,9 +1359,7 @@ def test_rebuild_deployment_pins_compose_project_name(monkeypatch, tmp_path):
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
     # The stale-container `rm -f` preflight lands on subprocess.run; swallow it.
-    monkeypatch.setattr(
-        container_lifecycle.subprocess, "run", lambda *a, **k: _FakeCompletedProcess()
-    )
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda *a, **k: completed())
     # `rebuild_deployment` defaults to an attached start, whose watched build
     # runs through Popen rather than `run` -- unpatched it escapes to a real
     # container runtime.
@@ -1410,7 +1392,7 @@ def test_clean_deployment_pins_compose_project_name(monkeypatch, tmp_path):
     monkeypatch.setattr(
         compose_generator,
         "run_captured",
-        lambda cmd, env=None, **k: envs.append(env) or _FakeCompletedProcess(),
+        lambda cmd, env=None, **k: envs.append(env) or completed(),
     )
     compose_generator.clean_deployment(["docker-compose.yml"], {"project_name": "myproj"})
     assert envs, "clean_deployment ran no compose commands"
@@ -1450,7 +1432,7 @@ def test_deploy_up_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
     monkeypatch.setattr(
         container_lifecycle.subprocess,
         "run",
-        lambda cmd, env=None, **k: runs.append(cmd) or _FakeCompletedProcess(),
+        lambda cmd, env=None, **k: runs.append(cmd) or completed(),
     )
     monkeypatch.setattr(
         container_lifecycle.subprocess,
@@ -1492,7 +1474,7 @@ def _attached_start_stubs(monkeypatch, tmp_path, runs, execd):
     monkeypatch.setattr(
         container_lifecycle.subprocess,
         "run",
-        lambda cmd, env=None, **k: runs.append(list(cmd)) or _FakeCompletedProcess(),
+        lambda cmd, env=None, **k: runs.append(list(cmd)) or completed(),
     )
     monkeypatch.setattr(
         container_lifecycle.subprocess,
@@ -1731,7 +1713,7 @@ def test_rebuild_deployment_dev_mode_splits_build_from_up(monkeypatch, tmp_path)
     monkeypatch.setattr(
         container_lifecycle.subprocess,
         "run",
-        lambda cmd, env=None, **k: runs.append(cmd) or _FakeCompletedProcess(),
+        lambda cmd, env=None, **k: runs.append(cmd) or completed(),
     )
     monkeypatch.setattr(
         container_lifecycle.subprocess,
@@ -1803,7 +1785,7 @@ def test_rebuild_deployment_reconciles_web_terminals_stack(monkeypatch, tmp_path
 
     def _fake_run(cmd, env=None, **k):  # noqa: ARG001 - subprocess.run's keywords
         calls.append(list(cmd))
-        return _FakeCompletedProcess(returncode=0)
+        return completed(returncode=0)
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
     container_lifecycle.rebuild_deployment(str(tmp_path / "config.yml"))
@@ -1844,7 +1826,7 @@ def captured_plain_runs(monkeypatch, tmp_path):
     monkeypatch.setattr(
         container_lifecycle.subprocess,
         "run",
-        lambda cmd, env=None, **k: calls.append(list(cmd)) or _FakeCompletedProcess(),
+        lambda cmd, env=None, **k: calls.append(list(cmd)) or completed(),
     )
     return calls
 
@@ -1939,7 +1921,7 @@ def test_web_services_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
 
     def _fake_run(cmd, env=None, **k):  # noqa: ARG001 - subprocess.run's keywords
         runs.append(list(cmd))
-        return _FakeCompletedProcess(returncode=0)
+        return completed(returncode=0)
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
     monkeypatch.setattr(
@@ -1994,7 +1976,7 @@ def test_web_services_start_does_not_build_a_service_running_an_overridden_image
 
     def _fake_run(cmd, env=None, **k):  # noqa: ARG001 - subprocess.run's keywords
         runs.append(list(cmd))
-        return _FakeCompletedProcess(returncode=0)
+        return completed(returncode=0)
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
     monkeypatch.setattr(
@@ -2649,7 +2631,7 @@ def test_build_project_image_watches_the_build_under_its_image_tag(monkeypatch, 
     monkeypatch.setattr(
         container_lifecycle,
         "run_captured",
-        lambda cmd, **kwargs: calls.append(kwargs) or _FakeCompletedProcess(),
+        lambda cmd, **kwargs: calls.append(kwargs) or completed(),
     )
     config = {"project_name": "myfacility", "deployed_services": ["dispatch_worker"]}
 
@@ -2693,7 +2675,7 @@ def _project_image_dev_build_cmds(monkeypatch, tmp_path, staging_result):
     monkeypatch.setattr(
         container_lifecycle,
         "run_captured",
-        lambda cmd, **k: calls.append(cmd) or _FakeCompletedProcess(),
+        lambda cmd, **k: calls.append(cmd) or completed(),
     )
     config = {"project_name": "myfacility", "deployed_services": ["dispatch_worker"]}
     container_lifecycle._build_project_image(config, dev_mode=True, env={})
@@ -2726,9 +2708,7 @@ def test_build_project_image_dev_cleans_staged_wheel_and_manifest(monkeypatch, t
     monkeypatch.setattr(
         container_lifecycle, "_copy_local_framework_for_override", _fake_wheel_and_manifest_stage
     )
-    monkeypatch.setattr(
-        container_lifecycle, "run_captured", lambda cmd, **k: _FakeCompletedProcess()
-    )
+    monkeypatch.setattr(container_lifecycle, "run_captured", lambda cmd, **k: completed())
     config = {"project_name": "myfacility", "deployed_services": ["dispatch_worker"]}
 
     container_lifecycle._build_project_image(config, dev_mode=True, env={})
@@ -2783,9 +2763,7 @@ def _wiring_calls(monkeypatch, tmp_path):
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
-    monkeypatch.setattr(
-        container_lifecycle.subprocess, "run", lambda *a, **k: _FakeCompletedProcess()
-    )
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda *a, **k: completed())
     # Every deployment builds the project image, which agent-record runs on;
     # that build has its own tests, and these are about the compose argv.
     monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
@@ -2919,9 +2897,7 @@ def test_deploy_up_no_web_terminals_skips_preflight(monkeypatch, tmp_path):
         "_build_project_image",
         lambda *a, **k: order.append("build_image"),
     )
-    monkeypatch.setattr(
-        container_lifecycle.subprocess, "run", lambda *a, **k: _FakeCompletedProcess()
-    )
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda *a, **k: completed())
     monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda *a, **k: None)
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
@@ -3097,7 +3073,7 @@ def _dev_deploy_cmds(
 
     def _fake_run(cmd, env=None, check=False, **kwargs):  # noqa: ARG001 - subprocess.run's keywords
         cmds.append(list(cmd))
-        return _FakeCompletedProcess(returncode=0)
+        return completed(returncode=0)
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
     monkeypatch.setattr(
@@ -3309,7 +3285,7 @@ def _project_image_build_calls(monkeypatch, tmp_path, config, *, dev_mode=False)
     monkeypatch.setattr(
         container_lifecycle,
         "run_captured",
-        lambda cmd, **kwargs: cmds.append(list(cmd)) or _FakeCompletedProcess(),
+        lambda cmd, **kwargs: cmds.append(list(cmd)) or completed(),
     )
     steps: list[str] = []
     monkeypatch.setattr(container_lifecycle, "_report_step", steps.append)
@@ -4884,9 +4860,7 @@ def test_deploy_up_without_web_terminals_reconciles_no_orphans(monkeypatch, tmp_
         "remove_orphan_terminals",
         lambda config: order.append("orphans"),
     )
-    monkeypatch.setattr(
-        container_lifecycle.subprocess, "run", lambda *a, **k: _FakeCompletedProcess()
-    )
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda *a, **k: completed())
     monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda *a, **k: None)
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)

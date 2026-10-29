@@ -40,31 +40,25 @@ from __future__ import annotations
 import asyncio
 import difflib
 import logging
-import os
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
-from click.testing import CliRunner
 from ruamel.yaml import YAML
 
 import osprey.health.core.containers as containers_mod
-from osprey.cli.build_cmd import build as build_command
 from osprey.health.core.containers import containers
 from osprey.health.models import CheckResult, Status
 from osprey.mcp_server.control_system.connector_host_manager import target_display_metadata
 from osprey.port_layout import default_port
 from osprey_connectors.write_target import KIND_BANNERS
+from tests.cli._lifecycle_build import invoke_build_in
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
 #: Every test here renders a deployment for real — seconds each, not
 #: milliseconds — which is the property that makes them worth having.
 pytestmark = pytest.mark.slow
-
-#: A build with no venv and no lifecycle hooks. Neither is what the stand-in is
-#: about, and a real dependency install would dominate this module's runtime.
-CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
 
 #: The port the stand-in is reserved on throughout the codebase.
 STANDIN_PORT = 5074
@@ -168,18 +162,8 @@ def _drop_profile_blocks(repo: Path, names: tuple[str, ...]) -> None:
         _ruamel.dump(profile, handle)
 
 
-def _invoke_build(repo: Path):
-    """Run ``osprey build`` the way an operator standing in the repo would."""
-    previous = Path.cwd()
-    os.chdir(repo)
-    try:
-        return CliRunner().invoke(build_command, CI_FLAGS)
-    finally:
-        os.chdir(previous)
-
-
 def _build(repo: Path) -> Path:
-    result = _invoke_build(repo)
+    result = invoke_build_in(repo)
     assert result.exit_code == 0, (
         f"build failed (exit={result.exit_code})\n{result.output}\n{result.exception}"
     )
@@ -699,7 +683,7 @@ class TestTheBuildRefusesAnIncoherentStandIn:
 
     def _refuse(self, repo: Path, caplog: pytest.LogCaptureFixture) -> str:
         with caplog.at_level(logging.ERROR):
-            result = _invoke_build(repo)
+            result = invoke_build_in(repo)
         assert result.exit_code != 0, result.output
         return caplog.text
 

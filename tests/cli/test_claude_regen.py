@@ -22,31 +22,8 @@ from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
 from osprey.cli.templates.manifest import recorded_claude_md_template
 from tests._preset_data import bundle_data_root
-
-
-def _create_project(manager: TemplateManager, **kwargs) -> Path:
-    """``create_project`` plus the manifest stamp a real build writes next.
-
-    A build stamps ``.osprey-manifest.json`` immediately after the render, and
-    the Claude Code regen reads the preset back out of it to learn which
-    artifacts the project selected. A fixture that renders without stamping is
-    not a project any build produces: it regenerates with an empty artifact
-    selection, and the write-gate lint rightly refuses the result.
-    """
-    project = manager.create_project(**kwargs)
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
-    manager.generate_manifest(
-        project,
-        kwargs["project_name"],
-        bundle.replace("_", "-"),
-        {},
-        # The selection the render was made with, exactly as a build stamps it:
-        # a site that hands `create_project` its own `artifacts=` must get that
-        # selection back on the regen, not the bundle's full list.
-        artifacts=manager._effective_artifacts(bundle, kwargs.get("artifacts")),
-    )
-    return project
-
+from tests.cli._lifecycle_build import invoke_build, rendered_config
+from tests.cli._template_projects import create_project_with_manifest
 
 _BUNDLED_RENDERS = {
     "CLAUDE.md.j2",
@@ -123,7 +100,7 @@ class TestBuildClaudeCodeContext:
     def test_basic_config(self, tmp_path):
         """Basic config produces correct base context vars."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="ctx-basic",
             output_dir=tmp_path,
@@ -146,7 +123,7 @@ class TestBuildClaudeCodeContext:
     def test_project_root_override(self, tmp_path):
         """project_root_override replaces project_root in context but keeps file I/O path."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="ctx-override",
             output_dir=tmp_path,
@@ -172,7 +149,7 @@ class TestBuildClaudeCodeContext:
     def test_control_assistant_config(self, tmp_path):
         """Control assistant config produces channel_finder context vars."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="ctx-control",
             output_dir=tmp_path,
@@ -195,7 +172,7 @@ class TestBuildClaudeCodeContext:
     def test_uses_manifest_preset(self, tmp_path):
         """When a manifest exists, the preset stamp is read from it."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="ctx-manifest",
             output_dir=tmp_path,
@@ -355,9 +332,6 @@ class TestManifestPresetStamp:
         write-gate lint refused the render: a build that worked became a
         build that could not finish.
         """
-        from click.testing import CliRunner
-
-        from osprey.cli.build_cmd import build
 
         repo = tmp_path / "hand-written"
         repo.mkdir()
@@ -384,7 +358,7 @@ class TestManifestPresetStamp:
         shutil.copytree(bundle_data_root(), repo / "data", dirs_exist_ok=True)
         (repo / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
 
-        result = CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+        result = invoke_build(repo)
         assert result.exit_code == 0, (
             f"build failed (exit={result.exit_code})\n{result.output}\n{result.exception}"
         )
@@ -397,7 +371,7 @@ class TestManifestPresetStamp:
         assert stamped["artifacts"]["hooks"]
 
         # And the regen reads it back rather than needing a preset name.
-        config = yaml.safe_load((repo / "build" / "config.yml").read_text())
+        config = rendered_config(repo)
         ctx = claude_code.build_claude_code_context(
             manager.template_root, manager.jinja_env, repo / "build", config
         )
@@ -519,7 +493,7 @@ class TestRegenerationCorrectness:
         from osprey.utils.config_writer import config_update_fields
 
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="regen-idempotent",
             output_dir=tmp_path,
@@ -551,7 +525,7 @@ class TestRegenerationCorrectness:
         """${TZ:-UTC} in config.yml is resolved in timezone.md."""
         monkeypatch.delenv("TZ", raising=False)
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="regen-tz",
             output_dir=tmp_path,
@@ -577,7 +551,7 @@ class TestRegenerationCorrectness:
         """${TZ:-...} resolves to actual TZ env value when set."""
         monkeypatch.setenv("TZ", "Europe/Berlin")
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="regen-tz-env",
             output_dir=tmp_path,
@@ -605,7 +579,7 @@ class TestSafetyPreservation:
     def regen_project(self, tmp_path):
         """Create and regenerate a project."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="safety-test",
             output_dir=tmp_path,
@@ -620,7 +594,7 @@ class TestSafetyPreservation:
     def regen_project_writes_off(self, tmp_path):
         """Create a project, disable control-system writes, regenerate."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="safety-writes-off",
             output_dir=tmp_path,
@@ -860,7 +834,7 @@ class TestUserFilePreservation:
     def test_claude_md_has_generated_header(self, tmp_path):
         """CLAUDE.md has the generated-file header comment."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="header-test",
             output_dir=tmp_path,
@@ -887,7 +861,7 @@ class TestErrorHandling:
     def test_dry_run_no_changes(self, tmp_path):
         """Dry run does not modify any files."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="dry-run-test",
             output_dir=tmp_path,
@@ -914,7 +888,7 @@ class TestErrorHandling:
         and makes `osprey status` report permanent false drift.
         """
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="dry-clean",
             output_dir=tmp_path,
@@ -934,7 +908,7 @@ class TestErrorHandling:
         must not show up as drift in the dry-run report.
         """
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="dry-owned",
             output_dir=tmp_path,
@@ -957,7 +931,7 @@ class TestErrorHandling:
     def test_dry_run_detects_changes(self, tmp_path):
         """Dry run correctly detects what would change."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="dry-detect",
             output_dir=tmp_path,
@@ -982,7 +956,7 @@ class TestGitignore:
     def test_gitignore_includes_local_settings(self, tmp_path):
         """Project .gitignore includes local settings but not shared generated files."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="gitignore-gen-test",
             output_dir=tmp_path,
@@ -1014,7 +988,7 @@ class TestDisableServers:
     ):
         """Helper: create project, set claude_code overrides, regen."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="disable-test",
             output_dir=tmp_path,
@@ -1223,7 +1197,7 @@ class TestDisableServers:
     def test_regen_with_project_root_override(self, tmp_path):
         """project_root_override changes paths in rendered output."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="override-test",
             output_dir=tmp_path,
@@ -1283,7 +1257,7 @@ class TestDisableServers:
     def test_context_includes_overrides(self, tmp_path):
         """build_claude_code_context includes enabled_servers and enabled_agents."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="ctx-overrides",
             output_dir=tmp_path,
@@ -1311,7 +1285,7 @@ class TestDisableServers:
     def test_defaults_empty_when_no_claude_code_section(self, tmp_path):
         """Without claude_code section, core servers are enabled."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="ctx-defaults",
             output_dir=tmp_path,
@@ -1344,7 +1318,7 @@ class TestRegenRelocation:
 
     def _create(self, tmp_path, name):
         manager = TemplateManager()
-        return _create_project(
+        return create_project_with_manifest(
             manager,
             project_name=name,
             output_dir=tmp_path,
@@ -1453,7 +1427,7 @@ class TestFacilityMd:
     def test_facility_md_created_on_init(self, tmp_path):
         """create_project() (osprey build path) creates .claude/rules/facility.md."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="facility-init",
             output_dir=tmp_path,
@@ -1471,7 +1445,7 @@ class TestFacilityMd:
     def test_facility_md_user_owned_on_init(self, tmp_path):
         """Init auto-registers facility.md as user-owned in config.yml."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="facility-owned",
             output_dir=tmp_path,
@@ -1490,7 +1464,7 @@ class TestFacilityMd:
     def test_facility_md_preserved_via_user_owned(self, tmp_path):
         """Regen preserves customized facility.md via user_owned mechanism."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="facility-preserve",
             output_dir=tmp_path,
@@ -1513,7 +1487,7 @@ class TestFacilityMd:
     def test_facility_md_created_on_regen_if_missing(self, tmp_path):
         """If facility.md doesn't exist and not user-owned, regen creates it."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="facility-regen-create",
             output_dir=tmp_path,
@@ -1549,7 +1523,7 @@ class TestUserOwned:
     def test_user_owned_default_empty(self, tmp_path):
         """Without user_owned in config, list is empty."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="owned-defaults",
             output_dir=tmp_path,
@@ -1572,7 +1546,7 @@ class TestUserOwned:
     def test_user_owned_controls_regen(self, tmp_path):
         """Adding a file to user_owned prevents overwrite on regen."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="owned-regen",
             output_dir=tmp_path,
@@ -1604,7 +1578,7 @@ class TestUserOwned:
     def test_agents_never_user_owned(self, tmp_path):
         """Agent files are always regenerated even if user_owned list is long."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="owned-agents",
             output_dir=tmp_path,
@@ -1721,7 +1695,7 @@ class TestSettingsJsonValidity:
     def test_all_templates_produce_valid_settings_json(self, tmp_path, data_bundle):
         """Every built-in template produces valid settings.json."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name=f"json-valid-{data_bundle}",
             output_dir=tmp_path,
@@ -1751,7 +1725,7 @@ class TestSettingsJsonValidity:
     def test_disable_servers_produces_valid_json(self, tmp_path, disable_servers, label):
         """Disabling various server combinations still produces valid JSON."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name=f"json-{label}",
             output_dir=tmp_path,
@@ -1775,7 +1749,7 @@ class TestSettingsJsonValidity:
     def test_all_optional_features_enabled(self, tmp_path):
         """Valid JSON when all optional features (channel-finder) are on."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="json-all-features",
             output_dir=tmp_path,
@@ -1794,7 +1768,7 @@ class TestSettingsJsonValidity:
     def test_custom_servers_produce_valid_json(self, tmp_path):
         """Adding custom servers still produces valid JSON."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="json-custom-servers",
             output_dir=tmp_path,
@@ -1820,7 +1794,7 @@ class TestSettingsJsonValidity:
     def test_all_mcp_json_files_are_valid(self, tmp_path):
         """Every template also produces valid .mcp.json."""
         for data_bundle in ["control_assistant"]:
-            project_dir = _create_project(
+            project_dir = create_project_with_manifest(
                 TemplateManager(),
                 project_name=f"mcp-valid-{data_bundle}",
                 output_dir=tmp_path,
@@ -1850,7 +1824,7 @@ class TestWritesToggleRegen:
         from osprey.utils.config_writer import config_update_fields
 
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="writes-toggle",
             output_dir=tmp_path,
@@ -1878,7 +1852,7 @@ class TestWritesToggleRegen:
         from osprey.utils.config_writer import config_update_fields
 
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="drift-gate",
             output_dir=tmp_path,
@@ -1925,7 +1899,7 @@ class TestWritesToggleRegen:
         ignore the warning.
         """
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="mtime-stamp",
             output_dir=tmp_path,
@@ -1952,7 +1926,7 @@ class TestWritesToggleRegen:
     def test_regen_if_drift_noops_without_rendered_claude(self, tmp_path):
         """regen_if_drift is re-sync only — it never bootstraps a .claude/ from scratch."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="no-claude",
             output_dir=tmp_path,
@@ -1971,7 +1945,7 @@ class TestWritesToggleRegen:
     def test_session_start_drift_hook_wired_in_settings(self, tmp_path):
         """The rendered settings.json wires the config-drift hook on SessionStart."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="drift-wiring",
             output_dir=tmp_path,

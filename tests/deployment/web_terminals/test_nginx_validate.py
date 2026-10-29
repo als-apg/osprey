@@ -57,6 +57,11 @@ from osprey.deployment.web_terminals.render import (
 from osprey.port_layout import default_port
 from tests._container_support import docker_cli_unavailable_reason_once
 from tests._renders import tier_render
+from tests.deployment.web_terminals._nginx import (
+    nginx_directives,
+    nginx_location_body,
+    nginx_terminals_part,
+)
 
 #: The per-user family bases these renders run on. Nothing in the configs below
 #: moves them, so they are the layout's own — derived here so a cookie name or a
@@ -154,15 +159,6 @@ def _generate_self_signed_cert(certs_dir: Path) -> tuple[Path, Path]:
     return cert_path, key_path
 
 
-def _directives(conf: str) -> str:
-    """`conf` with its comment lines dropped.
-
-    The template's prose names `auth_request`, `/verify` and `$request_uri` at
-    length, so counting or absence assertions have to ignore it.
-    """
-    return "\n".join(line for line in conf.splitlines() if not line.lstrip().startswith("#"))
-
-
 def _assert_auth_surface_present(nginx_conf: str, users: list[str]) -> None:
     """Every construct the enabled renders exist to hand nginx is really there.
 
@@ -170,7 +166,7 @@ def _assert_auth_surface_present(nginx_conf: str, users: list[str]) -> None:
     produce a fragment `nginx -t` accepts, and these tests would report a green
     that validated nothing about authentication.
     """
-    directives = _directives(_terminals_part(nginx_conf))
+    directives = nginx_directives(nginx_terminals_part(nginx_conf))
     assert directives.count("auth_request ") == len(users)
     for user in users:
         assert f"auth_request /_osprey_auth/{user};" in directives
@@ -189,20 +185,6 @@ def _assert_auth_surface_present(nginx_conf: str, users: list[str]) -> None:
 #: template share, and the value the harness substitutes into it.
 _HISTORY_GATE_SNIPPET = "history-gate"
 _HISTORY_GATE_TEST_SECRET = "history-gate-secret-for-tests"
-
-#: The comment that opens the history page's origin, the second server a signed-in
-#: deployment renders after the terminals' servers.
-_HISTORY_ORIGIN_MARKER = "# The history page's origin.\n"
-
-
-def _terminals_part(conf: str) -> str:
-    """The terminals' servers of *conf*: everything before the history page's origin.
-
-    The history page's origin gates its history page with an ``auth_request`` and an
-    ``internal`` verify target of its own, which the per-user counts below are
-    not about.
-    """
-    return conf.partition(_HISTORY_ORIGIN_MARKER)[0]
 
 
 def _terminal_secrets(users: list[str]) -> dict[str, str]:
@@ -320,26 +302,6 @@ def _config_file_sections(dump: str) -> dict[str, str]:
     if current is not None:
         sections[current] = "\n".join(lines)
     return sections
-
-
-def _location_body(conf: str, user: str) -> str:
-    """The brace-matched body of *user*'s ``location /u/<user>/ { ... }`` block.
-
-    Used to prove which secret ``include`` a given location carries: string
-    counting over the whole file could not tell a directive inside alice's
-    location from one inside bob's.
-    """
-    marker = f"location /u/{user}/ {{"
-    start = conf.index(marker)
-    depth = 0
-    for i in range(start, len(conf)):
-        if conf[i] == "{":
-            depth += 1
-        elif conf[i] == "}":
-            depth -= 1
-            if depth == 0:
-                return conf[start : i + 1]
-    raise AssertionError(f"unterminated location block for {user!r}")
 
 
 def test_default_gated_off_render_passes_nginx_t() -> None:
@@ -675,7 +637,7 @@ def test_open_render_passes_nginx_t() -> None:
     # Arrange — guard against a vacuous green twice over: a render that had
     # stopped injecting would pass `nginx -t` with nothing to validate, and one
     # that had grown a login wall would not be this posture at all.
-    directives = _directives(nginx_conf)
+    directives = nginx_directives(nginx_conf)
     assert "include /etc/nginx/osprey/secret-alice.conf;" in directives
     assert "include /etc/nginx/osprey/secret-kiosk.conf;" in directives
     assert f'{TERMINAL_SECRET_HEADER} "";' not in directives
@@ -799,7 +761,7 @@ def test_secret_include_is_scoped_per_user_with_no_cross_leak() -> None:
 
         # That snippet is reached ONLY from this user's own location — its
         # include appears inside `/u/<user>/` and no other user's snippet does.
-        location_body = _location_body(default_conf, user)
+        location_body = nginx_location_body(default_conf, user)
         assert f"include {snippet_path};" in location_body
         for other in others:
             assert f"secret-{other}.conf" not in location_body
@@ -884,7 +846,7 @@ def test_access_log_never_carries_the_query_string() -> None:
     # only when the current level defines none, and every access_log on ONE
     # level is written — so an http-level directive here would ADD the sanitized
     # line beside the base image's `combined`-format one rather than replace it.
-    fragment = _directives(nginx_conf)
+    fragment = nginx_directives(nginx_conf)
     server_start = fragment.index("server {")
     assert "access_log" not in fragment[:server_start], fragment[:server_start]
     assert "access_log /dev/stdout osprey_sanitized;" in fragment[server_start:]
@@ -946,7 +908,7 @@ def test_no_location_forwards_the_browsers_whole_cookie_jar() -> None:
     # Every gated user authenticates by the header nginx injected, so its
     # cookie is cut outright.
     for user in users:
-        gated = _location_body(default_conf, user)
+        gated = nginx_location_body(default_conf, user)
         assert 'proxy_set_header Cookie "";' in gated
 
 
@@ -1067,12 +1029,12 @@ def test_every_terminal_location_clears_credentials_nginx_did_not_set() -> None:
     default_conf = _config_file_sections(result.stdout)[_DEFAULT_CONF_PATH]
 
     for user in users:
-        body = _location_body(default_conf, user)
+        body = nginx_location_body(default_conf, user)
         assert 'proxy_set_header Authorization "";' in body
 
     # Injected in every gated location, so cleared in none of them.
     for user in users:
-        gated = _location_body(default_conf, user)
+        gated = nginx_location_body(default_conf, user)
         assert f'proxy_set_header {TERMINAL_SECRET_HEADER} "";' not in gated
         assert f"include /etc/nginx/osprey/secret-{user}.conf;" in gated
 

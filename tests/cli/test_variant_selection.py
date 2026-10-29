@@ -14,9 +14,9 @@ reaches `osprey build` at all.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
-import os
 import subprocess
 from pathlib import Path
 
@@ -24,7 +24,6 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.cli.build_profile import compute_profile_hash
 from osprey.cli.init_cmd import _repo_gitignore
 from osprey.cli.profile_conventions import unknown_root_entries
@@ -46,7 +45,7 @@ from osprey.deployment.staleness import DriftState, check_drift, profile_fingerp
 from osprey_connectors.dotenv import ENV_CHAIN_FILENAMES
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.workspace import TIERS_DIRNAME
-from tests.cli._lifecycle_build import stub_build
+from tests.cli._lifecycle_build import invoke_build_in, rendered_config, stub_build
 
 
 @pytest.fixture
@@ -244,11 +243,6 @@ class TestContainment:
         assert f"!/{VARIANT_SETTING_FILENAME}" not in gitignore
 
 
-#: Both builds in this module render without a venv and without lifecycle
-#: hooks: neither is what the overlay decides, and a real dependency install per
-#: build would dominate the module's runtime.
-BUILD_FLAGS = ["--skip-deps", "--skip-lifecycle"]
-
 #: Two overlays that differ in one visible key each, so a render can be told
 #: apart from the other by reading `build/config.yml` alone.
 TESTSTAND_OVERLAY = """\
@@ -262,25 +256,6 @@ config:
   system.timezone: Etc/UTC
   web.theme: light
 """
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
-def _build(runner: CliRunner, repo: Path):
-    """Run ``osprey build`` from *repo*, as an operator standing there would."""
-    previous = Path.cwd()
-    os.chdir(repo)
-    try:
-        return runner.invoke(build, BUILD_FLAGS)
-    finally:
-        os.chdir(previous)
-
-
-def _rendered_config(repo: Path) -> dict:
-    return yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
 
 
 def _write_variant(repo: Path, name: str, body: str) -> None:
@@ -299,39 +274,33 @@ class TestBuildIntegration:
         _write_variant(lifecycle_repo, "control-room", CONTROL_ROOM_OVERLAY)
         return lifecycle_repo
 
-    def test_two_settings_from_one_repo_produce_the_two_renders(
-        self, runner: CliRunner, variant_repo: Path
-    ) -> None:
+    def test_two_settings_from_one_repo_produce_the_two_renders(self, variant_repo: Path) -> None:
         """The feature, end to end: same source, two hosts, two builds."""
         write_setting(variant_repo, f"{VARIANT_SETTING_KEY}=teststand\n")
-        first = _build(runner, variant_repo)
+        first = invoke_build_in(variant_repo)
         assert first.exit_code == 0, first.output
-        teststand = _rendered_config(variant_repo)
+        teststand = rendered_config(variant_repo)
 
         write_setting(variant_repo, f"{VARIANT_SETTING_KEY}=control-room\n")
-        second = _build(runner, variant_repo)
+        second = invoke_build_in(variant_repo)
         assert second.exit_code == 0, second.output
-        control_room = _rendered_config(variant_repo)
+        control_room = rendered_config(variant_repo)
 
         assert teststand["system"]["timezone"] == "America/Los_Angeles"
         assert teststand["web"]["theme"] == "dark"
         assert control_room["system"]["timezone"] == "Etc/UTC"
         assert control_room["web"]["theme"] == "light"
 
-    def test_no_setting_builds_the_tracked_profile(
-        self, runner: CliRunner, variant_repo: Path
-    ) -> None:
+    def test_no_setting_builds_the_tracked_profile(self, variant_repo: Path) -> None:
         """Variants in the repo change nothing until a host selects one."""
-        result = _build(runner, variant_repo)
+        result = invoke_build_in(variant_repo)
 
         assert result.exit_code == 0, result.output
-        config = _rendered_config(variant_repo)
+        config = rendered_config(variant_repo)
         assert config["web"]["theme"] == "light"
         assert config["system"]["timezone"] != "America/Los_Angeles"
 
-    def test_the_overlay_only_overrides_what_it_names(
-        self, runner: CliRunner, variant_repo: Path
-    ) -> None:
+    def test_the_overlay_only_overrides_what_it_names(self, variant_repo: Path) -> None:
         """A layer, not a replacement: the tracked profile still supplies the rest.
 
         ``control_system.type`` is the un-named key here — the overlay says
@@ -339,43 +308,41 @@ class TestBuildIntegration:
         which for the exemplar is the live stand-in."""
         write_setting(variant_repo, f"{VARIANT_SETTING_KEY}=teststand\n")
 
-        assert _build(runner, variant_repo).exit_code == 0
+        assert invoke_build_in(variant_repo).exit_code == 0
 
-        config = _rendered_config(variant_repo)
+        config = rendered_config(variant_repo)
         assert config["control_system"]["type"] == "virtual_accelerator"
         assert config["project_name"] == variant_repo.name
 
-    def test_the_selected_variant_is_named_in_the_build_output(
-        self, runner: CliRunner, variant_repo: Path
-    ) -> None:
+    def test_the_selected_variant_is_named_in_the_build_output(self, variant_repo: Path) -> None:
         """An operator reading a render must be told which host shape it is."""
         write_setting(variant_repo, f"{VARIANT_SETTING_KEY}=teststand\n")
 
-        result = _build(runner, variant_repo)
+        result = invoke_build_in(variant_repo)
 
         assert result.exit_code == 0, result.output
         assert "teststand" in result.output
 
     def test_an_unknown_variant_stops_the_build(
-        self, runner: CliRunner, variant_repo: Path, caplog: pytest.LogCaptureFixture
+        self, variant_repo: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         """And leaves the previous ``build/`` alone, like every other refusal."""
-        assert _build(runner, variant_repo).exit_code == 0
-        before = _rendered_config(variant_repo)
+        assert invoke_build_in(variant_repo).exit_code == 0
+        before = rendered_config(variant_repo)
 
         write_setting(variant_repo, f"{VARIANT_SETTING_KEY}=staging\n")
         with caplog.at_level(logging.ERROR):
-            result = _build(runner, variant_repo)
+            result = invoke_build_in(variant_repo)
 
         assert result.exit_code != 0
         # The refusal reaches the operator through the build's error channel,
         # naming both the variant asked for and the ones that would work.
         assert "staging" in caplog.text
         assert "teststand" in caplog.text
-        assert _rendered_config(variant_repo) == before
+        assert rendered_config(variant_repo) == before
 
     def test_a_real_build_stamps_a_fingerprint_that_covers_its_variant(
-        self, runner: CliRunner, variant_repo: Path
+        self, variant_repo: Path
     ) -> None:
         """Stamp side and check side agree, and both see the overlay.
 
@@ -384,7 +351,7 @@ class TestBuildIntegration:
         as soon as the overlay it rendered from moves.
         """
         write_setting(variant_repo, f"{VARIANT_SETTING_KEY}=teststand\n")
-        assert _build(runner, variant_repo).exit_code == 0
+        assert invoke_build_in(variant_repo).exit_code == 0
 
         assert check_drift(variant_repo).state is DriftState.CLEAN
 
@@ -396,12 +363,10 @@ class TestBuildIntegration:
 
         assert check_drift(variant_repo).state is DriftState.DRIFT
 
-    def test_switching_hosts_makes_the_existing_build_stale(
-        self, runner: CliRunner, variant_repo: Path
-    ) -> None:
+    def test_switching_hosts_makes_the_existing_build_stale(self, variant_repo: Path) -> None:
         """Otherwise ``osprey up`` starts the other host's render without a word."""
         write_setting(variant_repo, f"{VARIANT_SETTING_KEY}=teststand\n")
-        assert _build(runner, variant_repo).exit_code == 0
+        assert invoke_build_in(variant_repo).exit_code == 0
 
         write_setting(variant_repo, f"{VARIANT_SETTING_KEY}=control-room\n")
 
@@ -411,14 +376,14 @@ class TestBuildIntegration:
         """``profiles/`` is SOURCE material, so no build warns about it."""
         assert unknown_root_entries(variant_repo) == []
 
-    def test_a_variant_reaches_the_renders_too(self, runner: CliRunner, variant_repo: Path) -> None:
+    def test_a_variant_reaches_the_renders_too(self, variant_repo: Path) -> None:
         """A render ships in the same stack, so it is built for the same host."""
         renders = sorted((variant_repo / TIERS_DIRNAME).glob("*.yml"))
         if not renders:
             pytest.skip("the exemplar repo carries no layers")
         write_setting(variant_repo, f"{VARIANT_SETTING_KEY}=teststand\n")
 
-        assert _build(runner, variant_repo).exit_code == 0
+        assert invoke_build_in(variant_repo).exit_code == 0
 
         rendered = variant_repo / "build" / f"{variant_repo.name}-{renders[0].stem}"
         config = yaml.safe_load((rendered / "config.yml").read_text(encoding="utf-8"))
@@ -609,12 +574,8 @@ class TestVariantDrift:
 
 def _run_validate(runner: CliRunner, repo: Path):
     """Run ``osprey validate`` from *repo*, zero-argument, as an operator would."""
-    previous = Path.cwd()
-    os.chdir(repo)
-    try:
+    with contextlib.chdir(repo):
         return runner.invoke(validate, [])
-    finally:
-        os.chdir(previous)
 
 
 class TestValidateHonorsTheVariant:
@@ -721,12 +682,8 @@ class TestValidateHonorsTheVariant:
         _write_variant(lifecycle_repo, "teststand", "name: demo-teststand\n")
         write_setting(lifecycle_repo, f"{VARIANT_SETTING_KEY}=teststand\n")
 
-        previous = Path.cwd()
-        os.chdir(lifecycle_repo)
-        try:
+        with contextlib.chdir(lifecycle_repo):
             result = runner.invoke(validate, [str(renders[0])])
-        finally:
-            os.chdir(previous)
 
         assert result.exit_code == 0, result.output
         assert "host variant" not in result.output

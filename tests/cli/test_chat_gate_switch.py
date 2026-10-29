@@ -20,7 +20,6 @@ would have started, which is the only moment the assertions are about.
 from __future__ import annotations
 
 import logging
-import os
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
@@ -51,27 +50,7 @@ class Handoff:
     reporter: object
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
-@pytest.fixture(autouse=True)
-def _restore_process_state():
-    """Undo what an in-process launch does to the interpreter's globals.
-
-    ``chat`` chdirs into ``build/``, overlays the deployment's ``.env`` onto
-    ``os.environ``, and installs a reporter — all deliberate, all process-global,
-    and all able to reach every test that runs after this one in the same worker.
-    """
-    cwd = Path.cwd()
-    environ = dict(os.environ)
-    reporter = current_reporter()
-    yield
-    install_reporter(reporter)
-    os.chdir(cwd)
-    os.environ.clear()
-    os.environ.update(environ)
+pytestmark = pytest.mark.usefixtures("restore_process_state", "restore_installed_reporter")
 
 
 @pytest.fixture(autouse=True)

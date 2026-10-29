@@ -32,11 +32,12 @@ from click.testing import CliRunner
 from rich.console import Console
 
 from osprey.cli import phase_reporter, styles
-from osprey.cli.phase_reporter import LiveReporter, install_reporter
+from osprey.cli.phase_reporter import LiveReporter
 from osprey.cli.reset_cmd import reset as reset_command
 from osprey.cli.styles import osprey_theme
 from osprey.deployment import reset as reset_mod
 from osprey.deployment.reset import confirmation_token, reset_deployment
+from tests.cli._reporters import installed
 from tests.deployment import test_reset_scoping as scoping
 
 # The deployment repo, the recording runtime and the no-op ``down``, taken from
@@ -101,12 +102,9 @@ def live_reporter(monkeypatch: pytest.MonkeyPatch):
         legacy_windows=False,
     )
     reporter = LiveReporter(console=console)
-    previous = install_reporter(reporter)
-    reporter.start_rendering()
-    try:
+    with installed(reporter):
+        reporter.start_rendering()
         yield reporter, buffer
-    finally:
-        install_reporter(previous)
 
 
 def rendered(buffer: io.StringIO) -> str:

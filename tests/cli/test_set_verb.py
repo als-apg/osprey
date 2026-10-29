@@ -26,11 +26,7 @@ from click.testing import CliRunner
 
 from osprey.cli.set_cmd import set as set_command
 from osprey.deployment import staleness
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
+from tests.cli._lifecycle_build import invoke_build
 
 
 def _profile_text(repo: Path) -> str:
@@ -599,12 +595,6 @@ def _honesty_repo(tmp_path: Path, name: str = "honesty") -> Path:
     return repo
 
 
-def _build(runner: CliRunner, repo: Path):
-    from osprey.cli.build_cmd import build
-
-    return runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
-
-
 class TestASetPairingIsJudgedAtTheNextBuild:
     def test_va_onto_the_mock_archiver_is_refused(self, runner, tmp_path, caplog):
         repo = _honesty_repo(tmp_path)
@@ -613,7 +603,7 @@ class TestASetPairingIsJudgedAtTheNextBuild:
         )
         assert wrote.exit_code == 0, wrote.output
 
-        result = _build(runner, repo)
+        result = invoke_build(repo)
 
         assert result.exit_code != 0
         # The refusal reaches the operator through the logger, and the Rich
@@ -633,7 +623,7 @@ class TestASetPairingIsJudgedAtTheNextBuild:
         repo = _honesty_repo(tmp_path)
         assert _invoke(runner, repo, "connector=virtual_accelerator").exit_code == 0
 
-        result = _build(runner, repo)
+        result = invoke_build(repo)
 
         assert result.exit_code != 0
         assert "archiver.type" in caplog.text
@@ -643,7 +633,7 @@ class TestASetPairingIsJudgedAtTheNextBuild:
         repo = _honesty_repo(tmp_path)
         assert _invoke(runner, repo, "connector=virtual_accelerator").exit_code == 0
 
-        result = _build(runner, repo)
+        result = invoke_build(repo)
 
         assert result.exit_code != 0
         assert "va_archiver" in caplog.text
@@ -653,7 +643,7 @@ class TestASetPairingIsJudgedAtTheNextBuild:
         repo = _honesty_repo(tmp_path)
         assert _invoke(runner, repo, "connector=virtual_accelerator").exit_code == 0
 
-        result = _build(runner, repo)
+        result = invoke_build(repo)
 
         assert result.exit_code != 0
         assert "Traceback" not in result.output
@@ -662,7 +652,7 @@ class TestASetPairingIsJudgedAtTheNextBuild:
         """The exemplar pairs the VA with its `va_archiver:` store — legal."""
         assert _invoke(runner, lifecycle_repo, "connector=virtual_accelerator").exit_code == 0
 
-        result = _build(runner, lifecycle_repo)
+        result = invoke_build(lifecycle_repo)
 
         assert result.exit_code == 0, result.output
 
@@ -671,7 +661,7 @@ class TestASetPairingIsJudgedAtTheNextBuild:
         repo = _honesty_repo(tmp_path)
         assert _invoke(runner, repo, "connector=epics").exit_code == 0
 
-        result = _build(runner, repo)
+        result = invoke_build(repo)
 
         assert result.exit_code == 0, result.output
 
@@ -686,7 +676,7 @@ class TestASetPairingIsJudgedAtTheNextBuild:
         )
         assert wrote.exit_code == 0, wrote.output
 
-        result = _build(runner, repo)
+        result = invoke_build(repo)
 
         assert result.exit_code == 0, result.output
 

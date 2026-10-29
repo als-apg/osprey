@@ -12,7 +12,6 @@ import subprocess
 import sys
 
 import pytest
-from click.testing import CliRunner
 
 import osprey.models.provider_registry
 from osprey.agent_runner.provider_env import (
@@ -550,11 +549,6 @@ class TestManagedPolicyRefusal:
 
 
 # ── Chat command provider isolation ──────────────────────────────
-
-
-@pytest.fixture
-def cli_runner():
-    return CliRunner()
 
 
 # ── Single-source list agreement (#357) ──────────────────────────

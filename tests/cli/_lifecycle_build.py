@@ -1,4 +1,4 @@
-"""Stub a ``build/`` inside a deployment repo, for CLI tests that need one.
+"""Stub or run a ``build/`` inside a deployment repo, for CLI tests that need one.
 
 Every repo-scoped verb reads the *render* — ``<repo>/build/config.yml`` —
 rather than a directory it was handed, so a CLI test that used to write one
@@ -8,26 +8,39 @@ anchored ``.gitignore``); this supplies the render, which the fixture
 deliberately does not: ``build/`` is 100% derived, and the exemplar models the
 repo *before* any build has run.
 
-Nothing here runs a real ``osprey build`` — that is Task 1.5's subject and far
-too slow for a unit test. The verbs cannot tell the difference: they read a
-rendered ``config.yml`` and a provenance manifest, which is exactly what this
-writes, with the stamped fingerprint under the caller's control so drift is a
-one-line parameter.
+:func:`stub_build` runs no real ``osprey build``, which is far too slow for a
+unit test that only needs a render to read. The verbs cannot tell the
+difference: they read a rendered ``config.yml`` and a provenance manifest,
+which is exactly what it writes, with the stamped fingerprint under the
+caller's control so drift is a one-line parameter.
 
-Lives in a ``_``-prefixed module rather than ``conftest.py`` because it is a
-plain function, not a fixture — callers want it inside a test body, often more
+For the tests that do run one, :func:`invoke_build` is the in-process
+``osprey build`` with the install and the lifecycle hooks skipped,
+:func:`invoke_build_in` the same from a working directory instead of ``--repo``, and
+:func:`rendered_config` reads back the ``build/config.yml`` it rendered.
+
+Lives in a ``_``-prefixed module rather than ``conftest.py`` because these are
+plain functions, not fixtures — callers want them inside a test body, often more
 than once per test. Same convention as :mod:`tests.cli._scoped_subprocess`.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 from pathlib import Path
+from typing import Any
+
+import yaml
+from click.testing import CliRunner, Result
 
 #: The smallest rendered config that still resolves a provider. Enough for the
 #: pre-flight probes and the provider lookups the launch verbs run before they
 #: hand off; tests needing more pass their own ``config``.
 STUB_CONFIG = "claude_code:\n  provider: anthropic\n"
+
+#: What an in-process build skips: the dependency install and the lifecycle hooks.
+CI_FLAGS = ("--skip-deps", "--skip-lifecycle")
 
 
 def installed_version() -> str:
@@ -83,3 +96,38 @@ def stub_build(
         json.dumps({"creation": creation}), encoding="utf-8"
     )
     return build
+
+
+def invoke_build(repo: Path | None = None, *args: str) -> Result:
+    """Run ``osprey build`` in-process with :data:`CI_FLAGS`.
+
+    Args:
+        repo: The repo, passed as ``--repo``. ``None`` passes none, so the build
+            finds its repo from the working directory the caller set.
+        *args: Further arguments, after the flags.
+
+    Returns:
+        The CliRunner result.
+    """
+    from osprey.cli.build_cmd import build
+
+    repo_args = [] if repo is None else ["--repo", str(repo)]
+    # The flags spelled out rather than as `*CI_FLAGS`: tests/test_offline_build_env.py
+    # reads build argv from source and credits only a literal `--skip-deps`.
+    return CliRunner().invoke(build, [*repo_args, "--skip-deps", "--skip-lifecycle", *args])
+
+
+def invoke_build_in(cwd: Path, *args: str) -> Result:
+    """Run :func:`invoke_build` with no ``--repo``, from *cwd*.
+
+    The build finds its repo from the working directory, as an operator's
+    bare ``osprey build`` does; the previous one is back once it returns.
+    """
+    with contextlib.chdir(cwd):
+        return invoke_build(None, *args)
+
+
+def rendered_config(repo: Path) -> dict[str, Any]:
+    """The ``build/config.yml`` a build rendered for *repo*, parsed."""
+    config: dict[str, Any] = yaml.safe_load((repo / "build" / "config.yml").read_text("utf-8"))
+    return config

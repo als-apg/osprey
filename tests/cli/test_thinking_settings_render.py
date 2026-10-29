@@ -15,12 +15,12 @@ import pytest
 import yaml
 
 from osprey.cli.templates.manager import TemplateManager
-from tests.cli.test_terminal_theme_render import _create_project
+from tests._preset_data import create_project_as_built
 
 
 def _regen_with_display(tmp_path, display):
     manager = TemplateManager()
-    project_dir = _create_project(
+    project_dir = create_project_as_built(
         manager,
         project_name="thinking-test",
         output_dir=tmp_path,

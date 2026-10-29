@@ -56,7 +56,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-import yaml
 from click.testing import CliRunner
 
 from osprey.agent_runner.project_paths import CLAUDE_CONFIG_DIR_ENV
@@ -70,6 +69,7 @@ from osprey.cli.build_profile_presets import (
 from osprey.cli.init_cmd import init
 from osprey.deployment.compose_generator import agent_record_host_projects_dir
 from osprey.profiles.providers import PROVIDERS_FILENAME, load_provider_catalog
+from tests.cli._lifecycle_build import rendered_config
 from tests.docs.test_shipped_identity_literals import DENIED, Denied
 
 #: Identities denied in a render but not in source. The framework's
@@ -105,7 +105,7 @@ _RENDERS_PATH = ("modules", "web_terminals", "renders")
 
 def _stated_renders(repo: Path) -> dict[str, dict]:
     """The renders ``repo``'s rendered config says the build made, by name."""
-    node = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8")) or {}
+    node = rendered_config(repo) or {}
     for key in _RENDERS_PATH:
         node = node.get(key) if isinstance(node, dict) else None
     return dict(node) if isinstance(node, dict) else {}
@@ -243,8 +243,7 @@ def _host_projects_dir(repo: Path) -> Path | None:
     repository's path, spelled the way Claude Code names its project
     directories. Read through the function the render uses, never re-derived.
     """
-    config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8")) or {}
-    return agent_record_host_projects_dir(config, repo)
+    return agent_record_host_projects_dir(rendered_config(repo), repo)
 
 
 def _report(hits: Sequence[Hit]) -> str:

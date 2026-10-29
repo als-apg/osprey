@@ -3562,7 +3562,7 @@ jobs:
     # turn — but the same-repo restriction is house policy for any extra
     # Docker-build-and-deploy job, not just secret-gated ones. A secret
     # appearing here would mean the lane's scope silently grew; that is guarded
-    # by test_archiver_world_job_has_no_llm_secret.
+    # by test_secret_free_lane_has_no_llm_secret[archiver-world-e2e].
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     # Builds the native PyAT/serving-stack VA image from source (same cost as
     # orm-roundtrip-e2e) and then seeds a DEFAULT-knob archive: 30-day

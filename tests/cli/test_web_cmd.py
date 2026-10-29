@@ -32,6 +32,7 @@ from osprey.cli.web_cmd import (
     _write_pid,
     web,
 )
+from osprey.interfaces._serving import free_port
 from osprey.port_layout import default_port
 from tests.cli._lifecycle_build import stub_build
 from tests.cli._scoped_subprocess import patch_subprocess
@@ -40,11 +41,6 @@ from tests.cli._scoped_subprocess import patch_subprocess
 #: slot, index 0. Named rather than spelled so these calls stay the ones the
 #: command actually makes.
 WEB_PORT = default_port("web")
-
-
-@pytest.fixture
-def runner():
-    return CliRunner()
 
 
 @pytest.fixture(autouse=True)
@@ -677,13 +673,6 @@ def test_stop_stale_pid(monkeypatch, runner, deployment):
 # another project's data into this UI.
 
 
-def _free_port() -> int:
-    """Reserve then release an OS-assigned port so nothing is listening on it."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
 def _hold_port(port: int, host: str = "127.0.0.1") -> socket.socket:
     """Bind and listen on *port* so it looks taken to a connect-probe."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -742,7 +731,7 @@ class TestPreflightCompanionPortCollision:
 
     def test_held_artifact_port_reported(self, monkeypatch, tmp_path):
         """A companion port the lifespan WILL launch, already held, is a finding."""
-        port = _free_port()
+        port = free_port()
         _patch_config(monkeypatch, {"artifact_server": {"port": port}})
 
         held = _hold_port(port)
@@ -759,7 +748,7 @@ class TestPreflightCompanionPortCollision:
 
     def test_free_ports_clean_pass(self, monkeypatch, tmp_path):
         """With no companion ports held, _preflight returns no findings."""
-        port = _free_port()
+        port = free_port()
         _patch_config(monkeypatch, {"artifact_server": {"port": port}})
 
         assert _preflight_at(tmp_path) == ([], [])
@@ -770,7 +759,7 @@ class TestPreflightCompanionPortCollision:
         # top-level section (which gates auto_launch/require_section) is
         # absent — the lifespan's launcher would skip it, so its port must
         # never be resolved.
-        artifact_port = _free_port()
+        artifact_port = free_port()
         _patch_config(
             monkeypatch,
             {
@@ -788,7 +777,7 @@ class TestPreflightCompanionPortCollision:
 
     def test_disabled_panel_excluded(self, monkeypatch, tmp_path):
         """A panel absent from web.panels is not probed even if its port is held."""
-        artifact_port = _free_port()
+        artifact_port = free_port()
         _patch_config(
             monkeypatch, {"artifact_server": {"port": artifact_port}}
         )  # ariel not enabled
@@ -802,7 +791,7 @@ class TestPreflightCompanionPortCollision:
 
     def test_no_network_or_registry_calls(self, monkeypatch, tmp_path):
         """Probe 1 never starts a companion server or hits its /health endpoint."""
-        port = _free_port()
+        port = free_port()
         _patch_config(monkeypatch, {"artifact_server": {"port": port}})
 
         from osprey.infrastructure.server_launcher import ServerLauncher
@@ -850,10 +839,10 @@ class TestWebCommandPreflightWiring:
         monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_kw: None)
 
     def test_held_companion_port_aborts_before_bind(self, runner, monkeypatch, deployment):
-        artifact_port = _free_port()
+        artifact_port = free_port()
         _patch_config(monkeypatch, {"artifact_server": {"port": artifact_port}})
         self._stub_launch(monkeypatch)
-        own_port = _free_port()
+        own_port = free_port()
 
         held = _hold_port(artifact_port)
         try:
@@ -871,10 +860,10 @@ class TestWebCommandPreflightWiring:
         assert f"lsof -i :{artifact_port}" in result.output
 
     def test_free_ports_clean_launch(self, runner, monkeypatch, deployment):
-        artifact_port = _free_port()
+        artifact_port = free_port()
         _patch_config(monkeypatch, {"artifact_server": {"port": artifact_port}})
         self._stub_launch(monkeypatch)
-        own_port = _free_port()
+        own_port = free_port()
 
         result = runner.invoke(
             web,
@@ -885,10 +874,10 @@ class TestWebCommandPreflightWiring:
         assert result.exit_code == 0
 
     def test_skip_preflight_bypasses_held_port(self, runner, monkeypatch, deployment):
-        artifact_port = _free_port()
+        artifact_port = free_port()
         _patch_config(monkeypatch, {"artifact_server": {"port": artifact_port}})
         self._stub_launch(monkeypatch)
-        own_port = _free_port()
+        own_port = free_port()
 
         held = _hold_port(artifact_port)
         try:
@@ -945,7 +934,7 @@ class TestPreflightAuthSecret:
         monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_kw: None)
 
     def _stub_clean_ports(self, monkeypatch):
-        artifact_port = _free_port()
+        artifact_port = free_port()
         _patch_config(monkeypatch, {"artifact_server": {"port": artifact_port}})
 
     def test_proxy_provider_missing_secret_aborts(self, runner, monkeypatch, deployment):
@@ -955,7 +944,7 @@ class TestPreflightAuthSecret:
             "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: _stub_spec()
         )
         monkeypatch.delenv("ALS_APG_API_KEY", raising=False)
-        own_port = _free_port()
+        own_port = free_port()
 
         result = runner.invoke(
             web,
@@ -980,7 +969,7 @@ class TestPreflightAuthSecret:
             "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: _stub_spec()
         )
         monkeypatch.setenv("ALS_APG_API_KEY", "")
-        own_port = _free_port()
+        own_port = free_port()
 
         result = runner.invoke(
             web,
@@ -1004,7 +993,7 @@ class TestPreflightAuthSecret:
             "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: _stub_spec()
         )
         monkeypatch.delenv("ALS_APG_API_KEY", raising=False)
-        own_port = _free_port()
+        own_port = free_port()
 
         # The SECRETS zone is the repo root, NOT the render: `.env` has to
         # survive `osprey build` wiping build/, so that is where the probe must
@@ -1033,7 +1022,7 @@ class TestPreflightAuthSecret:
             "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: spec
         )
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        own_port = _free_port()
+        own_port = free_port()
 
         result = runner.invoke(
             web,
@@ -1069,7 +1058,7 @@ class TestPreflightAuthSecret:
             "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: spec
         )
         monkeypatch.delenv(secret_env, raising=False)
-        own_port = _free_port()
+        own_port = free_port()
 
         result = runner.invoke(
             web,
@@ -1096,7 +1085,7 @@ class TestPreflightAuthSecret:
             "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: spec
         )
         monkeypatch.delenv("MY_ANTHROPIC_GATEWAY_API_KEY", raising=False)
-        own_port = _free_port()
+        own_port = free_port()
 
         result = runner.invoke(
             web,
@@ -1141,7 +1130,7 @@ class TestPreflightAuthSecret:
             requires_api_key=True,
             supports_interactive_login=True,
         )
-        own_port = _free_port()
+        own_port = free_port()
 
         result = runner.invoke(
             web,
@@ -1165,7 +1154,7 @@ class TestPreflightAuthSecret:
             requires_api_key=False,
             api_key_note="local server",
         )
-        own_port = _free_port()
+        own_port = free_port()
 
         result = runner.invoke(
             web,
@@ -1192,7 +1181,7 @@ class TestPreflightAuthSecret:
             "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: spec
         )
         monkeypatch.setenv("ALS_APG_API_KEY", "present")
-        own_port = _free_port()
+        own_port = free_port()
 
         result = runner.invoke(
             web,
@@ -1220,7 +1209,7 @@ class TestPreflightAuthSecret:
             "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: spec
         )
         monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
-        own_port = _free_port()
+        own_port = free_port()
 
         result = runner.invoke(
             web,
@@ -1251,7 +1240,7 @@ class TestPreflightAuthSecret:
             "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: spec
         )
         monkeypatch.delenv("MY_PROXY_API_KEY", raising=False)
-        own_port = _free_port()
+        own_port = free_port()
 
         result = runner.invoke(
             web,
@@ -1268,7 +1257,7 @@ class TestPreflightAuthSecret:
         monkeypatch.setattr(
             "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: None
         )
-        own_port = _free_port()
+        own_port = free_port()
 
         result = runner.invoke(
             web,
@@ -1292,7 +1281,7 @@ class TestPreflightAuthSecret:
             raise AssertionError("Probe 2 must not call provider.check_health")
 
         monkeypatch.setattr("osprey.models.providers.base.BaseProvider.check_health", _boom)
-        own_port = _free_port()
+        own_port = free_port()
 
         result = runner.invoke(
             web,
@@ -1315,7 +1304,7 @@ class TestPreflightAuthSecret:
             raise ValueError("unknown provider 'nowhere'")
 
         monkeypatch.setattr("osprey.agent_runner.provider_env.load_provider_spec", _raise)
-        own_port = _free_port()
+        own_port = free_port()
 
         result = runner.invoke(
             web,
@@ -1345,7 +1334,7 @@ class TestPreflightAuthSecret:
             )
 
         monkeypatch.setattr("osprey.agent_runner.provider_env.load_provider_spec", _raise)
-        own_port = _free_port()
+        own_port = free_port()
 
         result = runner.invoke(
             web,
@@ -1370,13 +1359,13 @@ class TestPreflightConfigValidity:
         )
 
     def _stub_clean_ports(self, monkeypatch):
-        artifact_port = _free_port()
+        artifact_port = free_port()
         _patch_config(monkeypatch, {"artifact_server": {"port": artifact_port}})
 
     def test_malformed_settings_json_aborts(self, runner, monkeypatch, deployment):
         self._stub_launch(monkeypatch)
         self._stub_clean_ports(monkeypatch)
-        own_port = _free_port()
+        own_port = free_port()
 
         # `.claude/` is part of the RENDER — it is what the PTY's agent reads,
         # and `osprey build` writes it — so that is where the probe must parse.
@@ -1397,7 +1386,7 @@ class TestPreflightConfigValidity:
     def test_absent_settings_json_skipped(self, runner, monkeypatch, deployment):
         self._stub_launch(monkeypatch)
         self._stub_clean_ports(monkeypatch)
-        own_port = _free_port()
+        own_port = free_port()
 
         result = runner.invoke(
             web,
@@ -1411,7 +1400,7 @@ class TestPreflightConfigValidity:
     def test_malformed_config_yml_aborts(self, runner, monkeypatch, deployment):
         self._stub_launch(monkeypatch)
         self._stub_clean_ports(monkeypatch)
-        own_port = _free_port()
+        own_port = free_port()
 
         (deployment / "build" / "config.yml").write_text("key: [unclosed\n")
 
@@ -1465,22 +1454,6 @@ class TestDetachSkipsPreflightInChild:
 # failure rather than a coincidence.
 
 
-@pytest.fixture
-def restore_env_and_cwd():
-    """Undo the process-global state a launch legitimately mutates.
-
-    The command chdirs into the render and bulk-loads the deployment `.env`
-    into os.environ, both of which outlive the CliRunner invocation and would
-    leak into later tests.
-    """
-    saved_cwd = os.getcwd()
-    saved_env = dict(os.environ)
-    yield
-    os.chdir(saved_cwd)
-    os.environ.clear()
-    os.environ.update(saved_env)
-
-
 def _deployment_with_secret(repo: Path, port: int) -> Path:
     """Give *repo* a render whose provider key comes from the repo-root `.env`.
 
@@ -1517,7 +1490,7 @@ class TestRepoFlagIsAuthoritative:
         OSPREY_TEST_PROJECT_KEY value observed at the moment run_web ran --
         i.e. the state the server (and every child PTY) would actually inherit.
         """
-        port = _free_port()
+        port = free_port()
         _deployment_with_secret(repo, port)
         elsewhere = tmp_path / "elsewhere"
         elsewhere.mkdir()
@@ -1550,7 +1523,7 @@ class TestRepoFlagIsAuthoritative:
         )
         return result, observed, repo, port
 
-    @pytest.mark.usefixtures("restore_env_and_cwd")
+    @pytest.mark.usefixtures("restore_process_state")
     def test_repo_dotenv_is_loaded(self, tmp_path, lifecycle_repo, runner, monkeypatch):
         """The deployment's .env reaches os.environ before the server starts.
 
@@ -1566,7 +1539,7 @@ class TestRepoFlagIsAuthoritative:
         assert result.exit_code == 0
         assert observed["key"] == "sk-from-project-dotenv"
 
-    @pytest.mark.usefixtures("restore_env_and_cwd")
+    @pytest.mark.usefixtures("restore_process_state")
     def test_the_render_becomes_the_working_directory(
         self, tmp_path, lifecycle_repo, runner, monkeypatch
     ):
@@ -1581,7 +1554,7 @@ class TestRepoFlagIsAuthoritative:
 
         assert Path(observed["cwd"]).resolve() == (repo / "build").resolve()
 
-    @pytest.mark.usefixtures("restore_env_and_cwd")
+    @pytest.mark.usefixtures("restore_process_state")
     def test_render_web_terminal_port_is_honored(
         self, tmp_path, lifecycle_repo, runner, monkeypatch
     ):
@@ -1592,7 +1565,7 @@ class TestRepoFlagIsAuthoritative:
 
         assert observed["kwargs"]["port"] == port
 
-    @pytest.mark.usefixtures("restore_env_and_cwd")
+    @pytest.mark.usefixtures("restore_process_state")
     def test_osprey_config_points_at_the_render(
         self, tmp_path, lifecycle_repo, runner, monkeypatch
     ):
@@ -1604,7 +1577,7 @@ class TestRepoFlagIsAuthoritative:
         expected = (repo / "build" / "config.yml").resolve()
         assert Path(observed["osprey_config"]).resolve() == expected
 
-    @pytest.mark.usefixtures("restore_env_and_cwd")
+    @pytest.mark.usefixtures("restore_process_state")
     def test_explicit_flag_beats_stale_osprey_config_export(
         self, tmp_path, lifecycle_repo, runner, monkeypatch
     ):
@@ -1650,7 +1623,7 @@ class TestOperatorLoginUrl:
     def test_foreground_prints_open_token_url(self, runner, monkeypatch, deployment):
         """The foreground launch prints `Open: …?token=<secret>` for the settled port."""
         self._stub_launch(monkeypatch)
-        own_port = _free_port()
+        own_port = free_port()
 
         result = runner.invoke(
             web,
@@ -1689,7 +1662,7 @@ class TestOperatorLoginUrl:
         import uvicorn
 
         monkeypatch.setattr(uvicorn, "run", lambda *a, **k: None)
-        own_port = _free_port()
+        own_port = free_port()
 
         result = runner.invoke(
             web,
@@ -1731,7 +1704,7 @@ class TestOperatorLoginUrl:
         import uvicorn
 
         monkeypatch.setattr(uvicorn, "run", lambda *a, **k: None)
-        own_port = _free_port()
+        own_port = free_port()
 
         result = runner.invoke(
             web,
@@ -1760,7 +1733,7 @@ class TestOperatorLoginUrl:
         """
         monkeypatch.setenv("OSPREY_TERMINAL_SECRET", "inherited-secret")
         self._stub_launch(monkeypatch)
-        own_port = _free_port()
+        own_port = free_port()
 
         result = runner.invoke(
             web,
@@ -1863,7 +1836,7 @@ class TestOperatorSecretDoesNotOutliveTheLaunch:
         monkeypatch.delenv(PANEL_TOKEN_ENV, raising=False)
         monkeypatch.delenv(DECLARED_BIND_ENV, raising=False)
 
-        login_url, announce = _mint_operator_url("127.0.0.1", _free_port())
+        login_url, announce = _mint_operator_url("127.0.0.1", free_port())
         assert announce, "a freshly minted secret is this launcher's to announce"
 
         secret = get_web_credentials().operator_secret
@@ -1909,10 +1882,10 @@ class TestOperatorSecretDoesNotOutliveTheLaunch:
         monkeypatch.delenv(PANEL_TOKEN_ENV, raising=False)
         monkeypatch.delenv(DECLARED_BIND_ENV, raising=False)
 
-        _mint_operator_url("127.0.0.1", _free_port())
+        _mint_operator_url("127.0.0.1", free_port())
         create_app()
         # A companion announces itself, re-publishing the carrier a second time.
-        mint_and_announce("127.0.0.1", _free_port())
+        mint_and_announce("127.0.0.1", free_port())
         assert os.environ.get(OPERATOR_SECRET_ENV)
 
         create_artifacts_app(workspace_root=tmp_path)
@@ -1960,7 +1933,7 @@ class TestContainerShapeWithoutASuppliedSecret:
                 "--repo",
                 str(deployment),
                 "--port",
-                str(_free_port()),
+                str(free_port()),
                 "--shell",
                 "true",
                 "--skip-preflight",
@@ -1998,7 +1971,7 @@ class TestInheritedSecretIsExplained:
                 "--repo",
                 str(deployment),
                 "--port",
-                str(_free_port()),
+                str(free_port()),
                 "--shell",
                 "true",
                 "--skip-preflight",
@@ -2024,7 +1997,7 @@ class TestInheritedSecretIsExplained:
                 "--repo",
                 str(deployment),
                 "--port",
-                str(_free_port()),
+                str(free_port()),
                 "--shell",
                 "true",
                 "--skip-preflight",
