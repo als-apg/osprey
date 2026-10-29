@@ -18,7 +18,6 @@
 
 import fnmatch
 import json
-import os
 import pathlib
 import re
 import shlex
@@ -33,7 +32,15 @@ from osprey.cli.main import cli
 from osprey.deployment.members import WORKSPACE_MEMBERS
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
 from tests.deployment._cache_mounts import assert_build_caches_mounted
-from tests.deployment._pip_probe import primer_pip_argv
+from tests.deployment._pip_probe import (
+    APT_NOOP,
+    UV_TO_PIP,
+    deps_sandbox,
+    primer_pip_argv,
+    probe_wheel_body,
+    run_body,
+    stubbed_env,
+)
 from tests.deployment._proxy_idiom import assert_apt_runs_carry_proxy_idiom
 
 # The site-extension contract: exactly these quoted build ARGs, with these
@@ -450,7 +457,7 @@ class TestDockerfileContent:
         the exit status (`fi && rm`, never `fi; rm`). Otherwise a broken dev
         wheel would build a stale image silently."""
         wheel = self._wheel_run_body((hello_project / "Dockerfile").read_text())
-        result, ctx = _probe_wheel_body(wheel, tmp_path, with_wheel=True)
+        result, ctx = probe_wheel_body(wheel, tmp_path, with_wheel=True)
         assert result.returncode != 0, (
             f"wheel-layer RUN exited 0 despite pip failing:\n{result.stdout}\n{result.stderr}"
         )
@@ -460,7 +467,7 @@ class TestDockerfileContent:
         """Empirical probe: with no wheel staged the RUN is a successful no-op
         (the untaken `if` exits 0) and still cleans up the staged context."""
         wheel = self._wheel_run_body((hello_project / "Dockerfile").read_text())
-        result, ctx = _probe_wheel_body(wheel, tmp_path, with_wheel=False)
+        result, ctx = probe_wheel_body(wheel, tmp_path, with_wheel=False)
         assert result.returncode == 0, (
             f"no-wheel wheel layer must exit 0:\n{result.stdout}\n{result.stderr}"
         )
@@ -617,35 +624,6 @@ class TestDockerfileContent:
                 )
 
 
-def _probe_wheel_body(body: str, tmp_path, *, with_wheel: bool):
-    """Execute the wheel-layer RUN body in a sandbox with a real shell.
-
-    ``/tmp/ctx`` is rewritten to a temp dir (optionally holding a fake wheel)
-    and a stub ``pip`` that always exits 1 shadows the real one on PATH, so the
-    probe exercises the body's failure-propagation shape without a container.
-    Returns ``(CompletedProcess, ctx_path)``.
-    """
-    ctx = tmp_path / "ctx"
-    ctx.mkdir()
-    (ctx / ".dockerignore").write_text("")
-    if with_wheel:
-        (ctx / "osprey_framework-0.0.0-py3-none-any.whl").write_text("")
-    stub_bin = tmp_path / "bin"
-    stub_bin.mkdir()
-    stub_pip = stub_bin / "pip"
-    stub_pip.write_text("#!/bin/sh\nexit 1\n")
-    stub_pip.chmod(0o755)
-    env = dict(os.environ, PATH=f"{stub_bin}{os.pathsep}{os.environ.get('PATH', '')}")
-    result = subprocess.run(
-        ["sh", "-c", body.replace("/tmp/ctx", str(ctx))],
-        capture_output=True,
-        text=True,
-        env=env,
-        timeout=60,
-    )
-    return result, ctx
-
-
 def _probe_ca_body(body: str, tmp_path, *, staged: bool, arg: str):
     """Execute the site-CA RUN body in a sandbox with a real shell.
 
@@ -661,23 +639,13 @@ def _probe_ca_body(body: str, tmp_path, *, staged: bool, arg: str):
         (ctx / "site-ca.crt").write_text("-----BEGIN CERTIFICATE-----\n")
     store = tmp_path / "ca-store"
     store.mkdir()
-    stub_bin = tmp_path / "bin"
-    stub_bin.mkdir()
-    stub = stub_bin / "update-ca-certificates"
-    stub.write_text("#!/bin/sh\nexit 0\n")
-    stub.chmod(0o755)
-    env = dict(
-        os.environ,
-        PATH=f"{stub_bin}{os.pathsep}{os.environ.get('PATH', '')}",
-        OSPREY_SITE_CA=arg,
+    env = stubbed_env(
+        tmp_path, {"update-ca-certificates": "#!/bin/sh\nexit 0\n"}, OSPREY_SITE_CA=arg
     )
     rewritten = body.replace("/tmp/ca-ctx", str(ctx)).replace(
         "/usr/local/share/ca-certificates", str(store)
     )
-    result = subprocess.run(
-        ["sh", "-c", rewritten], capture_output=True, text=True, env=env, timeout=60
-    )
-    return result, ctx, store
+    return run_body(rewritten, env), ctx, store
 
 
 def _probe_deps_body(
@@ -700,42 +668,22 @@ def _probe_deps_body(
     line per call; *fail_subdirectory* makes any ``#subdirectory=`` install
     exit 1. Returns ``(CompletedProcess, ctx_path)``.
     """
-    ctx = tmp_path / "deps-ctx"
-    ctx.mkdir()
-    (ctx / ".dockerignore").write_text("")
+    rewritten, ctx = deps_sandbox(body, tmp_path)
     if with_manifest:
         (ctx / "osprey-local-requirements.txt").write_text("no-such-dep==0.0.0\n")
-    apt_lists = tmp_path / "apt-lists"
-    apt_lists.mkdir()
-    stub_bin = tmp_path / "bin"
-    stub_bin.mkdir()
     record = f'printf "%s\\n" "$*" >> {shlex.quote(str(pip_log))}\n' if pip_log else ""
     subdir_fails = '*"#subdirectory="*) exit 1 ;; ' if fail_subdirectory else ""
     pip_script = (
         f'#!/bin/sh\n{record}case " $* " in *" -r "*) exit 1 ;; {subdir_fails}*) exit 0 ;; esac\n'
     )
-    for name, script in (
-        ("apt-get", "#!/bin/sh\nexit 0\n"),
-        ("pip", pip_script),
-        ("uv", '#!/bin/sh\n[ "$1" = pip ] && shift\nexec "$(dirname "$0")/pip" "$@"\n'),
-    ):
-        stub = stub_bin / name
-        stub.write_text(script)
-        stub.chmod(0o755)
-    env = dict(
-        os.environ,
-        PATH=f"{stub_bin}{os.pathsep}{os.environ.get('PATH', '')}",
+    env = stubbed_env(
+        tmp_path,
+        {"apt-get": APT_NOOP, "pip": pip_script, "uv": UV_TO_PIP},
         OSPREY_PIP_SPEC=spec,
         OSPREY_DEV="",
         PIP_NO_PROXY="",
     )
-    rewritten = body.replace("/tmp/deps-ctx", str(ctx)).replace(
-        "/var/lib/apt/lists", str(apt_lists)
-    )
-    result = subprocess.run(
-        ["sh", "-c", rewritten], capture_output=True, text=True, env=env, timeout=60
-    )
-    return result, ctx
+    return run_body(rewritten, env), ctx
 
 
 class TestDockerignore:
