@@ -25,10 +25,14 @@ import re
 import ssl
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from osprey.apps.manifest import AppManifest, PackageVendorEntry, UrlVendorEntry
 
 MANIFEST_PATH = Path(__file__).parent / "vendor_manifest.json"
 
@@ -288,6 +292,172 @@ def verify_all(
         else:
             ok.append(str(dest))
     return ok, problems
+
+
+class AppVendorError(RuntimeError):
+    """An application's vendor file could not be put in place and verified.
+
+    Attributes:
+        app: The application whose ``vendor:`` entry failed.
+        source: What the entry fetches: ``<package>@<version>/<file>`` for a
+            package entry, the URL for a url entry.
+    """
+
+    def __init__(self, app: str, source: str, message: str) -> None:
+        self.app = app
+        self.source = source
+        super().__init__(f"apps/{app}: vendor {source}: {message}")
+
+
+def _entry_source(entry: UrlVendorEntry | PackageVendorEntry) -> str:
+    from osprey.apps.manifest import PackageVendorEntry
+
+    if isinstance(entry, PackageVendorEntry):
+        return f"{entry.package}@{entry.version}/{entry.file}"
+    return entry.source_url
+
+
+def _app_vendor_dest(app_dir: Path, app: str, entry: UrlVendorEntry | PackageVendorEntry) -> Path:
+    """Where an entry's file lands: ``apps/<app>/<into>``, refused outside the app dir.
+
+    The path is resolved, symlinks included, before it is compared, so neither
+    ``..`` nor a linked directory can carry a download out of the application.
+    """
+    into = entry.into
+    outside = AppVendorError(app, _entry_source(entry), f"into {into!r} lands outside apps/{app}/")
+    if Path(into).is_absolute():
+        raise outside
+    if into.endswith("/"):
+        raise AppVendorError(
+            app, _entry_source(entry), f"into {into!r} must name a file, not a directory"
+        )
+    root = app_dir.resolve()
+    dest = (app_dir / into).resolve()
+    if dest == root or not dest.is_relative_to(root):
+        raise outside
+    return dest
+
+
+#: A version as a vendored file name spells it: dotted numbers, optionally
+#: followed by a pre-release or build suffix (``1.6.30``, ``3.0.0-rc.1``).
+_VERSION_TOKEN = re.compile(r"(?<![\d.])\d+(?:\.\d+)+(?:[-+][0-9A-Za-z.-]*[0-9A-Za-z])?")
+
+
+def _names_version(name: str, version: str) -> bool:
+    """Whether ``name`` spells ``version`` as a whole token.
+
+    ``1.6.3`` is in ``uplot-1.6.3.min.js`` but not in ``uplot-11.6.3.min.js``,
+    ``uplot-1.6.30.min.js`` or ``uplot-1.6.3.1.min.js``.
+    """
+    pattern = rf"(?<!\d)(?<!\d\.){re.escape(version)}(?!\d)(?!\.\d)"
+    return re.search(pattern, name) is not None
+
+
+def _check_versioned_name(app: str, entry: UrlVendorEntry | PackageVendorEntry) -> None:
+    """Refuse an entry whose ``into`` file name does not carry the version it fetches.
+
+    A panel's vendor files are served as immutable, so a new version must reach
+    the browser under a new name, the convention of OSPREY's own ``/static/``
+    vendor trees (``plotly-3.3.1.min.js``). A package entry's file name carries
+    its ``version``; a url entry's carries a version its URL names.
+    """
+    from osprey.apps.manifest import PackageVendorEntry
+
+    name = Path(entry.into).name
+    if isinstance(entry, PackageVendorEntry):
+        if _names_version(name, entry.version):
+            return
+        wanted = f"version {entry.version}"
+    else:
+        url_path = urllib.parse.urlsplit(entry.url).path
+        versions = {m.group() for m in _VERSION_TOKEN.finditer(url_path)}
+        if any(_names_version(name, v) for v in versions):
+            return
+        wanted = (
+            "a version its URL names (" + ", ".join(sorted(versions)) + ")"
+            if versions
+            else "a version, and the URL names none"
+        )
+    raise AppVendorError(
+        app,
+        _entry_source(entry),
+        f"into file name {name!r} must carry the version it fetches ({wanted}): "
+        "a vendor file is cached as immutable, so a new version needs a new name",
+    )
+
+
+def fetch_app_vendor(
+    deployment_root: Path,
+    manifests: Sequence[AppManifest],
+    *,
+    offline: bool | None = None,
+    insecure: bool | None = None,
+    quiet: bool = False,
+) -> list[str]:
+    """Put every application's ``vendor:`` files in place, each verified by its SHA256.
+
+    Each entry lands at ``apps/<name>/<into>`` under ``deployment_root``,
+    fetched from the source it names (its ``url``, or a package file through
+    the one CDN template). Every destination is checked before anything is
+    downloaded; one outside the application's directory, or whose file name
+    does not carry the version it fetches, is refused.
+
+    A file already present with the entry's hash is used as it is, with no
+    request. Otherwise an offline deployment, a failed download or a hash
+    mismatch raises, so a panel is never built with a missing or unverified
+    file.
+
+    Args:
+        deployment_root: The deployment directory holding ``apps/``.
+        manifests: The applications to fetch for, as loaded by
+            :func:`osprey.apps.loader.load`.
+        offline: Whether the deployment is offline. ``None`` reads
+            :func:`is_offline`; a caller holding the config passes
+            :func:`offline_from_config`'s answer.
+        insecure: Skip TLS cert verification (the hash is still checked).
+            ``None`` reads ``OSPREY_VENDOR_INSECURE``.
+        quiet: Suppress the per-file progress lines.
+
+    Returns:
+        The files actually downloaded (not those already verified).
+
+    Raises:
+        AppVendorError: An entry's target is outside its application or its
+            file name lacks its version, or its file is missing or unverified and could not be fetched; the error
+            names the application and the package (or URL).
+    """
+    if offline is None:
+        offline = is_offline()
+    if insecure is None:
+        insecure = bool(os.environ.get("OSPREY_VENDOR_INSECURE"))
+
+    plan = []
+    for manifest in manifests:
+        for entry in manifest.vendor:
+            app_dir = deployment_root / "apps" / manifest.name
+            dest = _app_vendor_dest(app_dir, manifest.name, entry)
+            _check_versioned_name(manifest.name, entry)
+            plan.append((manifest.name, entry, dest))
+    downloaded: list[str] = []
+    for app, entry, dest in plan:
+        if dest.is_file() and _sha256(dest) == entry.sha256:
+            continue
+        source = _entry_source(entry)
+        if offline:
+            raise AppVendorError(
+                app,
+                source,
+                f"no verified copy at apps/{app}/{entry.into} and the deployment is offline; "
+                "fetch it once with network access, or place the file there",
+            )
+        if not quiet:
+            print(f"  {source} → apps/{app}/{entry.into}")
+        try:
+            _fetch_one(entry.source_url, dest, entry.sha256, insecure=insecure)
+        except (RuntimeError, OSError) as exc:
+            raise AppVendorError(app, source, str(exc)) from exc
+        downloaded.append(str(dest))
+    return downloaded
 
 
 _TRUTHY = {"1", "true", "yes", "on"}
