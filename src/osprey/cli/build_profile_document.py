@@ -25,6 +25,7 @@ from typing import Any
 
 import yaml
 
+from osprey.utils.workspace import LAYER_DIR_KINDS, RETIRED_LAYER_DIRS
 from osprey_connectors import yaml_loader
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import (
@@ -34,7 +35,6 @@ from osprey_connectors.types import (
     resolve_target,
     switch_capable,
 )
-from osprey_connectors.workspace import LAYER_DIR_KINDS, RETIRED_LAYER_DIRS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -104,7 +104,7 @@ _WT_LABEL = ".".join(_WEB_TERMINALS)
 
 #: The retired tier pin: ``users[].<key>`` and ``authorization.roles.<r>.<key>``.
 #: It is also the fold label of a file in a retired layer directory
-#: (``osprey_connectors.workspace.RETIRED_LAYER_DIRS``), kept so such a repo
+#: (``osprey.utils.workspace.RETIRED_LAYER_DIRS``), kept so such a repo
 #: hashes as it always did.
 RETIRED_TIER_KEY = "persona"
 

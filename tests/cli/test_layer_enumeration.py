@@ -25,9 +25,8 @@ from osprey.cli.profile_root import ProfileKind, layer_files
 from osprey.deployment.staleness import MATERIAL_PREFIX, profile_fingerprint
 from osprey.deployment.web_terminals.render_naming import RENDER_KIND_TIER
 from osprey.deployment.web_terminals.roster import APP_ENTRY_KIND
-from osprey_connectors import workspace
-from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.workspace import (
+from osprey.utils import workspace
+from osprey.utils.workspace import (
     APPS_DIRNAME,
     LAYER_DIR_KINDS,
     LAYER_DIRNAMES,
@@ -35,6 +34,7 @@ from osprey_connectors.workspace import (
     TIERS_DIRNAME,
     layer_dir_kind,
 )
+from osprey_connectors.errors import BuildProfileError
 from tests._retired_layout import RETIRED_LAYER_DIRNAME
 
 
@@ -91,7 +91,7 @@ _WINDOW_CLOSED_PROBE = textwrap.dedent(
     root = layer.parent.parent
     text = Path(source).read_text(encoding="utf-8")
     assert text.count(retired_map) == 1, retired_map
-    spec = importlib.util.spec_from_loader("osprey_connectors.workspace", loader=None)
+    spec = importlib.util.spec_from_loader("osprey.utils.workspace", loader=None)
     module = importlib.util.module_from_spec(spec)
     module.__file__ = source
     sys.modules[spec.name] = module

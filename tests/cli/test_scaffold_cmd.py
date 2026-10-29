@@ -29,7 +29,7 @@ from osprey.cli.scaffold_cmd import (
 )
 from osprey.cli.templates.manifest import MANIFEST_FILENAME
 from osprey.docs_links import SETUP_DOCS_URL
-from osprey_connectors.workspace import TIERS_DIRNAME
+from osprey.utils.workspace import TIERS_DIRNAME
 from tests._renders import tier_render
 from tests.cli._lifecycle_build import invoke_build
 

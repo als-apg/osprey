@@ -50,7 +50,7 @@ class Handoff:
     reporter: object
 
 
-pytestmark = pytest.mark.usefixtures("restore_process_state", "restore_installed_reporter")
+pytestmark = pytest.mark.usefixtures("restore_process_state")
 
 
 @pytest.fixture(autouse=True)

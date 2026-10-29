@@ -22,7 +22,6 @@ from osprey_connectors.control_system._base import (
     ChannelWriteResult,
     ControlSystemConnector,
     WriteOutcome,
-    is_readonly_run,
     raise_for_write_result,
     values_match,
 )
@@ -44,7 +43,6 @@ __all__ = [
     "ControlSystemConnector",
     "LimitsValidator",
     "WriteOutcome",
-    "is_readonly_run",
     "mapping_config_lookup",
     "raise_for_write_result",
     "values_match",

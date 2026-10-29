@@ -17,13 +17,13 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from osprey.utils.workspace import LAYER_DIR_KINDS, PROFILE_FILENAME, RETIRED_LAYER_DIRS
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import (
     configured_targets,
     resolve_target,
     tier_writes,
 )
-from osprey_connectors.workspace import LAYER_DIR_KINDS, PROFILE_FILENAME, RETIRED_LAYER_DIRS
 
 from . import build_profile_document as _document
 from .build_profile_document import RENDER_KEYS, _read_profile_document, retired_write_origin
@@ -1725,7 +1725,7 @@ def _fold_source_tree(
     so the digest depends on content alone and not on filesystem walk order.
 
     ``skip_runtime_output`` is passed for the ``data:`` tree only: the
-    top-level :data:`~osprey_connectors.workspace.RUNTIME_DATA_DIR_NAME`
+    top-level :data:`~osprey.utils.workspace.RUNTIME_DATA_DIR_NAME`
     subtree is where ``osprey up`` mints its own material (per-lane CURVE
     certificates), and hashing it would make every successful start mark its
     own build OUT OF DATE (#716). The subtree is skipped statically — by its
@@ -1756,7 +1756,7 @@ def _fold_source_tree(
     """
     import hashlib
 
-    from osprey_connectors.workspace import RUNTIME_DATA_DIR_NAME
+    from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME
 
     if source.is_dir():
         entries = []
@@ -1832,7 +1832,7 @@ def _fold_profile_material(
       :meth:`~osprey.cli.build_profile_model.BuildProfile.resolved_data_root`
       so it resolves exactly where the build copies it from — minus the
       reserved ``data/.runtime/`` subtree
-      (:data:`~osprey_connectors.workspace.RUNTIME_DATA_DIR_NAME`), which is
+      (:data:`~osprey.utils.workspace.RUNTIME_DATA_DIR_NAME`), which is
       runtime-minted material (the Bluesky lanes' CURVE certificates) and
       never build input: fold it and every successful ``osprey up`` marks its
       own build OUT OF DATE, stranding a bare ``osprey up -d`` boot unit at

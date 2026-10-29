@@ -73,7 +73,7 @@ _OSC = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 _SGR = re.compile(r"\x1b\[[0-9;]*m")
 
 
-pytestmark = pytest.mark.usefixtures("restore_installed_reporter", "parked_monitor", "empty_ledger")
+pytestmark = pytest.mark.usefixtures("parked_monitor", "empty_ledger")
 
 
 @pytest.fixture(autouse=True)

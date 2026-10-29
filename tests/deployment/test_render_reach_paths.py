@@ -30,7 +30,7 @@ from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.deployment.web_terminals.roster import resolve_cards
 from osprey.services.ariel_search.enhancement.qmd_export.exporter import resolve_mirror_path
 from osprey.services.facility_knowledge.bundle_path import resolve_bundle_path
-from osprey_connectors.workspace import AUDIT_DIR_RELPATH
+from osprey.utils.workspace import AUDIT_DIR_RELPATH
 from tests.cli.test_tier_app_presets import _build_render_stack
 
 #: Every test here builds the hosting preset for real — seconds, not

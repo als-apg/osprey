@@ -121,6 +121,14 @@ try:
 except Exception:  # pragma: no cover - older render without the reader
     _target_state = None
 
+#: The read-only run, restated from ``osprey_connectors.posture_env``: the
+#: variable and the one value of it that sandboxes. Spelled here rather than
+#: taken from the reader above, because stage 1 must answer even where that
+#: sibling is missing. ``tests/hooks/test_posture_store_parity.py`` holds both
+#: equal to the connector module's.
+EXECUTION_MODE_ENV_VAR = "OSPREY_EXECUTION_MODE"
+SANDBOX_MODE = "readonly"
+
 #: The hook_config key naming the tools stage 2 leaves to their own lane gate.
 #: Short names, so an `extends` clone of the server — which renames only the
 #: prefix — keeps the carve-out.
@@ -383,7 +391,7 @@ def main():
     # It sits *after* the execute-readonly exit above: a readonly execution is
     # exactly what a read-only run is for. It sits *before* the queue exit
     # below, so a read-only run cannot arm a Bluesky lane either.
-    if os.environ.get("OSPREY_EXECUTION_MODE") == "readonly":
+    if os.environ.get(EXECUTION_MODE_ENV_VAR) == SANDBOX_MODE:
         _deny(hook_input, tool_name, "readonly_run")
 
     # -- Stage 2: the write verdict, for the machine the call writes to ---

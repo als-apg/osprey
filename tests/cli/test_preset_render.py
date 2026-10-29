@@ -62,7 +62,7 @@ from osprey.cli.init_cmd import init
 from osprey.cli.profile_conventions import SETUP_PATCH_TOOL, is_setup_patch_capable
 from osprey.deployment.web_terminals.auth_credentials import seeded_logins
 from osprey.deployment.web_terminals.lint import lint_web_terminals
-from osprey_connectors.workspace import APPS_DIRNAME, TIERS_DIRNAME
+from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
 from tests.cli._lifecycle_build import rendered_config
 
 CONTROL_SYSTEM_TYPE_KEY = "control_system.type"

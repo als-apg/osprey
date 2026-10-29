@@ -118,7 +118,7 @@ gateway does to a put.
 import asyncio
 import os
 
-from osprey_connectors.control_system import is_readonly_run
+from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.ipc._verification import _selected_role

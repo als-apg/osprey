@@ -49,18 +49,18 @@ from osprey.deployment.web_terminals.roster import (
 )
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
 from osprey.docs_links import setup_remedy
-from osprey_connectors.config import ConfigBuilder
-from osprey_connectors.dotenv import ENV_LOCAL_FILENAME
-from osprey_connectors.log_filter import quiet_logger
-from osprey_connectors.logger import get_logger
-from osprey_connectors.workspace import (
+from osprey.utils.workspace import (
     APPS_DIRNAME,
-    BUILD_DIR_NAME,
     IMAGE_DIR_NAME,
     LAYER_DIR_KINDS,
     LAYER_DIRNAMES,
     TIERS_DIRNAME,
 )
+from osprey_connectors.config import ConfigBuilder
+from osprey_connectors.dotenv import ENV_LOCAL_FILENAME
+from osprey_connectors.log_filter import quiet_logger
+from osprey_connectors.logger import get_logger
+from osprey_connectors.workspace import BUILD_DIR_NAME
 
 logger = get_logger("deployment.lifecycle")
 
@@ -83,7 +83,7 @@ def _render_image_context(project_path: str | Path) -> Path:
     externally-pinned contract — ``osprey build`` writes
     ``build/<project_name>-<render>`` into the rendered config and the dispatch
     e2e pins it), and the two directories are siblings by
-    construction: :func:`osprey_connectors.workspace.container_image_context` puts the
+    construction: :func:`osprey.utils.workspace.container_image_context` puts the
     container copy at ``<render>/../.image/<render name>``. Relative in, relative
     out — repo-scoped verbs run from the repo root.
 
