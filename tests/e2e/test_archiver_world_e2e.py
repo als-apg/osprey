@@ -391,14 +391,7 @@ def archiver_world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     osprey_bin = _orm_stack.find_osprey_console_script()
 
     # Force a fresh --dev image so the deployed recorder runs CURRENT source.
-    # Exact-named image only. E2E_REUSE_IMAGES=1 skips it for fast local
-    # iteration on the test itself; never set it in CI.
-    if not os.environ.get("E2E_REUSE_IMAGES"):
-        subprocess.run(
-            ["docker", "rmi", "-f", _orm_stack.va_image(PROJECT_NAME)],
-            capture_output=True,
-            text=True,
-        )
+    _orm_stack.force_image_rebuild(_orm_stack.va_image(PROJECT_NAME))
 
     # Before the deploy, not only after: a run that died without reaching its
     # teardown (a killed session, a crashed fixture) leaves the volume behind,
