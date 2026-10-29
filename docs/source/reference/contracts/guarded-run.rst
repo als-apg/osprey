@@ -55,11 +55,17 @@ is refused before anything is opened, so a run is never admitted on one target
 and driven on another. Joining the process's hold with no record runs under
 the held one; joining with a different record is refused.
 
+The record also says whether limits checking is off for its target. That is
+the target's fact, never the caller's: it is off only when the target's limits
+posture is complete and states ``enabled: false``; silence or an unreadable
+limits block is not off. A record that says otherwise is refused before
+anything is opened.
+
 - A read-write ``execute`` or ``execute_file`` run fills the record once, as
   its sandbox starts: the stamped target, the account the write path names
-  (nobody when it names none) and that same target as the admitted one, which
-  the executor checked before it started the sandbox. Nothing about the
-  sandbox's writes changes.
+  (nobody when it names none), that same target as the admitted one, which
+  the executor checked before it started the sandbox, and the target's limits
+  posture. Nothing about the sandbox's writes changes.
 
 The process holds it
 ====================

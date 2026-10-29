@@ -174,3 +174,47 @@ def test_a_readwrite_run_on_a_held_target_fails_before_its_code(tmp_path: Path) 
     assert not (sandbox.root / "sentinel").exists(), "the user code never started"
     assert f"pid {holder_process.pid}" in metadata["error"]
     assert holder["started"] in metadata["error"]
+
+
+#: User code that reports the limits posture its run's held context names.
+_REPORT_LIMITS_OFF = textwrap.dedent(
+    """
+    import osprey.runtime._run_state as _run_state
+
+    results = {"limits_off": _run_state.STATE.hold.context.limits_off}
+    """
+)
+
+
+def _with_limits(sandbox: _Sandbox, limits_checking: dict[str, Any]) -> None:
+    """Give *sandbox*'s deployment the limits block *limits_checking* on its one target."""
+    sandbox.write_config(
+        {
+            "control_system": {
+                "type": "epics",
+                "connector": {"epics": {}},
+                "limits_checking": limits_checking,
+            },
+            "approval": {"enabled": True, "default_policy": "always"},
+        }
+    )
+
+
+def test_a_readwrite_run_on_a_limits_off_target_takes_the_lock_saying_so(tmp_path: Path) -> None:
+    sandbox = _Sandbox(tmp_path / "repo", {"Q": 3.0})
+    _with_limits(sandbox, {"enabled": False})
+
+    metadata = _run(sandbox, "readwrite", _REPORT_LIMITS_OFF)
+
+    assert metadata["success"] is True, metadata.get("traceback")
+    assert metadata["_results"]["limits_off"] is True
+
+
+def test_a_readwrite_run_on_a_strict_target_takes_the_lock_with_limits_on(tmp_path: Path) -> None:
+    sandbox = _Sandbox(tmp_path / "repo", {"Q": 3.0})
+    _with_limits(sandbox, {"enabled": True, "mode": "exclusive"})
+
+    metadata = _run(sandbox, "readwrite", _REPORT_LIMITS_OFF)
+
+    assert metadata["success"] is True, metadata.get("traceback")
+    assert metadata["_results"]["limits_off"] is False
