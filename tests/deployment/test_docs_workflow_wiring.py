@@ -172,8 +172,7 @@ _PLAN_OUTPUT_REF_RE = re.compile(r"steps\.plan\.outputs\.([A-Za-z_][A-Za-z0-9_]*
 
 
 def _load_workflow() -> dict[str, Any]:
-    with DOCS_YML.open() as f:
-        loaded = yaml.safe_load(f)
+    loaded = yaml.safe_load(DOCS_YML.read_text())
     assert loaded is not None, f"{DOCS_YML} parsed to None"
     return loaded
 
@@ -990,6 +989,7 @@ def _plan_output_keys() -> set[str]:
         capture_output=True,
         text=True,
         check=True,
+        timeout=120,
     )
     return {line.split("=", 1)[0] for line in result.stdout.splitlines() if "=" in line}
 

@@ -1009,7 +1009,7 @@ def git(repo: Path, *args: str) -> None:
         "GIT_COMMITTER_NAME": "t",
         "GIT_COMMITTER_EMAIL": "t@example.invalid",
     }
-    subprocess.run(["git", *args], cwd=repo, env=env, capture_output=True, check=True)
+    subprocess.run(["git", *args], cwd=repo, env=env, capture_output=True, check=True, timeout=60)
 
 
 @pytest.fixture
@@ -1522,6 +1522,7 @@ def test_the_failing_ids_are_the_node_ids_the_installed_pytest_prints(tmp_path: 
         capture_output=True,
         text=True,
         check=False,
+        timeout=120,
     )
     printed = tuple(re.findall(r"^FAILED (\S+)", done.stdout, re.MULTILINE))
     assert printed == (
@@ -2153,6 +2154,7 @@ def test_the_command_needs_only_the_standard_library() -> None:
         capture_output=True,
         text=True,
         cwd=REPO_ROOT,
+        timeout=120,
     )
     assert done.returncode == 0, done.stderr
     assert done.stdout.splitlines()[0].split()[:3] == ["lockfile", "invariant", "quick,full"]

@@ -120,7 +120,7 @@ def init_exemplar(runner: CliRunner, target: Path, *extra: str):
 def git(repo: Path, *args: str) -> str:
     """Run git in ``repo`` and return its stdout."""
     return subprocess.run(
-        ["git", *args], cwd=repo, capture_output=True, text=True, check=True
+        ["git", *args], cwd=repo, capture_output=True, text=True, check=True, timeout=60
     ).stdout
 
 
@@ -456,7 +456,7 @@ def test_no_git_skips_the_repository(runner: CliRunner, tmp_path: Path) -> None:
 
 def test_enclosing_git_repository_is_left_alone(runner: CliRunner, tmp_path: Path) -> None:
     """The clone-your-empty-repository-first workflow: git is already the operator's."""
-    subprocess.run(["git", "init", "--quiet", str(tmp_path)], check=True)
+    subprocess.run(["git", "init", "--quiet", str(tmp_path)], check=True, timeout=60)
     target = tmp_path / EXEMPLAR_DIRNAME
 
     result = init_exemplar(runner, target)
@@ -467,7 +467,7 @@ def test_enclosing_git_repository_is_left_alone(runner: CliRunner, tmp_path: Pat
     # Nothing was committed into somebody else's history — the enclosing repo
     # still has no HEAD at all.
     no_head = subprocess.run(
-        ["git", "rev-parse", "--verify", "HEAD"], cwd=tmp_path, capture_output=True
+        ["git", "rev-parse", "--verify", "HEAD"], cwd=tmp_path, capture_output=True, timeout=60
     )
     assert no_head.returncode != 0
 
@@ -529,7 +529,7 @@ def test_in_place_into_an_empty_clone(
     """No DIR: the deployment is written into the directory the operator stands in."""
     target = tmp_path / "cloned-empty"
     target.mkdir()
-    subprocess.run(["git", "init", "--quiet", str(target)], check=True)
+    subprocess.run(["git", "init", "--quiet", str(target)], check=True, timeout=60)
     monkeypatch.chdir(target)
 
     result = run_init(runner, "--preset", "control-assistant")
@@ -1186,7 +1186,7 @@ def test_importing_the_module_stays_off_the_heavy_chain() -> None:
         "'osprey.cli.profile_cmd' in sys.modules)"
     )
     completed = subprocess.run(
-        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True, timeout=120
     )
     assert completed.stdout.split() == ["False", "False"]
 

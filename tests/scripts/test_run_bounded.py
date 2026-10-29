@@ -25,6 +25,9 @@ from typing import Any
 
 import pytest
 
+from tests._live import wait_until
+from tests._processes import pid_alive
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = _REPO_ROOT / "scripts" / "run_bounded.py"
 CHECK_SCRIPT = _REPO_ROOT / "scripts" / "check.py"
@@ -59,17 +62,6 @@ def _run(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _pid_is_gone(pid: int, within: float) -> bool:
-    deadline = time.monotonic() + within
-    while time.monotonic() < deadline:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return True
-        time.sleep(0.05)
-    return False
-
-
 def test_the_command_exit_code_passes_through():
     result = _run("30", "--", sys.executable, "-c", "import sys; sys.exit(3)")
     assert result.returncode == 3
@@ -88,7 +80,7 @@ def test_a_command_past_its_bound_is_stopped_with_its_process_group(tmp_path):
     assert pid_file.exists(), "the child was not ready inside the 3 s bound: no grandchild pid file"
     pid = int(pid_file.read_text())
     try:
-        assert _pid_is_gone(pid, within=5.0)
+        wait_until(lambda: not pid_alive(pid), timeout=5.0, what=f"the exit of pid {pid}")
     finally:
         with contextlib.suppress(ProcessLookupError):
             os.kill(pid, signal.SIGKILL)
@@ -164,7 +156,11 @@ def test_a_stop_waits_for_the_whole_group_when_its_leader_dies_first(tmp_path):
         assert ready.exists(), "the child was not ready inside the 3 s bound"
         assert dumped.exists(), "SIGTERM was sent before the group's stacks were written"
         pid = int(pid_file.read_text())
-        assert _pid_is_gone(pid, within=1.0), "a process that survived SIGTERM was never killed"
+        wait_until(
+            lambda: not pid_alive(pid),
+            timeout=1.0,
+            what="the kill of a process that survived SIGTERM",
+        )
     finally:
         if pid_file.exists():
             with contextlib.suppress(ProcessLookupError):

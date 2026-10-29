@@ -118,6 +118,7 @@ def _run_containerfile_install(
         capture_output=True,
         text=True,
         env=env,
+        timeout=60,
     )
     return result, (_calls(log) if log.exists() else [])
 
@@ -233,6 +234,7 @@ def _run_wheel_layer(service: str, tmp_path: pathlib.Path, staged: list[str]) ->
         capture_output=True,
         text=True,
         env=env,
+        timeout=60,
     )
     assert result.returncode == 0, f"{service}: wheel RUN failed:\n{result.stderr}"
     return [argv for _, argv in _calls(log)]

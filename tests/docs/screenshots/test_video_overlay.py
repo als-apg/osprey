@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 from docs.screenshots import video_overlay
@@ -91,7 +92,7 @@ def test_overlay_js_is_valid_javascript(tmp_path):
     script = tmp_path / "overlay.js"
     script.write_text(OVERLAY_JS)
     result = subprocess.run(
-        ["node", "--check", str(script)], capture_output=True, text=True, check=False
+        ["node", "--check", str(script)], capture_output=True, text=True, check=False, timeout=60
     )
     assert result.returncode == 0, result.stderr
 
@@ -161,4 +162,4 @@ def test_move_cursor_nonpositive_steps_moves_once(steps):
 
 
 def test_overlay_module_never_sleeps():
-    assert "time.sleep" not in open(video_overlay.__file__).read()
+    assert "time.sleep" not in Path(video_overlay.__file__).read_text(encoding="utf-8")

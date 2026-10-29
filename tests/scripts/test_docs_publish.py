@@ -586,6 +586,7 @@ def _run(*args: str) -> subprocess.CompletedProcess[str]:
         [sys.executable, str(_MODULE_PATH), *args],
         capture_output=True,
         text=True,
+        timeout=120,
     )
 
 

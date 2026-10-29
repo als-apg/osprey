@@ -28,8 +28,8 @@ which cannot run in the fast suite; these are the cheap pins that fail first.
 
 from __future__ import annotations
 
+import contextlib
 import json
-import os
 import re
 from importlib import resources
 from pathlib import Path
@@ -416,13 +416,8 @@ def built_repo(tmp_path_factory) -> Path:
     (repo / ".mcp.json").write_text('{"mcpServers": {"dev": {}}}\n', encoding="utf-8")
     (repo / ".claude" / "skills" / "dev").mkdir(parents=True)
     (repo / ".claude" / "skills" / "dev" / "SKILL.md").write_text("# dev\n", encoding="utf-8")
-    previous = Path.cwd()
-    os.chdir(repo)
-    try:
-        with preserved_environ():
-            result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
-    finally:
-        os.chdir(previous)
+    with contextlib.chdir(repo), preserved_environ():
+        result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
     assert result.exit_code == 0, result.output
     return repo
 
@@ -730,13 +725,8 @@ def test_a_regenerable_file_under_a_fold_input_is_neither_folded_nor_shipped(
     (data_root / "__pycache__").mkdir(exist_ok=True)
     (data_root / "__pycache__" / "loader.cpython-312.pyc").write_bytes(b"\x00compiled")
 
-    previous = Path.cwd()
-    os.chdir(repo)
-    try:
-        with preserved_environ():
-            result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
-    finally:
-        os.chdir(previous)
+    with contextlib.chdir(repo), preserved_environ():
+        result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
     assert result.exit_code == 0, result.output
 
     for name, context in _contexts(repo).items():

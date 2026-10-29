@@ -153,7 +153,9 @@ def _runtime_calls(log: list[str]) -> list[str]:
 def test_the_rendered_script_parses(script: Path) -> None:
     """``bash -n`` accepts the script."""
     assert _BASH
-    assert subprocess.run([_BASH, "-n", str(script)], capture_output=True).returncode == 0
+    assert (
+        subprocess.run([_BASH, "-n", str(script)], capture_output=True, timeout=60).returncode == 0
+    )
 
 
 def test_every_container_is_listed_and_the_failing_ones_flagged(

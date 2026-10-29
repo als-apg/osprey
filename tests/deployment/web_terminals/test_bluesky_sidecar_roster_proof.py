@@ -59,7 +59,6 @@ import os
 import re
 import subprocess
 import textwrap
-import time
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -91,6 +90,7 @@ from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, ROSTER_SECRET_ENV_PR
 from osprey_connectors.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
 from tests._container_support import docker_cli_unavailable_reason_once
 from tests.cli.test_tier_app_presets import _build_render_stack
+from tests.deployment.web_terminals._sidecar_http import wait_for_http
 
 _DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 
@@ -205,7 +205,12 @@ def _build_harness_image(tmp_path: Path) -> tuple[str, bool]:
     dockerfile = _harness_dockerfile()
     tag = f"osprey-bluesky-roster-harness:{hashlib.sha256(dockerfile.encode()).hexdigest()[:12]}"
 
-    if subprocess.run(["docker", "image", "inspect", tag], capture_output=True).returncode == 0:
+    if (
+        subprocess.run(
+            ["docker", "image", "inspect", tag], capture_output=True, timeout=60
+        ).returncode
+        == 0
+    ):
         return tag, False
 
     context = tmp_path / "harness"
@@ -371,37 +376,6 @@ def _entitlements(repo: Path, host_config: dict) -> dict[str, bool]:
     }
 
 
-def _docker_logs(name: str) -> str:
-    result = subprocess.run(
-        ["docker", "logs", "--tail", "40", name], capture_output=True, text=True, timeout=60
-    )
-    return f"--- {name} ---\n{result.stdout}{result.stderr}"
-
-
-def _wait_for_health(base_url: str, *, container_name: str, timeout: float = 90.0) -> None:
-    """Poll the sidecar's unauthenticated ``/health`` until it answers ``200``.
-
-    Bounded rather than a fixed sleep: uvicorn takes a few seconds to import
-    the app from the bind-mounted source, less on a warm host, and a fixed
-    delay is either wasted or too short.
-    """
-    deadline = time.monotonic() + timeout
-    last = "no attempt made"
-    while time.monotonic() < deadline:
-        try:
-            response = httpx.get(f"{base_url}/health", timeout=5)
-        except httpx.HTTPError as exc:  # not up yet
-            last = repr(exc)
-        else:
-            if response.status_code == 200:
-                return
-            last = f"HTTP {response.status_code}"
-        time.sleep(0.5)
-    raise AssertionError(
-        f"the bluesky-web sidecar never became ready ({last})\n{_docker_logs(container_name)}"
-    )
-
-
 @pytest.fixture(scope="module")
 def sidecar(tmp_path_factory) -> Iterator[Sidecar]:
     """The sidecar of a real control-assistant build, up on an ephemeral port."""
@@ -464,7 +438,15 @@ def sidecar(tmp_path_factory) -> Iterator[Sidecar]:
         assert host and port.isdigit(), bound.stdout
         base_url = f"http://{host}:{port}"
 
-        _wait_for_health(base_url, container_name=container_name)
+        # uvicorn imports the app from the bind-mounted source, which takes a
+        # few seconds; polling rather than a fixed sleep neither wastes nor
+        # undershoots that.
+        wait_for_http(
+            f"{base_url}/health",
+            containers=[container_name],
+            what="the bluesky-web sidecar",
+            timeout=90.0,
+        )
         yield Sidecar(base_url=base_url, env=env)
     finally:
         _compose("down", "-v", "--remove-orphans", "--timeout", "5")
