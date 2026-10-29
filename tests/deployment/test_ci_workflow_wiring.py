@@ -416,8 +416,7 @@ def _expand_run(run: str) -> str:
 @functools.cache
 def _raw_workflow() -> dict[str, Any]:
     """ci.yml as written, parsed once per process; read only through ``_load_raw_workflow``."""
-    with CI_YML.open() as f:
-        loaded = yaml.safe_load(f)
+    loaded = yaml.safe_load(CI_YML.read_text())
     assert loaded is not None, f"{CI_YML} parsed to None"
     return loaded
 
@@ -7084,8 +7083,7 @@ VA_TAG_SITES: dict[str, tuple[Path, Callable[[str], str]]] = {
 
 
 def _load_action_yml(path: Path) -> dict[str, Any]:
-    with path.open() as f:
-        loaded = yaml.safe_load(f)
+    loaded = yaml.safe_load(path.read_text())
     assert loaded is not None, f"{path} parsed to None"
     return loaded
 
@@ -11542,8 +11540,7 @@ def _compat_matrix_module() -> Any:
 
 
 def _load_nightly() -> dict[str, Any]:
-    with NIGHTLY_YML.open() as f:
-        return yaml.safe_load(f)
+    return yaml.safe_load(NIGHTLY_YML.read_text())
 
 
 @pytest.fixture()

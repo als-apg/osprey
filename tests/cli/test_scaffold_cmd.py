@@ -802,8 +802,7 @@ class TestPromptsUnclaim:
         )
         assert result.exit_code == 0, result.output
 
-        with open(project_dir / "config.yml") as f:
-            config = yaml.safe_load(f)
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
         user_owned = config.get("scaffold", {}).get("user_owned", [])
         assert "rules/safety" not in user_owned
 

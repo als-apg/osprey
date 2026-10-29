@@ -172,8 +172,7 @@ _PLAN_OUTPUT_REF_RE = re.compile(r"steps\.plan\.outputs\.([A-Za-z_][A-Za-z0-9_]*
 
 
 def _load_workflow() -> dict[str, Any]:
-    with DOCS_YML.open() as f:
-        loaded = yaml.safe_load(f)
+    loaded = yaml.safe_load(DOCS_YML.read_text())
     assert loaded is not None, f"{DOCS_YML} parsed to None"
     return loaded
 
