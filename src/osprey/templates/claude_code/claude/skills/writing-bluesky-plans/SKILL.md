@@ -99,7 +99,7 @@ is the orbit gone.
 The idiom, per device (`orm`'s `build_plan` is the worked version):
 
 ```python
-working_point = float((yield from bps.locate(device))["setpoint"])   # before the try
+working_point = float((yield from bps.loc(device))["setpoint"])   # before the try
 try:
     for step in steps:                               # steps are OFFSETS
         yield from bps.mv(device, working_point + step)
@@ -108,9 +108,11 @@ finally:
     yield from bps.mv(device, working_point)         # never a literal
 ```
 
-`bps.locate` answers `{setpoint, readback}`: where the device was told to go
-and where it is. The working point is the setpoint, because the restore is a
-setpoint write: it restores what was demanded, not a noisy sample.
+`bps.loc` answers `{setpoint, readback}`: where the device was told to go
+and where it is. (`bps.locate` answers the same for several devices at once,
+keyed by device name, so indexing its answer with `"setpoint"` fails.) The
+working point is the setpoint, because the restore is a setpoint write: it
+restores what was demanded, not a noisy sample.
 
 The read bundle holds the moved device **and** the channels it reads. A
 reading only means something next to the setting it was taken at, so a run
