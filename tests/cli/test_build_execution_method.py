@@ -18,13 +18,9 @@ import logging
 from pathlib import Path
 
 import pytest
-import yaml
-from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey_connectors import config as config_module
-
-CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
+from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 PROFILE = """\
 extends: hello-world
@@ -50,12 +46,12 @@ def _build_repo(tmp_path: Path, monkeypatch, override: str):
     (repo / "data").mkdir(exist_ok=True)
     (repo / "profile.yml").write_text(PROFILE.format(override=override))
     monkeypatch.chdir(repo)
-    result = CliRunner().invoke(build, CI_FLAGS)
+    result = invoke_build()
     return repo, result
 
 
 def _rendered_method(repo: Path) -> str:
-    config = yaml.safe_load((repo / "build" / "config.yml").read_text())
+    config = rendered_config(repo)
     return config["execution"]["execution_method"]
 
 

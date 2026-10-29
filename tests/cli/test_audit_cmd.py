@@ -11,7 +11,6 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import click
 import pytest
-from click.testing import CliRunner
 
 from osprey.cli.audit_cmd import _detect_target_type, _extract_json, _list_files
 from osprey.cli.audit_prompts import AuditFinding, AuditReport
@@ -19,11 +18,6 @@ from osprey.cli.audit_prompts import AuditFinding, AuditReport
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def runner():
-    return CliRunner()
 
 
 @pytest.fixture

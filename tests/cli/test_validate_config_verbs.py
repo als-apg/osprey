@@ -53,11 +53,6 @@ data: data
 
 
 @pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
-@pytest.fixture
 def repo(tmp_path: Path) -> Path:
     """A deployment repo: a directory with a valid ``profile.yml`` at its root."""
     root = tmp_path / "als-assistant"

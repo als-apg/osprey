@@ -32,6 +32,7 @@ from osprey.cli.build_profile_schema import BlueskyConfig
 from osprey.cli.profile_cmd import validate as profile_validate
 from osprey.port_layout import default_port
 from osprey_connectors.errors import BuildProfileError
+from tests._text import flat
 
 #: A port an author pinned by hand, one block above the layout's own. What these
 #: tests pin is that an AUTHORED number survives parsing and merging, so the
@@ -42,34 +43,12 @@ AUTHORED_PORT = default_port("bluesky") + 1000
 AUTHORED_TILED_PORT = AUTHORED_PORT + 1
 
 
-@pytest.fixture(autouse=True)
-def _facility_data_tree(tmp_path: Path) -> None:
-    """The tree every profile's ``data:`` key names, beside the profile.
-
-    ``data:`` is required of a repo profile and must resolve to a real
-    directory, so without this each profile below would report one extra
-    failure about a key none of these tests is about.
-    """
-    (tmp_path / "data").mkdir(exist_ok=True)
-
-
-def _flat(text: str) -> str:
-    """Collapse whitespace so assertions survive terminal line wrapping."""
-    return " ".join(text.split())
+pytestmark = pytest.mark.usefixtures("facility_data_tree")
 
 
 def _write_yaml(path: Path, body: dict[str, Any]) -> Path:
     path.write_text(yaml.safe_dump(body, sort_keys=False), encoding="utf-8")
     return path
-
-
-@pytest.fixture
-def fake_presets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A preset directory the test owns, replacing the bundled one."""
-    presets = tmp_path / "presets"
-    presets.mkdir()
-    monkeypatch.setattr(build_profile_presets, "_presets_dir", lambda: presets)
-    return presets
 
 
 # ── the known set is derived, not hand-maintained ────────────────────────────
@@ -323,7 +302,7 @@ def test_profile_validate_exits_non_zero(tmp_path: Path) -> None:
     result = CliRunner().invoke(profile_validate, [str(profile)])
 
     assert result.exit_code != 0
-    assert "'demo_runner'" in _flat(result.output)
+    assert "'demo_runner'" in flat(result.output)
 
 
 # ── inheritance sees the merged block ────────────────────────────────────────

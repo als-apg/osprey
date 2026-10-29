@@ -41,21 +41,19 @@ either half alone would be satisfiable by breaking the other.
 from __future__ import annotations
 
 import json
-import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
-from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build as build_command
 from osprey.deployment import status_display
 from osprey.deployment.reach import reach_errors
 from osprey.mcp_server.control_system.connector_host_manager import target_display_metadata
 from osprey_connectors.standin import archive_belongs_to_standin
 from osprey_connectors.write_target import KIND_BANNERS
+from tests.cli._lifecycle_build import invoke_build_in
 from tests.fixtures.lifecycle_repo import (
     EXEMPLAR_DIRNAME,
     build_exemplar_repo,
@@ -64,8 +62,6 @@ from tests.fixtures.lifecycle_repo import (
 
 #: Every test here renders a deployment and its renders for real.
 pytestmark = pytest.mark.slow
-
-CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
 
 STANDIN_PORT = 5074
 
@@ -111,13 +107,8 @@ def _build_exemplar(dest: Path, *, standin: int | None) -> Path:
     with profile_path.open("w", encoding="utf-8") as handle:
         ruamel.dump(profile, handle)
 
-    previous = Path.cwd()
-    os.chdir(repo)
-    try:
-        with preserved_environ():
-            result = CliRunner().invoke(build_command, CI_FLAGS)
-    finally:
-        os.chdir(previous)
+    with preserved_environ():
+        result = invoke_build_in(repo)
     assert result.exit_code == 0, result.output
     return repo
 

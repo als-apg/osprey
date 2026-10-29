@@ -15,6 +15,7 @@ import subprocess
 import pytest
 
 from osprey.deployment import container_lifecycle
+from tests.deployment._dotenv import project_env, read_dotenv
 
 # Every var any service declares, so the scoping tests below cannot silently
 # stop covering a var that gets added later.
@@ -22,33 +23,9 @@ _NON_TILED_VARS = ("BLUESKY_LAUNCH_TOKEN", "EVENT_DISPATCHER_TOKEN", "DISPATCH_W
 
 
 @pytest.fixture
-def captured_argv(monkeypatch, tmp_path):
+def captured_argv(stub_deploy_up):
     """Patch deploy_up's collaborators for a project with only 'bluesky' deployed."""
-    captured: dict = {}
-
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        container_lifecycle,
-        "prepare_compose_files",
-        lambda *a, **k: ({"deployed_services": ["bluesky"]}, ["docker-compose.yml"]),
-    )
-    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
-    monkeypatch.setattr(
-        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
-    )
-
-    def _fake_run(cmd, **kwargs):
-        captured["cmd"] = cmd
-        # run_captured hangs its spool path off the result, so the stand-in has
-        # to be an object, and it passes redirection kwargs this ignores.
-        return subprocess.CompletedProcess(list(cmd), 0)
-
-    # Stubbed at `run_captured`, the one seam every deploy child goes through:
-    # a watched capture (the image builds pass `on_line=`) reads its child
-    # through a pipe instead of `subprocess.run`, so a `subprocess.run` stub
-    # would be walked straight past and this test would run a real build.
-    monkeypatch.setattr(container_lifecycle, "run_captured", _fake_run)
-    return captured
+    return stub_deploy_up({"deployed_services": ["bluesky"]})
 
 
 @pytest.fixture
@@ -64,21 +41,11 @@ def _clean_token_env(monkeypatch):
     monkeypatch.delenv("ARIEL_DSN", raising=False)
 
 
-def _parse_dotenv(path):
-    from osprey_connectors.dotenv import parse_dotenv_file
-
-    return parse_dotenv_file(path) if path.is_file() else {}
-
-
-def _parse_env(tmp_path):
-    return _parse_dotenv(tmp_path / ".env")
-
-
 @pytest.mark.usefixtures("captured_argv")
 def test_bluesky_deploy_generates_launch_token(_clean_token_env, tmp_path):
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
 
-    env = _parse_env(tmp_path)
+    env = project_env(tmp_path)
     assert env.get("BLUESKY_LAUNCH_TOKEN")
     # token_urlsafe(32) → ~43 url-safe chars
     assert len(env["BLUESKY_LAUNCH_TOKEN"]) >= 40
@@ -96,7 +63,7 @@ def test_bluesky_deploy_generates_tiled_api_key(_clean_token_env, tmp_path):
     """
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
 
-    env = _parse_env(tmp_path)
+    env = project_env(tmp_path)
     assert env.get("BLUESKY_TILED_API_KEY")
     assert len(env["BLUESKY_TILED_API_KEY"]) >= 40
     assert env["BLUESKY_TILED_API_KEY"] != env["BLUESKY_LAUNCH_TOKEN"]
@@ -105,9 +72,9 @@ def test_bluesky_deploy_generates_tiled_api_key(_clean_token_env, tmp_path):
 @pytest.mark.usefixtures("captured_argv")
 def test_bluesky_token_generation_is_idempotent(_clean_token_env, tmp_path):
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
-    first = _parse_env(tmp_path)
+    first = project_env(tmp_path)
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
-    second = _parse_env(tmp_path)
+    second = project_env(tmp_path)
 
     assert first["BLUESKY_LAUNCH_TOKEN"] == second["BLUESKY_LAUNCH_TOKEN"]
     assert first["BLUESKY_TILED_API_KEY"] == second["BLUESKY_TILED_API_KEY"]
@@ -123,7 +90,7 @@ def test_bluesky_existing_env_token_is_preserved(_clean_token_env, tmp_path):
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
-    env = _parse_env(tmp_path)
+    env = project_env(tmp_path)
     assert env["BLUESKY_LAUNCH_TOKEN"] == "my-real-token"  # untouched
 
 
@@ -133,7 +100,7 @@ def test_bluesky_process_env_token_not_written_to_dotenv(monkeypatch, tmp_path):
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
-    env = _parse_env(tmp_path)
+    env = project_env(tmp_path)
     # A token resolvable from the process env is not duplicated into .env.
     assert "BLUESKY_LAUNCH_TOKEN" not in env
 
@@ -159,7 +126,7 @@ def test_an_empty_dotenv_token_is_minted_on_the_default_loopback_deploy(
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
-    env = _parse_env(tmp_path)
+    env = project_env(tmp_path)
     assert env["BLUESKY_LAUNCH_TOKEN"], "the empty launch token was left empty"
     assert env["BLUESKY_TILED_API_KEY"].isalnum()
 
@@ -207,7 +174,7 @@ def test_bluesky_alongside_dispatch_mints_both_independently(
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
-    env = _parse_env(tmp_path)
+    env = project_env(tmp_path)
     assert env.get("EVENT_DISPATCHER_TOKEN")
     assert env.get("DISPATCH_WORKER_TOKEN")
     assert env.get("BLUESKY_LAUNCH_TOKEN")
@@ -285,7 +252,7 @@ def test_ensure_service_tokens_writes_an_alphanumeric_tiled_key_every_time(
     for i in range(50):
         env_path = tmp_path / f"{i}.env"
         container_lifecycle._ensure_service_tokens(config, expose_network=False, env_path=env_path)
-        key = _parse_dotenv(env_path)["BLUESKY_TILED_API_KEY"]
+        key = read_dotenv(env_path)["BLUESKY_TILED_API_KEY"]
         assert key.isalnum(), f"mint {i} produced a Tiled-rejecting key: {key!r}"
 
 
@@ -348,7 +315,7 @@ def test_deploy_up_routes_each_var_through_its_own_generator(
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
-    env = _parse_env(tmp_path)
+    env = project_env(tmp_path)
     assert env["BLUESKY_TILED_API_KEY"] == "sentinelhexvalue"
     assert env["BLUESKY_LAUNCH_TOKEN"] == "sentinel-urlsafe_value"
 
@@ -404,7 +371,7 @@ def test_ensure_service_tokens_passes_for_a_freshly_minted_tiled_key(tmp_path, _
 
     container_lifecycle._ensure_service_tokens(config, expose_network=False, env_path=env_path)
 
-    env = _parse_dotenv(env_path)
+    env = read_dotenv(env_path)
     assert env["BLUESKY_TILED_API_KEY"].isalnum()
 
 
@@ -478,7 +445,7 @@ def test_ensure_service_tokens_passes_a_clean_ariel_dsn(tmp_path):
     container_lifecycle._ensure_service_tokens(config, expose_network=False, env_path=env_path)
 
     # No RuntimeError raised, and the clean DSN was left untouched.
-    assert _parse_dotenv(env_path)["ARIEL_DSN"] == dsn
+    assert read_dotenv(env_path)["ARIEL_DSN"] == dsn
 
 
 def test_ensure_service_tokens_never_mints_or_fabricates_ariel_dsn(tmp_path, _clean_token_env):
@@ -491,7 +458,7 @@ def test_ensure_service_tokens_never_mints_or_fabricates_ariel_dsn(tmp_path, _cl
 
     container_lifecycle._ensure_service_tokens(config, expose_network=False, env_path=env_path)
 
-    env = _parse_dotenv(env_path)
+    env = read_dotenv(env_path)
     assert "ARIEL_DSN" not in env
     # The real service tokens still mint normally alongside the no-op.
     assert env.get("BLUESKY_LAUNCH_TOKEN")
