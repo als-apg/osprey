@@ -38,6 +38,7 @@ against real files in ``tmp_path``.
 
 from __future__ import annotations
 
+import functools
 import os
 
 import pytest
@@ -49,6 +50,7 @@ from osprey_connectors_tests._harness import (
     write_control_context,
     write_server_report,
 )
+from tests.hooks.conftest import ask_reason
 
 LIVE_ENDPOINT = "pva://live-gw.example.org:5075"
 VA_ENDPOINT = "pva://127.0.0.1:5074"
@@ -87,26 +89,6 @@ DRAFT_ROUTE = {"draft": {"plan_name": "orbit_scan", "plan_args": {}}, "revision"
 # ---------------------------------------------------------------------------
 # fixtures
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def approval(hook_module, monkeypatch):
-    """The `osprey_approval` module, imported through the test seam."""
-    module = hook_module("osprey_approval")
-    # Lane 1's URL must come from the config under test, not from a variable a
-    # developer happens to export.
-    monkeypatch.delenv("BLUESKY_BRIDGE_URL", raising=False)
-    monkeypatch.delenv("BLUESKY_VA_BRIDGE_URL", raising=False)
-    monkeypatch.delenv("BLUESKY_LIVE_BRIDGE_URL", raising=False)
-    return module
-
-
-@pytest.fixture
-def reader(approval):
-    """The reader module the hook actually bound at import time."""
-    module = approval._target_state
-    assert module is not None, "the approval hook did not bind osprey_target_state"
-    return module
 
 
 @pytest.fixture
@@ -161,33 +143,13 @@ def write_state(root, target="va", targets=None):
 
 
 @pytest.fixture
-def bridge_calls():
-    """Recorder for the (base_url, path) pairs the describers ask for."""
-    return []
+def fake_bridge(fake_bridge):
+    """The shared routing table, answering both bridge verbs.
 
-
-@pytest.fixture
-def fake_bridge(approval, bridge_calls, monkeypatch):
-    """Replace both bridge verbs with a routing table that records its callers.
-
-    Recording the base URL is the point: on a two-lane deployment the prompt is
-    only honest if the queue it lists came from the lane it named, and the URL
-    is the only evidence of that.
+    Recording the base URL is the point here: on a two-lane deployment the
+    prompt is only honest if the queue it lists came from the lane it named.
     """
-
-    def _install(routes: dict[str, object]):
-        def _get(base_url, path, _timeout=3.0):
-            bridge_calls.append((base_url, path))
-            return routes.get(path)
-
-        def _post(base_url, path, _body, _timeout):
-            bridge_calls.append((base_url, path))
-            return routes.get(path)
-
-        monkeypatch.setattr(approval, "_bridge_get_json", _get)
-        monkeypatch.setattr(approval, "_bridge_post_json", _post)
-
-    return _install
+    return functools.partial(fake_bridge, post=True)
 
 
 def single_lane_config(*, with_services=True):
@@ -744,13 +706,6 @@ def _config_with(make_config, extra):
     return make_config(config)
 
 
-def _reason(result):
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-    return output["permissionDecisionReason"]
-
-
 def test_end_to_end_a_mismatched_start_reaches_the_human(tmp_path, hook_runner, make_config):
     """The whole path — real config, real state file, real subprocess, no bridge
     listening anywhere — still puts the mismatch in front of the approver."""
@@ -769,7 +724,7 @@ def test_end_to_end_a_mismatched_start_reaches_the_human(tmp_path, hook_runner, 
         hook_config=END_TO_END_HOOK_CONFIG,
     )
 
-    reason = _reason(result)
+    reason = ask_reason(result)
     assert "LANE MISMATCH" in reason
     assert f"the 'bluesky_live' lane serves {LIVE_PHRASE}" in reason
     assert f"the deployment is on the {VA_PHRASE} target" in reason
@@ -795,7 +750,7 @@ def test_end_to_end_a_single_lane_start_says_nothing_about_lanes(
         hook_config=END_TO_END_HOOK_CONFIG,
     )
 
-    reason = _reason(result)
+    reason = ask_reason(result)
     assert START_HEADLINE in reason
     assert "lane" not in reason.lower()
 
@@ -817,4 +772,4 @@ def test_end_to_end_the_hook_survives_garbage_everywhere(tmp_path, hook_runner, 
         hook_config=END_TO_END_HOOK_CONFIG,
     )
 
-    assert "Tool: queue_add" in _reason(result)
+    assert "Tool: queue_add" in ask_reason(result)

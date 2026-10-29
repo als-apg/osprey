@@ -88,7 +88,6 @@ import os
 import shutil
 import socket
 import subprocess
-import sys
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -98,21 +97,15 @@ import pytest
 import yaml
 
 from osprey.deployment.compose_generator import resolve_project_name
+from tests.e2e._deploy_support import (
+    RUNTIME,
+    find_osprey_console_script,
+    format_failure,
+    runtime_cli,
+)
 from tests.e2e.profile_edits import set_pairs
 
 pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.dockerbuild]
-
-# ---------------------------------------------------------------------------
-# Container runtime selection — ``docker`` by default, ``podman`` opt-in via
-# OSPREY_E2E_RUNTIME (the CI two-shape lane sets it). Any other value fails
-# clearly at collection time rather than silently falling back to docker.
-# ---------------------------------------------------------------------------
-_SUPPORTED_RUNTIMES = ("docker", "podman")
-RUNTIME = os.environ.get("OSPREY_E2E_RUNTIME", "docker")
-if RUNTIME not in _SUPPORTED_RUNTIMES:
-    raise RuntimeError(
-        f"OSPREY_E2E_RUNTIME={RUNTIME!r} is not supported; expected one of {_SUPPORTED_RUNTIMES}"
-    )
 
 # ---------------------------------------------------------------------------
 # Fixture identity. The deployment repo's directory name IS the deployment's
@@ -177,23 +170,6 @@ BRIDGE, HOST = "bridge", "host"
 # ---------------------------------------------------------------------------
 
 
-def _find_osprey_console_script() -> Path:
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError("Could not locate the 'osprey' console script.")
-
-
-def _runtime_cli(*args: str, timeout: int = 30) -> subprocess.CompletedProcess:
-    """Run one runtime CLI call. Deliberately does NOT swallow a timeout: a
-    daemon that stops answering is a fact worth surfacing, not a false negative.
-    """
-    return subprocess.run([RUNTIME, *args], capture_output=True, text=True, timeout=timeout)
-
-
 def _runtime_cli_safe(*args: str, timeout: int = 60) -> None:
     """Teardown-only: best-effort, never raises.
 
@@ -202,7 +178,7 @@ def _runtime_cli_safe(*args: str, timeout: int = 60) -> None:
     swallowed error means "already gone / never created".
     """
     with contextlib.suppress(subprocess.SubprocessError, OSError):
-        _runtime_cli(*args, timeout=timeout)
+        runtime_cli(*args, timeout=timeout)
 
 
 def _run_osprey(
@@ -216,7 +192,7 @@ def _run_osprey(
 
     ``CONTAINER_RUNTIME`` outranks the rendered ``container_runtime:``, so
     forcing it to ``RUNTIME`` couples the deploy-side runtime to the
-    assert-side ``_runtime_cli`` runtime regardless of what the ambient
+    assert-side ``runtime_cli`` runtime regardless of what the ambient
     environment sets.
     """
     return subprocess.run(
@@ -229,24 +205,13 @@ def _run_osprey(
     )
 
 
-def _fmt(label: str, result: subprocess.CompletedProcess) -> str:
-    return (
-        f"{label} failed (rc={result.returncode}):\n"
-        f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
-    )
-
-
 def _inspect(name: str, fmt: str) -> str | None:
-    result = _runtime_cli("inspect", "--type", "container", "-f", fmt, name, timeout=15)
+    result = runtime_cli("inspect", "--type", "container", "-f", fmt, name, timeout=15)
     return result.stdout.strip() if result.returncode == 0 else None
 
 
 def _container_id(name: str) -> str | None:
     return _inspect(name, "{{.Id}}")
-
-
-def _volume_exists(name: str) -> bool:
-    return _runtime_cli("volume", "inspect", name, timeout=15).returncode == 0
 
 
 #: Docker spells the healthcheck block ``.State.Health``; podman has historically used
@@ -316,7 +281,7 @@ def _dump_diagnostics(context: str) -> str:
             # reason — health is advisory on both paths.
             health = f"(no health field in {RUNTIME}'s inspect output)"
         lines.append(f"--- {name}: {status} health={health}")
-        logs = _runtime_cli("logs", "--tail", "40", name, timeout=30)
+        logs = runtime_cli("logs", "--tail", "40", name, timeout=30)
         tail = ((logs.stdout or "") + (logs.stderr or "")).strip() or "(no logs)"
         lines.append(tail)
     return "\n".join(lines)
@@ -385,10 +350,12 @@ def _http_in_container(
     while a container in that same namespace reaches it exactly as the
     dispatcher's own healthcheck does.
     """
-    result = _runtime_cli(
+    result = runtime_cli(
         "exec", container, "python", "-c", _HTTP_PROBE, url, method, TOKEN, body, timeout=60
     )
-    assert result.returncode == 0, _fmt(f"http probe in {container} ({method} {url})", result)
+    assert result.returncode == 0, format_failure(
+        f"http probe in {container} ({method} {url})", result
+    )
     status_line, _, payload = result.stdout.partition("\n")
     return int(status_line.strip()), payload
 
@@ -398,8 +365,8 @@ def _container_env_var(container: str, name: str) -> str:
     when unset). Read through python rather than ``printenv`` so the probe does
     not depend on which coreutils the base image ships.
     """
-    result = _runtime_cli("exec", container, "python", "-c", _GETENV_PROBE, name, timeout=30)
-    assert result.returncode == 0, _fmt(f"env probe {name} in {container}", result)
+    result = runtime_cli("exec", container, "python", "-c", _GETENV_PROBE, name, timeout=30)
+    assert result.returncode == 0, format_failure(f"env probe {name} in {container}", result)
     return result.stdout.strip()
 
 
@@ -429,8 +396,8 @@ def _listen_addresses(container: str, port: int) -> set[str]:
     claim this supports is "port *port* is loopback-only in the namespace", which
     is the operator-facing fact; it is not "this process bound it".
     """
-    result = _runtime_cli("exec", container, "python", "-c", _LISTEN_PROBE, timeout=30)
-    assert result.returncode == 0, _fmt(f"listening-socket probe in {container}", result)
+    result = runtime_cli("exec", container, "python", "-c", _LISTEN_PROBE, timeout=30)
+    assert result.returncode == 0, format_failure(f"listening-socket probe in {container}", result)
 
     addresses: set[str] = set()
     for row in result.stdout.splitlines():
@@ -469,7 +436,7 @@ def _wait_for_service_ready(container: str, url: str, timeout: float) -> None:
         if _container_id(container) is None:
             last = "(container not present)"
         else:
-            result = _runtime_cli(
+            result = runtime_cli(
                 "exec", container, "python", "-c", _HTTP_PROBE, url, "GET", TOKEN, "", timeout=60
             )
             if result.returncode == 0:
@@ -554,7 +521,7 @@ def _require_responsive_runtime() -> None:
     if shutil.which(RUNTIME) is None:
         pytest.skip(f"{RUNTIME} not available")
     try:
-        info = _runtime_cli("info", timeout=60)
+        info = runtime_cli("info", timeout=60)
     except subprocess.TimeoutExpired as exc:
         raise AssertionError(
             f"`{RUNTIME} info` did not return within 60s. The daemon is present but "
@@ -690,7 +657,7 @@ def dispatch_repo(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     are what differs between the two runs.
     """
     _require_responsive_runtime()
-    osprey_bin = _find_osprey_console_script()
+    osprey_bin = find_osprey_console_script()
 
     base = tmp_path_factory.mktemp("two_shape_boot")
     repo = base / PROJECT_NAME
@@ -707,7 +674,7 @@ def dispatch_repo(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         base,
         timeout=INIT_TIMEOUT_SEC,
     )
-    assert init.returncode == 0, _fmt("osprey init", init)
+    assert init.returncode == 0, format_failure("osprey init", init)
 
     shared_path = repo / ".env.shared"
     assert shared_path.is_file(), "osprey init did not author the repo's .env.shared"
@@ -747,7 +714,7 @@ def booted_shape(request: pytest.FixtureRequest, dispatch_repo: Path) -> Iterato
     compete for the same host ports.
     """
     shape = request.param
-    osprey_bin = _find_osprey_console_script()
+    osprey_bin = find_osprey_console_script()
 
     _set_dispatch_network(dispatch_repo / "profile.yml", shape)
     build = _run_osprey(
@@ -756,14 +723,14 @@ def booted_shape(request: pytest.FixtureRequest, dispatch_repo: Path) -> Iterato
         dispatch_repo,
         timeout=BUILD_TIMEOUT_SEC,
     )
-    assert build.returncode == 0, _fmt(f"osprey build ({shape})", build)
+    assert build.returncode == 0, format_failure(f"osprey build ({shape})", build)
     _assert_render_is_shape(dispatch_repo, shape)
 
     _assert_ports_free(DISPATCHER_PORT, WORKER_PORT)
 
     try:
         up = _run_osprey(osprey_bin, ["up", "-d", "--dev"], dispatch_repo, timeout=UP_TIMEOUT_SEC)
-        assert up.returncode == 0, _fmt(f"osprey up ({shape})", up)
+        assert up.returncode == 0, format_failure(f"osprey up ({shape})", up)
 
         for container, health_url in (
             (DISPATCHER_CONTAINER, f"http://localhost:{DISPATCHER_PORT}/health"),

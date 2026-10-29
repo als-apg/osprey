@@ -48,16 +48,13 @@ import os
 import shutil
 import socket
 import subprocess
-import sys
-import time
-import urllib.error
-import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import yaml
 
+from tests.e2e._deploy_support import find_osprey_console_script, format_failure, wait_for_health
 from tests.e2e._facility_select import corrector_addresses, monitor_addresses, repo_view
 from tests.e2e.profile_edits import set_pairs
 from tests.e2e.provider import forced_model
@@ -509,23 +506,6 @@ def build_via_cli_runner(
     return repo / "build"
 
 
-def find_osprey_console_script() -> Path:
-    """Locate the ``osprey`` console script for subprocess invocations.
-
-    Centralized here since every real-container e2e that builds this stack
-    (task 5.2, and the agentic e2e in 5.3/5.4) needs it, mirroring the
-    identical helper duplicated in test_va_substrate_equivalence.py /
-    test_tiled_roundtrip.py / test_bluesky_deploy.py.
-    """
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError("Could not locate the 'osprey' console script.")
-
-
 def build_project_subprocess(
     project_name: str,
     *,
@@ -588,10 +568,7 @@ def build_project_subprocess(
             env={**os.environ, "CLAUDECODE": ""},
         )
         if result.returncode != 0:
-            raise RuntimeError(
-                f"{label} failed (rc={result.returncode}):\n"
-                f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
-            )
+            raise RuntimeError(format_failure(label, result))
 
     run_step("osprey init", cmd)
     if pre_build is not None:
@@ -662,23 +639,6 @@ def minted_launch_token(project_dir: Path) -> str:
         "mints it for every deployed service that declares it"
     )
     return token
-
-
-def wait_for_health(url: str, timeout: float) -> None:
-    """Poll ``url`` until it answers HTTP 200, or fail after ``timeout``
-    seconds with the last error seen."""
-    deadline = time.monotonic() + timeout
-    last_err = "(no response yet)"
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # localhost
-                if resp.status == 200:
-                    return
-                last_err = f"HTTP {resp.status}"
-        except (urllib.error.URLError, ConnectionError, OSError) as exc:
-            last_err = str(exc)
-        time.sleep(1.0)
-    raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
 
 
 #: The bridge's compose SERVICE name -- the key under ``services:`` in
@@ -811,10 +771,7 @@ def restart_bridge(
         timeout=RESTART_TIMEOUT_SEC,
     )
     if restart.returncode != 0:
-        raise AssertionError(
-            f"compose restart {BRIDGE_SERVICE} failed (rc={restart.returncode}):\n"
-            f"--- stdout ---\n{restart.stdout}\n--- stderr ---\n{restart.stderr}"
-        )
+        raise AssertionError(format_failure(f"compose restart {BRIDGE_SERVICE}", restart))
 
     started_after = _container_started_at(container)
     if started_after == started_before:

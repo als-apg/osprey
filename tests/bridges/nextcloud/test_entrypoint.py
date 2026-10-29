@@ -35,9 +35,10 @@ from osprey.bridges.nextcloud_talk import (
     RoomTypeUnresolved,
 )
 from osprey.bridges.nextcloud_talk import __main__ as entry
-from osprey.bridges.nextcloud_talk.client import LAST_GIVEN_HEADER, ROOM_TYPE_ONE_TO_ONE
+from osprey.bridges.nextcloud_talk.client import ROOM_TYPE_ONE_TO_ONE
 from osprey.bridges.nextcloud_talk.ops import ACK_TEXT, NextcloudTalkOps
 from osprey.bridges.nextcloud_talk.poller import RoomPoller
+from tests.bridges.nextcloud.conftest import ocs
 
 ROOM = "roomA"
 OTHER_ROOM = "roomB"
@@ -150,15 +151,6 @@ def _env(monkeypatch, tmp_path, **overrides):
             monkeypatch.setenv(name, value)
 
 
-def _ocs(data, *, last_given=None):
-    headers = {} if last_given is None else {LAST_GIVEN_HEADER: str(last_given)}
-    return httpx.Response(
-        200,
-        json={"ocs": {"meta": {"status": "ok", "statuscode": 200}, "data": data}},
-        headers=headers,
-    )
-
-
 def _message(message_id, text):
     """A minimal Talk chat message in a one-to-one room (so no mention is needed)."""
     return {
@@ -200,14 +192,14 @@ class FakeNextcloud:
             payload = {"type": self.room_type, "displayName": "Ops"}
             if self.last_message_id is not None:
                 payload["lastMessage"] = {"id": self.last_message_id}
-            return _ocs(payload)
+            return ocs(payload)
 
         if request.method == "POST":
             text = httpx.QueryParams(request.content.decode())["message"]
             self.timeline.append(f"post:{text}")
             if self.posts_expected is not None and len(self.posted) >= self.posts_expected:
                 self.reached.set()
-            return _ocs({"id": 900 + len(self.posted)})
+            return ocs({"id": 900 + len(self.posted)})
 
         self.timeline.append("poll:" + request.url.params["lastKnownMessageId"])
         batch = self.chat.pop(0) if self.chat else None
@@ -215,7 +207,7 @@ class FakeNextcloud:
             # Talk's 304: the ordinary idle outcome. Answered for every further poll, so
             # the loop under test idles instead of replaying the script.
             return httpx.Response(httpx.codes.NOT_MODIFIED)
-        return _ocs(batch, last_given=max(item["id"] for item in batch))
+        return ocs(batch, last_given=max(item["id"] for item in batch))
 
 
 class FakePair:

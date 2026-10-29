@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from tests.hooks.conftest import pending_review_items
 
 # -- Helpers ------------------------------------------------------------------
 
@@ -28,21 +28,6 @@ def _hook_extra(tmp_path):
         "session_id": "test-session",
         "transcript_path": "/tmp/transcript.jsonl",
     }
-
-
-def _pending_items(tmp_path):
-    """Read items from pending_reviews.json, return dict or empty.
-
-    The store lives under the agent-data root — it is written while the agent
-    runs, and a project's ``data/`` tree is build-owned while ``build/`` is
-    re-rendered by every build. No config names a ``base_dir`` in these runs,
-    so the hook resolves the framework default the helper reads.
-    """
-    store = tmp_path / DEFAULT_AGENT_DATA_BASE_DIR / "feedback" / "pending_reviews.json"
-    if not store.exists():
-        return {}
-    data = json.loads(store.read_text())
-    return data.get("items", {})
 
 
 def _setup_subagent_transcript(tmp_path, main_name, subagent_content):
@@ -90,7 +75,7 @@ class TestFeedbackCaptureResultUnwrapping:
             hook_input_extra=_hook_extra(tmp_path),
         )
 
-        items = _pending_items(tmp_path)
+        items = pending_review_items(tmp_path)
         assert len(items) >= 1, f"Expected captured item, got: {items}"
         item = next(iter(items.values()))
         assert item["channel_count"] == 3
@@ -110,7 +95,7 @@ class TestFeedbackCaptureResultUnwrapping:
             hook_input_extra=_hook_extra(tmp_path),
         )
 
-        items = _pending_items(tmp_path)
+        items = pending_review_items(tmp_path)
         assert len(items) >= 1
         item = next(iter(items.values()))
         assert item["channel_count"] == 5
@@ -128,7 +113,7 @@ class TestFeedbackCaptureResultUnwrapping:
             hook_input_extra=_hook_extra(tmp_path),
         )
 
-        items = _pending_items(tmp_path)
+        items = pending_review_items(tmp_path)
         assert len(items) >= 1
         item = next(iter(items.values()))
         assert item["channel_count"] == 1
@@ -146,7 +131,7 @@ class TestFeedbackCaptureResultUnwrapping:
             hook_input_extra=_hook_extra(tmp_path),
         )
 
-        items = _pending_items(tmp_path)
+        items = pending_review_items(tmp_path)
         assert len(items) >= 1
         item = next(iter(items.values()))
         assert item["channel_count"] == 2
@@ -184,7 +169,7 @@ class TestFeedbackCaptureAgentTask:
             },
         )
 
-        items = _pending_items(tmp_path)
+        items = pending_review_items(tmp_path)
         assert len(items) >= 1
         item = next(iter(items.values()))
         # Must be the sub-agent delegation prompt, NOT "Original operator question"
@@ -206,7 +191,7 @@ class TestFeedbackCaptureAgentTask:
             },
         )
 
-        items = _pending_items(tmp_path)
+        items = pending_review_items(tmp_path)
         assert len(items) >= 1
         item = next(iter(items.values()))
         assert item["agent_task"] == ""
@@ -232,7 +217,7 @@ class TestFeedbackCaptureAgentTask:
             },
         )
 
-        items = _pending_items(tmp_path)
+        items = pending_review_items(tmp_path)
         assert len(items) >= 1
         item = next(iter(items.values()))
         assert item["agent_task"] == ""
@@ -262,7 +247,7 @@ class TestFeedbackCaptureAgentTask:
             },
         )
 
-        items = _pending_items(tmp_path)
+        items = pending_review_items(tmp_path)
         assert len(items) >= 1
         item = next(iter(items.values()))
         assert item["agent_task"] == "Find corrector magnets"
@@ -285,7 +270,7 @@ class TestFeedbackCaptureNoTotal:
             hook_input_extra=_hook_extra(tmp_path),
         )
 
-        items = _pending_items(tmp_path)
+        items = pending_review_items(tmp_path)
         assert len(items) == 0, f"Expected no items for total=0, got: {items}"
 
 
@@ -314,4 +299,4 @@ def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
     assert returncode == 0
     assert stdout.strip() == ""
     assert "Traceback" not in stderr
-    assert _pending_items(tmp_path) == {}
+    assert pending_review_items(tmp_path) == {}

@@ -49,6 +49,7 @@ from osprey_connectors_tests._harness import (
     write_payload,
     write_server_report,
 )
+from tests.hooks.conftest import ask_reason
 
 #: The exact line an approver must see whenever the target cannot be resolved.
 BASELINE_LINE = "Target: deployment baseline (state unavailable)"
@@ -96,25 +97,6 @@ HOOK_CONFIG = {
 # ---------------------------------------------------------------------------
 # fixtures / helpers
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def approval(hook_module):
-    """The `osprey_approval` module, imported through the test seam."""
-    return hook_module("osprey_approval")
-
-
-@pytest.fixture
-def reader(approval):
-    """The reader module the hook actually bound at import time.
-
-    Taken off the hook rather than imported here: the point of these tests is
-    that the hook's own binding resolves, and a separate import could pass while
-    the hook's sibling-import path was broken.
-    """
-    module = approval._target_state
-    assert module is not None, "the approval hook did not bind osprey_target_state"
-    return module
 
 
 @pytest.fixture
@@ -844,13 +826,6 @@ def _approval_config(make_config):
     )
 
 
-def _reason(result):
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-    return output["permissionDecisionReason"]
-
-
 def test_end_to_end_channel_write_prompt_names_the_live_machine(tmp_path, hook_runner, make_config):
     """The whole path: real state file, real parentage walk, real subprocess."""
     config = _approval_config(make_config)
@@ -865,7 +840,7 @@ def test_end_to_end_channel_write_prompt_names_the_live_machine(tmp_path, hook_r
         hook_config=HOOK_CONFIG,
     )
 
-    reason = _reason(result)
+    reason = ask_reason(result)
     assert f"Target: {REAL_WORDS} ({LIVE_ENDPOINT})" in reason
     assert "RING:QF:SP" in reason
 
@@ -884,7 +859,7 @@ def test_end_to_end_channel_write_prompt_names_the_simulation(tmp_path, hook_run
         hook_config=HOOK_CONFIG,
     )
 
-    assert f"Target: {SIM_WORDS}" in _reason(result)
+    assert f"Target: {SIM_WORDS}" in ask_reason(result)
 
 
 def test_end_to_end_a_non_write_tool_carries_the_baseline_line(tmp_path, hook_runner, make_config):
@@ -905,7 +880,7 @@ def test_end_to_end_a_non_write_tool_carries_the_baseline_line(tmp_path, hook_ru
         hook_config=HOOK_CONFIG,
     )
 
-    reason = _reason(result)
+    reason = ask_reason(result)
     assert BASELINE_LINE in reason
     assert "Tool: setup_patch" in reason
 
@@ -959,7 +934,7 @@ def test_end_to_end_switch_prompt_previews_the_destination(tmp_path, hook_runner
         hook_config=HOOK_CONFIG,
     )
 
-    reason = _reason(result)
+    reason = ask_reason(result)
     assert f"Target: {SIM_WORDS}" in reason
     assert f"Destination: {REAL_WORDS} ({LIVE_ENDPOINT})" in reason
     assert "Destination probe channel: RING:BEAM:CURRENT" in reason
@@ -1056,7 +1031,7 @@ def test_end_to_end_a_standin_pointing_elsewhere_prompts_as_the_real_machine(
     """A ``standin`` the server publishes as ``real`` never says "nothing moves"."""
     _write_standin_state(tmp_path, "standin", {"standin": "on"}, standin_kind="real")
 
-    reason = _reason(_channel_write_result(tmp_path, hook_runner, make_config))
+    reason = ask_reason(_channel_write_result(tmp_path, hook_runner, make_config))
 
     assert f"Target: {REAL_WORDS} ({STANDIN_ENDPOINT})" in reason
     assert "nothing moves" not in reason

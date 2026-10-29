@@ -24,6 +24,7 @@ from tests.e2e.sdk_helpers import (
     e2e_budget_scale,
     find_png_files,
     init_project,
+    print_run_summary,
     read_audit_events,
     run_sdk_query_with_hooks,
 )
@@ -98,14 +99,7 @@ class TestAuditObservability:
         )
 
         # -- Debug output --
-        print("\n--- audit + workflow test ---")
-        print(f"  tools called ({len(result.tool_traces)}): {result.tool_names}")
-        print(f"  num_turns: {result.num_turns}")
-        print(f"  cost: ${result.cost_usd:.4f}" if result.cost_usd else "  cost: N/A")
-        print(f"  approval events: {[(e.tool_name, e.decision) for e in result.hook_events]}")
-        print(
-            f"  errored tools: {[(t.name, str(t.result)[:80]) for t in result.tool_traces if t.is_error]}"
-        )
+        print_run_summary("audit + workflow test", result)
 
         # ================================================================
         # TIER 1: Functional assertions (the workflow worked)

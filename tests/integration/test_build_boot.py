@@ -30,7 +30,6 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 import time
 from pathlib import Path
@@ -38,6 +37,7 @@ from pathlib import Path
 import psutil
 import pytest
 
+from tests.e2e._deploy_support import find_osprey_console_script
 from tests.integration._mcp_handshake import (
     MCPHandshakeError,
     assert_tools_superset,
@@ -111,7 +111,7 @@ def build_outputs(
     """
     outputs: dict[str, Path] = {}
     base = tmp_path_factory.mktemp("preset_builds")
-    osprey_bin = _find_osprey_console_script()
+    osprey_bin = find_osprey_console_script()
 
     def _drop_project_venvs() -> None:
         for preset in PRESETS:
@@ -152,24 +152,6 @@ def build_outputs(
             pytest.fail(f"build succeeded but project dir missing: {project_dir}")
         outputs[preset] = project_dir
     return outputs
-
-
-def _find_osprey_console_script() -> Path:
-    """Locate the ``osprey`` console script for the active interpreter.
-
-    Prefers a sibling of ``sys.executable`` (works inside both venvs and
-    CI's ``setup-uv``). Falls back to ``shutil.which("osprey")``.
-    """
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError(
-        "Could not locate the 'osprey' console script. "
-        f"Tried {Path(sys.executable).parent / 'osprey'} and PATH."
-    )
 
 
 #: How long a child may go without consuming any CPU before the wait calls it
@@ -448,7 +430,7 @@ def test_skip_deps_command_resolves_importable_python(
     base = tmp_path_factory.mktemp(f"skipdeps_{preset}")
     repo = base / preset
     project_dir = repo / "build"
-    osprey_bin = _find_osprey_console_script()
+    osprey_bin = find_osprey_console_script()
     _init_repo(osprey_bin, repo, preset)
     proc = _run_to_completion(
         [

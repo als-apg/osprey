@@ -52,6 +52,7 @@ from osprey.bridges.google_chat.__main__ import (
 from osprey.bridges.google_chat.config import GoogleChatBridgeConfig
 from osprey.bridges.google_chat.events import GC_SPACE, GC_THREAD
 from osprey.bridges.google_chat.gcs import publish_artifacts, publish_documents
+from tests.bridges.conftest import recording_client
 
 SA_KEY = "/nonexistent/sa.json"
 SUBSCRIPTION = "projects/proj/subscriptions/gchat-events"
@@ -233,18 +234,10 @@ class FakeRuntime:
 
 
 def worker_route(body: bytes, content_type: str) -> tuple[httpx.Client, list[httpx.Request]]:
-    """A client serving the worker's byte route, plus the requests it was asked to make.
-
-    The request list is the assertion that matters: an injected client that the wiring
-    dropped on the floor records nothing, whatever the call happens to return.
-    """
-    seen: list[httpx.Request] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        return httpx.Response(200, content=body, headers={"content-type": content_type})
-
-    return httpx.Client(transport=httpx.MockTransport(handler)), seen
+    """A client serving the worker's byte route, plus the requests it was asked to make."""
+    return recording_client(
+        lambda _request: httpx.Response(200, content=body, headers={"content-type": content_type})
+    )
 
 
 # --- refusing an incomplete environment --------------------------------------

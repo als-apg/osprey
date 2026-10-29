@@ -15,8 +15,7 @@ import os
 import pytest
 
 from osprey.agent_record.contract import SPOOL_DIR_ENV
-from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
-from tests.hooks.conftest import hook_debug_records
+from tests.hooks.conftest import hook_debug_records, pending_review_items
 
 HOOK = "osprey_cf_feedback_capture.py"
 BUILD_CHANNELS = "mcp__channel-finder__build_channels"
@@ -72,13 +71,6 @@ def _session(root):
     return transcript, tool_results
 
 
-def _pending_items(repo):
-    store = repo / DEFAULT_AGENT_DATA_BASE_DIR / "feedback" / "pending_reviews.json"
-    if not store.exists():
-        return {}
-    return json.loads(store.read_text()).get("items", {})
-
-
 def _hook_log():
     """The hook debug entries this test's hook runs put on the record's spool.
 
@@ -124,8 +116,8 @@ class TestSavedOutputIsCaptured:
         _run(hook_runner, tmp_path / "inline", inline, transcript)
         _run(hook_runner, tmp_path / "oversize", _notice(saved, len(inline)), transcript)
 
-        inline_items = list(_pending_items(tmp_path / "inline").values())
-        oversize_items = list(_pending_items(tmp_path / "oversize").values())
+        inline_items = list(pending_review_items(tmp_path / "inline").values())
+        oversize_items = list(pending_review_items(tmp_path / "oversize").values())
         assert len(inline_items) == 1
         assert len(oversize_items) == 1
         assert _comparable(oversize_items[0]) == _comparable(inline_items[0])
@@ -140,7 +132,7 @@ class TestSavedOutputIsCaptured:
 
         _run(hook_runner, tmp_path / "repo", _notice(saved, 90_000), transcript)
 
-        items = list(_pending_items(tmp_path / "repo").values())
+        items = list(pending_review_items(tmp_path / "repo").values())
         assert len(items) == 1
         assert items[0]["channel_count"] == answer["total"]
 
@@ -152,7 +144,7 @@ class TestUnfollowableNoticeCapturesNothing:
 
         _run(hook_runner, tmp_path / "repo", _notice(saved, 90_000), transcript)
 
-        assert _pending_items(tmp_path / "repo") == {}
+        assert pending_review_items(tmp_path / "repo") == {}
         statuses = [r["status"] for r in _hook_log()]
         assert statuses == ["saved-output-unreadable"]
 
@@ -163,7 +155,7 @@ class TestUnfollowableNoticeCapturesNothing:
 
         _run(hook_runner, tmp_path / "repo", _notice(saved, 90_000), transcript)
 
-        assert _pending_items(tmp_path / "repo") == {}
+        assert pending_review_items(tmp_path / "repo") == {}
         statuses = [r["status"] for r in _hook_log()]
         assert statuses == ["saved-output-unreadable"]
 
@@ -196,7 +188,7 @@ class TestUnfollowableNoticeCapturesNothing:
 
         _run(hook_runner, tmp_path / "repo", _notice(paths[where], 90_000), transcript)
 
-        assert _pending_items(tmp_path / "repo") == {}
+        assert pending_review_items(tmp_path / "repo") == {}
         statuses = [r["status"] for r in _hook_log()]
         assert statuses == ["saved-output-untrusted"]
 
@@ -207,7 +199,7 @@ class TestUnfollowableNoticeCapturesNothing:
 
         _run(hook_runner, tmp_path / "repo", _notice(saved, 90_000), "")
 
-        assert _pending_items(tmp_path / "repo") == {}
+        assert pending_review_items(tmp_path / "repo") == {}
         statuses = [r["status"] for r in _hook_log()]
         assert statuses == ["saved-output-untrusted"]
 
@@ -219,7 +211,7 @@ class TestInlineAnswersAreUnchanged:
 
         _run(hook_runner, tmp_path / "repo", _inline_response(answer), transcript)
 
-        items = list(_pending_items(tmp_path / "repo").values())
+        items = list(pending_review_items(tmp_path / "repo").values())
         assert len(items) == 1
         assert items[0]["tool_response"] == _inline_response(answer)
         assert items[0]["channel_count"] == answer["total"]
@@ -230,5 +222,5 @@ class TestInlineAnswersAreUnchanged:
 
         _run(hook_runner, tmp_path / "repo", "Error: channel database unavailable", transcript)
 
-        assert _pending_items(tmp_path / "repo") == {}
+        assert pending_review_items(tmp_path / "repo") == {}
         assert [r["status"] for r in _hook_log()] == ["parse-error"]

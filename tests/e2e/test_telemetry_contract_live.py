@@ -44,7 +44,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 import threading
 import uuid
@@ -69,6 +68,7 @@ from osprey.build.claude_code_telemetry import (
     TERMINAL_SESSION_ENV,
 )
 from osprey.cli.templates.scaffolding import _DEFAULT_CLAUDE_CLI_VERSION
+from tests.e2e._deploy_support import find_osprey_console_script
 from tests.e2e.profile_edits import set_pairs
 from tests.e2e.provider import build_model, build_provider, e2e_provider
 
@@ -231,16 +231,6 @@ def sink() -> Iterator[Sink]:
 # --------------------------------------------------------------------------- #
 
 
-def _osprey_bin() -> Path:
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError("Could not locate the 'osprey' console script.")
-
-
 def _clean_env() -> dict[str, str]:
     return {
         k: v
@@ -290,7 +280,7 @@ def pinned_cli(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, str]:
 @pytest.fixture(scope="module")
 def project(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A built hello-world repo: the provider and model the launch builder resolves."""
-    osprey = _osprey_bin()
+    osprey = find_osprey_console_script()
     base = tmp_path_factory.mktemp("telemetry_contract")
     repo = base / PROJECT_NAME
     provider = build_provider(e2e_provider())
@@ -722,7 +712,7 @@ def test_a_host_launch_records_a_subagent_and_thinking(
 
     run = subprocess.run(
         [
-            str(_osprey_bin()),
+            str(find_osprey_console_script()),
             *launch.command,
             "--repo",
             str(project),

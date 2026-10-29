@@ -18,6 +18,7 @@ from tests.e2e.sdk_helpers import (
     assert_agent_ran,
     combined_text,
     init_project,
+    print_run_summary,
     run_sdk_query_with_hooks,
 )
 
@@ -157,10 +158,8 @@ async def test_feedback_hook_is_silent(feedback_project):
     )
 
     # -- Debug output --
-    print("\n--- feedback capture: silence check ---")
-    print(f"  tools called: {result.tool_names}")
+    print_run_summary("feedback capture: silence check", result)
     print(f"  system messages: {len(result.system_messages)}")
-    print(f"  text blocks: {len(result.text_blocks)}")
 
     # -- Assertions --
     assert_agent_ran(result)
