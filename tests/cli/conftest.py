@@ -113,12 +113,21 @@ def restore_process_state(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         yield
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def restore_installed_reporter() -> Iterator[None]:
     """Leave the phase-reporter singleton exactly as the test found it.
 
     The restore goes through ``install_reporter``, which quiesces the reporter
     the test left installed, so its region and monitor thread stop with it.
+
+    Autouse because the snapshot has to come first. pytest sets autouse
+    fixtures up before every requested one, so ``original`` is the reporter
+    from before the test's own fixtures ran. Requested instead, through a
+    module's ``pytestmark``, it would set up after a fixture the test names in
+    its own ``usefixtures`` mark, snapshot the reporter that fixture
+    installed, and put it back afterwards. A ``LiveReporter`` left that way
+    keeps the log handler's console borrowed, and every later test on the
+    worker that reads the terminal sees nothing.
     """
     from osprey.cli.phase_reporter import current_reporter, install_reporter
 
