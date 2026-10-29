@@ -20,7 +20,7 @@ from osprey.models.providers.cborg import CBorgProviderAdapter
 from osprey.models.providers.health import HealthResult
 
 _EMBEDDING = "litellm.embedding"
-_CBORG_URL = "https://api.cborg.lbl.gov/v1"
+_CBORG_URL = "https://gateway.example.org/v1"
 _AMSC_URL = "https://api.i2-core.example/v1"
 
 

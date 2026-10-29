@@ -513,7 +513,7 @@ class TestLiteLLMProxyEmbeddingProviders:
         from osprey.models.providers.cborg import CBorgProviderAdapter
         from osprey.services.ariel_search.cli_operations import _reembed_provider
 
-        provider_configs["cborg"] = {"base_url": "https://api.cborg.lbl.gov/v1"}
+        provider_configs["cborg"] = {"base_url": "https://gateway.example.org/v1"}
         config = SimpleNamespace(
             get_enhancement_module_config=lambda name: {"provider": "cborg", "provider_key": KEY}
         )
@@ -521,4 +521,4 @@ class TestLiteLLMProxyEmbeddingProviders:
         cls, entry = _reembed_provider(config)
 
         assert cls is CBorgProviderAdapter
-        assert entry == {"base_url": "https://api.cborg.lbl.gov/v1"}
+        assert entry == {"base_url": "https://gateway.example.org/v1"}
