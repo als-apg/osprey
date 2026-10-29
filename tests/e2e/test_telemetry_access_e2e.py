@@ -37,7 +37,6 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 import time
 import uuid
 from collections.abc import Iterator, Mapping
@@ -72,6 +71,8 @@ from osprey.deployment.telemetry_store.stage import (
     stage_store,
 )
 from osprey.history import queries
+from tests._live import wait_until
+from tests.e2e._deploy_support import find_osprey_console_script, format_failure
 from tests.e2e._otlp_replay import rebase_otlp_times
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
@@ -243,16 +244,6 @@ class Stack:
         stage_store(config, self.repo, self.execute)
 
 
-def _osprey_bin() -> Path:
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError("Could not locate the 'osprey' console script.")
-
-
 def _env() -> dict[str, str]:
     return {k: v for k, v in os.environ.items() if k not in _SCRUBBED_ENV}
 
@@ -262,10 +253,7 @@ def _run(cmd: list[str], cwd: Path) -> None:
         cmd, cwd=str(cwd), capture_output=True, text=True, timeout=VERB_TIMEOUT_S, env=_env()
     )
     if result.returncode != 0:
-        pytest.fail(
-            f"{' '.join(cmd[1:3])} failed (rc={result.returncode}):\n"
-            f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
-        )
+        pytest.fail(format_failure(f"{' '.join(cmd[1:3])}", result))
 
 
 def _docker(*args: str, timeout: int = 120, check: bool = True) -> subprocess.CompletedProcess:
@@ -285,7 +273,7 @@ def _remove_project_containers() -> None:
 @pytest.fixture(scope="module")
 def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Stack]:
     """Render the roster deployment, then start only its store and gateway."""
-    osprey = _osprey_bin()
+    osprey = find_osprey_console_script()
     base = tmp_path_factory.mktemp("telemetry_access_e2e")
     repo = base / PROJECT_NAME
 
@@ -1776,12 +1764,12 @@ def _spawn(pool: Any, stack: Stack, reader: str, query: str) -> Any:
 
 
 def _wait_running(reader: str, count: int, timeout: float = 15.0) -> None:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if _scalar(f"SELECT count() FROM system.processes WHERE user = '{reader}'") >= count:
-            return
-        time.sleep(0.2)
-    raise AssertionError(f"{reader} never had {count} queries running")
+    wait_until(
+        lambda: _scalar(f"SELECT count() FROM system.processes WHERE user = '{reader}'") >= count,
+        timeout=timeout,
+        interval=0.2,
+        what=f"{reader} having {count} queries running",
+    )
 
 
 def test_a_third_query_is_refused_per_reader_while_another_reader_holds_a_slot(
@@ -2148,7 +2136,10 @@ def _reader_files(repo: Path) -> dict[str, bytes]:
 def test_reader_keys_survive_a_rebuild_from_scratch(stack: Stack) -> None:
     before = _reader_files(stack.repo)
     shutil.rmtree(stack.repo / "build")
-    _run([str(_osprey_bin()), "build", "--skip-deps", "--skip-lifecycle"], cwd=stack.repo)
+    _run(
+        [str(find_osprey_console_script()), "build", "--skip-deps", "--skip-lifecycle"],
+        cwd=stack.repo,
+    )
     assert _reader_files(stack.repo) == before, "osprey build changed a reader key"
     stack.restage(stack.config)
     assert _reader_files(stack.repo) == before, "the staging after a rebuild changed a reader key"
@@ -2159,9 +2150,12 @@ def test_reader_keys_survive_a_rebuild_from_scratch(stack: Stack) -> None:
 def test_reset_then_up_keeps_the_old_reader_key_working(stack: Stack) -> None:
     """Last in the module: the reset removes the store's volume and every row in it."""
     keys = {name: stack.reader_password(name) for name in (READER_X, READER_Y)}
-    _run([str(_osprey_bin()), "reset", "--yes"], cwd=stack.repo)
+    _run([str(find_osprey_console_script()), "reset", "--yes"], cwd=stack.repo)
     assert {name: stack.reader_password(name) for name in keys} == keys
-    _run([str(_osprey_bin()), "build", "--skip-deps", "--skip-lifecycle"], cwd=stack.repo)
+    _run(
+        [str(find_osprey_console_script()), "build", "--skip-deps", "--skip-lifecycle"],
+        cwd=stack.repo,
+    )
     (stack.repo / ".env").touch()
     _up_again(stack)
     for name, key in keys.items():

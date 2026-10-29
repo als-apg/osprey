@@ -115,10 +115,9 @@ e2e modules pin (5064, 15064-15067, 15080, 18090-18110, 18191-18194, 19080-19085
 thousand-port block a deployment claims from ``deployment.port_base``
 (10000-10999 at the default base).
 Every listener it needs is per-run and picked free: the emulator's published port comes
-from the fixture's own free-port pick, the dispatcher and worker bind port 0 and report
-the port they got (:func:`tests.e2e._server_port.bound_port`; they are per-run
-subprocesses with no need to be predictable, and a pin would collide with a developer's
-own running stack), and the Chat and GCS fakes bind ``127.0.0.1:0``.
+from the fixture's own free-port pick, the dispatcher and worker take :func:`free_port`
+(they are per-run subprocesses with no need to be predictable, and a pin would collide
+with a developer's own running stack), and the Chat and GCS fakes bind ``127.0.0.1:0``.
 
 Gating, and the three ways this lane can skip. It needs a container runtime whose daemon
 is actually running (not just the CLI installed), the emulator image, and the ``gchat``
@@ -136,16 +135,11 @@ import contextlib
 import importlib.util
 import itertools
 import json
-import os
 import re
 import shutil
 import struct
-import subprocess
-import sys
 import threading
 import time
-import urllib.error
-import urllib.request
 import zlib
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
@@ -174,7 +168,12 @@ from osprey.bridges.google_chat.ops import (
     QUEUED_TEXT,
     SUPERSEDED_TEXT,
 )
-from tests.e2e._server_port import UVICORN_STARTUP, bound_port
+from tests.e2e._dispatch_harness import (
+    await_bridge,
+    build_repo,
+    drain_thread_alive,
+    running_dispatch_stack,
+)
 from tests.e2e.fixtures.gchat_chat_fake import FakeChatServer, PostedMessage
 from tests.e2e.fixtures.gchat_gcs_fake import PUBLIC_HOST, FakeGcsServer
 
@@ -616,126 +615,19 @@ def worker_http() -> Iterator[httpx.Client]:
 # ---------------------------------------------------------------------------
 
 
-def _drain_output(log: Path) -> str:
-    """The tail of a subprocess's log, for failure messages."""
-    try:
-        lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return "(no captured output)"
-    tail = "\n".join(lines[-40:])
-    return f"--- subprocess log (tail) ---\n{tail}" if tail else "(no captured output)"
-
-
-def _wait_for_health(url: str, timeout: float, proc: subprocess.Popen, log: Path) -> None:
-    """Poll ``url`` until it returns HTTP 200, or fail with the captured output."""
-    deadline = time.monotonic() + timeout
-    last_err = "(no response yet)"
-    while time.monotonic() < deadline:
-        if proc.poll() is not None:
-            raise AssertionError(
-                f"subprocess for {url} exited early (rc={proc.returncode}).\n{_drain_output(log)}"
-            )
-        try:
-            req = urllib.request.Request(url, method="GET")  # localhost only
-            with urllib.request.urlopen(req, timeout=3.0) as resp:
-                if resp.status == 200:
-                    return
-                last_err = f"HTTP {resp.status}"
-        except (urllib.error.URLError, ConnectionError, OSError) as exc:
-            last_err = str(exc)
-        time.sleep(0.5)
-    raise AssertionError(
-        f"timed out after {timeout:.0f}s waiting for {url} (last error: {last_err}).\n"
-        f"{_drain_output(log)}"
-    )
-
-
-def _terminate(proc: subprocess.Popen | None) -> None:
-    if proc is None or proc.poll() is not None:
-        return
-    proc.terminate()
-    try:
-        proc.wait(timeout=10)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        # Ignored SIGKILL within the grace window; teardown is best-effort, so leave
-        # it for the OS to reap rather than hang the test.
-        with contextlib.suppress(subprocess.TimeoutExpired):
-            proc.wait(timeout=5)
-
-
-def _find_osprey_console_script() -> Path:
-    """Locate the ``osprey`` console script for the ACTIVE interpreter.
-
-    Deliberately interpreter-relative first: a bare ``osprey`` on PATH may belong to a
-    different checkout entirely, and in a worktree it usually does.
-    """
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError(
-        "Could not locate the 'osprey' console script. "
-        f"Tried {Path(sys.executable).parent / 'osprey'} and PATH."
-    )
-
-
 @pytest.fixture(scope="module")
 def built_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Init + build a real control-assistant deployment repo once per module.
 
-    Two steps because the surface has two: ``init`` writes the repo's source zone
-    from the preset, ``build`` renders ``build/`` from it. ``--skip-deps`` keeps it
-    fast (no project venv); the worker and dispatcher run with this repo's
-    interpreter, so the project venv is not needed. The provider choice never
-    reaches an assertion here — see the module docstring on why these tests are
-    model-independent.
+    The provider choice never reaches an assertion here — see the module docstring on
+    why these tests are model-independent.
     """
-    base = tmp_path_factory.mktemp("gchat_bridge_build")
-    repo = base / "proj"
-    osprey_bin = _find_osprey_console_script()
-
-    def _osprey(argv: list[str]) -> subprocess.CompletedProcess:
-        return subprocess.run(  # fixed argv, no shell
-            [str(osprey_bin), *argv],
-            cwd=str(base),
-            capture_output=True,
-            text=True,
-            timeout=BUILD_TIMEOUT_SEC,
-            check=False,
-            env={**os.environ, "CLAUDECODE": ""},
-        )
-
-    init = _osprey(
-        [
-            "init",
-            str(repo),
-            "--preset",
-            "control-assistant",
-            "--no-git",
-            "--set",
-            "provider=als-apg",
-            "--set",
-            "model=claude-haiku-5-5",
-        ]
+    return build_repo(
+        tmp_path_factory.mktemp("gchat_bridge_build"),
+        provider="als-apg",
+        model="claude-haiku-5-5",
+        timeout=BUILD_TIMEOUT_SEC,
     )
-    if init.returncode != 0:
-        pytest.fail(
-            f"osprey init failed (rc={init.returncode}):\n"
-            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
-        )
-
-    build = _osprey(["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
-    if build.returncode != 0:
-        pytest.fail(
-            f"osprey build failed (rc={build.returncode}):\n"
-            f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
-        )
-    if not (repo / "build" / "config.yml").is_file():
-        pytest.fail(f"build succeeded but build/config.yml missing under {repo}")
-    return repo
 
 
 def _write_triggers(dst: Path, worker_port: int) -> None:
@@ -777,89 +669,21 @@ def _write_triggers(dst: Path, worker_port: int) -> None:
 
 @pytest.fixture(scope="module")
 def dispatch_stack(built_repo: Path, tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict]:
-    """A real worker + dispatcher pair as subprocesses, each on the port it bound.
+    """A real worker + dispatcher pair as subprocesses on free ports.
 
     Module-scoped: the bridge is what these tests exercise, and the pair carries no state
     any assertion reads (every observation is made through the bridge's own dedup store),
     so one pair serves the whole module. The agentic lane should reuse it too.
     """
-    run_dir = tmp_path_factory.mktemp("gchat_bridge_triggers")
-    triggers_path = run_dir / "triggers.yml"
-    worker_log = run_dir / "worker.log"
-    dispatcher_log = run_dir / "dispatcher.log"
-
-    worker_proc: subprocess.Popen | None = None
-    dispatcher_proc: subprocess.Popen | None = None
-    try:
-        worker_env = {
-            **os.environ,
-            "DISPATCH_WORKER_PORT": "0",
-            "DISPATCH_WORKER_TOKEN": DISPATCH_TOKEN,
-            # Repo root + the render's config one level down, exactly as the
-            # dispatch_worker compose template wires the deployed worker.
-            "OSPREY_PROJECT_DIR": str(built_repo),
-            "CONFIG_FILE": str(built_repo / "build" / "config.yml"),
-            # The worker's own per-run wall-clock cap. Must match the bridge's
-            # DISPATCH_TIMEOUT_SEC or its poll_budget floor is validated against the
-            # wrong number; set from one constant so they cannot drift.
-            "DISPATCH_TIMEOUT_SEC": str(WORKER_RUN_CAP_SEC),
-            "CLAUDECODE": "",
-        }
-        with worker_log.open("w") as log_fh:
-            worker_proc = subprocess.Popen(  # fixed argv, no shell
-                [sys.executable, "-m", "osprey.mcp_server.dispatch_worker"],
-                cwd=str(built_repo),
-                env=worker_env,
-                stdout=log_fh,
-                stderr=subprocess.STDOUT,
-            )
-        # The worker binds port 0 and names the port in uvicorn's startup line.
-        worker_port = bound_port(
-            worker_log, UVICORN_STARTUP, child=worker_proc, timeout=HEALTH_TIMEOUT_SEC
-        )
-        _wait_for_health(
-            f"http://127.0.0.1:{worker_port}/health", HEALTH_TIMEOUT_SEC, worker_proc, worker_log
-        )
-        _write_triggers(triggers_path, worker_port)
-
-        dispatcher_env = {
-            **os.environ,
-            "TRIGGERS_YML": str(triggers_path),
-            "EVENT_DISPATCHER_TOKEN": DISPATCH_TOKEN,
-            "DISPATCH_WORKER_TOKEN": DISPATCH_TOKEN,
-            "FASTMCP_TRANSPORT": "http",
-            "FASTMCP_PORT": "0",
-            "FASTMCP_HOST": "127.0.0.1",
-            "MCP_TRANSPORT": "http",
-            "MCP_PORT": "0",
-            "CLAUDECODE": "",
-        }
-        with dispatcher_log.open("w") as log_fh:
-            dispatcher_proc = subprocess.Popen(  # fixed argv, no shell
-                [sys.executable, "-m", "osprey.dispatch"],
-                cwd=str(built_repo),
-                env=dispatcher_env,
-                stdout=log_fh,
-                stderr=subprocess.STDOUT,
-            )
-        dispatcher_port = bound_port(
-            dispatcher_log, UVICORN_STARTUP, child=dispatcher_proc, timeout=HEALTH_TIMEOUT_SEC
-        )
-        _wait_for_health(
-            f"http://127.0.0.1:{dispatcher_port}/health",
-            HEALTH_TIMEOUT_SEC,
-            dispatcher_proc,
-            dispatcher_log,
-        )
-
-        yield {
-            "dispatcher_url": f"http://127.0.0.1:{dispatcher_port}",
-            "worker_url": f"http://127.0.0.1:{worker_port}",
-            "repo": built_repo,
-        }
-    finally:
-        _terminate(dispatcher_proc)
-        _terminate(worker_proc)
+    with running_dispatch_stack(
+        built_repo,
+        tmp_path_factory.mktemp("gchat_bridge_triggers") / "triggers.yml",
+        _write_triggers,
+        token=DISPATCH_TOKEN,
+        health_timeout=HEALTH_TIMEOUT_SEC,
+        run_cap_sec=WORKER_RUN_CAP_SEC,
+    ) as stack:
+        yield stack
 
 
 # ---------------------------------------------------------------------------
@@ -953,15 +777,6 @@ class RunningBridge:
         return data if isinstance(data, dict) else {}
 
 
-def _drain_thread_alive() -> bool:
-    """Whether the engine's single drain thread is still running.
-
-    It is a daemon named ``bridge-drain``, so it never shows up as a stuck process — it
-    shows up as a store being written by a bridge the test thinks has stopped.
-    """
-    return any(t.name == "bridge-drain" and t.is_alive() for t in threading.enumerate())
-
-
 @contextlib.contextmanager
 def _running_bridge(
     state_dir: Path,
@@ -1014,7 +829,7 @@ def _running_bridge(
         # still blocked on the future turns a clean stop into a crash.
         seam.close()
         deadline = time.monotonic() + BRIDGE_JOIN_TIMEOUT_SEC
-        while _drain_thread_alive() and time.monotonic() < deadline:
+        while drain_thread_alive() and time.monotonic() < deadline:
             time.sleep(0.5)
         # Only when the body itself succeeded — otherwise this would mask the real
         # failure with a secondary one.
@@ -1022,7 +837,7 @@ def _running_bridge(
             raise AssertionError(f"bridge thread crashed: {failure[0]!r}") from failure[0]
         if completed and thread.is_alive():
             raise AssertionError("the bridge thread did not stop on its stop event")
-        if completed and _drain_thread_alive():
+        if completed and drain_thread_alive():
             raise AssertionError(
                 "the drain thread outlived its stop event and is still holding the dedup store"
             )
@@ -1031,30 +846,6 @@ def _running_bridge(
 # ---------------------------------------------------------------------------
 # Barriers
 # ---------------------------------------------------------------------------
-
-
-def _await(bridge: RunningBridge, what: str, probe: Callable[[], Any], timeout: float) -> Any:
-    """Poll ``probe`` until it returns non-``None``, or fail informatively.
-
-    ``None`` and only ``None`` means "not yet", so a probe may legitimately answer a
-    falsy value. Checks the bridge thread on every pass: a crashed or exited bridge is
-    reported as such immediately instead of surfacing as an opaque timeout minutes later.
-    """
-    deadline = time.monotonic() + timeout
-    while True:
-        if bridge.failure:
-            raise AssertionError(f"bridge thread died before {what}: {bridge.failure[0]!r}")
-        if not bridge.thread.is_alive():
-            raise AssertionError(f"bridge thread exited before {what}")
-        value = probe()
-        if value is not None:
-            return value
-        if time.monotonic() >= deadline:
-            raise AssertionError(
-                f"timed out after {timeout:.0f}s waiting for {what}\n"
-                f"  dedup: {json.dumps(bridge.dedup, indent=2, default=str)[:2000]}"
-            )
-        time.sleep(0.5)
 
 
 def _wait_for_dispatch(bridge: RunningBridge, message_name: str) -> dict[str, Any]:
@@ -1071,7 +862,7 @@ def _wait_for_dispatch(bridge: RunningBridge, message_name: str) -> dict[str, An
             return entry
         return None
 
-    return _await(
+    return await_bridge(
         bridge, f"dedup entry {message_name} to carry a run_id", probe, RUN_ID_TIMEOUT_SEC
     )
 
@@ -1910,7 +1701,7 @@ def test_agentic_prior_artifact_is_refetched_for_the_next_turn(
             calls = recording_worker_http.calls_to(route)
             return calls if len(calls) > before else None
 
-        calls = _await(
+        calls = await_bridge(
             bridge,
             f"the follow-up to re-fetch the prior artifact at {route}",
             refetched,

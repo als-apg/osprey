@@ -28,13 +28,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
-from click.testing import CliRunner
 
 from osprey.cli.users_cmd import users
 from osprey.deployment.compose_generator import resolve_user_volume_names
 from osprey.deployment.errors import RemovalIncompleteError
 from osprey.deployment.web_terminals import lifecycle
 from tests._renders import tier_render
+from tests.cli._lifecycle_build import rendered_config
 
 #: Every verb the group ships, mapped to the exact set of option spellings it
 #: accepts. Pinned as a whole rather than flag-by-flag: a verb must carry the
@@ -90,11 +90,6 @@ USERS_ENV_CONFIG = textwrap.dedent(
         image_source: local
     """
 )
-
-
-@pytest.fixture
-def cli_runner():
-    return CliRunner()
 
 
 #: A profile that spells the roster the way the presets do: ONE literal dotted
@@ -211,15 +206,15 @@ def fake_runtime(monkeypatch):
 
 
 def _roster(repo_root: Path) -> list:
-    data = yaml.safe_load((repo_root / "build" / "config.yml").read_text(encoding="utf-8"))
+    data = rendered_config(repo_root)
     return data["modules"]["web_terminals"]["users"]
 
 
 class TestCommandSurface:
     """What the group offers, and what it deliberately does not accept."""
 
-    def test_group_help_lists_every_verb(self, cli_runner):
-        result = cli_runner.invoke(users, ["--help"])
+    def test_group_help_lists_every_verb(self, runner):
+        result = runner.invoke(users, ["--help"])
 
         assert result.exit_code == 0
         listed = _flat(result.output)
@@ -227,9 +222,9 @@ class TestCommandSurface:
             assert verb in listed
 
     @pytest.mark.parametrize("verb", sorted(VERB_OPTIONS))
-    def test_verb_carries_exactly_its_own_options(self, cli_runner, verb):
+    def test_verb_carries_exactly_its_own_options(self, runner, verb):
         """A flag a verb does not act on must be a parse error, not a no-op."""
-        result = cli_runner.invoke(users, [verb, "--help"])
+        result = runner.invoke(users, [verb, "--help"])
 
         assert result.exit_code == 0
         offered = {
@@ -241,32 +236,32 @@ class TestCommandSurface:
 
     @pytest.mark.parametrize("verb", sorted(VERB_OPTIONS))
     @pytest.mark.parametrize("retired", ["--project", "-p", "--config", "-c"])
-    def test_retired_location_flags_are_rejected(self, cli_runner, tmp_path, verb, retired):
+    def test_retired_location_flags_are_rejected(self, runner, tmp_path, verb, retired):
         """Discovery is the repo walk; there are no location flags."""
         argv = [verb, retired, str(tmp_path)]
         if verb in ("remove", "passwd"):
             argv.insert(1, "alice")
 
-        result = cli_runner.invoke(users, argv)
+        result = runner.invoke(users, argv)
 
         assert result.exit_code == 2
         assert "no such option" in result.output.lower()
 
-    def test_remove_requires_a_user(self, cli_runner):
-        result = cli_runner.invoke(users, ["remove", "--archive"])
+    def test_remove_requires_a_user(self, runner):
+        result = runner.invoke(users, ["remove", "--archive"])
 
         assert result.exit_code == 2
         assert "user" in result.output.lower()
 
-    def test_archive_and_purge_are_mutually_exclusive(self, cli_runner):
+    def test_archive_and_purge_are_mutually_exclusive(self, runner):
         """Rejected before any repo is resolved: it is a usage mistake."""
-        result = cli_runner.invoke(users, ["remove", "alice", "--archive", "--purge"])
+        result = runner.invoke(users, ["remove", "alice", "--archive", "--purge"])
 
         assert result.exit_code == 2
         assert "mutually exclusive" in result.output.lower()
 
-    def test_prune_rejects_archive_with_purge_too(self, cli_runner):
-        result = cli_runner.invoke(users, ["prune", "--archive", "--purge"])
+    def test_prune_rejects_archive_with_purge_too(self, runner):
+        result = runner.invoke(users, ["prune", "--archive", "--purge"])
 
         assert result.exit_code == 2
         assert "mutually exclusive" in result.output.lower()
@@ -276,7 +271,7 @@ class TestRepoDiscovery:
     """Every verb acts on the repo it is standing in, through its build/."""
 
     def test_verb_acts_on_the_enclosing_repo_from_a_subdirectory(
-        self, cli_runner, tmp_path, monkeypatch
+        self, runner, tmp_path, monkeypatch
     ):
         repo_root = _make_repo(tmp_path)
         nested = repo_root / "data" / "channels"
@@ -285,14 +280,14 @@ class TestRepoDiscovery:
 
         patcher, mocks = _fake_web_terminals()
         with patcher:
-            result = cli_runner.invoke(users, ["seed", "alice"])
+            result = runner.invoke(users, ["seed", "alice"])
 
         assert result.exit_code == 0
         (config_path, user), _ = mocks["seed_web_terminals"].call_args
         assert Path(config_path) == repo_root / "build" / "config.yml"
         assert user == "alice"
 
-    def test_repo_flag_substitutes_the_walk_start(self, cli_runner, tmp_path, monkeypatch):
+    def test_repo_flag_substitutes_the_walk_start(self, runner, tmp_path, monkeypatch):
         """--repo moves where the walk begins; a subdirectory still finds the repo."""
         repo_root = _make_repo(tmp_path)
         nested = repo_root / "var"
@@ -301,26 +296,24 @@ class TestRepoDiscovery:
 
         patcher, mocks = _fake_web_terminals()
         with patcher:
-            result = cli_runner.invoke(users, ["seed", "--repo", str(nested)])
+            result = runner.invoke(users, ["seed", "--repo", str(nested)])
 
         assert result.exit_code == 0
         (config_path, _user), _ = mocks["seed_web_terminals"].call_args
         assert Path(config_path) == repo_root / "build" / "config.yml"
 
-    def test_outside_a_repo_the_verb_refuses(self, cli_runner, tmp_path, monkeypatch):
+    def test_outside_a_repo_the_verb_refuses(self, runner, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
 
         patcher, mocks = _fake_web_terminals()
         with patcher:
-            result = cli_runner.invoke(users, ["seed"])
+            result = runner.invoke(users, ["seed"])
 
         assert result.exit_code != 0
         assert "profile.yml" in _flat(result.output)
         assert not mocks["seed_web_terminals"].called
 
-    def test_a_repo_with_no_build_refuses_and_names_the_remedy(
-        self, cli_runner, tmp_path, monkeypatch
-    ):
+    def test_a_repo_with_no_build_refuses_and_names_the_remedy(self, runner, tmp_path, monkeypatch):
         repo_root = tmp_path / "repo"
         repo_root.mkdir()
         (repo_root / "profile.yml").write_text("preset: control-assistant\n", encoding="utf-8")
@@ -328,7 +321,7 @@ class TestRepoDiscovery:
 
         patcher, mocks = _fake_web_terminals()
         with patcher:
-            result = cli_runner.invoke(users, ["prune"])
+            result = runner.invoke(users, ["prune"])
 
         assert result.exit_code != 0
         flat = _flat(result.output)
@@ -337,7 +330,7 @@ class TestRepoDiscovery:
         assert not mocks["prune_users"].called
 
     def test_the_engine_runs_with_the_repo_root_as_the_working_directory(
-        self, cli_runner, tmp_path, monkeypatch
+        self, runner, tmp_path, monkeypatch
     ):
         """The engines resolve .env, .env.auth and archives against the cwd."""
         repo_root = _make_repo(tmp_path)
@@ -347,32 +340,30 @@ class TestRepoDiscovery:
         patcher, mocks = _fake_web_terminals()
         mocks["prune_users"].side_effect = lambda *a, **k: seen.update(cwd=Path.cwd().resolve())
         with patcher:
-            result = cli_runner.invoke(users, ["prune", "--repo", str(repo_root)])
+            result = runner.invoke(users, ["prune", "--repo", str(repo_root)])
 
         assert result.exit_code == 0
         assert seen["cwd"] == repo_root
 
-    def test_the_working_directory_is_restored_afterwards(self, cli_runner, tmp_path, monkeypatch):
+    def test_the_working_directory_is_restored_afterwards(self, runner, tmp_path, monkeypatch):
         repo_root = _make_repo(tmp_path)
         monkeypatch.chdir(tmp_path)
         before = Path.cwd().resolve()
 
         patcher, _mocks = _fake_web_terminals()
         with patcher:
-            cli_runner.invoke(users, ["prune", "--repo", str(repo_root)])
+            runner.invoke(users, ["prune", "--repo", str(repo_root)])
 
         assert Path.cwd().resolve() == before
 
-    def test_an_engine_failure_is_reported_without_a_traceback(
-        self, cli_runner, tmp_path, monkeypatch
-    ):
+    def test_an_engine_failure_is_reported_without_a_traceback(self, runner, tmp_path, monkeypatch):
         repo_root = _make_repo(tmp_path)
         monkeypatch.chdir(repo_root)
 
         patcher, mocks = _fake_web_terminals()
         mocks["seed_web_terminals"].side_effect = RuntimeError("seed image missing")
         with patcher:
-            result = cli_runner.invoke(users, ["seed"])
+            result = runner.invoke(users, ["seed"])
 
         assert result.exit_code != 0
         assert "seed image missing" in _flat(result.output)
@@ -387,10 +378,10 @@ class TestEngineWiring:
         monkeypatch.chdir(root)
         return root
 
-    def test_remove_targets_one_user(self, cli_runner, repo_root):
+    def test_remove_targets_one_user(self, runner, repo_root):
         patcher, mocks = _fake_web_terminals()
         with patcher:
-            result = cli_runner.invoke(users, ["remove", "alice", "--archive"])
+            result = runner.invoke(users, ["remove", "alice", "--archive"])
 
         assert result.exit_code == 0
         (config_path, user), kwargs = mocks["decommission_user"].call_args
@@ -399,19 +390,19 @@ class TestEngineWiring:
         assert kwargs == {"archive": True, "purge": False, "assume_yes": False}
 
     @pytest.mark.usefixtures("repo_root")
-    def test_remove_forwards_yes_to_the_typed_gate(self, cli_runner):
+    def test_remove_forwards_yes_to_the_typed_gate(self, runner):
         patcher, mocks = _fake_web_terminals()
         with patcher:
-            result = cli_runner.invoke(users, ["remove", "alice", "--purge", "--yes"])
+            result = runner.invoke(users, ["remove", "alice", "--purge", "--yes"])
 
         assert result.exit_code == 0
         _args, kwargs = mocks["decommission_user"].call_args
         assert kwargs == {"archive": False, "purge": True, "assume_yes": True}
 
-    def test_prune_forwards_every_flag(self, cli_runner, repo_root):
+    def test_prune_forwards_every_flag(self, runner, repo_root):
         patcher, mocks = _fake_web_terminals()
         with patcher:
-            result = cli_runner.invoke(users, ["prune", "--purge", "--dry-run", "-y"])
+            result = runner.invoke(users, ["prune", "--purge", "--dry-run", "-y"])
 
         assert result.exit_code == 0
         (config_path,), kwargs = mocks["prune_users"].call_args
@@ -419,10 +410,10 @@ class TestEngineWiring:
         assert kwargs == {"dry_run": True, "archive": False, "purge": True, "assume_yes": True}
 
     @pytest.mark.usefixtures("repo_root")
-    def test_prune_defaults_leave_the_gate_armed(self, cli_runner):
+    def test_prune_defaults_leave_the_gate_armed(self, runner):
         patcher, mocks = _fake_web_terminals()
         with patcher:
-            result = cli_runner.invoke(users, ["prune"])
+            result = runner.invoke(users, ["prune"])
 
         assert result.exit_code == 0
         _args, kwargs = mocks["prune_users"].call_args
@@ -430,7 +421,7 @@ class TestEngineWiring:
 
     @pytest.mark.usefixtures("repo_root")
     def test_prune_purges_orphan_secrets_then_exits_non_zero_when_a_volume_is_kept(
-        self, cli_runner, monkeypatch
+        self, runner, monkeypatch
     ):
         purge_secrets = MagicMock()
         monkeypatch.setattr("osprey.cli.users_cmd._purge_orphan_terminal_secrets", purge_secrets)
@@ -439,15 +430,15 @@ class TestEngineWiring:
             mocks["prune_users"].side_effect = RemovalIncompleteError(
                 [("volume 'demo_eve-agent-data'", "volume is in use")]
             )
-            result = cli_runner.invoke(users, ["prune", "--purge", "-y"])
+            result = runner.invoke(users, ["prune", "--purge", "-y"])
 
         purge_secrets.assert_called_once()
         assert result.exit_code != 0
 
-    def test_seed_without_a_user_seeds_the_whole_roster(self, cli_runner, repo_root):
+    def test_seed_without_a_user_seeds_the_whole_roster(self, runner, repo_root):
         patcher, mocks = _fake_web_terminals()
         with patcher:
-            result = cli_runner.invoke(users, ["seed"])
+            result = runner.invoke(users, ["seed"])
 
         assert result.exit_code == 0
         (config_path, user), _kwargs = mocks["seed_web_terminals"].call_args
@@ -464,10 +455,10 @@ class TestPasswd:
         monkeypatch.chdir(root)
         return root
 
-    def test_the_prompted_password_reaches_the_engine_verbatim(self, cli_runner, repo_root):
+    def test_the_prompted_password_reaches_the_engine_verbatim(self, runner, repo_root):
         patcher, mocks = _fake_web_terminals()
         with patcher:
-            result = cli_runner.invoke(users, ["passwd", "alice"], input="s3cret\ns3cret\n")
+            result = runner.invoke(users, ["passwd", "alice"], input="s3cret\ns3cret\n")
 
         assert result.exit_code == 0
         (config_path, user, password), _kwargs = mocks["rotate_user_password"].call_args
@@ -475,18 +466,18 @@ class TestPasswd:
         assert (user, password) == ("alice", "s3cret")
 
     @pytest.mark.usefixtures("repo_root")
-    def test_the_password_is_never_echoed(self, cli_runner):
+    def test_the_password_is_never_echoed(self, runner):
         patcher, _mocks = _fake_web_terminals()
         with patcher:
-            result = cli_runner.invoke(users, ["passwd", "alice"], input="s3cret\ns3cret\n")
+            result = runner.invoke(users, ["passwd", "alice"], input="s3cret\ns3cret\n")
 
         assert "s3cret" not in result.output
 
     @pytest.mark.usefixtures("repo_root")
-    def test_a_mistyped_confirmation_rotates_nothing(self, cli_runner):
+    def test_a_mistyped_confirmation_rotates_nothing(self, runner):
         patcher, mocks = _fake_web_terminals()
         with patcher:
-            result = cli_runner.invoke(users, ["passwd", "alice"], input="s3cret\ntypo\n")
+            result = runner.invoke(users, ["passwd", "alice"], input="s3cret\ntypo\n")
 
         assert result.exit_code != 0
         assert not mocks["rotate_user_password"].called
@@ -502,46 +493,46 @@ class TestTypedGates:
     """
 
     @pytest.mark.usefixtures("fake_runtime")
-    def test_remove_purge_demands_the_username_typed_out(self, cli_runner, tmp_path, monkeypatch):
+    def test_remove_purge_demands_the_username_typed_out(self, runner, tmp_path, monkeypatch):
         repo_root = _make_repo(tmp_path, _config([{"name": "alice", "index": 0}]))
         monkeypatch.chdir(repo_root)
         prompts: list[str] = []
         monkeypatch.setattr("builtins.input", lambda prompt="": prompts.append(prompt) or "")
 
-        result = cli_runner.invoke(users, ["remove", "alice", "--purge"])
+        result = runner.invoke(users, ["remove", "alice", "--purge"])
 
         assert result.exit_code != 0
         assert prompts and "Type 'alice' to confirm" in prompts[0]
 
     def test_remove_purge_declined_leaves_the_roster_and_volumes_untouched(
-        self, cli_runner, tmp_path, monkeypatch, fake_runtime
+        self, runner, tmp_path, monkeypatch, fake_runtime
     ):
         calls, _listing = fake_runtime
         repo_root = _make_repo(tmp_path, _config([{"name": "alice", "index": 0}]))
         monkeypatch.chdir(repo_root)
         monkeypatch.setattr("builtins.input", lambda prompt="": "")  # blank, non-matching
 
-        result = cli_runner.invoke(users, ["remove", "alice", "--purge"])
+        result = runner.invoke(users, ["remove", "alice", "--purge"])
 
         assert result.exit_code != 0
         assert _roster(repo_root) == [{"name": "alice", "index": 0}]
         assert [c for c in calls if c[1] == "rm" or c[1:3] == ["volume", "rm"]] == []
 
     def test_remove_purge_is_not_confirmed_by_a_generic_yes(
-        self, cli_runner, tmp_path, monkeypatch, fake_runtime
+        self, runner, tmp_path, monkeypatch, fake_runtime
     ):
         calls, _listing = fake_runtime
         repo_root = _make_repo(tmp_path, _config([{"name": "alice", "index": 0}]))
         monkeypatch.chdir(repo_root)
         monkeypatch.setattr("builtins.input", lambda prompt="": "yes")
 
-        result = cli_runner.invoke(users, ["remove", "alice", "--purge"])
+        result = runner.invoke(users, ["remove", "alice", "--purge"])
 
         assert result.exit_code != 0
         assert _roster(repo_root) == [{"name": "alice", "index": 0}]
         assert [c for c in calls if c[1] == "rm" or c[1:3] == ["volume", "rm"]] == []
 
-    def test_prune_demands_the_word_prune(self, cli_runner, tmp_path, monkeypatch, fake_runtime):
+    def test_prune_demands_the_word_prune(self, runner, tmp_path, monkeypatch, fake_runtime):
         calls, listing = fake_runtime
         config = _config([])
         repo_root = _make_repo(tmp_path, config)
@@ -552,14 +543,14 @@ class TestTypedGates:
         prompts: list[str] = []
         monkeypatch.setattr("builtins.input", lambda prompt="": prompts.append(prompt) or "yes")
 
-        result = cli_runner.invoke(users, ["prune", "--purge"])
+        result = runner.invoke(users, ["prune", "--purge"])
 
         assert result.exit_code != 0
         assert prompts and "Type 'prune' to confirm" in prompts[0]
         assert [c for c in calls if c[1] == "rm" or c[1:3] == ["volume", "rm"]] == []
 
     def test_archived_workspaces_land_under_var_not_in_the_source_zone(
-        self, cli_runner, tmp_path, monkeypatch, fake_runtime
+        self, runner, tmp_path, monkeypatch, fake_runtime
     ):
         """An archived volume is durable state, so it belongs in the var/ zone.
 
@@ -572,7 +563,7 @@ class TestTypedGates:
         monkeypatch.chdir(repo_root)
         alice_claude, alice_agent = resolve_user_volume_names(config, "alice")
 
-        result = cli_runner.invoke(users, ["remove", "alice", "--archive", "--yes"])
+        result = runner.invoke(users, ["remove", "alice", "--archive", "--yes"])
 
         assert result.exit_code == 0
         archive_dir = repo_root / "var" / "web_terminal_archives"
@@ -596,7 +587,7 @@ class TestTypedGates:
             assert archived_at < removed_at, f"{volume} must be archived before it is removed"
 
     def test_prune_dry_run_needs_no_confirmation_and_removes_nothing(
-        self, cli_runner, tmp_path, monkeypatch, fake_runtime
+        self, runner, tmp_path, monkeypatch, fake_runtime
     ):
         calls, listing = fake_runtime
         config = _config([])
@@ -611,7 +602,7 @@ class TestTypedGates:
 
         monkeypatch.setattr("builtins.input", _unexpected)
 
-        result = cli_runner.invoke(users, ["prune", "--dry-run"])
+        result = runner.invoke(users, ["prune", "--dry-run"])
 
         assert result.exit_code == 0
         assert [c for c in calls if c[1] == "rm" or c[1:3] == ["volume", "rm"]] == []
@@ -628,19 +619,19 @@ class TestProfileRosterWrite:
         doc = yaml.safe_load((repo_root / "profile.yml").read_text(encoding="utf-8"))
         return doc["config"]["modules.web_terminals"]["users"]
 
-    def test_the_removed_user_is_dropped_from_the_profile(self, cli_runner, tmp_path, monkeypatch):
+    def test_the_removed_user_is_dropped_from_the_profile(self, runner, tmp_path, monkeypatch):
         repo_root = _make_repo(tmp_path, profile=PROFILE_WITH_ROSTER)
         monkeypatch.chdir(repo_root)
 
         patcher, _mocks = _fake_web_terminals()
         with patcher:
-            result = cli_runner.invoke(users, ["remove", "alice"])
+            result = runner.invoke(users, ["remove", "alice"])
 
         assert result.exit_code == 0
         assert [entry["name"] for entry in self._profile_roster(repo_root)] == ["bob"]
 
     def test_remove_finishes_the_profile_edit_then_exits_non_zero_when_a_volume_is_kept(
-        self, cli_runner, tmp_path, monkeypatch
+        self, runner, tmp_path, monkeypatch
     ):
         repo_root = _make_repo(tmp_path, profile=PROFILE_WITH_ROSTER)
         monkeypatch.chdir(repo_root)
@@ -650,13 +641,13 @@ class TestProfileRosterWrite:
             mocks["decommission_user"].side_effect = RemovalIncompleteError(
                 [("volume 'demo_alice-agent-data'", "volume is in use")]
             )
-            result = cli_runner.invoke(users, ["remove", "alice", "--purge", "-y"])
+            result = runner.invoke(users, ["remove", "alice", "--purge", "-y"])
 
         assert result.exit_code != 0
         assert [entry["name"] for entry in self._profile_roster(repo_root)] == ["bob"]
 
     def test_the_user_stays_gone_when_the_profile_is_re_rendered(
-        self, cli_runner, tmp_path, monkeypatch
+        self, runner, tmp_path, monkeypatch
     ):
         """The render rule itself, not just the file: the emitter's collapse."""
         from osprey.cli.build_profile_emit import _collapse_config_prefixes
@@ -666,14 +657,14 @@ class TestProfileRosterWrite:
 
         patcher, _mocks = _fake_web_terminals()
         with patcher:
-            cli_runner.invoke(users, ["remove", "alice"])
+            runner.invoke(users, ["remove", "alice"])
 
         config_block = yaml.safe_load((repo_root / "profile.yml").read_text())["config"]
         rendered = _collapse_config_prefixes(config_block)
         roster = rendered["modules.web_terminals"]["users"]
         assert [entry["name"] for entry in roster] == ["bob"]
 
-    def test_survivors_keep_their_tier(self, cli_runner, tmp_path, monkeypatch):
+    def test_survivors_keep_their_tier(self, runner, tmp_path, monkeypatch):
         """The trap this fix must not fall into.
 
         ``normalize_users`` — what the engine writes into the rendered config —
@@ -686,14 +677,12 @@ class TestProfileRosterWrite:
 
         patcher, _mocks = _fake_web_terminals()
         with patcher:
-            cli_runner.invoke(users, ["remove", "alice"])
+            runner.invoke(users, ["remove", "alice"])
 
         (bob,) = self._profile_roster(repo_root)
         assert bob["tier"] == "readwrite", "a removal must not re-assign a survivor's tier"
 
-    def test_no_second_roster_key_is_added_beside_the_first(
-        self, cli_runner, tmp_path, monkeypatch
-    ):
+    def test_no_second_roster_key_is_added_beside_the_first(self, runner, tmp_path, monkeypatch):
         """One roster in the file, edited in place.
 
         A `config.modules.web_terminals.users` key written beside the subtree
@@ -706,27 +695,25 @@ class TestProfileRosterWrite:
 
         patcher, _mocks = _fake_web_terminals()
         with patcher:
-            cli_runner.invoke(users, ["remove", "alice"])
+            runner.invoke(users, ["remove", "alice"])
 
         config_block = yaml.safe_load((repo_root / "profile.yml").read_text())["config"]
         roster_keys = [key for key in config_block if "web_terminals" in key]
         assert roster_keys == ["modules.web_terminals"]
         assert "alice" not in (repo_root / "profile.yml").read_text()
 
-    def test_the_roster_comment_survives_the_edit(self, cli_runner, tmp_path, monkeypatch):
+    def test_the_roster_comment_survives_the_edit(self, runner, tmp_path, monkeypatch):
         """profile.yml is hand-edited; a roster edit must not strip its comments."""
         repo_root = _make_repo(tmp_path, profile=PROFILE_WITH_ROSTER)
         monkeypatch.chdir(repo_root)
 
         patcher, _mocks = _fake_web_terminals()
         with patcher:
-            cli_runner.invoke(users, ["remove", "alice"])
+            runner.invoke(users, ["remove", "alice"])
 
         assert "# Who gets a web terminal" in (repo_root / "profile.yml").read_text()
 
-    def test_a_bare_string_roster_has_its_indices_frozen_first(
-        self, cli_runner, tmp_path, monkeypatch
-    ):
+    def test_a_bare_string_roster_has_its_indices_frozen_first(self, runner, tmp_path, monkeypatch):
         """Removing an earlier entry must not shift a later user's ports."""
         profile = textwrap.dedent(
             """
@@ -743,13 +730,11 @@ class TestProfileRosterWrite:
 
         patcher, _mocks = _fake_web_terminals()
         with patcher:
-            cli_runner.invoke(users, ["remove", "alice"])
+            runner.invoke(users, ["remove", "alice"])
 
         assert self._profile_roster(repo_root) == [{"name": "bob", "index": 1}]
 
-    def test_the_deeper_key_spelling_is_edited_in_place_too(
-        self, cli_runner, tmp_path, monkeypatch
-    ):
+    def test_the_deeper_key_spelling_is_edited_in_place_too(self, runner, tmp_path, monkeypatch):
         profile = textwrap.dedent(
             """
             preset: control-assistant
@@ -766,41 +751,39 @@ class TestProfileRosterWrite:
 
         patcher, _mocks = _fake_web_terminals()
         with patcher:
-            result = cli_runner.invoke(users, ["remove", "alice"])
+            result = runner.invoke(users, ["remove", "alice"])
 
         assert result.exit_code == 0
         config_block = yaml.safe_load((repo_root / "profile.yml").read_text())["config"]
         assert list(config_block) == ["modules.web_terminals.users"]
         assert [entry["name"] for entry in config_block["modules.web_terminals.users"]] == ["bob"]
 
-    def test_a_profile_that_does_not_spell_the_roster_says_so(
-        self, cli_runner, tmp_path, monkeypatch
-    ):
+    def test_a_profile_that_does_not_spell_the_roster_says_so(self, runner, tmp_path, monkeypatch):
         """Silence would leave the operator believing the removal was complete."""
         repo_root = _make_repo(tmp_path)  # profile carries no config: block
         monkeypatch.chdir(repo_root)
 
         patcher, _mocks = _fake_web_terminals()
         with patcher:
-            result = cli_runner.invoke(users, ["remove", "alice"])
+            result = runner.invoke(users, ["remove", "alice"])
 
         assert result.exit_code == 0
         flat = _flat(result.output)
         assert "does not spell the web-terminal roster" in flat
         assert "next build will restore them" in flat
 
-    def test_the_drift_hint_is_printed_after_the_write(self, cli_runner, tmp_path, monkeypatch):
+    def test_the_drift_hint_is_printed_after_the_write(self, runner, tmp_path, monkeypatch):
         """Same closing line `osprey set` prints: the build is now out of date."""
         repo_root = _make_repo(tmp_path, profile=PROFILE_WITH_ROSTER)
         monkeypatch.chdir(repo_root)
 
         patcher, _mocks = _fake_web_terminals()
         with patcher:
-            result = cli_runner.invoke(users, ["remove", "alice"])
+            result = runner.invoke(users, ["remove", "alice"])
 
         assert "build:" in _flat(result.output)
 
-    def test_the_engine_runs_before_the_profile_is_written(self, cli_runner, tmp_path, monkeypatch):
+    def test_the_engine_runs_before_the_profile_is_written(self, runner, tmp_path, monkeypatch):
         """Ordering is load-bearing: the typed gate lives inside the engine.
 
         Writing the profile first would commit the roster edit before the
@@ -814,13 +797,13 @@ class TestProfileRosterWrite:
         patcher, mocks = _fake_web_terminals()
         mocks["decommission_user"].side_effect = lambda *a, **k: order.append("engine")
         with patcher:
-            cli_runner.invoke(users, ["remove", "alice"])
+            runner.invoke(users, ["remove", "alice"])
 
         # The profile write is observable by its result, so record it after.
         order.append("profile" if "alice" not in (repo_root / "profile.yml").read_text() else "?")
         assert order == ["engine", "profile"]
 
-    def test_an_interrupted_removal_converges_on_re_run(self, cli_runner, tmp_path, monkeypatch):
+    def test_an_interrupted_removal_converges_on_re_run(self, runner, tmp_path, monkeypatch):
         """Engine done, profile write missed: re-running finishes the job.
 
         The user is off the rendered roster (the engine got that far) but still
@@ -833,7 +816,7 @@ class TestProfileRosterWrite:
 
         patcher, mocks = _fake_web_terminals()
         with patcher:
-            result = cli_runner.invoke(users, ["remove", "alice"])
+            result = runner.invoke(users, ["remove", "alice"])
 
         assert result.exit_code == 0
         # The engine is skipped: it has nothing left to act on and would raise.
@@ -842,7 +825,7 @@ class TestProfileRosterWrite:
         assert "osprey users prune" in _flat(result.output)
 
     def test_a_failed_profile_write_reports_what_actually_happened(
-        self, cli_runner, tmp_path, monkeypatch
+        self, runner, tmp_path, monkeypatch
     ):
         """The destruction succeeded; only the bookkeeping failed.
 
@@ -859,7 +842,7 @@ class TestProfileRosterWrite:
 
         patcher, mocks = _fake_web_terminals()
         with patcher:
-            result = cli_runner.invoke(users, ["remove", "alice", "--purge", "--yes"])
+            result = runner.invoke(users, ["remove", "alice", "--purge", "--yes"])
 
         assert result.exit_code != 0
         flat = _flat(result.output)
@@ -872,7 +855,7 @@ class TestProfileRosterWrite:
         assert "by hand" in flat  # the fallback, named in the cause
 
     def test_an_unparseable_profile_gets_the_same_true_state_message(
-        self, cli_runner, tmp_path, monkeypatch
+        self, runner, tmp_path, monkeypatch
     ):
         """The corrupt-profile path lands in the same handler, not the generic one."""
         broken = "preset: control-assistant\nconfig:\n  modules.web_terminals:\n   users: [\n"
@@ -881,14 +864,14 @@ class TestProfileRosterWrite:
 
         patcher, mocks = _fake_web_terminals()
         with patcher:
-            result = cli_runner.invoke(users, ["remove", "alice", "--purge", "--yes"])
+            result = runner.invoke(users, ["remove", "alice", "--purge", "--yes"])
 
         assert result.exit_code != 0
         assert mocks["decommission_user"].called, "the engine ran, so the workspace is gone"
         assert "alice is off the deployed roster" in _flat(result.output)
 
     def test_a_failed_profile_write_names_the_volumes_the_runtime_kept(
-        self, cli_runner, tmp_path, monkeypatch
+        self, runner, tmp_path, monkeypatch
     ):
         """The engine already reported the kept volume.
 
@@ -907,7 +890,7 @@ class TestProfileRosterWrite:
             [("volume 'demo_alice-agent-data'", "volume is in use")]
         )
         with patcher:
-            result = cli_runner.invoke(users, ["remove", "alice", "--purge", "-y"])
+            result = runner.invoke(users, ["remove", "alice", "--purge", "-y"])
 
         assert result.exit_code == 1
         flat = _flat(result.output)
@@ -931,7 +914,7 @@ class TestProfileRosterWrite:
         ids=["kept-by-default", "archive", "purge"],
     )
     def test_a_failed_profile_write_says_what_became_of_the_volumes(
-        self, cli_runner, tmp_path, monkeypatch, flags, done
+        self, runner, tmp_path, monkeypatch, flags, done
     ):
         """The block names the volume policy this run applied, not a fixed claim."""
         repo_root = _make_repo(tmp_path, profile=PROFILE_WITH_ROSTER)
@@ -943,7 +926,7 @@ class TestProfileRosterWrite:
 
         patcher, _mocks = _fake_web_terminals()
         with patcher:
-            result = cli_runner.invoke(users, ["remove", "alice", *flags])
+            result = runner.invoke(users, ["remove", "alice", *flags])
 
         assert result.exit_code == 1
         assert done in _flat(result.output)
@@ -951,7 +934,7 @@ class TestProfileRosterWrite:
             assert "volumes were removed" not in _flat(result.output)
 
     def test_a_failed_profile_write_on_a_re_run_claims_no_removal(
-        self, cli_runner, tmp_path, monkeypatch
+        self, runner, tmp_path, monkeypatch
     ):
         """A re-run skips the engine, so it removed nothing from the runtime."""
         repo_root = _make_repo(
@@ -965,7 +948,7 @@ class TestProfileRosterWrite:
 
         patcher, mocks = _fake_web_terminals()
         with patcher:
-            result = cli_runner.invoke(users, ["remove", "alice"])
+            result = runner.invoke(users, ["remove", "alice"])
 
         assert result.exit_code == 1
         assert not mocks["decommission_user"].called
@@ -974,7 +957,7 @@ class TestProfileRosterWrite:
         assert "an earlier run already took alice off the deployed roster" in flat
 
     def test_expanding_a_bare_roster_says_why_the_file_gained_lines(
-        self, cli_runner, tmp_path, monkeypatch
+        self, runner, tmp_path, monkeypatch
     ):
         profile = textwrap.dedent(
             """
@@ -991,13 +974,13 @@ class TestProfileRosterWrite:
 
         patcher, _mocks = _fake_web_terminals()
         with patcher:
-            result = cli_runner.invoke(users, ["remove", "alice"])
+            result = runner.invoke(users, ["remove", "alice"])
 
         assert result.exit_code == 0
         assert "explicit 'index:' values" in _flat(result.output)
 
     def test_an_already_explicit_roster_does_not_mention_indices(
-        self, cli_runner, tmp_path, monkeypatch
+        self, runner, tmp_path, monkeypatch
     ):
         """The note is for files that gained lines, not every removal."""
         repo_root = _make_repo(tmp_path, profile=PROFILE_WITH_ROSTER)
@@ -1005,7 +988,7 @@ class TestProfileRosterWrite:
 
         patcher, _mocks = _fake_web_terminals()
         with patcher:
-            result = cli_runner.invoke(users, ["remove", "alice"])
+            result = runner.invoke(users, ["remove", "alice"])
 
         assert "explicit 'index:' values" not in _flat(result.output)
 
@@ -1024,9 +1007,7 @@ class TestProfileRosterWrite:
         with pytest.raises(ValueError, match="not present"):
             lifecycle.decommission_user(str(repo_root / "build" / "config.yml"), "alice")
 
-    def test_an_unknown_user_still_gets_the_engines_own_error(
-        self, cli_runner, tmp_path, monkeypatch
-    ):
+    def test_an_unknown_user_still_gets_the_engines_own_error(self, runner, tmp_path, monkeypatch):
         """Absent from both rosters is a typo, not a resumed removal."""
         rendered = _config([{"name": "bob", "index": 1}])
         repo_root = _make_repo(tmp_path, rendered, profile=PROFILE_WITH_ROSTER)
@@ -1038,7 +1019,7 @@ class TestProfileRosterWrite:
             "nothing was decommissioned."
         )
         with patcher:
-            result = cli_runner.invoke(users, ["remove", "nobody"])
+            result = runner.invoke(users, ["remove", "nobody"])
 
         assert result.exit_code != 0
         assert mocks["decommission_user"].called
@@ -1046,7 +1027,7 @@ class TestProfileRosterWrite:
 
     @pytest.mark.usefixtures("fake_runtime")
     def test_a_declined_typed_gate_leaves_the_profile_untouched(
-        self, cli_runner, tmp_path, monkeypatch
+        self, runner, tmp_path, monkeypatch
     ):
         """The gate guards the profile write too, because the engine runs first."""
         config = _config([{"name": "alice", "index": 0}, {"name": "bob", "index": 1}])
@@ -1055,7 +1036,7 @@ class TestProfileRosterWrite:
         before = (repo_root / "profile.yml").read_text(encoding="utf-8")
         monkeypatch.setattr("builtins.input", lambda prompt="": "")  # blank, non-matching
 
-        result = cli_runner.invoke(users, ["remove", "alice", "--purge"])
+        result = runner.invoke(users, ["remove", "alice", "--purge"])
 
         assert result.exit_code != 0
         assert (repo_root / "profile.yml").read_text(encoding="utf-8") == before
@@ -1064,33 +1045,33 @@ class TestProfileRosterWrite:
 class TestUsersEnv:
     """Rendering the file the web terminals run with."""
 
-    def test_renders_the_subset_to_stdout(self, cli_runner, tmp_path, monkeypatch):
+    def test_renders_the_subset_to_stdout(self, runner, tmp_path, monkeypatch):
         repo_root = _make_repo(tmp_path, USERS_ENV_CONFIG)
         (repo_root / ".env").write_text(
             "CBORG_API_KEY=llm-secret\nTEST_REGISTRY_TOKEN=registry-secret\n", encoding="utf-8"
         )
         monkeypatch.chdir(repo_root)
 
-        result = cli_runner.invoke(users, ["env"])
+        result = runner.invoke(users, ["env"])
 
         assert result.exit_code == 0
         assert "CBORG_API_KEY=llm-secret" in result.output
         assert "TEST_REGISTRY_TOKEN" not in result.output
 
-    def test_the_root_env_is_the_default_source(self, cli_runner, tmp_path, monkeypatch):
+    def test_the_root_env_is_the_default_source(self, runner, tmp_path, monkeypatch):
         """The single root .env, not anything under build/."""
         repo_root = _make_repo(tmp_path, USERS_ENV_CONFIG)
         (repo_root / "build" / ".env").write_text("CBORG_API_KEY=from-build\n", encoding="utf-8")
         (repo_root / ".env").write_text("CBORG_API_KEY=from-root\n", encoding="utf-8")
         monkeypatch.chdir(repo_root)
 
-        result = cli_runner.invoke(users, ["env"])
+        result = runner.invoke(users, ["env"])
 
         assert result.exit_code == 0
         assert "CBORG_API_KEY=from-root" in result.output
 
     def test_env_file_and_output_are_relative_to_where_the_command_was_typed(
-        self, cli_runner, tmp_path, monkeypatch
+        self, runner, tmp_path, monkeypatch
     ):
         """Not to the repo root the verb chdirs into."""
         repo_root = _make_repo(tmp_path, USERS_ENV_CONFIG)
@@ -1099,7 +1080,7 @@ class TestUsersEnv:
         (elsewhere / "prod.env").write_text("CBORG_API_KEY=from-elsewhere\n", encoding="utf-8")
         monkeypatch.chdir(elsewhere)
 
-        result = cli_runner.invoke(
+        result = runner.invoke(
             users,
             [
                 "env",
@@ -1118,19 +1099,19 @@ class TestUsersEnv:
         assert "CBORG_API_KEY=from-elsewhere" in written.read_text(encoding="utf-8")
         assert not (repo_root / "rendered.env").exists()
 
-    def test_the_output_file_is_created_at_mode_0600(self, cli_runner, tmp_path, monkeypatch):
+    def test_the_output_file_is_created_at_mode_0600(self, runner, tmp_path, monkeypatch):
         repo_root = _make_repo(tmp_path, USERS_ENV_CONFIG)
         (repo_root / ".env").write_text("CBORG_API_KEY=llm-secret\n", encoding="utf-8")
         monkeypatch.chdir(repo_root)
 
-        result = cli_runner.invoke(users, ["env", "--output", "out.env"])
+        result = runner.invoke(users, ["env", "--output", "out.env"])
 
         assert result.exit_code == 0
         mode = stat.S_IMODE((repo_root / "out.env").stat().st_mode)
         assert mode == 0o600
 
     def test_a_render_whose_project_is_missing_is_named_not_skipped(
-        self, cli_runner, tmp_path, monkeypatch, caplog
+        self, runner, tmp_path, monkeypatch, caplog
     ):
         """Silence would read as "that render needs no secret" — a claim we can't make.
 
@@ -1150,7 +1131,7 @@ class TestUsersEnv:
         monkeypatch.chdir(repo_root)
 
         with caplog.at_level(logging.WARNING):
-            result = cli_runner.invoke(users, ["env"])
+            result = runner.invoke(users, ["env"])
 
         assert result.exit_code == 0
         assert "readonly" in caplog.text
@@ -1161,17 +1142,17 @@ class TestUsersEnv:
         # The render still happens — the warning reports the gap, it is not a refusal.
         assert "CBORG_API_KEY=llm-secret" in result.output
 
-    def test_stdout_carries_the_file_and_nothing_else(self, cli_runner, tmp_path, monkeypatch):
+    def test_stdout_carries_the_file_and_nothing_else(self, runner, tmp_path, monkeypatch):
         """`osprey users env > .env.users` has to produce a usable file, so
         only file content may reach stdout — the readme header (comment lines
         are valid dotenv) and assignments, never a CLI banner or summary."""
-        from osprey_connectors.dotenv import ENV_USERS_BANNER
+        from osprey.deployment.dotenv import ENV_USERS_BANNER
 
         repo_root = _make_repo(tmp_path, USERS_ENV_CONFIG)
         (repo_root / ".env").write_text("CBORG_API_KEY=llm-secret\n", encoding="utf-8")
         monkeypatch.chdir(repo_root)
 
-        result = cli_runner.invoke(users, ["env"])
+        result = runner.invoke(users, ["env"])
 
         assert result.exit_code == 0
         assert result.stdout.startswith(ENV_USERS_BANNER)
@@ -1180,7 +1161,7 @@ class TestUsersEnv:
                 continue
             assert "=" in line, f"non-assignment line on stdout: {line!r}"
 
-    def test_long_values_are_not_wrapped(self, cli_runner, tmp_path, monkeypatch):
+    def test_long_values_are_not_wrapped(self, runner, tmp_path, monkeypatch):
         """Rendered lines are file bytes, not console output — a 200-character
         secret must arrive on one line rather than re-wrapped by Rich."""
         repo_root = _make_repo(tmp_path, USERS_ENV_CONFIG)
@@ -1188,12 +1169,12 @@ class TestUsersEnv:
         (repo_root / ".env").write_text(f"CBORG_API_KEY={long_secret}\n", encoding="utf-8")
         monkeypatch.chdir(repo_root)
 
-        result = cli_runner.invoke(users, ["env"])
+        result = runner.invoke(users, ["env"])
 
         assert result.exit_code == 0
         assert f"CBORG_API_KEY={long_secret}" in result.stdout.splitlines()
 
-    def test_ambient_environment_is_not_a_source(self, cli_runner, tmp_path, monkeypatch):
+    def test_ambient_environment_is_not_a_source(self, runner, tmp_path, monkeypatch):
         """Only the handed secrets file counts. The CLI bulk-loads `.env` into
         os.environ at startup, so a variable living solely in the environment
         must not be picked up — otherwise the render would depend on the
@@ -1203,13 +1184,13 @@ class TestUsersEnv:
         monkeypatch.setenv("TEST_REGISTRY_TOKEN", "from-shell-only")
         monkeypatch.chdir(repo_root)
 
-        result = cli_runner.invoke(users, ["env"])
+        result = runner.invoke(users, ["env"])
 
         assert result.exit_code == 0
         assert "CBORG_API_KEY=from-dotenv" in result.output
         assert "from-shell-only" not in result.output
 
-    def test_output_keeps_stdout_clean(self, cli_runner, tmp_path, monkeypatch, caplog):
+    def test_output_keeps_stdout_clean(self, runner, tmp_path, monkeypatch, caplog):
         """With --output the file is the product, so stdout stays empty and the
         path is reported through the log instead."""
         repo_root = _make_repo(tmp_path, USERS_ENV_CONFIG)
@@ -1217,14 +1198,14 @@ class TestUsersEnv:
         monkeypatch.chdir(repo_root)
 
         with caplog.at_level(logging.INFO):
-            result = cli_runner.invoke(users, ["env", "--output", "out.env"])
+            result = runner.invoke(users, ["env", "--output", "out.env"])
 
         assert result.exit_code == 0
         assert result.stdout == ""
         assert "CBORG_API_KEY=llm-secret" in (repo_root / "out.env").read_text(encoding="utf-8")
         assert "out.env" in caplog.text
 
-    def test_output_overwrites_an_existing_file(self, cli_runner, tmp_path, monkeypatch):
+    def test_output_overwrites_an_existing_file(self, runner, tmp_path, monkeypatch):
         """An explicit --output is an instruction, so a re-render replaces it
         whoever wrote it — unlike a deploy, which never rewrites a hand-edited
         .env.users."""
@@ -1233,16 +1214,16 @@ class TestUsersEnv:
         (repo_root / "out.env").write_text("STALE=leftover\n", encoding="utf-8")
         monkeypatch.chdir(repo_root)
 
-        result = cli_runner.invoke(users, ["env", "--output", "out.env"])
+        result = runner.invoke(users, ["env", "--output", "out.env"])
 
         assert result.exit_code == 0
         assert "STALE" not in (repo_root / "out.env").read_text(encoding="utf-8")
 
-    def test_a_missing_secrets_file_aborts(self, cli_runner, tmp_path, monkeypatch):
+    def test_a_missing_secrets_file_aborts(self, runner, tmp_path, monkeypatch):
         repo_root = _make_repo(tmp_path, USERS_ENV_CONFIG)
         monkeypatch.chdir(repo_root)
 
-        result = cli_runner.invoke(users, ["env"])
+        result = runner.invoke(users, ["env"])
 
         assert result.exit_code != 0
         # On stderr, and stdout left empty: in the default mode this verb's

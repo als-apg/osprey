@@ -13,18 +13,12 @@ from unittest import mock
 from urllib.parse import urlsplit
 
 import pytest
-from click.testing import CliRunner
 
 from osprey.cli.main import LazyGroup, cli
 from osprey.cli.theme_lab_cmd import THEME_LAB_PATH, create_app, theme_lab
 from osprey_connectors_tests._harness._ports import bound_socket
 
 BROWSER_HELPER = "osprey.interfaces.web_terminal.app._open_browser_when_ready"
-
-
-@pytest.fixture
-def runner():
-    return CliRunner()
 
 
 # -- registration ----------------------------------------------------------

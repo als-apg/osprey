@@ -147,9 +147,9 @@ from osprey.deployment.web_terminals.env_production import (
     USERS_ENV_FILENAME,
 )
 from osprey.deployment.web_terminals.lifecycle import confirm_destroy
+from osprey.utils.workspace import STATE_DIR_NAME
 from osprey_connectors.dotenv import parse_dotenv_text
 from osprey_connectors.logger import get_logger
-from osprey_connectors.workspace import STATE_DIR_NAME
 
 logger = get_logger("deployment.reset")
 

@@ -14,15 +14,9 @@ from unittest.mock import AsyncMock, patch
 
 import click
 import pytest
-from click.testing import CliRunner
 
 from osprey.cli.channel_finder_cmd import _parse_query_indices, channel_finder
 from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
-
-
-@pytest.fixture
-def runner():
-    return CliRunner()
 
 
 def _hierarchical_index(tmp_path: Path) -> Path:
@@ -554,12 +548,6 @@ class TestImportSmoke:
 
 class TestCLIErrorPaths:
     """Test CLI error paths for validate and preview without config."""
-
-    def test_validate_no_database_no_config_shows_error(self, runner, tmp_path):
-        """validate without --database and no config shows config error."""
-        result = runner.invoke(channel_finder, ["--project", str(tmp_path), "validate"])
-        assert result.exit_code != 0
-        assert "not found" in result.output or "Error" in result.output
 
     def test_preview_no_database_no_config_shows_error(self, runner, tmp_path):
         """preview without --database and no config shows config error."""

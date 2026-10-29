@@ -56,7 +56,7 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey_connectors_tests._harness._ports import hold_ports, reserved_ports
+from osprey.interfaces._serving import free_port
 
 pytest.importorskip(
     "lume_pva_apg",
@@ -77,31 +77,24 @@ if importlib.util.find_spec("aioca") is None:
 SERVERS = ("names", "demo", "stub", "first_pass")
 
 # Each server listens on a Channel Access port of its own, so the client
-# searches them all; the pairing of server and port is fixed here, once, in the
-# pytest process alone, and the ports stay held for the process's life. A
-# spawned server process imports this module again and takes its port from the
-# spec its parent passes.
+# searches them all; the pairing of server and port is fixed here, once.
+CA_PORTS: dict[str, str] = {server: str(free_port()) for server in SERVERS}
 # What this module's client searches with. libca reads its settings once, when
 # the process's CA context is created, and other modules collected into the same
 # process write their own at import (test_apply_fault.py names a port of its own).
 # So these are not written into os.environ at import: `_served` hands them to
 # CaLoop.point_at before it starts a server, which writes them and drops a
 # context already created under different ones, whichever module ran first.
+CA_CLIENT_ENV: dict[str, str | None] = {
+    "EPICS_CA_ADDR_LIST": " ".join(f"127.0.0.1:{CA_PORTS[s]}" for s in SERVERS),
+    "EPICS_CA_AUTO_ADDR_LIST": "NO",
+    "EPICS_CA_SERVER_PORT": None,
+    "EPICS_CA_NAME_SERVERS": None,
+}
 # import-time required because libca reads the repeater port when the first CA
 # context in the process is created, which may be another module's, before any
 # of this module's fixtures run; point_at does not carry it.
-if multiprocessing.parent_process() is None:
-    *_server_ports, _repeater_port = hold_ports(len(SERVERS) + 1)
-    CA_PORTS: dict[str, str] = {
-        server: str(port) for server, port in zip(SERVERS, _server_ports, strict=True)
-    }
-    CA_CLIENT_ENV: dict[str, str | None] = {
-        "EPICS_CA_ADDR_LIST": " ".join(f"127.0.0.1:{CA_PORTS[s]}" for s in SERVERS),
-        "EPICS_CA_AUTO_ADDR_LIST": "NO",
-        "EPICS_CA_SERVER_PORT": None,
-        "EPICS_CA_NAME_SERVERS": None,
-    }
-    os.environ.setdefault("EPICS_CA_REPEATER_PORT", str(_repeater_port))
+os.environ.setdefault("EPICS_CA_REPEATER_PORT", str(free_port()))
 
 # Found, never imported: pcaspy's extension bundles its own EPICS base, and
 # loaded beside aioca's libca it drops the client on every write. The servers
@@ -730,28 +723,27 @@ def _served(
     stub: bool = False,
     first_pass_fault: str | None = None,
 ) -> Iterator[_Server]:
-    with reserved_ports(2) as (pva_port, pva_broadcast):
-        spec = {
-            "view": str(view_dir),
-            "state": None if state_dir is None else str(state_dir),
-            "tick": tick_interval_s,
-            "ca_port": CA_PORTS[server],
-            "pva_port": str(pva_port),
-            "pva_broadcast": str(pva_broadcast),
-            "physics": physics,
-            "stub": stub,
-            "first_pass_fault": first_pass_fault,
-            "health_file": str(view_dir.parent / f"{server}-health" / "health.json"),
-        }
-        view = json.loads((view_dir / "variables.json").read_text(encoding="utf-8"))
-        from osprey_connectors.control_system._ca_loop import get_ca_loop
+    spec = {
+        "view": str(view_dir),
+        "state": None if state_dir is None else str(state_dir),
+        "tick": tick_interval_s,
+        "ca_port": CA_PORTS[server],
+        "pva_port": str(free_port()),
+        "pva_broadcast": str(free_port()),
+        "physics": physics,
+        "stub": stub,
+        "first_pass_fault": first_pass_fault,
+        "health_file": str(view_dir.parent / f"{server}-health" / "health.json"),
+    }
+    view = json.loads((view_dir / "variables.json").read_text(encoding="utf-8"))
+    from osprey_connectors.control_system._ca_loop import get_ca_loop
 
-        _on_ca_loop(get_ca_loop().point_at(CA_CLIENT_ENV))
-        served = _Server(spec, view, state_dir)
-        try:
-            yield served
-        finally:
-            served.stop()
+    _on_ca_loop(get_ca_loop().point_at(CA_CLIENT_ENV))
+    served = _Server(spec, view, state_dir)
+    try:
+        yield served
+    finally:
+        served.stop()
 
 
 # =============================================================================

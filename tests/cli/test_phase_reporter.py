@@ -56,12 +56,7 @@ def fake_clock(monkeypatch):
     return install
 
 
-@pytest.fixture(autouse=True)
-def restore_installed_reporter():
-    """Leave the module singleton exactly as the test found it."""
-    original = current_reporter()
-    yield
-    install_reporter(original)
+pytestmark = pytest.mark.usefixtures("restore_installed_reporter")
 
 
 def test_format_elapsed_seconds_and_minutes():

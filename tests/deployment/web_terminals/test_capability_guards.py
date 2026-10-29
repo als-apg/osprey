@@ -50,7 +50,7 @@ from osprey.deployment.web_terminals.roster import (
     shared_card_privileged_problems,
     tier_privileges,
 )
-from osprey_connectors.workspace import TIERS_DIRNAME
+from osprey.utils.workspace import TIERS_DIRNAME
 from tests._renders import tier_render
 
 SETUP_TOOL = "mcp__osprey_workspace__setup_patch"

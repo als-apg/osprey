@@ -31,6 +31,7 @@ import yaml
 
 from osprey.deployment import telemetry_config as tc
 from osprey.deployment import telemetry_credentials as creds
+from tests.e2e._deploy_support import format_failure
 from tests.e2e._facility_select import bounded_setpoint, repo_view, seeded_readback
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.judge import LLMJudge, WorkflowResult
@@ -305,10 +306,7 @@ def _tutorial_verb(repo: Path, *args: str) -> subprocess.CompletedProcess:
         env=_tutorial_env(),
         check=False,
     )
-    assert result.returncode == 0, (
-        f"osprey {' '.join(args)} failed (rc={result.returncode}):\n"
-        f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
-    )
+    assert result.returncode == 0, format_failure(f"osprey {' '.join(args)}", result)
     return result
 
 

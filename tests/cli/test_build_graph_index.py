@@ -34,8 +34,10 @@ from pathlib import Path
 
 import pytest
 
-from osprey.cli.phase_reporter import PhaseReporter, install_reporter
-from osprey_connectors.workspace import TIERS_DIRNAME
+from osprey.cli.phase_reporter import PhaseReporter
+from osprey.utils.workspace import TIERS_DIRNAME
+from tests.cli._lifecycle_build import invoke_build
+from tests.cli._reporters import installed
 from tests.services.channel_finder.graph_index import corpora
 
 #: Where a render's index goes: the fixed path under the render.
@@ -48,9 +50,8 @@ _CORPUS_RELATIVE = "./data/facility.ttl"
 @pytest.fixture(autouse=True)
 def _plain_reporter():
     """Print facts without color, so an assertion reads the words alone."""
-    previous = install_reporter(PhaseReporter(color=False))
-    yield
-    install_reporter(previous)
+    with installed(PhaseReporter(color=False)):
+        yield
 
 
 def _graph_repo(
@@ -99,17 +100,6 @@ def _graph_repo(
     return root
 
 
-def _build(repo: Path):
-    """Run ``osprey build`` on *repo* the way CI does: no venv, no hooks."""
-    from click.testing import CliRunner
-
-    from osprey.cli.build_cmd import build as build_command
-
-    return CliRunner().invoke(
-        build_command, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"]
-    )
-
-
 def _indexes(build_dir: Path) -> list[Path]:
     """Every ``graph.duckdb`` this build wrote: the deployment's, then each render's."""
     own = build_dir / _INDEX_RELATIVE
@@ -133,7 +123,7 @@ def test_a_profile_build_derives_the_index_from_its_own_corpus(tmp_path: Path) -
 
     repo = _graph_repo(tmp_path / "graph-own-corpus", corpus=corpora.SUBCLASS_CHAIN)
 
-    result = _build(repo)
+    result = invoke_build(repo)
 
     assert result.exit_code == 0, result.output
     render = repo / "build"
@@ -188,7 +178,7 @@ def test_a_render_with_a_graph_store_ships_the_index_in_any_mode(tmp_path: Path)
         tmp_path / "hierarchical-with-store", corpus=corpora.SUBCLASS_CHAIN, mode="hierarchical"
     )
 
-    result = _build(repo)
+    result = invoke_build(repo)
 
     assert result.exit_code == 0, result.output
     render = repo / "build"
@@ -234,7 +224,7 @@ def test_a_render_build_parses_the_corpus_once_and_ships_one_file(
         tiers=("reader", "writer"),
     )
 
-    result = _build(repo)
+    result = invoke_build(repo)
 
     assert result.exit_code == 0, result.output
     written = _indexes(repo / "build")
@@ -256,7 +246,7 @@ def test_a_corpus_that_is_not_staged_is_a_fact_and_no_file(tmp_path: Path) -> No
     """
     repo = _graph_repo(tmp_path / "graph-no-corpus", corpus=None)
 
-    result = _build(repo)
+    result = invoke_build(repo)
 
     assert result.exit_code == 0, result.output
     assert not (repo / "build" / _INDEX_RELATIVE).exists()
@@ -291,7 +281,7 @@ def test_a_corpus_that_is_not_turtle_warns_and_the_build_still_succeeds(
     repo = _graph_repo(tmp_path / "graph-bad-corpus", corpus=corpora.INVALID_TURTLE)
 
     with caplog.at_level(logging.WARNING):
-        result = _build(repo)
+        result = invoke_build(repo)
 
     assert result.exit_code == 0, result.output
     assert not (repo / "build" / _INDEX_RELATIVE).exists()
@@ -313,7 +303,7 @@ def test_a_corpus_that_is_not_text_warns_and_the_build_still_succeeds(
     (repo / "data" / "facility.ttl").write_bytes(b"\xff\xfe\x00binary, not turtle\x00")
 
     with caplog.at_level(logging.WARNING):
-        result = _build(repo)
+        result = invoke_build(repo)
 
     assert result.exit_code == 0, result.output
     assert not (repo / "build" / _INDEX_RELATIVE).exists()
@@ -368,7 +358,7 @@ def test_the_stub_ships_a_real_index(tmp_path: Path) -> None:
 
     repo = _preset_repo(tmp_path, "preset-graph")
 
-    result = _build(repo)
+    result = invoke_build(repo)
 
     assert result.exit_code == 0, result.output
     render = repo / "build"
@@ -427,7 +417,7 @@ def test_a_second_corpus_becomes_a_second_cache_entry_built_once(
 
     renders = []
     for name, corpus in (("first", repeated), ("second", repeated), ("other", single)):
-        result = _build(_graph_repo(tmp_path / name, corpus=corpus))
+        result = invoke_build(_graph_repo(tmp_path / name, corpus=corpus))
         assert result.exit_code == 0, result.output
         renders.append(tmp_path / name / "build" / _INDEX_RELATIVE)
 
@@ -487,7 +477,7 @@ def test_the_marker_puts_the_real_builder_back(
 
     repo = _graph_repo(tmp_path / "marked", corpus=corpus)
 
-    result = _build(repo)
+    result = invoke_build(repo)
 
     assert result.exit_code == 0, result.output
     assert len(calls) == 1, f"the real builder ran {len(calls)} times: {calls}"

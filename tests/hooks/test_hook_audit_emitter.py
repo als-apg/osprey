@@ -183,7 +183,7 @@ class TestSchemaParity:
         assert emitter.EXECUTION_MODE_ENV == osprey_posture.POSTURE_ENV_VAR
 
     def test_audit_relpath_matches_the_frameworks(self, emitter):
-        from osprey_connectors.workspace import AUDIT_DIR_RELPATH
+        from osprey.utils.workspace import AUDIT_DIR_RELPATH
 
         assert emitter.AUDIT_DIR_RELPATH == AUDIT_DIR_RELPATH
 

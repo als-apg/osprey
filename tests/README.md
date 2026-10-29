@@ -67,16 +67,7 @@ the summary (`temporary files kept at …`). Nothing else on the host numbers or
 prunes it. Pass `--basetemp` to choose the place yourself; it is then never
 removed. Never add `--basetemp` to a launcher.
 
-A run owns its ports the same way, and a port is named by what it is. A server
-the test controls binds its own socket and reports the port. A port that is
-free and held — nothing may answer on it, or the code under test or a server
-that cannot pick its own binds it later — is a `reserved_port()` /
-`reserved_ports()` from the harness's `_ports.py`, or the `reserve_port`
-fixture; a connect to it is refused at once, and it is held until the test or
-the server has finished. A port that
-must be occupied is a `bound_socket()`. Never bind port 0 and release it.
-`tests/infrastructure/test_no_released_ports.py` lists the files still to
-convert.
+A run owns its ports the same way; section 6 says how a test takes one.
 
 **E2E tests are separate.** Run them with `pytest tests/e2e/`, never with
 `-m e2e`.
@@ -490,26 +481,28 @@ import time. "It was easier" is not a reason; move it into a fixture instead.
 
 ### Ports
 
-Take ports from the harness's `_ports.py`, by what the port is:
+Let the server bind port 0 and read the port it was given back from its socket.
+`run_app_server(app)` in `src/osprey/interfaces/_serving.py` does this for a
+FastAPI app and yields its URL:
 
 ```python
-from osprey.interfaces._serving import run_app_server, wait_for_port
-from osprey_connectors_tests._harness._ports import bound_socket, reserved_port
+from osprey.interfaces._serving import run_app_server
 
-with run_app_server(app) as url:       # a FastAPI app binds port 0 and reports it
+with run_app_server(app) as url:   # the app listens on a socket it owns
     ...
-with reserved_port() as port:          # free and held: dead, or bound later
-    ...
-    wait_for_port(port)                # block until the server accepts, or raise
-with bound_socket() as sock:           # occupied, for a bind-conflict test
-    port = sock.getsockname()[1]
 ```
 
-A stdlib server binds `("127.0.0.1", 0)` and the test reads
-`server.server_address[1]`. The `reserve_port` fixture hands a test as many
-reserved ports as it asks for, held until it ends. Never hardcode a port
-number: four workers on one hardcoded port is a guaranteed intermittent
-failure.
+Where the number must be known before the server binds (a config file, a
+subprocess argument), hold a `reserved_port()` from
+`osprey_connectors_tests._harness._ports` for as long as the server needs it.
+
+Never hardcode a port number, and never pick one by binding port 0 and
+releasing it (`free_port()`, `find_free_port()`, or an inline
+`bind((host, 0))` + `getsockname()` + close): the released port lies in the
+kernel's ephemeral range, and any socket on the host can take it before the
+server binds it. `tests/infrastructure/test_no_released_ports.py` freezes the
+files that still do, with their counts; a new site fails it, and a converted
+site means lowering its count there.
 
 ### Containers
 
@@ -577,9 +570,8 @@ Checklist for a new test area:
       the whole run (`Interrupted: 1 error during collection`), but under `-n 4`
       it degrades — exit 1, and the colliding file's tests simply never run,
       which later reads as a coverage shortfall rather than a collection failure.
-- [ ] **Reuse the shared fixtures and helpers.** The harness's `_ports.py` (`reserved_port()`,
-      `bound_socket()`, the `reserve_port` fixture) and `wait_for_port()` for
-      ports, `tests._live.wait_until()` / `async_wait_until()` for polling a
+- [ ] **Reuse the shared fixtures and helpers.** `run_app_server()` / `reserved_port()`
+      for ports (section 6), `tests._live.wait_until()` / `async_wait_until()` for polling a
       condition, the existing reset seams for global state, `patch_subprocess()`
       for subprocess fakes, `isolated_home` for anything touching `$HOME`.
 - [ ] **New global state gets a public reset seam in `src/`**, plus an autouse

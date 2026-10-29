@@ -46,7 +46,7 @@ from osprey.deployment.control_identity import (
     CONTROL_IDENTITY_CONTAINER_PATH,
 )
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
-from osprey_connectors.workspace import AUDIT_DIR_RELPATH
+from osprey.utils.workspace import AUDIT_DIR_RELPATH
 
 # Rooted at the templates/ PROJECT root, not services/, because service
 # templates import the shared axis macros as "services/_*.j2" — the spelling

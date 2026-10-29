@@ -20,14 +20,12 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 import yaml
-from fastapi.testclient import TestClient
 
 from osprey.cli.templates.manager import TemplateManager
-from osprey.interfaces.web_terminal.app import create_app
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 
 @pytest.fixture
@@ -70,14 +68,9 @@ def startup_spies(monkeypatch):
 
 
 def _run_lifespan(project):
-    with patch(
-        "osprey.interfaces.web_terminal.app._load_web_config",
-        return_value={"watch_dir": str(project / "_agent_data")},
-    ):
-        app = create_app(shell_command=["echo"], project_dir=str(project))
-        with TestClient(app):
-            pass
-    return app
+    with terminal_client(project / "_agent_data", project_dir=str(project)) as client:
+        pass
+    return client.app
 
 
 def test_render_zone_readonly_marker_attempts_no_render_zone_write(
@@ -184,13 +177,8 @@ class TestLifespanOspreyConfig:
         config_file = project / "config.yml"
         config_file.write_text(yaml.dump({"hooks": {"debug": True}}))
 
-        with patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(project / "_agent_data")},
-        ):
-            app = create_app(shell_command=["echo"], project_dir=str(project))
-            with TestClient(app):
-                assert os.environ.get("OSPREY_CONFIG") == str(config_file)
+        with terminal_client(project / "_agent_data", project_dir=str(project)):
+            assert os.environ.get("OSPREY_CONFIG") == str(config_file)
 
     def test_lifespan_does_not_override_existing_osprey_config(
         self,
@@ -200,13 +188,8 @@ class TestLifespanOspreyConfig:
         (project / "config.yml").write_text(yaml.dump({}))
         monkeypatch.setenv("OSPREY_CONFIG", "/custom/config.yml")
 
-        with patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(project / "_agent_data")},
-        ):
-            app = create_app(shell_command=["echo"], project_dir=str(project))
-            with TestClient(app):
-                assert os.environ.get("OSPREY_CONFIG") == "/custom/config.yml"
+        with terminal_client(project / "_agent_data", project_dir=str(project)):
+            assert os.environ.get("OSPREY_CONFIG") == "/custom/config.yml"
 
     def test_lifespan_reads_config_fresh_after_setting_osprey_config(
         self,

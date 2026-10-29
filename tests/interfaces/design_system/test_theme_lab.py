@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from tests.interfaces.conftest import _run_app_server
+from osprey.interfaces._serving import run_app_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -97,7 +97,7 @@ def lab_page(chromium_browser: Browser) -> Iterator[Page]:
     from osprey.cli.theme_lab_cmd import create_app
 
     errors: list[str] = []
-    with _run_app_server(create_app()) as base_url:
+    with run_app_server(create_app()) as base_url:
         page = chromium_browser.new_page()
         page.on(
             "console",

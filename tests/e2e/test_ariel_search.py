@@ -213,33 +213,6 @@ def e2e_config_file():
     return str(CONFIG_FILE_PATH)
 
 
-@pytest.fixture
-def rag_config_env(e2e_config_file):
-    """Function-scoped fixture to set CONFIG_FILE for RAG tests.
-
-    This runs AFTER the autouse reset_registry_between_tests fixture
-    in tests/e2e/conftest.py which clears CONFIG_FILE.
-
-    Must be used by RAG tests that need LLM access.
-    """
-    os.environ["CONFIG_FILE"] = e2e_config_file
-
-    # Clear config cache to force reload with new CONFIG_FILE
-    from osprey_connectors import config as config_module
-
-    config_module._default_config = None
-    config_module._default_configurable = None
-    config_module._config_cache.clear()
-
-    # Reset and initialize the registry with new config
-    from osprey.registry import initialize_registry, reset_registry
-
-    reset_registry()
-    initialize_registry()
-
-    yield e2e_config_file
-
-
 @pytest.fixture(scope="module")
 async def seeded_ariel_db(
     require_ollama,  # noqa: ARG001 - the embedding service is reachable

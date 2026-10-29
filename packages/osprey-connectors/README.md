@@ -23,8 +23,8 @@ name starts with an underscore is internal and can change in any release.
 Most modules are their own API, each imported by its own path: `config`,
 `workspace`, `dotenv`, `yaml_loader`, `connection`, `types`, `factory`,
 `call_timeout`, `errors`, `logger`, `log_filter`, `identity`, `relative_time`,
-`control_context`, `posture_store`, `safety_file`, `settle`, `process`,
-`standin` and `honesty`. So are the `simulation` package and its modules
+`control_context`, `posture_env`, `posture_store`, `safety_file`, `settle`,
+`process`, `standin` and `honesty`. So are the `simulation` package and its modules
 (`simulation.state`, `simulation.view`, `simulation.archive`, ...): its root
 imports neither numpy nor lume, and the heavier modules are imported by their
 own names.
@@ -41,6 +41,11 @@ and their names are imported from the subpackage itself:
 `osprey_connectors.control_system.write_door`, the door a connector opens around
 its own write, is a public module of its own.
 
+The read-only run — `POSTURE_ENV_VAR`, `SANDBOX_MODE` and `is_readonly_run()` —
+lives in `osprey_connectors.posture_env`, a leaf that imports nothing from the
+package. `osprey_connectors.control_system` exported `is_readonly_run` before
+2026.10.0 and no longer does.
+
 The concrete connectors are internal (`control_system._epics_connector`,
 `archiver._mongodb_archiver_connector`, ...): a caller builds one through
 `ConnectorFactory` from its registered type name.
@@ -50,8 +55,11 @@ takes from every module only names its `__all__` lists. `lint-imports`
 (import-linter, configured in the repository's root `pyproject.toml`) holds the
 first, and ruff's `PLC2701` and `tests/connectors/test_public_api.py` the
 second. import-linter also holds this package to never importing `osprey`, and
-holds its layers: the connector host above the factory, the factory above the
-archivers, and the archivers above the control-system connectors.
+holds every top-level module of it in layers: the connector host above the
+factory, the factory above the archivers, the archivers above the
+control-system connectors, those above the simulation core, and the posture
+store, config loading and the bottom layer (`posture_env`, `types`,
+`identity`, ...) below them all.
 
 ## Import map
 
@@ -70,12 +78,20 @@ removed; the table maps each old path to the public spelling that replaces it.
 | `osprey.connectors.archiver.*_archiver_connector` | built through `osprey_connectors.factory.ConnectorFactory` |
 | `osprey.errors` | `osprey_connectors.errors` |
 | `osprey.utils.config` | `osprey_connectors.config` |
-| `osprey.utils.dotenv` | `osprey_connectors.dotenv` |
+| `osprey.utils.dotenv` (reading the env chain) | `osprey_connectors.dotenv` |
 | `osprey.utils.identity` | `osprey_connectors.identity` |
-| `osprey.utils.workspace` | `osprey_connectors.workspace` |
+| `osprey.utils.workspace` (config and agent-data resolution) | `osprey_connectors.workspace` |
 | `osprey.utils.logger` | `osprey_connectors.logger` |
 | `osprey.utils.log_filter` | `osprey_connectors.log_filter` |
 | `osprey.utils.relative_time` | `osprey_connectors.relative_time` |
+
+Not everything those modules held moved here. The deployment repo's layout
+(layer directories, the image staging area, the audit and archive zones)
+belongs to the framework, in a new `osprey.utils.workspace` that holds only
+those names. The executor's vocabulary and the
+facility timestamp formatter are the framework's `osprey.utils.execution_method`
+and `osprey.utils.facility`, and writing `.env` files is
+`osprey.deployment.dotenv`.
 
 ## Optional runtime dependencies
 

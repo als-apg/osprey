@@ -54,10 +54,11 @@ from osprey.cli.init_cmd import (
     init,
 )
 from osprey.cli.main import cli
-from osprey.cli.phase_reporter import PhaseReporter, install_reporter
+from osprey.cli.phase_reporter import PhaseReporter
 from osprey.cli.profile_conventions import unknown_root_entries
 from osprey.cli.styles import osprey_theme
-from osprey_connectors.workspace import APPS_DIRNAME, TIERS_DIRNAME
+from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
+from tests.cli._reporters import installed
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, exemplar_source_files
 
 #: The exemplar's display name — what ``init`` derives from the directory it
@@ -71,32 +72,7 @@ EXEMPLAR_NAME = "Als Exemplar"
 AUTHORED_FILES = (".gitignore", "README.md", "ci-extra.yml")
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
-@pytest.fixture(autouse=True)
-def _container_runtime_is_up(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Answer ``init``'s runtime preflight without consulting the host.
-
-    ``--reset`` and ``--up`` are refused up front when no container runtime
-    answers, which is the right behaviour and the wrong dependency for a unit
-    test: left unstubbed these tests pass on a developer's machine with Docker
-    Desktop open and fail on a CI runner that has no daemon, which is a
-    property of the runner rather than of the verb.
-
-    Patched on ``runtime_helper`` itself because that is where the preflight
-    reads it from, at call time. The other callers of this function bind it at
-    import into their own modules, so this reaches exactly the one check these
-    tests need to get past and none of theirs.
-    ``TestContainerRuntimePreflight`` patches it back down, in the test body,
-    where it wins over this.
-    """
-    monkeypatch.setattr(
-        "osprey.deployment.runtime_helper.verify_runtime_is_running",
-        lambda config=None, **_: (True, ""),
-    )
+pytestmark = pytest.mark.usefixtures("container_runtime_is_up")
 
 
 @pytest.fixture(autouse=True)
@@ -1024,11 +1000,8 @@ def test_the_report_is_written_through_the_reporters_console(
     # Installed before the verb runs, so `lifecycle_reporter` reuses it rather
     # than installing one of its own. Nothing is mounted and no thread starts:
     # this is the plain reporter with its console swapped.
-    previous = install_reporter(Recording(color=False))
-    try:
+    with installed(Recording(color=False)):
         result = init_exemplar(runner, tmp_path / EXEMPLAR_DIRNAME)
-    finally:
-        install_reporter(previous)
 
     assert result.exit_code == 0, result.output
     assert EXEMPLAR_REPORT in buffer.getvalue()

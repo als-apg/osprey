@@ -72,8 +72,7 @@ import pytest
 import websockets
 from websockets.sync.client import connect as ws_connect
 
-from osprey.cli.web_cmd import _STARTUP_LINE
-from tests.e2e._server_port import bound_port
+from osprey.interfaces._serving import free_port
 
 pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke, pytest.mark.model_free]
 
@@ -336,6 +335,8 @@ def test_escalation_chain_is_broken_end_to_end(tmp_path: Path) -> None:
     Asserts, against one live process reached over real sockets, all five
     properties enumerated in the module docstring.
     """
+    port = free_port()
+
     # `osprey web` serves a deployment repo's RENDER: it walks up to the nearest
     # `profile.yml` and refuses when the repo has no `build/config.yml` to serve,
     # so the run directory must be a real (if minimal) repo — same as
@@ -365,7 +366,7 @@ def test_escalation_chain_is_broken_end_to_end(tmp_path: Path) -> None:
         "--host",
         "127.0.0.1",
         "--port",
-        "0",  # the server binds a port the system chooses and names it
+        str(port),
         "--shell",
         "true",  # never spawn `claude`; the PTY just runs /usr/bin/true
         "--skip-preflight",  # skip provider / companion-port pre-flight probes
@@ -396,7 +397,6 @@ def test_escalation_chain_is_broken_end_to_end(tmp_path: Path) -> None:
         )
 
     try:
-        port = bound_port(log_path, _STARTUP_LINE, child=proc, timeout=_READY_TIMEOUT)
         if not _wait_for_port("127.0.0.1", port, proc, timeout=_READY_TIMEOUT):
             pytest.fail(
                 f"server never became reachable on 127.0.0.1:{port} within "

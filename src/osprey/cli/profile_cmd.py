@@ -33,9 +33,9 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 import click
 
 from osprey.profiles.providers import PROVIDERS_FILENAME
+from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIR_KINDS, TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
-from osprey_connectors.workspace import APPS_DIRNAME, LAYER_DIR_KINDS, TIERS_DIRNAME
 
 from .output import report, section
 from .profile_conventions import (
@@ -961,7 +961,7 @@ def _exported_provider_keys(
     ``.env`` — the file an operator can read, edit, and account for, and the one
     store compose and every ``${VAR}`` expansion read. There is no second copy
     to derive: a build only ever appends to that file
-    (:func:`~osprey_connectors.dotenv.append_profile_env`), so a key seeded here
+    (:func:`~osprey.deployment.dotenv.append_profile_env`), so a key seeded here
     survives every rebuild and a key that reaches a running deployment was
     written to this file first.
 
@@ -1106,7 +1106,7 @@ def _write_secret_channel(
     Returns:
         Profile-relative names of the files written, for the caller's summary.
     """
-    from osprey_connectors.dotenv import append_profile_env
+    from osprey.deployment.dotenv import append_profile_env
 
     from .templates.scaffolding import (
         provider_api_key_entries,
@@ -1711,7 +1711,7 @@ def _materialize_profile_directory(
     """
     import shutil
 
-    from osprey_connectors.dotenv import env_lock_path
+    from osprey.deployment.dotenv import env_lock_path
 
     from .build_profile import (
         EXTENDS_OVERRIDE_REFUSAL,

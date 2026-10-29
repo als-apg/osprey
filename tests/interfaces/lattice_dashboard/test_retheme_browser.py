@@ -17,7 +17,7 @@ Skips cleanly when the chromium headless binary is not installed.
 from __future__ import annotations
 
 import pytest
-from tests.interfaces.test_load_smokes import _launch_lattice_dashboard
+from tests.interfaces._launchers import launch_lattice_dashboard
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
@@ -68,7 +68,7 @@ def test_resonance_figure_rethemes_live_on_toggle(tmp_path, monkeypatch, chromiu
     marker/paper colors, toggles the hub to light via the switcher, and asserts
     both colors actually changed rather than staying dark-locked.
     """
-    with _launch_lattice_dashboard(tmp_path, monkeypatch) as base_url:
+    with launch_lattice_dashboard(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         page.goto(f"{base_url}?theme=dark", wait_until="load")
 

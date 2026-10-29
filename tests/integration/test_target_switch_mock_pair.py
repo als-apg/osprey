@@ -50,7 +50,6 @@ import contextlib
 import json
 import os
 import signal
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -86,6 +85,7 @@ from osprey_connectors_tests._harness import (
     isolated_connector_registries,
 )
 from osprey_connectors_tests._harness import write_control_context as harness_write_control_context
+from tests._live import async_wait_until
 from tests.fixtures.control_context import context_for
 from tests.integration._mock_pair_connectors import (
     BATCH_CHANNELS,
@@ -253,16 +253,6 @@ async def pair(config_file, monkeypatch):
 
 
 # ------------------------------------------------------------------- helpers
-
-
-async def wait_for(predicate, timeout: float = SETTLE_TIMEOUT_S) -> bool:
-    """Poll *predicate* on the event loop until it holds, or give up."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if predicate():
-            return True
-        await asyncio.sleep(0.05)
-    return False
 
 
 async def read_through_the_tool(*channels: str) -> dict[str, Any]:
@@ -576,7 +566,11 @@ class TestChildDeathIsRefusedThenRecovered:
         await pair.context.control_system()
         killed = pair.manager.status()["child_pid"]
         os.kill(killed, signal.SIGKILL)
-        assert await wait_for(lambda: not pair.manager.has_child())
+        await async_wait_until(
+            lambda: not pair.manager.has_child(),
+            timeout=SETTLE_TIMEOUT_S,
+            what="the manager dropping the dead child",
+        )
 
         with assert_raises_error(error_type="connection_error") as captured:
             await read_through_the_tool(SHARED_CHANNEL)

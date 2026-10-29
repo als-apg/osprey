@@ -50,7 +50,7 @@ from osprey.deployment.deployment_record import (
     write_deployment_record,
 )
 from osprey.deployment.web_terminals import provision
-from osprey_connectors.workspace import container_image_context
+from osprey.utils.workspace import container_image_context
 from tests._renders import tier_render
 from tests.cli._lifecycle_build import stub_build
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo

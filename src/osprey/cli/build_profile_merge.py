@@ -17,13 +17,13 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from osprey.utils.workspace import LAYER_DIR_KINDS, PROFILE_FILENAME, RETIRED_LAYER_DIRS
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import (
     configured_targets,
     resolve_target,
     tier_writes,
 )
-from osprey_connectors.workspace import LAYER_DIR_KINDS, PROFILE_FILENAME, RETIRED_LAYER_DIRS
 
 from . import build_profile_document as _document
 from .build_profile_document import RENDER_KEYS, _read_profile_document, retired_write_origin
@@ -34,6 +34,7 @@ from .build_profile_presets import (
     list_presets,
     resolve_triggers_path,
 )
+from .derived_keys import derived_key_errors
 from .profile_root import ProfileKind, resolve_profile_root
 
 _LOGGER = logging.getLogger(__name__)
@@ -719,13 +720,16 @@ def _drop_config_path(config: dict[str, Any], parts: list[str]) -> dict[str, Any
 def _refuse_layer_spellings(
     layer: dict[str, Any], layer_rel: str, kind: Any, *, legacy: bool
 ) -> None:
-    """Refuse what a tier or app file may not say: subtraction and attachment.
+    """Refuse what a tier or app file may not say: subtraction, attachment, derived keys.
 
     A tier adds by name, so ``exclude:`` has no meaning in it; the same holds
     for an app, whose lists are its own. Attachment is a fact of the kind, set
     by the resolver, so a file spelling it is either redundant or wrong. A
     file in the retired layer directory (``legacy``) keeps ``exclude:`` and may restate the
-    attachment it gets anyway, but never contradict it.
+    attachment it gets anyway, but never contradict it. A ``config:`` key the
+    build renders (:mod:`~osprey.cli.derived_keys`) is refused here, on the
+    file's own block, so the refusal names this file rather than the merged
+    render's ``profile.yml``.
 
     Raises:
         BuildProfileError: Naming the file and the offending key.
@@ -754,6 +758,9 @@ def _refuse_layer_spellings(
             f"{layer_rel}; to change what the deployment runs, edit its "
             f"{PROFILE_FILENAME}."
         )
+    derived = derived_key_errors(layer.get("config"), layer_rel)
+    if derived:
+        raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(derived))
 
 
 def _strip_attachment(layer: dict[str, Any]) -> dict[str, Any]:
@@ -797,6 +804,10 @@ _APP_OWNED_KEYS: tuple[str, ...] = (
     "claude_md_template",
     "channel_finder_mode",
 )
+
+#: The one top-level key an app file may set over the host's value rather than
+#: own outright: an app that names no model runs the host's.
+_APP_MODEL_KEY = "model"
 
 _CLAUDE_CODE_SECTION = "claude_code"
 _CONTROL_SYSTEM_SECTION = "control_system"
@@ -1073,9 +1084,11 @@ def compose_app_render(host: dict[str, Any], app: dict[str, Any], app_rel: str) 
     ``claude_code.permissions`` is
     kept, so the host's floor denies union with the app's own — all but the
     host's ``remove_deny`` lifts, which grant the host's own render. The app's
-    ``mcp_servers`` declarations are added to the host's. Every other
-    top-level key, ``provenance`` and ``data`` among them, is the host's
-    verbatim, which is what keeps the data bundle the deployment's. Nothing is
+    ``mcp_servers`` declarations are added to the host's. A ``model:`` the
+    app names replaces the host's, served by the host's provider; an app that
+    names none runs the host's model. Every other top-level key, ``provider``,
+    ``provenance`` and ``data`` among them, is the host's verbatim, which is
+    what keeps the data bundle the deployment's. Nothing is
     read from the package: the app file is a materialized, explicit copy.
 
     Guards are a floor: every ``PreToolUse`` hook in force on the host — a
@@ -1113,6 +1126,10 @@ def compose_app_render(host: dict[str, Any], app: dict[str, Any], app_rel: str) 
     for key in (*_APP_OWNED_KEYS, *sorted(RENDER_KEYS)):
         if key in app:
             render[key] = app[key]
+    # The model is the app's when it names one, else the host's; the provider
+    # that serves it is always the host's.
+    if app.get(_APP_MODEL_KEY) is not None:
+        render[_APP_MODEL_KEY] = app[_APP_MODEL_KEY]
 
     app_servers = app.get("mcp_servers")
     if isinstance(app_servers, dict) and app_servers:
@@ -1693,7 +1710,7 @@ def _fold_source_tree(
     so the digest depends on content alone and not on filesystem walk order.
 
     ``skip_runtime_output`` is passed for the ``data:`` tree only: the
-    top-level :data:`~osprey_connectors.workspace.RUNTIME_DATA_DIR_NAME`
+    top-level :data:`~osprey.utils.workspace.RUNTIME_DATA_DIR_NAME`
     subtree is where ``osprey up`` mints its own material (per-lane CURVE
     certificates), and hashing it would make every successful start mark its
     own build OUT OF DATE (#716). The subtree is skipped statically — by its
@@ -1724,7 +1741,7 @@ def _fold_source_tree(
     """
     import hashlib
 
-    from osprey_connectors.workspace import RUNTIME_DATA_DIR_NAME
+    from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME
 
     if source.is_dir():
         entries = []
@@ -1800,7 +1817,7 @@ def _fold_profile_material(
       :meth:`~osprey.cli.build_profile_model.BuildProfile.resolved_data_root`
       so it resolves exactly where the build copies it from — minus the
       reserved ``data/.runtime/`` subtree
-      (:data:`~osprey_connectors.workspace.RUNTIME_DATA_DIR_NAME`), which is
+      (:data:`~osprey.utils.workspace.RUNTIME_DATA_DIR_NAME`), which is
       runtime-minted material (the Bluesky lanes' CURVE certificates) and
       never build input: fold it and every successful ``osprey up`` marks its
       own build OUT OF DATE, stranding a bare ``osprey up -d`` boot unit at

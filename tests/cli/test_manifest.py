@@ -24,9 +24,11 @@ import yaml
 from osprey.cli.templates.manifest import calculate_file_checksums
 from osprey_connectors.config import (
     _RUNTIME_STATE_DIR,
-    RUNTIME_WRITE_PATH_KEYS,
+    _RUNTIME_WRITE_PATH_KEYS,
     ConfigBuilder,
-    find_runtime_write_paths_under_data,
+)
+from osprey_connectors.config import (
+    _runtime_write_paths_under_data as find_runtime_write_paths_under_data,
 )
 
 
@@ -103,7 +105,7 @@ class TestRuntimeWritePathValidation:
     def test_unset_keys_report_nothing(self, tmp_path):
         assert find_runtime_write_paths_under_data({}, tmp_path) == []
 
-    @pytest.mark.parametrize("key", RUNTIME_WRITE_PATH_KEYS)
+    @pytest.mark.parametrize("key", _RUNTIME_WRITE_PATH_KEYS)
     def test_each_key_is_checked(self, tmp_path, key):
         config: dict = {}
         cursor = config

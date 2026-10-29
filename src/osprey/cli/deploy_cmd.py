@@ -419,7 +419,7 @@ def ensure_repo_env(repo_root: Path, config: dict[str, Any], *, mark: bool = Tru
                 f"No .env in {repo_root}. Seed one from your shell ({names})?", default=True
             )
         if seed_it:
-            from osprey_connectors.dotenv import append_profile_env
+            from osprey.deployment.dotenv import append_profile_env
 
             append_profile_env(env_path, harvest, _UP_SEEDED_ENV_BANNER)
             _report_fact(f"Seeded {env_path} (mode 0600) with {names}")

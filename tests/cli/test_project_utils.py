@@ -6,7 +6,7 @@ from pathlib import Path
 
 from osprey.agent_runner.project_paths import encode_claude_project_path
 from osprey.cli.project_utils import resolve_config_path, resolve_project_path
-from osprey_connectors.workspace import TIERS_DIRNAME
+from osprey.utils.workspace import TIERS_DIRNAME
 
 _CONFIG = "project_name: demo\n"
 

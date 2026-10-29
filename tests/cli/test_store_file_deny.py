@@ -47,10 +47,11 @@ def _settings(project: Path) -> dict:
 def _project(tmp_path: Path, name: str, fields: dict | None = None) -> Path:
     """A rendered control-assistant project, regenerated with *fields* applied."""
     from osprey.utils.config_writer import config_update_fields
-    from tests.cli.test_profile_to_claude_contract import _apply_preset_config, _create_project
+    from tests.cli._template_projects import create_project_with_manifest
+    from tests.cli.test_profile_to_claude_contract import _apply_preset_config
 
     manager = TemplateManager()
-    project = _create_project(
+    project = create_project_with_manifest(
         manager,
         project_name=name,
         output_dir=tmp_path,

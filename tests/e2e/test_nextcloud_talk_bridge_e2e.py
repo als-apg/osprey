@@ -84,9 +84,9 @@ modules pin (5064, 15064-15067, 15080, 18090-18110, 18191-18194, 19080-19085, 19
 20700-21699, 21781, 21791, 25080-25085, 25432-25436, 27117-27118) and clear of the
 thousand-port block a deployment claims from ``deployment.port_base``
 (10000-10999 at the default base). The
-dispatcher/worker pair deliberately binds port 0 instead and reports the port it got
-(:func:`tests.e2e._server_port.bound_port`): they are per-run subprocesses with no need
-to be predictable, and a pin would collide with a developer's own running stack.
+dispatcher/worker pair deliberately takes **free** ports instead (:func:`free_port`):
+they are per-run subprocesses with no need to be predictable, and a pin would collide
+with a developer's own running stack.
 
 Gating: needs a container runtime whose daemon is actually running (not just the CLI
 installed) and the fixture image in the local store. Runtime is ``docker`` by default;
@@ -103,7 +103,6 @@ import re
 import shutil
 import struct
 import subprocess
-import sys
 import threading
 import time
 import urllib.error
@@ -133,20 +132,11 @@ from osprey.bridges.nextcloud_talk.client import (
 )
 from osprey.bridges.nextcloud_talk.events import FILE_PARAM_TYPE
 from osprey.bridges.nextcloud_talk.ops import ACK_TEXT, EMPTY_ANSWER_TEXT, ERROR_TEXT
-from tests.e2e._server_port import UVICORN_STARTUP, bound_port
-
-# ---------------------------------------------------------------------------
-# Container runtime selection — ``docker`` by default, ``podman`` opt-in via
-# OSPREY_E2E_RUNTIME. Any other value fails clearly at collection time rather
-# than silently falling back to docker. Same contract as
-# tests/e2e/test_deploy_lifecycle.py, so one env var drives both modules.
-# ---------------------------------------------------------------------------
-_SUPPORTED_RUNTIMES = ("docker", "podman")
-RUNTIME = os.environ.get("OSPREY_E2E_RUNTIME", "docker")
-if RUNTIME not in _SUPPORTED_RUNTIMES:
-    raise RuntimeError(
-        f"OSPREY_E2E_RUNTIME={RUNTIME!r} is not supported; expected one of {_SUPPORTED_RUNTIMES}"
-    )
+from tests.e2e._deploy_support import RUNTIME
+from tests.e2e._dispatch_harness import (
+    build_repo,
+    running_dispatch_stack,
+)
 
 pytestmark = [
     pytest.mark.e2e,
@@ -691,126 +681,19 @@ def rooms(nextcloud: TalkFixture) -> Rooms:
 # ---------------------------------------------------------------------------
 
 
-def _drain_output(log: Path) -> str:
-    """The tail of a subprocess's log, for failure messages."""
-    try:
-        lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return "(no captured output)"
-    tail = "\n".join(lines[-40:])
-    return f"--- subprocess log (tail) ---\n{tail}" if tail else "(no captured output)"
-
-
-def _wait_for_health(url: str, timeout: float, proc: subprocess.Popen, log: Path) -> None:
-    """Poll ``url`` until it returns HTTP 200, or fail with the captured output."""
-    deadline = time.monotonic() + timeout
-    last_err = "(no response yet)"
-    while time.monotonic() < deadline:
-        if proc.poll() is not None:
-            raise AssertionError(
-                f"subprocess for {url} exited early (rc={proc.returncode}).\n{_drain_output(log)}"
-            )
-        try:
-            req = urllib.request.Request(url, method="GET")  # localhost only
-            with urllib.request.urlopen(req, timeout=3.0) as resp:
-                if resp.status == 200:
-                    return
-                last_err = f"HTTP {resp.status}"
-        except (urllib.error.URLError, ConnectionError, OSError) as exc:
-            last_err = str(exc)
-        time.sleep(0.5)
-    raise AssertionError(
-        f"timed out after {timeout:.0f}s waiting for {url} (last error: {last_err}).\n"
-        f"{_drain_output(log)}"
-    )
-
-
-def _terminate(proc: subprocess.Popen | None) -> None:
-    if proc is None or proc.poll() is not None:
-        return
-    proc.terminate()
-    try:
-        proc.wait(timeout=10)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        # Ignored SIGKILL within the grace window; teardown is best-effort, so leave
-        # it for the OS to reap rather than hang the test.
-        with contextlib.suppress(subprocess.TimeoutExpired):
-            proc.wait(timeout=5)
-
-
-def _find_osprey_console_script() -> Path:
-    """Locate the ``osprey`` console script for the ACTIVE interpreter.
-
-    Deliberately interpreter-relative first: a bare ``osprey`` on PATH may belong to a
-    different checkout entirely, and in a worktree it usually does.
-    """
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError(
-        "Could not locate the 'osprey' console script. "
-        f"Tried {Path(sys.executable).parent / 'osprey'} and PATH."
-    )
-
-
 @pytest.fixture(scope="module")
 def built_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Init + build a real control-assistant deployment repo once per module.
 
-    Two steps because the surface has two: ``init`` writes the repo's source zone
-    from the preset, ``build`` renders ``build/`` from it. ``--skip-deps`` keeps it
-    fast (no project venv); the worker and dispatcher run with this repo's
-    interpreter, so the project venv is not needed. The provider choice never
-    reaches an assertion here — see the module docstring on why these tests are
-    model-independent.
+    The provider choice never reaches an assertion here — see the module docstring on
+    why these tests are model-independent.
     """
-    base = tmp_path_factory.mktemp("nextcloud_talk_build")
-    repo = base / "proj"
-    osprey_bin = _find_osprey_console_script()
-
-    def _osprey(argv: list[str]) -> subprocess.CompletedProcess:
-        return subprocess.run(  # fixed argv, no shell
-            [str(osprey_bin), *argv],
-            cwd=str(base),
-            capture_output=True,
-            text=True,
-            timeout=600,
-            check=False,
-            env={**os.environ, "CLAUDECODE": ""},
-        )
-
-    init = _osprey(
-        [
-            "init",
-            str(repo),
-            "--preset",
-            "control-assistant",
-            "--no-git",
-            "--set",
-            "provider=als-apg",
-            "--set",
-            "model=claude-haiku-5-5",
-        ]
+    return build_repo(
+        tmp_path_factory.mktemp("nextcloud_talk_build"),
+        provider="als-apg",
+        model="claude-haiku-5-5",
+        timeout=600,
     )
-    if init.returncode != 0:
-        pytest.fail(
-            f"osprey init failed (rc={init.returncode}):\n"
-            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
-        )
-
-    build = _osprey(["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
-    if build.returncode != 0:
-        pytest.fail(
-            f"osprey build failed (rc={build.returncode}):\n"
-            f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
-        )
-    if not (repo / "build" / "config.yml").is_file():
-        pytest.fail(f"build succeeded but build/config.yml missing under {repo}")
-    return repo
 
 
 def _write_triggers(dst: Path, worker_port: int) -> None:
@@ -853,89 +736,21 @@ def _write_triggers(dst: Path, worker_port: int) -> None:
 
 @pytest.fixture(scope="module")
 def dispatch_stack(built_repo: Path, tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict]:
-    """A real worker + dispatcher pair as subprocesses, each on the port it bound.
+    """A real worker + dispatcher pair as subprocesses on free ports.
 
     Module-scoped: the bridge is what these tests exercise, and the pair carries no state
     any assertion reads (every observation is made through the bridge's own dedup/offset
     stores), so one pair serves the whole module. Task 5.4 should reuse it too.
     """
-    run_dir = tmp_path_factory.mktemp("nextcloud_talk_triggers")
-    triggers_path = run_dir / "triggers.yml"
-    worker_log = run_dir / "worker.log"
-    dispatcher_log = run_dir / "dispatcher.log"
-
-    worker_proc: subprocess.Popen | None = None
-    dispatcher_proc: subprocess.Popen | None = None
-    try:
-        worker_env = {
-            **os.environ,
-            "DISPATCH_WORKER_PORT": "0",
-            "DISPATCH_WORKER_TOKEN": DISPATCH_TOKEN,
-            # Repo root + the render's config one level down, exactly as the
-            # dispatch_worker compose template wires the deployed worker.
-            "OSPREY_PROJECT_DIR": str(built_repo),
-            "CONFIG_FILE": str(built_repo / "build" / "config.yml"),
-            # The worker's own per-run wall-clock cap. Must match the bridge's
-            # DISPATCH_TIMEOUT_SEC or its poll_budget floor is validated against the
-            # wrong number; set from one constant so they cannot drift.
-            "DISPATCH_TIMEOUT_SEC": str(WORKER_RUN_CAP_SEC),
-            "CLAUDECODE": "",
-        }
-        with worker_log.open("w") as log_fh:
-            worker_proc = subprocess.Popen(  # fixed argv, no shell
-                [sys.executable, "-m", "osprey.mcp_server.dispatch_worker"],
-                cwd=str(built_repo),
-                env=worker_env,
-                stdout=log_fh,
-                stderr=subprocess.STDOUT,
-            )
-        # The worker binds port 0 and names the port in uvicorn's startup line.
-        worker_port = bound_port(
-            worker_log, UVICORN_STARTUP, child=worker_proc, timeout=HEALTH_TIMEOUT_SEC
-        )
-        _wait_for_health(
-            f"http://127.0.0.1:{worker_port}/health", HEALTH_TIMEOUT_SEC, worker_proc, worker_log
-        )
-        _write_triggers(triggers_path, worker_port)
-
-        dispatcher_env = {
-            **os.environ,
-            "TRIGGERS_YML": str(triggers_path),
-            "EVENT_DISPATCHER_TOKEN": DISPATCH_TOKEN,
-            "DISPATCH_WORKER_TOKEN": DISPATCH_TOKEN,
-            "FASTMCP_TRANSPORT": "http",
-            "FASTMCP_PORT": "0",
-            "FASTMCP_HOST": "127.0.0.1",
-            "MCP_TRANSPORT": "http",
-            "MCP_PORT": "0",
-            "CLAUDECODE": "",
-        }
-        with dispatcher_log.open("w") as log_fh:
-            dispatcher_proc = subprocess.Popen(  # fixed argv, no shell
-                [sys.executable, "-m", "osprey.dispatch"],
-                cwd=str(built_repo),
-                env=dispatcher_env,
-                stdout=log_fh,
-                stderr=subprocess.STDOUT,
-            )
-        dispatcher_port = bound_port(
-            dispatcher_log, UVICORN_STARTUP, child=dispatcher_proc, timeout=HEALTH_TIMEOUT_SEC
-        )
-        _wait_for_health(
-            f"http://127.0.0.1:{dispatcher_port}/health",
-            HEALTH_TIMEOUT_SEC,
-            dispatcher_proc,
-            dispatcher_log,
-        )
-
-        yield {
-            "dispatcher_url": f"http://127.0.0.1:{dispatcher_port}",
-            "worker_url": f"http://127.0.0.1:{worker_port}",
-            "repo": built_repo,
-        }
-    finally:
-        _terminate(dispatcher_proc)
-        _terminate(worker_proc)
+    with running_dispatch_stack(
+        built_repo,
+        tmp_path_factory.mktemp("nextcloud_talk_triggers") / "triggers.yml",
+        _write_triggers,
+        token=DISPATCH_TOKEN,
+        health_timeout=HEALTH_TIMEOUT_SEC,
+        run_cap_sec=WORKER_RUN_CAP_SEC,
+    ) as stack:
+        yield stack
 
 
 # ---------------------------------------------------------------------------

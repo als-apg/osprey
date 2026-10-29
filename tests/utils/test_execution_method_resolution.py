@@ -10,16 +10,16 @@ import logging
 
 import pytest
 
-from osprey_connectors import config as config_module
-from osprey_connectors.config import EXECUTION_METHOD_SUBPROCESS, resolve_execution_method
+from osprey.utils import execution_method as execution_method_module
+from osprey.utils.execution_method import EXECUTION_METHOD_SUBPROCESS, resolve_execution_method
 
 
 @pytest.fixture(autouse=True)
 def _reset_container_warning():
     """Clear the module-level warn-once latch around every test."""
-    config_module._container_method_warned = False
+    execution_method_module._container_method_warned = False
     yield
-    config_module._container_method_warned = False
+    execution_method_module._container_method_warned = False
 
 
 def _config(method):
@@ -266,3 +266,16 @@ class TestExecutionDefaults:
         resolved = resolve_execution_method({"execution": builder._get_execution_config()})
 
         assert resolved == "subprocess"
+
+
+def test_the_config_defaults_are_the_executor_vocabulary():
+    """``ConfigBuilder`` fills the same defaults the executor reads by name.
+
+    The connector package spells them privately for the config it builds; the
+    framework's names are the public ones. Two spellings drift silently.
+    """
+    from osprey.utils.execution_method import DEFAULT_EXECUTION_TIMEOUT_SECONDS
+    from osprey_connectors import config as connector_config
+
+    assert connector_config._EXECUTION_METHOD_SUBPROCESS == EXECUTION_METHOD_SUBPROCESS
+    assert connector_config._DEFAULT_EXECUTION_TIMEOUT_SECONDS == DEFAULT_EXECUTION_TIMEOUT_SECONDS

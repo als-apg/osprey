@@ -94,7 +94,6 @@ import os
 import shutil
 import stat
 import subprocess
-import sys
 import time
 import urllib.error
 import urllib.request
@@ -126,6 +125,12 @@ from osprey_connectors.types import (
     tier_allows,
 )
 from tests.e2e import _orm_stack, _queue_drive
+from tests.e2e._deploy_support import (
+    find_osprey_console_script,
+    format_failure,
+    run_command,
+    wait_for_health,
+)
 from tests.e2e._facility_select import bounded_setpoint, facility_view, repo_view
 from tests.e2e._mcp_sse import any_answer_succeeded, sse_payloads, tool_result
 from tests.e2e._volumes import remove_project_volumes
@@ -377,27 +382,6 @@ pytestmark = [
 ]
 
 
-def _find_osprey_console_script() -> Path:
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError("Could not locate the 'osprey' console script.")
-
-
-def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        cmd,
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env={**os.environ, "CLAUDECODE": ""},
-    )
-
-
 #: The two probe actions, each declared under one panel-fired and one
 #: webhook-fired name. Appended to the deployment's OWN triggers file rather than
 #: shipped in the preset: they exist to read one run's environment and to attempt
@@ -614,38 +598,32 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     if not os.environ.get("ALS_APG_API_KEY"):
         pytest.skip("ALS_APG_API_KEY not set")
 
-    osprey_bin = _find_osprey_console_script()
+    osprey_bin = find_osprey_console_script()
     base = tmp_path_factory.mktemp("dispatch_deploy_build")
     repo = base / PROJECT_NAME
 
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset, `build` renders build/ from it — including one
     # render project per ``tiers/`` file.
-    init = _run(
+    init = run_command(
         [str(osprey_bin), "init", str(repo), *INIT_PRESET_ARGS],
         cwd=base,
         timeout=300,
     )
     if init.returncode != 0:
-        pytest.fail(
-            f"osprey init failed (rc={init.returncode}):\n"
-            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
-        )
+        pytest.fail(format_failure("osprey init", init))
 
     # Append the owner probes to the deployment's own trigger set BEFORE the
     # build, so the render the dispatcher loads carries them.
     probe = _append_owner_probe_triggers(repo, base / "probe_view")
 
-    build = _run(
+    build = run_command(
         [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         cwd=base,
         timeout=300,
     )
     if build.returncode != 0:
-        pytest.fail(
-            f"osprey build failed (rc={build.returncode}):\n"
-            f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
-        )
+        pytest.fail(format_failure("osprey build", build))
 
     _assert_the_build_serves_the_write_probe(repo, probe)
 
@@ -710,17 +688,14 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     subprocess.run(["docker", "rm", "-f", NGINX_CONTAINER], capture_output=True, text=True)
 
     try:
-        up = _run(
+        up = run_command(
             [str(osprey_bin), "up", "-d", "--dev"],
             cwd=repo,
             timeout=DEPLOY_UP_TIMEOUT_SEC,
         )
         if up.returncode != 0:
-            pytest.fail(
-                f"osprey up failed (rc={up.returncode}):\n"
-                f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
-            )
-        _wait_for_health(f"{DISPATCHER_URL}/health", HEALTH_TIMEOUT_SEC)
+            pytest.fail(format_failure("osprey up", up))
+        wait_for_health(f"{DISPATCHER_URL}/health", HEALTH_TIMEOUT_SEC)
         # The dispatcher being healthy does not mean the worker is: the worker runs
         # the heavier project image and boots later. Gate on its proxied feed so
         # tests never race a still-warming worker (and a worker that never comes up
@@ -737,7 +712,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         # the render image tags are namespaced by this repo's name (see
         # COEXISTENCE), so removing them cannot untag a real deployment's
         # images.
-        down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
+        down = run_command([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
             print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
@@ -750,21 +725,6 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         subprocess.run(["docker", "rm", "-f", NGINX_CONTAINER], capture_output=True, text=True)
         for image in (READONLY_IMAGE, READWRITE_IMAGE):
             subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
-
-
-def _wait_for_health(url: str, timeout: float) -> None:
-    deadline = time.monotonic() + timeout
-    last_err = "(no response yet)"
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # localhost
-                if resp.status == 200:
-                    return
-                last_err = f"HTTP {resp.status}"
-        except (urllib.error.URLError, ConnectionError, OSError) as exc:
-            last_err = str(exc)
-        time.sleep(1.0)
-    raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
 
 
 def _dump_stack_diagnostics(context: str) -> str:
@@ -1453,10 +1413,7 @@ def _run_manual_fire_client(mode: str, trigger: str, payload: dict | None = None
         text=True,
         timeout=180,
     )
-    assert result.returncode == 0, (
-        f"the in-container MCP client failed (rc={result.returncode}):\n"
-        f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
-    )
+    assert result.returncode == 0, format_failure("the in-container MCP client", result)
     return json.loads(result.stdout.strip().splitlines()[-1])
 
 

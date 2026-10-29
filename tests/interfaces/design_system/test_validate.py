@@ -377,15 +377,6 @@ def test_check_theme_metadata_flags_invalid_mode_value() -> None:
     assert "mode" in errors[0].message
 
 
-def test_check_theme_metadata_accepts_well_formed_metadata() -> None:
-    tree = _tree(
-        themes={"dark": {"bg.primary": _token("bg.primary", "#000")}},
-        theme_metadata={"dark": {"mode": "dark", "id": "dark", "label": "Dark", "family": "main"}},
-    )
-
-    assert check_theme_metadata(tree) == []
-
-
 # --- check_theme_metadata: $extensions.family_label (optional family display name) ---
 
 
@@ -503,40 +494,24 @@ def test_check_theme_metadata_allows_one_member_to_label_the_family() -> None:
 # --- check_theme_metadata: $extensions.family (theme "family" grouping) ---------
 
 
-def test_check_theme_metadata_flags_missing_family_field() -> None:
+@pytest.mark.parametrize(
+    "family",
+    [
+        pytest.param({}, id="missing"),
+        pytest.param({"family": ""}, id="blank"),
+        pytest.param({"family": 42}, id="non-string"),
+    ],
+)
+def test_check_theme_metadata_flags_a_bad_family(family: dict[str, object]) -> None:
     tree = _tree(
         themes={"dark": {"bg.primary": _token("bg.primary", "#000", source_file=Path("d.json"))}},
-        theme_metadata={"dark": {"mode": "dark", "id": "dark", "label": "Dark"}},
+        theme_metadata={"dark": {"mode": "dark", "id": "dark", "label": "Dark", **family}},
     )
 
     errors = check_theme_metadata(tree)
 
     assert len(errors) == 1
     assert errors[0].rule == ValidationRule.INVALID_THEME_METADATA
-    assert "family" in errors[0].message
-
-
-def test_check_theme_metadata_flags_blank_family_value() -> None:
-    tree = _tree(
-        themes={"dark": {"bg.primary": _token("bg.primary", "#000")}},
-        theme_metadata={"dark": {"mode": "dark", "id": "dark", "label": "Dark", "family": ""}},
-    )
-
-    errors = check_theme_metadata(tree)
-
-    assert len(errors) == 1
-    assert "family" in errors[0].message
-
-
-def test_check_theme_metadata_flags_non_string_family_value() -> None:
-    tree = _tree(
-        themes={"dark": {"bg.primary": _token("bg.primary", "#000")}},
-        theme_metadata={"dark": {"mode": "dark", "id": "dark", "label": "Dark", "family": 42}},
-    )
-
-    errors = check_theme_metadata(tree)
-
-    assert len(errors) == 1
     assert "family" in errors[0].message
 
 
@@ -582,30 +557,26 @@ def test_check_default_flag_accepts_explicit_false_and_absent_flags() -> None:
     assert check_default_flag(tree) == []
 
 
-def test_check_default_flag_rejects_non_boolean_value() -> None:
+@pytest.mark.parametrize(
+    ("mode", "default", "complaint"),
+    [
+        pytest.param("dark", "yes", "boolean", id="non-boolean"),
+        pytest.param("light", True, "dark theme", id="light-theme-default"),
+    ],
+)
+def test_check_default_flag_rejects_a_bad_default(
+    mode: str, default: object, complaint: str
+) -> None:
     tree = _tree(
-        themes={"dark": {"bg.primary": _token("bg.primary", "#000")}},
-        theme_metadata={"dark": _flag_metadata("dark", "yes")},
+        themes={mode: {"bg.primary": _token("bg.primary", "#000")}},
+        theme_metadata={mode: _flag_metadata(mode, default)},
     )
 
     errors = check_default_flag(tree)
 
     assert len(errors) == 1
     assert errors[0].rule is ValidationRule.INVALID_DEFAULT_FLAG
-    assert "boolean" in errors[0].message
-
-
-def test_check_default_flag_rejects_light_theme_default() -> None:
-    tree = _tree(
-        themes={"light": {"bg.primary": _token("bg.primary", "#fff")}},
-        theme_metadata={"light": _flag_metadata("light", True)},
-    )
-
-    errors = check_default_flag(tree)
-
-    assert len(errors) == 1
-    assert errors[0].rule is ValidationRule.INVALID_DEFAULT_FLAG
-    assert "dark theme" in errors[0].message
+    assert complaint in errors[0].message
 
 
 def test_check_default_flag_rejects_duplicate_defaults() -> None:

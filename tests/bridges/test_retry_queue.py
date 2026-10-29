@@ -30,24 +30,11 @@ from osprey.bridges.core.retry_queue import (
     supersede_at_enqueue,
     supersede_note,
 )
-from tests.bridges.conftest import RecordingChannelOps
+from tests.bridges.conftest import FakeClock, RecordingChannelOps
 
 CHAT_KEY = ["space/1", "users/alice"]
 
 RETRYABLE = {"failure_class": "provider", "num_tool_calls": 0, "status": "error"}
-
-
-class FakeClock:
-    """Injectable monotone clock (epoch seconds) advanced explicitly by tests."""
-
-    def __init__(self, t: float = 1_000_000.0) -> None:
-        self.t = t
-
-    def __call__(self) -> float:
-        return self.t
-
-    def advance(self, dt: float) -> None:
-        self.t += dt
 
 
 @pytest.fixture

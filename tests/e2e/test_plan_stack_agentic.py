@@ -162,6 +162,7 @@ from osprey.services.bluesky_bridge.queue_backend import is_queue_active
 from osprey_connectors import posture_store
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
+from tests.e2e._deploy_support import wait_for_health
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.judge import LLMJudge, WorkflowResult
 from tests.e2e.sdk_helpers import (
@@ -3457,7 +3458,7 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
                 f"--- containers that are not running ---\n{_dead_container_logs()}"
             )
         try:
-            _orm_stack.wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
+            wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
         except AssertionError as exc:
             pytest.fail(f"{exc}\n--- containers that are not running ---\n{_dead_container_logs()}")
         # HTTP readiness is not enqueue readiness -- the worker namespace an

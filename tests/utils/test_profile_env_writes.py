@@ -20,12 +20,8 @@ from pathlib import Path
 
 import pytest
 
-from osprey_connectors.dotenv import (
-    DEPLOY_MINTED_BANNER,
-    ENV_LOCAL_BANNER,
-    append_profile_env,
-    parse_dotenv_file,
-)
+from osprey.deployment.dotenv import DEPLOY_MINTED_BANNER, ENV_LOCAL_BANNER, append_profile_env
+from osprey_connectors.dotenv import parse_dotenv_file
 
 
 def _append_in_child(env_path: str, keys: list[str], barrier) -> None:
@@ -33,7 +29,7 @@ def _append_in_child(env_path: str, keys: list[str], barrier) -> None:
 
     Module-level (not a closure) so a ``spawn`` child can import it by name.
     """
-    from osprey_connectors.dotenv import append_profile_env as child_append
+    from osprey.deployment.dotenv import append_profile_env as child_append
 
     barrier.wait(timeout=30)
     for key in keys:

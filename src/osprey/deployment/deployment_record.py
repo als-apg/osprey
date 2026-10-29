@@ -18,8 +18,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from osprey.deployment.errors import DeploymentRecordError
+from osprey.utils.workspace import STATE_DIR_NAME
 from osprey_connectors.safety_file import atomic_replace
-from osprey_connectors.workspace import STATE_DIR_NAME
 
 __all__ = [
     "COMPOSE_PROJECT_KEY",

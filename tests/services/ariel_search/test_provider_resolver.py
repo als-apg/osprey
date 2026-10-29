@@ -484,3 +484,44 @@ class TestTextEmbeddingResolution:
 
         assert verdict.reachable is False
         assert verdict.reason == "unreachable"
+
+
+class TestLiteLLMProxyEmbeddingProviders:
+    """The CBorg and AmSC i2 proxies serve text embeddings to ARIEL (#2092)."""
+
+    @pytest.mark.parametrize("name", ["cborg", "amsc-i2"])
+    def test_the_module_resolver_accepts_the_proxy(self, name):
+        from osprey.services.ariel_search.enhancement.provider_resolver import (
+            resolve_provider_class,
+        )
+
+        cls = resolve_provider_class(name, provider_key=KEY, default="ollama")
+
+        assert cls.name == name
+
+    @pytest.mark.parametrize("name", ["cborg", "amsc-i2"])
+    def test_the_proxy_serves_no_image_embeddings(self, name):
+        from osprey.services.ariel_search.enhancement.provider_resolver import (
+            resolve_provider_class,
+        )
+
+        with pytest.raises(ModuleConfigError):
+            resolve_provider_class(
+                name, provider_key=IMAGE_KEY, default=None, serves="image_embeddings"
+            )
+
+    def test_the_reembed_guard_accepts_cborg(self, provider_configs):
+        from types import SimpleNamespace
+
+        from osprey.models.providers.cborg import CBorgProviderAdapter
+        from osprey.services.ariel_search.cli_operations import _reembed_provider
+
+        provider_configs["cborg"] = {"base_url": "https://gateway.example.org/v1"}
+        config = SimpleNamespace(
+            get_enhancement_module_config=lambda name: {"provider": "cborg", "provider_key": KEY}
+        )
+
+        cls, entry = _reembed_provider(config)
+
+        assert cls is CBorgProviderAdapter
+        assert entry == {"base_url": "https://gateway.example.org/v1"}

@@ -14,19 +14,17 @@ against the one-edit-at-a-time path, byte for byte.
 from __future__ import annotations
 
 import contextlib
-import os
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 import ruamel.yaml
-from click.testing import CliRunner
 
 from osprey.cli import build_cmd, build_limits_check
-from osprey.cli.build_cmd import build
 from osprey.deployment import runtime_helper
 from osprey.utils import config_writer
 from osprey.utils.config_writer import config_edit_session, config_update_fields
+from tests.cli._lifecycle_build import invoke_build_in
 
 SAMPLE = """\
 control_system:
@@ -114,19 +112,13 @@ class TestTheRenderedConfigIsUnchanged:
     def test_exemplar_render_matches_the_one_edit_at_a_time_render(
         self, lifecycle_repo: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        runner = CliRunner()
         # Both renders resolve ``container_runtime: auto`` alike, with no daemon probe.
         monkeypatch.setattr(
             runtime_helper, "get_runtime_command", lambda config=None: ["docker", "compose"]
         )
 
         def build_here() -> bytes:
-            previous = Path.cwd()
-            os.chdir(lifecycle_repo)
-            try:
-                result = runner.invoke(build, ["--skip-deps", "--skip-lifecycle"])
-            finally:
-                os.chdir(previous)
+            result = invoke_build_in(lifecycle_repo)
             assert result.exit_code == 0, result.output
             return (lifecycle_repo / "build" / "config.yml").read_bytes()
 
@@ -172,12 +164,7 @@ def test_a_build_parses_each_renders_config_once(
         "config_writer._yaml and would count nothing"
     )
 
-    previous = Path.cwd()
-    os.chdir(lifecycle_repo)
-    try:
-        result = CliRunner().invoke(build, ["--skip-deps", "--skip-lifecycle"])
-    finally:
-        os.chdir(previous)
+    result = invoke_build_in(lifecycle_repo)
     assert result.exit_code == 0, result.output
 
     # The renders: every config.yml the build wrote that is a project's own —

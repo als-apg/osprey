@@ -50,7 +50,6 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 import time
 import urllib.error
 import urllib.request
@@ -64,6 +63,12 @@ import yaml
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.web_terminals.render_naming import render_project
 from osprey.port_layout import default_port
+from tests.e2e._deploy_support import (
+    find_osprey_console_script,
+    format_failure,
+    run_command,
+    wait_for_health,
+)
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 from tests.e2e.provider import E2E_MODEL, e2e_provider
@@ -135,27 +140,6 @@ pytestmark = [
     pytest.mark.dockerbuild,
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),
 ]
-
-
-def _find_osprey_console_script() -> Path:
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError("Could not locate the 'osprey' console script.")
-
-
-def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        cmd,
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env={**os.environ, "CLAUDECODE": ""},
-    )
 
 
 # SKILL.md for the overlay skill. Its frontmatter mirrors the shape of the
@@ -309,7 +293,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     if not os.environ.get("ALS_APG_API_KEY"):
         pytest.skip("ALS_APG_API_KEY not set")
 
-    osprey_bin = _find_osprey_console_script()
+    osprey_bin = find_osprey_console_script()
     base = tmp_path_factory.mktemp("dispatch_overlay_build")
     repo = base / PROJECT_NAME
 
@@ -325,7 +309,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
 
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset, `build` renders build/ from it.
-    init = _run(
+    init = run_command(
         [
             str(osprey_bin),
             "init",
@@ -345,26 +329,20 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         timeout=300,
     )
     if init.returncode != 0:
-        pytest.fail(
-            f"osprey init failed (rc={init.returncode}):\n"
-            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
-        )
+        pytest.fail(format_failure("osprey init", init))
 
     # Inject the overlay skill, known data fixture, and custom trigger into the
     # source zone so the build renders them into build/ (worker image and
     # dispatcher mount alike).
     _mutate_source(repo)
 
-    build = _run(
+    build = run_command(
         [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         cwd=base,
         timeout=300,
     )
     if build.returncode != 0:
-        pytest.fail(
-            f"osprey build failed (rc={build.returncode}):\n"
-            f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
-        )
+        pytest.fail(format_failure("osprey build", build))
 
     # The render half of the claim, checked before the image build: the data
     # fixture must sit in build/data/ verbatim. A miss here is a render failure,
@@ -432,20 +410,17 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     _drop_project_volumes()
 
     try:
-        up = _run(
+        up = run_command(
             [str(osprey_bin), "up", "-d", "--dev"],
             cwd=repo,
             timeout=DEPLOY_UP_TIMEOUT_SEC,
         )
         if up.returncode != 0:
-            pytest.fail(
-                f"osprey up failed (rc={up.returncode}):\n"
-                f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
-            )
-        _wait_for_health(f"{DISPATCHER_URL}/health", HEALTH_TIMEOUT_SEC)
+            pytest.fail(format_failure("osprey up", up))
+        wait_for_health(f"{DISPATCHER_URL}/health", HEALTH_TIMEOUT_SEC)
         yield repo
     finally:
-        down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
+        down = run_command([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
             print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
@@ -453,21 +428,6 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         # Leave no stale volumes behind so the next local run starts from the
         # documented fresh-volume state (see _drop_project_volumes).
         _drop_project_volumes()
-
-
-def _wait_for_health(url: str, timeout: float) -> None:
-    deadline = time.monotonic() + timeout
-    last_err = "(no response yet)"
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # localhost
-                if resp.status == 200:
-                    return
-                last_err = f"HTTP {resp.status}"
-        except (urllib.error.URLError, ConnectionError, OSError) as exc:
-            last_err = str(exc)
-        time.sleep(1.0)
-    raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
 
 
 def _fire(trigger: str, payload: dict) -> str:

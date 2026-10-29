@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -52,8 +51,17 @@ from osprey.interfaces.web_terminal.session_handoff import (
 )
 from osprey.interfaces.web_terminal.turn_state import BUSY, IDLE
 from osprey_connectors import posture_store
+from tests._live import wait_until
 from tests.interfaces.web_terminal._fakes import FakeChatPool, FakeChatSession, FakeClock
-from tests.interfaces.web_terminal._handoff_harness import KEY, RecordingPty, pool_pty, set_store
+from tests.interfaces.web_terminal._handoff_harness import (
+    KEY,
+    RecordingPty,
+    assert_released,
+    chats,
+    pool_pty,
+    registry,
+    set_store,
+)
 
 HANDOFF_PATH = f"/api/session/{KEY}/handoff"
 
@@ -168,26 +176,12 @@ def make_app(tmp_path, *, hook: bool = True, paced: bool = False) -> FastAPI:
     return app
 
 
-def chats(app: FastAPI) -> FakeChatPool:
-    return app.state.operator_registry.chats
-
-
-def registry(app: FastAPI) -> PtyRegistry:
-    return app.state.pty_registry
-
-
 def post(app: FastAPI, **body) -> Any:
     """POST a client-shaped hand-off body and return the response."""
     payload = {"to": "simple"}
     payload.update(body)
     with TestClient(app) as client:
         return client.post(HANDOFF_PATH, json=payload)
-
-
-def assert_released(app: FastAPI) -> None:
-    """The pending slot and the reservation an ended acquire leaves behind."""
-    assert KEY not in get_state(app).pending
-    assert not registry(app).is_reserved(KEY)
 
 
 # ---------------------------------------------------------------------------
@@ -552,10 +546,13 @@ def test_a_second_request_with_an_interrupt_takes_the_key_from_a_waiting_one(tmp
     try:
         with TestClient(app) as client:
             first = threads.submit(client.post, HANDOFF_PATH, json={"to": "simple"})
-            deadline = time.monotonic() + 5.0
-            while KEY not in get_state(app).pending:
-                assert time.monotonic() < deadline, "the first request never reached its wait"
-                time.sleep(0.005)
+            wait_until(
+                lambda: KEY in get_state(app).pending,
+                timeout=5.0,
+                interval=0.005,
+                what="the first request to reach its wait",
+            )
+
             second = threads.submit(
                 client.post, HANDOFF_PATH, json={"to": "simple", "interrupt": True}
             )

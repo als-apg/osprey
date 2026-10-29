@@ -432,12 +432,6 @@ def json_run(
     return _run
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    """A Click runner that keeps stdout and stderr apart."""
-    return CliRunner()
-
-
 # --------------------------------------------------------------------------- #
 # The contracts
 # --------------------------------------------------------------------------- #

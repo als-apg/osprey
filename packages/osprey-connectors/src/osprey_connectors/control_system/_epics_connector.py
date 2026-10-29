@@ -23,7 +23,6 @@ from osprey_connectors.control_system._base import (
     ControlSystemConnector,
     WriteOutcome,
     _verdict_refusal,
-    is_readonly_run,
     values_match,
 )
 from osprey_connectors.control_system._ca_loop import CaLoop, current_ca_env, get_ca_loop
@@ -38,6 +37,7 @@ from osprey_connectors.errors import (
     RefusalReason,
 )
 from osprey_connectors.logger import get_logger
+from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.types import WRITES_KEY, machine_kind
 
 logger = get_logger("epics_connector")
