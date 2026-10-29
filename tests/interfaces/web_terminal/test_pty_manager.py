@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import fcntl
 import itertools
 import logging
 import os
 import signal
-import struct
 import subprocess
 import sys
 import termios
@@ -31,9 +29,7 @@ from tests.interfaces.web_terminal._pty_child import (
 
 
 def _winsize(session: PtySession) -> tuple[int, int]:
-    buf = fcntl.ioctl(session._master_fd, termios.TIOCGWINSZ, b"\x00" * 8)
-    rows, cols = struct.unpack("HHHH", buf)[:2]
-    return rows, cols
+    return termios.tcgetwinsize(session._master_fd)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")

@@ -57,7 +57,6 @@ import os
 import re
 import select
 import signal
-import struct
 import subprocess
 import sys
 import time
@@ -72,12 +71,11 @@ pytestmark = [
     pytest.mark.skipif(os.name != "posix", reason="a pty is a POSIX facility"),
 ]
 
-# Guarded together, and for the same reason: all three are POSIX-only, and an
+# Guarded together, and for the same reason: both are POSIX-only, and an
 # import error is raised at *collection*, which is before any skipif can apply.
-# An unguarded `import fcntl` would turn "this suite does not run on Windows"
+# An unguarded `import termios` would turn "this suite does not run on Windows"
 # into "the whole test session fails to collect on Windows".
 if os.name == "posix":  # pragma: no branch - the skip above covers the other side
-    import fcntl
     import pty
     import termios
 
@@ -352,9 +350,7 @@ class PtyProcess:
     def __init__(self, argv: list[str], cwd: Path, env: dict[str, str], bootstrap: str) -> None:
         self.argv = argv
         self._master, slave = pty.openpty()
-        fcntl.ioctl(
-            slave, termios.TIOCSWINSZ, struct.pack("HHHH", TERMINAL_ROWS, TERMINAL_COLUMNS, 0, 0)
-        )
+        termios.tcsetwinsize(slave, (TERMINAL_ROWS, TERMINAL_COLUMNS))
         self._buffer = bytearray()
         self._master_closed = False
         self._process = subprocess.Popen(  # argv is built here, not by input
