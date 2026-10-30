@@ -289,8 +289,7 @@ one-line reminder, and ``osprey health`` reports UTC as information. A value
 that names an environment variable (``${FACILITY_TZ}``) is checked by
 ``osprey health``, not by the build. It is the facility's zone and the one
 place OSPREY takes it from: the agent quotes times in it, and each page that
-shows times is stamped with it. The status-bar clock shows it with
-``zone: facility`` (see :ref:`config-bar-items`).
+shows times is stamped with it.
 
 While you are in the ``modules.web_terminals:`` block, note the ``auth:``
 stanza the preset ships: the terminals ask for a login, with demo passwords

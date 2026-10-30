@@ -1,16 +1,16 @@
 /**
  * OSPREY Web Terminal — feedback boot wiring (feedback-boot.js).
  *
- * This is the integration seam: the rail button, the dialog, the transport and
- * the deployment's configuration only ever meet here, so the properties pinned
- * below are the ones no single-module suite can see.
+ * This is the integration seam: the sidebar's Feedback row, the dialog, the
+ * transport and the deployment's configuration only ever meet here, so the
+ * properties pinned below are the ones no single-module suite can see.
  *
  *   1. ORDER. For the trackers and Email the clipboard write and the browser handoff
  *      must both be issued inside the click turn, before the POST settles.
  *      Asserted with ZERO awaits after the click — one microtask is already
  *      too late for Safari's transient user activation.
- *   2. The two documentation affordances (rail anchor, status-bar link) read
- *      the SAME `docs_url`, and a deployment that blanks it gets neither.
+ *   2. The sidebar's Docs anchor takes the deployment's `docs_url`, and
+ *      a deployment that blanks it gets none.
  *   3. Scrollback is captured in the click turn and travels only when the
  *      session-context box is ticked.
  *
@@ -48,15 +48,16 @@ const GL = `gitlab:${GITLAB_URL}`;
 const SESSION = '11111111-2222-3333-4444-555555555555';
 
 /**
- * The `<div class="panel-rail-region">…</div>` subtree, verbatim from the
- * shipped template, by counting <div> depth from its opening tag.
+ * The `<div class="sidebar-foot">…</div>` subtree (the Docs, Feedback and
+ * ☰ More rows), verbatim from the shipped template, by counting <div> depth
+ * from its opening tag.
  *
  * @returns {string}
  */
-function railRegionMarkup() {
-  const open = '<div class="panel-rail-region">';
+function sidebarFootMarkup() {
+  const open = '<div class="sidebar-foot">';
   const start = indexHtml.indexOf(open);
-  expect(start, 'index.html has no .panel-rail-region').toBeGreaterThan(-1);
+  expect(start, 'index.html has no .sidebar-foot').toBeGreaterThan(-1);
   const tags = /<div\b[^>]*>|<\/div\s*>/g;
   tags.lastIndex = start;
   let depth = 0;
@@ -66,57 +67,7 @@ function railRegionMarkup() {
     depth += match[0].startsWith('</') ? -1 : 1;
     if (depth === 0) return indexHtml.slice(start, tags.lastIndex);
   }
-  throw new Error('unbalanced .panel-rail-region in index.html');
-}
-
-/**
- * One branch of the template's `bar_body(type)` macro — the body an ADOPTED
- * bar item renders, sliced from the shipped source rather than retyped.
- *
- * Only branches that are plain markup can be sliced this way, which the guard
- * below states: a branch that grows a Jinja conditional has to be rendered,
- * not read, and this helper must fail loudly rather than paste `{% if %}` into
- * the fixture.
- *
- * @param {string} type
- * @returns {string}
- */
-function barBodyMarkup(type) {
-  const open = `{%- elif type == '${type}' -%}`;
-  const start = indexHtml.indexOf(open);
-  expect(start, `bar_body() has no '${type}' branch`).toBeGreaterThan(-1);
-  const rest = indexHtml.slice(start + open.length);
-  const end = rest.search(/\{%-?\s*(?:elif|endif)\b/);
-  expect(end, `unterminated '${type}' branch in bar_body()`).toBeGreaterThan(-1);
-  const body = rest.slice(0, end);
-  expect(body, `'${type}' branch is not plain markup`).not.toMatch(/\{[%{]/);
-  return body;
-}
-
-/**
- * The status bar as the server renders it for this suite.
- *
- * The bar is a bar-item HOST now: the template emits its items from the
- * effective layout, so the footer's own source is a Jinja loop and cannot be
- * sliced out whole. What IS shipped markup — the footer's opening tag with
- * whatever host attributes it carries, and the docs link's body — is read from
- * index.html; only the `.bar-item` shell between them is composed here, in the
- * shape app.py's render plan emits (see test_bar_items_ssr.py, which pins that
- * shape against the server).
- *
- * Matched on a PREFIX deliberately: these tests care that the docs link boots,
- * not which host attributes the bar grew this release.
- *
- * @returns {string}
- */
-function statusBarMarkup() {
-  const openTag = /<footer class="status-bar"[^>]*>/.exec(indexHtml);
-  expect(openTag, 'index.html has no .status-bar footer').not.toBeNull();
-  expect(openTag?.[0], 'status-bar tag is not plain markup').not.toMatch(/\{[%{]/);
-  const docs = barBodyMarkup('docs');
-  return (
-    `${openTag?.[0]}` + `<div class="bar-item" data-bar-item="docs">${docs}</div>` + `</footer>`
-  );
+  throw new Error('unbalanced .sidebar-foot in index.html');
 }
 
 /** A `Response` slice with a JSON body, as the transport reads it. */
@@ -205,7 +156,7 @@ function restoreClipboard() {
  *   waits on before resolving with `over.panels`
  */
 async function boot(over = {}) {
-  document.body.innerHTML = railRegionMarkup() + statusBarMarkup();
+  document.body.innerHTML = sidebarFootMarkup();
 
   const panels =
     over.panels === undefined
@@ -263,7 +214,7 @@ async function boot(over = {}) {
   return { modal, ready, reads, fetch: posts, clipboard, windowOpen, navigate };
 }
 
-/** Open the dialog by clicking the rail's Feedback button. */
+/** Open the dialog by clicking the sidebar's Feedback row. */
 function clickFeedbackButton() {
   qs(document, '#panel-feedback-btn').click();
 }
@@ -340,53 +291,34 @@ afterEach(() => {
 });
 
 describe('documentation affordances', () => {
-  test('rail anchor and status-bar link both take the configured docs_url', async () => {
+  test('the sidebar Docs anchor takes the configured docs_url', async () => {
     booted = await boot();
 
     expect(qs(document, '#panel-docs-link', HTMLAnchorElement).getAttribute('href')).toBe(DOCS_URL);
     expect(qs(document, '#panel-docs-link').hidden).toBe(false);
-    expect(qs(document, '#docs-link', HTMLAnchorElement).getAttribute('href')).toBe(DOCS_URL);
   });
 
-  test('a blank docs_url leaves both links hidden and href-less', async () => {
+  test('a blank docs_url leaves the anchor hidden and href-less', async () => {
     booted = await boot({ panels: { docs_url: '   ', feedback_trackers: [GH_TRACKER] } });
 
-    for (const id of ['#panel-docs-link', '#docs-link']) {
-      expect(qs(document, id).hidden, `${id} still visible`).toBe(true);
-      expect(qs(document, id).hasAttribute('href'), `${id} still linked`).toBe(false);
-    }
+    expect(qs(document, '#panel-docs-link').hidden).toBe(true);
+    expect(qs(document, '#panel-docs-link').hasAttribute('href')).toBe(false);
   });
 
-  test('the status-bar link ships hidden and href-less, so it cannot flash before boot', () => {
-    // The markup, not the runtime: a link that starts visible with a
-    // hardcoded href is exactly the dead link an air-gapped deployment must
-    // never be shown. The rail anchor's shipped state is rail-utility.test.mjs's.
-    expect(indexHtml).toMatch(/id="docs-link"[\s\S]{0,120}?hidden>/);
-    expect(indexHtml).not.toMatch(/id="docs-link"[^>]*href=/);
-  });
-
-  test('.status-item[hidden] is declared, or hiding the link does nothing', () => {
-    // .status-item's own display:flex outranks the user-agent [hidden] rule.
-    const css = readFileSync(join(STATIC_DIR, 'css/files.css'), 'utf8');
-
-    expect(css).toMatch(/\.status-item\[hidden\]\s*\{[^}]*display:\s*none/);
-  });
-
-  test('a failed config read hides the links without erroring', async () => {
+  test('a failed config read hides the anchor without erroring', async () => {
     booted = await boot({ panels: null, health: null });
 
     expect(qs(document, '#panel-docs-link').hidden).toBe(true);
-    expect(qs(document, '#docs-link').hidden).toBe(true);
     // The dialog is still wired: a dead config read must not cost the operator
     // the Local channel, which needs no configuration at all.
     clickFeedbackButton();
     expect(document.querySelector('.feedback-modal-dialog')).not.toBeNull();
   });
 
-  test('the status-bar link keeps a relative docs_url relative', async () => {
+  test('the sidebar Docs anchor keeps a relative docs_url relative', async () => {
     booted = await boot({ panels: { docs_url: '/docs/' } });
 
-    expect(qs(document, '#docs-link', HTMLAnchorElement).getAttribute('href')).toBe('/docs/');
+    expect(qs(document, '#panel-docs-link', HTMLAnchorElement).getAttribute('href')).toBe('/docs/');
   });
 });
 
@@ -420,7 +352,7 @@ describe('notice styling', () => {
   });
 });
 
-describe('rail button', () => {
+describe('sidebar Feedback row', () => {
   test('clicking Feedback opens the dialog', async () => {
     booted = await boot();
     expect(document.querySelector('.feedback-modal-dialog')).toBeNull();
@@ -491,7 +423,9 @@ describe('rail button', () => {
     // it would strand the operator on "still reading" over a version line.
     booted = await boot({ hangHealth: true });
     await vi.waitFor(() =>
-      expect(qs(document, '#docs-link', HTMLAnchorElement).getAttribute('href')).toBe(DOCS_URL)
+      expect(qs(document, '#panel-docs-link', HTMLAnchorElement).getAttribute('href')).toBe(
+        DOCS_URL
+      )
     );
     booted.fetch.mockImplementation(() => new Promise(() => {}));
     clickFeedbackButton();

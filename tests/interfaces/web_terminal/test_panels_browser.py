@@ -244,7 +244,7 @@ def _live_server(
 # aria-label is the stable handle these tests address tabs by.
 # The terminal tab is the one exception: it renders no aria-label — it adopts
 # the live .terminal-header, which names it — so it is identified by that
-# adoption and given the synthetic "SESSION" label below, the stable handle for
+# adoption and given the synthetic "Agent" label below, the stable handle for
 # it in these tests.
 
 # Extract every dockview group with its tab labels and pixel rectangle. Used by
@@ -252,11 +252,11 @@ def _live_server(
 _GROUPS_JS = r"""() => [...document.querySelectorAll('.dv-groupview')].map(g => {
   // The terminal tile's tab is identified by its adopted .terminal-header
   // (it carries no accessible name of its own); its label is synthesized here
-  // as "SESSION" — the same handle dock-workspace.js's TERMINAL_TITLE stamps on
+  // as "Agent" — the same handle dock-workspace.js's TERMINAL_TITLE stamps on
   // the underlying dockview panel title.
   const tabs = [...g.querySelectorAll('.dv-tab')].map(t =>
     t.querySelector('.terminal-header')
-      ? 'SESSION'
+      ? 'Agent'
       : (t.querySelector('.tile-tab')?.getAttribute('aria-label') ?? ''));
   const r = g.getBoundingClientRect();
   return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height), tabs };
@@ -297,7 +297,7 @@ def _service_tab(page: Page, label: str):
     The strip has no visible text, so the name is the handle. Matched as a raw
     attribute (not ``get_by_label``, which only resolves labelable form
     controls, never an aria-label on a plain div) and exactly, so one service
-    label like "WORKSPACE" cannot substring-match a longer one.
+    label like "Artifacts" cannot substring-match a longer one.
     """
     strip = page.locator(f'.tile-tab[aria-label="{label}"]')
     return page.locator(".dv-tab").filter(has=strip)
@@ -306,15 +306,18 @@ def _service_tab(page: Page, label: str):
 def _focus_service_tab(page: Page, label: str) -> None:
     """Focus a service tile by clicking its tab TITLE — never the whole tab.
 
-    A panel may contribute controls into its own tile header (artifacts renders
-    a search box and filter chips through tile-header-contrib.js), which widens
-    the tab far past its title. Playwright clicks an element's CENTRE, so a
-    click on the tab as a whole lands inside a contributed control — for
-    artifacts, squarely in the search input — which is not a focus gesture and
-    leaves the tile untouched. The title is the region that always means
-    "focus this tile", whatever a panel contributes beside it.
+    A panel may contribute controls into its own tile header, which widens the
+    tab far past its title. Playwright clicks an element's CENTRE, so a click on
+    the tab as a whole can land inside a contributed control, which is not a
+    focus gesture and leaves the tile untouched. The title is the region that
+    always means "focus this tile", whatever a panel contributes beside it. The
+    artifacts tile hides its own title while the shell shows its breadcrumb, so
+    there the crumb's root (a plain span; the click bubbles to the tab) stands
+    in for it.
     """
-    _service_tab(page, label).locator(".tile-tab-title").click()
+    _service_tab(page, label).locator(
+        ".osprey-crumb-root:visible, .tile-tab-title:visible"
+    ).first.click()
 
 
 def _terminal_tab(page: Page):
@@ -494,7 +497,7 @@ def test_focus_docks_service_panel_with_overlay_geometry(tmp_path, chromium_brow
         page = _open_page(chromium_browser, base_url)
 
         # Artifacts is auto-activated at boot: its dock tab + overlay iframe exist.
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
         expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=5_000)
 
         # Act — focus data-viz from the rail; it docks and becomes the active tab.
@@ -515,12 +518,12 @@ def test_focus_docks_service_panel_with_overlay_geometry(tmp_path, chromium_brow
         # its rail entry survives untouched (eviction is local occupancy, not a
         # membership change) — the tile holds exactly one panel again.
         expect(_overlay_iframe(page, "artifacts")).to_be_hidden(timeout=5_000)
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(0, timeout=5_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(0, timeout=5_000)
         expect(page.locator('button.panel-rail-button[data-panel-id="artifacts"]')).to_be_attached(
             timeout=5_000
         )
         groups = _dock_groups(page)
-        service_groups = [g for g in groups if "SESSION" not in g["tabs"]]
+        service_groups = [g for g in groups if "Agent" not in g["tabs"]]
         assert all(len(g["tabs"]) == 1 for g in service_groups), groups
 
         page.close()
@@ -543,7 +546,7 @@ def test_hide_active_panel_removes_dock_tab_and_expands_terminal(tmp_path, chrom
         custom_panels=[],
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
 
         # Act — hide the only visible+healthy panel.
         r = requests.post(
@@ -553,7 +556,7 @@ def test_hide_active_panel_removes_dock_tab_and_expands_terminal(tmp_path, chrom
         assert r.status_code == 200
 
         # Assert — the artifacts dock tab is gone and its overlay iframe hidden.
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(0, timeout=5_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(0, timeout=5_000)
         expect(_overlay_iframe(page, "artifacts")).to_be_hidden(timeout=5_000)
 
         # Assert — the terminal is the sole remaining group and fills the dock.
@@ -561,7 +564,7 @@ def test_hide_active_panel_removes_dock_tab_and_expands_terminal(tmp_path, chrom
             "() => document.querySelectorAll('.dv-groupview').length === 1", timeout=5_000
         )
         groups = _dock_groups(page)
-        assert groups[0]["tabs"] == ["SESSION"], groups
+        assert groups[0]["tabs"] == ["Agent"], groups
         dock_w = page.evaluate(
             "() => document.getElementById('dock-root').getBoundingClientRect().width"
         )
@@ -689,7 +692,7 @@ def test_reopen_after_empty_state_redocks_panel(tmp_path, chromium_browser):
         # disappear is instead created after the fact — so the assertion below
         # sees 1 for its whole timeout and reads as a product regression. Every
         # other test in this file asserts the same precondition first.
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
 
         # Close the only panel via its rail "×" → terminal is the sole group.
         #
@@ -711,7 +714,7 @@ def test_reopen_after_empty_state_redocks_panel(tmp_path, chromium_browser):
         artifacts_rail.hover()
         page.locator('button[data-panel-id="artifacts"] .panel-rail-close').click()
         expect(artifacts_rail).to_have_count(0, timeout=10_000)
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(0, timeout=10_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(0, timeout=10_000)
         page.wait_for_function(
             "() => document.querySelectorAll('.dv-groupview').length === 1", timeout=5_000
         )
@@ -721,7 +724,7 @@ def test_reopen_after_empty_state_redocks_panel(tmp_path, chromium_browser):
         page.locator('.panel-add-item[data-panel-id="artifacts"]').click()
 
         # The dock tab + overlay iframe are back beside the terminal.
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=5_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=5_000)
         expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=5_000)
         assert len(_dock_groups(page)) == 2, _dock_groups(page)
 
@@ -750,7 +753,7 @@ def test_dock_tab_focus_posts_setfocus_once(tmp_path, chromium_browser):
         custom_panels=[_CUSTOM_DATA_VIZ],
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
         # Open data-viz as a second tile beside artifacts; data-viz ends active.
         _open_second_tile(page, base_url, "data-viz", "DATA VIZ")
         expect(_overlay_iframe(page, "data-viz")).to_be_visible(timeout=5_000)
@@ -759,7 +762,7 @@ def test_dock_tab_focus_posts_setfocus_once(tmp_path, chromium_browser):
 
         posts = _track_panel_posts(page)
         # Human focus: click the artifacts dock tab (currently inactive).
-        _focus_service_tab(page, "WORKSPACE")
+        _focus_service_tab(page, "Artifacts")
         expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=5_000)
         # Let any (wrongly-)looping echo settle before counting.
         page.wait_for_timeout(600)
@@ -869,10 +872,10 @@ def test_open_beside_moves_docked_panel_instead_of_duplicating(tmp_path, chromiu
         custom_panels=[_CUSTOM_DATA_VIZ],
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
         _open_second_tile(page, base_url, "data-viz", "DATA VIZ")
         # Focus the artifacts tile so data-viz's own tile is NOT the active one.
-        _focus_service_tab(page, "WORKSPACE")
+        _focus_service_tab(page, "Artifacts")
         expect(
             page.locator('button.panel-rail-button[data-panel-id="artifacts"].active')
         ).to_have_count(1, timeout=5_000)
@@ -987,7 +990,7 @@ def test_drag_rail_entry_to_tile_edge_opens_split(tmp_path, chromium_browser):
         custom_panels=[_CUSTOM_DATA_VIZ],
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
         groups_before = len(_dock_groups(page))
 
         page.evaluate(_RAIL_DRAG_DROP_JS, "data-viz")
@@ -997,7 +1000,7 @@ def test_drag_rail_entry_to_tile_edge_opens_split(tmp_path, chromium_browser):
         assert len(_dock_groups(page)) == groups_before + 1, _dock_groups(page)
         expect(_overlay_iframe(page, "data-viz")).to_be_visible(timeout=5_000)
         groups = _dock_groups(page)
-        term = next(g for g in groups if g["tabs"] == ["SESSION"])
+        term = next(g for g in groups if g["tabs"] == ["Agent"])
         dv = next(g for g in groups if g["tabs"] == ["DATA VIZ"])
         assert dv["y"] > term["y"], (term, dv)
 
@@ -1034,7 +1037,7 @@ def test_drag_along_the_rail_reorders_it_for_every_client_and_survives_reload(
     """Dropping a rail entry on the rail itself moves it there.
 
     The order is the server's, so a second client follows the move and a
-    reload draws the same rail; SESSION stays at the head throughout.
+    reload draws the same rail; Agent stays at the head throughout.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -1095,11 +1098,11 @@ def test_server_sse_focus_is_applied_without_posting_back(tmp_path, chromium_bro
         # Pre-dock data-viz as a SECOND tile (a rail click would replace), then
         # make artifacts active again, so the later server focus only has to
         # re-activate an existing placeholder.
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
         _open_second_tile(page, base_url, "data-viz", "DATA VIZ")
-        _focus_service_tab(page, "WORKSPACE")
+        _focus_service_tab(page, "Artifacts")
         expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=5_000)
-        # Let the WORKSPACE-click's own focus POST fully drain before tracking —
+        # Let the Artifacts-click's own focus POST fully drain before tracking —
         # fetch() dispatches on a later tick, so it can otherwise land after the
         # tracker attaches and be misread as a POST-back.
         page.wait_for_timeout(800)
@@ -1148,7 +1151,7 @@ def test_agent_hide_of_active_panel_posts_no_focus(tmp_path, chromium_browser):
         page = _open_page(chromium_browser, base_url)
         # Two side-by-side tiles with data-viz active; artifacts is the visible
         # healthy neighbor the fallback must hand focus to.
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
         _open_second_tile(page, base_url, "data-viz", "DATA VIZ")
         expect(_overlay_iframe(page, "data-viz")).to_be_visible(timeout=5_000)
 
@@ -1199,20 +1202,20 @@ def test_drag_moves_tile_to_new_edge_position(tmp_path, chromium_browser):
         custom_panels=[],
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
 
         # Precondition — artifacts left of the terminal (the default split).
         groups = _dock_groups(page)
         assert len(groups) == 2, groups
         left, right = sorted(groups, key=lambda g: g["x"])
-        assert left["tabs"] == ["WORKSPACE"] and right["tabs"] == ["SESSION"], groups
+        assert left["tabs"] == ["Artifacts"] and right["tabs"] == ["Agent"], groups
 
         # Act — drag the artifacts tab to the right edge of the terminal group.
         term_group = page.locator(".dv-groupview").last
         box = term_group.bounding_box()
         _drag_with_dock_shield(
             page,
-            _service_tab(page, "WORKSPACE"),
+            _service_tab(page, "Artifacts"),
             term_group,
             target_position={"x": box["width"] - 8, "y": box["height"] / 2},
         )
@@ -1225,7 +1228,7 @@ def test_drag_moves_tile_to_new_edge_position(tmp_path, chromium_browser):
                     tabs: [...g.querySelectorAll('.tile-tab')]
                         .map(t => t.getAttribute('aria-label')).filter(Boolean),
                 }));
-                const ws = gs.find(g => g.tabs.length === 1 && g.tabs[0] === 'WORKSPACE');
+                const ws = gs.find(g => g.tabs.length === 1 && g.tabs[0] === 'Artifacts');
                 return ws && Math.max(...gs.map(g => g.x)) === ws.x;
             }""",
             timeout=5_000,
@@ -1296,7 +1299,10 @@ _TAB_DRAG_PROBE_JS = r"""async ({ source, target }) => {
     const centre = await at(dst.closest('.dv-groupview').querySelector('.dv-content-container'));
     centre.hit.dispatchEvent(new DragEvent('dragleave', centre.opts));
     await new Promise((res) => setTimeout(res, 100));
-    const title = await at(dst.querySelector('.tile-tab-title'));
+    // The artifacts tile hides its title behind the shell's breadcrumb root.
+    const titleEl = [...dst.querySelectorAll('.osprey-crumb-root, .tile-tab-title')]
+        .find((el) => el.getClientRects().length > 0);
+    const title = await at(titleEl);
     title.hit.dispatchEvent(new DragEvent('drop', title.opts));
     src.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }));
     return { edgePainted: edge.painted, clearedAfterEdge,
@@ -1322,14 +1328,14 @@ def test_drag_onto_tab_bar_is_vetoed_no_stack(tmp_path, chromium_browser):
         custom_panels=[_CUSTOM_DATA_VIZ],
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
         _open_second_tile(page, base_url, "data-viz", "DATA VIZ")
 
         before = _dock_groups(page)
         assert all(len(g["tabs"]) == 1 for g in before), before
 
         # Act — the restack gesture, with an accepted edge target as contrast.
-        probe = page.evaluate(_TAB_DRAG_PROBE_JS, {"source": "DATA VIZ", "target": "WORKSPACE"})
+        probe = page.evaluate(_TAB_DRAG_PROBE_JS, {"source": "DATA VIZ", "target": "Artifacts"})
         assert "error" not in probe, probe
         assert probe["edgePainted"] is True, f"dockview never recognised the drag: {probe}"
         assert probe["clearedAfterEdge"] is True, probe
@@ -1375,7 +1381,7 @@ def test_distinct_project_key_isolates_layouts(tmp_path, chromium_browser):
         page = _open_page(chromium_browser, base_url)
 
         # Arrange A: terminal to the far-left, persisted under key(A).
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
         first_group = page.locator(".dv-groupview").first
         fb = first_group.bounding_box()
         _drag_with_dock_shield(
@@ -1404,7 +1410,7 @@ def test_distinct_project_key_isolates_layouts(tmp_path, chromium_browser):
         page.wait_for_timeout(1_500)
 
         groups = _dock_groups(page)
-        term_b = next(g for g in groups if g["tabs"] == ["SESSION"])
+        term_b = next(g for g in groups if g["tabs"] == ["Agent"])
         assert term_b["x"] == max(g["x"] for g in groups), (
             f"project B should show the default (terminal right), got {groups}"
         )
@@ -1420,7 +1426,7 @@ def test_distinct_project_key_isolates_layouts(tmp_path, chromium_browser):
         page.wait_for_timeout(1_500)
 
         groups = _dock_groups(page)
-        term_a = next(g for g in groups if g["tabs"] == ["SESSION"])
+        term_a = next(g for g in groups if g["tabs"] == ["Agent"])
         assert term_a["x"] == min(g["x"] for g in groups), (
             f"project A's stored layout (terminal left) was not isolated: {groups}"
         )
@@ -1470,7 +1476,7 @@ def test_reset_layout_restores_the_default(tmp_path, chromium_browser, reset):
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
 
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
         first_group = page.locator(".dv-groupview").first
         fb = first_group.bounding_box()
         _drag_with_dock_shield(
@@ -1502,8 +1508,8 @@ def test_reset_layout_restores_the_default(tmp_path, chromium_browser, reset):
         groups = _dock_groups(page)
         assert len(groups) == 2, groups
         left, right = sorted(groups, key=lambda g: g["x"])
-        assert left["tabs"] == ["WORKSPACE"], groups
-        assert right["tabs"] == ["SESSION"], groups
+        assert left["tabs"] == ["Artifacts"], groups
+        assert right["tabs"] == ["Agent"], groups
 
         # And the reset persists across a reload (custom arrangement is gone).
         page.wait_for_timeout(500)
@@ -1511,7 +1517,7 @@ def test_reset_layout_restores_the_default(tmp_path, chromium_browser, reset):
         expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
         page.wait_for_timeout(1_500)
         groups = _dock_groups(page)
-        term = next(g for g in groups if g["tabs"] == ["SESSION"])
+        term = next(g for g in groups if g["tabs"] == ["Agent"])
         assert term["x"] == max(g["x"] for g in groups), (
             f"reset did not stick — terminal not back on the right: {groups}"
         )
@@ -1538,7 +1544,7 @@ def test_corrupt_stored_layout_falls_back_to_default(tmp_path, chromium_browser)
         page = _open_page(chromium_browser, base_url)
 
         # Establish a stored key by making + persisting a custom arrangement.
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
         first_group = page.locator(".dv-groupview").first
         fb = first_group.bounding_box()
         _drag_with_dock_shield(
@@ -1561,7 +1567,7 @@ def test_corrupt_stored_layout_falls_back_to_default(tmp_path, chromium_browser)
 
         # Default arrangement loaded (terminal on the right), grid is functional.
         groups = _dock_groups(page)
-        term = next(g for g in groups if g["tabs"] == ["SESSION"])
+        term = next(g for g in groups if g["tabs"] == ["Agent"])
         assert term["x"] == max(g["x"] for g in groups), (
             f"corrupt layout did not fall back to default: {groups}"
         )
@@ -1602,7 +1608,7 @@ def test_simple_mode_starts_simple_and_stays_editable(tmp_path, chromium_browser
         # The simplified DEFAULT: one service tile left, the console right.
         groups = _dock_groups(page)
         assert len(groups) == 2, groups
-        term = next(g for g in groups if g["tabs"] == ["SESSION"])
+        term = next(g for g in groups if g["tabs"] == ["Agent"])
         assert term["x"] == max(g["x"] for g in groups), groups
 
         # Not locked, and every tile keeps a live header strip with its close.
@@ -1623,7 +1629,7 @@ def test_simple_mode_starts_simple_and_stays_editable(tmp_path, chromium_browser
         )
         page.wait_for_timeout(700)
         groups = _dock_groups(page)
-        term = next(g for g in groups if g["tabs"] == ["SESSION"])
+        term = next(g for g in groups if g["tabs"] == ["Agent"])
         assert term["x"] == min(g["x"] for g in groups), groups
 
         page.close()
@@ -1674,11 +1680,15 @@ def test_mode_flip_restores_expert_layout_and_folds_in_simple_registration(
         )
 
         # Flip to expert — the expert layout is restored.
-        # (The mode toggle lives inside the display-menu popover — open it first.)
-        page.locator("#display-menu .display-menu-trigger").click()
-        page.locator(
-            '#display-menu .display-menu-view .display-seg-option[data-mode="expert"]'
-        ).click()
+        # (The View rows live in the sidebar's More menu — open it first, and
+        # close it after the pick so the rail is clickable again.)
+        more_menu = page.locator("#more-menu")
+        page.locator("#more-btn").click()
+        expect(more_menu).to_be_visible()
+        page.locator('#more-menu [role="menuitemradio"][data-view="expert"]').click()
+        if more_menu.is_visible():
+            page.keyboard.press("Escape")
+        expect(more_menu).to_be_hidden()
         expect(page.locator("html")).to_have_attribute("data-ui-mode", "expert", timeout=5_000)
         page.wait_for_timeout(1_200)
         assert _dock_locked(page) is False
@@ -1686,7 +1696,7 @@ def test_mode_flip_restores_expert_layout_and_folds_in_simple_registration(
         # No dead tabs: every dock tab is a known panel; monitor is not docked yet.
         groups = _dock_groups(page)
         all_tabs = [t for g in groups for t in g["tabs"]]
-        assert all(t in ("SESSION", "WORKSPACE") for t in all_tabs), (
+        assert all(t in ("Agent", "Artifacts") for t in all_tabs), (
             f"unexpected/dead dock tab after restore: {groups}"
         )
         assert all_tabs.count("MONITOR") == 0, groups
@@ -1704,7 +1714,7 @@ def test_simple_mode_empty_workspace_boots_chat_only_until_agent_reveal(tmp_path
     """Simple UX first boot with an EMPTY workspace is chat-only; the rail add reveals.
 
     With no artifact in the agent workspace the hub docks only the chat/terminal
-    card — no WORKSPACE tab, a single dock group. An agent ``add_panel_to_rail`` (the
+    card — no Artifacts tab, a single dock group. An agent ``add_panel_to_rail`` (the
     panel-visibility POST the MCP tool issues, tagged ``source: agent``) then
     brings the workspace up live on the shown panel.
     """
@@ -1721,9 +1731,9 @@ def test_simple_mode_empty_workspace_boots_chat_only_until_agent_reveal(tmp_path
         page.wait_for_timeout(1_000)
 
         # Chat-only boot: the dock holds only the terminal/chat card.
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(0)
+        expect(_service_tab(page, "Artifacts")).to_have_count(0)
         groups = _dock_groups(page)
-        assert [g["tabs"] for g in groups] == [["SESSION"]], groups
+        assert [g["tabs"] for g in groups] == [["Agent"]], groups
 
         # Agent reveal: add_panel_to_rail('artifacts') docks + activates the workspace.
         r = requests.post(
@@ -1731,7 +1741,7 @@ def test_simple_mode_empty_workspace_boots_chat_only_until_agent_reveal(tmp_path
             json={"panel": "artifacts", "visible": True, "source": "agent"},
         )
         assert r.status_code == 200
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=5_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=5_000)
         expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=5_000)
 
         page.close()
@@ -1815,13 +1825,13 @@ def test_add_menu_opens_unclipped_beside_rail(tmp_path, chromium_browser):
         )
 
         page.locator("#panel-add-btn").click()
-        expect(page.locator(".panel-add-menu.open")).to_be_visible(timeout=5_000)
+        expect(page.locator("#panel-add-menu")).to_be_visible(timeout=5_000)
 
         geo = page.evaluate(
             """() => {
                 const menu = document.getElementById('panel-add-menu').getBoundingClientRect();
                 const btn = document.getElementById('panel-add-btn').getBoundingClientRect();
-                const region = document.querySelector('.panel-rail-region');
+                const region = document.getElementById('sidebar');
                 return {
                     menuLeft: menu.left,
                     menuRight: menu.right,
@@ -1852,7 +1862,7 @@ def test_add_menu_url_row_hidden_when_disabled(tmp_path, chromium_browser):
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
         page.locator("#panel-add-btn").click()
-        expect(page.locator(".panel-add-menu.open")).to_be_visible(timeout=5_000)
+        expect(page.locator("#panel-add-menu")).to_be_visible(timeout=5_000)
         expect(page.locator(".panel-add-input")).to_have_count(0)
         page.close()
 
@@ -1964,7 +1974,7 @@ def test_hidden_default_panel_falls_back_to_visible_panel(tmp_path, chromium_bro
             expect(
                 page.locator('button.panel-rail-button[data-panel-id="artifacts"]')
             ).to_have_count(0)
-            expect(_service_tab(page, "WORKSPACE")).to_have_count(0)
+            expect(_service_tab(page, "Artifacts")).to_have_count(0)
 
             page.close()
 
@@ -2051,7 +2061,7 @@ def test_tile_notice_follows_backend_outage(tmp_path, chromium_browser):
             app.state.visible_panels = ["artifacts", "data-viz"]
 
             page = _open_page(chromium_browser, base_url)
-            expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+            expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
             expect(
                 page.locator('button.panel-rail-button[data-panel-id="data-viz"]:not(.disabled)')
             ).to_have_count(1, timeout=15_000)
@@ -2104,7 +2114,7 @@ def test_tile_notice_follows_backend_outage(tmp_path, chromium_browser):
 def test_terminal_rail_entry_close_and_reopen(tmp_path, chromium_browser):
     """The terminal is the rail's permanent anchor: tile closes, entry never changes.
 
-    The rail's FIRST entry is the terminal ('SESSION') and it renders no "×"
+    The rail's FIRST entry is the terminal ('Agent') and it renders no "×"
     (the anchor is not removable — its tile closes via the dock tab or the
     Delete key on the focused entry). Closing the tile leaves the entry in
     place at full brightness; clicking it re-docks the same live terminal card.
@@ -2163,18 +2173,18 @@ def test_evicted_panel_entry_click_redocks_it(tmp_path, chromium_browser):
         page = _open_page(chromium_browser, base_url)
         artifacts_rail = page.locator('button.panel-rail-button[data-panel-id="artifacts"]')
         expect(artifacts_rail).to_be_visible(timeout=10_000)
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
 
         posts = _track_panel_posts(page)
 
         # Evict artifacts by activating data-viz (one panel per tile).
         _focus_service_panel(page, "data-viz", "DATA VIZ")
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(0, timeout=5_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(0, timeout=5_000)
         expect(artifacts_rail).to_be_attached()
 
         # Take the tile back through the surviving entry.
         artifacts_rail.click()
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=5_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=5_000)
         expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=5_000)
         expect(_service_tab(page, "DATA VIZ")).to_have_count(0, timeout=5_000)
 
@@ -2203,7 +2213,7 @@ def test_rail_click_on_open_panel_jumps_without_moving_it(tmp_path, chromium_bro
         custom_panels=[_CUSTOM_DATA_VIZ],
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
         _open_second_tile(page, base_url, "data-viz", "DATA VIZ")
         expect(_overlay_iframe(page, "data-viz")).to_be_visible(timeout=5_000)
         before = _dock_groups(page)
@@ -2251,7 +2261,7 @@ def test_tile_bar_fixed_height_no_hover_reflow(tmp_path, chromium_browser):
         custom_panels=[],
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
         expect(_terminal_tab(page)).to_have_count(1, timeout=10_000)
 
         # Exactly one terminal header row, and it lives in the tab, not the card.
@@ -2276,10 +2286,13 @@ def test_tile_bar_fixed_height_no_hover_reflow(tmp_path, chromium_browser):
         ), "tile content shifted on hover"
 
         # A service tile carries the unified bar: visible title + close, no
-        # grip badge (popout stays a rail-entry affordance).
-        ws = _service_tab(page, "WORKSPACE")
+        # grip badge (popout stays a rail-entry affordance). The artifacts
+        # tile's visible title is its breadcrumb root while the crumb shows.
+        ws = _service_tab(page, "Artifacts")
         expect(ws.locator(".tile-tab-grip")).to_have_count(0)
-        expect(ws.locator(".tile-tab-title")).to_have_text("WORKSPACE")
+        expect(
+            ws.locator(".osprey-crumb-root:visible, .tile-tab-title:visible").first
+        ).to_have_text("Artifacts")
         expect(ws.locator(".tile-tab-close")).to_have_count(1)
         expect(ws.locator(".tile-tab-popout")).to_have_count(0)
 
@@ -2312,7 +2325,7 @@ def test_overlay_iframe_follows_live_sash_drag(tmp_path, chromium_browser):
         custom_panels=[],
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
         expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=10_000)
 
         before = page.evaluate(_ALIGN_JS, "artifacts")
@@ -2463,9 +2476,11 @@ def test_header_contribution_renders_and_round_trips(reserve_port, tmp_path, chr
             expect(tab.locator(".contrib-btn")).to_have_text("Refresh")
             expect(tab.locator(".tile-tab-contrib.has-items")).to_have_count(1)
 
-            ws = _service_tab(page, "WORKSPACE")
-            expect(ws.locator(".tile-tab-contrib.has-items")).to_have_count(0)
+            # The CONTRIB panel's items never leak into another tile. (The
+            # artifacts tile has items of its own: the shell's crumb and pager.)
+            ws = _service_tab(page, "Artifacts")
             expect(ws.locator(".contrib-nav-link")).to_have_count(0)
+            expect(ws.locator(".contrib-btn")).to_have_count(0)
 
             # Round-trip: bar clicks land in the panel as osprey-header-action.
             tab.locator(".contrib-nav-link", has_text="New Entry").click()
@@ -2840,7 +2855,7 @@ def test_rail_context_menu_lists_every_panel_verb(tmp_path, chromium_browser):
         custom_panels=[_CUSTOM_DATA_VIZ],
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
 
         menu = _open_rail_menu(page, "data-viz")
 
@@ -2888,7 +2903,7 @@ def test_rail_context_menu_keyboard_open_and_escape_restores_focus(tmp_path, chr
         custom_panels=[_CUSTOM_DATA_VIZ],
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
         # The entry has to be enabled before the keyboard route is allowed —
         # the same gate the mouse route passes through.
         expect(_rail_entry(page, "data-viz")).not_to_have_class(
@@ -2978,51 +2993,6 @@ def test_remove_from_rail_undo_restores_the_entry_at_its_old_position(tmp_path, 
         expect(_rail_entry(page, "data-viz")).to_have_count(1, timeout=10_000)
         expect(notice).to_have_count(0)
         assert page.evaluate(rail_ids) == before
-
-        page.close()
-
-
-def test_open_system_from_the_health_card_leaves_the_rail_unchanged(tmp_path, chromium_browser):
-    """The health card's "Open SYSTEM" shows the tile without pinning SYSTEM.
-
-    The opened tile's header then offers "Pin to rail" in place of "Remove from
-    rail", and picking it is what gives SYSTEM its entry — over the real
-    POST → broadcast → handler round trip.
-    """
-    workspace = tmp_path / "_agent_data"
-    workspace.mkdir()
-
-    with (
-        _stub_backend() as system_url,
-        _live_server(workspace, enabled_panels={"artifacts", "system-health"}) as (
-            base_url,
-            app,
-        ),
-    ):
-        app.state.system_health_server_url = system_url
-        app.state.visible_panels = ["artifacts"]
-        page = _open_page(chromium_browser, base_url)
-        expect(_rail_entry(page, "artifacts")).to_be_visible(timeout=10_000)
-        expect(_rail_entry(page, "system-health")).to_have_count(0)
-
-        page.locator('[data-bar-item="system-health"] .bar-health').first.click()
-        page.get_by_role("button", name="Open SYSTEM").first.click()
-
-        tab = _service_tab(page, "SYSTEM")
-        expect(tab).to_have_count(1, timeout=10_000)
-        # Give a stray membership echo the time it would need to land.
-        page.wait_for_timeout(500)
-        expect(_rail_entry(page, "system-health")).to_have_count(0)
-        assert app.state.visible_panels == ["artifacts"]
-
-        tab.locator(".tile-tab-title").click(button="right")
-        expect(_context_menu(page)).to_have_count(1, timeout=5_000)
-        assert _menu_labels(page)[-1] == "Pin to rail"
-        _menu_row(page, "Pin to rail").click()
-
-        expect(_rail_entry(page, "system-health")).to_have_count(1, timeout=10_000)
-        assert app.state.visible_panels == ["artifacts", "system-health"]
-        expect(tab).to_have_count(1)
 
         page.close()
 
@@ -3135,7 +3105,7 @@ def test_simple_mode_keeps_new_tile_row_and_trims_terminal_menu_to_close(
 
         _open_rail_menu(page, "artifacts")
         assert _menu_labels(page) == [
-            "Focus WORKSPACE",
+            "Focus Artifacts",
             "Open in a new tile",
             "Open in a new window",
             "Remove from rail",
@@ -3536,7 +3506,7 @@ def test_palette_query_ariel_offers_popout_of_the_active_panel(tmp_path, chromiu
 
         # The new-tile verb itself is alive here - it just skips the active panel.
         _palette_query(page, "tile")
-        expect(_palette_row(page, "Open WORKSPACE in a new tile")).to_have_count(1, timeout=5_000)
+        expect(_palette_row(page, "Open Artifacts in a new tile")).to_have_count(1, timeout=5_000)
         expect(_palette_row(page, "Open ARIEL in a new tile")).to_have_count(0)
 
         page.close()
@@ -3559,9 +3529,9 @@ def test_palette_logbook_synonym_matches_ariel(tmp_path, chromium_browser):
         _palette_query(page, "logbook")
 
         expect(_palette_row(page, "Open ARIEL in a new window")).to_have_count(1, timeout=5_000)
-        # A word ARIEL's own rows are the only ones carrying: WORKSPACE, the
+        # A word ARIEL's own rows are the only ones carrying: Artifacts, the
         # other rail member, is filtered out entirely.
-        expect(_palette_row(page, "WORKSPACE")).to_have_count(0)
+        expect(_palette_row(page, "Artifacts")).to_have_count(0)
 
         page.close()
 
@@ -3604,9 +3574,9 @@ def test_palette_recent_section_leads_the_empty_query_after_an_execution(
     Recent is a presentation-level section rebuilt from localStorage keys that
     are re-resolved against the live registry on each render, so this drives
     the whole loop through a real browser store: execute, reopen on an empty
-    query, reload, reopen again. "Move panel rail to left" is the item because
-    it is offered in every mode and is a no-op at the default rail position, so
-    the proof does not hinge on the workspace being left in some other state.
+    query, reload, reopen again. "Open activity log" is the item because it is
+    offered in every mode and opens a new tab, so the proof does not hinge on
+    this page being left in some other state.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -3622,8 +3592,8 @@ def test_palette_recent_section_leads_the_empty_query_after_an_execution(
 
         # Act - run one item.
         _open_palette(page)
-        _palette_query(page, "rail to left")
-        row = _palette_row(page, "Move panel rail to left")
+        _palette_query(page, "activity log")
+        row = _palette_row(page, "Open activity log")
         expect(row).to_have_count(1, timeout=5_000)
         row.click()
         expect(page.locator(_PALETTE_OVERLAY)).to_have_count(0, timeout=5_000)
@@ -3632,7 +3602,7 @@ def test_palette_recent_section_leads_the_empty_query_after_an_execution(
         _open_palette(page)
         headings = page.evaluate(_PALETTE_HEADINGS_JS)
         assert headings and headings[0] == "Recent", headings
-        assert page.evaluate(_PALETTE_RECENT_ROWS_JS) == ["Move panel rail to left"]
+        assert page.evaluate(_PALETTE_RECENT_ROWS_JS) == ["Open activity log"]
         # The normal groups still render underneath - Recent never replaces them.
         assert "Panels" in headings, headings
         page.keyboard.press("Escape")
@@ -3641,6 +3611,6 @@ def test_palette_recent_section_leads_the_empty_query_after_an_execution(
         # Assert - the history lives in the browser store, not in module memory.
         _palette_reload(page)
         _open_palette(page)
-        assert page.evaluate(_PALETTE_RECENT_ROWS_JS) == ["Move panel rail to left"]
+        assert page.evaluate(_PALETTE_RECENT_ROWS_JS) == ["Open activity log"]
 
         page.close()

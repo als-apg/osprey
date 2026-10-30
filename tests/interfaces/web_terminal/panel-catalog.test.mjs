@@ -21,6 +21,7 @@
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 import { BUILTIN_PANEL_LABELS, stampPanelLabels } from './panel-labels-fixture.mjs';
+import { ICON_NAMES } from '/design-system/js/icons.js';
 
 /** Every warning logged while the catalog loaded. @type {string[]} */
 let warnings;
@@ -99,4 +100,61 @@ describe('the descriptors the browser builds paths from', () => {
     expect(byId['system-health'].healthEndpoint).toBe('/health');
     expect(byId['jupyter'].healthEndpoint).toBe('/api/status');
   });
+});
+
+describe('how the sidebar names and draws a panel', () => {
+  test('the Agent pane row is labelled Agent', async () => {
+    const { TERMINAL_RAIL_ID, TERMINAL_RAIL_LABEL } = await freshCatalog();
+
+    expect(TERMINAL_RAIL_ID).toBe('terminal');
+    expect(TERMINAL_RAIL_LABEL).toBe('Agent');
+  });
+
+  test('every named glyph is one icons.js can draw, and so is the fallback', async () => {
+    const { PANEL_ICONS, FALLBACK_PANEL_ICON } = await freshCatalog();
+
+    for (const name of [...Object.values(PANEL_ICONS), FALLBACK_PANEL_ICON]) {
+      expect(ICON_NAMES).toContain(name);
+    }
+    expect(FALLBACK_PANEL_ICON).toBe('workspace');
+  });
+
+  test('every shipped panel and the Agent pane have a glyph of their own', async () => {
+    const { PANELS, PANEL_ICONS, TERMINAL_RAIL_ID } = await freshCatalog();
+
+    for (const id of [TERMINAL_RAIL_ID, ...PANELS.map((p) => p.id)]) {
+      expect(Object.hasOwn(PANEL_ICONS, id)).toBe(true);
+    }
+  });
+
+  test('panelIconName answers the named glyph, else the fallback', async () => {
+    const { panelIconName, PANEL_ICONS, FALLBACK_PANEL_ICON } = await freshCatalog();
+
+    expect(panelIconName('artifacts')).toBe(PANEL_ICONS.artifacts);
+    expect(panelIconName('terminal')).toBe('agent');
+    expect(panelIconName('my-custom-panel')).toBe(FALLBACK_PANEL_ICON);
+    // An inherited Object property is not a panel's glyph.
+    expect(panelIconName('constructor')).toBe(FALLBACK_PANEL_ICON);
+  });
+
+  test.each([
+    ['ARIEL', 'Ariel'],
+    ['CHANNELS', 'Channels'],
+    ['SYSTEM HEALTH', 'System Health'],
+    ['CHANNEL-FINDER', 'Channel-Finder'],
+    ['MY-CUSTOM PANEL', 'My-Custom Panel'],
+  ])('titleCase reads the all-capitals label %s as %s', async (label, shown) => {
+    const { titleCase } = await freshCatalog();
+
+    expect(titleCase(label)).toBe(shown);
+  });
+
+  test.each(['EPICS Archiver', 'pyAT', 'Artifacts', 'Agent'])(
+    'titleCase leaves %s, which has a lower-case letter, as it is',
+    async (label) => {
+      const { titleCase } = await freshCatalog();
+
+      expect(titleCase(label)).toBe(label);
+    }
+  );
 });

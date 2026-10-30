@@ -1,10 +1,9 @@
 /**
  * Logging out, from anywhere on the page.
  *
- * Log out is offered in three places — the header identity menu, the display
- * menu's action row, and the command palette — and none of them owns the
- * flow. The two buttons are bar items an operator may remove; the palette is
- * not, so it must be able to log out with neither button in the DOM. What it
+ * Log out is offered in two places — the More menu's Sign out row
+ * (`#logout-btn`) and the command palette — and neither owns the flow. The
+ * palette must be able to log out with no button in the DOM. What it
  * needs is the landing URL, which the server stamps on `<html>` as
  * `data-landing-url` whenever it renders a logout at all (multi-user
  * deployments: a user to log out, somewhere to send them). Plain `osprey web`
@@ -65,7 +64,7 @@ export async function logout(landingUrl, btn = null) {
  * The user is that prefix's last path segment, so this script names no mount
  * root of its own.
  *
- * Read from the prefix rather than from the display menu's identity line
+ * Read from the prefix rather than from the More menu's who-line
  * because the prefix is the copy the app already routes every one of its own
  * requests through — that line is display markup, and taking a name from
  * rendered text to put it back in a URL is how a display change becomes a

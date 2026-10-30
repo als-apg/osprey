@@ -677,6 +677,16 @@ export function getFamily() {
 }
 
 /**
+ * The hub's light/dark PREFERENCE: 'auto' while it follows the OS, else the
+ * mode the operator (or the deployment's `data-theme-mode`) pinned. A
+ * follower has no preference of its own and always reads 'auto'.
+ * @returns {ModePreference}
+ */
+export function modePreference() {
+  return _role === 'hub' ? _preferenceMode : 'auto';
+}
+
+/**
  * Set the theme. `id` may be a concrete theme id (its family is derived
  * from THEMES) or 'auto' (resolves the OS preference WITHIN the currently
  * active family -- it never jumps family). Anything else fails safe to

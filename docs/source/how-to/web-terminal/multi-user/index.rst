@@ -594,9 +594,9 @@ showing a gap.
 Logging out and switching users
 -------------------------------
 
-Every session's header carries a chip in the top-left naming the terminal — the
-display name where the roster sets one, the username otherwise. Clicking it
-opens a small menu naming the signed-in user, with **Log out**. That POSTs to the terminal's logout
+The **☰ More** menu at the bottom of the sidebar names the signed-in user —
+the display name where the roster sets one, the username otherwise — and
+their role, and has **Sign out**. That POSTs to the terminal's logout
 route, clears the local session pointer, and returns you to the landing page.
 From there, pick another card to open a different user. Logging out ends the
 session for real — the terminal drops its running processes, so the next login

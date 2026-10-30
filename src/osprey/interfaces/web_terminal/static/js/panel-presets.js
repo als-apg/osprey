@@ -42,23 +42,21 @@ export function applyPreset(name) {
  */
 
 /**
- * Wire the header "+" control (add-panel menu + Layouts).
+ * Wire the sidebar's "+ Add panel" control (add-panel menu + Layouts).
  *
- * Absorbs the getElementById lookups for ``#panel-add``/``#panel-add-btn``/
- * ``#panel-add-menu`` and the {@link initPanelAddMenu} call that previously
- * lived inline in panel-manager, now including the preset options — so
- * relocating this wiring nets a line reduction there. No-op (returns) if the
- * "+" DOM is absent, so a template without the control degrades gracefully.
+ * Absorbs the getElementById lookups for ``#panel-add-btn``/``#panel-add-menu``
+ * and the {@link initPanelAddMenu} call that previously lived inline in
+ * panel-manager, now including the preset options — so relocating this wiring
+ * nets a line reduction there. No-op (returns) if the "+" DOM is absent, so a
+ * template without the control degrades gracefully.
  *
  * @param {HeaderControlsDeps} deps
  */
 export function wirePanelHeaderControls(deps) {
-  const rootEl = document.getElementById('panel-add');
   const buttonEl = document.getElementById('panel-add-btn');
   const menuEl = document.getElementById('panel-add-menu');
-  if (!rootEl || !buttonEl || !menuEl) return;
+  if (!buttonEl || !menuEl) return;
   initPanelAddMenu({
-    rootEl,
     buttonEl: /** @type {HTMLButtonElement} */ (buttonEl),
     menuEl,
     getHiddenPanels: deps.getHiddenPanels,

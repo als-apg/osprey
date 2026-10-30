@@ -19,33 +19,20 @@
  * follow-up functions to spies, so the dock and panel halves stay under test
  * alongside the new one. The mode message itself goes through the real
  * frame-params.js, which is what decides a re-pick of the current mode is not
- * a flip at all.
+ * a flip at all. sidebar-artifacts.js is mocked: app.js only calls its init,
+ * which this file never reaches.
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 
-// The host-chrome import graph below reaches bar-sync.js, which GETs the
-// operator's bar layout at import time. Nothing serves this environment, so
-// that request is answered here — from `vi.hoisted`, which runs before the
-// static imports are evaluated and therefore before the GET is made. Any other
-// URL is a dependency this file has not declared, and fails loudly.
+// Nothing serves this environment, so no request is answered: any fetch is a
+// dependency this file has not declared, and fails loudly. Stubbed from
+// `vi.hoisted`, which runs before the static imports are evaluated.
 vi.hoisted(() => {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (/** @type {string} */ url) => {
-      if (url !== '/api/bar-items') throw new Error(`unstubbed fetch: ${url}`);
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          version: 1,
-          rev: 0,
-          header: [],
-          status: [],
-          header_visible: true,
-          status_visible: true,
-        }),
-      };
+      throw new Error(`unstubbed fetch: ${url}`);
     })
   );
 });
@@ -126,10 +113,15 @@ vi.mock(
   })
 );
 
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/sidebar-artifacts.js', () => ({
+  initSidebarArtifacts: vi.fn(),
+  teardownSidebarArtifacts: vi.fn(),
+}));
+
 import { initUiModeFollowUps } from '../../../src/osprey/interfaces/web_terminal/static/js/app.js';
 
 /**
- * Flip the view the way the header's View row does: the same-origin
+ * Flip the view the way ☰ More's View row does: the same-origin
  * `osprey-mode-change` message frame-params.js listens for.
  * @param {'expert'|'simple'} mode
  */

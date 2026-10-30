@@ -20,8 +20,8 @@ let warningGatePending = false;
 /**
  * Gate opening the settings drawer behind a first-time-per-session warning
  * (these settings control agent behavior, safety hooks, and security
- * policies). The trigger is the display menu's System Settings row (hub
- * chrome's only route into the drawer, expert mode only). It intentionally
+ * policies). The trigger is the ☰ More menu's Settings row (hub chrome's
+ * only route into the drawer, present in both views). It intentionally
  * carries `data-drawer-trigger` rather than osprey-drawer's own
  * `[data-drawer]` marker, so the component's
  * delegated handler never matches it and never toggles the drawer directly —

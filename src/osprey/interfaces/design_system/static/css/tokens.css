@@ -201,8 +201,6 @@
   --wt-welcome-prompt: #5a9a7a;
   --wt-welcome-cursor: #7ec8a0;
   --wt-welcome-scanline-bg: repeating-linear-gradient(0deg, transparent 0px, rgba(0, 0, 0, 0.08) 2px, transparent 4px);
-  --wt-header-height: 44px;
-  --wt-status-bar-height: 26px;
   --wt-transition-fast: 120ms ease;
   --wt-transition-normal: 200ms ease;
   --wt-sidebar-width: 232px;
@@ -362,8 +360,6 @@
   --wt-welcome-prompt: #f18f1f;
   --wt-welcome-cursor: #009fdf;
   --wt-welcome-scanline-bg: repeating-linear-gradient(0deg, transparent 0px, rgba(0, 0, 0, 0.08) 2px, transparent 4px);
-  --wt-header-height: 44px;
-  --wt-status-bar-height: 26px;
   --wt-transition-fast: 120ms ease;
   --wt-transition-normal: 200ms ease;
   --wt-sidebar-width: 232px;
@@ -523,8 +519,6 @@
   --wt-welcome-prompt: #eb6e0f;
   --wt-welcome-cursor: #007bc8;
   --wt-welcome-scanline-bg: repeating-linear-gradient(0deg, transparent 0px, rgba(0, 0, 0, 0.08) 2px, transparent 4px);
-  --wt-header-height: 44px;
-  --wt-status-bar-height: 26px;
   --wt-transition-fast: 120ms ease;
   --wt-transition-normal: 200ms ease;
   --wt-sidebar-width: 232px;
@@ -684,8 +678,6 @@
   --wt-welcome-prompt: #999999;
   --wt-welcome-cursor: #ffffff;
   --wt-welcome-scanline-bg: repeating-linear-gradient(0deg, transparent 0px, rgba(0, 0, 0, 0.08) 2px, transparent 4px);
-  --wt-header-height: 44px;
-  --wt-status-bar-height: 26px;
   --wt-transition-fast: 120ms ease;
   --wt-transition-normal: 200ms ease;
   --wt-sidebar-width: 232px;
@@ -845,8 +837,6 @@
   --wt-welcome-prompt: #666666;
   --wt-welcome-cursor: #000000;
   --wt-welcome-scanline-bg: repeating-linear-gradient(0deg, transparent 0px, rgba(0, 0, 0, 0.08) 2px, transparent 4px);
-  --wt-header-height: 44px;
-  --wt-status-bar-height: 26px;
   --wt-transition-fast: 120ms ease;
   --wt-transition-normal: 200ms ease;
   --wt-sidebar-width: 232px;
@@ -1006,8 +996,6 @@
   --wt-welcome-prompt: #0a8f8c;
   --wt-welcome-cursor: #0d7377;
   --wt-welcome-scanline-bg: repeating-linear-gradient(0deg, transparent 0px, rgba(0, 0, 0, 0.08) 2px, transparent 4px);
-  --wt-header-height: 44px;
-  --wt-status-bar-height: 26px;
   --wt-transition-fast: 120ms ease;
   --wt-transition-normal: 200ms ease;
   --wt-sidebar-width: 232px;
@@ -1167,8 +1155,6 @@
   --wt-welcome-prompt: #5a9a7a;
   --wt-welcome-cursor: #7ec8a0;
   --wt-welcome-scanline-bg: repeating-linear-gradient(0deg, transparent 0px, rgba(0, 0, 0, 0.08) 2px, transparent 4px);
-  --wt-header-height: 48px;
-  --wt-status-bar-height: 24px;
   --wt-transition-fast: 120ms ease;
   --wt-transition-normal: 200ms ease;
   --wt-sidebar-width: 232px;
@@ -1328,8 +1314,6 @@
   --wt-welcome-prompt: #0a8f8c;
   --wt-welcome-cursor: #0d7377;
   --wt-welcome-scanline-bg: repeating-linear-gradient(0deg, transparent 0px, rgba(0, 0, 0, 0.08) 2px, transparent 4px);
-  --wt-header-height: 48px;
-  --wt-status-bar-height: 24px;
   --wt-transition-fast: 120ms ease;
   --wt-transition-normal: 200ms ease;
   --wt-sidebar-width: 232px;

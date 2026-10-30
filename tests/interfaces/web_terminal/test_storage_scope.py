@@ -2,7 +2,7 @@
 
 Multi-user deployments run one Web Terminal container per user behind a shared
 nginx front door, each mounted at ``/u/<user>/``. Same origin, one shared
-``localStorage`` — so every stored key (dock layout, rail position, recent
+``localStorage`` — so every stored key (dock layout, sidebar state, recent
 palette items, the active PTY session id, per-panel agent acks, …) collides
 between users unless it is namespaced.
 
@@ -18,7 +18,7 @@ mount user. Two properties make it usable as such:
 - **On both served documents.** ``index.html`` and ``static/session.html`` are
   both Jinja-rendered, and the session page's module-import closure reaches the
   storage-owning modules (``terminal.js``, ``dock-workspace.js``,
-  ``rail-position.js``, ``panel-agent-attention.js``, ``dock-reconcile.js``), so
+  ``panel-agent-attention.js``, ``dock-reconcile.js``), so
   a stamp on only the index page would leave that page unscoped.
 """
 
@@ -113,7 +113,6 @@ class TestMountedRender:
             # The stamp joins the index's existing ones; it does not displace them.
             assert "data-ui-mode=" in tag
             assert "data-theme=" in tag
-            assert "data-rail-position=" in tag
 
     @pytest.mark.parametrize("page_id", _PAGE_IDS)
     def test_stamped_exactly_once(self, workspace_dir, page_id):

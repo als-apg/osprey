@@ -65,7 +65,7 @@ _EXPIRY_TOLERANCE_SECONDS = 120.0
 
 #: The terminal shell's first-paint marker, the same one the sibling browser
 #: suites wait on. Present exactly when the app rendered rather than refused.
-_TERMINAL_MARKER = ".header-actions"
+_TERMINAL_MARKER = "#sidebar"
 
 
 def _session_cookies(context) -> list[dict]:

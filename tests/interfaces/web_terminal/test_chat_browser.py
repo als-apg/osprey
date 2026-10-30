@@ -167,18 +167,16 @@ def _open_expert_page(opener, base_url: str, query: str = "") -> Page:
 
 
 def _click_segment(page: Page, mode: str) -> None:
-    """Pick *mode* in the header's display-menu popover, then close the card."""
-    trigger = page.locator("#display-menu .display-menu-trigger")
-    card = page.locator("#display-menu .display-menu-card")
-    trigger.click()
-    expect(card).to_have_class(re.compile(r"\bopen\b"))
-    page.locator(
-        f'#display-menu .display-menu-view .display-seg-option[data-mode="{mode}"]'
-    ).click()
-    # A mode pick deliberately leaves the card open; close it so the surface
-    # under it is the one the next step interacts with.
-    trigger.click()
-    expect(card).not_to_have_class(re.compile(r"\bopen\b"))
+    """Pick *mode* in the sidebar's More menu, then make sure the menu is closed."""
+    menu = page.locator("#more-menu")
+    page.locator("#more-btn").click()
+    expect(menu).to_be_visible()
+    page.locator(f'#more-menu [role="menuitemradio"][data-view="{mode}"]').click()
+    # Close the menu if the pick left it open, so the surface under it is the
+    # one the next step interacts with.
+    if menu.is_visible():
+        page.keyboard.press("Escape")
+    expect(menu).to_be_hidden()
 
 
 def _pointer(page: Page) -> str | None:
@@ -294,9 +292,9 @@ def _wait_for_attached_session(page: Page, timeout: float = 20.0) -> str:
     server-side question asked about it -- is its PTY live, what was it spawned
     with -- answers no.
 
-    The session label is the terminal's own report of the id it attached to,
-    painted from the frame that stores it, so a pointer that agrees with the
-    label is a pointer the terminal is on.
+    The label carries the id the terminal attached to in `data-session-id`,
+    set from the frame that stores it, so a pointer that agrees with it is a
+    pointer the terminal is on.
     """
     deadline = time.monotonic() + timeout
     label = page.locator("#terminal-label")
@@ -308,11 +306,11 @@ def _wait_for_attached_session(page: Page, timeout: float = 20.0) -> str:
         # outlives this helper and answers with a locator timeout instead of
         # the message below, which names both halves of the condition.
         try:
-            shown = (label.text_content(timeout=1_000) or "").strip()
+            shown = (label.get_attribute("data-session-id", timeout=1_000) or "").strip()
         except PlaywrightTimeoutError:
             shown = ""
         key = _pointer(page)
-        if key and shown == f"Session {key[:8]}":
+        if key and shown == key:
             return key
         page.wait_for_timeout(50)
     raise AssertionError(

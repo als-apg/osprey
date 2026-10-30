@@ -32,13 +32,13 @@ INTERFACE_TESTS = REPO / "tests" / "interfaces"
 CONFTEST = INTERFACE_TESTS / "conftest.py"
 
 #: The key ``tour.js`` writes when the invite is dismissed.
-DISMISS_KEY = "osprey-tour-dismissed-v1"
+DISMISS_KEY = "osprey-tour-dismissed-v2"
 
 #: The two files allowed to name it: the seam, and this guard.
 SEAM_OWNERS = frozenset({"conftest.py", Path(__file__).name})
 
 #: The narrower half the eleven private copies carried, verbatim.
-BARE_WRITE = "try { localStorage.setItem('osprey-tour-dismissed-v1', '1') } catch (e) {}"
+BARE_WRITE = "try { localStorage.setItem('osprey-tour-dismissed-v2', '1') } catch (e) {}"
 
 
 def _seam_shortfalls(seam: str) -> list[str]:

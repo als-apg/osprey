@@ -24,7 +24,7 @@
  * no scoped value has no stored preference, and resolution falls through to the
  * next rung (the server-rendered attribute, then the built-in default).
  *
- * The pre-paint boot scripts (mode-boot.js, rail-boot.js, the generated
+ * The pre-paint boot scripts (mode-boot.js, sidebar-boot.js, the generated
  * theme-boot.js) cannot import this module: they are non-module, dependency-free
  * IIFEs that must run synchronously in <head> ahead of every stylesheet. They
  * INLINE the same two rules — read the attribute, suffix the key, never fall

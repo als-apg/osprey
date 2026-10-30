@@ -21,8 +21,6 @@
       "cursor": { "$value": "{color.green.200}", "$type": "color" },
       "scanline-bg": { "$value": "repeating-linear-gradient(0deg, transparent 0px, rgba(0, 0, 0, 0.08) 2px, transparent 4px)", "$type": "string", "$description": "The welcome ASCII banner's own, more-pronounced scanline effect — distinct from wt-crt.scanline-bg (different stop offsets and alpha). Theme-invariant by design (same value in every group, matching the literal it replaces): the overlay's opacity is gated by wt-crt.scanline-opacity, which is 0 in every non-retro group, so this value never renders visibly outside the retro family regardless." }
     },
-    "wt-header-height": { "$value": "44px", "$type": "dimension", "$description": "Header bar height (frame 2a). Renamed from --header-height (Task 1.1 omission surfaced by the real build; used by terminal.css)." },
-    "wt-status-bar-height": { "$value": "26px", "$type": "dimension", "$description": "Status footer height (frame 2a). Renamed from --status-bar-height (used by terminal.css, files.css)." },
     "wt-transition-fast": { "$value": "120ms ease", "$type": "string", "$description": "Renamed from --transition-fast; full transition shorthand (duration + easing), not a bare duration, so kept as a literal string rather than aliasing core.json's duration.instant primitive. Used 50+ times across drawer.css/terminal.css/files.css/settings.css/operator.css/md-rendered.css/scaffold.css/sessions.css/session.html." },
     "wt-transition-normal": { "$value": "200ms ease", "$type": "string", "$description": "Renamed from --transition-normal; same shorthand rationale as wt-transition-fast. Used by terminal.css, files.css, scaffold.css, session.html." },
     "wt-sidebar-width": { "$value": "232px", "$type": "dimension", "$description": "Labelled sidebar width (layout F). Theme-independent: identical in all 8 groups." },
@@ -51,8 +49,6 @@
       "cursor": { "$value": "{color.teal.500}", "$type": "color" },
       "scanline-bg": { "$value": "repeating-linear-gradient(0deg, transparent 0px, rgba(0, 0, 0, 0.08) 2px, transparent 4px)", "$type": "string", "$description": "Same theme-invariant value as dark — see dark group's description." }
     },
-    "wt-header-height": { "$value": "44px", "$type": "dimension", "$description": "Header bar height (frame 2a) — theme-independent, identical to dark's value." },
-    "wt-status-bar-height": { "$value": "26px", "$type": "dimension", "$description": "Status footer height (frame 2a) — theme-independent, identical to dark's value." },
     "wt-transition-fast": { "$value": "120ms ease", "$type": "string", "$description": "Theme-independent motion constant — identical to dark's value." },
     "wt-transition-normal": { "$value": "200ms ease", "$type": "string", "$description": "Theme-independent motion constant — identical to dark's value." },
     "wt-sidebar-width": { "$value": "232px", "$type": "dimension" },
@@ -82,8 +78,6 @@
       "cursor": { "$value": "{color.cyan.300}", "$type": "color" },
       "scanline-bg": { "$value": "repeating-linear-gradient(0deg, transparent 0px, rgba(0, 0, 0, 0.08) 2px, transparent 4px)", "$type": "string" }
     },
-    "wt-header-height": { "$value": "44px", "$type": "dimension" },
-    "wt-status-bar-height": { "$value": "26px", "$type": "dimension" },
     "wt-transition-fast": { "$value": "120ms ease", "$type": "string" },
     "wt-transition-normal": { "$value": "200ms ease", "$type": "string" },
     "wt-sidebar-width": { "$value": "232px", "$type": "dimension" },
@@ -113,8 +107,6 @@
       "cursor": { "$value": "{color.cyan.400}", "$type": "color" },
       "scanline-bg": { "$value": "repeating-linear-gradient(0deg, transparent 0px, rgba(0, 0, 0, 0.08) 2px, transparent 4px)", "$type": "string" }
     },
-    "wt-header-height": { "$value": "44px", "$type": "dimension" },
-    "wt-status-bar-height": { "$value": "26px", "$type": "dimension" },
     "wt-transition-fast": { "$value": "120ms ease", "$type": "string" },
     "wt-transition-normal": { "$value": "200ms ease", "$type": "string" },
     "wt-sidebar-width": { "$value": "232px", "$type": "dimension" },
@@ -143,8 +135,6 @@
       "cursor": { "$value": "{color.green.200}", "$type": "color" },
       "scanline-bg": { "$value": "repeating-linear-gradient(0deg, transparent 0px, rgba(0, 0, 0, 0.08) 2px, transparent 4px)", "$type": "string" }
     },
-    "wt-header-height": { "$value": "48px", "$type": "dimension", "$description": "Pre-redesign header height, preserved with the retro family." },
-    "wt-status-bar-height": { "$value": "24px", "$type": "dimension", "$description": "Pre-redesign status footer height, preserved with the retro family." },
     "wt-transition-fast": { "$value": "120ms ease", "$type": "string" },
     "wt-transition-normal": { "$value": "200ms ease", "$type": "string" },
     "wt-sidebar-width": { "$value": "232px", "$type": "dimension" },
@@ -173,8 +163,6 @@
       "cursor": { "$value": "{color.teal.500}", "$type": "color" },
       "scanline-bg": { "$value": "repeating-linear-gradient(0deg, transparent 0px, rgba(0, 0, 0, 0.08) 2px, transparent 4px)", "$type": "string" }
     },
-    "wt-header-height": { "$value": "48px", "$type": "dimension", "$description": "Pre-redesign header height, preserved with the retro family." },
-    "wt-status-bar-height": { "$value": "24px", "$type": "dimension", "$description": "Pre-redesign status footer height, preserved with the retro family." },
     "wt-transition-fast": { "$value": "120ms ease", "$type": "string" },
     "wt-transition-normal": { "$value": "200ms ease", "$type": "string" },
     "wt-sidebar-width": { "$value": "232px", "$type": "dimension" },
@@ -204,8 +192,6 @@
       "cursor": { "$value": "{color.mono.0}", "$type": "color" },
       "scanline-bg": { "$value": "repeating-linear-gradient(0deg, transparent 0px, rgba(0, 0, 0, 0.08) 2px, transparent 4px)", "$type": "string" }
     },
-    "wt-header-height": { "$value": "44px", "$type": "dimension", "$description": "The flat chrome, identical to the main theme's — this family differs from it in color only." },
-    "wt-status-bar-height": { "$value": "26px", "$type": "dimension" },
     "wt-transition-fast": { "$value": "120ms ease", "$type": "string" },
     "wt-transition-normal": { "$value": "200ms ease", "$type": "string" },
     "wt-sidebar-width": { "$value": "232px", "$type": "dimension" },
@@ -234,8 +220,6 @@
       "cursor": { "$value": "{color.mono.1000}", "$type": "color" },
       "scanline-bg": { "$value": "repeating-linear-gradient(0deg, transparent 0px, rgba(0, 0, 0, 0.08) 2px, transparent 4px)", "$type": "string" }
     },
-    "wt-header-height": { "$value": "44px", "$type": "dimension" },
-    "wt-status-bar-height": { "$value": "26px", "$type": "dimension" },
     "wt-transition-fast": { "$value": "120ms ease", "$type": "string" },
     "wt-transition-normal": { "$value": "200ms ease", "$type": "string" },
     "wt-sidebar-width": { "$value": "232px", "$type": "dimension" },

@@ -397,7 +397,7 @@ BROWSER_ENGINES: tuple[str, ...] = ("chromium", "webkit")
 #: whatever storage holds.
 _DISMISS_TOUR = """
 (function () {
-  var BASE = 'osprey-tour-dismissed-v1';
+  var BASE = 'osprey-tour-dismissed-v2';
   var SCOPED = BASE + '--';
   try { localStorage.setItem(BASE, '1'); } catch (e) {}
   var read = Storage.prototype.getItem;

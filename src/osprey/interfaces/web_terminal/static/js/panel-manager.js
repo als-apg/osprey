@@ -1,31 +1,31 @@
 // @ts-check
 /* OSPREY Web Terminal — Panel Manager
  *
- * Manages the left icon rail for the right panel. Each rail entry corresponds
- * to an embedded service (Workspace, ARIEL logbook, etc.) loaded in an iframe.
- * Entries show health LEDs, iframes are lazy-loaded and cached so switching
+ * Manages the sidebar's panel rows and the workspace tiles they open. Each
+ * row corresponds to an embedded service (Artifacts, ARIEL logbook, etc.)
+ * loaded in an iframe; iframes are lazy-loaded and cached so switching
  * between panels is instant.
  *
  * The rail is a curated LAUNCHER: the server-owned visible set is rail
- * MEMBERSHIP (agent add_panel_to_rail/remove_panel_from_rail ≡ human "+"/"×"),
- * and an entry exists iff its panel is a member — always at full brightness,
- * never dimmed. Which member currently holds the workspace tile is per-client
- * layout state, reflected only by the `.active` accent; evicting a panel from
- * the tile (or closing its tile, agent close_panel) changes no rail or server
- * state.
+ * MEMBERSHIP (agent add_panel_to_rail/remove_panel_from_rail ≡ the human "+"
+ * menu and "Remove from rail"), and a row exists iff its panel is a member —
+ * always at full brightness, never dimmed. Which member currently holds the
+ * workspace tile is per-client layout state, reflected only by the `.active`
+ * accent; evicting a panel from the tile (or closing its tile, agent
+ * close_panel) changes no rail or server state.
  *
  * This module owns the panel state machine (tile occupancy, iframe lifecycle,
  * the active-panel policy) and holds the private state the whole panel stack
- * reads. It drives the rail's DOM through panel-rail.js's imperative API — it
- * never touches rail markup itself.
+ * reads. It drives the sidebar rows through panel-rail.js's imperative API —
+ * it never touches their markup itself.
  *
  * Two halves of it are extracted. HOW a panel comes to exist and stay alive —
- * cold state, the rail render and its membership entries, config fetch, health
+ * cold state, the sidebar rows and their membership, config fetch, health
  * polling — is panel-lifecycle.js. The server→client stream — the
  * /api/files/events subscription, its frame dispatcher, and the
  * membership/close apply paths that dispatcher shares with the reconnect
- * resync — is panel-sse.js. What a GESTURE on a rail entry or a tile header
- * does is panel-menu-policy.js (entry closures, both context menus), and where
+ * resync — is panel-sse.js. What a GESTURE on a sidebar row or a tile header
+ * does is panel-menu-policy.js (row closures, both context menus), and where
  * a panel LANDS is panel-placement.js. All of them read this module's private
  * state through deps registered at init, so none imports it back: the import
  * direction is panel-manager → panel-sse → panel-lifecycle.
@@ -61,7 +61,6 @@ import {
 import { setTileContextMenuHandler } from './dock-tab.js';
 import { initRailDrag } from './rail-drag.js';
 import { openTerminalPanel } from './dock-workspace.js';
-import { initRailThemeCoupling } from './rail-position.js';
 import {
   initMenuPolicy,
   openTileContextMenu,
@@ -440,11 +439,6 @@ export async function initPanelManager(panelId) {
   // Config-defined layouts for the "+" menu's Layouts section (empty by default).
   panelPresets = panelConfig?.presets || [];
 
-  // Seed the rail's theme coupling (which families imply which rail position,
-  // and whether config pinned one) so a later family switch can move the rail.
-  // A failed fetch leaves it inert, which is the pre-coupling behavior.
-  initRailThemeCoupling(panelConfig || {});
-
   // Withdraw the settings drawer's Config tab where the deployment gated its
   // server surface off (web.config_panel.enabled). The tab is not a dock panel
   // — it is static drawer markup — but the flag rides the payload this module
@@ -499,13 +493,14 @@ export async function initPanelManager(panelId) {
   setServerVisiblePanels(visiblePanels);
   setKnownServicePanels(PANELS.map((p) => p.id));
 
-  // Render the rail entries
+  // Render the sidebar rows
   renderRail();
 
-  // Wire the header "+" control (add menu + Layouts). wirePanelHeaderControls
-  // owns the getElementById lookups and the initPanelAddMenu call; the menu is a
-  // dumb view reading state through these closures and calling back into the same
-  // visibility/register paths the agent uses.
+  // Wire the sidebar's "+ Add panel" control (add menu + Layouts).
+  // wirePanelHeaderControls owns the getElementById lookups and the
+  // initPanelAddMenu call; the menu is a dumb view reading state through these
+  // closures and calling back into the same visibility/register paths the
+  // agent uses.
   wirePanelHeaderControls({
     getHiddenPanels,
     allowUrlPanels: () => allowRuntimePanels,
@@ -515,16 +510,17 @@ export async function initPanelManager(panelId) {
     onApplyPreset: applyMenuPreset,
   });
 
-  // Keyboard close: Delete/Backspace on a focused entry hides that panel (the
-  // "×" is mouse-only/decorative), with the same Undo notice as the "×".
-  // Delegated — one listener, not one per entry.
+  // Keyboard remove: Delete/Backspace on a focused row takes that panel off the
+  // rail, with the same Undo notice as the context menu's "Remove from rail".
+  // Delegated — one listener, not one per row.
   railEl.addEventListener('keydown', (e) => {
     if (e.key !== 'Delete' && e.key !== 'Backspace') return;
     if (!(e.target instanceof HTMLElement)) return;
     const id = e.target.closest('.panel-rail-button')?.getAttribute('data-panel-id');
     if (!id) return;
     e.preventDefault();
-    // Terminal entry closes through the dock (no server-side visibility for it).
+    // The Agent row closes its pane through the dock (no server-side
+    // visibility for it).
     if (id === TERMINAL_RAIL_ID) closeTerminalTile();
     else void removeFromRail(id);
   });
@@ -788,14 +784,14 @@ export function activateTab(
   if (userInitiated) setPanelFocus(panelId);
 }
 
-// ---- Panel Visibility Actions (human "+" / "×") ----
+// ---- Panel Visibility Actions (human "+" / "Remove from rail") ----
 //
 // These back the human add/remove controls. The command POSTs live in
 // panel-commands.js and the server's SSE echo drives the DOM, so a human
-// action and an agent MCP call are indistinguishable downstream. The per-entry
-// "×" goes through removeFromRail (the rail's onClose closure, which adds the
-// Undo notice — see railOptions); the "+" menu's reveal path needs a local
-// focus too, so it goes through showPanel.
+// action and an agent MCP call are indistinguishable downstream. A removal goes
+// through removeFromRail (panel-menu-policy.js, which adds the Undo notice);
+// the "+" menu's reveal path needs a local focus too, so it goes through
+// showPanel.
 
 /**
  * Reveal a hidden panel and focus it (a "Show panel" menu pick). The visibility
@@ -806,26 +802,6 @@ export function activateTab(
 export function showPanel(panelId) {
   setPanelVisibility(panelId, true);
   activateTab(panelId, { userInitiated: true });
-}
-
-/**
- * Show a panel's tile WITHOUT giving it a rail entry — "opens, rail unchanged",
- * the open behind ⋯ More's SYSTEM row and the health card's "Open SYSTEM". The
- * tile takes the default placement a rail click gets; a member is simply
- * activated as one.
- *
- * An off-rail tile is this tab's layout alone: nothing is POSTed, so no other
- * client moves and rail membership is untouched. Not even the focus report —
- * the server drops a human focus on a non-member as a straggler, and an
- * operator can only point at a panel the rail holds. It lasts as long as the
- * tile: the tile's own "×" just closes it, and a reload does not bring it back
- * (the restored layout's placeholder is pruned with every other non-member's),
- * because the rail is the way back and this panel has no entry there. "Pin to
- * rail" on the tile header makes it a member.
- * @param {string} panelId
- */
-export function openPanelOffRail(panelId) {
-  activateTab(panelId, { userInitiated: visiblePanels.has(panelId) });
 }
 
 /**

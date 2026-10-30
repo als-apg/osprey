@@ -533,29 +533,20 @@ def test_a_chip_gesture_sends_no_session_and_audits_on_the_lab_surface(
 _HANDOFF_ANSWERS = frozenset({200, 204, 409, 503})
 
 
-def _open_display_menu(page: Page) -> None:
-    """Open the header display-menu popover, where the view segmented control lives."""
-    page.locator("#display-menu .display-menu-trigger").click()
-    expect(page.locator("#display-menu .display-menu-card")).to_have_class(
-        re.compile(r"\bopen\b"), timeout=TIMEOUT
-    )
-
-
 def _flip_view(page: Page, mode: str) -> None:
-    """Drive the header's view control to *mode*, the way an operator does.
+    """Drive the sidebar's ☰ More View rows to *mode*, the way an operator does.
 
-    A mode pick deliberately leaves the card open, so it is dismissed here to
-    return the caller to the collapsed state — the chip and its popover live in
-    the same header and an open card sits over them.
+    The menu is dismissed afterwards if the pick left it open, returning the
+    caller to the closed state — an open menu sits over the sidebar the chip
+    lives in.
     """
-    _open_display_menu(page)
-    page.locator(
-        f'#display-menu .display-menu-view .display-seg-option[data-mode="{mode}"]'
-    ).click()
-    page.locator("#display-menu .display-menu-trigger").click()
-    expect(page.locator("#display-menu .display-menu-card")).not_to_have_class(
-        re.compile(r"\bopen\b"), timeout=TIMEOUT
-    )
+    page.locator("#more-btn").click()
+    menu = page.locator("#more-menu")
+    expect(menu).to_be_visible(timeout=TIMEOUT)
+    menu.locator(f'[role="menuitemradio"][data-view="{mode}"]').click()
+    if menu.is_visible():
+        page.keyboard.press("Escape")
+    expect(menu).to_be_hidden(timeout=TIMEOUT)
     expect(page.locator("html")).to_have_attribute("data-ui-mode", mode, timeout=TIMEOUT)
 
 
@@ -775,13 +766,11 @@ def test_the_machine_already_held_is_offered_no_switch_and_pends_nothing(
 
 
 def test_a_terminal_with_the_picker_off_mounts_no_chip(tmp_path, monkeypatch, chromium_browser):
-    """``web.control_target_picker: false`` leaves the title bar with no picker.
+    """``web.control_target_picker: false`` leaves the sidebar with no picker.
 
-    The catalog gate alone is not enough: with no ``control-target`` shell on
-    the page, ``initControlTargetChip`` falls back to ``.header-actions``, which
-    the header always renders, so ``app.js`` asks the stamped context too. The
-    proof is the page itself: no chip, no popover anchor, no shell, and not one
-    read of the posture route.
+    The server stamps ``data-control-target="off"`` on ``<html>`` and
+    ``app.js`` skips the chip and its popover. The proof is the page itself:
+    no chip, no popover anchor, and not one read of the posture route.
     """
     with chip_hub(tmp_path, monkeypatch) as (base_url, app, _root):
         app.state.control_target_picker_available = False
@@ -797,10 +786,10 @@ def test_a_terminal_with_the_picker_off_mounts_no_chip(tmp_path, monkeypatch, ch
         )
         try:
             page.goto(base_url, wait_until="load")
-            expect(page.locator('[data-bar-item="search"]')).to_have_count(1, timeout=TIMEOUT)
+            expect(page.locator("#command-palette-btn")).to_have_count(1, timeout=TIMEOUT)
+            expect(page.locator("html")).to_have_attribute("data-control-target", "off")
             expect(page.locator(CHIP)).to_have_count(0)
             expect(page.locator(".ctc-anchor")).to_have_count(0)
-            expect(page.locator('[data-bar-item="control-target"]')).to_have_count(0)
             assert posture_reads == []
         finally:
             page.close()

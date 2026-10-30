@@ -7,7 +7,7 @@
  * server→client half — the /api/files/events SSE subscription and its frame
  * dispatcher — is panel-sse.js, which calls back into this module's addPanel
  * and ensureRailMembership. This module owns the birth-and-liveness half of
- * it — a panel's cold state, the rail render and membership entries it
+ * it — a panel's cold state, the sidebar rows and membership entries it
  * appears through, its config fetch, and the health polling that decides
  * when it may fill a tile.
  *
@@ -22,7 +22,13 @@
 
 import { apiRequest, fetchJSON } from './api.js';
 import { setKnownServicePanels, setPanelReachable } from './dock-iframe.js';
-import { PANELS, TERMINAL_RAIL_ID, TERMINAL_RAIL_LABEL } from './panel-catalog.js';
+import {
+  PANELS,
+  TERMINAL_RAIL_ID,
+  TERMINAL_RAIL_LABEL,
+  panelIconName,
+  titleCase,
+} from './panel-catalog.js';
 import { startHealthPolling as startPolling, stopHealthPolling } from './panel-health.js';
 import { buildEmbedSrc } from './panel-iframe-sync.js';
 import { railOptions, RAIL_MENU_HINT } from './panel-menu-policy.js';
@@ -94,21 +100,37 @@ export function freshPanelState() {
 }
 
 /**
- * Destructive full render of the rail: the terminal entry first (the session
- * tile is the workspace's anchor), then every MEMBER service panel in the
- * server's rail order — non-members have no entry at all. The terminal entry is enabled
- * after the render (it never health-polls, so it would stay disabled).
+ * A catalog panel as its sidebar row draws it: the label in title case, the
+ * panel's glyph, and the context-menu hint.
+ * @param {{id: string, label: string}} panel
+ * @returns {import('./panel-rail.js').RailPanel}
+ */
+function railPanel(panel) {
+  return {
+    id: panel.id,
+    label: titleCase(panel.label),
+    icon: panelIconName(panel.id),
+    hint: RAIL_MENU_HINT,
+  };
+}
+
+/**
+ * Destructive full render of the sidebar rows: the Agent row first (the
+ * pane is the workspace's anchor), then every MEMBER service panel in the
+ * server's rail order — non-members have no row at all. The Agent row is
+ * enabled after the render (it never health-polls, so it would stay
+ * disabled).
  */
 export function renderRail() {
   const railEl = ctx().getRailEl();
   createRail(
     railEl,
     [
-      { id: TERMINAL_RAIL_ID, label: TERMINAL_RAIL_LABEL },
+      { id: TERMINAL_RAIL_ID, label: TERMINAL_RAIL_LABEL, icon: panelIconName(TERMINAL_RAIL_ID) },
       ...[...ctx().memberSet]
         .map((id) => PANELS.find((p) => p.id === id))
         .filter((p) => p !== undefined)
-        .map((p) => ({ id: p.id, label: p.label, hint: RAIL_MENU_HINT })),
+        .map(railPanel),
     ],
     railOptions()
   );
@@ -129,15 +151,16 @@ export function applyRailOrder(order) {
   const rest = [...c.memberSet].filter((id) => !ordered.includes(id));
   c.memberSet.clear();
   for (const id of [...rest, ...ordered]) c.memberSet.add(id);
-  // Appending each in turn leaves SESSION (never in `order`) at the head.
+  // Workspace rows keep their fixed places (placeEntry leaves them); moving
+  // each Tools row to the foot in turn puts Tools in `order`.
   for (const id of ordered) placeEntry(c.getRailEl(), id, null);
 }
 
 /**
- * Re-apply a rail entry's live state after it was (re)built cold by addEntry —
- * enabled from the panel's health, and the active accent when this panel is the
- * surfaced one (a "+"-menu reveal activates locally BEFORE the membership echo
- * rebuilds the entry).
+ * Re-apply a sidebar row's live state after addEntry (re)built or re-showed it
+ * — enabled from the panel's health, and the active accent when this panel is
+ * the surfaced one (a "+"-menu reveal activates locally BEFORE the membership
+ * echo adds the row).
  * @param {string} panelId
  */
 function applyEntryState(panelId) {
@@ -154,10 +177,10 @@ function applyEntryState(panelId) {
 }
 
 /**
- * Give a panel its rail entry as a MEMBER: record the membership and append the
- * entry (membership IS the rail — there is no dimmed in-between state). The
- * entry is built cold, so its live health/active state is re-applied after the
- * add. Idempotent: addEntry no-ops for an id that already has an entry.
+ * Give a panel its sidebar row as a MEMBER: record the membership and add the
+ * row (membership IS the rail — there is no dimmed in-between state). A new
+ * row is built cold, so its live health/active state is re-applied after the
+ * add. Idempotent: addEntry no-ops for an id that already has a row.
  * @param {string} panelId
  */
 export function ensureRailMembership(panelId) {
@@ -165,12 +188,12 @@ export function ensureRailMembership(panelId) {
   c.memberSet.add(panelId);
   const spec = PANELS.find((p) => p.id === panelId);
   if (!spec) return;
-  addEntry(c.getRailEl(), { id: spec.id, label: spec.label, hint: RAIL_MENU_HINT }, railOptions());
+  addEntry(c.getRailEl(), railPanel(spec), railOptions());
   applyEntryState(panelId);
 }
 
 /**
- * Register a runtime panel and append its rail entry without wiping existing ones.
+ * Register a runtime panel and add its sidebar row without wiping existing ones.
  *
  * spec shape (matches the panel_register SSE broadcast payload):
  *   { id, label, url, healthEndpoint, path }
@@ -200,14 +223,10 @@ export function addPanel(spec) {
 
   panelState[spec.id] = freshPanelState();
 
-  // Append exactly one entry. addEntry is non-destructive — never a full
-  // re-render — so every live entry keeps its active/disabled/LED state, and it
-  // is idempotent by id, which also guards the re-register path.
-  addEntry(
-    ctx().getRailEl(),
-    { id: normalized.id, label: normalized.label, hint: RAIL_MENU_HINT },
-    railOptions()
-  );
+  // Add exactly one row. addEntry is non-destructive — never a full re-render
+  // — so every live row keeps its active/disabled state, and it is idempotent
+  // by id, which also guards the re-register path.
+  addEntry(ctx().getRailEl(), railPanel(normalized), railOptions());
 
   // Seed url and health, mirroring the custom-panel block in initPanelManager
   if (spec.url) {
