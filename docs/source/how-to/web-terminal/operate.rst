@@ -93,7 +93,7 @@ with you: the terminal and the chat share one session, one write state and one
 transcript, and only the view you are looking at runs the agent.
 
 A deployment can offer the Simple view alone. With ``web.expert_view: false``
-the display menu has no View row and every terminal opens in Simple; see
+**☰ More** has no View group and every terminal opens in Simple; see
 :ref:`config-expert-view`.
 
 Handing it over waits for the work in flight. Switch while the agent is
