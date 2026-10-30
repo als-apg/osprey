@@ -465,8 +465,11 @@ def _require_approval_record(tool: str, *, lane: str | None) -> None:
 
     Stage 1 of approval
     (:func:`~osprey.mcp_server.approval_record.require_approval_record`): where
-    the deployment's policy for *tool* asks, the call runs only on the ask stamp
-    the approval hook filed for it, so a call that reached this server without
+    *tool* is ask-capable (:func:`~osprey.cli.build_posture_check.ask_capable`
+    — always for a governed tool, whatever ``approval.*`` says), the call runs
+    only on the ask stamp the approval hook filed for it, whichever approver
+    filed it (``human`` at ``asked``, ``write_switch`` at ``allowed``), so a
+    call that reached this server without
     passing the prompt is refused here before the bridge is called. The rendered
     ``config.yml`` is read fresh on every call, as the verdict is. The refusal's
     ``error_type`` is the record's (``approval_missing`` or
@@ -1168,9 +1171,9 @@ async def queue_add(draft_revision: int, lane: str | None = None) -> str:
           true, an item could NOT be withdrawn and is sitting in an armed queue
           — ``details.item_uid`` names it and a human must deal with it.
         - approval_missing / approval_config_invalid: the write verdict
-          allows this add, so it may arm the queue, and the deployment's
-          approval policy asks about it, but its prompt left no record (or the
-          approval switch is malformed). Refused before the bridge is called;
+          allows this add, so it may arm the queue, and it needs an approval
+          record, but the approval hook left none (or the approval switch is
+          malformed). Refused before the bridge is called;
           call again so the prompt can ask. An add the verdict refuses is
           posted unarmed and is never refused for this.
         - stale_draft_revision: the draft changed after you pinned it. Re-read
@@ -1463,9 +1466,9 @@ async def queue_start(lane: str | None = None) -> str:
           which says who can lift it. Refused before the bridge is called at
           all, and refused per LANE: the other lane may well be startable. Not
           agent-recoverable.
-        - approval_missing: the deployment's approval policy asks about this
-          start and its prompt left no record — the call did not pass the
-          approval prompt. Refused before the bridge is called; call again so
+        - approval_missing: this start needs an approval record and the
+          approval hook left none — the call did not pass the approval
+          prompt. Refused before the bridge is called; call again so
           the prompt can ask.
         - approval_config_invalid: the deployment's ``approval.enabled`` is
           neither true nor false, so no call it guards runs. Not
@@ -1534,7 +1537,8 @@ async def queue_start(lane: str | None = None) -> str:
     if not verdict.allowed:
         return _refuse_writes_disabled("queue_start", verdict, lane=bound.key)
     # Stage 1, after the verdict so an off lane is refused for being off: a
-    # start whose policy asks runs only on the record its prompt left.
+    # start that needs a record (a governed one always does) runs only on the
+    # record the approval hook left, whichever approver filed it.
     _require_approval_record("queue_start", lane=bound.key)
 
     # A server without a token still goes to the bridge, sending no header:
