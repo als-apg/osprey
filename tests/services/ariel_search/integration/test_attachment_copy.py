@@ -976,7 +976,8 @@ class TestBackfill:
     def _no_fetch(self):
         """Backfill tests answer fetches through the conftest fake instead."""
 
-    @pytest.mark.timeout(10)
+    # func_only: a container started in this test's setup is not charged to it.
+    @pytest.mark.timeout(10, func_only=True)
     async def test_backfill_page_with_one_pending_picture_completes_quickly(
         self, scratch_repo, attachment_fetch, monkeypatch
     ):
