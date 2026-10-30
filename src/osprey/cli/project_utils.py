@@ -19,59 +19,9 @@ The bug this fixes was the absence of the walk: the stance was literally
 ``Path.cwd()``, so a subdirectory looked like a deployment with no config at
 all, and ``osprey health`` exited 2 with an error row — "this deployment is
 broken" to a CI gate and an operator both — over a working directory.
-
-:func:`_clear_claude_code_project_state` has no caller. It is kept only because
-removing it would also remove this module's re-export of
-``encode_claude_project_path``, which a test still imports from here. Both
-belong to a dead-code sweep, not to this module.
 """
 
 from pathlib import Path
-
-from osprey.agent_runner.project_paths import (
-    claude_project_dir,
-    encode_claude_project_path,  # noqa: F401 — re-export
-)
-
-from .output import report
-from .styles import Styles
-
-
-def _clear_claude_code_project_state(project_path: Path) -> None:
-    """Remove Claude Code's cached state for a project path.
-
-    Claude Code stores trust decisions and session data in two places:
-    - ~/.claude.json  →  projects.<absolute-path>.hasTrustDialogAccepted
-    - <config-dir>/projects/<encoded-path>/  →  session transcripts & memory
-
-    Removing both ensures the trust prompt appears on next launch.
-    """
-    import json
-    import shutil
-
-    project_key = str(project_path)
-    cleared = False
-
-    # 1. Remove trust entry from ~/.claude.json
-    claude_json = Path.home() / ".claude.json"
-    if claude_json.exists():
-        try:
-            data = json.loads(claude_json.read_text())
-            if project_key in data.get("projects", {}):
-                del data["projects"][project_key]
-                claude_json.write_text(json.dumps(data, indent=2) + "\n")
-                cleared = True
-        except (json.JSONDecodeError, OSError):
-            pass  # Don't fail init over this
-
-    # 2. Remove session/memory directory from <config-dir>/projects/
-    project_state_dir = claude_project_dir(project_path)
-    if project_state_dir.exists():
-        shutil.rmtree(project_state_dir)
-        cleared = True
-
-    if cleared:
-        report("✓ Cleared Claude Code project state", style=Styles.SUCCESS)
 
 
 def project_config_path(project_path: Path) -> Path:
