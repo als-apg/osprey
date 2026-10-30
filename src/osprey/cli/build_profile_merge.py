@@ -1809,6 +1809,18 @@ def profile_triggers_material(
     return PurePosixPath(triggers).as_posix(), source.path
 
 
+def bundled_service_template(template: str) -> str | None:
+    """The framework template a service ``template:`` selects, or ``None``.
+
+    ``osprey.<name>`` names the template the framework ships as ``<name>``;
+    every other spelling is a directory relative to the profile root.
+    """
+    parts = template.split(".")
+    if parts[0] == "osprey" and len(parts) == 2:
+        return parts[1]
+    return None
+
+
 def _fold_profile_material(digest: Any, inputs: Iterable[ProfileInput]) -> None:
     """Fold the *file* inputs of a profile into ``digest``, in enumeration order.
 
