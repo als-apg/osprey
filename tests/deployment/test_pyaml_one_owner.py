@@ -134,7 +134,9 @@ def test_the_module_runs_as_a_script_and_exits_nonzero_on_two_owners(tmp_path):
         "import sys; from osprey.deployment import pyaml_owner; "
         f"sys.exit(pyaml_owner.main(path=[{str(tmp_path)!r}]))"
     )
-    result = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True)
+    result = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, timeout=120
+    )
     assert result.returncode == 1, result.stderr
     assert "2 owning distributions" in result.stderr
 

@@ -295,7 +295,9 @@ def test_a_killed_build_leaves_a_build_that_can_still_stop_the_stack(
         ),
         encoding="utf-8",
     )
-    completed = subprocess.run([sys.executable, str(script)], capture_output=True, text=True)
+    completed = subprocess.run(
+        [sys.executable, str(script)], capture_output=True, text=True, timeout=120
+    )
 
     assert completed.returncode == -signal.SIGKILL, completed.stderr
     assert marker.is_file(), "SIGKILL mid-render destroyed the previous build"

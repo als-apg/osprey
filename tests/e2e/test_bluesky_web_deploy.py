@@ -74,7 +74,6 @@ shells out to an LLM).
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 import time
@@ -410,12 +409,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
 
     # Force fresh --dev builds so the deployed containers run CURRENT source
     # (osprey up does not pass --build to compose, so it would otherwise
-    # reuse stale cached images). Exact-named images only.
-    # E2E_REUSE_IMAGES=1 skips this (dev-only fast local iteration); never
-    # set it in CI, where a source change must always rebuild.
-    if not os.environ.get("E2E_REUSE_IMAGES"):
-        for image in (BRIDGE_IMAGE, VA_IMAGE, BLUESKY_WEB_IMAGE):
-            subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
+    # reuse stale cached images).
+    _orm_stack.force_image_rebuild(BRIDGE_IMAGE, VA_IMAGE, BLUESKY_WEB_IMAGE)
 
     try:
         up = run_command(

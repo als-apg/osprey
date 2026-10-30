@@ -10,23 +10,23 @@ idle close), so each case keeps its production meaning. The ready wait stays
 long by default so a loaded host never trips it; a case about the ready wait
 sets its own. The cancellation cases hold their worker on a file the test
 controls and run on the shipped clocks, so only the cancel ends the render. A
-test that waits for a state polls for it with :func:`_until`.
+test that waits for a state polls for it with :func:`tests._live.async_wait_until`.
 """
 
 from __future__ import annotations
 
 import asyncio
 import io
-import os
 import sys
 import textwrap
-import time
 from pathlib import Path
 
 import pytest
 
 from osprey.imaging import render
 from osprey.imaging.formats import RENDITION_MAX_BYTES
+from tests._live import async_wait_until
+from tests._processes import running_state
 
 Image = pytest.importorskip("PIL.Image")
 
@@ -125,36 +125,6 @@ async def _scaled(monkeypatch):
     await render.close_render_worker()
 
 
-async def _until(predicate, *, within: float = 10.0, step: float = 0.02):
-    """Poll *predicate* until it is truthy and return that value.
-
-    Fails the test, naming the predicate, when *within* seconds pass first.
-    """
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + within
-    while True:
-        value = predicate()
-        if value:
-            return value
-        if loop.time() >= deadline:
-            name = getattr(predicate, "__qualname__", repr(predicate))
-            pytest.fail(f"{name} stayed false for {within} s")
-        await asyncio.sleep(step)
-
-
-def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    # A zombie still answers signal 0; ask the OS for its state.
-    try:
-        waited, _ = os.waitpid(pid, os.WNOHANG)
-    except ChildProcessError:
-        return False
-    return waited == 0
-
-
 # -- the real worker ----------------------------------------------------------------
 
 
@@ -208,7 +178,7 @@ def test_two_consecutive_asyncio_runs_both_succeed(monkeypatch):
     first, first_pid = asyncio.run(render_once())
     # The first loop's shutdown closed its worker before the loop went away.
     assert render.worker_pid() is None
-    assert first_pid is not None and not _alive(first_pid)
+    assert first_pid is not None and running_state(first_pid) is None
     second, second_pid = asyncio.run(render_once())
     assert first.rendition is not None
     assert second.rendition is not None
@@ -537,12 +507,11 @@ async def test_idle_worker_exits(monkeypatch, tmp_path):
     await render.render_isolated(b"x", task_id="x")
     pid = render.worker_pid()
     assert pid is not None
-    for _ in range(40):
-        await asyncio.sleep(0.1)
-        if render.worker_pid() is None and not _alive(pid):
-            break
-    assert render.worker_pid() is None
-    assert not _alive(pid)
+    await async_wait_until(
+        lambda: render.worker_pid() is None and running_state(pid) is None,
+        timeout=4.0,
+        what="the idle worker to exit",
+    )
     # The next call respawns it.
     assert (await render.render_isolated(b"y", task_id="y")).rendition is not None
     assert render.worker_pid() not in (None, pid)
@@ -600,11 +569,14 @@ def _held(tmp_path: Path, payload: bytes) -> tuple[str, Path, Path]:
 
 async def _until_held(task: asyncio.Task, started: Path, ceiling: float = 30.0) -> None:
     """Return once the worker holds the picture; fail if the render ends first."""
-    deadline = time.monotonic() + ceiling
-    while not started.exists():
+
+    def held() -> bool:
         assert not task.done(), f"the render ended before its worker held the picture: {task}"
-        assert time.monotonic() < deadline, f"no worker held the picture within {ceiling:g} s"
-        await asyncio.sleep(0.01)
+        return started.exists()
+
+    await async_wait_until(
+        held, timeout=ceiling, interval=0.01, what="a worker to hold the picture"
+    )
 
 
 # -- cancellation -----------------------------------------------------------------------
@@ -629,7 +601,9 @@ async def test_a_cancelled_render_never_leaks_its_reply_into_the_next_call(monke
     assert outcome.rendition is not None
     assert outcome.rendition.width == 2
     assert render.worker_pid() not in (None, first_pid)
-    await _until(lambda: not _alive(first_pid))
+    await async_wait_until(
+        lambda: running_state(first_pid) is None, what="the cancelled worker to exit"
+    )
 
 
 async def test_a_cancel_is_not_counted_as_a_worker_death(monkeypatch, tmp_path):
@@ -666,13 +640,15 @@ async def test_a_cancel_during_the_ready_wait_leaves_no_child(monkeypatch, tmp_p
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", recording_exec)
     pending = asyncio.create_task(render.render_isolated(PNG, task_id="x"))
-    await _until(lambda: spawned)
+    await async_wait_until(lambda: spawned, what="the worker to spawn")
     assert len(spawned) == 1
     pending.cancel()
     with pytest.raises(asyncio.CancelledError):
         await pending
     assert render.worker_pid() is None
-    await _until(lambda: not _alive(spawned[0]))
+    await async_wait_until(
+        lambda: running_state(spawned[0]) is None, what="the cancelled worker to exit"
+    )
 
 
 async def test_kill_never_signals_a_reaped_worker(monkeypatch, tmp_path):

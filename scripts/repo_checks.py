@@ -1266,6 +1266,11 @@ LANES: tuple[Lane, ...] = (
         "containers",
         ("tests/integration/test_qmd_models_mount.py", "tests/e2e/test_deploy_lifecycle.py"),
     ),
+    Lane(
+        "qmd-cache-warmup",
+        "main-branch cache",
+        ("src/osprey/templates/services/qmd/**", ".github/actions/build-qmd-image/**"),
+    ),
     _e2e("jupyter-panel-e2e", "test_jupyter_panel_lifecycle.py"),
     _va(
         "target-switch-e2e",

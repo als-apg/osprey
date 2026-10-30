@@ -413,7 +413,7 @@ def single_user_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path
     # existing images and silently test stale code.
     project = resolve_project_name({"project_name": PROJECT_NAME})
     for image in (f"{project}-dispatch:local", f"{project}:local"):
-        subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
+        subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True, timeout=120)
 
     try:
         up = run_command(

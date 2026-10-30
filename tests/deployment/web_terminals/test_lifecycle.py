@@ -122,8 +122,7 @@ def _stub_rendered_web_stack(tmp_path, body: str = "services: {}\n"):
 
 def _reload_users(config_path):
     """Reload config.yml and return modules.web_terminals.users as written."""
-    with open(config_path, encoding="utf-8") as f:
-        data = yaml.safe_load(f)
+    data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     return data["modules"]["web_terminals"]["users"]
 
 
@@ -2233,8 +2232,7 @@ def _render_roster_config(users):
 
 def _resolved_by_name(config_path):
     """resolve_cards() over the config as it now stands ON DISK."""
-    with open(config_path, encoding="utf-8") as f:
-        data = yaml.safe_load(f)
+    data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     web_terminals = data["modules"]["web_terminals"]
     resolved = resolve_cards(web_terminals, data.get("registry", {}), strict=True)
     return {entry["name"]: entry for entry in resolved}

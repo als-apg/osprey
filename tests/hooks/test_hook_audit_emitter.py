@@ -57,6 +57,7 @@ def run_hook(hook_name, payload, env=None, cwd=None):
         text=True,
         env=child_env,
         cwd=str(cwd) if cwd else None,
+        timeout=120,
     )
 
 

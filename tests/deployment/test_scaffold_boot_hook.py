@@ -158,7 +158,7 @@ def test_the_rendered_script_parses(rendered: str, tmp_path: Path, shell: str) -
     script = tmp_path / BOOT_HOOK_OUTPUT_NAME
     script.write_text(rendered, encoding="utf-8")
     result = subprocess.run(
-        [binary, "-n", str(script)], capture_output=True, text=True, check=False
+        [binary, "-n", str(script)], capture_output=True, text=True, check=False, timeout=60
     )
     assert result.returncode == 0, result.stderr
 

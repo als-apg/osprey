@@ -42,20 +42,15 @@ def _isolate_bind_and_port_env(monkeypatch):
 
     The foreground `web()` path unconditionally does a REAL
     ``os.environ["OSPREY_WEB_PORT"] = str(port)`` (for child PTY/MCP
-    processes) — not through ``monkeypatch``. A plain
-    ``monkeypatch.delenv(key, raising=False)`` on a key that's already absent
-    records NO undo entry, so that later direct mutation is never rolled
-    back and leaks into subsequent tests. Forcing a ``setenv`` first
-    guarantees monkeypatch tracks the key and restores the true pre-test
-    state (present or absent) at teardown, regardless of what the app wrote
-    in between.
+    processes) — not through ``monkeypatch``. The root ``restore_environ``
+    guard rolls that write back at teardown.
     """
     from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, reset_web_credentials
 
     # ``web()`` now mints the operator secret straight into ``os.environ`` and
     # into the process-wide web-credentials holder. Both outlive a CliRunner
-    # invocation, so isolate the env carrier the same setenv-then-delenv way as
-    # the port keys, and reset the holder around every test — otherwise the
+    # invocation, so start without the env carrier like the port keys, and
+    # reset the holder around every test — otherwise the
     # first launch would decide (and leak) the secret for every test after it,
     # which is what masked a launch that should have refused.
     for _key in (
@@ -65,8 +60,7 @@ def _isolate_bind_and_port_env(monkeypatch):
         DECLARED_WEB_PORT_ENV,
         OPERATOR_SECRET_ENV,
     ):
-        monkeypatch.setenv(_key, "__unset_by_test_fixture__")
-        monkeypatch.delenv(_key)
+        monkeypatch.delenv(_key, raising=False)
     reset_web_credentials()
     yield
     reset_web_credentials()

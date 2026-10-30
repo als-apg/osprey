@@ -37,7 +37,7 @@ from osprey.interfaces.web_terminal.jupyter_sidecar import (
 )
 from osprey.mcp_server.python_executor.executor import resolve_agent_interpreter
 from tests._live import wait_until
-from tests._processes import kill_group, pid_alive
+from tests._processes import kill_group, kill_quietly, pid_alive, pid_gone
 
 READY_TIMEOUT = 90.0
 
@@ -100,15 +100,6 @@ def _get_no_redirect(url: str, headers: dict[str, str] | None = None) -> tuple[i
             return int(response.status), response.headers.get("Location", "")
     except urllib.error.HTTPError as exc:
         return int(exc.code), exc.headers.get("Location", "")
-
-
-def _wait_gone(pid: int, timeout: float) -> bool:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if not pid_alive(pid):
-            return True
-        time.sleep(0.1)
-    return not pid_alive(pid)
 
 
 # ---------------------------------------------------------------------------
@@ -325,16 +316,17 @@ def test_the_sidecar_exits_when_its_parent_is_killed(shared_root: Path, tmp_path
         sidecar_pid = int(line)
         assert pid_alive(sidecar_pid)
 
-        os.kill(parent.pid, signal.SIGKILL)
+        parent.kill()
         parent.wait(10)
 
-        assert _wait_gone(sidecar_pid, 5.0), "the sidecar outlived its parent"
+        # Exited is enough: whoever the orphan was reparented to reaps it.
+        assert pid_gone(sidecar_pid, within=5.0), "the sidecar outlived its parent"
     finally:
         if parent.poll() is None:
             parent.kill()
-            parent.wait()
-        if sidecar_pid is not None and pid_alive(sidecar_pid):
-            os.killpg(sidecar_pid, signal.SIGKILL)
+            parent.wait(10)
+        if sidecar_pid is not None:
+            kill_group(sidecar_pid)
 
 
 # ---------------------------------------------------------------------------
@@ -672,9 +664,9 @@ def test_stop_reports_no_exit_and_fires_no_callback(
 #: kernel inherits it, then idles until it is signalled. The child's pid is
 #: published with a rename, so the file never exists without its content.
 _ORPHAN_SCRIPT = (
-    "import os, subprocess, sys, time\n"
+    "import os, pathlib, subprocess, sys, time\n"
     "child = subprocess.Popen(['sleep', '3600'], start_new_session=True)\n"
-    "open(sys.argv[1] + '.tmp', 'w').write(str(child.pid))\n"
+    "pathlib.Path(sys.argv[1] + '.tmp').write_text(str(child.pid))\n"
     "os.replace(sys.argv[1] + '.tmp', sys.argv[1])\n"
     "time.sleep(3600)\n"
 )
@@ -714,8 +706,8 @@ def test_stop_returns_while_an_orphan_still_holds_the_stderr_pipe(
         # the reap reaches it: it is killed here whichever assertion failed.
         if orphan is None and pid_file.exists():
             orphan = int(pid_file.read_text())
-        if orphan is not None and pid_alive(orphan):
-            os.kill(orphan, signal.SIGKILL)
+        if orphan is not None:
+            kill_quietly([orphan])
         sidecar.stop()
 
 
@@ -723,7 +715,7 @@ def test_stop_returns_while_an_orphan_still_holds_the_stderr_pipe(
 #: that ignores it too. Its pid is published with a rename once the member has
 #: set that disposition, so a signal sent afterwards meets it.
 _STUBBORN_GROUP_SCRIPT = (
-    "import os, signal, subprocess, sys, time\n"
+    "import os, pathlib, signal, subprocess, sys, time\n"
     "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
     "member = subprocess.Popen(\n"
     "    [sys.executable, '-c', 'import signal, time\\n'\n"
@@ -733,7 +725,7 @@ _STUBBORN_GROUP_SCRIPT = (
     "    stdout=subprocess.PIPE,\n"
     ")\n"
     "member.stdout.readline()\n"
-    "open(sys.argv[1] + '.tmp', 'w').write(str(os.getpid()))\n"
+    "pathlib.Path(sys.argv[1] + '.tmp').write_text(str(os.getpid()))\n"
     "os.replace(sys.argv[1] + '.tmp', sys.argv[1])\n"
     "time.sleep(3600)\n"
 )
@@ -754,10 +746,7 @@ def _spawn_stand_in(
     sidecar.spawn()
     pid = sidecar.pid
     assert pid is not None
-    deadline = time.monotonic() + 10
-    while not pid_file.exists() and time.monotonic() < deadline:
-        time.sleep(0.05)
-    assert pid_file.exists(), "the stand-in never reported ready"
+    wait_until(pid_file.exists, timeout=10.0, what="the stand-in to report ready")
     return sidecar, pid
 
 
@@ -803,8 +792,8 @@ def test_stop_names_what_its_group_stop_could_not_prove_gone(
 
     monkeypatch.setattr(subprocess_capture, "stop_child", stop_answering)
     source = (
-        "import os, sys, time\n"
-        "open(sys.argv[1] + '.tmp', 'w').write(str(os.getpid()))\n"
+        "import os, pathlib, sys, time\n"
+        "pathlib.Path(sys.argv[1] + '.tmp').write_text(str(os.getpid()))\n"
         "os.replace(sys.argv[1] + '.tmp', sys.argv[1])\n"
         "time.sleep(3600)\n"
     )
@@ -829,8 +818,8 @@ def test_the_exit_watcher_reports_without_reaping(
     shared_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = (
-        "import os, sys, time\n"
-        "open(sys.argv[1] + '.tmp', 'w').write(str(os.getpid()))\n"
+        "import os, pathlib, sys, time\n"
+        "pathlib.Path(sys.argv[1] + '.tmp').write_text(str(os.getpid()))\n"
         "os.replace(sys.argv[1] + '.tmp', sys.argv[1])\n"
         "time.sleep(0.2)\n"
         "sys.exit(3)\n"

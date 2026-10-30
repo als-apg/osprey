@@ -555,13 +555,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
 
     # Force fresh --dev builds so the deployed containers run CURRENT source
     # (osprey up does not pass --build to compose, so it would otherwise reuse a
-    # stale cached image). Exact-named images only.
-    # E2E_REUSE_IMAGES=1 skips this (dev-only: fast local iteration on the test
-    # itself when the osprey source is unchanged; never set it in CI, where a
-    # source change must always rebuild). The first-time native VA build is slow.
-    if not os.environ.get("E2E_REUSE_IMAGES"):
-        subprocess.run(["docker", "rmi", "-f", VA_IMAGE], capture_output=True, text=True)
-        subprocess.run(["docker", "rmi", "-f", BRIDGE_IMAGE], capture_output=True, text=True)
+    # stale cached image). The first-time native VA build is slow.
+    _orm_stack.force_image_rebuild(VA_IMAGE, BRIDGE_IMAGE)
 
     try:
         up = run_command(

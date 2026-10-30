@@ -31,20 +31,16 @@ CONFLICT_KEY = "OSPREY_TEST_CHAIN_CONFLICT"
 
 
 @pytest.fixture(autouse=True)
-def _restore_environ():
-    """Snapshot and restore the whole environment around every test.
+def _clear_chain_keys(monkeypatch):
+    """Start every test with none of the chain's keys in the environment.
 
     The loader writes into ``os.environ`` and — by design — *pops* every
-    empty-string variable it finds there, so nothing narrower than a full
-    snapshot puts the process back the way it was found.
+    empty-string variable it finds there; the root conftest's
+    ``restore_environ`` snapshot puts the whole environment back afterwards.
     """
-    saved = os.environ.copy()
-    os.environ.pop("OSPREY_CONFIG", None)
+    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
     for key in (LOCAL_KEY, SHARED_KEY, CONFLICT_KEY):
-        os.environ.pop(key, None)
-    yield
-    os.environ.clear()
-    os.environ.update(saved)
+        monkeypatch.delenv(key, raising=False)
 
 
 def _write_chain(root: Path, *, shared: str | None = None, local: str | None = None) -> None:

@@ -566,6 +566,7 @@ def test_importing_the_archive_module_loads_no_lume() -> None:
         capture_output=True,
         text=True,
         check=True,
+        timeout=120,
     )
     assert result.stdout.strip() == "CLEAN"
 

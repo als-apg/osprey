@@ -26,6 +26,7 @@ from osprey_connectors.errors import (
 )
 from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
 from tests._archive_composites import held_state_directories
+from tests._live import async_wait_until
 from tests.facility.served_tree import in_process_config, served_tree
 
 
@@ -422,11 +423,8 @@ class TestVAInProcessConnector:
 
     @staticmethod
     async def _wait_for(predicate, timeout_s):
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + timeout_s
-        while not predicate() and loop.time() < deadline:
-            await asyncio.sleep(0.01)
-        return predicate()
+        await async_wait_until(predicate, timeout=timeout_s, interval=0.01)
+        return True
 
     @pytest.mark.asyncio
     async def test_a_tick_fires_a_moving_channel_with_no_write(self, tmp_path):
@@ -986,6 +984,7 @@ class TestMockArchiverReproducibility:
                 text=True,
                 env=env,
                 check=True,
+                timeout=120,
             )
             runs.append(json.loads(proc.stdout.strip().splitlines()[-1]))
 

@@ -9,10 +9,8 @@ with that module's ``group_is_gone``.
 
 from __future__ import annotations
 
-import contextlib
 import dataclasses
 import importlib.util
-import os
 import shlex
 import signal
 import subprocess
@@ -27,6 +25,7 @@ from typing import Any
 import pytest
 
 from osprey.deployment.subprocess_capture import group_is_gone
+from tests._processes import kill_group
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = _REPO_ROOT / "scripts" / "run_bounded.py"
@@ -63,10 +62,9 @@ def _run(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _kill_group(pgid_file: Path) -> None:
+def _kill_recorded_group(pgid_file: Path) -> None:
     if pgid_file.exists() and pgid_file.read_text().strip():
-        with contextlib.suppress(ProcessLookupError, PermissionError):
-            os.killpg(int(pgid_file.read_text()), signal.SIGKILL)
+        kill_group(int(pgid_file.read_text()))
 
 
 def test_the_command_exit_code_passes_through():
@@ -88,7 +86,7 @@ def test_a_command_past_its_bound_is_stopped_with_its_process_group(tmp_path):
         assert group_file.exists(), "the child was not ready inside the 3 s bound: no group file"
         assert group_is_gone(int(group_file.read_text()))
     finally:
-        _kill_group(group_file)
+        _kill_recorded_group(group_file)
 
 
 def test_a_command_that_ignores_sigterm_is_killed_after_the_grace(tmp_path):
@@ -116,7 +114,7 @@ def test_a_command_that_ignores_sigterm_is_killed_after_the_grace(tmp_path):
         assert elapsed >= 5.0
         assert group_is_gone(int(marker.read_text()))
     finally:
-        _kill_group(marker)
+        _kill_recorded_group(marker)
 
 
 def test_a_command_past_its_bound_prints_its_python_stacks_before_it_is_stopped(tmp_path):
@@ -173,7 +171,7 @@ def test_a_stop_waits_for_the_whole_group_when_its_leader_dies_first(tmp_path):
         )
         assert "still running after SIGKILL" not in result.stderr
     finally:
-        _kill_group(group_file)
+        _kill_recorded_group(group_file)
 
 
 def test_a_survivor_of_the_stop_is_named_and_the_run_still_exits_124(tmp_path):

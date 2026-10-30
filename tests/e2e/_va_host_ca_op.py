@@ -65,6 +65,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 import sys
 import time
 from typing import Any
@@ -102,7 +103,7 @@ _FOREIGN_VERDICT_ENV = (
 )
 
 
-def _arm_switch(target: str) -> None:
+def _arm_switch(target: str) -> str:
     """Turn this login's switch on for *target* in a record of this process's own.
 
     A connector write is allowed only when the login's tier allows writes (the
@@ -113,14 +114,21 @@ def _arm_switch(target: str) -> None:
     one op never reaches a deployment's record or another op's. Written through
     the production writers, the way the chip does: the record first, then the
     person's gesture against the epoch it was stamped with.
+
+    Returns the agent-data root, which the caller removes before it
+    force-exits: ``os._exit`` skips atexit handlers, so the one registered
+    here only covers a run that fails and exits normally.
     """
+    import atexit
     import tempfile
 
     from osprey_connectors import control_context, posture_store
 
     for name in _FOREIGN_VERDICT_ENV:
         os.environ.pop(name, None)
-    os.environ[posture_store.AGENT_DATA_ROOT_ENV_VAR] = tempfile.mkdtemp(prefix="osprey-ca-op-")
+    root = tempfile.mkdtemp(prefix="osprey-ca-op-")
+    atexit.register(shutil.rmtree, root, ignore_errors=True)
+    os.environ[posture_store.AGENT_DATA_ROOT_ENV_VAR] = root
     posture_store.invalidate_cache()
     control_context.invalidate_cache()
     path = control_context.record_path()
@@ -137,6 +145,7 @@ def _arm_switch(target: str) -> None:
             raise
         control_context.set_switch([target], "on", epoch=refused.epoch, path=path)
     control_context.invalidate_cache()
+    return root
 
 
 async def _do(spec: dict[str, Any]) -> dict[str, Any]:
@@ -175,8 +184,7 @@ async def _do(spec: dict[str, Any]) -> dict[str, Any]:
         return section or default
 
     arm_target = spec.get("arm_target")
-    if arm_target is not None:
-        _arm_switch(arm_target)
+    armed_root = _arm_switch(arm_target) if arm_target is not None else None
 
     with patch("osprey_connectors.config.get_config_value", side_effect=_get_config_value):
         connector = await ConnectorFactory.create_control_system_connector(
@@ -216,6 +224,8 @@ async def _do(spec: dict[str, Any]) -> dict[str, Any]:
     # CA-teardown assertion must never get a chance to run. See module docstring.
     sys.stdout.write(RESULT_MARKER + json.dumps(result) + "\n")
     sys.stdout.flush()
+    if armed_root is not None:
+        shutil.rmtree(armed_root, ignore_errors=True)
     os._exit(0)
 
 

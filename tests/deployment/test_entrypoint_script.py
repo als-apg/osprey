@@ -163,7 +163,11 @@ class TestScriptShape:
         around it. This runs as PID 1 in a slim image with no bash, so a
         bashism is a boot failure, not a style problem."""
         result = subprocess.run(
-            ["/bin/sh", "-n", str(TEMPLATE)], capture_output=True, text=True, check=False
+            ["/bin/sh", "-n", str(TEMPLATE)],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
         )
         assert result.returncode == 0, result.stderr
 
@@ -520,6 +524,7 @@ class Sandbox:
             text=True,
             check=False,
             env=env,
+            timeout=60,
         )
         return Run(
             returncode=result.returncode,
@@ -592,6 +597,7 @@ class Sandbox:
                 "GID_MAP": str(self.gid_map),
                 "GROUP_DB": str(self.group_db),
             },
+            timeout=60,
         )
 
     def _stubs(

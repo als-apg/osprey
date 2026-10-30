@@ -90,10 +90,6 @@ READ_TIMEOUT_S = 5.0
 # address nobody serves.
 BATCH_TIMEOUT_S = 2.0
 
-# Everything ``connect()`` writes when a PVA gateway is configured, restored
-# when the module's connectors are torn down.
-_PVA_ENV_KEYS = ("EPICS_PVA_NAME_SERVERS", "EPICS_PVA_ADDR_LIST", "EPICS_PVA_AUTO_ADDR_LIST")
-
 
 def _gaussian_spot(height: int = FRAME_HEIGHT, width: int = FRAME_WIDTH) -> np.ndarray:
     """A 48x64 uint16 frame with a Gaussian spot — a synthetic camera image."""
@@ -190,15 +186,14 @@ def connector_factory(pva_server):
 
     The teardown is not bookkeeping: the PVA client context owns worker threads,
     and they must be closed deterministically rather than collected at some
-    later moment. The ``EPICS_PVA_*`` variables ``connect()`` writes are put
-    back at the same time, so nothing downstream of this module inherits a
-    pinned name server, and the stand-in aioca is taken out of
-    ``sys.modules`` again.
+    later moment, and the stand-in aioca is taken out of ``sys.modules``
+    again. The ``EPICS_PVA_*`` variables ``connect()`` writes need no step of
+    their own: the autouse ``restore_environ_per_module`` guard puts the
+    environment back once this module ends, so nothing downstream inherits a
+    pinned name server.
     """
     import asyncio
-    import os
 
-    saved_env = {key: os.environ.get(key) for key in _PVA_ENV_KEYS}
     built: list[EPICSConnector] = []
     patcher = pytest.MonkeyPatch()
     install_fake_aioca(patcher)
@@ -230,11 +225,6 @@ def connector_factory(pva_server):
             asyncio.run(connector.disconnect())
         gc.collect()
         patcher.undo()
-        for key, value in saved_env.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
 
 
 @pytest.fixture(scope="module")

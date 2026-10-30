@@ -28,6 +28,7 @@ fail; it does.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import threading
 import time
@@ -44,6 +45,7 @@ from osprey.services.bluesky_bridge.document_plane import (
     DocumentPlaneError,
     RunDocumentRouter,
 )
+from tests._live import wait_until
 
 # Generous relative to the ~0.1 s a local 0MQ hop actually takes; these are
 # upper bounds on a *failure*, not sleeps — the waits return as soon as the
@@ -167,15 +169,6 @@ def _publisher(
     return publisher
 
 
-def _wait_until(predicate, timeout: float = _DELIVERY_TIMEOUT) -> bool:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if predicate():
-            return True
-        time.sleep(_POLL_INTERVAL)
-    return predicate()
-
-
 def _start_doc(uid: str, run_id: str | None = None, **extra: Any) -> dict[str, Any]:
     doc: dict[str, Any] = {"uid": uid, "time": 1.0, "scan_id": 1, **extra}
     if run_id is not None:
@@ -218,13 +211,13 @@ def _establish_link(publisher) -> None:
     own buffer is then dropped so it cannot be mistaken for real data.
     """
     probe_uid = "probe-run-uid"
-    landed = _wait_until(
+    wait_until(
         lambda: (
             (publisher("start", _start_doc(probe_uid)), live_rows.get(probe_uid))[1] is not None
         ),
         timeout=_LINK_TIMEOUT,
+        what="the authenticated publisher reaching the proxy",
     )
-    assert landed, "the authenticated publisher never reached the proxy"
     live_rows._clear()
 
 
@@ -242,8 +235,10 @@ def test_rows_land_under_the_osprey_run_id(plane, certificates, publishers):
         publisher("event", _event_doc(descriptor_uid, seq, {"corrector": value, "bpm": -value}))
     publisher("stop", _stop_doc(run_uid, 3))
 
-    assert _wait_until(lambda: (live_rows.get("osprey-run-1") or {}).get("partial") is False), (
-        "the run's stop document never arrived"
+    wait_until(
+        lambda: (live_rows.get("osprey-run-1") or {}).get("partial") is False,
+        timeout=_DELIVERY_TIMEOUT,
+        what="the run's stop document",
     )
 
     buffer = live_rows.get("osprey-run-1")
@@ -286,8 +281,10 @@ def _assert_refused(forged, authorized, label: str) -> None:
     # forgery, proving the plane was still delivering the whole time.
     fence_id = f"fence-after-{label}"
     authorized("start", _start_doc(f"{fence_id}-uid", run_id=fence_id))
-    assert _wait_until(lambda: live_rows.get(fence_id) is not None), (
-        "the authenticated publisher stopped being delivered"
+    wait_until(
+        lambda: live_rows.get(fence_id) is not None,
+        timeout=_DELIVERY_TIMEOUT,
+        what="the authenticated publisher's fence document",
     )
 
     assert live_rows.get(run_id) is None
@@ -343,7 +340,11 @@ def test_a_run_without_an_osprey_run_id_falls_back_to_its_run_uid(plane, certifi
     publisher("descriptor", _descriptor_doc("unmanaged-descriptor", run_uid))
     publisher("event", _event_doc("unmanaged-descriptor", 1, {"bpm": 0.5}))
 
-    assert _wait_until(lambda: (live_rows.get(run_uid) or {}).get("total_seen") == 1)
+    wait_until(
+        lambda: (live_rows.get(run_uid) or {}).get("total_seen") == 1,
+        timeout=_DELIVERY_TIMEOUT,
+        what="the run's one event",
+    )
     buffer = live_rows.get(run_uid)
     assert buffer is not None
     assert buffer["rows"] == [[0.5]]
@@ -359,8 +360,10 @@ def test_a_run_that_declares_its_point_count_gets_a_denominator(plane, certifica
     publisher("descriptor", _descriptor_doc("declared-descriptor", run_uid))
     publisher("event", _event_doc("declared-descriptor", 1, {"bpm": 0.5}))
 
-    assert _wait_until(
-        lambda: (document_plane.progress("declared-run") or {}).get("rows_seen") == 1
+    wait_until(
+        lambda: (document_plane.progress("declared-run") or {}).get("rows_seen") == 1,
+        timeout=_DELIVERY_TIMEOUT,
+        what="the declared run's first row",
     )
     assert document_plane.progress("declared-run") == {
         "rows_seen": 1,
@@ -403,7 +406,11 @@ def test_the_worker_publisher_and_this_proxy_speak_the_same_configuration(
     # Wait for the EVENT doc, not just the start doc: the run appears in
     # live_rows as soon as "start" is processed, while the row from "event"
     # can still be in flight behind it on the same socket.
-    assert _wait_until(lambda: bool((live_rows.get("worker-built-run") or {}).get("rows")))
+    wait_until(
+        lambda: (live_rows.get("worker-built-run") or {}).get("rows"),
+        timeout=_DELIVERY_TIMEOUT,
+        what="the worker-built run's rows",
+    )
     buffer = live_rows.get("worker-built-run")
     assert buffer is not None
     assert buffer["rows"] == [[4.2]]
@@ -434,8 +441,10 @@ class TestTheDocumentPlaneSurvivesBeingRestarted:
         for _ in range(self._CYCLES):
             _started_plane(certificates).stop()
 
-        settled = _wait_until(lambda: threading.active_count() <= baseline)
-        assert settled, (
+        # Wait, then assert: the failure message lists the threads still alive.
+        with contextlib.suppress(AssertionError):
+            wait_until(lambda: threading.active_count() <= baseline, timeout=_DELIVERY_TIMEOUT)
+        assert threading.active_count() <= baseline, (
             f"threads outlived their planes (baseline {baseline}): "
             f"{[t.name for t in threading.enumerate()]}"
         )
@@ -455,11 +464,14 @@ class TestTheDocumentPlaneSurvivesBeingRestarted:
                 _establish_link(publisher)
                 run_id = f"restart-cycle-{cycle}"
                 publisher("start", _start_doc(f"{run_id}-uid", run_id=run_id))
-                delivered = _wait_until(lambda key=run_id: live_rows.get(key) is not None)
+                wait_until(
+                    lambda key=run_id: live_rows.get(key) is not None,
+                    timeout=_DELIVERY_TIMEOUT,
+                    what=f"cycle {cycle}'s document",
+                )
             finally:
                 _close_all(opened)
                 plane.stop()
-            assert delivered, f"cycle {cycle} never delivered its document"
 
 
 # --------------------------------------------------------------- configuration

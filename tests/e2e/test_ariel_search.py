@@ -794,6 +794,7 @@ def readonly_role(e2e_database_url: str, tmp_path):
         },
         capture_output=True,
         text=True,
+        timeout=120,
     )
     assert result.returncode == 0, result.stderr
 

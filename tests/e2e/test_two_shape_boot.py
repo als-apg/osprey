@@ -574,11 +574,9 @@ def _set_dispatch_network(profile_path: Path, mode: str) -> None:
 
     round_trip = YAML()
     round_trip.preserve_quotes = True
-    with open(profile_path) as handle:
-        profile = round_trip.load(handle)
+    profile = round_trip.load(profile_path)
     profile["dispatch"]["network"] = mode
-    with open(profile_path, "w") as handle:
-        round_trip.dump(profile, handle)
+    round_trip.dump(profile, profile_path)
 
 
 def _set_authored_dispatch_target(triggers_path: Path, port: int) -> None:
@@ -594,11 +592,9 @@ def _set_authored_dispatch_target(triggers_path: Path, port: int) -> None:
 
     round_trip = YAML()
     round_trip.preserve_quotes = True
-    with open(triggers_path) as handle:
-        triggers = round_trip.load(handle)
+    triggers = round_trip.load(triggers_path)
     triggers["dispatcher"]["dispatch_target"] = f"http://dispatch-worker-1:{port}"
-    with open(triggers_path, "w") as handle:
-        round_trip.dump(triggers, handle)
+    round_trip.dump(triggers, triggers_path)
 
 
 def _rendered_compose(repo: Path, service: str) -> str:

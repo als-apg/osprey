@@ -19,10 +19,8 @@ to end), unlike the container-backed modules beside them.
 
 from __future__ import annotations
 
-import contextlib
 import gc
 import os
-import signal
 import subprocess
 import sys
 import textwrap
@@ -32,6 +30,7 @@ from pathlib import Path
 import pytest
 
 from osprey.deployment import subprocess_capture
+from tests._processes import kill_group, kill_quietly
 from tests.integration import _mcp_handshake
 from tests.integration._mcp_handshake import MCPHandshakeError, list_mcp_tools
 
@@ -298,10 +297,8 @@ def test_a_server_whose_child_holds_its_pipes_leaves_no_group_behind(
         if record.exists():
             pgid, grandchild = (int(field) for field in record.read_text().split())
             if pgid != os.getpgrp():
-                with contextlib.suppress(ProcessLookupError):
-                    os.killpg(pgid, signal.SIGKILL)
-            with contextlib.suppress(ProcessLookupError):
-                os.kill(grandchild, signal.SIGKILL)
+                kill_group(pgid)
+            kill_quietly([grandchild])
 
 
 def _stop_reporting(unproven: str, stopped: list[int]):

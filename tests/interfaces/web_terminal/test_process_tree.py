@@ -16,11 +16,11 @@ from osprey.interfaces.web_terminal import process_tree
 from osprey.interfaces.web_terminal.process_tree import ProcessGroup
 from osprey.interfaces.web_terminal.pty_manager import PtySession
 from tests._live import wait_until
+from tests._processes import kill_quietly
 from tests.interfaces.web_terminal._chat_child import child_factory
 from tests.interfaces.web_terminal._pty_child import (
     CHILD_HANG_CEILING,
     detaching_child_script,
-    kill_quietly,
     readable_rows,
     sleeper_script,
     wait_for_pids,
@@ -243,7 +243,7 @@ def test_still_running_drops_a_group_whose_members_ended():
         assert process_tree.still_running([group], rows) == [group], rows.get(row.pid)
     finally:
         proc.kill()
-        proc.wait()
+        proc.wait(timeout=30)
     assert group_is_gone(row.pgid, within=5.0), row
     rows = process_table.snapshot_within(5.0)
     assert process_tree.still_running([group], rows) == [], rows.get(row.pid)
@@ -270,7 +270,7 @@ def test_still_running_drops_a_group_whose_members_are_unreaped_zombies():
         assert process_tree.still_running([group], readable_rows()) == []
     finally:
         proc.kill()
-        proc.wait()
+        proc.wait(timeout=30)
 
 
 def test_still_running_drops_a_reused_group_id():
@@ -284,7 +284,7 @@ def test_still_running_drops_a_reused_group_id():
         assert process_tree.still_running([group], rows) == []
     finally:
         proc.kill()
-        proc.wait()
+        proc.wait(timeout=30)
 
 
 def test_end_groups_never_signals_the_servers_own_group(monkeypatch):
@@ -388,7 +388,7 @@ def test_end_groups_reports_unknown_not_survivors_when_the_table_fails_after_sig
         if proc.stdout is not None:
             proc.stdout.close()
         proc.kill()
-        proc.wait()
+        proc.wait(timeout=30)
 
 
 def test_end_processes_signals_nothing_when_the_table_cannot_be_read(monkeypatch):
@@ -532,7 +532,7 @@ def test_end_processes_skips_a_reused_pid(monkeypatch):
         assert ending.ended == () and ending.survivors == ()
     finally:
         proc.kill()
-        proc.wait()
+        proc.wait(timeout=30)
 
 
 def _answering(monkeypatch, answers: list[dict | BaseException]) -> list[None]:

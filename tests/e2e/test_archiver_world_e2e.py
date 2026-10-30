@@ -143,6 +143,17 @@ UNCOVERED_FRACTION = 0.05
 _SEED_REPORT_RE = re.compile(r"seeded ([\d,]+) documents x ([\d,]+) channels .* in ([\d.]+)s")
 _SEED_PROGRESS_RE = re.compile(r"seeding archive: [\d,]+ documents written")
 
+# Every step line the seed reports, announcement to report, with the lap the phase
+# reporter stamps on the end of each: the time since the step before it. Bounded
+# on both sides because normalized output is one long line, so nothing here may
+# run on into whatever the deploy said next.
+_SEED_STEP_RE = re.compile(
+    r"(?:seeding the archive base: [\d,]+ channels over \d+ days \([^()]*\)"
+    r"|seeding archive: [\d,]+ documents written across [\d,]+ channels"
+    r"|archive base: seeded [\d,]+ documents x [\d,]+ channels \([^()]*\) in [\d.]+s)"
+    r"(?: \([^()]*\))?"
+)
+
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 
 # The recorder announces each enablement transition with exactly one line, and
@@ -161,6 +172,11 @@ _RECORDER_RECORDING_RE = re.compile(r"Recording \d+ channels every \d+s")
 def _normalize(text: str) -> str:
     """Strip ANSI and fold every run of whitespace, so wrapped log lines rejoin."""
     return re.sub(r"\s+", " ", _ANSI_RE.sub("", text))
+
+
+def _seed_steps(output: str) -> str:
+    """The seed's step lines out of NORMALIZED deploy output, one per line."""
+    return "\n".join(_SEED_STEP_RE.findall(output)) or "(no seed step lines)"
 
 
 def _profile_edits() -> dict[str, Any]:
@@ -377,7 +393,9 @@ def archiver_world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         volume the fingerprint would MATCH, the seed would be skipped entirely,
         and the budget assertions would have nothing to measure.
         """
-        subprocess.run(["docker", "volume", "rm", "-f", store_volume], capture_output=True)
+        subprocess.run(
+            ["docker", "volume", "rm", "-f", store_volume], capture_output=True, timeout=60
+        )
 
     base = tmp_path_factory.mktemp("archiver_world_build")
     repo = _build_project(base)
@@ -400,14 +418,7 @@ def archiver_world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     osprey_bin = _orm_stack.find_osprey_console_script()
 
     # Force a fresh --dev image so the deployed recorder runs CURRENT source.
-    # Exact-named image only. E2E_REUSE_IMAGES=1 skips it for fast local
-    # iteration on the test itself; never set it in CI.
-    if not os.environ.get("E2E_REUSE_IMAGES"):
-        subprocess.run(
-            ["docker", "rmi", "-f", _orm_stack.va_image(PROJECT_NAME)],
-            capture_output=True,
-            text=True,
-        )
+    _orm_stack.force_image_rebuild(_orm_stack.va_image(PROJECT_NAME))
 
     # Before the deploy, not only after: a run that died without reaching its
     # teardown (a killed session, a crashed fixture) leaves the volume behind,
@@ -528,7 +539,9 @@ def _recorder_logs(tail: str | None = None) -> str:
     command = ["docker", "logs"]
     if tail is not None:
         command += ["--tail", tail]
-    logs = subprocess.run([*command, _recorder_container()], capture_output=True, text=True)
+    logs = subprocess.run(
+        [*command, _recorder_container()], capture_output=True, text=True, timeout=60
+    )
     return _normalize(logs.stdout + logs.stderr)
 
 
@@ -608,14 +621,19 @@ def test_base_seed_completes_within_budget_and_reports_progress(archiver_world):
     assert elapsed_s <= SEED_BUDGET_SEC, (
         f"base seed took {elapsed_s:.1f}s at default knobs, over the "
         f"{SEED_BUDGET_SEC:.0f}s budget this lane owns "
-        f"({documents:,} documents x {channels:,} channels)"
+        f"({documents:,} documents x {channels:,} channels)\n"
+        # The laps are what tell the two failures apart: one long lap is a stall
+        # and names where it sits, even laps are a seed that is simply this slow.
+        f"--- seed steps, each with the lap since the one before ---\n{_seed_steps(output)}"
     )
     assert _SEED_PROGRESS_RE.search(output), (
         "seed emitted no progress lines; a silent multi-minute step reads as a hang"
     )
+    # The steps on a green run too, so a failure has a normal run to be read against.
     print(
         f"\nMEASURED base seed: {elapsed_s:.1f}s of the {SEED_BUDGET_SEC:.0f}s budget "
-        f"({documents:,} documents x {channels:,} channels)"
+        f"({documents:,} documents x {channels:,} channels)\n"
+        f"--- seed steps, each with the lap since the one before ---\n{_seed_steps(output)}"
     )
 
 
@@ -1012,11 +1030,9 @@ def test_recorder_idles_on_the_in_process_simulator_and_resumes_after_the_flip(a
     yaml.preserve_quotes = True
 
     def _set_serving(venue: str) -> None:
-        with open(config_path) as handle:
-            config = yaml.load(handle)
+        config = yaml.load(config_path)
         config["control_system"]["connector"]["virtual_accelerator"]["serving"] = venue
-        with open(config_path, "w") as handle:
-            yaml.dump(config, handle)
+        yaml.dump(config, config_path)
 
     poll_sec = int((archiver_world.config.get("va_archiver") or {}).get("recorder_poll_sec", 30))
     # The window each claim is measured over, once the recorder has SAID which

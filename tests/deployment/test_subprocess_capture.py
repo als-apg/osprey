@@ -7,7 +7,6 @@ the child this process's own stdio with no redirection at all.
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import os
 import shlex
@@ -33,6 +32,7 @@ from osprey.deployment.subprocess_capture import (
     run_captured,
     stop_child,
 )
+from tests._live import wait_until
 from tests._processes import kill_group
 
 
@@ -560,17 +560,16 @@ def _spawner(pid_file: Path) -> list[str]:
 def _kill_recorded_group(pid_file: Path) -> None:
     group_file = _group_file(pid_file)
     if group_file.exists() and group_file.read_text():
-        with contextlib.suppress(ProcessLookupError, PermissionError):
-            os.killpg(int(group_file.read_text()), signal.SIGKILL)
+        kill_group(int(group_file.read_text()))
 
 
 def _wait_for_file(path: Path, timeout: float = 10.0, *, empty_ok: bool = False) -> None:
-    import time
-
-    deadline = time.monotonic() + timeout
-    while not (path.exists() and (empty_ok or path.read_text())):
-        assert time.monotonic() < deadline, f"{path} never written"
-        time.sleep(0.02)
+    wait_until(
+        lambda: path.exists() and (empty_ok or path.read_text()),
+        timeout=timeout,
+        interval=0.02,
+        what=f"a write to {path}",
+    )
 
 
 @pytest.mark.real_bounded_run
@@ -721,7 +720,7 @@ class TestObserveExit:
             assert observe_exit(proc) is None
         finally:
             proc.kill()
-            proc.wait()
+            proc.wait(timeout=30)
 
     def test_observe_exit_reports_a_signal_as_popen_does(self):
         proc = subprocess.Popen(["sleep", "60"])
@@ -729,7 +728,7 @@ class TestObserveExit:
             proc.kill()
             assert observe_exit(proc, within=5.0) == -signal.SIGKILL
         finally:
-            proc.wait()
+            proc.wait(timeout=30)
 
     def test_observe_exit_blocks_until_the_exit_when_asked(self):
         proc = subprocess.Popen(["sleep", "0.3"])
@@ -738,11 +737,11 @@ class TestObserveExit:
             assert observe_exit(proc, within=None) == 0
             assert time.monotonic() - start >= 0.25
         finally:
-            proc.wait()
+            proc.wait(timeout=30)
 
     def test_observe_exit_returns_the_status_a_reaped_child_already_has(self):
         proc = subprocess.Popen([sys.executable, "-c", "raise SystemExit(3)"])
-        proc.wait()
+        proc.wait(timeout=30)
         assert observe_exit(proc) == 3
 
     def test_observe_exit_raises_when_something_else_reaped_the_child(self, monkeypatch):
@@ -771,7 +770,7 @@ class TestWaitidReader:
             assert reader(proc.pid, _LOOK | os.WNOHANG) is None
         finally:
             proc.kill()
-            proc.wait()
+            proc.wait(timeout=30)
 
     def test_an_exited_child_reads_its_status_twice_and_stays_unreaped(self, reader):
         proc = subprocess.Popen([sys.executable, "-c", "raise SystemExit(7)"])
@@ -790,7 +789,7 @@ class TestWaitidReader:
 
     def test_a_reaped_child_is_not_a_child(self, reader):
         proc = subprocess.Popen([sys.executable, "-c", "pass"])
-        proc.wait()
+        proc.wait(timeout=30)
         with pytest.raises(ChildProcessError):
             reader(proc.pid, _LOOK | os.WNOHANG)
 
@@ -823,7 +822,7 @@ class TestProcessGroupStop:
             os.kill(leader.pid, 0)  # still in the process table, as a zombie
             assert group_is_gone(leader.pid)
         finally:
-            leader.wait()
+            leader.wait(timeout=30)
 
     def test_a_group_with_a_running_member_is_not_gone(self, tmp_path):
         group = _sleeping_group(tmp_path / "ready")
@@ -831,7 +830,7 @@ class TestProcessGroupStop:
             assert not group_is_gone(group.pid)
         finally:
             kill_group(group.pid)
-            group.wait()
+            group.wait(timeout=30)
 
     def test_a_group_this_user_may_not_signal_counts_as_present(self, tmp_path, monkeypatch):
         group = _sleeping_group(tmp_path / "ready")
@@ -848,7 +847,7 @@ class TestProcessGroupStop:
         finally:
             monkeypatch.undo()
             kill_group(group.pid)
-            group.wait()
+            group.wait(timeout=30)
 
     def test_group_is_gone_without_a_deadline_answers_at_once(self, tmp_path, monkeypatch):
         group = _sleeping_group(tmp_path / "ready")
@@ -868,7 +867,7 @@ class TestProcessGroupStop:
         finally:
             monkeypatch.undo()
             kill_group(group.pid)
-            group.wait()
+            group.wait(timeout=30)
 
     def test_group_is_gone_waits_for_a_group_that_ends_inside_its_deadline(self):
         group = subprocess.Popen(["sh", "-c", "sleep 0.5"], process_group=0)
@@ -876,7 +875,7 @@ class TestProcessGroupStop:
             assert group_is_gone(group.pid, within=5.0)
         finally:
             kill_group(group.pid)
-            group.wait()
+            group.wait(timeout=30)
 
     def test_group_is_gone_reads_a_retryable_failure_again_inside_its_deadline(self, monkeypatch):
         leader = _exited_unreaped_leader()
@@ -892,7 +891,7 @@ class TestProcessGroupStop:
         try:
             assert group_is_gone(leader.pid, within=2.0)
         finally:
-            leader.wait()
+            leader.wait(timeout=30)
 
     def test_group_is_gone_says_it_could_not_look_when_the_table_is_unreadable(
         self, tmp_path, monkeypatch
@@ -909,7 +908,7 @@ class TestProcessGroupStop:
         finally:
             monkeypatch.undo()
             kill_group(group.pid)
-            group.wait()
+            group.wait(timeout=30)
 
     def test_an_unreadable_table_still_waits_out_the_grace_before_sigkill(self, monkeypatch):
         leader = _exited_unreaped_leader()
@@ -928,7 +927,7 @@ class TestProcessGroupStop:
         try:
             subprocess_capture._stop_group(leader.pid, grace=0.5)
         finally:
-            leader.wait()
+            leader.wait(timeout=30)
         times = dict(sent)
         assert times[signal.SIGKILL] - times[signal.SIGTERM] >= 0.45
 
@@ -946,7 +945,7 @@ class TestProcessGroupStop:
         try:
             assert subprocess_capture._stop_group(leader.pid, grace=1.0) == []
         finally:
-            leader.wait()
+            leader.wait(timeout=30)
 
     def test_stop_child_says_unknown_when_the_table_is_unreadable(self, monkeypatch):
         proc = _exited_unreaped_leader()
@@ -985,11 +984,11 @@ class TestProcessGroupStop:
         finally:
             monkeypatch.undo()
             kill_group(proc.pid)
-            proc.wait()
+            proc.wait(timeout=30)
 
     def test_stop_child_refuses_a_reaped_leader(self):
         proc = subprocess.Popen([sys.executable, "-c", "pass"], process_group=0)
-        proc.wait()
+        proc.wait(timeout=30)
         with pytest.raises(ValueError, match="already reaped"):
             stop_child(proc, grace=0.2)
 
@@ -1000,7 +999,7 @@ class TestProcessGroupStop:
                 stop_child(proc, grace=0.2)
         finally:
             proc.kill()
-            proc.wait()
+            proc.wait(timeout=30)
 
     def test_stop_child_reaps_the_leader_it_stopped(self, tmp_path):
         proc = _sleeping_group(tmp_path / "ready", ignore_term=True)
@@ -1033,8 +1032,8 @@ class TestProcessGroupStop:
             assert proc.returncode is None
         finally:
             monkeypatch.undo()
-            os.killpg(proc.pid, signal.SIGKILL)
-            proc.wait()
+            kill_group(proc.pid)
+            proc.wait(timeout=30)
 
     def test_stop_child_stops_a_child_that_already_exited(self):
         proc = _exited_unreaped_leader()
@@ -1053,7 +1052,7 @@ class TestProcessGroupStop:
             with caplog.at_level(logging.WARNING):
                 subprocess_capture._stop(proc, own_group=True)
         finally:
-            proc.wait()
+            proc.wait(timeout=30)
         warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
         assert any(f"process table unreadable: group {proc.pid}" in w for w in warnings)
 

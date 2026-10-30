@@ -95,8 +95,7 @@ def _build_exemplar(dest: Path, *, standin: int | None) -> Path:
     repo = build_exemplar_repo(dest / EXEMPLAR_DIRNAME, seed_env=True)
     ruamel = YAML(typ="rt")
     profile_path = repo / "profile.yml"
-    with profile_path.open("r", encoding="utf-8") as handle:
-        profile = ruamel.load(handle)
+    profile = ruamel.load(profile_path)
     block = profile["virtual_accelerator"]
     if standin is None:
         block.pop("live_standin", None)
@@ -104,8 +103,7 @@ def _build_exemplar(dest: Path, *, standin: int | None) -> Path:
     else:
         block["live_standin"] = standin
         profile["config"]["control_system.type"] = "live_standin"
-    with profile_path.open("w", encoding="utf-8") as handle:
-        ruamel.dump(profile, handle)
+    ruamel.dump(profile, profile_path)
 
     with preserved_environ():
         result = invoke_build_in(repo)

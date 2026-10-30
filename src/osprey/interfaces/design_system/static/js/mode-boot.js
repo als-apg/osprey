@@ -21,6 +21,10 @@
  *      (web_terminal stamps it from config; artifacts renders none, so this
  *      rung is simply absent there and resolution falls through to 4)
  *   4. 'expert' — the default
+ * A page whose server stamped data-expert-view="off" on <html> (web_terminal,
+ * from `web.expert_view: false`) offers no Expert view: the ladder is skipped
+ * and the mode is 'simple', so neither a `?mode=expert` deep link nor a stored
+ * pick can open the page in Expert.
  * The resolved mode is stamped as data-ui-mode on <html>. theme-manager.js
  * is unaffected: the theme axis (data-theme) and the mode axis
  * (data-ui-mode) are independent.
@@ -94,12 +98,24 @@
     }
   }
 
+  // Mirrors frame-params.js's `expertViewOffered()` inline, for the reason
+  // the storage key above is mirrored.
+  function readExpertViewOff() {
+    try {
+      return document.documentElement.getAttribute('data-expert-view') === 'off';
+    } catch {
+      return false;
+    }
+  }
+
   const queryMode = readQueryMode();
   const storedMode = readStoredMode();
   const serverMode = readServerMode();
 
   let resolved = DEFAULT_MODE;
-  if (isValidMode(queryMode)) {
+  if (readExpertViewOff()) {
+    resolved = 'simple';
+  } else if (isValidMode(queryMode)) {
     resolved = queryMode;
   } else if (isValidMode(storedMode)) {
     resolved = storedMode;

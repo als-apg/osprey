@@ -117,11 +117,13 @@ explicit decision, never a side effect of another change.
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 from collections.abc import Iterable, Mapping
 from pathlib import Path
@@ -375,23 +377,17 @@ def export_baseline(sha: str, destination: Path) -> list[Path]:
             tree carries no ``src`` directory.
     """
     archive = subprocess.run(
-        ["git", "archive", sha], cwd=REPO_ROOT, capture_output=True, check=False
+        ["git", "archive", sha], cwd=REPO_ROOT, capture_output=True, check=False, timeout=120
     )
     if archive.returncode != 0:
         raise RuntimeError(
             f"git archive {sha} failed: {archive.stderr.decode('utf-8', 'replace').strip()}"
         )
-    extract = subprocess.run(
-        ["tar", "-x", "-C", str(destination)],
-        input=archive.stdout,
-        capture_output=True,
-        check=False,
-    )
-    if extract.returncode != 0:
-        raise RuntimeError(
-            f"extracting the {sha} archive failed: "
-            f"{extract.stderr.decode('utf-8', 'replace').strip()}"
-        )
+    try:
+        with tarfile.open(fileobj=io.BytesIO(archive.stdout)) as tar:
+            tar.extractall(destination, filter="data")
+    except (tarfile.TarError, OSError) as exc:
+        raise RuntimeError(f"extracting the {sha} archive failed: {exc}") from exc
     sources = [destination / relative for relative in BASELINE_SOURCE_DIRS]
     present = [path for path in sources if path.is_dir()]
     if not present or not (destination / "src" / "osprey").is_dir():
@@ -460,6 +456,7 @@ def _run_cli(
         capture_output=True,
         text=True,
         check=False,
+        timeout=600,
     )
 
 
@@ -723,6 +720,7 @@ def _resolved_baseline(sha: str) -> str | None:
         capture_output=True,
         text=True,
         check=False,
+        timeout=60,
     )
     return resolved.stdout.strip() if resolved.returncode == 0 else None
 

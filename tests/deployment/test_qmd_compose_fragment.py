@@ -50,7 +50,6 @@ from __future__ import annotations
 import os
 import re
 import shutil
-from pathlib import Path
 
 import pytest
 import yaml
@@ -759,16 +758,15 @@ def test_setup_build_dir_produces_the_sidecars_artifacts(tmp_path, monkeypatch):
     from importlib import resources
 
     import osprey
+    from osprey.cli.build_injectors import _copy_shared_service_partials
     from osprey.deployment.compose_generator import setup_build_dir
 
     repo = tmp_path / "repo"
     packaged = resources.files(osprey).joinpath("templates", "services")
     shutil.copytree(str(packaged / "qmd"), repo / "services" / "qmd")
-    # Every shared macro partial, by the same glob the build copies them with
-    # (_copy_shared_service_partials) — naming one leaves the next to fail here
-    # as a TemplateNotFound.
-    for partial in sorted(Path(str(packaged)).glob("_*.j2")):
-        shutil.copy2(partial, repo / "services" / partial.name)
+    # Every shared macro partial, copied by the build's own helper — naming one
+    # leaves the next to fail here as a TemplateNotFound.
+    _copy_shared_service_partials(repo / "services")
     monkeypatch.chdir(repo)
 
     setup_build_dir(
