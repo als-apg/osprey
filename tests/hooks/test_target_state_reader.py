@@ -14,6 +14,9 @@ server report can be made live or dead without spawning anything).
 from __future__ import annotations
 
 import json
+import os
+import threading
+import time
 
 import pytest
 
@@ -589,3 +592,25 @@ def test_module_imports_no_third_party_dependencies():
         "sys",
         "osprey_hook_log",
     }, top_level_roots
+
+
+@pytest.mark.skipif(not os.path.exists("/proc/self/status"), reason="needs a Linux /proc")
+def test_a_thread_id_is_not_a_live_process():
+    """The hook's own copy of the liveness check agrees with the connector's (#2172)."""
+    native_id = []
+    release = threading.Event()
+
+    def park():
+        native_id.append(threading.get_native_id())
+        release.wait(5)
+
+    thread = threading.Thread(target=park)
+    thread.start()
+    try:
+        while not native_id:
+            time.sleep(0.01)
+        assert reader._is_process_alive(native_id[0]) is False
+        assert reader._is_process_alive(os.getpid()) is True
+    finally:
+        release.set()
+        thread.join()

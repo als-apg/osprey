@@ -1005,6 +1005,28 @@ def set_switch(
 
 # -- process liveness -------------------------------------------------------
 
+#: Where the kernel lists processes. Absent off Linux, where a thread id cannot
+#: be told from a process and the ``os.kill`` answer stands.
+_PROC_ROOT = Path("/proc")
+
+
+def _is_thread_id(pid: int) -> bool:
+    """Whether *pid* names a thread of some other process, not a process.
+
+    Pids and tids share one number space and ``os.kill(tid, 0)`` succeeds, so
+    the kill alone cannot tell them apart. ``Tgid`` can: it is the id of the
+    process a thread belongs to, and a process is its own. ``False`` when the
+    question cannot be asked, which leaves the kill's answer in place.
+    """
+    try:
+        status = (_PROC_ROOT / str(pid) / "status").read_text(encoding="utf-8")
+    except OSError:
+        return False
+    for line in status.splitlines():
+        if line.startswith("Tgid:"):
+            return line.split()[1:] != [str(pid)]
+    return False
+
 
 def is_process_alive(pid: object) -> bool:
     """Whether *pid* names a running process.
@@ -1021,6 +1043,12 @@ def is_process_alive(pid: object) -> bool:
     That includes ``bool``: ``True`` is ``1`` to ``os.kill``, and PID 1 is
     always alive, so a report carrying ``"server_pid": true`` would otherwise
     read as a running server forever.
+
+    A thread id is not a process either. The files judged here outlive the
+    container that wrote them and PIDs restart low in every container, so a
+    stale PID lands on a thread of the new process often enough to matter: a
+    terminal read that thread as a live owner and followed itself for ever
+    (#2172).
     """
     if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
         return False
@@ -1032,7 +1060,7 @@ def is_process_alive(pid: object) -> bool:
         return True
     except OSError:  # pragma: no cover - platform oddity; assume alive
         return True
-    return True
+    return not _is_thread_id(pid)
 
 
 def _pid_from_filename(name: str, prefix: str, suffix: str) -> int | None:

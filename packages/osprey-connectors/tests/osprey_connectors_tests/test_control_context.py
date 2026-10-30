@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 import os
 import stat
+import threading
+import time
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -634,6 +636,63 @@ def test_an_unexpected_os_error_counts_as_alive(monkeypatch):
 
     monkeypatch.setattr(os, "kill", odd)
     assert control_context.is_process_alive(4321) is True
+
+
+def _fake_proc(root: Path, pid: int, tgid: int) -> None:
+    """Give *pid* a ``/proc/<pid>/status`` under *root* naming *tgid* as its leader."""
+    entry = root / str(pid)
+    entry.mkdir()
+    (entry / "status").write_text(f"Name:\tosprey\nTgid:\t{tgid}\nPid:\t{pid}\n")
+
+
+def test_a_thread_id_is_not_a_process(monkeypatch, tmp_path):
+    """``kill(tid, 0)`` succeeds, so a stale owner PID can land on a live thread (#2172)."""
+    monkeypatch.setattr(os, "kill", lambda _pid, _sig: None)
+    monkeypatch.setattr(control_context, "_PROC_ROOT", tmp_path)
+    _fake_proc(tmp_path, 424, tgid=193)
+    assert control_context.is_process_alive(424) is False
+
+
+def test_a_thread_group_leader_is_a_process(monkeypatch, tmp_path):
+    monkeypatch.setattr(os, "kill", lambda _pid, _sig: None)
+    monkeypatch.setattr(control_context, "_PROC_ROOT", tmp_path)
+    _fake_proc(tmp_path, 193, tgid=193)
+    assert control_context.is_process_alive(193) is True
+
+
+def test_without_proc_the_kill_answer_stands(monkeypatch, tmp_path):
+    monkeypatch.setattr(os, "kill", lambda _pid, _sig: None)
+    monkeypatch.setattr(control_context, "_PROC_ROOT", tmp_path / "absent")
+    assert control_context.is_process_alive(424) is True
+
+
+def test_a_record_owned_by_a_thread_has_no_live_owner(monkeypatch, tmp_path):
+    monkeypatch.setattr(os, "kill", lambda _pid, _sig: None)
+    monkeypatch.setattr(control_context, "_PROC_ROOT", tmp_path)
+    _fake_proc(tmp_path, 424, tgid=193)
+    owner = control_context.Owner(kind=control_context.OWNER_WEB_TERMINAL, pid=424, port=19101)
+    record = control_context.ControlContext(target="standin", generation=0, owner=owner)
+    assert control_context.live_owner(record) is None
+
+
+@pytest.mark.skipif(not Path("/proc/self/status").exists(), reason="needs a Linux /proc")
+def test_a_real_thread_is_not_a_process():
+    native_id = []
+    release = threading.Event()
+
+    def park():
+        native_id.append(threading.get_native_id())
+        release.wait(5)
+
+    thread = threading.Thread(target=park)
+    thread.start()
+    try:
+        while not native_id:
+            time.sleep(0.01)
+        assert control_context.is_process_alive(native_id[0]) is False
+    finally:
+        release.set()
+        thread.join()
 
 
 @pytest.mark.parametrize("value", [0, -1, True, False, "4321", 4321.0, None, [4321]])
