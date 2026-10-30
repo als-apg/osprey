@@ -1,7 +1,7 @@
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 312" role="img" aria-labelledby="multi-user-title multi-user-desc">
   <title id="multi-user-title">Multi-user landing page</title>
-  <desc id="multi-user-desc">One nginx landing page on port 10000 routes each person by path to their own terminal container — alice, bob, and the logbook app everyone on the roster opens — all of which share the same databases and telemetry services; when login is on, nginx asks the auth service about every request before proxying.</desc>
+  <desc id="multi-user-desc">One nginx landing page on port 10000 routes each person by path to their own terminal container — alice, bob, and the logbook app everyone on the roster opens — all of which share the same databases and agent record; when login is on, nginx asks the auth service about every request before proxying.</desc>
   <defs>
     <marker id="multi-user-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -60,6 +60,6 @@
   <text class="tn" x="864" y="144" text-anchor="middle">shared</text>
   <text class="tn" x="864" y="160" text-anchor="middle">services</text>
   <text class="ts" x="864" y="180" text-anchor="middle">databases</text>
-  <text class="ts" x="864" y="192" text-anchor="middle">telemetry</text>
+  <text class="ts" x="864" y="192" text-anchor="middle">agent record</text>
 </svg>
 </div>

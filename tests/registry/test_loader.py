@@ -46,22 +46,19 @@ from osprey_connectors.errors import RegistryError
 
 
 @pytest.fixture
-def restore_sys_state():
+def restore_sys_state(monkeypatch):
     """Snapshot/restore ``sys.path`` and the ``_dynamic_registry`` module slot.
 
     ``load_registry_from_path`` mutates both as a side effect; without this a
     leaked ``sys.path`` entry or module object could bleed into sibling tests.
     """
-    saved_path = list(sys.path)
+    monkeypatch.setattr(sys, "path", list(sys.path))
     saved_mod = sys.modules.get("_dynamic_registry")
-    try:
-        yield
-    finally:
-        sys.path[:] = saved_path
-        if saved_mod is None:
-            sys.modules.pop("_dynamic_registry", None)
-        else:
-            sys.modules["_dynamic_registry"] = saved_mod
+    yield
+    if saved_mod is None:
+        sys.modules.pop("_dynamic_registry", None)
+    else:
+        sys.modules["_dynamic_registry"] = saved_mod
 
 
 def _write_registry(tmp_path, body: str, *, app_name: str = "myapp"):

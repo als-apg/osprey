@@ -490,8 +490,8 @@ class TestCatalogAuthority:
         )
         assert spec.served_models == load_provider_catalog(None).entries["cborg"]["models"]
 
-    def test_a_tier_map_is_refused_with_the_refresh_command(self):
-        with pytest.raises(ValueError, match="osprey init --revalidate"):
+    def test_a_tier_map_is_refused_with_the_shape_to_write(self):
+        with pytest.raises(ValueError, match=r"models: \[<id>, \.\.\.\]"):
             ClaudeCodeModelResolver.resolve(
                 {"provider": "my-proxy"},
                 api_providers={

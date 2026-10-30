@@ -23,18 +23,13 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.cli.build_profile import list_presets, resolve_build_profile
 from osprey.cli.init_cmd import init
 from osprey.cli.profile_root import ProfileKind, layer_files
 from osprey.profiles.providers import PROVIDERS_FILENAME, compute_providers_hash
+from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.workspace import TIERS_DIRNAME
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
+from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 
 def _new(runner: CliRunner, target: Path, preset: str, *extra: str):
@@ -45,11 +40,6 @@ def _new(runner: CliRunner, target: Path, preset: str, *extra: str):
     tests in ``test_init_verb.py``.
     """
     return runner.invoke(init, [str(target), "--preset", preset, "--no-git", *extra])
-
-
-def _build_from(runner: CliRunner, repo: Path):
-    """Render *repo*'s build zone, the way a facility would after editing it."""
-    return runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
 
 
 def _zone_snapshot(repo: Path, entries: tuple[str, ...]) -> dict[str, bytes | None]:
@@ -166,7 +156,7 @@ def test_extends_chain_preset_materializes_flat(
         "# The child's own comment, carried onto its override.\n"
         "deploy_services: false\n"
         "config:\n"
-        "  control_system.writes_enabled: false\n",
+        "  control_system.writes: never\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(build_profile_presets, "_presets_dir", lambda: presets)
@@ -178,7 +168,7 @@ def test_extends_chain_preset_materializes_flat(
     text = (target / "profile.yml").read_text()
     assert not any(line.startswith("extends:") for line in text.splitlines()), text
     assert "deploy_services: false" in text
-    assert "control_system.writes_enabled: false" in text
+    assert "control_system.writes: never" in text
     assert "preset: ro-child" in text
     # Base content, with the base file's comments.
     assert "Which model answers" in text
@@ -761,7 +751,7 @@ def test_materialize_then_build_succeeds_for_every_preset(
     created = _new(runner, repo, preset)
     assert created.exit_code == 0, f"init failed for {preset!r}: {created.output}"
 
-    built = _build_from(runner, repo)
+    built = invoke_build(repo)
     assert built.exit_code == 0, f"build failed for {preset!r}: {built.output}"
     assert (repo / "build" / "config.yml").is_file()
 
@@ -775,7 +765,7 @@ def test_built_project_data_comes_from_the_profile(runner: CliRunner, tmp_path: 
     marker = repo / "data" / "facility_marker.txt"
     marker.write_text("edited by the facility\n", encoding="utf-8")
 
-    assert _build_from(runner, repo).exit_code == 0
+    assert invoke_build(repo).exit_code == 0
 
     landed = repo / "build" / "data" / "facility_marker.txt"
     assert landed.is_file()
@@ -821,9 +811,9 @@ def test_baked_override_survives_into_the_built_project(runner: CliRunner, tmp_p
     repo = tmp_path / "my-facility"
     assert _new(runner, repo, "hello-world", "--set", "model=claude-opus-5").exit_code == 0
 
-    assert _build_from(runner, repo).exit_code == 0
+    assert invoke_build(repo).exit_code == 0
 
-    config = yaml.safe_load((repo / "build" / "config.yml").read_text())
+    config = rendered_config(repo)
     assert config["claude_code"]["default_model"] == "claude-opus-5"
 
 
@@ -1471,6 +1461,9 @@ def test_resolves_identical_to_the_preset(runner: CliRunner, tmp_path: Path, pre
         name: ({"build_profile": f"{TIERS_DIRNAME}/{name}.yml"} if rewrites else value)
         for name, value in preset_renders.items()
     }
+    # Init seeds the facility description into the profile and names it by its
+    # path: the profile's copy where the preset selects OSPREY's rule.
+    d_new["rules"] = ["facility" if rule == "rules/facility" else rule for rule in d_new["rules"]]
     assert d_new == d_preset
 
 

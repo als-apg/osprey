@@ -90,6 +90,7 @@ def _dead_pid(monkeypatch, dead):
         return real(os.getpid(), 0)
 
     monkeypatch.setattr(target_state.os, "kill", fake_kill)
+    monkeypatch.setattr(control_context, "_PROC_ROOT", "/nonexistent/proc")
 
 
 def _reparsed(server_pid=None):
@@ -425,7 +426,7 @@ class TestReportFileContract:
         assert target_state.report_file_path().name == f"server_{os.getpid()}.json"
 
     def test_the_writer_and_the_library_name_the_same_file(self, state_root, started):
-        assert target_state.report_file_path(started) == control_context.report_path_under(
+        assert target_state.report_file_path(started) == control_context._report_path_under(
             state_root, started
         )
 

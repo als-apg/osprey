@@ -32,11 +32,11 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
 from osprey.cli.templates.manager import TemplateManager
 from osprey_connectors.config import ConfigBuilder
 from tests._config_render_context import CONFIG_TEMPLATES, MINIMAL_CONFIG_CONTEXT
+from tests.cli._lifecycle_build import invoke_build
 
 # Any path that names a Python interpreter, e.g. /Users/x/proj/.venv/bin/python3.11.
 _INTERPRETER_PATH = re.compile(r"bin/python[\d.]*$")
@@ -81,10 +81,7 @@ def _build_project(output_dir: Path, project_name: str, *init_set_args: str) -> 
     )
     assert init_result.exit_code == 0, init_result.output
 
-    result = CliRunner().invoke(
-        build,
-        ["--repo", str(repo_dir), "--skip-deps", "--skip-lifecycle"],
-    )
+    result = invoke_build(repo_dir)
     assert result.exit_code == 0, result.output
     project_dir = repo_dir / "build"
     assert (project_dir / "config.yml").exists()

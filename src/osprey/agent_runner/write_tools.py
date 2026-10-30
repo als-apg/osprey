@@ -187,15 +187,13 @@ def _server_side_effect_tools(server) -> list[str]:
     """
     from osprey.registry.mcp import _WRITES_CHECK
 
-    out: list[str] = []
-    for tool in (*server.permissions_ask, *server.fixed_ask):
-        out.append(f"mcp__{server.name}__{tool}")
-    for tool in (*server.permissions_allow, *server.fixed_allow):
-        if _is_destructive(tool):
-            out.append(f"mcp__{server.name}__{tool}")
-    for rule in server.hooks_pre:
-        if _WRITES_CHECK in rule.hooks:
-            out.append(rule.matcher)
+    out = [f"mcp__{server.name}__{tool}" for tool in (*server.permissions_ask, *server.fixed_ask)]
+    out.extend(
+        f"mcp__{server.name}__{tool}"
+        for tool in (*server.permissions_allow, *server.fixed_allow)
+        if _is_destructive(tool)
+    )
+    out.extend(rule.matcher for rule in server.hooks_pre if _WRITES_CHECK in rule.hooks)
     return out
 
 
@@ -283,20 +281,112 @@ def _custom_server_side_effect_tools(project_dir: Path) -> list[str]:
             # unresolvable-extends path above: block the whole server.
             out.append(f"mcp__{name}")
         perms = spec.get("permissions") or {}
-        for tool in perms.get("ask") or []:
-            out.append(f"mcp__{name}__{tool}")
+        if not isinstance(perms, dict):
+            perms = {}
+        if "writes" in spec:
+            out.extend(_declared_write_tools(name, spec, perms))
+        out.extend(f"mcp__{name}__{tool}" for tool in perms.get("ask") or [])
         # Destructive-named tools a custom server auto-allows (mirrors the
         # framework destructive-allow handling) — block them even though the
         # facility put them in ``allow``.
-        for tool in perms.get("allow") or []:
-            if _is_destructive(tool):
-                out.append(f"mcp__{name}__{tool}")
+        out.extend(
+            f"mcp__{name}__{tool}" for tool in perms.get("allow") or [] if _is_destructive(tool)
+        )
         pre = (spec.get("hooks") or {}).get("pre_tool_use") or []
         if "writes_check" in pre:
             # Whole server is write-gated; block it server-level (the only form
             # the SDK disallow engine honors for "all tools of a server").
             out.append(f"mcp__{name}")
     return out
+
+
+def _declared_write_tools(name: str, spec: dict, perms: dict) -> list[str]:
+    """Exact names a custom spec's ``writes:`` list gates (C-FW).
+
+    Uses the registry's own classifier, so the headless block names exactly the
+    tools the render's per-tool writes-check rules gate: the declared tools plus
+    the warning window (undeclared asked or destructive-named tools). A
+    declaring server's other tools stay callable. A list that cannot be read,
+    or one combined with the whole-server ``writes_check`` preset (a spec the
+    registry refuses), fails closed with a server-level ``mcp__<name>``.
+    """
+    from osprey.registry.mcp import _declared_write_rule_tools, _spec_writes
+
+    pre = (spec.get("hooks") or {}).get("pre_tool_use") or []
+    try:
+        writes = _spec_writes(spec)
+        if writes is None:
+            return []
+        if "writes_check" in pre:
+            return [f"mcp__{name}"]
+        return [f"mcp__{name}__{tool}" for tool in _declared_write_rule_tools(name, writes, perms)]
+    except (TypeError, ValueError, AttributeError):
+        return [f"mcp__{name}"]
+
+
+#: Suffix of a whole-server hook matcher. The SDK's disallow engine honors only
+#: exact names and the server-level ``mcp__<srv>`` form, so the regex is a no-op
+#: there and is translated before it reaches the list.
+_WHOLE_SERVER_SUFFIX = "__.*"
+
+
+def _disallow_form(tool: str) -> str:
+    """``mcp__<srv>__.*`` becomes ``mcp__<srv>``; any other name is unchanged."""
+    if tool.startswith("mcp__") and tool.endswith(_WHOLE_SERVER_SUFFIX):
+        return tool[: -len(_WHOLE_SERVER_SUFFIX)]
+    return tool
+
+
+def _string_list(value: object) -> list[str]:
+    """``value`` when it is a list, keeping only its non-empty strings; else ``[]``.
+
+    A scalar would otherwise be character-split by iteration.
+    """
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str) and item]
+
+
+def _rendered_facility_write_tools(project_dir: Path) -> list[str]:
+    """The render's facility write set plus its appended ``control_system.write_tools``.
+
+    Read from ``hook_config.json``: ``facility_write_tools`` (rendered verbatim
+    from :func:`osprey.registry.mcp.facility_write_tools`, the only producer of
+    the facility set) and ``control_system_write_tools``. Whole-server matchers
+    are translated to the server-level form. Answers ``[]`` when the file is
+    absent or unreadable; the ``config.yml`` path and the write-tool floor still
+    apply then.
+    """
+    hook_config_path = project_dir / ".claude" / "hooks" / "hook_config.json"
+    try:
+        config = json.loads(hook_config_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(config, dict):
+        return []
+    out: list[str] = []
+    for key in ("facility_write_tools", "control_system_write_tools"):
+        raw = config.get(key)
+        if raw is not None and not isinstance(raw, list):
+            logger.warning("%s in %s is not a list — ignored", key, hook_config_path)
+        out.extend(_disallow_form(tool) for tool in _string_list(raw))
+    return out
+
+
+def _config_control_system_write_tools(project_dir: Path) -> list[str]:
+    """``control_system.write_tools`` from ``config.yml``, in disallow form.
+
+    Read directly so the entries stay blocked when the rendered hook config is
+    missing or stale. Answers ``[]`` when ``config.yml`` is absent or unreadable.
+    """
+    try:
+        cfg = yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8")) or {}
+    except (OSError, ValueError):
+        return []
+    control_system = cfg.get("control_system") if isinstance(cfg, dict) else None
+    if not isinstance(control_system, dict):
+        return []
+    return [_disallow_form(tool) for tool in _string_list(control_system.get("write_tools"))]
 
 
 def read_only_disallowed_tools(project_dir: Path) -> list[str]:
@@ -323,7 +413,13 @@ def read_only_disallowed_tools(project_dir: Path) -> list[str]:
       side-effect surface tracks the registry as the single source of truth, not
       a hand-maintained copy).
     * :func:`_custom_server_side_effect_tools` — write tools of facility-defined
-      custom MCP servers declared in the project's ``config.yml``.
+      custom MCP servers declared in the project's ``config.yml``: each declared
+      ``writes:`` tool exactly, ``permissions.ask`` tools, destructive-marker
+      names, and whole-server writes-check servers as ``mcp__<srv>``. A
+      declaring server's other tools stay callable.
+    * :func:`_rendered_facility_write_tools` — the render's
+      ``facility_write_tools`` and appended ``control_system_write_tools``.
+    * :func:`_config_control_system_write_tools` — ``control_system.write_tools``.
 
     Args:
         project_dir: Root of the OSPREY project (the directory containing
@@ -338,6 +434,8 @@ def read_only_disallowed_tools(project_dir: Path) -> list[str]:
         *FOREIGN_MCP_NAMESPACES,
         *_registry_side_effect_tools(),
         *_custom_server_side_effect_tools(project_dir),
+        *_rendered_facility_write_tools(project_dir),
+        *_config_control_system_write_tools(project_dir),
     ):
         if tool not in result:
             result.append(tool)

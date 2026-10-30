@@ -234,8 +234,7 @@ def _magic(head: bytes) -> SniffResult | None:
 
 def _stripped_window(window: bytes) -> bytes:
     """The window with a UTF-8 BOM and up to 32 bytes of ASCII whitespace removed."""
-    if window.startswith(_UTF8_BOM):
-        window = window[len(_UTF8_BOM) :]
+    window = window.removeprefix(_UTF8_BOM)
     skip = 0
     while (
         skip < _MAX_LEADING_WHITESPACE and skip < len(window) and window[skip] in _ASCII_WHITESPACE
@@ -250,8 +249,7 @@ def _is_printable_text(window: bytes, *, truncated: bool) -> bool:
     When the data continues past the window, a multi-byte character cut by the
     window edge is not held against it.
     """
-    if window.startswith(_UTF8_BOM):
-        window = window[len(_UTF8_BOM) :]
+    window = window.removeprefix(_UTF8_BOM)
     if not window:
         return False
     try:

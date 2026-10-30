@@ -47,6 +47,8 @@ const transport = {
   requestHandoff: vi.fn(),
   fetchCommands: vi.fn(),
   followChat: vi.fn(),
+  uploadChatAttachment: vi.fn(),
+  removeChatAttachment: vi.fn(),
 };
 
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat-client.js', () => ({
@@ -59,6 +61,10 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat-client.js', 
   fetchCommands: () => transport.fetchCommands(),
   followChat: (/** @type {any} */ key, /** @type {any} */ callbacks) =>
     transport.followChat(key, callbacks),
+  uploadChatAttachment: (/** @type {any} */ key, /** @type {any} */ file, /** @type {any} */ o) =>
+    transport.uploadChatAttachment(key, file, o),
+  removeChatAttachment: (/** @type {any} */ key, /** @type {any} */ name, /** @type {any} */ o) =>
+    transport.removeChatAttachment(key, name, o),
 }));
 
 // terminal.js is xterm glue; the console only needs its panel broadcast, and
@@ -170,6 +176,15 @@ beforeEach(() => {
       { name: 'diagnose', description: 'Investigate failures', argument_hint: '', kind: 'skill' },
     ]);
   transport.followChat.mockReset().mockReturnValue({ close: () => {} });
+  transport.uploadChatAttachment
+    .mockReset()
+    .mockImplementation(async (/** @type {string} */ _key, /** @type {File} */ file) => ({
+      name: file.name,
+      path: `/store/b1-${file.name}`,
+      size: file.size,
+      type: file.type,
+    }));
+  transport.removeChatAttachment.mockReset().mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -659,7 +674,341 @@ describe('a prompt refused by the other view', () => {
     expect(textOf('.op-system')).toBe(transportNotice(err));
     expect(published).toEqual([transportNotice(err)]);
     expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(true);
-    expect(logEntries()).toEqual(['status?']);
+    // No frame of the turn arrived, so its bubble goes and its text comes back.
+    expect(logEntries()).toEqual([]);
+    expect(textarea.value).toBe('status?');
+  });
+});
+
+describe('a prompt that never reached the agent', () => {
+  test.each([
+    ['another turn is already running', transportError(409, 'turn_in_progress')],
+    ['the command is not offered', transportError(400, 'command_not_available')],
+    ['the server failed', transportError(500)],
+    ['the network failed', new Error('network down')],
+  ])('%s: the bubble goes, the text comes back, and the reason shows', async (_why, err) => {
+    await mountChat({ pointer: 'K1' });
+    const textarea = /** @type {HTMLTextAreaElement} */ (one('textarea'));
+    textarea.value = 'open the shutter';
+    /** @type {HTMLButtonElement} */ (one('.op-send-btn')).click();
+    expect(logEntries()).toEqual(['open the shutter']);
+    expect(textarea.value).toBe('');
+
+    const callbacks = transport.sendPrompt.mock.calls[0][2];
+    callbacks.onError(err);
+    callbacks.onClose();
+
+    expect(logEntries()).toEqual([]);
+    expect(textarea.value).toBe('open the shutter');
+    expect(textarea.disabled).toBe(false);
+    expect(textOf('.op-system')).toBe(transportNotice(err));
+  });
+
+  test('a failure after the turn started keeps the bubble: the agent has the prompt', async () => {
+    await mountChat({ pointer: 'K1' });
+    const textarea = /** @type {HTMLTextAreaElement} */ (one('textarea'));
+    textarea.value = 'open the shutter';
+    /** @type {HTMLButtonElement} */ (one('.op-send-btn')).click();
+
+    const callbacks = transport.sendPrompt.mock.calls[0][2];
+    callbacks.onEvent({ type: 'turn_start', prompt: 'open the shutter', seq: 1 });
+    callbacks.onError(new Error('network down'));
+    callbacks.onClose();
+
+    expect(logEntries()).toEqual(['open the shutter']);
+    expect(textarea.value).toBe('');
+  });
+});
+
+describe('following a turn on the live feed', () => {
+  /** The callbacks of the feed the console opened last. */
+  const feedCallbacks = () => transport.followChat.mock.calls.at(-1)?.[1];
+
+  /** @param {Record<string, any>} frame - hand one frame to the live feed */
+  const feed = (frame) => feedCallbacks().onEvent(frame);
+
+  /** Whether the console shows a turn running: input out of reach, Stop in place of Send. */
+  const busy = () => {
+    const textarea = /** @type {HTMLTextAreaElement} */ (one('textarea'));
+    const stop = /** @type {HTMLButtonElement} */ (one('.op-stop-btn'));
+    const send = /** @type {HTMLButtonElement} */ (one('.op-send-btn'));
+    return textarea.disabled && !stop.hidden && send.hidden;
+  };
+
+  /** Let the transcript re-read that a frame started settle. */
+  const settle = async () => {
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+  };
+
+  const agentEntries = () => container.querySelectorAll('.op-entry.assistant');
+
+  /** A turn the transcript shows finished. */
+  const finished = (/** @type {string} */ prompt, /** @type {string} */ answer) => [
+    { role: 'user', content: prompt },
+    {
+      role: 'assistant',
+      content: answer,
+      events: [
+        { type: 'text', content: answer },
+        { type: 'result', is_error: false, duration_ms: 2000 },
+      ],
+    },
+  ];
+
+  test('a snapshot that says nothing runs ends a turn whose end the feed missed', async () => {
+    await mountChat({ pointer: 'K1' });
+    feed({ type: 'hello', seq: 0, in_flight: false, pending: [] });
+    feed({ type: 'turn_start', prompt: 'read the orbit', seq: 1 });
+    feed({ type: 'text', content: 'Reading.', seq: 2 });
+    expect(busy()).toBe(true);
+
+    // The feed dropped, and the turn's result went by while it was down.
+    transport.fetchHistory.mockResolvedValue(finished('read the orbit', 'It is flat.'));
+    feed({ type: 'hello', seq: 6, in_flight: false, pending: [] });
+    await settle();
+
+    expect(busy()).toBe(false);
+    expect(/** @type {HTMLTextAreaElement} */ (one('textarea')).disabled).toBe(false);
+    // The transcript has the turn whole.
+    expect(logEntries()).toEqual(['read the orbit', 'It is flat.']);
+  });
+
+  test('the feed finding no agent ends a turn it was following', async () => {
+    await mountChat({ pointer: 'K1' });
+    feed({ type: 'hello', seq: 0, in_flight: false, pending: [] });
+    feed({ type: 'turn_start', prompt: 'read the orbit', seq: 1 });
+    expect(busy()).toBe(true);
+
+    feedCallbacks().onNoAgent();
+    await settle();
+
+    expect(busy()).toBe(false);
+  });
+
+  test('a turn that starts while an earlier one still shows running draws as a turn of its own', async () => {
+    await mountChat({ pointer: 'K1' });
+    feed({ type: 'hello', seq: 0, in_flight: false, pending: [] });
+    feed({ type: 'turn_start', prompt: 'read the orbit', seq: 1 });
+    feed({ type: 'text', content: 'Reading.', seq: 2 });
+    // That turn's result never arrived; the next turn starts.
+    feed({ type: 'turn_start', prompt: 'and the tunes?', seq: 9 });
+    feed({ type: 'text', content: 'Tunes are nominal.', seq: 10 });
+
+    expect(logEntries()).toEqual([
+      'read the orbit',
+      'Reading.',
+      'and the tunes?',
+      'Tunes are nominal.',
+    ]);
+    expect(agentEntries()).toHaveLength(2);
+    expect(busy()).toBe(true);
+
+    // It ends: the transcript is read again, for the turn whose end was missed.
+    transport.fetchHistory.mockResolvedValue([
+      ...finished('read the orbit', 'It is flat.'),
+      ...finished('and the tunes?', 'Tunes are nominal.'),
+    ]);
+    feed({ type: 'result', is_error: false, duration_ms: 1000, seq: 11 });
+    await settle();
+
+    expect(transport.fetchHistory).toHaveBeenCalledTimes(2);
+    expect(logEntries()).toEqual([
+      'read the orbit',
+      'It is flat.',
+      'and the tunes?',
+      'Tunes are nominal.',
+    ]);
+  });
+
+  test('a reload mid-turn continues the turn the transcript left open', async () => {
+    transport.fetchHistory.mockResolvedValue([
+      { role: 'user', content: 'read the orbit' },
+      { role: 'assistant', content: 'Reading.', events: [{ type: 'text', content: 'Reading.' }] },
+    ]);
+    await mountChat({ pointer: 'K1' });
+    feed({ type: 'hello', seq: 4, in_flight: true, pending: [] });
+    expect(busy()).toBe(true);
+
+    feed({ type: 'text', content: 'It is flat.', seq: 5 });
+
+    expect(agentEntries()).toHaveLength(1);
+    expect(logEntries()).toEqual(['read the orbit', 'Reading.', 'It is flat.']);
+
+    transport.fetchHistory.mockResolvedValue(finished('read the orbit', 'Reading. It is flat.'));
+    feed({ type: 'result', is_error: false, duration_ms: 3000, seq: 6 });
+    await settle();
+
+    expect(busy()).toBe(false);
+    expect(container.querySelectorAll('.op-footer')).toHaveLength(1);
+  });
+
+  test('a turn the transcript left open, with nothing running, is read again and closed', async () => {
+    transport.fetchHistory.mockResolvedValueOnce([
+      { role: 'user', content: 'read the orbit' },
+      { role: 'assistant', content: 'Reading.', events: [{ type: 'text', content: 'Reading.' }] },
+    ]);
+    await mountChat({ pointer: 'K1' });
+    expect(container.querySelector('.op-footer')).toBeNull();
+
+    // The turn ended between the transcript read and the feed's snapshot.
+    transport.fetchHistory.mockResolvedValue(finished('read the orbit', 'It is flat.'));
+    feed({ type: 'hello', seq: 7, in_flight: false, pending: [] });
+    await settle();
+
+    expect(transport.fetchHistory).toHaveBeenCalledTimes(2);
+    expect(logEntries()).toEqual(['read the orbit', 'It is flat.']);
+    expect(container.querySelectorAll('.op-footer')).toHaveLength(1);
+    expect(busy()).toBe(false);
+  });
+
+  test('a reconnect that missed frames of the running turn redraws it from the transcript, then carries on live', async () => {
+    await mountChat({ pointer: 'K1' });
+    feed({ type: 'hello', seq: 0, in_flight: false, pending: [] });
+    feed({ type: 'turn_start', prompt: 'write the corrector', seq: 1 });
+    feed({ type: 'text', content: 'Writing it.', seq: 2 });
+
+    // While the feed was down the agent called a tool, which now waits on the operator.
+    const call = {
+      type: 'tool_use',
+      tool_name: 'Execute',
+      tool_name_raw: 'mcp__python__execute',
+      tool_use_id: 't1',
+      input: { code: 'print(1)' },
+    };
+    transport.fetchHistory.mockResolvedValue([
+      { role: 'user', content: 'write the corrector' },
+      {
+        role: 'assistant',
+        content: 'Writing it.',
+        events: [{ type: 'text', content: 'Writing it.' }, call],
+      },
+    ]);
+    const ask = {
+      type: 'permission_request',
+      request_id: 'req-1',
+      kind: 'tool',
+      tool_name: 'Execute',
+      tool_name_raw: 'mcp__python__execute',
+      tool_use_id: 't1',
+      input: call.input,
+      reason: null,
+      can_allow_session: false,
+      seq: 4,
+    };
+    feed({ type: 'hello', seq: 4, in_flight: true, pending: [ask] });
+    await settle();
+
+    expect(transport.fetchHistory).toHaveBeenCalledTimes(2);
+    expect(container.querySelectorAll('.op-tool')).toHaveLength(1);
+    expect(container.querySelectorAll('.op-approval')).toHaveLength(1);
+    expect(busy()).toBe(true);
+
+    feed({ type: 'text', content: 'Done.', seq: 5 });
+    expect(agentEntries()).toHaveLength(1);
+    expect(logEntries()).toEqual(['write the corrector', 'Writing it.', 'Done.']);
+  });
+
+  test('a reconnect that missed nothing keeps drawing the turn as it was', async () => {
+    await mountChat({ pointer: 'K1' });
+    feed({ type: 'hello', seq: 0, in_flight: false, pending: [] });
+    feed({ type: 'turn_start', prompt: 'read the orbit', seq: 1 });
+    feed({ type: 'text', content: 'Reading.', seq: 2 });
+
+    feed({ type: 'hello', seq: 2, in_flight: true, pending: [] });
+    await settle();
+
+    expect(transport.fetchHistory).toHaveBeenCalledTimes(1);
+    expect(busy()).toBe(true);
+    feed({ type: 'text', content: 'It is flat.', seq: 3 });
+    expect(logEntries()).toEqual(['read the orbit', 'Reading.', 'It is flat.']);
+  });
+
+  /** Put one file in the composer's tray, as the picker hands it over. */
+  const attachFile = (/** @type {string} */ name) => {
+    const picker = /** @type {HTMLInputElement} */ (one('input[type="file"]'));
+    const file = new File([new Uint8Array(10)], name, { type: 'image/png' });
+    Object.defineProperty(picker, 'files', { value: [file], configurable: true });
+    picker.dispatchEvent(new Event('change'));
+  };
+
+  /** The names on the chips in the composer's tray. */
+  const trayNames = () =>
+    [...container.querySelectorAll('.op-attach-chip-name')].map((el) => el.textContent);
+
+  test('a re-read of the same conversation keeps the files waiting in the tray', async () => {
+    await mountChat({ pointer: 'K1' });
+    feed({ type: 'hello', seq: 0, in_flight: false, pending: [] });
+    attachFile('shot.png');
+    await settle();
+    expect(trayNames()).toEqual(['shot.png']);
+
+    // Another tab's turn runs, and its end goes by while the feed is down.
+    feed({ type: 'turn_start', prompt: 'read the orbit', seq: 1 });
+    transport.fetchHistory.mockResolvedValue(finished('read the orbit', 'It is flat.'));
+    feed({ type: 'hello', seq: 6, in_flight: false, pending: [] });
+    await settle();
+
+    // The log was read again from the transcript; the unsent file stays.
+    expect(logEntries()).toEqual(['read the orbit', 'It is flat.']);
+    expect(trayNames()).toEqual(['shot.png']);
+    expect(transport.removeChatAttachment).not.toHaveBeenCalled();
+  });
+
+  test('"New conversation" empties the tray and removes its files', async () => {
+    await mountChat({ pointer: 'K1' });
+    attachFile('shot.png');
+    await settle();
+
+    /** @type {HTMLButtonElement} */ (one('.op-session-new')).click();
+    await settle();
+
+    expect(trayNames()).toEqual([]);
+    expect(transport.removeChatAttachment).toHaveBeenCalledTimes(1);
+    expect(transport.removeChatAttachment.mock.calls[0][0]).toBe('K1');
+  });
+
+  test('a switch to another conversation empties the tray and removes its files', async () => {
+    await mountChat({ pointer: 'K1' });
+    attachFile('shot.png');
+    await settle();
+    const pointer =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js');
+
+    pointer.setPointer('K2');
+    await settle();
+
+    expect(trayNames()).toEqual([]);
+    expect(transport.removeChatAttachment).toHaveBeenCalledTimes(1);
+    expect(transport.removeChatAttachment.mock.calls[0][0]).toBe('K1');
+  });
+});
+
+describe('following a sent turn', () => {
+  test('the reply to a prompt sent into a full log stays on screen', async () => {
+    await mountChat({ pointer: 'K1' });
+    // happy-dom lays nothing out: give the log a 300px window over 100px rows.
+    const log = /** @type {HTMLElement} */ (one('.op-messages'));
+    const height = () => log.children.length * 100;
+    let top = 0;
+    Object.defineProperties(log, {
+      clientHeight: { get: () => 300 },
+      scrollHeight: { get: height },
+      scrollTop: {
+        get: () => top,
+        set: (value) => {
+          top = Math.max(0, Math.min(value, height() - 300));
+        },
+      },
+    });
+    // An earlier exchange already fills the window.
+    for (let i = 0; i < 5; i += 1) log.append(document.createElement('div'));
+
+    const textarea = /** @type {HTMLTextAreaElement} */ (one('textarea'));
+    textarea.value = 'Now give me a full correlation plot';
+    /** @type {HTMLButtonElement} */ (one('.op-send-btn')).click();
+    transport.sendPrompt.mock.calls[0][2].onEvent({ type: 'text', content: 'Here it is.' });
+
+    expect(log.scrollHeight - log.scrollTop - log.clientHeight).toBe(0);
   });
 });
 

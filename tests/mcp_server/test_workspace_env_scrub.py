@@ -31,35 +31,22 @@ from osprey_connectors.dotenv import ENV_CHAIN_APPLIED_ENV
 # ---------------------------------------------------------------------------
 
 
-def test_scrub_removes_bluesky_launch_token():
-    """BLUESKY_LAUNCH_TOKEN is dropped via the *_LAUNCH_TOKEN suffix rule."""
-    env = {"BLUESKY_LAUNCH_TOKEN": "secret", "PATH": "/usr/bin"}
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param("BLUESKY_LAUNCH_TOKEN", id="launch-token-suffix-rule"),
+        pytest.param("EVENT_DISPATCHER_TOKEN", id="event-dispatcher-exact-name"),
+        # Authenticates a web-terminal session.
+        pytest.param("OSPREY_TERMINAL_SECRET", id="terminal-secret"),
+        # No sandbox has business calling panel routes.
+        pytest.param("OSPREY_PANEL_TOKEN", id="panel-token"),
+    ],
+)
+def test_scrub_removes_a_sensitive_name(name):
+    """Each write-arming or session secret is dropped; PATH passes through."""
+    env = {name: "secret", "PATH": "/usr/bin"}
     scrubbed = scrub_sensitive_env(env)
-    assert "BLUESKY_LAUNCH_TOKEN" not in scrubbed
-    assert scrubbed["PATH"] == "/usr/bin"
-
-
-def test_scrub_removes_event_dispatcher_token():
-    """EVENT_DISPATCHER_TOKEN is dropped via the exact-name rule."""
-    env = {"EVENT_DISPATCHER_TOKEN": "secret", "PATH": "/usr/bin"}
-    scrubbed = scrub_sensitive_env(env)
-    assert "EVENT_DISPATCHER_TOKEN" not in scrubbed
-    assert scrubbed["PATH"] == "/usr/bin"
-
-
-def test_scrub_removes_terminal_secret():
-    """OSPREY_TERMINAL_SECRET is dropped: it authenticates a web-terminal session."""
-    env = {"OSPREY_TERMINAL_SECRET": "secret", "PATH": "/usr/bin"}
-    scrubbed = scrub_sensitive_env(env)
-    assert "OSPREY_TERMINAL_SECRET" not in scrubbed
-    assert scrubbed["PATH"] == "/usr/bin"
-
-
-def test_scrub_removes_panel_token():
-    """OSPREY_PANEL_TOKEN is dropped: no sandbox has business calling panel routes."""
-    env = {"OSPREY_PANEL_TOKEN": "secret", "PATH": "/usr/bin"}
-    scrubbed = scrub_sensitive_env(env)
-    assert "OSPREY_PANEL_TOKEN" not in scrubbed
+    assert name not in scrubbed
     assert scrubbed["PATH"] == "/usr/bin"
 
 
@@ -197,107 +184,6 @@ def workspace_root(tmp_path):
     return ws
 
 
-async def test_sandbox_subprocess_env_excludes_launch_token(
-    execution_folder, workspace_root, monkeypatch
-):
-    """The sandbox subprocess is spawned with an env that excludes the token."""
-    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "super-secret-value")
-
-    mock_proc = AsyncMock()
-    mock_proc.communicate = AsyncMock(return_value=(b"", b""))
-    mock_proc.returncode = 0
-    mock_proc.kill = MagicMock()
-    mock_proc.wait = MagicMock()  # not awaited on this path; avoids an unawaited-coroutine warning
-
-    with (
-        patch(
-            "osprey_connectors.workspace.resolve_agent_data_root",
-            return_value=workspace_root,
-        ),
-        patch(
-            "osprey.mcp_server.workspace.execution.sandbox_executor.asyncio.create_subprocess_exec",
-            new_callable=AsyncMock,
-            return_value=mock_proc,
-        ) as mock_spawn,
-    ):
-        await execute_sandbox_code(code="print(42)", execution_folder=execution_folder)
-
-    assert mock_spawn.await_count == 1
-    passed_env = mock_spawn.await_args.kwargs["env"]
-    assert "BLUESKY_LAUNCH_TOKEN" not in passed_env
-
-
-async def test_sandbox_subprocess_env_excludes_event_dispatcher_token(
-    execution_folder, workspace_root, monkeypatch
-):
-    monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "super-secret-value")
-
-    mock_proc = AsyncMock()
-    mock_proc.communicate = AsyncMock(return_value=(b"", b""))
-    mock_proc.returncode = 0
-    mock_proc.kill = MagicMock()
-    mock_proc.wait = MagicMock()  # not awaited on this path; avoids an unawaited-coroutine warning
-
-    with (
-        patch(
-            "osprey_connectors.workspace.resolve_agent_data_root",
-            return_value=workspace_root,
-        ),
-        patch(
-            "osprey.mcp_server.workspace.execution.sandbox_executor.asyncio.create_subprocess_exec",
-            new_callable=AsyncMock,
-            return_value=mock_proc,
-        ) as mock_spawn,
-    ):
-        await execute_sandbox_code(code="print(42)", execution_folder=execution_folder)
-
-    assert mock_spawn.await_count == 1
-    passed_env = mock_spawn.await_args.kwargs["env"]
-    assert "EVENT_DISPATCHER_TOKEN" not in passed_env
-
-
-async def test_sandbox_subprocess_env_keeps_unrelated_vars(
-    execution_folder, workspace_root, monkeypatch
-):
-    """Non-sensitive vars the sandbox legitimately needs (e.g. HOME) survive."""
-    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "super-secret-value")
-    monkeypatch.setenv("HOME", "/home/testuser")
-
-    mock_proc = AsyncMock()
-    mock_proc.communicate = AsyncMock(return_value=(b"", b""))
-    mock_proc.returncode = 0
-    mock_proc.kill = MagicMock()
-    mock_proc.wait = MagicMock()  # not awaited on this path; avoids an unawaited-coroutine warning
-
-    with (
-        patch(
-            "osprey_connectors.workspace.resolve_agent_data_root",
-            return_value=workspace_root,
-        ),
-        patch(
-            "osprey.mcp_server.workspace.execution.sandbox_executor.asyncio.create_subprocess_exec",
-            new_callable=AsyncMock,
-            return_value=mock_proc,
-        ) as mock_spawn,
-    ):
-        await execute_sandbox_code(code="print(42)", execution_folder=execution_folder)
-
-    assert mock_spawn.await_count == 1
-    passed_env = mock_spawn.await_args.kwargs["env"]
-    assert passed_env.get("HOME") == "/home/testuser"
-
-
-# ---------------------------------------------------------------------------
-# execute_sandbox_code — the web-terminal address book and the perimeter stamp
-# ---------------------------------------------------------------------------
-#
-# Mirrors the perimeter-absence coverage in test_executor_env_scrub.py against
-# the OTHER spawn seam. This sandbox renders visualizations; it has no more
-# business resolving a terminal URL, or reading a deny-list it is not the one
-# enforcing, than the general-purpose sandbox does — and it is the path that
-# was silently inheriting both.
-
-
 async def _sandbox_child_env(execution_folder, workspace_root) -> dict[str, str]:
     """Run one visualization execution against a stubbed spawn; return the child env."""
     mock_proc = AsyncMock()
@@ -321,6 +207,41 @@ async def _sandbox_child_env(execution_folder, workspace_root) -> dict[str, str]
 
     assert mock_spawn.await_count == 1
     return mock_spawn.await_args.kwargs["env"]
+
+
+@pytest.mark.parametrize("name", ["BLUESKY_LAUNCH_TOKEN", "EVENT_DISPATCHER_TOKEN"])
+async def test_sandbox_subprocess_env_excludes_the_token(
+    execution_folder, workspace_root, monkeypatch, name
+):
+    """The sandbox subprocess is spawned with an env that excludes the token."""
+    monkeypatch.setenv(name, "super-secret-value")
+
+    passed_env = await _sandbox_child_env(execution_folder, workspace_root)
+
+    assert name not in passed_env
+
+
+async def test_sandbox_subprocess_env_keeps_unrelated_vars(
+    execution_folder, workspace_root, monkeypatch
+):
+    """Non-sensitive vars the sandbox legitimately needs (e.g. HOME) survive."""
+    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "super-secret-value")
+    monkeypatch.setenv("HOME", "/home/testuser")
+
+    passed_env = await _sandbox_child_env(execution_folder, workspace_root)
+
+    assert passed_env.get("HOME") == "/home/testuser"
+
+
+# ---------------------------------------------------------------------------
+# execute_sandbox_code — the web-terminal address book and the perimeter stamp
+# ---------------------------------------------------------------------------
+#
+# Mirrors the perimeter-absence coverage in test_executor_env_scrub.py against
+# the OTHER spawn seam. This sandbox renders visualizations; it has no more
+# business resolving a terminal URL, or reading a deny-list it is not the one
+# enforcing, than the general-purpose sandbox does — and it is the path that
+# was silently inheriting both.
 
 
 async def test_sandbox_subprocess_env_excludes_the_perimeter_stamp(

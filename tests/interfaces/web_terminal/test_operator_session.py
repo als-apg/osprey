@@ -7,6 +7,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import threading
 import time
 from collections.abc import Callable
@@ -35,24 +36,39 @@ from osprey.agent_runner import (
     TextEvent,
     ThinkingEvent,
     ToolResultEvent,
+    ToolStartEvent,
     ToolUseEvent,
 )
 from osprey.agent_runner.clean_env import build_clean_env
 from osprey.agent_runner.write_tools import read_only_disallowed_tools
-from osprey.interfaces.web_terminal.chat_session_pool import ChatCapacityError
+from osprey.interfaces.web_terminal.chat_session_pool import (
+    UNREAD_IDLE_FACTOR,
+    ChatCapacityError,
+    ChatSessionPool,
+)
 from osprey.interfaces.web_terminal.operator_session import (
+    _NOT_ARMED_MESSAGE,
     OperatorRegistry,
     OperatorSession,
     TurnInProgressError,
     _event_to_wire,
-    _render_arms_writes,
+    _is_side_effect_tool,
+    _read_render,
     _standing_rules,
     format_tool_name,
     validate_project_directory,
 )
+from osprey.interfaces.web_terminal.process_tree import ProcessTableUnreadable
+from osprey_connectors.refusals import refusal_phrase, refusal_text
+from osprey_connectors_tests._harness import (
+    isolate_verdict_environment,
+    state_dir_under,
+    write_control_context,
+)
 from tests._agent_cli import STUB_AGENT_CLI
 from tests.interfaces.web_terminal._fakes import (
     PRESET_SYSTEM_PROMPT,
+    ArmedChat,
     armed_chat,
     assistant_message,
     collect_turn,
@@ -139,6 +155,21 @@ class TestEventToWire:
         assert ev["tool_use_id"] == "tu_1"
         assert ev["input"] == {"channels": ["X"]}
 
+    def test_a_tool_call_starting_reaches_the_stream_named_like_its_row(self):
+        """The status line names the call while its input is still being written."""
+        ev = _event_to_wire(
+            ToolStartEvent(
+                name="mcp__osprey__channel_read", tool_use_id="tu_1", parent_tool_use_id=None
+            )
+        )
+        assert ev == {
+            "type": "tool_start",
+            "tool_name": "Channel Read",
+            "tool_name_raw": "mcp__osprey__channel_read",
+            "tool_use_id": "tu_1",
+            "parent_tool_use_id": None,
+        }
+
     @pytest.mark.parametrize("is_error", [False, True])
     def test_tool_results_reach_the_stream_as_a_preview(self, is_error):
         event = ToolResultEvent(
@@ -150,6 +181,7 @@ class TestEventToWire:
             "is_error": is_error,
             "preview": "42.0",
             "truncated": False,
+            "refusal": None,
         }
 
     def test_assistant_error(self):
@@ -260,46 +292,68 @@ def _write_hook_config(
     (hooks / "hook_config.json").write_text(json.dumps(config), encoding="utf-8")
 
 
-class TestRenderArmsWrites:
-    """The approval gate arms from the render the chat child runs in, and fails closed."""
+class TestReadRender:
+    """The chat reads the render its child runs in, and fails closed."""
 
-    def test_a_write_armed_render_arms_writes(self, tmp_path):
-        project = _write_render(tmp_path, "control_system:\n  writes_enabled: true\n")
-        assert _render_arms_writes(project) is True
+    def test_a_render_whose_tier_allows_writes_allows_them(self, tmp_path):
+        project = _write_render(tmp_path, "control_system:\n  writes: allowed\n")
+        assert _read_render(project).tier_allows is True
+
+    def test_the_tier_key_decides_over_the_old_leaf(self, tmp_path):
+        project = _write_render(
+            tmp_path, "control_system:\n  writes: never\n  writes_enabled: true\n"
+        )
+        assert _read_render(project).tier_allows is False
 
     @pytest.mark.parametrize(
         "render",
         [
-            pytest.param("control_system:\n  writes_enabled: false\n", id="read-only"),
-            pytest.param("control_system: {writes_enabled: true\n", id="will-not-load"),
+            # D2: the retired leaf alone no longer arms (row tier-absent-old-armed-flat).
+            pytest.param("control_system:\n  writes_enabled: true\n", id="retired-leaf-alone"),
+            pytest.param("control_system:\n  writes: never\n", id="tier-never"),
+            pytest.param("control_system: {writes: allowed\n", id="will-not-load"),
             pytest.param(None, id="missing"),
             pytest.param("project_name: demo\n", id="no-control-section"),
         ],
     )
-    def test_writes_stay_unarmed_unless_the_render_arms_them(self, tmp_path, render):
+    def test_writes_stay_refused_unless_the_tier_allows_them(self, tmp_path, render):
         project = str(tmp_path) if render is None else _write_render(tmp_path, render)
-        assert _render_arms_writes(project) is False
+        assert _read_render(project).tier_allows is False
 
     def test_the_child_render_decides_not_the_server_process_config(self, tmp_path, monkeypatch):
         """The server's own working directory may hold an armed config; the child's does not."""
         child = tmp_path / "child"
         child.mkdir()
-        project = _write_render(child, "control_system:\n  writes_enabled: false\n")
+        project = _write_render(child, "control_system:\n  writes: never\n")
         server = tmp_path / "server"
         server.mkdir()
-        _write_render(server, "control_system:\n  writes_enabled: true\n")
+        _write_render(server, "control_system:\n  writes: allowed\n")
         monkeypatch.chdir(server)
         monkeypatch.delenv("OSPREY_CONFIG", raising=False)
-        assert _render_arms_writes(project) is False
+        assert _read_render(project).tier_allows is False
+
+    def test_the_hook_config_is_read_with_the_render(self, tmp_path):
+        project = _write_render(tmp_path, "control_system:\n  writes: allowed\n")
+        _write_hook_config(tmp_path, ["mcp__controls__channel_write"])
+        assert _read_render(project).hook_config == {
+            "write_tools": ["mcp__controls__channel_write"]
+        }
+
+    def test_an_unreadable_hook_config_is_an_empty_one(self, tmp_path):
+        project = _write_render(tmp_path, "control_system:\n  writes: allowed\n")
+        hooks = tmp_path / ".claude" / "hooks"
+        hooks.mkdir(parents=True)
+        (hooks / "hook_config.json").write_text("{not json", encoding="utf-8")
+        assert _read_render(project).hook_config == {}
 
     async def test_start_arms_the_session_from_its_own_render(self, tmp_path):
-        _write_render(tmp_path, "control_system:\n  writes_enabled: true\n")
+        _write_render(tmp_path, "control_system:\n  writes: allowed\n")
         _write_hook_config(tmp_path, ["mcp__controls__channel_write"])
         session = OperatorSession(cwd=str(tmp_path))
         with sdk_seam():
             await session.start()
         try:
-            assert session._approvals is True
+            assert session._render.tier_allows is True
             assert "mcp__controls__channel_write" in session._side_effect_tools
         finally:
             await session.stop()
@@ -307,7 +361,7 @@ class TestRenderArmsWrites:
     async def test_a_tool_the_approval_hook_asks_about_gets_no_session_allow(self, tmp_path):
         """The hook asks on every call under its prefixes, so a standing allow for one
         would either do nothing or let the hook's ask be skipped: none is offered."""
-        _write_render(tmp_path, "control_system:\n  writes_enabled: true\n")
+        _write_render(tmp_path, "control_system:\n  writes: allowed\n")
         _write_hook_config(tmp_path, ["mcp__controls__channel_write"], ["mcp__controls__"])
         session = OperatorSession(cwd=str(tmp_path))
         with sdk_seam():
@@ -320,6 +374,217 @@ class TestRenderArmsWrites:
             assert [rule.destination for rule in kept] == ["session"]
         finally:
             await session.stop()
+
+
+#: A switch-capable render whose tier allows writes, as YAML.
+_TWO_TARGETS_RENDER = (
+    "control_system:\n"
+    "  type: epics\n"
+    "  writes: {writes}\n"
+    "  connector:\n"
+    "    epics: {{prefix: 'RING:'}}\n"
+    "    virtual_accelerator: {{prefix: 'VA:'}}\n"
+)
+
+#: The render's write list, a facility-custom server among it.
+_CARD_HOOK_CONFIG = {
+    "server_prefixes": ["mcp__controls__", "mcp__python__", "mcp__magnets__"],
+    "write_tools": ["mcp__controls__channel_write", "mcp__python__execute", "mcp__magnets__.*"],
+}
+
+
+@contextlib.asynccontextmanager
+async def _chat_on(project: Path, *, writes: str = "allowed"):
+    """A session on the two-target render in *project*, with its hook_config."""
+    _write_render(project, _TWO_TARGETS_RENDER.format(writes=writes))
+    hooks = project / ".claude" / "hooks"
+    hooks.mkdir(parents=True, exist_ok=True)
+    (hooks / "hook_config.json").write_text(json.dumps(_CARD_HOOK_CONFIG), encoding="utf-8")
+    session = OperatorSession(cwd=str(project))
+    with sdk_seam() as captured:
+        await session.start()
+        try:
+            feed, _hello = session.subscribe()
+            yield ArmedChat(session, captured[0].can_use_tool, feed)
+        finally:
+            await session.stop()
+
+
+class TestCardTarget:
+    """C-FRAME: a write's card names the machine it lands on, placed as the hooks place it."""
+
+    @pytest.fixture
+    def root(self, tmp_path, monkeypatch) -> Path:
+        root = tmp_path / "agent_data"
+        root.mkdir()
+        isolate_verdict_environment(monkeypatch, root)
+        return root
+
+    def _publish(self, root: Path, kind: str) -> None:
+        """This process as a live controls server publishing *kind* for ``standin``."""
+        directory = state_dir_under(root)
+        directory.mkdir(parents=True, exist_ok=True)
+        pid = os.getpid()
+        payload = {"server_pid": pid, "targets": {"standin": {"machine_kind": kind}}}
+        (directory / f"server_{pid}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    async def _card(self, project: Path, tool: str, tool_input: dict) -> dict:
+        async with _chat_on(project) as chat:
+            _answer, card = await chat.ask(tool, tool_input)
+        return card
+
+    @pytest.mark.parametrize(
+        ("session_machine", "published", "expected"),
+        [
+            pytest.param(
+                "live",
+                None,
+                {
+                    "key": "live",
+                    "machine_kind": "real",
+                    "kind_words": "Real machine — writes move hardware",
+                },
+                id="real",
+            ),
+            pytest.param(
+                "standin",
+                "rehearsal",
+                {
+                    "key": "standin",
+                    "machine_kind": "rehearsal",
+                    "kind_words": "Rehearsal — nothing moves",
+                },
+                id="rehearsal",
+            ),
+            pytest.param(
+                "standin",
+                None,
+                {
+                    "key": "standin",
+                    "machine_kind": "real",
+                    "kind_words": "Real machine — writes move hardware",
+                },
+                id="standin-not-vouched-for",
+            ),
+            pytest.param(
+                "va",
+                None,
+                {
+                    "key": "va",
+                    "machine_kind": "simulator",
+                    "kind_words": "Simulator — nothing moves",
+                },
+                id="simulator",
+            ),
+        ],
+    )
+    async def test_a_write_card_names_its_machine(
+        self, tmp_path, root, session_machine, published, expected
+    ):
+        write_control_context(root, target=session_machine, generation=2)
+        if published:
+            self._publish(root, published)
+
+        card = await self._card(tmp_path, "mcp__controls__channel_write", {"value": 1})
+
+        assert card["target"] == expected
+
+    async def test_a_facility_write_names_the_real_machine_whatever_the_session_is_on(
+        self, tmp_path, root
+    ):
+        write_control_context(root, target="va", generation=2)
+
+        card = await self._card(tmp_path, "mcp__magnets__set_current", {})
+
+        assert card["target"]["key"] == "live"
+        assert card["target"]["machine_kind"] == "real"
+
+    async def test_an_unplaceable_write_still_asks_and_names_no_machine(self, tmp_path, root):
+        directory = state_dir_under(root)
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "control_context.json").write_text('{"schema": ', encoding="utf-8")
+
+        card = await self._card(tmp_path, "mcp__controls__channel_write", {"value": 1})
+
+        assert card["type"] == "permission_request"
+        assert card["target"] is None
+
+    @pytest.mark.parametrize(
+        ("tool", "tool_input"),
+        [
+            ("mcp__controls__channel_read", {}),
+            ("mcp__python__execute", {"execution_mode": "readonly"}),
+        ],
+        ids=["a-read", "a-readonly-execute"],
+    )
+    async def test_a_call_that_writes_nothing_names_no_machine(
+        self, tmp_path, root, tool, tool_input
+    ):
+        write_control_context(root, target="live", generation=2)
+
+        card = await self._card(tmp_path, tool, tool_input)
+
+        assert card["target"] is None
+
+    @pytest.mark.usefixtures("root")
+    async def test_question_and_plan_cards_name_no_machine(self, tmp_path):
+        async with _chat_on(tmp_path) as chat:
+            _a, question = await chat.ask("AskUserQuestion", {"questions": []})
+            _b, plan = await chat.ask("ExitPlanMode", {"plan": "the plan"})
+
+        assert question["target"] is None
+        assert plan["target"] is None
+
+
+class TestTierVerdictDeny:
+    """C-FRAME: on a render whose tier allows no writes, a write is refused with its reason."""
+
+    @pytest.fixture(autouse=True)
+    def root(self, tmp_path, monkeypatch) -> Path:
+        root = tmp_path / "agent_data"
+        root.mkdir()
+        isolate_verdict_environment(monkeypatch, root)
+        write_control_context(root, target="live", generation=2)
+        return root
+
+    async def test_an_app_render_deny_carries_the_tier_refusal(self, tmp_path):
+        async with _chat_on(tmp_path, writes="never") as chat:
+            result = await chat.can_use_tool(
+                "mcp__controls__channel_write", {"value": 1}, SimpleNamespace()
+            )
+            shown = chat.feed.qsize()
+
+        assert isinstance(result, PermissionResultDeny)
+        assert result.message == refusal_text("tier_never", "real")
+        assert shown == 0, "a refused write was put in front of the operator"
+        # The deny comes back to the stream as the call's error result, refusal and all.
+        frame = _event_to_wire(
+            ToolResultEvent(
+                tool_use_id="tu_1", content=result.message, is_error=True, parent_tool_use_id=None
+            )
+        )
+        assert frame["refusal"] == {
+            "reason": "tier_never",
+            "phrase": refusal_phrase("tier_never", "real"),
+        }
+        assert "[osprey-refusal:" not in frame["preview"]
+
+    async def test_an_unplaceable_write_is_refused_without_machine_words(self, tmp_path, root):
+        (state_dir_under(root) / "control_context.json").write_text("{", encoding="utf-8")
+        async with _chat_on(tmp_path, writes="never") as chat:
+            result = await chat.can_use_tool(
+                "mcp__controls__channel_write", {"value": 1}, SimpleNamespace()
+            )
+
+        assert result.message == refusal_text("tier_never")
+
+    async def test_an_ask_that_is_not_a_write_keeps_todays_deny(self, tmp_path):
+        async with _chat_on(tmp_path, writes="never") as chat:
+            result = await chat.can_use_tool("mcp__weather__forecast", {}, SimpleNamespace())
+
+        assert isinstance(result, PermissionResultDeny)
+        assert result.message == _NOT_ARMED_MESSAGE
+        assert "[osprey-refusal:" not in result.message
 
 
 class TestStandingRules:
@@ -344,6 +609,36 @@ class TestStandingRules:
             else:
                 tool = entry
             assert _standing_rules(tool, _session_allow(tool), surface) == [], tool
+
+    def test_a_declaring_servers_write_is_on_the_surface_and_its_read_is_not(self, tmp_path):
+        """A server that declares ``writes:`` renders one exact write-list entry per write
+        tool, so only that tool is approved per call; its reads keep a session allow."""
+        (tmp_path / "config.yml").write_text(
+            "claude_code:\n"
+            "  servers:\n"
+            "    plc:\n"
+            "      command: node\n"
+            "      writes: [set_value]\n"
+            "      permissions: {allow: [get_value, set_value]}\n",
+            encoding="utf-8",
+        )
+        _write_hook_config(tmp_path, ["mcp__controls__channel_write", "mcp__plc__set_value"])
+        surface = read_only_disallowed_tools(tmp_path)
+        write, read = "mcp__plc__set_value", "mcp__plc__get_value"
+
+        assert _is_side_effect_tool(write, surface)
+        assert not _is_side_effect_tool(read, surface)
+        assert _standing_rules(write, _session_allow(write), surface) == []
+        rules = _standing_rules(read, _session_allow(read), surface)
+        assert [r.tool_name for rule in rules for r in rule.rules] == [read]
+
+    def test_a_whole_server_facility_server_is_covered_whole(self, tmp_path):
+        """A list-less server's whole-server matcher covers its reads too."""
+        _write_hook_config(tmp_path, ["mcp__magnets__.*"])
+        surface = read_only_disallowed_tools(tmp_path)
+
+        assert _is_side_effect_tool("mcp__magnets__read_current", surface)
+        assert not _is_side_effect_tool("mcp__magnetsx__read_current", surface)
 
     def test_control_target_set_is_never_offered_a_session_allow(self, tmp_path):
         """Regression pin: it moves the whole session to another machine. It is approval-gated
@@ -419,7 +714,7 @@ class TestStandingRules:
             "osprey.interfaces.web_terminal.operator_session.read_only_disallowed_tools",
             unreadable,
         )
-        _write_render(tmp_path, "control_system:\n  writes_enabled: true\n")
+        _write_render(tmp_path, "control_system:\n  writes: allowed\n")
         session = OperatorSession(cwd=str(tmp_path))
         with sdk_seam():
             await session.start()
@@ -604,6 +899,37 @@ class TestOperatorSession:
         assert [f["type"] for f in frames] == ["turn_start", "text", "result"]
         assert frames[1] == {"type": "text", "content": "hello", "parent_tool_use_id": None}
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("prompt", "rows"),
+        [
+            pytest.param("/diagnose SR03", [("diagnose", "SR03")], id="a-skill"),
+            pytest.param("/check SR03", [], id="a-command-file"),
+            pytest.param("diagnose SR03", [], id="plain-words"),
+        ],
+    )
+    async def test_a_skill_the_operator_runs_opens_its_turn_as_a_skill_row(
+        self, tmp_path, prompt, rows
+    ):
+        """The CLI loads a typed skill with no tool call, so the turn draws its row itself."""
+        (tmp_path / ".claude" / "skills" / "diagnose").mkdir(parents=True)
+        (tmp_path / ".claude" / "skills" / "diagnose" / "SKILL.md").write_text("Body\n")
+        (tmp_path / ".claude" / "commands").mkdir()
+        (tmp_path / ".claude" / "commands" / "check.md").write_text("Check\n")
+        session = OperatorSession(cwd=str(tmp_path))
+        client = _ScriptedClient([assistant_message([TextBlock("on it")]), result_message()])
+
+        with sdk_seam(client):
+            await session.start()
+            frames = [unnumbered(f) for f in await collect_turn(session, prompt)]
+            await session.stop()
+
+        calls = [f for f in frames if f["type"] == "tool_use"]
+        assert [(c["input"]["skill"], c["input"].get("args")) for c in calls] == rows
+        if rows:
+            assert [f["type"] for f in frames][:3] == ["turn_start", "tool_use", "tool_result"]
+            assert frames[2]["tool_use_id"] == calls[0]["tool_use_id"]
+
 
 # ---------------------------------------------------------------------------
 # OperatorSession start identity: resume a transcript, or open one
@@ -703,7 +1029,6 @@ class TestOperatorSessionResumeOptions:
 
     @pytest.mark.asyncio
     async def test_two_keyless_sessions_do_not_share_an_identity(self):
-
         with sdk_seam() as first:
             await OperatorSession(cwd="/tmp", env={"PATH": "/usr/bin"}).start()
         with sdk_seam() as second:
@@ -1057,6 +1382,116 @@ class TestOperatorSessionConnectedAgent:
         assert client.query_calls == 0
 
 
+class _ExitingClient(FakeStreamClient):
+    """A child that exits when ``exited`` is set: its response stream then ends with no result.
+
+    Until then each prompt is answered with one text block, and with a result
+    too unless ``answers`` is False, so a turn can be left open when it exits.
+    """
+
+    def __init__(self, *, answers: bool = True) -> None:
+        super().__init__()
+        self.answers = answers
+        self.exited = asyncio.Event()
+
+    async def receive_response(self):
+        prompt = asyncio.ensure_future(self._prompts.get())
+        gone = asyncio.ensure_future(self.exited.wait())
+        await asyncio.wait({prompt, gone}, return_when=asyncio.FIRST_COMPLETED)
+        if self.exited.is_set():
+            prompt.cancel()
+            return
+        yield assistant_message([TextBlock("done")])
+        self.first_yielded.set()
+        if self.answers:
+            gone.cancel()
+            yield result_message()
+        else:
+            await gone
+
+
+class TestOperatorSessionChildExits:
+    """A child that exits leaves the session dead, and says so to whoever is reading.
+
+    A session that still read as active after its child was gone stayed pooled,
+    and every later prompt failed until the operator started a new conversation.
+    """
+
+    @pytest.mark.asyncio
+    async def test_an_idle_child_exit_ends_the_session_and_tells_every_feed(self):
+        client = _ExitingClient()
+        async with _started_session(client) as session:
+            frames = await collect_turn(session, "hi")
+            assert frames[-1]["type"] == "result"
+            feed, _hello = session.subscribe()
+
+            client.exited.set()
+            frame = await asyncio.wait_for(feed.get(), timeout=2.0)
+
+            assert frame["type"] == "error"
+            assert frame["error_type"] == "AgentExited"
+            assert session.is_active is False
+            assert session.feed_open(feed) is False
+
+    @pytest.mark.asyncio
+    async def test_a_child_exit_mid_turn_ends_the_turn_and_the_session(self):
+        client = _ExitingClient(answers=False)
+        async with _started_session(client) as session:
+            consumer, frames = start_turn(session, "hi")
+            await asyncio.wait_for(client.first_yielded.wait(), timeout=1.0)
+
+            client.exited.set()
+            await asyncio.wait_for(consumer, timeout=2.0)
+
+            assert frames[-1]["error_type"] == "AgentExited"
+            assert session.in_flight is False
+            assert session.is_active is False
+
+
+class _UnpromptedClient(FakeStreamClient):
+    """Starts a response of its own when ``speak`` is set, and ends it when ``finish`` is.
+
+    As the CLI does after a background agent reports with no prompt behind it.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.speak = asyncio.Event()
+        self.finish = asyncio.Event()
+
+    async def receive_response(self):
+        await self.speak.wait()
+        self.speak.clear()
+        yield assistant_message([TextBlock("the report")])
+        self.first_yielded.set()
+        await self.finish.wait()
+        yield result_message()
+
+
+class TestHelloInFlight:
+    """The ``hello`` snapshot says a response is under way whenever one is."""
+
+    @pytest.mark.asyncio
+    async def test_a_response_the_cli_started_on_its_own_is_in_flight(self):
+        client = _UnpromptedClient()
+        async with _started_session(client) as session:
+            feed, before = session.subscribe()
+            client.speak.set()
+            await asyncio.wait_for(client.first_yielded.wait(), timeout=1.0)
+
+            _feed, during = session.subscribe()
+            client.finish.set()
+            while (await asyncio.wait_for(feed.get(), timeout=1.0))["type"] != "result":
+                pass
+            _feed, after = session.subscribe()
+
+        assert (before["in_flight"], during["in_flight"], after["in_flight"]) == (
+            False,
+            True,
+            False,
+        )
+
+
 # ---------------------------------------------------------------------------
 # OperatorRegistry
 # ---------------------------------------------------------------------------
@@ -1196,20 +1631,22 @@ class FakeChatSession:
         self.stop_calls = 0
         self.start_delay = 0.0
         self.start_error: Exception | None = None
-        # What ``started_commands`` answers, the threads it was asked on, and
-        # what it does when asked.
+        # What ``started_commands`` answers (``None`` raises as a table that could
+        # not be read), the threads it was asked on, and what it does when asked.
         self.running_commands: list | None = []
         self.look_threads: list[int] = []
         self.look_error: Exception | None = None
         self.on_look: Callable[[], None] | None = None
 
-    def started_commands(self) -> list | None:
+    def started_commands(self) -> list:
         self.look_threads.append(threading.get_ident())
         if self.on_look is not None:
             self.on_look()
         if self.look_error is not None:
             raise self.look_error
-        return None if self.running_commands is None else list(self.running_commands)
+        if self.running_commands is None:
+            raise ProcessTableUnreadable(OSError("process table"))
+        return list(self.running_commands)
 
     async def start(self, *, resume_id=None):
         self.resume_id = resume_id
@@ -1720,7 +2157,8 @@ class TestOperatorRegistryChatPool:
         factory = _session_factory()
         with _patch_session(factory):
             a, _ = await registry.get_or_create_chat_session("stale-chat", cwd="/tmp")
-        stale = time.monotonic() - 100
+        # Past the idle timeout, within the grace an unknown look is given.
+        stale = time.monotonic() - 15
         a.last_activity = stale
         a.running_commands = None
 
@@ -1730,7 +2168,7 @@ class TestOperatorRegistryChatPool:
         assert reaped == 0
         assert registry.get_chat_session("stale-chat") is a
         assert a.stop_calls == 0
-        assert a.last_activity > stale
+        assert a.last_activity == stale
         warnings = [
             r
             for r in caplog.records
@@ -1744,7 +2182,7 @@ class TestOperatorRegistryChatPool:
         factory = _session_factory()
         with _patch_session(factory):
             a, _ = await registry.get_or_create_chat_session("stale-chat", cwd="/tmp")
-        stale = time.monotonic() - 100
+        stale = time.monotonic() - 15
         a.last_activity = stale
         a.look_error = OSError("ps")
 
@@ -1754,13 +2192,37 @@ class TestOperatorRegistryChatPool:
         assert reaped == 0
         assert registry.get_chat_session("stale-chat") is a
         assert a.stop_calls == 0
-        assert a.last_activity > stale
+        assert a.last_activity == stale
         warnings = [
             r
             for r in caplog.records
             if r.levelno == logging.WARNING and "stale-chat" in r.getMessage()
         ]
         assert len(warnings) == 1
+
+    @pytest.mark.asyncio
+    async def test_an_unreadable_process_table_does_not_keep_a_chat_open_for_good(self):
+        """Every sweep that cannot look leaves the idle clock alone, so the reap comes."""
+        # Whole seconds, as test_chat_process_tree.py's clock reads: on a raw
+        # monotonic stamp ``last + 20.0`` can round to one step short of 20 s
+        # after ``last``, and the sweep landing exactly on the timeout misses.
+        last = 1000.0
+        clock = [last]
+        pool = ChatSessionPool(factory=_session_factory(), idle_seconds=10.0, now=lambda: clock[0])
+        a, _ = await pool.get_or_create("stale-chat", "/tmp")
+        a.running_commands = None
+        a.last_activity = last
+
+        for moment in (10.0, 15.0, 10.0 * UNREAD_IDLE_FACTOR - 1.0):
+            clock[0] = last + moment
+            assert await pool.reap_idle() == 0
+            assert pool.get("stale-chat") is a
+            assert a.last_activity == last
+
+        clock[0] = last + 10.0 * UNREAD_IDLE_FACTOR
+        assert await pool.reap_idle() == 1
+        assert pool.get("stale-chat") is None
+        assert a.stop_calls == 1
 
     @pytest.mark.asyncio
     async def test_reap_idle_leaves_a_chat_replaced_during_the_look(self):
@@ -1960,6 +2422,9 @@ class TestOperatorChatLaunchParity:
             cli_path=STUB_AGENT_CLI,
             include_partial_messages=True,
             can_use_tool=session._can_use_tool,
+            # The stub CLI takes --thinking-display, so the launch passes the
+            # default display.
+            extra_args={"thinking-display": "summarized"},
             **identity,
         )
         assert options.env["PATH"] == "/usr/bin"
@@ -2077,6 +2542,7 @@ class TestOperatorChatStreamParity:
                 "is_error": False,
                 "preview": "42.0",
                 "truncated": False,
+                "refusal": None,
             },
             {"type": "system", "subtype": "init", "session_id": "abc"},
             {

@@ -22,6 +22,7 @@ import { cwd } from 'node:process';
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 import { FACILITY_ZONE, VIEWER_ZONE, stampFacilityZone } from '../_support/facility-zone.mjs';
+import { fakeEventSourceClass } from '../_support/event-source.mjs';
 
 import {
   ABORT_LABEL,
@@ -1240,27 +1241,10 @@ describe('removalRecords', () => {
 // ---------------------------------------------------------------------------
 
 describe('createQueueStream', () => {
-  /** Minimal EventSource stand-in: happy-dom has none. */
-  class FakeEventSource {
-    /** @type {FakeEventSource[]} */
-    static instances = [];
-    /** @param {string} url */
-    constructor(url) {
-      this.url = url;
-      this.closed = false;
-      /** @type {((event: {data: string}) => void)|null} */
-      this.onmessage = null;
-      /** @type {(() => void)|null} */
-      this.onerror = null;
-      FakeEventSource.instances.push(this);
-    }
-    close() {
-      this.closed = true;
-    }
-  }
+  const FakeEventSource = fakeEventSourceClass();
 
   beforeEach(() => {
-    FakeEventSource.instances = [];
+    FakeEventSource.opened = [];
     vi.useFakeTimers();
   });
 
@@ -1279,7 +1263,7 @@ describe('createQueueStream', () => {
       onConnectionChange: (c) => connections.push(c),
       EventSourceCtor: /** @type {any} */ (FakeEventSource),
     });
-    FakeEventSource.instances[0].onmessage?.({ data: JSON.stringify(frame({ type: 'hello' })) });
+    FakeEventSource.opened[0].onmessage?.({ data: JSON.stringify(frame({ type: 'hello' })) });
     expect(frames[0].type).toBe('hello');
     expect(connections).toEqual([true]);
   });
@@ -1291,7 +1275,7 @@ describe('createQueueStream', () => {
       onFrame: (f) => frames.push(f),
       EventSourceCtor: /** @type {any} */ (FakeEventSource),
     });
-    const source = FakeEventSource.instances[0];
+    const source = FakeEventSource.opened[0];
     expect(() => source.onmessage?.({ data: 'not json' })).not.toThrow();
     source.onmessage?.({ data: JSON.stringify(frame()) });
     expect(frames).toHaveLength(1);
@@ -1305,18 +1289,18 @@ describe('createQueueStream', () => {
       onConnectionChange: (c) => connections.push(c),
       EventSourceCtor: /** @type {any} */ (FakeEventSource),
     });
-    FakeEventSource.instances[0].onerror?.();
+    FakeEventSource.opened[0].onerror?.();
     expect(connections).toEqual([false]);
-    expect(FakeEventSource.instances).toHaveLength(1);
+    expect(FakeEventSource.opened).toHaveLength(1);
     vi.advanceTimersByTime(1000);
-    expect(FakeEventSource.instances).toHaveLength(2);
+    expect(FakeEventSource.opened).toHaveLength(2);
 
     // Second failure backs off further rather than hammering the sidecar.
-    FakeEventSource.instances[1].onerror?.();
+    FakeEventSource.opened[1].onerror?.();
     vi.advanceTimersByTime(1000);
-    expect(FakeEventSource.instances).toHaveLength(2);
+    expect(FakeEventSource.opened).toHaveLength(2);
     vi.advanceTimersByTime(1000);
-    expect(FakeEventSource.instances).toHaveLength(3);
+    expect(FakeEventSource.opened).toHaveLength(3);
   });
 
   test('close() stops both the stream and any pending reconnect', () => {
@@ -1324,10 +1308,10 @@ describe('createQueueStream', () => {
       onFrame: () => {},
       EventSourceCtor: /** @type {any} */ (FakeEventSource),
     });
-    FakeEventSource.instances[0].onerror?.();
+    FakeEventSource.opened[0].onerror?.();
     stream.close();
     vi.advanceTimersByTime(60000);
-    expect(FakeEventSource.instances).toHaveLength(1);
+    expect(FakeEventSource.opened).toHaveLength(1);
   });
 });
 
@@ -2551,20 +2535,7 @@ describe('booting the shipped bundle', () => {
   const BUNDLE = `${cwd()}/src/osprey/interfaces/bluesky_web/panels/bluesky/`;
 
   /** Captures the panel's EventSource so a test can push frames at it. */
-  class BootEventSource {
-    /** @type {BootEventSource[]} */
-    static instances = [];
-    /** @param {string} url */
-    constructor(url) {
-      this.url = url;
-      /** @type {((event: {data: string}) => void)|null} */
-      this.onmessage = null;
-      /** @type {(() => void)|null} */
-      this.onerror = null;
-      BootEventSource.instances.push(this);
-    }
-    close() {}
-  }
+  const BootEventSource = fakeEventSourceClass();
 
   /** @returns {{stopBtn: any, startBtn: any, abortBtn: any, pushFrame: (f: any) => void}} */
   function boot() {
@@ -2584,7 +2555,7 @@ describe('booting the shipped bundle', () => {
         // Only the QUEUE stream: the merged bundle also opens the shared
         // plan-draft stream, and a queue frame pushed at that one would be
         // read as a draft frame with a revision gap.
-        for (const source of BootEventSource.instances) {
+        for (const source of BootEventSource.opened) {
           if (source.url.includes('/queue/events') && source.onmessage) {
             source.onmessage({ data: JSON.stringify(frameObject) });
           }
@@ -2594,7 +2565,7 @@ describe('booting the shipped bundle', () => {
   }
 
   beforeEach(() => {
-    BootEventSource.instances = [];
+    BootEventSource.opened = [];
     vi.resetModules();
     vi.stubGlobal('EventSource', BootEventSource);
     vi.stubGlobal(
@@ -3403,20 +3374,7 @@ describe('the merged panel shell', () => {
   const BUNDLE = `${cwd()}/src/osprey/interfaces/bluesky_web/panels/bluesky/`;
 
   /** Captures the panel's EventSources so a test can push queue frames. */
-  class ShellEventSource {
-    /** @type {ShellEventSource[]} */
-    static instances = [];
-    /** @param {string} url */
-    constructor(url) {
-      this.url = url;
-      /** @type {((event: {data: string}) => void)|null} */
-      this.onmessage = null;
-      /** @type {(() => void)|null} */
-      this.onerror = null;
-      ShellEventSource.instances.push(this);
-    }
-    close() {}
-  }
+  const ShellEventSource = fakeEventSourceClass();
 
   /**
    * Every contribution the panel has posted at the (faked) hub. Untyped on
@@ -3491,7 +3449,7 @@ describe('the merged panel shell', () => {
 
   /** @param {any} frameObject */
   function pushQueueFrame(frameObject) {
-    for (const source of ShellEventSource.instances) {
+    for (const source of ShellEventSource.opened) {
       if (source.url.includes('/queue/events') && source.onmessage) {
         source.onmessage({ data: JSON.stringify(frameObject) });
       }
@@ -3514,7 +3472,7 @@ describe('the merged panel shell', () => {
   }
 
   beforeEach(() => {
-    ShellEventSource.instances = [];
+    ShellEventSource.opened = [];
     contributions = [];
     vi.resetModules();
     vi.stubGlobal('EventSource', ShellEventSource);

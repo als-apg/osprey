@@ -88,7 +88,6 @@ import uuid
 from pathlib import Path
 
 import pytest
-import yaml
 from click.testing import CliRunner
 
 from osprey.agent_runner.build_artifacts import BuildArtifactCatalog
@@ -99,9 +98,9 @@ from osprey.deployment.control_identity import (
     CONTROL_IDENTITY_CONTAINER_PATH,
 )
 from osprey.port_layout import default_port
-from osprey_connectors.workspace import container_image_context
+from osprey.utils.workspace import container_image_context
 from tests._container_support import docker_cli_unavailable_reason_once
-from tests.e2e._telemetry_sender import sender_env_file_args
+from tests.e2e._image_record import record_credential_mounts
 
 _DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 
@@ -625,19 +624,16 @@ def _post_chat(
 @pytest.mark.requires_als_apg
 def test_generated_image_serves_agent_over_http(built_image):
     """Boot the image's CMD and drive one real LLM turn through osprey web."""
-    tag, repo, _project_name, _out_dir = built_image
-    config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    tag, repo, project_name, out_dir = built_image
 
-    # Mirror the production run contract (`docker run --env-file .env
-    # --env-file .env.telemetry-sender.<host identity>`): pass the raw provider
-    # secret, never a pre-resolved token. The full osprey web stack resolves
+    # Mirror the production run contract (`docker run --env-file .env`): pass
+    # the raw provider secret, never a pre-resolved token. The full osprey web stack resolves
     # ${ALS_APG_API_KEY} from config at runtime and stands up an internal proxy
     # that authenticates upstream with it — injecting a pre-resolved
     # ANTHROPIC_AUTH_TOKEN would bypass that and leave config resolution (and
-    # the proxy) without the key. The sender file is the login the image's
-    # gateway telemetry pre-flight requires; no gateway runs here.
+    # the proxy) without the key.
     api_key = os.environ["ALS_APG_API_KEY"]  # guaranteed present by requires_als_apg
-    env_args = ["-e", f"ALS_APG_API_KEY={api_key}", *sender_env_file_args(repo, config)]
+    env_args = ["-e", f"ALS_APG_API_KEY={api_key}"]
 
     # The endpoint override rides the same contract. It is deliberately absent
     # from the image (build-time rendering never bakes the builder's
@@ -657,6 +653,9 @@ def test_generated_image_serves_agent_over_http(built_image):
             "-p",
             f"127.0.0.1:0:{_WEB_SLOT}",
             *env_args,
+            # The terminal holds the agent record: its login and service file
+            # come in at run time, as the provider key does.
+            *record_credential_mounts(repo, project_name, out_dir),
             tag,
         ],
         capture_output=True,

@@ -33,6 +33,7 @@ import time
 
 import pytest
 
+from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 
 CORRECTOR_SP = "SR:MAG:HCM:01:CURRENT:SP"
@@ -93,9 +94,9 @@ async def _measure_one_cycle(connector) -> dict[str, float]:
 
 class TestOrbitResponse:
     @pytest.mark.asyncio
-    @pytest.mark.usefixtures("va_container")
+    @pytest.mark.usefixtures("va_container", "va_switch_on")
     async def test_corrector_write_moves_paired_bpm_antisymmetric_linear(self):
-        with e2e_conftest.patched_config(**{"control_system.writes_enabled": True}):
+        with e2e_conftest.patched_config(**{"control_system.writes": "allowed"}):
             connector = await e2e_conftest.connect_va()
 
             # N=5 repeats: the solve is deterministic and the monitors carry
@@ -157,10 +158,4 @@ class TestOrbitResponse:
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
     """Vacuous-green guard: an empty or half-collected module fails here."""
-    collected = [
-        item
-        for item in request.session.items
-        if item.nodeid.split("::")[0].endswith("test_orbit_response.py")
-    ]
-
-    assert len(collected) >= MIN_COLLECTED_TESTS
+    assert_module_collected(request, __file__, MIN_COLLECTED_TESTS)

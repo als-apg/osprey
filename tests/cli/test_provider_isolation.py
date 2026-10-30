@@ -12,7 +12,6 @@ import subprocess
 import sys
 
 import pytest
-from click.testing import CliRunner
 
 import osprey.models.provider_registry
 from osprey.agent_runner.provider_env import (
@@ -552,11 +551,6 @@ class TestManagedPolicyRefusal:
 # ── Chat command provider isolation ──────────────────────────────
 
 
-@pytest.fixture
-def cli_runner():
-    return CliRunner()
-
-
 # ── Single-source list agreement (#357) ──────────────────────────
 
 
@@ -580,7 +574,11 @@ class TestManagedListsAgree:
 
     @pytest.mark.parametrize("provider", ["anthropic", "cborg", "als-apg"])
     def test_lists_agree_resolve_env_block_subset_of_managed(self, provider):
-        spec = ClaudeCodeModelResolver.resolve({"provider": provider}, _ALS_APG)
+        # The provider and model keys; the OTLP block's keys are deliberately
+        # unmanaged (tests/cli/test_telemetry_env.py pins that).
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": provider}, _ALS_APG, include_telemetry=False
+        )
         leaked = set(spec.env_block) - MANAGED_ENV_VARS
         assert not leaked, (
             f"{provider} env_block escapes MANAGED_ENV_VARS (would survive a "
@@ -646,14 +644,15 @@ class TestInjectDotenvPassthrough:
 
 
 class TestResolveEnvBlockRegression:
-    """Characterization pin: ``resolve().env_block`` is byte-identical to main
-    for every provider, proving the map-driven rewrite (Task 1.2) is a pure
-    refactor (exact key set, order, and values unchanged). If a provider's
+    """Characterization pin: ``resolve().env_block``'s provider and model keys
+    are byte-identical to main for every provider (the OTLP block is pinned
+    in ``tests/cli/test_telemetry_env.py``), proving the map-driven rewrite is
+    a pure refactor (exact key set, order, and values unchanged). If a provider's
     default model IDs are updated, update the snapshot in the same edit.
     """
 
     def test_env_block_regression_anthropic(self):
-        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"}, include_telemetry=False)
         assert spec.env_block == {
             "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5",
             "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5",
@@ -662,7 +661,7 @@ class TestResolveEnvBlockRegression:
         }
 
     def test_env_block_regression_cborg(self):
-        spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
+        spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"}, include_telemetry=False)
         assert spec.env_block == {
             "ANTHROPIC_BASE_URL": "https://api.cborg.lbl.gov",
             "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5",
@@ -678,6 +677,7 @@ class TestResolveEnvBlockRegression:
         spec = ClaudeCodeModelResolver.resolve(
             {"provider": "als-apg"},
             {"als-apg": {"base_url": GATEWAY_BASE_URL}},
+            include_telemetry=False,
         )
         assert spec.env_block == {
             "ANTHROPIC_BASE_URL": GATEWAY_ORIGIN,
@@ -699,6 +699,7 @@ class TestResolveEnvBlockRegression:
                     "models": ["lab-haiku", "lab-sonnet", "lab-opus"],
                 }
             },
+            include_telemetry=False,
         )
         assert spec.env_block == {
             "ANTHROPIC_BASE_URL": "https://proxy.example.com",

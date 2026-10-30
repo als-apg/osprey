@@ -27,20 +27,18 @@ reaches.
 from __future__ import annotations
 
 import json
-import os
 import shutil
 from pathlib import Path
 
 import pytest
 import yaml
-from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build as build_command
 from osprey.cli.repo_resolver import PROFILE_FILENAME
 from osprey.deployment.staleness import DriftState, check_drift
 from osprey.deployment.web_terminals.render_images import verify_renders
 from osprey.deployment.web_terminals.roster import RENDER_CATALOG_REQUIRED, resolve_cards
-from osprey_connectors.workspace import APPS_DIRNAME, TIERS_DIRNAME
+from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
+from tests.cli._lifecycle_build import invoke_build_in, rendered_config
 from tests.fixtures.lifecycle_repo import (
     EXEMPLAR_DIRNAME,
     build_exemplar_repo,
@@ -51,32 +49,19 @@ from tests.fixtures.lifecycle_repo import (
 #: the property that makes them worth having and the reason they are marked.
 pytestmark = pytest.mark.slow
 
-#: A build with no venv and no lifecycle hooks. Neither is what these tests are
-#: about, and a real dependency install would dominate their runtime.
-CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
-
 #: The exemplar's two renders, and the simulator's own
 #: ``control_system.connector.virtual_accelerator.writes_enabled`` value each
 #: delta pins. That leaf IS the tier boundary between them — both pin the flat
 #: key off — which makes it the one field that proves a render came from the
 #: right delta.
-RENDER_WRITES = {"readonly": False, "readwrite": True}
+RENDER_WRITES = {"readonly": "never", "readwrite": "allowed"}
 
 
 def _run_build(repo: Path) -> None:
     """Render ``build/`` the way an operator standing in the repo would."""
-    previous = Path.cwd()
-    os.chdir(repo)
-    try:
-        with preserved_environ():
-            result = CliRunner().invoke(build_command, CI_FLAGS)
-    finally:
-        os.chdir(previous)
+    with preserved_environ():
+        result = invoke_build_in(repo)
     assert result.exit_code == 0, result.output
-
-
-def _as_built_config(repo: Path) -> dict:
-    return yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
 
 
 def _resolved_users(config: dict) -> list[dict]:
@@ -142,7 +127,7 @@ def test_build_renders_a_project_for_every_layer_delta(built_repo):
     a render share its deployment's data tree and conventions while still
     differing on the one axis it exists to differ on.
     """
-    for render, writes_enabled in RENDER_WRITES.items():
+    for render, writes in RENDER_WRITES.items():
         project = _render_project(built_repo, render)
         assert project.is_dir(), f"{render} was never rendered"
         # The two files the image build uses as its context.
@@ -153,9 +138,10 @@ def test_build_renders_a_project_for_every_layer_delta(built_repo):
         assert rendered["project_name"] == f"{EXEMPLAR_DIRNAME}-{render}"
         # From the delta: the tier boundary, and the web tier this render must
         # not try to stand up a second copy of.
-        assert rendered["control_system"]["writes_enabled"] is False
+        assert rendered["control_system"]["writes"] == writes
+        assert "writes_enabled" not in rendered["control_system"]
         connector = rendered["control_system"]["connector"]
-        assert connector["virtual_accelerator"]["writes_enabled"] is writes_enabled
+        assert "writes_enabled" not in connector["virtual_accelerator"]
         assert rendered["modules"]["web_terminals"]["enabled"] is False
         # From the root profile: the connector the deployment runs, the data
         # tree the agent reads, its conventions.
@@ -216,7 +202,7 @@ def test_no_render_carries_the_repos_secrets_into_the_output_zone(built_repo):
 
 def test_a_start_accepts_the_renders_the_build_left(built_repo, monkeypatch):
     """The whole of what a start does about renders: read them and agree."""
-    config = _as_built_config(built_repo)
+    config = rendered_config(built_repo)
     # As the start verbs do: `up` chdirs into the repo before provisioning, and
     # the catalog's `project_path` values are repo-relative (`build/<name>`).
     monkeypatch.chdir(built_repo)
@@ -232,7 +218,7 @@ def test_a_start_refuses_a_missing_render_and_names_the_build(built_repo, monkey
     one command that can produce the directory, and not left with a start that
     quietly fills it in.
     """
-    config = _as_built_config(built_repo)
+    config = rendered_config(built_repo)
     monkeypatch.chdir(built_repo)
     removed = _render_project(built_repo, "readonly")
     shutil.rmtree(removed)
@@ -257,7 +243,7 @@ def test_a_rebuild_restores_the_render_a_start_would_not(built_repo, monkeypatch
     _run_build(built_repo)
 
     assert removed.is_dir()
-    config = _as_built_config(built_repo)
+    config = rendered_config(built_repo)
     verify_renders(config, _resolved_users(config), repo_root=built_repo)
 
 
@@ -273,11 +259,11 @@ def test_editing_a_layer_delta_is_drift_the_next_start_refuses(built_repo):
     assert check_drift(built_repo).state is DriftState.CLEAN
 
     delta = built_repo / TIERS_DIRNAME / "readonly.yml"
+    anchor = "control_system.writes: never"
+    original = delta.read_text(encoding="utf-8")
+    assert original.count(anchor) == 1, "the edit must land, or the drift check is never asked"
     delta.write_text(
-        delta.read_text(encoding="utf-8").replace(
-            "control_system.writes_enabled: false",
-            "control_system.writes_enabled: false\n  system.timezone: America/Los_Angeles",
-        ),
+        original.replace(anchor, f"{anchor}\n  system.timezone: America/Los_Angeles"),
         encoding="utf-8",
     )
 
@@ -321,13 +307,8 @@ def test_a_render_that_will_not_resolve_leaves_the_previous_build_untouched(buil
         "name: Broken\ndata: [this is not a path]\n", encoding="utf-8"
     )
 
-    previous = Path.cwd()
-    os.chdir(built_repo)
-    try:
-        with preserved_environ():
-            result = CliRunner().invoke(build_command, CI_FLAGS)
-    finally:
-        os.chdir(previous)
+    with preserved_environ():
+        result = invoke_build_in(built_repo)
     assert result.exit_code != 0, result.output
 
     after = {
@@ -380,7 +361,7 @@ def test_a_catalog_entry_whose_delta_was_deleted_is_not_told_to_rewrite_itself(
     references, and the two ways out are restoring it or removing the tier from
     the roster that references it.
     """
-    config = _as_built_config(built_repo)
+    config = rendered_config(built_repo)
     monkeypatch.chdir(built_repo)
     (built_repo / TIERS_DIRNAME / "readwrite.yml").unlink()
     shutil.rmtree(_render_project(built_repo, "readwrite"))
@@ -430,13 +411,8 @@ def test_a_repo_with_no_render_catalog_is_refused_by_the_build(tmp_path: Path):
     repo = build_exemplar_repo(tmp_path / EXEMPLAR_DIRNAME, seed_env=True)
     _remove_render_layer(repo)
 
-    previous = Path.cwd()
-    os.chdir(repo)
-    try:
-        with preserved_environ():
-            result = CliRunner().invoke(build_command, CI_FLAGS)
-    finally:
-        os.chdir(previous)
+    with preserved_environ():
+        result = invoke_build_in(repo)
 
     assert result.exit_code != 0
     assert RENDER_CATALOG_REQUIRED in " ".join(result.output.split())

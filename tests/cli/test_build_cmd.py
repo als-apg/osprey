@@ -22,6 +22,7 @@ from osprey.cli.build_profile import (
 from osprey.cli.channel_finder_cmd import FILE_DATABASE_PARADIGMS
 from osprey_connectors.errors import BuildProfileError
 from tests._preset_data import bundle_data_root
+from tests.cli._lifecycle_build import invoke_build
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -39,6 +40,23 @@ def _create_project(manager, **kwargs) -> Path:
     kwargs.setdefault("data_bundle", "control_assistant")
     kwargs.setdefault("data_root", bundle_data_root(kwargs["data_bundle"]))
     return manager.create_project(**kwargs)
+
+
+def _stamp_bundle_selection(manager, project: Path, name: str, bundle: str) -> None:
+    """Stamp the manifest a real build writes right after the render.
+
+    The context build reads the hook selection back out of it. Unstamped, the
+    project selects no hooks, and a framework-default render (writes ``never``,
+    python's read/write-mixed exec tools on) is refused by the write-gate lint
+    for want of ``writes-check`` before the code under test is reached.
+    """
+    manager.generate_manifest(
+        project,
+        name,
+        bundle.replace("_", "-"),
+        {},
+        artifacts=manager._effective_artifacts(bundle, None),
+    )
 
 
 def materialize_data(profile_dir: Path, bundle: str = "control_assistant") -> Path:
@@ -1945,7 +1963,6 @@ POSTURE_CONFIG: dict = {
     "control_system.connector.virtual_accelerator.serving": "in_process",
     "archiver.type": "mock",
     "approval.enabled": False,
-    "claude_code.telemetry.enabled": False,
     "hooks.debug": False,
 }
 
@@ -1970,15 +1987,6 @@ def _mode_repo(tmp_path: Path, paradigm: str) -> Path:
     materialize_data(repo)
     (repo / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     return repo
-
-
-def _render(repo: Path):
-    """Render *repo*'s build zone through the real verb."""
-    from click.testing import CliRunner
-
-    from osprey.cli.build_cmd import build
-
-    return CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
 
 
 # Every paradigm whose store is a channel-database file, derived from the
@@ -2012,7 +2020,7 @@ def test_build_renders_each_index_as_its_view(tmp_path: Path, paradigm: str) -> 
     """
     repo = _mode_repo(tmp_path, paradigm)
 
-    result = _render(repo)
+    result = invoke_build(repo)
     assert result.exit_code == 0, (
         f"build failed (exit={result.exit_code})\n"
         f"--- output ---\n{result.output}\n"
@@ -2243,6 +2251,7 @@ def test_build_context_warns_when_remove_ask_overrides_gated_tool(tmp_path: Path
         data_bundle="hello_world",
         data_root=bundle_data_root("hello_world"),
     )
+    _stamp_bundle_selection(manager, project, "remove-ask-warn", "hello_world")
 
     config = yaml.safe_load((project / "config.yml").read_text())
     cc = config.setdefault("claude_code", {})
@@ -2286,6 +2295,7 @@ def test_lint_rejects_ungated_write_tool_when_memory_guard_absent(tmp_path: Path
         data_bundle="hello_world",
         data_root=bundle_data_root("hello_world"),
     )
+    _stamp_bundle_selection(manager, project, "lint-no-guard", "hello_world")
 
     config = yaml.safe_load((project / "config.yml").read_text())
     ctx = claude_code.build_claude_code_context(
@@ -2678,7 +2688,7 @@ class TestCopyServiceTemplates:
             yaml_rt.dump(config, fh)
 
     def test_declared_but_not_deployed_service_is_bundled(self, tmp_path: Path) -> None:
-        """telemetry_store declared under `services:` but absent from
+        """qmd declared under `services:` but absent from
         deployed_services is still copied into the project's services/ tree,
         while a deployed service (postgresql) still bundles (no regression)."""
         from osprey.cli.build_cmd import _copy_service_templates
@@ -2688,11 +2698,11 @@ class TestCopyServiceTemplates:
         self._write_config(
             project_path,
             {
-                # postgresql is deployed; telemetry_store is only declared (opt-in).
+                # postgresql is deployed; qmd is only declared (opt-in).
                 "deployed_services": ["postgresql"],
                 "services": {
                     "postgresql": {"path": "./services/postgresql"},
-                    "telemetry_store": {"path": "./services/telemetry_store"},
+                    "qmd": {"path": "./services/qmd"},
                 },
             },
         )
@@ -2702,8 +2712,10 @@ class TestCopyServiceTemplates:
         # Deployed service still bundles (regression guard).
         assert (project_path / "services" / "postgresql" / "docker-compose.yml.j2").exists()
         # Declared-but-not-deployed add-on is bundled too.
-        assert (project_path / "services" / "telemetry_store" / "docker-compose.yml.j2").exists()
-        assert count == 2
+        assert (project_path / "services" / "qmd" / "docker-compose.yml.j2").exists()
+        # The agent record is derived and always bundled.
+        assert (project_path / "services" / "agent_record" / "docker-compose.yml.j2").exists()
+        assert count == 3
 
     def test_declared_only_service_bundles_without_deployed_services(self, tmp_path: Path) -> None:
         """With an empty deployed_services, a declared service with a package
@@ -2717,14 +2729,15 @@ class TestCopyServiceTemplates:
             project_path,
             {
                 "deployed_services": [],
-                "services": {"telemetry_store": {"path": "./services/telemetry_store"}},
+                "services": {"qmd": {"path": "./services/qmd"}},
             },
         )
 
         count = _copy_service_templates(project_path)
 
-        assert (project_path / "services" / "telemetry_store" / "docker-compose.yml.j2").exists()
-        assert count == 1
+        assert (project_path / "services" / "qmd" / "docker-compose.yml.j2").exists()
+        # The agent record is derived and always bundled.
+        assert count == 2
 
     def test_declared_service_without_package_template_skipped_silently(
         self, tmp_path: Path, caplog
@@ -2748,7 +2761,8 @@ class TestCopyServiceTemplates:
         with caplog.at_level(logging.WARNING, logger="osprey.cli.build_cmd"):
             count = _copy_service_templates(project_path)
 
-        assert count == 0
+        # Only the always-bundled agent record.
+        assert count == 1
         assert not (project_path / "services" / "typesense").exists()
         assert not any("typesense" in r.getMessage() for r in caplog.records), (
             "declared-only service without a template must not warn"
@@ -2774,7 +2788,8 @@ class TestCopyServiceTemplates:
         with caplog.at_level(logging.WARNING, logger="osprey.cli.build_cmd"):
             count = _copy_service_templates(project_path)
 
-        assert count == 0
+        # Only the always-bundled agent record.
+        assert count == 1
         assert any("typesense" in r.getMessage() for r in caplog.records), (
             "a deployed service without a template must warn"
         )
@@ -3012,7 +3027,6 @@ class TestVAArchiverConfigDerivation:
         return the RENDER — the directory whose config.yml the deploy reads."""
         from click.testing import CliRunner
 
-        from osprey.cli.build_cmd import build
         from osprey.cli.init_cmd import init
 
         repo = tmp_path / project_name
@@ -3021,7 +3035,7 @@ class TestVAArchiverConfigDerivation:
         runner = CliRunner()
         result = runner.invoke(init, argv)
         assert result.exit_code == 0, result.output
-        result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+        result = invoke_build(repo)
         assert result.exit_code == 0, result.output
         return repo / "build"
 
@@ -3128,7 +3142,6 @@ def test_graph_mode_renders_its_search_index_and_no_paradigm_database(tmp_path: 
     """
     from click.testing import CliRunner
 
-    from osprey.cli.build_cmd import build
     from osprey.cli.init_cmd import init
 
     repo = tmp_path / "graphed"
@@ -3144,7 +3157,7 @@ def test_graph_mode_renders_its_search_index_and_no_paradigm_database(tmp_path: 
         ],
     )
     assert created.exit_code == 0, created.output
-    rendered = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    rendered = invoke_build(repo)
     assert rendered.exit_code == 0, rendered.output
     render = repo / "build"
 

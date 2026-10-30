@@ -80,7 +80,7 @@ services:
       # strong random token into the project .env when unset (see
       # container_lifecycle.py's per-service token-mint map).
       BLUESKY_LAUNCH_TOKEN: ${BLUESKY_LAUNCH_TOKEN}
-      # The connector-backed bridge reads control_system.type/writes_enabled
+      # The connector-backed bridge reads control_system.type/writes
       # and control_system.limits_checking.database_path from config.yml at
       # runtime. CWD is the image WORKDIR (/app), not the project dir, and the
       # image bakes no config.yml, so without CONFIG_FILE the loader finds none
@@ -374,7 +374,7 @@ services:
     environment:
       # Same CONFIG_FILE convention as the bridge: the per-put reference
       # monitor now runs in THIS container (the RunEngine lives here), so it
-      # reads control_system.type / writes_enabled / limits_checking /
+      # reads control_system.type / writes / limits_checking /
       # connector.<type>.limits_checking from the mounted config.yml, not
       # from the image's WORKDIR.
       CONFIG_FILE: /app/project/config.yml
@@ -384,6 +384,8 @@ services:
       # directory the audit bind targets.
       OSPREY_CONFIG: /app/project/config.yml
       OSPREY_AUDIT_IDENTITY: queueserver
+      OSPREY_SPOOL_DIR: /app/project/var/spool/queueserver
+      OSPREY_STATE_DIR: /app/project/var/state/queueserver
       TZ: UTC
 
       # The read-only control-context tree, mounted below. The per-put reference
@@ -478,7 +480,8 @@ services:
       NO_PROXY: ${NO_PROXY}
     volumes:
       - ./build/services/bluesky/config.yml:/app/project/config.yml:ro
-      - ./var/audit/queueserver:/app/project/var/audit/queueserver
+      - ./var/spool/queueserver:/app/project/var/spool/queueserver
+      - ./var/state/queueserver:/app/project/var/state/queueserver
       # Plan/device permissions for the RE Manager. Without this file the
       # manager knows only a `root` group and rejects every request the bridge
       # makes as "Unknown user group: 'primary'" — see the file's own header

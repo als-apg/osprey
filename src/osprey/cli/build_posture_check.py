@@ -8,12 +8,12 @@ default. It becomes silence, and each of these keys has a reader that answers
 something when it is not told anything.
 
 So the keys whose silence flips a posture are required outright, and a build
-that cannot read one is refused naming it. Six keys, no more: the posture floor
+that cannot read one is refused naming it. Five keys, no more: the posture floor
 is a *gate*, never a writer of defaults. It reads the render and writes
 nothing, so a deployment that states its posture builds exactly the config it
 built before this module existed.
 
-Which six depends on what the deployment actually runs, because a key no
+Which five depends on what the deployment actually runs, because a key no
 surface reads is not a posture at all:
 
 * ``control_system.type`` and ``archiver.type`` — required when the ``controls``
@@ -28,9 +28,8 @@ surface reads is not a posture at all:
   human gate in front of every write, and it reads both keys to decide whether
   to prompt and what to do about a tool nothing named. Selected, but unable to
   read its own posture, it is a gate whose behaviour nobody stated.
-* ``claude_code.telemetry.enabled`` and ``hooks.debug`` — required
-  unconditionally. Both exist in every deployment (the agent session and the
-  hook chain are not optional), both are read at run time, and both are exactly
+* ``hooks.debug`` — required unconditionally. It exists in every deployment
+  (the hook chain is not optional), it is read at run time, and it is exactly
   the sort of key an operator wants to see the answer to in the file rather
   than infer from a reader's fallback.
 
@@ -65,6 +64,7 @@ __all__ = [
     "REQUIRED_ALWAYS",
     "REQUIRED_WITH_APPROVAL_HOOK",
     "REQUIRED_WITH_CONTROLS",
+    "STAGE1_TOOLS",
     "approval_enabled_fault",
     "ask_capable",
     "check_approval_enabled",
@@ -87,6 +87,17 @@ APPROVAL_HOOK = "approval"
 #: The tools whose read-write call runs under the target's run lock and the
 #: executor's approved-call check.
 GUARDED_TOOLS: tuple[str, ...] = ("execute", "execute_file", "pyaml_measure")
+
+#: The tools that run only on the approval prompt's record when their policy
+#: asks (:func:`osprey.mcp_server.approval_record.require_approval_record`),
+#: each with the registry name of the MCP server that serves it.
+_STAGE1_SERVERS: Mapping[str, str] = {
+    "channel_write": "controls",
+    "queue_start": "bluesky",
+    "queue_add": "bluesky",
+    "phoebus_drive": "phoebus",
+}
+STAGE1_TOOLS: tuple[str, ...] = tuple(_STAGE1_SERVERS)
 
 #: The approval policy that lets a call run with no prompt.
 SKIP_POLICY = "skip"
@@ -121,13 +132,8 @@ REQUIRED_WITH_APPROVAL_HOOK: tuple[tuple[str, str], ...] = (
     ),
 )
 
-#: Required of every deployment, with why. Both surfaces exist in all of them.
+#: Required of every deployment, with why. The surface exists in all of them.
 REQUIRED_ALWAYS: tuple[tuple[str, str], ...] = (
-    (
-        "claude_code.telemetry.enabled",
-        "every deployment either emits agent telemetry or does not, and a reader's "
-        "fallback is not where an operator should have to find out which",
-    ),
     (
         "hooks.debug",
         "every deployment's hook chain either logs its decisions or does not, and a "
@@ -161,25 +167,40 @@ def _stated(rendered: Mapping[str, Any], dotted: str) -> bool:
         node = node[segment]
     if node is None:
         return False
-    if isinstance(node, str) and not node.strip():
-        return False
-    return True
+    return not (isinstance(node, str) and not node.strip())
+
+
+def _enabled_servers(rendered: Mapping[str, Any]) -> frozenset[str]:
+    """The MCP servers that resolve enabled for this render, by registry name.
+
+    Resolved rather than read: ``claude_code.servers.<name>.enabled`` is an
+    override on a registry default, so a render that says nothing about a
+    server still runs it when its default is on.
+    :func:`~osprey.registry.mcp.resolve_servers` is the one place that rule
+    lives, and it is what writes ``.mcp.json``, so asking it here means the gate
+    and the deployment agree about which servers run.
+
+    The context is empty on purpose. It carries the conditions of the
+    *conditional* servers (the channel finder's pipeline, the graph store);
+    the servers this module asks about declare none, so nothing in a context
+    can change their answer, and building a real one would mean re-deriving a
+    render's context from the render.
+
+    Args:
+        rendered: A rendered ``config.yml``, as ``safe_load`` produced it.
+
+    Returns:
+        The names of the enabled servers.
+    """
+    from osprey.registry.mcp import resolve_servers
+
+    claude_code = rendered.get("claude_code")
+    servers = resolve_servers(dict(claude_code) if isinstance(claude_code, Mapping) else {}, {})
+    return frozenset(str(server.get("name")) for server in servers if server.get("enabled"))
 
 
 def _controls_enabled(rendered: Mapping[str, Any]) -> bool:
     """Whether the ``controls`` MCP server resolves enabled for this render.
-
-    Resolved rather than read: ``claude_code.servers.controls.enabled`` is an
-    override on a registry default, so a render that says nothing about the
-    server still runs it. :func:`~osprey.registry.mcp.resolve_servers` is the
-    one place that rule lives, and it is what writes ``.mcp.json``, so asking
-    it here means the gate and the deployment agree about which servers run.
-
-    The context is empty on purpose. It carries the conditions of the
-    *conditional* servers (the channel finder's pipeline, the graph store);
-    ``controls`` declares none, so nothing in a context can change its answer,
-    and building a real one would mean re-deriving a render's context from the
-    render.
 
     Args:
         rendered: A rendered ``config.yml``, as ``safe_load`` produced it.
@@ -187,19 +208,13 @@ def _controls_enabled(rendered: Mapping[str, Any]) -> bool:
     Returns:
         ``True`` when the resolved server list carries an enabled ``controls``.
     """
-    from osprey.registry.mcp import resolve_servers
-
-    claude_code = rendered.get("claude_code")
-    servers = resolve_servers(dict(claude_code) if isinstance(claude_code, Mapping) else {}, {})
-    return any(
-        server.get("name") == CONTROLS_SERVER and server.get("enabled") for server in servers
-    )
+    return CONTROLS_SERVER in _enabled_servers(rendered)
 
 
 def missing_posture_errors(rendered: Mapping[str, Any], selected_hooks: Iterable[str]) -> list[str]:
     """Every posture key a render's own surfaces read but nothing states, named.
 
-    See the module docstring for the six keys and the surface that makes each
+    See the module docstring for the five keys and the surface that makes each
     of them required. A key is required only when the thing that reads it is
     part of *this* deployment, so a standalone with no controls server is never
     asked for a control-system type and a profile that does not select the
@@ -365,8 +380,10 @@ def check_approval_hook_selected(
 ) -> None:
     """Stop a render that puts a guarded tool to a human with no hook to ask.
 
-    The first tool of :data:`GUARDED_TOOLS` that is :func:`ask_capable` is
-    named when :data:`APPROVAL_HOOK` is not among *selected_hooks*.
+    The first tool of :data:`GUARDED_TOOLS`, then of :data:`STAGE1_TOOLS`,
+    that is :func:`ask_capable` is named when :data:`APPROVAL_HOOK` is not
+    among *selected_hooks*. A stage-1 tool counts only when the build enables
+    the server that serves it: a tool nobody can call asks nobody.
 
     Args:
         rendered: The rendered ``config.yml``, read after the injectors.
@@ -378,9 +395,15 @@ def check_approval_hook_selected(
     """
     if APPROVAL_HOOK in set(selected_hooks):
         return
-    for tool in GUARDED_TOOLS:
+    enabled: frozenset[str] | None = None
+    for tool in (*GUARDED_TOOLS, *STAGE1_TOOLS):
         if not ask_capable(rendered, tool):
             continue
+        if tool in _STAGE1_SERVERS:
+            if enabled is None:
+                enabled = _enabled_servers(rendered)
+            if _STAGE1_SERVERS[tool] not in enabled:
+                continue
         from osprey.facility.errors import FacilityBuildError
 
         raise FacilityBuildError(

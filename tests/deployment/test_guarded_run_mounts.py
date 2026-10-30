@@ -23,7 +23,7 @@ from osprey.deployment.compose_generator import (
     guarded_run_relpath,
 )
 from osprey.deployment.web_terminals.render import render_web_terminals
-from osprey_connectors.workspace import AUDIT_DIR_RELPATH
+from osprey.utils.workspace import SPOOL_DIR_RELPATH
 from tests.templates.test_render_defaults_golden import (
     TEMPLATES,
     _default_context,
@@ -146,21 +146,31 @@ def _container_repo_root(service: dict[str, Any]) -> PurePosixPath | None:
 
     The framework MCP servers record every tool call through the audit
     middleware, so a service that launches them is told where its records go
-    (``OSPREY_AUDIT_DIR``, ``<container repo root>/var/audit/<identity>``). A
+    (``OSPREY_SPOOL_DIR``, ``<container repo root>/var/spool/<identity>``). A
     service that names no such directory runs no framework MCP server.
     """
-    audit_dir = _environment(service).get("OSPREY_AUDIT_DIR")
-    if not audit_dir:
+    spool_dir = _environment(service).get("OSPREY_SPOOL_DIR")
+    if not spool_dir:
         return None
-    path = PurePosixPath(audit_dir)
-    depth = len(PurePosixPath(AUDIT_DIR_RELPATH).parts) + 1
+    path = PurePosixPath(spool_dir)
+    depth = len(PurePosixPath(SPOOL_DIR_RELPATH).parts) + 1
     return PurePosixPath(*path.parts[:-depth])
 
 
-#: Project-image services that name an audit directory (for the image
-#: entrypoint's group step) yet run no framework MCP server: the history page
-#: serves a web app and runs no agent tool.
-_NO_MCP_SERVER = frozenset({"history.yml:history"})
+#: Services that name a spool directory yet run no framework MCP server: the
+#: history page serves a web app and runs no agent tool, the bluesky queueserver
+#: and web sidecar record their own decisions, and each chat bridge records its
+#: conversations.
+_NO_MCP_SERVER = frozenset(
+    {
+        "history.yml:history",
+        "bluesky.yml:queueserver",
+        "bluesky_web.yml:bluesky-web",
+        "gchat_bridge.yml:gchat-bridge",
+        "nextcloud_bridge.yml:nextcloud-bridge",
+        "teams_bridge.yml:teams-bridge",
+    }
+)
 
 
 def test_every_service_running_the_python_mcp_server_mounts_one_host_dir() -> None:

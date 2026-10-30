@@ -48,7 +48,7 @@ from osprey.mcp_server.dispatch_worker.prior_answers import (
     format_run_ids,
     keep_run_ids,
 )
-from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR, NO_OWNER
+from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR, DISPATCH_RUN_ENV_VAR, NO_OWNER
 
 logger = logging.getLogger("osprey.mcp_server.dispatch_worker.sdk_runner")
 
@@ -290,6 +290,7 @@ async def run_dispatch(
     surface_tools: list[str] | None = None,
     owner: str | None = None,
     prior_answer_runs: list[str] | None = None,
+    session_id: str | None = None,
 ) -> dict[str, Any]:
     """Run a prompt headlessly through the agent runner.
 
@@ -320,10 +321,16 @@ async def run_dispatch(
         owner: The person the fire is attributed to, as the dispatcher put it
             on the wire. Exported to the agent (and every process it spawns) as
             ``OSPREY_CONTROL_OWNER``, the rung of the connector's owner ladder
-            that decides whose narrowing the run's control-system writes are
-            judged against. ``None`` — a fire nobody is attributed to, such as
-            cron — and the ``NO_OWNER`` sentinel both leave the variable unset,
-            and the run is held to the deployment ceiling only.
+            that decides whose switch, record and ``login_tiers`` rung the
+            run's control-system writes are judged against. ``None`` — a fire
+            nobody is attributed to, such as cron — and the ``NO_OWNER``
+            sentinel both leave the variable unset; with ``OSPREY_DISPATCH_RUN``
+            set the ladder then resolves no owner, and every control-system
+            write the run attempts is refused as ``owner_unscheduled``.
+        session_id: The session id the run was accepted under. It is forced
+            onto the agent's session, so the run's transcript is filed under
+            it and the run's accept entry names that same session. ``None``
+            mints a fresh one, for a caller that recorded no accept.
 
     Returns:
         dict with keys:
@@ -334,10 +341,12 @@ async def run_dispatch(
             duration_sec: wall-clock seconds
             cost_usd: the run's cost in USD as the agent reported it (None when it reported none)
             num_turns: agentic turn count (from the result record, if available)
-            session_id: the forced telemetry session UUID for this run — the
-                value the OTEL emitter tags records with as session.id, so a
-                consumer can locate this run's full provenance in the telemetry
-                store (None if the SDK was unavailable and no run started).
+            session_id: the session the agent ran under — the ``session_id``
+                argument, or the one minted for the run when none was given.
+                It is the transcript's ``sessionId`` and the value the OTEL
+                emitter tags records with as session.id. Every outcome carries
+                it, the error outcomes included; with the SDK absent it is the
+                argument as given.
             mcp_servers: the MCP readiness snapshot taken before the first
                 turn — one ``{name, status, tools, error}`` per declared server
                 (``tools`` is a count). Empty when the project declares no
@@ -359,7 +368,7 @@ async def run_dispatch(
                 "duration_sec": 0.0,
                 "cost_usd": None,
                 "num_turns": None,
-                "session_id": None,
+                "session_id": session_id,
             },
             failure_class.FAILURE_INFRASTRUCTURE,
             0,
@@ -453,11 +462,15 @@ async def run_dispatch(
         )
         sdk_env["CLAUDE_CONFIG_DIR"] = fallback
 
-    # Marks this CLI session as a headless dispatch run for the project's own
-    # hooks: osprey_approval must not emit explicit allow decisions here (CLI
-    # hook aggregation is not deny-dominates, so an allow would override the
-    # trigger-allowlist hook below).
-    sdk_env["OSPREY_DISPATCH_RUN"] = "1"
+    # Marks this CLI session as a headless dispatch run. Two readers: the
+    # project's own hooks — osprey_approval must not emit explicit allow
+    # decisions here (CLI hook aggregation is not deny-dominates, so an allow
+    # would override the trigger-allowlist hook below) — and the write verdict,
+    # whose owner ladder resolves no owner on a dispatch run without
+    # ``OSPREY_CONTROL_OWNER`` and refuses its writes as ``owner_unscheduled``.
+    # The sandbox child-env allowlist passes it through, so a sandboxed write
+    # gets the same answer.
+    sdk_env[DISPATCH_RUN_ENV_VAR] = "1"
 
     # Attribute every artifact this run saves to the run, so the worker can
     # later report and serve exactly this run's plots. NOT OSPREY_SESSION_ID:
@@ -511,7 +524,8 @@ async def run_dispatch(
 
     # Hand the run its owner, so the connector's owner ladder resolves that
     # person and every control-system write the agent makes is judged against
-    # their narrowing rather than the deployment ceiling. This is the only place
+    # their switch and their ``login_tiers`` rung. Without it the write verdict
+    # refuses the run's writes as ``owner_unscheduled``. This is the only place
     # the variable is exported: everywhere else a child inherits an environment
     # whose own ladder already answers correctly, and a second exporter would be
     # a second answer to one question.
@@ -521,19 +535,20 @@ async def run_dispatch(
     # ``<no owner>`` so a warning line can name it, and a truthiness test would
     # stamp the run with an account of that name. An absent variable is what an
     # owner-less run is entitled to — the ladder falls through it, an empty
-    # value would be a name to resolve.
+    # value would be a name to resolve, and the absent one is refused.
     if owner is not NO_OWNER and owner is not None:
         sdk_env[CONTROL_OWNER_ENV_VAR] = owner
 
-    # Force a known session UUID for THIS run and hand it to the workspace
-    # provenance_locator tool via env, so a filed issue can point back to this
-    # run's telemetry. build_clean_env() strips CLAUDE_CODE_* (so the harness's
-    # own session id never reaches the MCP subprocess headless); instead OSPREY
+    # Force the run's session UUID — the one it was accepted under, else a fresh
+    # one — and hand it to the workspace provenance_locator tool via env, so a
+    # filed issue can point back to this run's telemetry. build_clean_env()
+    # strips CLAUDE_CODE_* (so the harness's own session id never reaches the
+    # MCP subprocess headless); instead OSPREY
     # owns the id: the same value is forced onto the SDK session below
     # (the ``session_id`` option) so the OTEL emitter tags records with it,
     # making the returned locator resolve. Race-free — fixed per run at spawn,
     # never a shared-directory mtime pick.
-    telemetry_session_id = str(uuid.uuid4())
+    telemetry_session_id = session_id or str(uuid.uuid4())
     sdk_env["OSPREY_TELEMETRY_SESSION_ID"] = telemetry_session_id
     sdk_env["OSPREY_TELEMETRY_SESSION_START"] = datetime.now(UTC).isoformat()
 
@@ -780,8 +795,9 @@ async def run_dispatch(
             elif isinstance(event, SystemEvent):
                 logger.debug("System event %s: %s", event.subtype, event.data)
             elif isinstance(event, ThinkingEvent | ApiErrorEvent):
-                # Neither is part of the run record: the result record carries
-                # the run's terminal error.
+                # Neither is part of the run's outcome: the result record
+                # carries the run's terminal error, and thinking is read from
+                # the run's transcript, never from its status body or record.
                 pass
 
         duration_sec = time.monotonic() - t0
@@ -819,6 +835,7 @@ async def run_dispatch(
                         "duration_sec": round(duration_sec, 2),
                         "cost_usd": cost_usd,
                         "num_turns": num_turns,
+                        "session_id": telemetry_session_id,
                         "mcp_servers": mcp_snapshot,
                     }
                 ),

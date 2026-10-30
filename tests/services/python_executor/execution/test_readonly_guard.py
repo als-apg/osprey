@@ -35,6 +35,7 @@ from osprey.services.python_executor.execution.wrapper import (
     ExecutionWrapper,
 )
 from tests.runtime._patch_restore import drop_guard_finders
+from tests.services.python_executor.execution._write_targets import resolve_target
 
 # The refusal text contains literal parentheses; escape it for pytest.raises.
 _REFUSAL = re.escape(READONLY_REFUSAL)
@@ -42,28 +43,6 @@ _REFUSAL = re.escape(READONLY_REFUSAL)
 # Bound before any guard is installed, as a script can hold the loader class
 # from before the guard ran.
 cdll_before = ctypes.CDLL
-
-
-def _resolve_target(dotted):
-    """Mirror of the resolver the guard emits, for the restore fixture below.
-
-    Deliberately a copy rather than a shared import: the emitted guard has to
-    be self-contained — it runs before the user code in a subprocess that may
-    not be able to import OSPREY at all — so there is no function to share.
-    """
-    parts = dotted.split(".")
-    for cut in range(len(parts), 0, -1):
-        try:
-            obj = importlib.import_module(".".join(parts[:cut]))
-        except ImportError:
-            continue
-        for attr in parts[cut:]:
-            try:
-                obj = getattr(obj, attr)
-            except AttributeError:
-                return None
-        return obj
-    return None
 
 
 @pytest.fixture(autouse=True)
@@ -89,7 +68,7 @@ def _restore_patched_targets():
     """
     saved = []
     for dotted, attrs in _READONLY_WRITE_TARGETS:
-        target = _resolve_target(dotted)
+        target = resolve_target(dotted)
         if target is None:
             continue
         for attr in attrs:
@@ -762,6 +741,22 @@ def test_readonly_prewarms_platform_processor(monkeypatch):
     monkeypatch.setattr(platform, "_uname_cache", None)
     _run_guard("readonly")
     assert isinstance(platform.processor(), str)
+
+
+def test_readonly_prewarms_ctypes_util(monkeypatch):
+    """Importing ``ctypes.util`` must survive the loader refusal.
+
+    On some platforms ``ctypes.util`` loads the C library while it is imported,
+    and threadpoolctl imports it on the way into scipy — so a script importing
+    a simulation library would die on the refusal of a load that is not a
+    control-system client. The guard imports it before refusing loads; with
+    the module forced out of the import cache here, a guard without that
+    pre-import raises the refusal out of this import.
+    """
+    monkeypatch.delitem(sys.modules, "ctypes.util", raising=False)
+    _run_guard("readonly")
+    util = importlib.import_module("ctypes.util")
+    assert callable(util.find_library)
 
 
 def test_readonly_leaves_fork_alone():

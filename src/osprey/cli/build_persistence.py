@@ -59,12 +59,23 @@ def _apply_config_overrides(project_path: Path, config_dict: dict[str, Any]) -> 
 FACILITY_RULE_NAME = "facility"
 FACILITY_RULE_RELPATH = PurePosixPath("rules/facility.md")
 FACILITY_RULE_TEMPLATE = "claude_code/claude/rules/facility.md.j2"
+#: The list entry that names the profile's own copy of it.
+FACILITY_RULE_PATH_ENTRY = FACILITY_RULE_RELPATH.with_suffix("").as_posix()
+
+
+def selects_facility_rule(rules: Iterable[str]) -> bool:
+    """Whether a ``rules:`` list selects the facility description in either spelling.
+
+    The bare name selects OSPREY's rule, the path the profile's own copy; ``osprey
+    init`` seeds that copy for a preset selecting the first and names it by the
+    second, so both mean a repo that has ``rules/`` for it.
+    """
+    return any(entry in (FACILITY_RULE_NAME, FACILITY_RULE_PATH_ENTRY) for entry in rules)
 
 
 def ensure_profile_facility_rule(
     profile_dir: Path,
     *,
-    build_dir: Path | None,
     enabled_agents: Iterable[str] = (),
 ) -> str | None:
     """Give the profile its own copy of the facility description, once.
@@ -72,25 +83,14 @@ def ensure_profile_facility_rule(
     The facility description is the one rendered artifact a deployment is
     expected to rewrite in its own words, so the only copy of it must not live
     in ``build/`` — that tree is output, and ``rm -rf build`` is a supported
-    thing to do to a repo. It belongs in the profile's ``rules/`` convention
-    directory, from which every build copies it into ``build/.claude/rules/``
-    like any other profile rule.
+    thing to do to a repo. ``osprey init`` renders the framework template into
+    the profile's ``rules/`` convention directory, and the profile names it
+    ``rules/facility``, from which every build copies it into the render.
 
-    Two shapes reach here without one:
-
-    * a repo whose only copy is the outgoing ``build/.claude/rules/facility.md``
-      — that file is MOVED into the profile, so the operator's words survive the
-      next wipe;
-    * a fresh repo with no render yet — the framework template is rendered into
-      the profile instead.
-
-    Does nothing when the profile already has the file, so it runs on every
-    build and writes on at most one of them.
+    Does nothing when the profile already has the file.
 
     Args:
         profile_dir: The profile root — the repo, for a deployment.
-        build_dir: The outgoing render, read for a description to rescue.
-            ``None`` when there is no render to consult (``osprey init``).
         enabled_agents: Agent names the deployment selects, for the one
             conditional line the template carries.
 
@@ -104,15 +104,7 @@ def ensure_profile_facility_rule(
     if source.exists():
         return None
 
-    outgoing = None if build_dir is None else build_dir / ".claude" / FACILITY_RULE_RELPATH
     source.parent.mkdir(parents=True, exist_ok=True)
-    if outgoing is not None and outgoing.is_file():
-        shutil.move(str(outgoing), str(source))
-        return (
-            f"Moved the facility description out of the disposable render into "
-            f"{FACILITY_RULE_RELPATH}, where a wiped build/ cannot take it with it"
-        )
-
     TemplateManager().render_template(
         FACILITY_RULE_TEMPLATE, {"enabled_agents": list(enabled_agents)}, source
     )
@@ -269,6 +261,7 @@ def _apply_conventions(
     *,
     extra_known: Iterable[str] = (),
     excluded: Collection[str] = frozenset(),
+    selected: Collection[str] | None = None,
 ) -> ConventionApplication:
     """Apply the profile's convention directories into the built project.
 
@@ -310,6 +303,11 @@ def _apply_conventions(
             excludes (``agents/orbit-writer``). An excluded copy is skipped
             entirely — whatever it would have shadowed keeps the framework
             render — and never enters ``owned_artifacts``.
+        selected: The qualified selections the render's resolved lists make
+            (:func:`~osprey.cli.profile_conventions.convention_selections`). A
+            skill, agent, rule, output style or hook outside it is not copied:
+            those categories render only where a list names them. ``None``
+            copies every one, for callers outside a profile render.
 
     Returns:
         What was applied, for the build's progress reporting and ownership
@@ -325,8 +323,10 @@ def _apply_conventions(
         CONVENTION_DIRS,
         PER_USER_CONTEXT_DIRNAME,
         PROJECT_MIRROR_DIR,
+        SELECTED_CONVENTION_SOURCES,
         partition_context_users,
         plan_convention_copies,
+        replaces_library_artifact,
         validate_convention_sources,
         warn_unknown_root_entries,
     )
@@ -359,6 +359,7 @@ def _apply_conventions(
 
     entry_nouns = {convention.source: convention.entry_noun for convention in CONVENTION_DIRS}
     excluded_names = frozenset(excluded)
+    selected_sources = frozenset(SELECTED_CONVENTION_SOURCES.values())
     project_root = project_path.resolve()
     for copy in plan_convention_copies(profile_dir, context_users=roster or None):
         name = _artifact_name(copy)
@@ -366,6 +367,11 @@ def _apply_conventions(
             # The resolved render excludes it: nothing is copied, so whatever
             # it would have shadowed keeps the framework render.
             logger.debug("Convention: %s excluded by the resolved profile", name)
+            continue
+        if selected is not None and copy.category in selected_sources and name not in selected:
+            # A list-selected artifact renders only where the render's list
+            # names it.
+            logger.debug("Convention: %s not selected by this render", name)
             continue
 
         destination = (project_path / copy.destination).resolve()
@@ -379,10 +385,15 @@ def _apply_conventions(
                 f"Convention destination escapes the project root: {copy.destination}"
             )
 
-        shadowed = destination.exists()
+        # A list-selected artifact named like a library one stands in for it:
+        # the library one is not selected here, so nothing was rendered to
+        # overwrite, but it is still the framework's artifact being replaced.
+        shadowed = destination.exists() or (
+            copy.category in selected_sources and replaces_library_artifact(name)
+        )
         destination.parent.mkdir(parents=True, exist_ok=True)
         if copy.is_directory:
-            if shadowed:
+            if destination.exists():
                 shutil.rmtree(destination)
             shutil.copytree(copy.source, destination)
         else:
@@ -519,6 +530,12 @@ def _persist_mcp_servers(project_path: Path, mcp_servers: dict[str, Any]) -> Non
             }
         if server.permissions:
             spec["permissions"] = dict(server.permissions)
+        if server.hooks:
+            spec["hooks"] = {event: list(presets) for event, presets in server.hooks.items()}
+        if server.writes is not None:
+            # An empty list is written too: it declares that no tool writes,
+            # which is not the same as a server that declares no list.
+            spec["writes"] = list(server.writes)
 
         specs[name] = spec
 

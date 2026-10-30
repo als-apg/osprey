@@ -22,37 +22,9 @@ import sys
 from pathlib import Path
 
 import osprey.dispatch
+from tests._fresh_import import modules_added_by_import
 
 _SRC = str(Path(__file__).resolve().parents[2] / "src")
-
-
-def _modules_added_by_import(module: str) -> set[str]:
-    """Return the module names a fresh import of ``module`` adds to ``sys.modules``.
-
-    Args:
-        module: Dotted name to import in a child interpreter.
-
-    Returns:
-        Every module name the import added, stdlib included.
-
-    Raises:
-        AssertionError: If the child interpreter fails to import the module.
-    """
-    code = (
-        "import json, sys;"
-        "before = set(sys.modules);"
-        f"import {module};"
-        "print(json.dumps(sorted(set(sys.modules) - before)))"
-    )
-    result = subprocess.run(
-        [sys.executable, "-c", code],
-        capture_output=True,
-        text=True,
-        env=dict(os.environ, PYTHONPATH=_SRC),
-        check=False,
-    )
-    assert result.returncode == 0, f"fresh import of {module} failed:\n{result.stderr}"
-    return set(json.loads(result.stdout))
 
 
 def test_reading_trigger_configuration_costs_no_http_stack():
@@ -61,14 +33,14 @@ def test_reading_trigger_configuration_costs_no_http_stack():
     The assertion names ``httpx`` rather than demanding that nothing new
     appears at all: the reader legitimately imports ``yaml``.
     """
-    added = _modules_added_by_import("osprey.dispatch.trigger_config")
+    added = modules_added_by_import("osprey.dispatch.trigger_config")
 
     assert not [name for name in added if name.split(".")[0] == "httpx"]
 
 
 def test_importing_the_package_pulls_in_neither_the_client_nor_the_pool():
     """The package root resolves its exports on access, so it imports no leaf."""
-    added = _modules_added_by_import("osprey.dispatch")
+    added = modules_added_by_import("osprey.dispatch")
 
     assert not [name for name in added if name.split(".")[0] == "httpx"]
     assert "osprey.dispatch.pool" not in added

@@ -69,12 +69,12 @@ from osprey_connectors.simulation.archive import (
     MANIFEST_ID,
     SeedKnobs,
     SeedState,
+    _synthesize_documents,
     build,
     compare_fingerprint,
     oldest_sample,
     seed_base,
     seed_fingerprint,
-    synthesize_documents,
     tier_expiry,
 )
 from osprey_connectors.simulation.series import epoch_seconds_array
@@ -107,7 +107,6 @@ BPM_X = "SR:DIAG:BPM:12:POSITION:X"
 VAC_PRESSURE = "SR:VAC:IP07:PRESSURE"
 READY = "SR:STATUS:READY"
 
-ANALOG = (CAVITY_TEMP, CAVITY_POWER, BPM_X, VAC_PRESSURE)
 DISCRETE = (CAVITY_VALID, READY)
 
 #: The simulator view's channels: moving floats and two flags.
@@ -370,7 +369,7 @@ class World:
     def base_values(self, channels, stamps: list[datetime]) -> dict[str, list]:
         """What the archive holds at these instants with no scenario active.
 
-        Computed through :func:`synthesize_documents`, the single definition of
+        Computed through :func:`_synthesize_documents`, the single definition of
         an archived value at time T, on the archive composite of ``nominal``
         alone — so "clean" here means what the base seed wrote, not what this
         test thinks it wrote.
@@ -378,7 +377,7 @@ class World:
         epochs = epoch_seconds_array(stamps)
         assert epochs is not None
         archive = build(self.root / "data" / "simulator", [], anchor_s=T0.timestamp())
-        documents = synthesize_documents(archive, epochs)
+        documents = _synthesize_documents(archive, epochs)
         return {pv: [document[pv] for document in documents] for pv in channels}
 
 

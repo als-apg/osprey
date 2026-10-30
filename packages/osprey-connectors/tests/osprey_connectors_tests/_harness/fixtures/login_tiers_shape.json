@@ -1,0 +1,51 @@
+{
+  "location": "control_system.login_tiers",
+  "value_shape": {
+    "type": "object",
+    "keys": "an SSO login, exactly as the owner ladder names it (case-sensitive, no trimming)",
+    "values": ["allowed", "never"],
+    "whole_map": "a map that is not an object, or carries a key that is not a non-empty string or a value outside `values`, is unreadable as a whole"
+  },
+  "sources": [
+    {
+      "producer": "the build render (phase 4); nothing at runtime writes this key",
+      "value_from": "tier_writes(section) of the resolved render for that login"
+    },
+    {"login": "each roster person", "tier": "the person's effective_tier"},
+    {"login": "a login the roster does not name", "tier": "absent: the stated owner_unknown refusal (a role-carry key may be added later without breaking the shape)"},
+    {"login": "the single-user identity", "tier": "the root tier"}
+  ],
+  "rung_applies_when": [
+    "the section carries control_system.login_tiers (any value)",
+    "a control-context tree is bound (OSPREY_CONTROL_CONTEXT_TREE set, usable or not)"
+  ],
+  "terms": {
+    "skip": "the rung does not apply: no map in the section and no tree bound",
+    "allowed": "the owner is mapped to allowed",
+    "never": "the owner is mapped to never",
+    "unknown": "the rung applies and the owner's tier cannot be read"
+  },
+  "refusal_arms": [
+    {"when": "tree bound and the section carries no map", "term": "unknown", "reason": "owner_unknown"},
+    {"when": "the map is not an object", "term": "unknown", "reason": "owner_unknown"},
+    {"when": "the map carries a non-string key, a non-string value or a string value other than allowed/never", "term": "unknown", "reason": "owner_unknown"},
+    {"when": "no owner, or an owner that is not a non-empty string", "term": "unknown", "reason": "owner_unknown"},
+    {"when": "the owner is missing from the map", "term": "unknown", "reason": "owner_unknown"},
+    {"when": "the owner is mapped to never", "term": "never", "reason": "tier_never"}
+  ],
+  "example": {
+    "tree_bound": true,
+    "section": {
+      "writes": "allowed",
+      "login_tiers": {
+        "alice": "allowed",
+        "bob": "never"
+      }
+    },
+    "lookups": [
+      {"owner": "alice", "term": "allowed", "reason": null},
+      {"owner": "bob", "term": "never", "reason": "tier_never"},
+      {"owner": "carol", "term": "unknown", "reason": "owner_unknown"}
+    ]
+  }
+}

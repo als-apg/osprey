@@ -15,7 +15,6 @@ children serving the pool tests' mock connector.
 """
 
 import asyncio
-import os
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -27,10 +26,16 @@ import osprey.runtime as runtime
 from osprey.runtime import ControlTargetChangedError, SwitchInProgressError
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
+from osprey_connectors.errors import ChannelWriteBlockedError
+from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.types import baseline_target, configured_targets, resolve_target
-from osprey_connectors_tests._harness import state_dir_under
+from osprey_connectors_tests._harness import state_dir_under, write_control_context
+from osprey_connectors_tests._write_fakes import arm_switch, turn_switch
+from osprey_connectors_tests.ipc._pool_connectors import WRITE_LOG_ENV
+from tests._processes import pid_alive
 from tests.connectors.ipc.test_pool import CHILD_START_TIMEOUT_S, PYTHONPATH, SERVED, SLOW
 from tests.facility.served_tree import in_process_config, served_tree
+from tests.runtime._loop import inside_a_running_loop
 from tests.runtime.test_executor_target_stamp import stamp_env, write_record
 
 #: A deployment that can switch: a virtual accelerator baseline and a stand-in.
@@ -79,6 +84,7 @@ def runtime_state(monkeypatch):
         runtime._runtime_connector = None
         runtime._connector_stamp = None
         runtime._connector_launch_pin = None
+        runtime._connector_writes = None
         runtime._connector_pool = None
         runtime._pool_routing = False
         runtime._cell_marker = None
@@ -132,7 +138,8 @@ class _FirstContextConnector:
 @pytest.fixture
 def in_process_registry():
     """Register the first-context fake under every type the sections select."""
-    from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
+    from osprey_connectors.factory import ConnectorFactory
+    from osprey_connectors_tests._harness import isolated_connector_registries
 
     with isolated_connector_registries():
         for name in ("epics", "virtual_accelerator", "live_standin"):
@@ -150,12 +157,18 @@ def in_process_registry():
 
 
 class _FakeHandle:
-    """A pooled connector: one child, which reached its own target's server."""
+    """A pooled connector: one child, which reached its own target's server.
 
-    def __init__(self, pool: "_FakePool", target: str, server: str) -> None:
+    ``role`` is the gateway a real child would have selected: the write gateway
+    when the write verdict allowed writes to its target at spawn time, as the
+    real pool derives it.
+    """
+
+    def __init__(self, pool: "_FakePool", target: str, server: str, role: str) -> None:
         self.pool = pool
         self.target = target
         self.server = server
+        self.role = role
         self.disconnected = False
         self.writes: list[tuple[str, Any, dict[str, Any]]] = []
         self.batches: list[tuple[list[tuple[str, Any]], dict[str, Any]]] = []
@@ -211,7 +224,13 @@ class _FakePool:
         self.record_loop()
         self.asked.append((target, execution_mode))
         connector_type = resolve_target(self.section, target)
-        handle = _FakeHandle(self, target, self.section["connector"][connector_type]["server"])
+        allowed = posture_store.write_verdict(self.section, target).allowed
+        handle = _FakeHandle(
+            self,
+            target,
+            self.section["connector"][connector_type]["server"],
+            "write_access" if allowed else "read_only",
+        )
         self.handles.append(handle)
         return handle
 
@@ -234,19 +253,6 @@ def fake_pool(monkeypatch):
     monkeypatch.setattr(ConnectorFactory, "create_control_system_connector", no_in_process_build)
     yield _FakePool.instances
     _FakePool.instances = []
-
-
-def inside_a_running_loop(call):
-    """Run *call* synchronously from inside a coroutine, as a notebook cell runs."""
-
-    async def driver():
-        return call()
-
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(driver())
-    finally:
-        loop.close()
 
 
 # ---------------------------------------------------------------------------
@@ -519,6 +525,99 @@ class TestPooledWrites:
         ]
 
 
+#: :data:`SWITCHABLE` with a write tier that allows writes, so the switch decides.
+SWITCHABLE_ALLOWED = {**SWITCHABLE, "writes": "allowed"}
+
+
+@pytest.fixture
+def switch_record(tmp_path, monkeypatch):
+    """An ownerless ``va``/1 record with every switch off, for a kernel stamped ``va``/1."""
+    root = tmp_path / "agent-data"
+    arm_switch(monkeypatch, root, None, stamp=False)
+    write_control_context(root, target="va", generation=1, owned_by=None)
+    stamp_env(monkeypatch, target="va", generation="1")
+    yield root
+    control_context.invalidate_cache()
+
+
+class TestTheSwitchRespawns:
+    """A turn-on or turn-off lands on a fresh child, through the existing respawn check."""
+
+    @pytest.mark.usefixtures("switch_record")
+    def test_the_first_write_after_a_turn_on_uses_the_write_gateway(self, monkeypatch, fake_pool):
+        _serve(monkeypatch, SWITCHABLE_ALLOWED)
+        runtime._route_connector_through_pool()
+
+        runtime.read_channel("SR:X")
+        spawned_off = runtime._runtime_connector
+        turn_switch("va", "on")
+        runtime.write_channel("SR:SP", 1.0)
+        on = runtime._runtime_connector
+        turn_switch("va", "off")
+        runtime.write_channel("SR:SP", 2.0)
+        off = runtime._runtime_connector
+
+        assert spawned_off.role == "read_only"
+        assert spawned_off.disconnected and spawned_off.writes == []
+        assert on is not spawned_off
+        assert on.role == "write_access"
+        assert [address for address, _, _ in on.writes] == ["SR:SP"]
+        assert on.disconnected
+        assert off.role == "read_only"
+        assert fake_pool[0].asked == [("va", None)] * 3
+
+    @pytest.mark.usefixtures("switch_record")
+    def test_an_unchanged_switch_reuses_the_child_and_reads_no_record(self, monkeypatch, fake_pool):
+        _serve(monkeypatch, SWITCHABLE_ALLOWED)
+        runtime._route_connector_through_pool()
+        turn_switch("va", "on")
+        runtime.read_channel("SR:X")
+        first = runtime._runtime_connector
+        parses: list[Path] = []
+        real_read = control_context._read
+
+        def counting_read(path):
+            parses.append(path)
+            return real_read(path)
+
+        monkeypatch.setattr(control_context, "_read", counting_read)
+
+        runtime.read_channel("SR:X")
+        runtime.write_channel("SR:SP", 1.0)
+
+        assert runtime._runtime_connector is first
+        assert not first.disconnected
+        assert len(fake_pool[0].asked) == 1
+        assert parses == []
+
+    @pytest.mark.usefixtures("switch_record", "fake_pool")
+    def test_a_tier_that_never_writes_does_not_respawn_on_a_turn_on(self, monkeypatch):
+        _serve(monkeypatch, {**SWITCHABLE, "writes": "never"})
+        runtime._route_connector_through_pool()
+
+        runtime.read_channel("SR:X")
+        first = runtime._runtime_connector
+        turn_switch("va", "on")
+        runtime.read_channel("SR:X")
+
+        assert runtime._runtime_connector is first
+        assert first.role == "read_only"
+
+    @pytest.mark.usefixtures("switch_record", "fake_pool")
+    def test_a_launch_pin_holds_the_child_on_read_only_after_a_turn_on(self, monkeypatch):
+        _serve(monkeypatch, SWITCHABLE_ALLOWED)
+        monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "va=sandbox")
+        runtime._route_connector_through_pool()
+
+        runtime.read_channel("SR:X")
+        first = runtime._runtime_connector
+        turn_switch("va", "on")
+        runtime.read_channel("SR:X")
+
+        assert runtime._runtime_connector is first
+        assert first.role == "read_only"
+
+
 class TestPoolCleanup:
     """``cleanup_runtime`` closes the pool on its own loop, from anywhere."""
 
@@ -568,14 +667,6 @@ class TestPoolCleanup:
 # ---------------------------------------------------------------------------
 # Real connector-host children
 # ---------------------------------------------------------------------------
-
-
-def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
 
 
 @pytest.fixture(scope="module")
@@ -629,12 +720,12 @@ class TestRealChildren:
             second_pid = runtime._runtime_connector.pid
 
             assert second_pid is not None and second_pid != first_pid
-            assert not _alive(first_pid)
+            assert not pid_alive(first_pid)
             assert list(pool.pids()) == [("live", None)]
         finally:
             asyncio.run(runtime.cleanup_runtime())
 
-        assert not _alive(second_pid)
+        assert not pid_alive(second_pid)
         assert runtime._connector_pool is None
 
     def test_an_in_process_deployment_reads_through_a_real_child(
@@ -662,4 +753,54 @@ class TestRealChildren:
         finally:
             asyncio.run(runtime.cleanup_runtime())
 
-        assert not _alive(pid)
+        assert not pid_alive(pid)
+
+
+class TestRealChildrenFollowTheSwitch:
+    """The kernel against real children: a turn-on and a turn-off each land on a fresh child."""
+
+    @pytest.fixture(autouse=True)
+    def child_start_guard(self, monkeypatch):
+        monkeypatch.setattr(runtime, "_pool_start_timeout_s", CHILD_START_TIMEOUT_S)
+
+    @pytest.mark.usefixtures("switch_record")
+    def test_writes_follow_the_switch_through_fresh_children(
+        self, monkeypatch, tmp_path, pool_view
+    ):
+        section = {
+            "type": "virtual_accelerator",
+            "writes": "allowed",
+            "connector": {"virtual_accelerator": in_process_config(pool_view)},
+        }
+        config = tmp_path / "config.yml"
+        config.write_text(yaml.safe_dump({"control_system": section}))
+        log = tmp_path / "writes.log"
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.setenv("OSPREY_CONFIG", str(config))
+        monkeypatch.setenv("PYTHONPATH", PYTHONPATH)
+        monkeypatch.setenv(WRITE_LOG_ENV, str(log))
+        _serve(monkeypatch, section)
+        runtime._route_connector_through_pool()
+
+        try:
+            with pytest.raises(ChannelWriteBlockedError) as off:
+                inside_a_running_loop(lambda: runtime.write_channel("SR:SP", 1.0, confirm=False))
+            off_pid = runtime._runtime_connector.pid
+
+            turn_switch("va", "on")
+            inside_a_running_loop(lambda: runtime.write_channel("SR:SP", 2.0, confirm=False))
+            on_pid = runtime._runtime_connector.pid
+            on_report = runtime._runtime_connector.report
+
+            turn_switch("va", "off")
+            with pytest.raises(ChannelWriteBlockedError):
+                inside_a_running_loop(lambda: runtime.write_channel("SR:SP", 3.0, confirm=False))
+            again_pid = runtime._runtime_connector.pid
+        finally:
+            asyncio.run(runtime.cleanup_runtime())
+
+        assert refusal_phrase("switch_off", "simulator") in str(off.value)
+        assert on_report["writes_enabled"] is True
+        assert len({off_pid, on_pid, again_pid}) == 3
+        assert not pid_alive(off_pid) and not pid_alive(on_pid)

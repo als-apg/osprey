@@ -76,9 +76,13 @@ from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system import WriteOutcome
 from osprey_connectors.control_system._base import ChannelValue, raise_for_write_result
 from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
+from osprey_connectors.write_target import KIND_BANNERS
+from osprey_connectors_tests._harness import write_control_context
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests.fixtures import bench_ioc as bench
 from tests.fixtures.control_context import context_for, publish_reachability
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
+from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -86,7 +90,7 @@ REPO_PATHS = (str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-conne
 
 #: The virtual accelerator this module boots for its ``va`` target, and the
 #: simulation data it serves. Same image and same data directory as
-#: ``test_target_switch.py``; a container of its own, on an ephemeral port,
+#: ``test_target_switch.py``; a container of its own, on a reserved port,
 #: because writing setpoints into the directory's shared session container would
 #: move a lattice other modules read.
 VA_IMAGE = e2e_conftest.IMAGE
@@ -221,13 +225,7 @@ def _va_served(port: int) -> bool:
         "sys.stdout.flush()\n"
         "os._exit(0)\n"
     )
-    environment = {
-        **os.environ,
-        "EPICS_CA_NAME_SERVERS": f"localhost:{port}",
-        "EPICS_CA_AUTO_ADDR_LIST": "NO",
-    }
-    for stale in ("EPICS_CA_ADDR_LIST", "EPICS_CA_SERVER_PORT", "EPICS_CAS_SERVER_PORT"):
-        environment.pop(stale, None)
+    environment = e2e_conftest.ca_client_environment(port)
     try:
         probe = subprocess.run(
             [sys.executable, "-c", code],
@@ -273,48 +271,48 @@ def va_endpoint() -> Iterator[int]:
     the container, which is what makes concurrent runs safe.
     """
     _require_va_image()
-    port = bench.free_port()
-    name = f"{VA_CONTAINER_PREFIX}-{port}"
-    # Stale cleanup only: the port is this run's alone, so this can name nothing
-    # a concurrent run is using.
-    bench.docker("rm", "-f", name, timeout=60)
+    with reserved_port() as port:
+        name = f"{VA_CONTAINER_PREFIX}-{port}"
+        # Stale cleanup only: the port is this run's alone, so this can name nothing
+        # a concurrent run is using.
+        bench.docker("rm", "-f", name, timeout=60)
 
-    started = bench.docker(
-        "run",
-        "-d",
-        "--name",
-        name,
-        "-e",
-        f"EPICS_CA_SERVER_PORT={port}",
-        "-p",
-        f"127.0.0.1:{port}:{port}/tcp",
-        *e2e_conftest.demo_data_run_args(),
-        # The namespace, named: the IOC refuses to boot without one rather
-        # than picking the framework's demo channels on its own.
-        *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
-        VA_IMAGE,
-    )
-    if started.returncode != 0:
-        with contextlib.suppress(subprocess.SubprocessError):
-            bench.docker("rm", "-f", name, timeout=60)
-        raise RuntimeError(f"docker run failed for {name}:\n{started.stdout}\n{started.stderr}")
+        started = bench.docker(
+            "run",
+            "-d",
+            "--name",
+            name,
+            "-e",
+            f"EPICS_CA_SERVER_PORT={port}",
+            "-p",
+            f"127.0.0.1:{port}:{port}/tcp",
+            *e2e_conftest.demo_data_run_args(),
+            # The namespace, named: the IOC refuses to boot without one rather
+            # than picking the framework's demo channels on its own.
+            *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
+            VA_IMAGE,
+        )
+        if started.returncode != 0:
+            with contextlib.suppress(subprocess.SubprocessError):
+                bench.docker("rm", "-f", name, timeout=60)
+            raise RuntimeError(f"docker run failed for {name}:\n{started.stdout}\n{started.stderr}")
 
-    try:
-        deadline = time.monotonic() + VA_BOOT_TIMEOUT_S
-        while time.monotonic() < deadline:
-            if _va_served(port):
-                break
-            time.sleep(1.0)
-        else:
-            logs = bench.docker("logs", "--tail", "40", name, timeout=60)
-            raise RuntimeError(
-                f"{name} never served {PROBE_CHANNEL} within {VA_BOOT_TIMEOUT_S}s.\n"
-                f"{logs.stdout}\n{logs.stderr}"
-            )
-        yield port
-    finally:
-        with contextlib.suppress(subprocess.SubprocessError):
-            bench.docker("rm", "-f", name, timeout=60)
+        try:
+            deadline = time.monotonic() + VA_BOOT_TIMEOUT_S
+            while time.monotonic() < deadline:
+                if _va_served(port):
+                    break
+                time.sleep(1.0)
+            else:
+                logs = bench.docker("logs", "--tail", "40", name, timeout=60)
+                raise RuntimeError(
+                    f"{name} never served {PROBE_CHANNEL} within {VA_BOOT_TIMEOUT_S}s.\n"
+                    f"{logs.stdout}\n{logs.stderr}"
+                )
+            yield port
+        finally:
+            with contextlib.suppress(subprocess.SubprocessError):
+                bench.docker("rm", "-f", name, timeout=60)
 
 
 # ---------------------------------------------------------------------------
@@ -367,7 +365,7 @@ def raw_config(
     IOC. Every switch to ``live`` is therefore a switch *toward* the real
     machine, which is the only direction FR-8's live gate applies to.
 
-    Both blocks name an explicit gateway port: the containers bind ephemeral
+    Both blocks name an explicit gateway port: the containers bind reserved
     ports and nothing may guess them. Both gateway roles name the same endpoint
     because there is one server at each end; the write-capable role is the one
     the child selects, so a refused write is refused by the IOC rather than by a
@@ -393,7 +391,9 @@ def raw_config(
     return {
         "control_system": {
             "type": "virtual_accelerator",
-            "writes_enabled": True,
+            # The login tier. It arms nothing alone: the session's switch must
+            # also be on for the machine (see ``state_root``).
+            "writes": "allowed",
             "limits_checking": {
                 "enabled": True,
                 "mode": "exclusive",
@@ -421,12 +421,22 @@ def state_root(tmp_path, monkeypatch):
     own root helper; the control-context record resolves through the
     ``OSPREY_AGENT_DATA_ROOT`` stamp. Stamping one and not the other leaves this
     process reading whatever record the developer's machine was last left on.
+
+    The session's switch is on for both machines before any child spawns: a
+    write needs the login tier (``control_system.writes: allowed``) AND the
+    switch on for its target, and a connector chooses its write-capable gateway
+    from that verdict when it connects. The record is ownerless at generation
+    0 on the deployment's baseline, which is what a controls server's claim
+    would start, so a claim merges it rather than replacing it.
     """
     root = tmp_path / "var" / "agent_data"
     (root / target_state.STATE_DIR_NAME).mkdir(parents=True)
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
     monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
     control_context.invalidate_cache()
+    write_control_context(
+        root, target="va", generation=0, owned_by=None, switch={"live": "on", "va": "on"}
+    )
     yield root
     control_context.invalidate_cache()
 
@@ -450,7 +460,7 @@ def written_config(tmp_path):
     """Stage a deployment on disk and hand back its path.
 
     A connector-host child is configured from the section it is handed on the
-    wire, but ``control_system.writes_enabled`` and the limits database are read
+    wire, but the login tier (``control_system.writes``) and the limits database are read
     by the connector itself out of the config file -- they are launch-time
     deployment posture, not values the launch payload may grant. So a deployment
     that means to write, under real limits, has to exist as a file.
@@ -1044,10 +1054,10 @@ class TestWhenTheBenchMachineGoesAway:
             # the payload alone, without reconstructing the recorded control target
             # from memory. Label and endpoint come from config the same way the
             # roster renders them; the name from the supervisor's own record.
-            assert "active target: LIVE MACHINE" in message, message
+            assert f"active target: {KIND_BANNERS['real']}" in message, message
             identity = captured["envelope"]["details"]["active_target"]
             assert identity["name"] == "live"
-            assert identity["label"] == "LIVE MACHINE"
+            assert identity["label"] == KIND_BANNERS["real"]
             assert identity["endpoint"].endswith(f":{ioc.port}")
             assert invalidated == ["control_system"]
             # A dead machine is not a switch.
@@ -1108,10 +1118,4 @@ class TestWhenTheBenchMachineGoesAway:
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
     """Vacuous-green guard: an empty or half-collected module fails here."""
-    collected = [
-        item
-        for item in request.session.items
-        if item.nodeid.split("::")[0].endswith("test_bench_ioc_live.py")
-    ]
-
-    assert len(collected) >= MIN_COLLECTED_TESTS
+    assert_module_collected(request, __file__, MIN_COLLECTED_TESTS)

@@ -456,9 +456,8 @@ def token_admissible(claims: Mapping[str, Any], *, identity_claim: str) -> Token
         # The comparison itself stays in the comparator, which owns the
         # ASCII-only fold the authored value went through at render time.
         local, separator, asserted_domain = asserted.rpartition("@")
-        if separator and local and asserted_domain:
-            if not same_domain(asserted, hosted_domain):
-                return TokenAdmission(admissible=False, reason=REASON_HOSTED_DOMAIN_MISMATCH)
+        if separator and local and asserted_domain and not same_domain(asserted, hosted_domain):
+            return TokenAdmission(admissible=False, reason=REASON_HOSTED_DOMAIN_MISMATCH)
 
     verified = claims.get(EMAIL_VERIFIED_CLAIM)
     if verified is False or (isinstance(verified, str) and verified.strip().lower() == "false"):

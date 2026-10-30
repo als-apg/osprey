@@ -40,32 +40,33 @@ from __future__ import annotations
 import asyncio
 import difflib
 import logging
-import os
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
-from click.testing import CliRunner
 from ruamel.yaml import YAML
 
 import osprey.health.core.containers as containers_mod
-from osprey.cli.build_cmd import build as build_command
 from osprey.health.core.containers import containers
 from osprey.health.models import CheckResult, Status
+from osprey.mcp_server.control_system.connector_host_manager import target_display_metadata
 from osprey.port_layout import default_port
+from osprey_connectors.write_target import KIND_BANNERS
+from tests.cli._lifecycle_build import invoke_build_in
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
 #: Every test here renders a deployment for real — seconds each, not
 #: milliseconds — which is the property that makes them worth having.
 pytestmark = pytest.mark.slow
 
-#: A build with no venv and no lifecycle hooks. Neither is what the stand-in is
-#: about, and a real dependency install would dominate this module's runtime.
-CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
-
 #: The port the stand-in is reserved on throughout the codebase.
 STANDIN_PORT = 5074
+
+#: The stand-in's published label (C-WORDS). The simulator's banner also says
+#: "nothing moves" (D4), so the rehearsal is told apart by its whole banner.
+REHEARSAL_LABEL = KIND_BANNERS["rehearsal"]
+NOTHING_MOVES = "nothing moves"
 
 #: The exemplar's own virtual accelerator, and therefore the port the stand-in
 #: must NOT land on.
@@ -161,18 +162,8 @@ def _drop_profile_blocks(repo: Path, names: tuple[str, ...]) -> None:
         _ruamel.dump(profile, handle)
 
 
-def _invoke_build(repo: Path):
-    """Run ``osprey build`` the way an operator standing in the repo would."""
-    previous = Path.cwd()
-    os.chdir(repo)
-    try:
-        return CliRunner().invoke(build_command, CI_FLAGS)
-    finally:
-        os.chdir(previous)
-
-
 def _build(repo: Path) -> Path:
-    result = _invoke_build(repo)
+    result = invoke_build_in(repo)
     assert result.exit_code == 0, (
         f"build failed (exit={result.exit_code})\n{result.output}\n{result.exception}"
     )
@@ -379,6 +370,26 @@ class TestTheRenderedConfigDescribesTheStandIn:
         prose = "\n".join(row for row in reversed(rows[:key]) if row.strip().startswith("#"))
         assert LIMITS_COMMENT in prose, "the comment explaining the key no longer sits above it"
 
+    def test_live_standin_render_publishes_the_stand_in_as_the_rehearsal(
+        self, standin_build
+    ) -> None:
+        """Every rendered config names its own stand-in the rehearsal (C-WORDS).
+
+        The label is what the roster, the identity line and a tool error read,
+        so a whole build is where the words are pinned against the endpoint
+        the build itself pointed the ``standin`` slot at. The facility's own
+        machine never says "nothing moves", and the simulator carries its own
+        banner, never the rehearsal's.
+        """
+        for name, config in _rendered_configs(standin_build).items():
+            metadata = target_display_metadata(config)
+            assert metadata["standin"]["label"] == REHEARSAL_LABEL, name
+            assert metadata["standin"]["machine_kind"] == "rehearsal", name
+            assert "LIVE MACHINE" not in metadata["standin"]["label"], name
+            assert NOTHING_MOVES not in metadata["live"]["label"].lower(), name
+            assert metadata["va"]["label"] != REHEARSAL_LABEL, name
+            assert metadata["va"]["machine_kind"] == "simulator", name
+
     def test_live_standin_render_derives_no_operator_acknowledgment(self, standin_build) -> None:
         """``live`` has nothing to acknowledge that the operator did not say.
 
@@ -573,6 +584,23 @@ class TestABuildWithoutTheKeyIsUntouched:
             connector = config["control_system"].get("connector") or {}
             assert "live_standin" not in connector, name
 
+    def test_live_standin_render_off_never_publishes_a_rehearsal(self, plain_build) -> None:
+        """No stand-in built: no slot, in any rendered config, is a rehearsal.
+
+        A ``standin`` target that is not this deployment's stand-in reads as
+        the real machine — the label and the kind both — as it did before the
+        rehearsal had a name. Only the simulator says "nothing moves", under
+        its own banner.
+        """
+        for name, config in _rendered_configs(plain_build).items():
+            metadata = target_display_metadata(config)
+            for target, meta in metadata.items():
+                assert meta["label"] != REHEARSAL_LABEL, f"{name}/{target}"
+                assert meta["machine_kind"] != "rehearsal", f"{name}/{target}"
+                if meta["machine_kind"] != "simulator":
+                    assert NOTHING_MOVES not in meta["label"].lower(), f"{name}/{target}"
+            assert metadata["standin"]["machine_kind"] == "real", name
+
     def test_live_standin_render_off_leaves_no_stand_in_container(self, plain_build) -> None:
         """No second instance, and nothing waiting on or reading from one."""
         for service, compose in _rendered_composes(plain_build).items():
@@ -655,7 +683,7 @@ class TestTheBuildRefusesAnIncoherentStandIn:
 
     def _refuse(self, repo: Path, caplog: pytest.LogCaptureFixture) -> str:
         with caplog.at_level(logging.ERROR):
-            result = _invoke_build(repo)
+            result = invoke_build_in(repo)
         assert result.exit_code != 0, result.output
         return caplog.text
 

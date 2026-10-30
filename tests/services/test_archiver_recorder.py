@@ -57,6 +57,7 @@ from osprey_connectors.simulation.archive import waveform_collection, waveform_d
 
 # The session-scoped MongoDB container, reused rather than re-declared: one
 # container for the whole test session, skipping cleanly without Docker.
+from tests._simulator_view import view_channel
 from tests.connectors.conftest import mongodb_container  # noqa: F401
 
 
@@ -342,19 +343,11 @@ def test_any_channel_address_is_recorded(tmp_path: Path) -> None:
 def _variables(view: Path, value_types: dict[str, str]) -> None:
     """Write a simulator view's ``variables.json`` giving each channel its value type."""
     channels = [
-        {
-            "address": address,
-            "role": "readback",
-            "pair": None,
-            "value_type": value_type,
-            "unit": None,
-            "description": None,
-            "writable": False,
-            "value_range": None,
-            "owner": "texture",
-            "on": None,
+        view_channel(
+            address,
+            value_type=value_type,
             **({"shape": [TRACE_POINTS]} if value_type == "waveform" else {}),
-        }
+        )
         for address, value_type in value_types.items()
     ]
     document = {"schema": "osprey.facility.simulator/2", "code": "demo", "channels": channels}
@@ -1187,7 +1180,7 @@ async def _connected_reader(
     monkeypatch: pytest.MonkeyPatch,
 ):
     """The agent's archive connector, connected to the collection ``settings`` names."""
-    from osprey_connectors.archiver import HOST_OVERRIDE_ENV, PORT_OVERRIDE_ENV
+    from osprey_connectors.archiver._mongo_client import HOST_OVERRIDE_ENV, PORT_OVERRIDE_ENV
     from osprey_connectors.archiver._mongodb_archiver_connector import MongoDBArchiverConnector
 
     monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
@@ -1266,11 +1259,11 @@ async def test_a_channel_named_like_a_document_field_is_stored_and_read_back(
     manifest beside it in the collection is never read as a channel's history.
     """
     from osprey_connectors.archiver._field_names import field_name
-    from osprey_connectors.simulation.archive import SeedReport, write_manifest
+    from osprey_connectors.simulation.archive import SeedReport, _write_manifest
 
     settings, collection, password = archive_collection
     timestamp = datetime(2026, 8, 10, 12, 0, 10, tzinfo=UTC)
-    write_manifest(
+    _write_manifest(
         collection,
         {"schema_version": 2},
         seeded_at=timestamp - timedelta(hours=1),

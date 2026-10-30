@@ -15,10 +15,10 @@ end to end.
 Five claims, and this module is the acceptance gate for all five:
 
 1. **A narrowing lands on a live child.** With the session pointed at the
-   stand-in and its writes armed, ``POST /api/terminal/posture`` with
-   ``sandbox`` makes ``channel_write`` and a readwrite ``execute`` refuse —
-   naming the session posture and the chip, in each connector result's
-   ``error`` *and* in the raised all-refused envelope — while the same
+   stand-in and its switch on, ``POST /api/terminal/posture`` with
+   ``state: off`` makes ``channel_write`` and a readwrite ``execute`` refuse —
+   as ``switch_off``, with the phrase that sends the operator to the chip, in
+   each connector result's ``error`` *and* in the tool's refusal — while the same
    deployment still writes on the virtual accelerator, and while the
    connector-host child that serves the session keeps its pid. Enforcement is
    at write time; the route that used to terminate the child to re-stamp an
@@ -43,7 +43,7 @@ Five claims, and this module is the acceptance gate for all five:
    moved.
 5. **A widening never reaches a run in flight.** A sandbox launched under
    ``OSPREY_LAUNCH_POSTURE=<target>=sandbox`` keeps refusing after the operator
-   widens the store, and a sandbox launched after the widen writes.
+   turns the switch back on, and a sandbox launched after the turn-on writes.
 
 Three targets, two containers
 -----------------------------
@@ -97,10 +97,8 @@ import asyncio
 import contextlib
 import json
 import os
-import socket
 import subprocess
 import sys
-import time
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -124,18 +122,20 @@ from osprey.mcp_server.python_executor.tools import _execution_gates as executio
 from osprey.mcp_server.python_executor.tools import python_execute as python_execute_module
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system._base import ChannelValue
+from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.types import TARGET_LIVE, TARGET_STANDIN, TARGET_VA
+from osprey_connectors_tests._harness import write_control_context
+from osprey_connectors_tests._harness._ports import reserved_port
+from tests._approval_stamp_fixture import ApprovalStamps
 from tests.fixtures.control_context import context_for, publish_reachability
 from tests.mcp_server.conftest import get_tool_fn
+from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 REPO_PATHS = (str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src"))
 
-#: The image under test, and the simulation data both containers serve.
-IMAGE = e2e_conftest.IMAGE
-
-#: Container-name prefixes; ``_serving`` appends the run's own ephemeral port.
+#: Container-name prefixes; ``_serving`` appends the run's own reserved port.
 #: Named for the *target* each instance backs, since that is what the deployment
 #: below calls them and what every assertion is phrased in.
 CONTAINER_VA = "osprey-va-e2e-posture-va"
@@ -152,9 +152,9 @@ MIN_COLLECTED_TESTS = 28
 # -- the namespace both containers serve ------------------------------------
 
 #: What each target's switch reads to prove itself reachable, and what the
-#: readiness probe below waits for. A pyat-coupled corrector readback, served
+#: readiness probe waits for. A pyat-coupled corrector readback, served
 #: identically by both instances and never written by anything in this file.
-PROBE_CHANNEL = "SR:MAG:HCM:01:CURRENT:RB"
+PROBE_CHANNEL = e2e_conftest.READINESS_ADDRESS
 
 #: The setpoint every write leg in this module attempts. Listed in the shipped
 #: limits database (``[-12, 12]``), which is what lets this module run the
@@ -204,86 +204,6 @@ SANDBOX_TIMEOUT_S = 300.0
 # ---------------------------------------------------------------------------
 # Containers
 # ---------------------------------------------------------------------------
-#
-# Copied from ``test_live_standin.py`` rather than imported from it, as that
-# module copies them from ``test_target_switch.py``: a test module defines
-# fixtures and is not an importable helper library. The copies are small, and
-# each suite's ``_serving`` differs in what it boots.
-
-
-def _free_port() -> int:
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return int(probe.getsockname()[1])
-
-
-def _docker(*args: str, timeout: float = 180.0) -> subprocess.CompletedProcess:
-    return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
-
-
-def _require_image() -> None:
-    """Fail loudly unless the image can serve on a port other than 5064.
-
-    A precondition, not a nicety: the Channel Access *server* library reads
-    ``EPICS_CAS_SERVER_PORT`` and does not fall back to the client-side
-    variable, so an image whose entry point does not derive one from the other
-    keeps binding its build-time default while telling this suite's clients some
-    other port. The symptom would be an unexplained boot timeout; this turns it
-    into a sentence naming the fix.
-    """
-    inspected = _docker(
-        "image", "inspect", IMAGE, "--format", "{{.Architecture}}|{{.Config.Cmd}}", timeout=60
-    )
-    if inspected.returncode != 0:
-        pytest.fail(f"image {IMAGE!r} is not present. {e2e_conftest.IMAGE_REMEDY}")
-    architecture, _, command = inspected.stdout.strip().partition("|")
-    if "EPICS_CAS_SERVER_PORT" not in command:
-        pytest.fail(
-            f"image {IMAGE!r} ({architecture}) does not derive EPICS_CAS_SERVER_PORT from "
-            f"EPICS_CA_SERVER_PORT, so it cannot serve on any port but its baked default. "
-            f"{e2e_conftest.IMAGE_REMEDY} Its entry point is: {command}"
-        )
-
-
-def _served(port: int) -> bool:
-    """Whether a virtual accelerator is answering on *port*, asked out of process.
-
-    In a subprocess for the reason ``conftest.py`` gives: Channel Access reads
-    ``EPICS_CA_*`` once, when a process's context is created, and this probe
-    points it at *port*, so it cannot share a process with a client pointed
-    anywhere else.
-
-    It leaves through ``os._exit`` for that file's other reason: aioca's exit
-    hook destroys the CA context, and that blocks for as long as a name-server
-    circuit is still retrying a port nothing serves yet -- the very case a
-    readiness probe polls through. The word is written and flushed before the
-    exit.
-    """
-    code = (
-        "import asyncio, os, sys, aioca\n"
-        f"v = asyncio.run(aioca.caget({PROBE_CHANNEL!r}, timeout=2.0, throw=False))\n"
-        "sys.stdout.write('SERVED' if v.ok else 'NONE')\n"
-        "sys.stdout.flush()\n"
-        "os._exit(0)\n"
-    )
-    environment = {
-        **os.environ,
-        "EPICS_CA_NAME_SERVERS": f"localhost:{port}",
-        "EPICS_CA_AUTO_ADDR_LIST": "NO",
-    }
-    for stale in ("EPICS_CA_ADDR_LIST", "EPICS_CA_SERVER_PORT", "EPICS_CAS_SERVER_PORT"):
-        environment.pop(stale, None)
-    try:
-        probe = subprocess.run(
-            [sys.executable, "-c", code],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            env=environment,
-        )
-    except subprocess.TimeoutExpired:
-        return False
-    return probe.stdout.strip() == "SERVED"
 
 
 @contextlib.contextmanager
@@ -301,51 +221,23 @@ def _serving(prefix: str):
     instances that were not identical would leave a reader wondering whether
     something else told them apart.
     """
-    port = _free_port()
-    name = f"{prefix}-{port}"
-    # Stale-cleanup only. The port is this run's alone, so this can name nothing
-    # a concurrent run is using -- which is the point of the suffix.
-    _docker("rm", "-f", name, timeout=60)
-
-    started = _docker(
-        "run",
-        "-d",
-        "--name",
-        name,
-        "-e",
-        f"EPICS_CA_SERVER_PORT={port}",
-        "-p",
-        f"127.0.0.1:{port}:{port}/tcp",
-        *e2e_conftest.demo_data_run_args(),
-        # The namespace, named: the IOC refuses to boot without one rather
-        # than picking the framework's demo channels on its own.
-        *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
-        IMAGE,
-    )
-    if started.returncode != 0:
-        raise RuntimeError(f"docker run failed: {started.stdout}\n{started.stderr}")
-
-    try:
-        deadline = time.monotonic() + BOOT_TIMEOUT_S
-        while time.monotonic() < deadline:
-            if _served(port):
-                break
-            time.sleep(1.0)
-        else:
-            logs = _docker("logs", "--tail", "40", name, timeout=60)
-            raise RuntimeError(
-                f"{name} never served {PROBE_CHANNEL} within {BOOT_TIMEOUT_S}s.\n"
-                f"{logs.stdout}\n{logs.stderr}"
-            )
-        yield port
-    finally:
-        _docker("rm", "-f", name, timeout=60)
+    with reserved_port() as port:
+        with e2e_conftest.serving_container(
+            f"{prefix}-{port}",
+            port,
+            *e2e_conftest.demo_data_run_args(),
+            # The namespace, named: the IOC refuses to boot without one rather
+            # than picking the framework's demo channels on its own.
+            *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
+            boot_timeout=BOOT_TIMEOUT_S,
+        ):
+            yield port
 
 
 @pytest.fixture(scope="module")
 def endpoints():
     """Both instances, up and serving, for the life of this module."""
-    _require_image()
+    e2e_conftest.require_image_serving_any_port()
     with _serving(CONTAINER_VA) as va_port, _serving(CONTAINER_STANDIN) as standin_port:
         yield {TARGET_VA: va_port, TARGET_STANDIN: standin_port}
 
@@ -365,17 +257,18 @@ def raw_config(*, va_port: int, standin_port: int, project_root: Path) -> dict:
 
     **The facility's own machine is configured and never written to**: the
     ``epics`` block is here so this module runs the three-target world the chip
-    is specified over. Its writes stay unarmed
-    (it inherits the deployment-wide ``false``) and nothing here ever switches
-    to it — its gateways name a port nothing serves, which is the truth about a
-    facility machine no test may reach.
+    is specified over. Its writes stay unarmed (the session's switch is
+    never turned on for it) and nothing here ever switches to it — its gateways
+    name a port nothing serves, which is the truth about a facility machine no
+    test may reach.
 
-    **Both driven blocks arm writes**, which is what makes every refusal below
-    attributable to the session posture: with the stand-in unarmed the
-    deployment ceiling would refuse first and this module would be measuring the
-    wrong gate, and with the virtual accelerator unarmed "the other target still
-    writes" would be untestable. The deployment-wide key stays off so that the
-    per-type posture is doing the arming, exactly as a rendered profile does it.
+    **Both driven machines are armed**: the login tier allows writes
+    (``control_system.writes: allowed``) and ``module_environment`` turns the
+    session's switch on for the virtual accelerator and the stand-in. That is
+    what makes every refusal below attributable to the switch the operator
+    moves: with the tier at ``never`` it would refuse first and this module
+    would be measuring the wrong gate, and with the virtual accelerator off
+    "the other target still writes" would be untestable.
 
     **Exclusive limits.** Under ``mode: exclusive`` only channels the shipped
     database lists can be written, so every write here names one.
@@ -393,17 +286,16 @@ def raw_config(*, va_port: int, standin_port: int, project_root: Path) -> dict:
         return {
             "timeout_s": CONNECTOR_TIMEOUT_S,
             "probe_channel": PROBE_CHANNEL,
-            "writes_enabled": True,
             "gateways": gateways(port),
         }
 
     return {
         "control_system": {
             "type": "virtual_accelerator",
-            # Off deployment-wide: each driven block arms itself, which is the
-            # per-type posture doing what it is for -- and it is what leaves the
-            # facility's own machine unarmed without a word being said about it.
-            "writes_enabled": False,
+            # The login tier: target-blind. Which machines it reaches is the
+            # session's switch (``module_environment``), which leaves the
+            # facility's own machine off.
+            "writes": "allowed",
             "limits_checking": {
                 "enabled": True,
                 "mode": "exclusive",
@@ -465,13 +357,20 @@ def module_environment(tmp_path_factory, endpoints):
     here read the ambient config rather than one handed to them: the executor's
     ``_target_is_resolvable``, which declines to stamp a target it cannot
     resolve — leaving a run unstamped and pinned everywhere, which would make
-    the launch-pin leg measure the wrong pin — and the deployment writes gate.
+    the launch-pin leg measure the wrong pin — and the write verdict's section.
     Pointing them at the deployment this module staged is stating the config,
     not inheriting one.
 
     The audit writer is stubbed for the module: several gates below file ledger
     records, and a test that has redirected the state root but not the ledger
     would be writing into whichever deployment this checkout happens to resolve.
+
+    The control-context record is written under that root before anything
+    claims it, with the session's switch on for the two driven machines: a
+    connector chooses its write-capable gateway from the write verdict when it
+    connects, and that verdict needs the switch as well as the tier. Ownerless,
+    generation 0, on the baseline — what a claim would start, so the web
+    server's claim merges it and keeps the switch.
     """
     root = tmp_path_factory.mktemp("per-target-posture") / "var" / "agent_data"
     (root / target_state.STATE_DIR_NAME).mkdir(parents=True)
@@ -499,6 +398,14 @@ def module_environment(tmp_path_factory, endpoints):
         patch_env.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
         patch_env.setattr(target_state, "resolve_shared_data_root", lambda: root)
         posture_store.invalidate_cache()
+        control_context.invalidate_cache()
+        write_control_context(
+            root,
+            target=TARGET_VA,
+            generation=0,
+            owned_by=None,
+            switch={TARGET_VA: "on", TARGET_STANDIN: "on"},
+        )
         with patch.object(audit_writer, "record", side_effect=lambda **f: records.append(f)):
             yield SimpleNamespace(root=root, config_path=written)
     posture_store.invalidate_cache()
@@ -556,11 +463,24 @@ def web(tmp_path_factory, config_path, module_environment):  # noqa: ARG001 - th
                 yield client
 
 
-def post_posture(client, target: str, posture: str):
-    return client.post(
-        "/api/terminal/posture",
-        json={"session_id": SESSION_ID, "target": target, "posture": posture},
-    )
+def post_switch(client, target: str, state: str):
+    """The chip's switch gesture for *target*, as the chip sends it.
+
+    A turn-on names the ``switch_epoch`` the chip read, which is the GET's
+    answer at that moment; a turn-off needs none.
+    """
+    body: dict = {"session_id": SESSION_ID, "target": target, "state": state}
+    if state == "on":
+        posture_view = client.get("/api/terminal/posture", params={"session_id": SESSION_ID})
+        body["epoch"] = posture_view.json()["switch_epoch"]
+    return client.post("/api/terminal/posture", json=body)
+
+
+def switch_now() -> dict:
+    """The login's switch as the record holds it right now."""
+    control_context.invalidate_cache()
+    record = control_context.read_record()
+    return {} if record is None else dict(record.switch)
 
 
 def post_target(client, target: str):
@@ -613,13 +533,22 @@ async def write_via_tool(address: str, value: float) -> dict:
     ``{"raised": True, "envelope": ...}`` for one that raised the standard error
     envelope — the all-refused case, which is what a single refused write
     produces.
+
+    The call carries what the approval hook files for an approved write — the
+    ask stamp, and the write-approval stamp bound to the target and generation
+    the deployment is on as the prompt is rendered — because this deployment
+    asks before every write and the tool runs only on that record.
     """
     from fastmcp.exceptions import ToolError
 
+    operations = [{"channel": address, "value": value}]
+    binding = channel_write_module._read_target_binding()
+    target, generation = binding if binding is not None else (None, None)
     try:
-        result = await get_tool_fn(channel_write_module.channel_write)(
-            operations=[{"channel": address, "value": value}]
-        )
+        with ApprovalStamps(target_state.state_dir()).approved(
+            "channel_write", operations=operations, target=target, generation=generation
+        ):
+            result = await get_tool_fn(channel_write_module.channel_write)(operations=operations)
     except ToolError as exc:
         return {"raised": True, "envelope": json.loads(str(exc))}
     return {"raised": False, "payload": json.loads(result)}
@@ -647,11 +576,11 @@ async def execute_readwrite() -> dict:
 
 
 def gates_are_silent() -> bool:
-    """Whether the two write gates ``execute`` runs would let a readwrite run by.
+    """Whether the write gate ``execute`` runs would let a readwrite run by.
 
     The anti-vacuous control for the ``execute`` leg, asked of the very
-    functions the tool calls — the posture clamp and the per-target
-    writes gate — rather than by launching a sandbox. Running the tool for real
+    function the tool calls — the posture clamp, which asks the write
+    verdict — rather than by launching a sandbox. Running the tool for real
     on the permitted target would spawn the executor subprocess, and a failure
     in *that* (a workspace, a virtualenv, a timeout) would be reported here as a
     posture verdict, which is the one thing this control must not do.
@@ -660,9 +589,6 @@ def gates_are_silent() -> bool:
 
     try:
         execution_gates.enforce_posture_clamp("readwrite", tool="execute")
-        execution_gates.enforce_deployment_writes_gate(
-            "readwrite", execution_gates.recorded_control_target()
-        )
     except ToolError:
         return False
     return True
@@ -928,9 +854,10 @@ async def session(config_path, web, module_environment):  # noqa: ARG001 - the s
 
             journal["child_before_toggle"] = manager.status()["child_pid"]
             journal["targets_before_toggle"] = published_targets()
-            narrow = post_posture(web, TARGET_STANDIN, "sandbox")
+            narrow = post_switch(web, TARGET_STANDIN, "off")
             journal["narrow_status"] = narrow.status_code
             journal["narrow_body"] = narrow.json()
+            journal["switch_after_narrow"] = switch_now()
             journal["child_after_toggle"] = manager.status()["child_pid"]
 
             journal["refused_rows"] = await write_rows(manager, CORRECTOR_SP, REFUSED_VALUE)
@@ -980,7 +907,7 @@ async def session(config_path, web, module_environment):  # noqa: ARG001 - the s
             await move_session(TARGET_VA)
             journal["va_write_while_narrowed"] = await write_via_tool(CORRECTOR_SP, ARMED_VALUE)
             journal["va_readback_while_narrowed"] = await reading(manager, CORRECTOR_SP)
-            journal["va_control_target"] = execution_gates.recorded_control_target()
+            journal["va_control_target"] = audit_posture.recorded_control_target()
             journal["va_gates_silent"] = gates_are_silent()
             await restore_machine()
 
@@ -1029,11 +956,12 @@ async def session(config_path, web, module_environment):  # noqa: ARG001 - the s
             # moves there, the target is narrowed, the stamp is taken from the
             # production stamper, and only then is the store widened.
             await move_session(TARGET_VA)
-            journal["pin_narrow_status"] = post_posture(web, TARGET_VA, "sandbox").status_code
+            journal["pin_narrow_status"] = post_switch(web, TARGET_VA, "off").status_code
             journal["narrow_stamps"] = launch_stamps()
-            widen = post_posture(web, TARGET_VA, "writes")
+            widen = post_switch(web, TARGET_VA, "on")
             journal["widen_status"] = widen.status_code
             journal["widen_body"] = widen.json()
+            journal["switch_after_widen"] = switch_now()
             journal["wide_stamps"] = launch_stamps()
 
             journal["launch_refused"] = run_sandbox(
@@ -1087,8 +1015,9 @@ class TestTheNarrowingLandsWithoutARespawn:
     def test_the_toggle_was_accepted_and_recorded_per_target(self, session) -> None:
         assert session["narrow_status"] == 200
         assert session["narrow_body"]["target"] == TARGET_STANDIN
-        assert session["narrow_body"]["posture"] == "sandbox"
-        assert session["narrow_body"]["entry"] == {TARGET_STANDIN: "sandbox"}
+        assert session["narrow_body"]["state"] == "off"
+        # Per target: the stand-in went off and the virtual accelerator stayed on.
+        assert session["switch_after_narrow"] == {TARGET_VA: "on"}
 
     def test_no_child_was_respawned_to_apply_it(self, session) -> None:
         """The whole point of enforcing at write time.
@@ -1113,9 +1042,10 @@ class TestTheNarrowingLandsWithoutARespawn:
 
         assert row["outcome"] == "refused"
         assert row["refusal_reason"] == "WRITES_DISABLED"
-        assert f"'{TARGET_STANDIN}' control target" in row["error"]
-        assert "writes are off" in row["error"]
-        assert "control-target chip in the header" in row["error"]
+        # The switch_off phrase sends the operator to the chip, and names the
+        # stand-in's machine kind -- the rehearsal machine, not the simulator.
+        assert refusal_phrase("switch_off", "rehearsal") in row["error"]
+        assert "[osprey-refusal: switch_off]" in row["error"]
 
     def test_the_raised_envelope_carries_that_sentence_too(self, session) -> None:
         """A single-channel refusal raises, so the results are never seen.
@@ -1128,10 +1058,10 @@ class TestTheNarrowingLandsWithoutARespawn:
         assert session["refused_tool"]["raised"] is True
         envelope = session["refused_tool"]["envelope"]
 
-        assert envelope["error_type"] == "write_refused"
-        assert envelope["details"]["reason"] == "WRITES_DISABLED"
-        assert f"'{TARGET_STANDIN}' control target" in envelope["error_message"]
-        assert "control-target chip in the header" in envelope["error_message"]
+        assert envelope["error_type"] == "writes_disabled"
+        assert envelope["details"]["reason"] == "switch_off"
+        assert envelope["details"]["target"] == TARGET_STANDIN
+        assert refusal_phrase("switch_off", "rehearsal") in envelope["error_message"]
 
     def test_a_readwrite_execute_is_refused_by_the_same_posture(self, session) -> None:
         """The executor's gate, on the tool the agent actually calls.
@@ -1145,8 +1075,8 @@ class TestTheNarrowingLandsWithoutARespawn:
         spoken = " ".join([envelope["error_message"], *envelope.get("suggestions", [])])
 
         assert envelope["error_type"] == "safety_error"
-        assert "posture" in spoken
-        assert "control-target chip in the header" in spoken
+        assert envelope["details"]["reason"] == "switch_off"
+        assert refusal_phrase("switch_off", "rehearsal") in spoken
 
     def test_nothing_reached_the_stand_in(self, session) -> None:
         """The refusals happened before Channel Access, not after it."""
@@ -1224,8 +1154,7 @@ class TestTheGatewayRealignsOnceNothingIsRunning:
         Three rows means the deployment really is in the two-target world the
         chip is specified over — a roster of one would make "per target" an
         empty distinction — and the facility's own machine reports its writes as
-        not permitted, which is the deployment ceiling doing its half while the
-        store does the other.
+        not permitted: its switch was never turned on.
         """
         rows = session["rows_narrowed"]
 
@@ -1337,7 +1266,9 @@ class TestThePublishedIdentityFollowsTheGateway:
         rows = {row["target"]: row for row in session["get_after_realign"]["targets"]}
         row = rows[TARGET_STANDIN]
 
-        assert row["effective"] is False
+        assert row["switch"] == "off"
+        assert row["write_allowed"] is False
+        assert row["write_reason"] == "switch_off"
         assert row["endpoint"] == slot["endpoint"]
         assert row["reachability"]["role"] == slot["selected_role"] == "read_only"
 
@@ -1421,8 +1352,9 @@ class TestTheAgentsNextWriteIsJudgedWhereTheSessionNowIs:
         assert session["write_on_b"]["raised"] is True
         envelope = session["write_on_b"]["envelope"]
 
-        assert envelope["details"]["reason"] == "WRITES_DISABLED"
-        assert f"'{TARGET_STANDIN}' control target" in envelope["error_message"]
+        assert envelope["details"]["reason"] == "switch_off"
+        assert envelope["details"]["target"] == TARGET_STANDIN
+        assert refusal_phrase("switch_off", "rehearsal") in envelope["error_message"]
 
     def test_the_second_machine_never_moved(self, session) -> None:
         assert session["readback_on_b"] == pytest.approx(REST_VALUE)
@@ -1437,13 +1369,13 @@ class TestARunLaunchedNarrowStaysNarrow:
     """The launch pin, across a real process boundary.
 
     Both stamps come from ``executor._apply_target_stamp`` — the production
-    stamper — taken either side of a real widening POST, and both runs are real
+    stamper — taken either side of a real turn-on POST, and both runs are real
     subprocesses that build their own connector from the deployment file. The
-    store says ``writes`` for both of them; the only thing that separates them
-    is the posture each was LAUNCHED under.
+    switch is on for both of them; the only thing that separates them is the
+    posture each was LAUNCHED under.
 
     **Measured on the virtual accelerator**, unlike every other leg in this
-    module. The pin is target-agnostic — ``store_permits`` takes the target as
+    module. The pin is target-agnostic — ``write_verdict`` takes the target as
     an argument and the stamp names whichever one the run was placed on — and
     the virtual accelerator is the target a sandbox on this deployment can
     build: ``osprey.registry.builtins`` does not list ``live_standin`` among the
@@ -1462,7 +1394,8 @@ class TestARunLaunchedNarrowStaysNarrow:
         """
         assert session["pin_narrow_status"] == 200
         assert session["widen_status"] == 200
-        assert TARGET_VA not in session["widen_body"]["entry"]
+        assert session["widen_body"]["state"] == "on"
+        assert session["switch_after_widen"].get(TARGET_VA) == "on"
         assert session["narrow_stamps"][host_executor.ENV_LAUNCH_POSTURE] == f"{TARGET_VA}=sandbox"
         assert session["wide_stamps"][host_executor.ENV_LAUNCH_POSTURE] == f"{TARGET_VA}=writes"
 
@@ -1470,9 +1403,10 @@ class TestARunLaunchedNarrowStaysNarrow:
         verdict = session["launch_refused"]
 
         assert verdict["wrote"] is False
-        assert "launched while" in verdict["message"]
-        assert TARGET_VA in verdict["message"]
-        assert "not to one already in flight" in verdict["message"]
+        # Refused by the pin, on the simulator -- not by the switch, which the
+        # turn-on had already put back on.
+        assert refusal_phrase("launch_pinned", "simulator") in verdict["message"]
+        assert "[osprey-refusal: launch_pinned]" in verdict["message"]
 
     def test_the_refused_run_left_the_machine_alone(self, session) -> None:
         assert session["readback_after_pinned_run"] == pytest.approx(REST_VALUE)
@@ -1494,10 +1428,4 @@ class TestARunLaunchedNarrowStaysNarrow:
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
     """Vacuous-green guard: an empty or half-collected module fails here."""
-    collected = [
-        item
-        for item in request.session.items
-        if item.nodeid.split("::")[0].endswith("test_per_target_posture.py")
-    ]
-
-    assert len(collected) >= MIN_COLLECTED_TESTS
+    assert_module_collected(request, __file__, MIN_COLLECTED_TESTS)

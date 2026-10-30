@@ -49,6 +49,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from unittest.mock import patch
 
 import click
 import pytest
@@ -58,8 +59,8 @@ from click.testing import CliRunner, Result
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
 from osprey.models.provider_registry import PROVIDER_API_KEYS
+from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.dotenv import parse_dotenv_file
-from osprey_connectors.workspace import TIERS_DIRNAME
 
 # The provider key value the whole suite tracks. `hello-world` selects the
 # anthropic provider, so this is the one key `osprey init` seeds.
@@ -101,16 +102,12 @@ def _sanitized_provider_env() -> Iterator[None]:
     suite. ``monkeypatch`` is not used because the module-scoped fixture below
     is set up before pytest's function-scoped environment guards exist.
     """
-    saved = dict(os.environ)
-    try:
+    with patch.dict(os.environ):
         for var in PROVIDER_API_KEYS.values():
             if var:
                 os.environ.pop(var, None)
         os.environ[PROVIDER_VAR] = PROFILE_KEY_VALUE
         yield
-    finally:
-        os.environ.clear()
-        os.environ.update(saved)
 
 
 def _invoke(cli: click.Command, args: list[str]) -> Result:
@@ -211,6 +208,15 @@ EXPECTED_OWNED = {
     "services/facility_gw",
 }
 
+#: ``(list field, entry)`` naming each list-selected edit above in profile.yml.
+#: The hook is not among them: its declaration wires and copies it.
+NAMED_ARTIFACTS: tuple[tuple[str, str], ...] = (
+    ("rules", "rules/facility-ops"),
+    ("skills", "skills/orbit-check"),
+    ("agents", "agents/orbit-writer"),
+    ("output_styles", "output-styles/terse"),
+)
+
 RENDER_NAME = "reader"
 
 #: A tier adds by name and subtracts nothing, and it is attached by its kind:
@@ -250,8 +256,16 @@ def _apply_profile_edits(profile_dir: Path) -> None:
     _write(profile_dir / TIERS_DIRNAME / f"{RENDER_NAME}.yml", LAYER_DELTA)
 
     raw = _profile_yaml(profile_dir / "profile.yml")
+    # The profile's own skills, agents, rules and output styles render where a
+    # list names them, and its hook wherever a declaration wires it.
+    for field_name, entry in NAMED_ARTIFACTS:
+        raw.setdefault(field_name, []).append(entry)
+    # `rules/safety.md` replaces the library `safety` rule where its path is
+    # named, in place of the bare name.
+    raw["rules"] = [SHADOWED_RULE if rule == "safety" else rule for rule in raw["rules"]]
     raw["dispatch"] = {"triggers": "triggers.yml"}
     config = raw.setdefault("config", {})
+    config["claude_code.hooks.SessionStart"] = ["hooks/facility_probe.py"]
     config["modules.web_terminals.enabled"] = True
     config["modules.web_terminals.users"] = [ROSTER_USER]
     # Every terminal runs a tier's render; the roster's one person lands on the
@@ -721,7 +735,6 @@ config:
   control_system.connector.virtual_accelerator.serving: in_process
   archiver.type: mock_archiver
   approval.enabled: false
-  claude_code.telemetry.enabled: false
   hooks.debug: false
 """
 

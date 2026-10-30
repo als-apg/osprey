@@ -39,12 +39,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from osprey.agent_runner.tool_names import BASH_DENY_ENTRY
+from osprey.agent_runner.tool_names import SHELL_TOOLS
 from osprey.bluesky_bridge_connection import (
     LANE_KEYS,
     LANE_ONE,
-    SECOND_LANE_KEYS,
-    lane_declared_target,
 )
 from osprey.cli.profile_conventions import SETUP_PATCH_TOOL
 from osprey.deployment.control_identity import validate_identity
@@ -56,20 +54,12 @@ from osprey.services.auth_sidecar.identity_headers import CASE_INSENSITIVE_CLAIM
 from osprey_connectors import yaml_loader
 from osprey_connectors.connection import ENV_NAME_RE, read_ca_bundle, read_credential_env_names
 from osprey_connectors.types import (
+    WRITES_KEY,
     archiver_settings_key,
-    baseline_target,
     resolve_archiver_settings,
-    target_writes_enabled,
-    target_writes_enabled_key,
+    tier_allows,
 )
 from osprey_connectors.workspace import BUILD_DIR_NAME
-
-#: The ``permissions.deny`` entries a render must ship **all** of for its agent
-#: to have no shell: ``Bash`` is the shell itself and ``Monitor`` runs shell
-#: commands in the background, so denying either one alone leaves a shell open.
-#: Exact literals, as :data:`~osprey.agent_runner.tool_names.BASH_DENY_ENTRY`
-#: explains — a scoped deny constrains one command family, not the shell.
-SHELL_DENY_ENTRIES: tuple[str, ...] = (BASH_DENY_ENTRY, "Monitor")
 
 # Matches ${VAR} and $VAR env references inside modules.web_terminals.image_tag.
 _ENV_REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
@@ -262,6 +252,44 @@ def effective_tier(
     return fallback
 
 
+def sign_in_decides_tier(entry: Any, web_terminals: Any) -> bool:
+    """Whether single sign-on, not a file on this host, decides *entry*'s tier.
+
+    True for a card naming no ``role:`` in a deployment whose ``auth.method``
+    is ``oidc`` with an ``authorization`` claim: that person is granted the role
+    the group claim maps to when they sign in, so no build can say which render
+    they will run — whatever ``tier:`` pin or ``default_tier`` the roster
+    carries. A card with an explicit role is bound statically and answers
+    False, as does every card of a deployment without that sign-in.
+
+    The one statement of the predicate: the login→tier map, status's tier
+    column and every other reader call it rather than restate it.
+
+    Args:
+        entry: One RAW roster entry (``modules.web_terminals.users[i]``); a bare
+            string entry carries no role.
+        web_terminals: The ``modules.web_terminals`` subtree.
+
+    Returns:
+        Whether the card's tier is decided at sign-in. Never raises: an
+        ``authorization`` stanza that does not parse names no claim.
+    """
+    from osprey.deployment.web_terminals.render import _authorization_context
+
+    subtree = as_dict(web_terminals)
+    auth = subtree.get("auth")
+    if not (isinstance(auth, Mapping) and auth.get("method") == "oidc"):
+        return False
+    try:
+        claim = _authorization_context(subtree)["authorization_claim"]
+    except ValueError:
+        return False
+    if not claim:
+        return False
+    raw = entry if isinstance(entry, Mapping) else {}
+    return not raw.get("role")
+
+
 #: The in-terminal event-dispatcher dashboard's panel id. A render that declares
 #: this panel is the one thing that entitles its containers to
 #: ``EVENT_DISPATCHER_TOKEN`` — the panel declaration IS the intent, so there is
@@ -435,36 +463,6 @@ def config_needs_phoebus_handles(config: Any) -> bool:
     )
 
 
-#: Each second lane's control target, inverted from the keys that name them. A
-#: lane is named for the target it serves, never for its index, so the key
-#: itself answers what a block that never wrote ``target:`` leaves open.
-_SECOND_LANE_TARGETS = {key: target for target, key in SECOND_LANE_KEYS.items()}
-
-
-def lane_control_target(config: Any, lane: str) -> str:
-    """The control target ``lane`` drives in this project's rendered config.
-
-    ``services.<lane>.target`` where the render wrote one, read through
-    :func:`~osprey.bluesky_bridge_connection.lane_declared_target` so the build
-    side and the bridge side answer from one place. Two fallbacks, for the two
-    ways a block can carry no target:
-
-    * **Lane 1 on a single-lane deployment** has never carried the key — it
-      serves the only target the deployment has — so it takes the deployment
-      baseline (:func:`~osprey_connectors.types.baseline_target`), which is the
-      same fallback ``queue_backend.resolve_lane_identity`` applies bridge-side.
-    * **A second lane** takes the target its own key names. That name IS its
-      target, fixed at render time, so deriving it from the key is a reading of
-      the lane's identity rather than a guess about it.
-    """
-    declared = lane_declared_target(lane, as_dict(config))
-    if declared:
-        return declared
-    if lane in _SECOND_LANE_TARGETS:
-        return _SECOND_LANE_TARGETS[lane]
-    return baseline_target(as_dict(config).get("control_system"))
-
-
 def _config_renders_lane(config: Any, lane: str) -> bool:
     """Whether this project's rendered config carries ``lane`` at all.
 
@@ -483,26 +481,28 @@ def config_needs_launch_token_for(config: Any, lane: str) -> bool:
     """True if ``config`` may arm a queue start on ``lane`` specifically.
 
     The per-lane form of :func:`config_needs_launch_token`, and the one every
-    lane's own token is granted on. A lane is bound at render time to one
-    control target, so the posture that decides whether its token may be issued
-    is that TARGET's — a deployment whose baseline is a live machine can arm
-    writes on its virtual-accelerator lane alone, and the live lane must stay
-    disarmed while it does.
+    lane's own token is granted on. The lane matters only for whether this
+    render carries it: whether writes may happen at all is the render's login
+    tier, which is target-blind — a tier that allows writes allows them for
+    every machine, and the person's switch picks which one at the moment of
+    each write.
 
     Three conditions, each reading absence as "not granted":
 
     * **This render carries the lane** (:func:`_config_renders_lane`). An
       undeclared second lane has no bridge to arm, so it entitles nothing.
-    * **Writes are armed for the lane's target**
-      (:func:`~osprey_connectors.types.target_writes_enabled` of
-      :func:`lane_control_target`) — the tri-state per-connector posture, which
-      falls back to ``control_system.writes_enabled`` for a target whose
-      connector type this deployment never named. Anything short of a literal
-      ``true`` at whichever level answers arms nothing, which is the read-only
-      tier's whole boundary.
+    * **The render's tier allows writes**
+      (:func:`~osprey_connectors.types.tier_allows` of its ``control_system``
+      section) — ``control_system.writes: allowed``, the literal string and
+      nothing else. ``never``, silence and every other value arm nothing, which
+      is the read-only tier's whole boundary.
     * **The bluesky server is left running** (:func:`bluesky_server_enabled`).
       A token for a server that never starts arms nothing while still handing
       the agent a live credential.
+
+    Holding the token is not a write: each write a queued plan makes is still
+    decided by the connector's verdict for the owner the plan names, with that
+    owner's switch read at the moment of the write.
 
     :param config: One project's rendered config document.
     :param lane: A lane's ``services.<lane>`` key — see
@@ -513,27 +513,19 @@ def config_needs_launch_token_for(config: Any, lane: str) -> bool:
         return False
     if not _config_renders_lane(root, lane):
         return False
-    return target_writes_enabled(root.get("control_system"), lane_control_target(root, lane))
+    return tier_allows(root.get("control_system"))
 
 
 def launch_token_writes_key(config: Any, lane: str) -> str:
-    """The config key an operator sets to change ``lane``'s write posture.
+    """The config key an operator sets to change ``lane``'s token entitlement.
 
-    The build-side twin of the MCP server's own refusal wording
-    (``mcp_server.bluesky.tools.queue``): a refusal names the key that decides
-    the posture for the target THIS lane drives, never the deployment-wide one,
-    because sending an operator to ``control_system.writes_enabled`` would have
-    them arm — or disarm — every target at once, the machine they deliberately
-    left alone included. Writing the block key answers whatever the global key
-    says, since the per-connector leaf is read as a tri-state.
-
-    :data:`~osprey_connectors.types.WRITES_ENABLED_KEY` is named only where the
-    lane's target resolves to no connector type at all — ``live`` on a
-    deployment that never described its real machine — because there the
-    deployment-wide key IS the whole posture that config has.
+    :data:`~osprey_connectors.types.WRITES_KEY` for every lane: the login tier
+    is the one posture a render has, and it does not vary by the machine a lane
+    drives. Kept per lane so a refusal can still say which lane's token it is
+    about; ``config`` and ``lane`` do not change the answer.
     """
-    section = as_dict(config).get("control_system")
-    return target_writes_enabled_key(section, lane_control_target(config, lane))
+    del config, lane
+    return WRITES_KEY
 
 
 def config_needs_launch_token(config: Any) -> bool:
@@ -552,10 +544,9 @@ def config_needs_launch_token(config: Any) -> bool:
     This is :func:`config_needs_launch_token_for` on
     :data:`~osprey.bluesky_bridge_connection.LANE_ONE` — the lane every
     deployment has — so the rule lives in one place and a caller that knows
-    nothing about lanes still asks about the lane it has always meant. Which
-    write posture answers for lane 1 is that function's to decide: the lane's
-    declared target, else the deployment baseline, resolved through the
-    per-connector tri-state.
+    nothing about lanes still asks about the lane it has always meant: lane 1 is
+    carried by every render, so the answer is the render's tier and its bluesky
+    server.
     """
     return config_needs_launch_token_for(config, LANE_ONE)
 
@@ -578,7 +569,7 @@ def config_needs_graphdb_password(config: Any) -> bool:
     password shared by every ARIEL consumer, with the read-only guarantee living
     in what the consumer does rather than in which password it holds. The
     contrast is :func:`config_needs_launch_token`, which *is* gated on write
-    posture — per lane, on the target that lane drives — because there the
+    posture — on the render's login tier — because there the
     credential itself is the capability: nothing downstream of holding it stops
     a queue start.
 
@@ -3425,20 +3416,20 @@ def resolve_cards(
         )
         resolved.append(entry_resolved)
 
-    for app_entry in apps:
-        resolved.append(
-            _resolve_app_card(
-                app_entry,
-                project_name=project_name,
-                catalog_entry=_app_catalog_entry(app_entry["name"], renders_catalog),
-                tier_names=frozenset(tier_names),
-                app_names=app_names,
-                image_source=image_source,
-                registry_url=registry_url,
-                image_tag=image_tag,
-                strict=strict,
-            )
+    resolved.extend(
+        _resolve_app_card(
+            app_entry,
+            project_name=project_name,
+            catalog_entry=_app_catalog_entry(app_entry["name"], renders_catalog),
+            tier_names=frozenset(tier_names),
+            app_names=app_names,
+            image_source=image_source,
+            registry_url=registry_url,
+            image_tag=image_tag,
+            strict=strict,
         )
+        for app_entry in apps
+    )
 
     return resolved
 
@@ -3726,8 +3717,9 @@ def renders_with_open_shell(config: Any, project_root: Any) -> set[str]:
     """Names of referenced renders whose shipped settings leave a shell open.
 
     A shell is open unless the render's ``.claude/settings.json`` denies
-    **both** ``Bash`` and ``Monitor``: ``Monitor`` runs shell commands in the
-    background, so a render denying ``Bash`` alone still has one. Phrased as
+    every tool in :data:`~osprey.agent_runner.tool_names.SHELL_TOOLS`:
+    ``Monitor`` runs shell commands in the background, so a render denying
+    ``Bash`` alone still has one. Phrased as
     the *unsafe* set so its caller can name every offending render in one
     error rather than re-deriving them. A render granted
     ``BLUESKY_LAUNCH_TOKEN`` while its agent may also run a shell can read that
@@ -3752,4 +3744,4 @@ def renders_with_open_shell(config: Any, project_root: Any) -> set[str]:
         The subset of referenced render names whose rendered
         ``.claude/settings.json`` does not deny every shell tool.
     """
-    return renders_not_denying(config, project_root, SHELL_DENY_ENTRIES)
+    return renders_not_denying(config, project_root, SHELL_TOOLS)

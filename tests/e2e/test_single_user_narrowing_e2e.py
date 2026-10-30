@@ -23,7 +23,7 @@ to uid 1000. Those are different uids on every host, so the read succeeds
 through the shared group and through nothing else — which is why the record's
 mode is asserted here as a first-class row rather than assumed. At 0600 the
 record is unreadable across the drop and every owned write fails closed on
-``control_context_unavailable``; under a CI umask of 022 a 0600 write would
+``record_unavailable``; under a CI umask of 022 a 0600 write would
 still read as 0640 and the defect would never appear. ``write_json_atomic``
 therefore fchmods the descriptor explicitly, and this module pins the result on
 a real deployment.
@@ -41,17 +41,15 @@ the tree the build provisioned, and that the record it finds there refuses the
 write.
 
 **Host precondition: a Linux host with 1:1 uid mapping.** There the group read
-succeeds and an owned write is refused with the store's narrowing verdict. On
-Docker Desktop (macOS) bind-mount ownership is remapped, the container's view of
-the tree may not carry the host's group at all, and the correct answer becomes
-``control_context_unavailable`` — a failure that is closed, not open, and so
-still a pass for the safety property. Which one is right is a fact about the
-HOST and not about this deployment, so the refusal row reads the entrypoint's
-own access-probe line out of the worker's log and asserts whichever the probe
-reports, exactly as the multi-user module does. Neither arm is told from the
-other by the word "narrowing": the ``control_context_unavailable`` message
-contains that word too ("This is not a narrowing anybody set"), so both arms are
-matched on the clause each one CLOSES on.
+succeeds, the narrowed record reads as the build account's switch being off, and
+an owned write is refused as ``switch_off``. On Docker Desktop (macOS) bind-mount
+ownership is remapped, the container's view of the tree may not carry the host's
+group at all, and the correct answer becomes ``record_unavailable`` — a failure
+that is closed, not open, and so still a pass for the safety property. Which one
+is right is a fact about the HOST and not about this deployment, so the refusal
+row reads the entrypoint's own access-probe line out of the worker's log and
+asserts whichever the probe reports, exactly as the multi-user module does. Each
+arm is matched by its refusals-contract phrase.
 
 **Cost.** One full deploy, paid to prove the single-user shape rather than to
 re-read the multi-user one. The stack publishes this suite's usual virtual
@@ -67,7 +65,6 @@ import os
 import shutil
 import stat
 import subprocess
-import sys
 import time
 import urllib.error
 import urllib.request
@@ -82,14 +79,20 @@ from osprey.deployment.compose_generator import (
     control_target_identity_dir,
     resolve_project_name,
 )
-from osprey.deployment.web_terminals.render_naming import render_project
 from osprey.deployment.web_terminals.roster import dispatch_tier_name
 from osprey.dispatch import DISPATCHER_MCP_PATH
 from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
 from osprey_connectors.control_context import RECORD_FILENAME, ControlContext, write_record
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.posture_store import POSTURE_SANDBOX
+from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.types import CONTROL_TARGETS, TARGET_VA
+from tests.e2e._deploy_support import (
+    find_osprey_console_script,
+    format_failure,
+    run_command,
+    wait_for_health,
+)
 from tests.e2e._mcp_sse import any_answer_succeeded, sse_payloads, tool_result
 from tests.e2e._orm_stack import VA_PVA_PORT
 from tests.e2e._volumes import remove_project_volumes
@@ -127,8 +130,36 @@ WORKER_CONTAINER = f"{PROJECT_NAME}-dispatch-worker-1"
 #: that may write. A tiered worker runs that tier's image, rooted at
 #: ``/app/<project_name>-<tier>`` — with no web terminal beside it.
 WORKER_TIER = "readwrite"
-WORKER_PROJECT, _ = render_project(PROJECT_NAME, WORKER_TIER)
-WORKER_AGENT_DATA = f"/app/{WORKER_PROJECT}/var/agent_data"
+
+# The single-user shape, stated as one leaf: no roster, so no nginx, no
+# per-user container, and no identity but the build account's own. Dotted LEAF
+# keys on purpose — each edit states only its own leaf and leaves its
+# subtree's siblings intact. Module-level so
+# tests/cli/test_e2e_preset_login_tiers.py renders exactly this set-list.
+#: ``osprey init <repo>`` arguments this module's stack is built from.
+INIT_PRESET_ARGS = [
+    "--preset",
+    "control-assistant",
+    "--no-git",
+    *set_pairs(
+        {
+            "config": {
+                "modules.web_terminals.enabled": False,
+                PORT_BASE_CONFIG_KEY: PORT_BASE,
+            }
+        }
+    ),
+    "--set",
+    "provider=als-apg",
+    "--set",
+    "model=claude-haiku-5-5",
+    "--set",
+    f"virtual_accelerator.port={VA_CA_PORT}",
+    "--set",
+    f"virtual_accelerator.pva_port={VA_PVA_PORT}",
+    "--set",
+    f"dispatch.tier={WORKER_TIER}",
+]
 
 DISPATCHER_URL = f"http://localhost:{default_port('dispatcher', base=PORT_BASE)}"
 DISPATCHER_MCP_URL = f"{DISPATCHER_URL}{DISPATCHER_MCP_PATH}"
@@ -153,10 +184,10 @@ WRITE_PROBE_UNOWNED_TRIGGER = "single-user-write-unowned"
 #: and an earlier draft got it wrong: the limits database is enforced by a
 #: PreToolUse HOOK that runs BEFORE the tool, so a channel it marks read-only —
 #: any ``:RB`` readback — is refused there with "CHANNEL LIMITS VIOLATION" and
-#: the call never reaches the connector where the store verdict is read. The
+#: the call never reaches the connector where the write verdict is read. The
 #: refusal rows would then pass or fail on a fact about the address rather than
 #: on the narrowing under test. A writable setpoint inside its limits clears
-#: that gate, so the only refusal a narrowed owner can meet is the store's.
+#: that gate, so the only refusal a narrowed owner can meet is the verdict's.
 PROBE_CHANNEL = "SR:MAG:HCM:01:CURRENT:SP"
 PROBE_VALUE = "1.0"
 
@@ -165,14 +196,16 @@ PROBE_VALUE = "1.0"
 #: about an address — the exact trap that cost a run.
 LIMITS_REFUSAL = "CHANNEL LIMITS VIOLATION"
 
-#: The closing clause of each store arm of the connector's refusal. The
-#: unavailable arm's prose CONTAINS the word "narrowing" ("This is not a
-#: narrowing anybody set"), so the arms are told apart by the clause each one
-#: CLOSES on and never by the bare word. Spelled as in ``test_dispatch_deploy``,
-#: because a drift between the two modules' spellings would let one of them pass
-#: on a message the other no longer recognises.
-NARROWING_CLAUSE = "The store answered narrowing."
-UNAVAILABLE_CLAUSE = "the store answered control_context_unavailable."
+#: The refusal phrases a judged write can come back with: the owner's switch is
+#: off for the machine (a record narrowed to read-only reads as off), the owner's
+#: record cannot be read, and a run that belongs to no login. Each is the
+#: refusals contract's phrase without its machine-kind suffix, so a row matches
+#: whichever kind the deployment's machine is. Spelled as in
+#: ``test_dispatch_deploy``, because a drift between the two modules' spellings
+#: would let one of them pass on a message the other no longer recognises.
+SWITCH_OFF_REFUSAL = refusal_phrase("switch_off")
+UNAVAILABLE_REFUSAL = refusal_phrase("record_unavailable")
+OWNER_UNSCHEDULED_REFUSAL = refusal_phrase("owner_unscheduled")
 
 _EVIDENCE_CAP = 6000
 
@@ -183,27 +216,6 @@ pytestmark = [
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),
     pytest.mark.flaky(reruns=1),
 ]
-
-
-def _find_osprey_console_script() -> Path:
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError("Could not locate the 'osprey' console script.")
-
-
-def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        cmd,
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env={**os.environ, "CLAUDECODE": ""},
-    )
 
 
 def _docker_capture(cmd: list[str]) -> str:
@@ -283,7 +295,7 @@ def _narrow_the_build_account(repo: Path) -> Path:
     a deployment whose connector resolved a different one.
 
     The tree marker is ASSERTED rather than created. A reader that finds no
-    marker answers ``control_context_unavailable`` for every owner, which would
+    marker answers ``record_unavailable`` for every owner, which would
     make the refusal row below pass for entirely the wrong reason; and the build
     is what provisions the tree, so a missing marker is a defect in the thing
     under test rather than a state to paper over.
@@ -318,63 +330,28 @@ def single_user_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path
     if not os.environ.get("ALS_APG_API_KEY"):
         pytest.skip("ALS_APG_API_KEY not set")
 
-    osprey_bin = _find_osprey_console_script()
+    osprey_bin = find_osprey_console_script()
     base = tmp_path_factory.mktemp("single_user_narrowing_build")
     repo = base / PROJECT_NAME
 
-    # The single-user shape, stated as one leaf: no roster, so no nginx, no
-    # per-user container, and no identity but the build account's own. Dotted
-    # LEAF keys on purpose — each edit states only its own leaf and leaves its
-    # subtree's siblings intact.
-    edits = {
-        "config": {
-            "modules.web_terminals.enabled": False,
-            PORT_BASE_CONFIG_KEY: PORT_BASE,
-        }
-    }
-
-    init = _run(
-        [
-            str(osprey_bin),
-            "init",
-            str(repo),
-            "--preset",
-            "control-assistant",
-            "--no-git",
-            *set_pairs(edits),
-            "--set",
-            "provider=als-apg",
-            "--set",
-            "model=claude-haiku-5-5",
-            "--set",
-            f"virtual_accelerator.port={VA_CA_PORT}",
-            "--set",
-            f"virtual_accelerator.pva_port={VA_PVA_PORT}",
-            "--set",
-            f"dispatch.tier={WORKER_TIER}",
-        ],
+    init = run_command(
+        [str(osprey_bin), "init", str(repo), *INIT_PRESET_ARGS],
         cwd=base,
         timeout=300,
     )
     if init.returncode != 0:
-        pytest.fail(
-            f"osprey init failed (rc={init.returncode}):\n"
-            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
-        )
+        pytest.fail(format_failure("osprey init", init))
 
     # Before the build, so the render the dispatcher loads carries them.
     _append_probe_triggers(repo)
 
-    build = _run(
+    build = run_command(
         [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         cwd=base,
         timeout=300,
     )
     if build.returncode != 0:
-        pytest.fail(
-            f"osprey build failed (rc={build.returncode}):\n"
-            f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
-        )
+        pytest.fail(format_failure("osprey build", build))
     rendered = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
     assert dispatch_tier_name(rendered) == WORKER_TIER, (
         f"the build runs the dispatch workers at {dispatch_tier_name(rendered)!r}, not "
@@ -410,13 +387,12 @@ def single_user_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path
         subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
 
     try:
-        up = _run([str(osprey_bin), "up", "-d", "--dev"], cwd=repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
+        up = run_command(
+            [str(osprey_bin), "up", "-d", "--dev"], cwd=repo, timeout=DEPLOY_UP_TIMEOUT_SEC
+        )
         if up.returncode != 0:
-            pytest.fail(
-                f"osprey up failed (rc={up.returncode}):\n"
-                f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
-            )
-        _wait_for_health(f"{DISPATCHER_URL}/health", HEALTH_TIMEOUT_SEC)
+            pytest.fail(format_failure("osprey up", up))
+        wait_for_health(f"{DISPATCHER_URL}/health", HEALTH_TIMEOUT_SEC)
         # A healthy dispatcher does not mean a healthy worker: the worker runs
         # the heavier project image and boots later. Gate on its proxied feed so
         # no row races a still-warming worker, and a worker that never comes up
@@ -424,7 +400,7 @@ def single_user_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path
         _wait_for_worker_feed(HEALTH_TIMEOUT_SEC)
         yield repo
     finally:
-        down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
+        down = run_command([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
             print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
@@ -432,21 +408,6 @@ def single_user_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path
         # Volumes are deliberately kept by `down`; remove this project's own via
         # the shared label-scoped sweep. Exact-named only, never a prune.
         remove_project_volumes(resolve_project_name({"project_name": PROJECT_NAME}))
-
-
-def _wait_for_health(url: str, timeout: float) -> None:
-    deadline = time.monotonic() + timeout
-    last_err = "(no response yet)"
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # localhost
-                if resp.status == 200:
-                    return
-                last_err = f"HTTP {resp.status}"
-        except (urllib.error.URLError, ConnectionError, OSError) as exc:
-            last_err = str(exc)
-        time.sleep(1.0)
-    raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
 
 
 def _dump_stack_diagnostics(context: str) -> str:
@@ -717,25 +678,71 @@ def _wait_for_terminal_run(trigger: str, timeout: float = RUN_TIMEOUT_SEC) -> di
     )
 
 
-def _persisted_run_record(run_id: str) -> dict:
-    """The worker's own record of a run — the one artifact carrying tool results.
+#: Run inside the worker container, under the worker's own record login: the
+#: run's timeline from the agent record, as ``{name, input, result}`` per tool
+#: call. Retries while the read is incomplete (the transcript still ingesting).
+_RECORDED_RUN_CLIENT = r"""
+import json, os, sys, time
+from osprey.agent_record.client import RecordClient
 
-    The dispatcher feed reports status and a tool COUNT; what a tool ANSWERED
-    lives only in ``<agent_data>/dispatch/<run_id>.json``. These rows assert on
-    the tool's answer, so they read it there rather than trusting the agent's
-    prose summary of it.
+client = RecordClient.from_env(os.environ)
+deadline = time.monotonic() + 60
+while True:
+    answer = client.run_timeline(sys.argv[1])
+    if answer.complete or time.monotonic() > deadline:
+        break
+    time.sleep(2)
+
+
+def text(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(str(b.get("text", "")) for b in content if isinstance(b, dict))
+    return "" if content is None else json.dumps(content)
+
+
+calls = []
+for node in answer.data or []:
+    if node.get("kind") != "tool_call":
+        continue
+    body = node.get("body") or {}
+    result = (node.get("result") or {}).get("body") or {}
+    calls.append(
+        {"name": body.get("name"), "input": body.get("input"), "result": text(result.get("content"))}
+    )
+print(json.dumps({
+    "complete": answer.complete,
+    "unavailable": answer.unavailable,
+    "reason": answer.reason,
+    "tool_calls": calls,
+}))
+"""
+
+
+def _persisted_run_record(run_id: str) -> dict:
+    """The run as the agent record holds it — the one place carrying tool results.
+
+    The dispatcher feed reports status and a tool COUNT; what a tool ANSWERED is
+    in the run's timeline in the agent record, read here from inside the worker
+    under its own record login, as ``tool_calls`` of ``{name, input, result}``.
+    These rows assert on the tool's answer, so they read it there rather than
+    trusting the agent's prose summary of it.
     """
-    record = subprocess.run(
-        ["docker", "exec", WORKER_CONTAINER, "cat", f"{WORKER_AGENT_DATA}/dispatch/{run_id}.json"],
+    proc = subprocess.run(
+        ["docker", "exec", WORKER_CONTAINER, "python3", "-c", _RECORDED_RUN_CLIENT, run_id],
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=120,
     )
-    assert record.returncode == 0, (
-        f"could not read the persisted record for run {run_id}: "
-        f"{(record.stderr or record.stdout).strip()}"
+    assert proc.returncode == 0, (
+        f"could not read run {run_id} from the agent record: {(proc.stderr or proc.stdout).strip()}"
     )
-    return json.loads(record.stdout)
+    recorded = json.loads(proc.stdout)
+    assert recorded["complete"], (
+        f"the record's timeline of run {run_id} is not complete: {recorded}"
+    )
+    return recorded
 
 
 def _tool_answers(record: dict, tool_suffix: str) -> list[str]:
@@ -756,7 +763,7 @@ def _run_evidence(trigger: str, run: dict, record: dict | None = None) -> str:
         lines.append(f"agent text_output:\n{text[:_EVIDENCE_CAP]}")
     if record is not None:
         lines.append(
-            f"persisted tool_calls:\n{json.dumps(record.get('tool_calls'), indent=2)[:_EVIDENCE_CAP]}"
+            f"recorded tool_calls:\n{json.dumps(record.get('tool_calls'), indent=2)[:_EVIDENCE_CAP]}"
         )
     lines.append(
         f"--- {WORKER_CONTAINER} (last 200 log lines) ---\n"
@@ -770,7 +777,7 @@ def _control_tree_is_readable_in_the_worker() -> bool:
 
     The tree reaches the container through a shared group, and on Docker Desktop
     the bind's host ownership is remapped — so whether an owned write is answered
-    with its owner's narrowing or with ``control_context_unavailable`` is decided
+    as its owner's switch being off or as ``record_unavailable`` is decided
     by the access probe, not by the deployment. The entrypoint runs that probe at
     start and its log says which it got, so the row asserts whichever it reports
     rather than pinning the Linux answer on every host.
@@ -798,7 +805,7 @@ def test_the_build_accounts_record_is_group_readable_on_a_deployed_stack(
     the defect: ``write_json_atomic`` fchmods the descriptor explicitly, and if
     it did not, a CI runner at umask 022 would still produce 0640 while a
     developer host at 077 produced 0600 — where every owned lane write fails
-    closed on ``control_context_unavailable`` and narrowing silently stops
+    closed on ``record_unavailable`` and narrowing silently stops
     holding. Group-readability is named as its own assertion, so a failure says
     which property broke rather than printing two octal numbers.
 
@@ -815,7 +822,7 @@ def test_the_build_accounts_record_is_group_readable_on_a_deployed_stack(
     assert mode & stat.S_IRGRP, (
         f"{record_path} is {oct(mode)} and the group cannot read it — the dispatch "
         "worker drops to uid 1000 and reaches this record through the shared group "
-        "alone, so every owned write would fail closed on control_context_unavailable"
+        "alone, so every owned write would fail closed on record_unavailable"
     )
     assert mode == 0o640, (
         f"{record_path} is {oct(mode)}, not 0640. The mode is set on the descriptor "
@@ -841,10 +848,9 @@ def test_an_owned_jobs_first_write_is_refused_by_the_build_accounts_narrowing() 
 
     Which refusal is correct is a fact about the HOST rather than about this
     deployment: on Docker Desktop the bind's ownership is remapped and the tree
-    is unreadable, which fails closed on ``control_context_unavailable`` instead.
-    The entrypoint's own access probe says which, and this row asserts that one —
-    by the clause each arm CLOSES on, never by the word "narrowing", which the
-    unavailable arm's prose also carries.
+    is unreadable, which fails closed on ``record_unavailable`` instead. The
+    entrypoint's own access probe says which, and this row asserts that one by its
+    refusal phrase; the narrowed record reads as the switch being off.
     """
     _fire_and_assert_dispatched(WRITE_PROBE_OWNED_TRIGGER, owner=_build_account())
 
@@ -859,19 +865,19 @@ def test_an_owned_jobs_first_write_is_refused_by_the_build_accounts_narrowing() 
     joined_answers = "\n".join(answers)
     assert LIMITS_REFUSAL not in joined_answers, (
         f"the write to {PROBE_CHANNEL} was refused by the LIMITS hook, which runs "
-        "before the tool and therefore before the store verdict is ever read — so "
+        "before the tool and therefore before the write verdict is ever read — so "
         "this row saw a fact about the address rather than the narrowing it exists "
         "to prove. Pick a channel this deployment's data/channel_limits.json marks "
         f"writable and a value inside its range.\n{joined_answers[:_EVIDENCE_CAP]}\n{evidence}"
     )
     readable = _control_tree_is_readable_in_the_worker()
-    expected = NARROWING_CLAUSE if readable else UNAVAILABLE_CLAUSE
+    expected = SWITCH_OFF_REFUSAL if readable else UNAVAILABLE_REFUSAL
     why = (
         f"the build account {_build_account()!r} is narrowed to read-only, so the "
-        "write must be refused with the store's narrowing verdict"
+        "write must be refused as switch_off"
         if readable
         else "the worker's entrypoint reported it cannot read the control-context tree, "
-        "so every owned write must fail closed on control_context_unavailable"
+        "so every owned write must fail closed on record_unavailable"
     )
     joined = "\n".join(answers)
     assert any(expected in answer for answer in answers), (
@@ -880,23 +886,20 @@ def test_an_owned_jobs_first_write_is_refused_by_the_build_accounts_narrowing() 
 
 
 @pytest.mark.usefixtures("single_user_stack")
-def test_an_owner_less_job_is_held_to_the_deployment_ceiling() -> None:
-    """S3: the control for S2 — an owner-less job reads nobody's narrowing.
+def test_an_owner_less_job_is_refused_as_unscheduled() -> None:
+    """S3: the control for S2 — an owner-less job's write is refused for its own reason.
 
     The build account is narrowed; a cron-shaped fire of the same probe must not
-    inherit that narrowing, because the run belongs to nobody and the deployment
-    ceiling is what governs it. Without this row a wire that resolved the tree's
-    only identity for every run — which is exactly the mistake a single-user
-    deployment invites, since there IS only one — would satisfy S2 precisely as
-    the real one does.
+    inherit that narrowing, because the run belongs to nobody. Without this row a
+    wire that resolved the tree's only identity for every run — which is exactly
+    the mistake a single-user deployment invites, since there IS only one — would
+    satisfy S2 precisely as the real one does.
 
-    Asserted two ways, because absence alone is weak. Neither store clause may
-    appear — an owner-less run reads no record at all, so neither verdict can be
-    its reason for refusing — AND the write must actually succeed, so that a
-    probe refused for some unrelated reason cannot pass this row having judged
-    nothing. The deployment's own ceiling permits it: this preset renders
-    ``control_system.writes_enabled: true`` and lists the probe channel as
-    writable.
+    Nobody's switch covers an owner-less run either, so its write is refused as
+    ``owner_unscheduled`` — never as the build account's ``switch_off`` and never
+    as an unreadable record, which would mean the run was judged against somebody's
+    record. The write must not succeed, and the expected phrase must be present, so
+    a probe refused for some unrelated reason cannot pass this row.
     """
     _fire_and_assert_dispatched(WRITE_PROBE_UNOWNED_TRIGGER, owner=None)
 
@@ -909,29 +912,26 @@ def test_an_owner_less_job_is_held_to_the_deployment_ceiling() -> None:
         f"was ever judged.\n{evidence}"
     )
     joined_answers = "\n".join(answers)
-    for clause in (NARROWING_CLAUSE, UNAVAILABLE_CLAUSE):
-        assert clause not in joined_answers, (
-            "an owner-less job's write was judged against a recorded write state — "
-            "it must be held to the deployment ceiling alone. The channel-write "
-            f"tool answered:\n{joined_answers[:_EVIDENCE_CAP]}\n{evidence}"
-        )
-    # Absence of both clauses is not enough on its own, and a run proved why: a
-    # probe refused for some unrelated reason — a read-only address, a limits
-    # violation, a transport error — carries neither clause and would let this
-    # row pass having judged nothing. The control is only a control if the write
-    # the narrowed identity was refused actually SUCCEEDS when nobody owns it,
-    # so the tool's own success envelope is asserted (channel_write answers
-    # {"status": "success", "description": "Wrote N channel(s)", ...}).
+    # A probe refused before the tool ran — a limits violation — judged nothing
+    # about the owner, so it must not read as the refusal this row expects.
     assert LIMITS_REFUSAL not in joined_answers, (
         f"the write to {PROBE_CHANNEL} was refused by the limits hook before the "
         "tool ran, so this row judged nothing. Pick a channel this deployment's "
         "data/channel_limits.json marks writable and a value inside its range.\n"
         f"{joined_answers[:_EVIDENCE_CAP]}\n{evidence}"
     )
-    assert any_answer_succeeded(answers), (
-        f"the owner-less write to {PROBE_CHANNEL} did not succeed. An owner-less run "
-        "belongs to nobody, so no recorded write state governs it and the deployment "
-        "ceiling alone decides — which here permits the write. A refusal of ANY kind "
-        "means either the ceiling is not what this row assumes or the probe never "
-        f"reached the machine.\n{joined_answers[:_EVIDENCE_CAP]}\n{evidence}"
+    for phrase in (SWITCH_OFF_REFUSAL, UNAVAILABLE_REFUSAL):
+        assert phrase not in joined_answers, (
+            "an owner-less job's write was judged against a recorded switch — it belongs "
+            "to no login, so no record governs it. The channel-write tool "
+            f"answered:\n{joined_answers[:_EVIDENCE_CAP]}\n{evidence}"
+        )
+    assert not any_answer_succeeded(answers), (
+        f"the owner-less write to {PROBE_CHANNEL} succeeded. A cron-shaped fire runs "
+        "for no login, so no switch covers it and the write must be refused.\n"
+        f"{joined_answers[:_EVIDENCE_CAP]}\n{evidence}"
+    )
+    assert any(OWNER_UNSCHEDULED_REFUSAL in answer for answer in answers), (
+        "the owner-less write must be refused as owner_unscheduled. The channel-write "
+        f"tool answered:\n{joined_answers[:_EVIDENCE_CAP]}\n{evidence}"
     )

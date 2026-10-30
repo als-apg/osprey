@@ -76,7 +76,6 @@ import os
 from collections.abc import Iterator
 from contextvars import ContextVar
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from osprey.audit import writer
@@ -221,7 +220,7 @@ def decision_scope() -> Iterator[None]:
         _MARKER.reset(token)
 
 
-def record_and_mark(*, decision: str, reason: str, **fields: Any) -> Path | None:
+def record_and_mark(*, decision: str, reason: str, **fields: Any) -> str | None:
     """File one record as the innermost layer and claim the decision.
 
     The entry point for a layer that decides *inside* another one. Everything
@@ -239,8 +238,8 @@ def record_and_mark(*, decision: str, reason: str, **fields: Any) -> Path | None
     *agrees* with this one can still file it and keep the refusal from vanishing
     entirely.
 
-    Returns whatever :func:`~osprey.audit.writer.record` returned: the ledger
-    path, or ``None`` if the record was not durably stored.
+    Returns whatever :func:`~osprey.audit.writer.record` returned: the
+    record's ``entry_id``, or ``None`` if it was not durably stored.
     """
     # Called through the module, never as a name imported at module scope:
     # a from-import snapshots whatever `osprey.audit.writer.record` was at
@@ -248,6 +247,6 @@ def record_and_mark(*, decision: str, reason: str, **fields: Any) -> Path | None
     # process can be a stub some other test installed. Resolving the
     # attribute per call is also what lets a test redirect the writer for
     # the inner recorder and the outer layer alike.
-    path = writer.record(decision=decision, reason=reason, **fields)
-    mark_recorded(decision, reason, stored=path is not None)
-    return path
+    entry_id = writer.record(decision=decision, reason=reason, **fields)
+    mark_recorded(decision, reason, stored=entry_id is not None)
+    return entry_id

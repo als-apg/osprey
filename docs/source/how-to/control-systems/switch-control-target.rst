@@ -105,13 +105,12 @@ asks for is the same one — the same gate, the same checks, the same refusal
 reasons — and a target the gate would refuse shows why where the button
 would be. See `From the Web Terminal`_.
 
-Whether writes are *allowed* follows it too. Write posture is per control
-target, so a deployment can be armed on the simulator and read-only on the
-machine — the same tool call that moved a setpoint before the switch is refused
-after it, naming the target that refused. That is a property of the deployment's
-config, not of the switch, and it is set up in
-:doc:`use-virtual-accelerator`. Ask ``control_target`` if you want to know
-before you move: every row carries its own ``writes_permitted``.
+Whether writes are *allowed* follows it too. Your write switch is per machine
+and starts off on each, so a setpoint the simulator took is refused on the real
+machine until you turn that machine on from the chip
+(:ref:`write-safety-config`). Moving the deployment never turns a switch on. Ask
+``control_target`` if you want to know before you move: every row carries its
+own ``writes_permitted``.
 
 The archive does not follow the switch — archive reads keep the deployment's one
 configured archiver, and are stamped with the control target and the archiver
@@ -229,8 +228,8 @@ Coming home
 Ask for the baseline and the switch runs like any other, under the exemption
 above.
 
-Nothing else brings a deployment home. The control target and the write posture
-belong to the deployment and are recorded on its durable volume, so they
+Nothing else brings a deployment home. The control target and each login's
+write switches are recorded on the deployment's durable volume, so they
 outlive the conversation that set them, a controls server restarting, and
 ``osprey down && osprey up``: a fresh server adopts the recorded target rather
 than resetting it. A deployment somebody left on the real machine yesterday is
@@ -266,10 +265,10 @@ The popover on the tutorial deployment, whose baseline is the stand-in: the
 
 Each machine carries:
 
-- **A writes switch** — the write state on that machine, for the whole
-  deployment, and the control that changes it, in one widget. Turning writes
-  off applies as you click; turning them on asks first. Where the deployment
-  locks writes the switch is disabled, with the reason on hover.
+- **A writes switch** — your login's switch for that machine, and the control
+  that changes it, in one widget. Turning writes off applies as you click and
+  nothing refuses it; turning them on asks first. A switch that is off and
+  cannot be turned on is disabled, with the reason on hover.
 - **A small ⓘ** after the name — what writing to this machine means (*Writes
   move hardware*, or one of the *nothing moves* lines), the endpoint, and the
   controls server's own technical label, shown on hover or keyboard focus.
@@ -283,16 +282,16 @@ Each machine carries:
   leaves the row after a minute — an outcome is news for about as long as
   someone is watching for it.
 
-The foot's **Turn all writes off** takes writes away from every machine it can
-in one click, and reports any machine it could not narrow rather than
-dropping it. Everything in the popover is per machine and applies to the whole
-deployment; :doc:`../web-terminal/operate` walks the whole surface, including
-the write states themselves.
+The foot's **Turn all writes off** turns every switch of your login off in one
+click. It stops your login's writes only; other logins keep theirs. A switch
+is one login's: two logins on one machine never change each other's writes.
+:doc:`../web-terminal/operate` walks the whole surface, including what the
+chip cannot lift and who can.
 
 One process holds the deployment's control context at a time, and only that
-one writes to it. A second web terminal running against the same deployment
-data still renders the roster — worth reading — but its buttons are disabled,
-with a banner naming the holder and the port it is on.
+one moves the deployment. A second web terminal of the same login turns
+switches on and off as the first does, but its **Switch to** buttons give way
+to a phrase naming the holder.
 
 What a deployment needs first
 =============================
@@ -399,7 +398,8 @@ has actually measured it — whether its gateway answered.
      - One entry per configured gateway role — ``read_only``, ``write_access``,
        and ``pva`` where it exists — with the host, port and routing mode
        derived from config, plus ``selected_role``: the gateway this deployment
-       would actually use, which follows the write posture.
+       would actually use, which follows the write verdict — the read-only
+       gateway while writes are refused, where the machine has one.
    * - ``endpoint_tcp`` and ``probed_at``
      - The background check's last observation of that gateway, and when it made
        it. A row older than three probe intervals is marked ``stale`` rather
@@ -407,8 +407,8 @@ has actually measured it — whether its gateway answered.
    * - ``writes_permitted``, ``real_machine``, ``probe_channel``
      - Whether writes are permitted on **this target**, whether this target is
        the real machine, and the channel a switch would prove it with. Two rows
-       of the same deployment can disagree about the first one: write posture is
-       per target, so a simulator may be armed beside a live machine that is not.
+       of the same deployment can disagree about the first one: the switch is
+       per machine, so the simulator may be on beside a real machine that is off.
    * - ``limits_strict``
      - Whether **this target** runs exclusive limits — limits checking on and
        ``mode: exclusive``, so only channels in the limits file can be written.
@@ -540,7 +540,7 @@ is a materially different situation on the live machine than on the simulator. S
 every control-system failure envelope — a connect failure, a timeout, a limits
 refusal, a write the control system itself denied — names the target the
 deployment was pointed at when it failed: a human clause in the message
-(``active target: LIVE MACHINE at 10.0.0.5:5064``) and a machine-readable
+(``active target: Real machine — writes move hardware at 10.0.0.5:5064``) and a machine-readable
 ``details.active_target`` block carrying the target name, its label, and the
 endpoint where the configuration knows one. The agent narrating a failure, and
 any script asserting on one, can attribute it to the right machine from the
@@ -554,9 +554,9 @@ The switch would be a hazard if it were quiet. It is not:
 - **Every approval prompt names the target**, not only the write prompts — a
   queue start, a patch or an execution all carry the line too, so its absence is
   never something you learn to read as safe. The live machine is named as
-  ``LIVE MACHINE`` with the gateway the deployment actually holds; the stand-in as
-  ``LIVE MACHINE (stand-in)``; the simulator as
-  ``virtual accelerator (simulation)``. If the target cannot be read at all, the
+  ``Real machine — writes move hardware`` with the gateway the deployment
+  actually holds; the stand-in as ``Rehearsal — nothing moves``, in amber; the
+  simulator as ``virtual accelerator (simulation)``. If the target cannot be read at all, the
   line says so explicitly instead of disappearing. (The web terminal names the
   same machines by what they are --- *Real machine*, *Rehearsal*, *Simulator*,
   or the deployment's own configured names --- and keeps these technical labels
@@ -687,7 +687,7 @@ others and their archivers.
 does not run.
 
 **The label stays honest.** Nothing calls the stand-in the live machine. The
-banner reads ``LIVE MACHINE (stand-in)``, the roster says the same, and the
+banner reads ``Rehearsal — nothing moves``, the roster says the same, and the
 web terminal's header chip reads *Rehearsal* — named for what it is for, with
 the technical label kept on its ⓘ tooltip. It carries a real machine's posture — the
 same limits, the same approval prompts — because it is operated as one, not

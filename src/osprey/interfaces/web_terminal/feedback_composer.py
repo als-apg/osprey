@@ -1,26 +1,25 @@
 """Gather, once, everything a feedback report might want to say.
 
-A feedback submission is rendered twice — once at the full record budget kept
-on disk, once at the trimmed budget carried into the report body — and both
-renderings describe the *same* moment. Reading the transcript twice would not
-only cost twice (``read_session`` fans out into every subagent file, so each
-pass is ``1 + N`` file reads); it would risk the two renderings disagreeing,
-because the session keeps writing while the request is in flight. So the raw
-material is collected exactly once per request into :class:`Material`, and the
-render tiers work from that struct.
+The session's steps come from the agent record: one paged read of the
+session's timeline through the record client, waiting on a drain of that
+session so the step the operator just watched happen is in it. The read is
+made exactly once per request into :class:`Material` — the clipboard payload
+and the recorded ``feedback`` entry both render from that one struct, so the
+two cannot disagree while the session keeps writing. The keys of the entries
+read are kept as :attr:`Material.refs`: the recorded entry references the
+session's steps by key instead of copying excerpts of them.
 
-Two things in here look like over-caution and are not:
+Three things in here look like over-caution and are not:
 
 * **The session id is validated as a UUID before anything touches it.** It
   arrives from the browser, so anything that is not the canonical UUID spelling
-  is refused here, before the reader is asked; the reader's own refusal of an
-  id that is not a plain file name is the second line, not the first.
+  is refused here, before the record is asked.
 
-* **Timestamps are parsed before they are compared.** Claude Code transcripts
-  stamp ``2026-08-20T18:04:44.210Z``; :class:`~osprey.stores.artifact_store.ArtifactEntry`
-  stamps ``2026-08-20T18:04:44.210000+00:00``. Those two spellings denote the
-  same instant but do not order together as text (``Z`` is 0x5A, ``+`` is 0x2B),
-  so a string comparison silently sorts every artifact before every event.
+* **Timestamps are parsed before they are compared.** Record entries stamp
+  ``2026-08-20T18:04:44.210000+00:00``; other sources stamp
+  ``2026-08-20T18:04:44.210Z``. Those two spellings denote the same instant
+  but do not order together as text (``Z`` is 0x5A, ``+`` is 0x2B), so a
+  string comparison silently sorts one source before the other.
 
 * **The budget is counted and cut in UTF-8 bytes, never characters.** The
   clipboard payload has to stay under GitHub's issue-body limit, which is a
@@ -39,15 +38,26 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from osprey.agent_record.contract import (
+    KIND_ANSWER,
+    KIND_PROMPT,
+    KIND_SUBAGENT,
+    KIND_TOOL_CALL,
+)
+from osprey.mcp_server import session as session_record
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from osprey.mcp_server.workspace.transcript_reader import TranscriptReader
+    from osprey.agent_record.client import RecordClient
     from osprey.stores.artifact_store import ArtifactEntry, ArtifactStore
 
 CONTEXT_OK = "ok"
 """Session context was read in full."""
 
 CONTEXT_TRANSCRIPT_NOT_FOUND = "transcript_not_found"
-"""A session id was supplied but no transcript exists for it (dead session)."""
+"""A session id was supplied but the record holds no step of it."""
+
+CONTEXT_RECORD_UNAVAILABLE = "record_unavailable"
+"""A session id was supplied but the agent record did not answer the read."""
 
 CONTEXT_NO_SESSION = "no_session"
 """No session id was supplied — there is nothing to read context from."""
@@ -109,6 +119,9 @@ to a payload already measured at the ceiling.
 
 _STATUS_NOTES = {
     CONTEXT_TRANSCRIPT_NOT_FOUND: "no transcript found for this session — text and metadata only",
+    CONTEXT_RECORD_UNAVAILABLE: (
+        "the agent record did not answer for this session — text and metadata only"
+    ),
     CONTEXT_NO_SESSION: "no session id — text and metadata only",
 }
 
@@ -127,6 +140,10 @@ class Material:
     :data:`CONTEXT_TRANSCRIPT_NOT_FOUND` or :data:`CONTEXT_NO_SESSION`, and is
     reported back to the operator so a report that carries only the typed text
     and the deployment metadata says so instead of looking merely empty.
+
+    ``refs`` are the keys of the record entries the events and chat turns were
+    read from, in timeline order — what the recorded ``feedback`` entry carries
+    in place of the excerpts themselves.
     """
 
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -136,6 +153,7 @@ class Material:
     scrollback: str = ""
     artifact_entries: list[ArtifactEntry] = field(default_factory=list)
     session_id: str | None = None
+    refs: list[str] = field(default_factory=list)
 
 
 def validate_session_id(session_id: Any) -> str:
@@ -177,7 +195,7 @@ def parse_timestamp(value: Any) -> datetime | None:
     if not isinstance(value, str) or not value:
         return None
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value)
     except ValueError:
         return None
     if parsed.tzinfo is None:
@@ -186,7 +204,7 @@ def parse_timestamp(value: Any) -> datetime | None:
 
 
 def collect_material(
-    reader: TranscriptReader,
+    client: RecordClient,
     store: ArtifactStore,
     session_id: str | None,
     scrollback: str,
@@ -196,35 +214,35 @@ def collect_material(
 ) -> Material:
     """Read every source once and return the material to render from.
 
-    ``reader`` and ``store`` are injected rather than constructed here: the
-    route builds them as ``TranscriptReader(app.state.project_cwd)`` and
-    ``ArtifactStore(app.state.workspace_dir)``, and a reader rooted anywhere
-    else silently reports every session as missing.
+    ``client`` and ``store`` are injected rather than constructed here: the
+    route builds them from its environment and ``app.state.workspace_dir``.
 
-    Three shapes come out of this:
+    Four shapes come out of this:
 
-    * **A live session** — one call each to ``find_transcript_by_id``,
-      ``read_session_by_id``, ``read_chat_history_by_id`` and ``list_entries``.
-      ``list_entries`` is called with no ``session_filter``: the store's filter
-      matches "this session or untagged" and so ignores the time window, which
-      is the whole point of :func:`select_artifacts`.
+    * **A live session** — the session's timeline, read page by page through
+      ``client.timeline`` (the first page waiting on a drain of the session,
+      so the latest step is in it), and one ``list_entries`` on the artifact
+      store. ``list_entries`` is called with no ``session_filter``: the store's
+      filter matches "this session or untagged" and so ignores the time
+      window, which is the whole point of :func:`select_artifacts`.
 
-    * **A dead session** (``find_transcript_by_id`` returns ``None``) — status
-      :data:`CONTEXT_TRANSCRIPT_NOT_FOUND` and no further reads at all. This
-      never raises; a session that ended, or a transcript that was cleaned up,
-      still produces a report carrying the typed text and the metadata, which
-      is exactly what the operator is told the report contains.
+    * **A session the record holds nothing of** — status
+      :data:`CONTEXT_TRANSCRIPT_NOT_FOUND` and no artifact read.
+
+    * **A record that does not answer** — status
+      :data:`CONTEXT_RECORD_UNAVAILABLE`. Never raises: the report still
+      carries the typed text and the metadata, which is what the operator is
+      told it contains.
 
     * **No session id** — status :data:`CONTEXT_NO_SESSION`, metadata only.
-      The artifact index is skipped along with the transcript: with no session
+      The artifact index is skipped along with the timeline: with no session
       there is neither a tag to match nor a set of events to derive a window
-      from, so every entry in the store would be equally (un)related to this
-      report and listing them would be noise, not context.
+      from.
 
     ``session_id`` is the session key: it tags the artifacts and names the
-    session in the report. ``transcript_id`` is the transcript the reads open,
-    for a key whose conversation moved (a ``/clear``); omitted, the key names
-    its own transcript.
+    session in the report. ``transcript_id`` is the session the record read
+    opens, for a key whose conversation moved (a ``/clear``); omitted, the key
+    names its own.
     """
     material = Material(metadata=dict(metadata), scrollback=scrollback, session_id=session_id)
 
@@ -232,17 +250,105 @@ def collect_material(
         material.context_status = CONTEXT_NO_SESSION
         return material
 
-    transcript = transcript_id or session_id
-    if reader.find_transcript_by_id(transcript) is None:
+    read = session_record.read_timeline(transcript_id or session_id, client=client)
+    nodes = read.nodes
+    if not read.available:
+        material.context_status = CONTEXT_RECORD_UNAVAILABLE
+        return material
+    if not nodes:
         material.context_status = CONTEXT_TRANSCRIPT_NOT_FOUND
         return material
 
     material.context_status = CONTEXT_OK
-    material.events = reader.read_session_by_id(transcript)
-    material.chat = reader.read_chat_history_by_id(transcript)
+    material.events, material.chat, material.refs = timeline_material(nodes)
     # Session material only; the shipped example is not evidence of anything.
     material.artifact_entries = store.list_entries(exclude_examples=True)
     return material
+
+
+def _body(node: dict[str, Any] | None) -> dict[str, Any]:
+    body = node.get("body") if isinstance(node, dict) else None
+    return body if isinstance(body, dict) else {}
+
+
+def _result_summary(result: dict[str, Any] | None) -> str:
+    """The text of a tool result's content: a string, or its text blocks joined."""
+    content = _body(result).get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(
+            block["text"]
+            for block in content
+            if isinstance(block, dict) and isinstance(block.get("text"), str)
+        )
+    return ""
+
+
+def _keep_key(refs: list[str], node: dict[str, Any] | None) -> None:
+    key = node.get("key") if isinstance(node, dict) else None
+    if isinstance(key, str) and key and key not in refs:
+        refs.append(key)
+
+
+def timeline_material(
+    nodes: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
+    """Turn timeline nodes into ``(events, chat, refs)``.
+
+    A ``tool_call`` node is one event (with its result's error, when it
+    failed); a subagent is one event, followed by the events of its own
+    timeline. A ``prompt`` or ``answer`` carrying text is one chat turn.
+    Thinking, usage, decisions and the rest are steps of the session but not
+    of the report: they are neither rendered nor referenced. ``refs`` holds
+    the key of every entry an event or turn was read from, a call's result
+    included, once each, in timeline order.
+    """
+    events: list[dict[str, Any]] = []
+    chat: list[dict[str, Any]] = []
+    refs: list[str] = []
+
+    def visit(node: dict[str, Any]) -> None:
+        kind = node.get("kind")
+        stamp = node.get("ts") or ""
+        body = _body(node)
+        subagent = node.get("subagent") if isinstance(node.get("subagent"), dict) else None
+        if kind == KIND_TOOL_CALL:
+            result = node.get("result") if isinstance(node.get("result"), dict) else None
+            events.append(
+                {
+                    "type": "tool_call",
+                    "timestamp": stamp,
+                    "tool": body.get("name") or "",
+                    "is_error": bool(_body(result).get("is_error")),
+                    "result_summary": _result_summary(result),
+                }
+            )
+            _keep_key(refs, node)
+            _keep_key(refs, result)
+        elif kind == KIND_SUBAGENT or (subagent and node.get("orphan")):
+            events.append(
+                {
+                    "type": "subagent",
+                    "timestamp": stamp,
+                    "agent_id": node.get("agent_id") or (subagent or {}).get("agent_id") or "",
+                }
+            )
+            _keep_key(refs, node)
+        elif kind in (KIND_PROMPT, KIND_ANSWER) and isinstance(body.get("text"), str):
+            if body["text"].strip():
+                role = "user" if kind == KIND_PROMPT else "assistant"
+                chat.append({"role": role, "timestamp": stamp, "content": body["text"]})
+                _keep_key(refs, node)
+        if subagent:
+            for child in subagent.get("timeline") or ():
+                if isinstance(child, dict):
+                    visit(child)
+
+    for node in nodes:
+        if isinstance(node, dict):
+            visit(node)
+    return events, chat, refs
 
 
 def select_artifacts(
@@ -509,7 +615,9 @@ def _format_artifacts(entries: list[ArtifactEntry]) -> list[str]:
     return [f"- {entry.id}  {entry.title.strip() or '(untitled)'}\n" for entry in oldest_first]
 
 
-def render_bundle(material: Material, budget_bytes: int) -> tuple[str, bool]:
+def render_bundle(
+    material: Material, budget_bytes: int, *, excerpts: bool = True
+) -> tuple[str, bool]:
     """Render ``material`` into at most ``budget_bytes`` UTF-8 bytes.
 
     Returns ``(text, truncated)``. The same material and budget always render
@@ -525,6 +633,11 @@ def render_bundle(material: Material, budget_bytes: int) -> tuple[str, bool]:
     When ``material.context_status`` is not :data:`CONTEXT_OK` the four context
     tiers are replaced by a one-line note saying why, so a report carrying only
     the deployment metadata says so rather than looking merely uneventful.
+
+    ``excerpts=False`` renders the context the recorded ``feedback`` entry
+    keeps: the deployment tier and the artifact inventory only. The event log
+    and the chat are already in the record (the entry references them by key)
+    and the scrollback is kept beside the context, so neither is copied.
     """
     writer = _BundleWriter(budget_bytes)
     writer.add_section("deployment", _format_metadata(material.metadata), keep_tail=False)
@@ -536,16 +649,17 @@ def render_bundle(material: Material, budget_bytes: int) -> tuple[str, bool]:
         writer.add_section("session context", [note + "\n"], keep_tail=False)
         return writer.result(), writer.truncated
 
-    writer.add_section(
-        f"event log ({_count(len(material.events), 'event')})",
-        [_format_event(event) for event in material.events],
-    )
-    writer.add_section(
-        f"chat history ({_count(len(material.chat), 'turn')}, newest first)",
-        [_format_turn(turn) for turn in reversed(material.chat)],
-        keep_tail=False,
-    )
-    writer.add_text_section("terminal scrollback (tail)", material.scrollback)
+    if excerpts:
+        writer.add_section(
+            f"event log ({_count(len(material.events), 'event')})",
+            [_format_event(event) for event in material.events],
+        )
+        writer.add_section(
+            f"chat history ({_count(len(material.chat), 'turn')}, newest first)",
+            [_format_turn(turn) for turn in reversed(material.chat)],
+            keep_tail=False,
+        )
+        writer.add_text_section("terminal scrollback (tail)", material.scrollback)
 
     tagged, windowed, window_ok = select_artifacts(
         material.artifact_entries,
@@ -655,10 +769,10 @@ def assemble_payload(
     is left.
 
     ``record_id`` is substituted into :data:`TEXT_TRUNCATION_MARKER` when the
-    caller already knows it. The send route does: it allocates the id with
-    ``new_record_id()`` *before* composing and hands the same id to
-    ``write_record`` afterwards, precisely so the marker, the digest stored in
-    the header and the bytes the operator pasted all describe one string.
+    caller already knows it. The send route does: it allocates the entry id
+    *before* composing and hands the same id to the record writer afterwards,
+    precisely so the marker, the digest stored in the entry and the bytes the
+    operator pasted all describe one string.
     Left out, the marker keeps its literal ``<id>`` placeholder — which
     is right for the record-less bundle endpoint, but a caller must **not**
     substitute the id afterwards: that would add bytes to a payload already

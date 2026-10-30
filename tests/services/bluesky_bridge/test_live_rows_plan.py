@@ -18,19 +18,10 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
 from osprey.services.bluesky_bridge import live_rows
 from osprey.services.bluesky_bridge.document_plane import RunDocumentRouter
 from osprey.services.bluesky_bridge.live_rows import LiveRowRecorder
 from osprey.services.bluesky_bridge.queue_backend import PLAN_META_KEY
-
-
-@pytest.fixture(autouse=True)
-def _isolated_buffers():
-    live_rows._clear()
-    yield
-    live_rows._clear()
 
 
 def _start_doc(uid: str = "run-1", **extra: Any) -> dict[str, Any]:

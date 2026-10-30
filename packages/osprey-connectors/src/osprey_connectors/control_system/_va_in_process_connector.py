@@ -258,7 +258,7 @@ def _seq(document: Any) -> int | None:
 def _mark(document: Any, text: str) -> int | str:
     """What one look at the journal saw: its ``seq``, else its text, ``0`` when empty."""
     seq = _seq(document)
-    return (0 if not text else text) if seq is None else seq
+    return (text or 0) if seq is None else seq
 
 
 class VAInProcessConnector(ControlSystemConnector):
@@ -426,9 +426,9 @@ class VAInProcessConnector(ControlSystemConnector):
         if rejection is not None:
             self._reject(*rejection)
             return
-        replayed: dict[str, Any] = {}
-        for _seq_no, address, value in sorted(writes, key=lambda entry: entry[0]):
-            replayed[address] = value
+        replayed: dict[str, Any] = {
+            address: value for _seq_no, address, value in sorted(writes, key=lambda entry: entry[0])
+        }
         try:
             self._composite.set(replayed)
         except Exception as exc:

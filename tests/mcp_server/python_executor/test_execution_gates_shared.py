@@ -1,9 +1,9 @@
 """The refusal order of the executor tools, pinned for both of them at once.
 
-``execute`` and ``execute_file`` run one gate sequence — posture clamp,
-``quick_safety_check``, path policy, the readonly import denylist, pattern
-detection, the deployment writes gate, the readonly pattern refusal, then the
-launch, the write-activity report and the runtime-refusal report. When one call
+``execute`` and ``execute_file`` run one gate sequence — the posture clamp
+(the write verdict for the run's target), ``quick_safety_check``, path policy,
+the readonly import denylist, pattern detection, the readonly pattern refusal,
+then the launch, the write-activity report and the runtime-refusal report. When one call
 trips several gates, the agent is told about the first one only, so the order
 is part of what each tool says. These cases stage exactly two gates at a time
 and assert which one answers, for both tools, so the two can never drift apart
@@ -16,7 +16,10 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from osprey.audit import posture
 from osprey.mcp_server.python_executor.executor import ExecutionResult
+from osprey_connectors.refusals import refusal_phrase, refusal_text
+from osprey_connectors_tests._write_fakes import ARMED_SECTION, ARMED_TARGET, arm_switch
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 
 TOOLS = pytest.mark.parametrize("tool_name", ["execute", "execute_file"])
@@ -34,11 +37,11 @@ CLIENT_IMPORT = "import epics\n"
 CLIENT_WRITE = "epics.caput('SR:QF1:SP', 1.0)\n"
 
 #: What each refusal says, matched on its own words.
-SAYS_CLAMP = "readonly execution mode"
+SAYS_CLAMP = refusal_phrase("readonly_run")
+SAYS_OFF = refusal_text("switch_off", "simulator")
 SAYS_PATH = "location the deployment protects"
 SAYS_IMPORT = "cannot be imported in readonly mode"
 SAYS_PATTERN = "write patterns detected in readonly mode"
-SAYS_DEPLOYMENT = "writes"
 
 _SAFETY_MESSAGE = {
     "execute": "Code failed pre-execution safety checks.",
@@ -51,23 +54,18 @@ _TOOL_MODULE = {
 
 
 @pytest.fixture(autouse=True)
-def audit_zone(tmp_path, monkeypatch):
-    """Every refusal here records; keep the records out of the real ledger."""
-    from osprey.audit import writer
-
-    zone = tmp_path / "audit"
-    monkeypatch.setattr(writer, "audit_dir", lambda: zone)
-    return zone
-
-
-@pytest.fixture(autouse=True)
 def _no_ambient_deployment(control_context_root, monkeypatch):
-    """Answer the posture gates from a scratch deployment, never the machine's."""
+    """Answer the posture gates from a scratch deployment, never the machine's.
+
+    The deployment's tier allows writes and its record is on the simulator with
+    the switch on, so a readwrite run passes the clamp unless a test turns the
+    switch off (:func:`_switched_off`) or makes the run read-only.
+    """
     from osprey_connectors import posture_store
 
     monkeypatch.delenv("OSPREY_CONTROL_TARGET", raising=False)
-    monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
-    posture_store.invalidate_cache()
+    monkeypatch.setattr(posture, "control_system_section", lambda: dict(ARMED_SECTION))
+    arm_switch(monkeypatch, control_context_root, ARMED_TARGET, stamp=False)
     yield control_context_root
     posture_store.invalidate_cache()
 
@@ -100,18 +98,11 @@ def launch():
         yield mock
 
 
-def _writes(enabled: bool):
-    """The deployment's writes key, pinned; off makes the deployment writes gate fire."""
-    from osprey.services.python_executor.execution.control import ExecutionControlConfig
+def _switched_off() -> None:
+    """Turn the record's switch off for the run's target: the clamp then refuses."""
+    from osprey_connectors_tests._write_fakes import turn_switch
 
-    return patch(
-        "osprey.services.python_executor.execution.control.get_execution_control_config",
-        return_value=ExecutionControlConfig(control_system_writes_enabled=enabled),
-    )
-
-
-def _writes_disabled():
-    return _writes(False)
+    turn_switch(ARMED_TARGET, "off")
 
 
 async def _call(tool_name, root, code, execution_mode, *, missing_file=False):
@@ -158,7 +149,7 @@ async def test_posture_clamp_answers_before_the_safety_check(
     with assert_raises_error(error_type="safety_error") as ctx:
         await _call(tool_name, project_root, UNSAFE + PROTECTED_WRITE, "readwrite")
 
-    assert SAYS_CLAMP in ctx["envelope"]["error_message"]
+    assert ctx["envelope"]["error_message"].startswith(SAYS_CLAMP)
     launch.assert_not_awaited()
 
 
@@ -171,7 +162,7 @@ async def test_execute_file_clamp_answers_before_the_file_is_read(
     with assert_raises_error(error_type="safety_error") as ctx:
         await _call("execute_file", project_root, "", "readwrite", missing_file=True)
 
-    assert SAYS_CLAMP in ctx["envelope"]["error_message"]
+    assert ctx["envelope"]["error_message"].startswith(SAYS_CLAMP)
     launch.assert_not_awaited()
 
 
@@ -197,13 +188,14 @@ async def test_path_policy_answers_before_the_import_denylist(tool_name, project
 
 
 @TOOLS
-async def test_path_policy_answers_before_the_deployment_writes_gate(
+async def test_a_switched_off_target_answers_before_the_path_policy(
     tool_name, project_root, launch
 ):
-    with _writes_disabled(), assert_raises_error(error_type="safety_error") as ctx:
+    _switched_off()
+    with assert_raises_error(error_type="safety_error") as ctx:
         await _call(tool_name, project_root, PROTECTED_WRITE, "readwrite")
 
-    assert SAYS_PATH in ctx["envelope"]["error_message"]
+    assert ctx["envelope"]["error_message"] == SAYS_OFF
     launch.assert_not_awaited()
 
 
@@ -227,11 +219,13 @@ async def test_pattern_refusal_answers_before_the_launch(tool_name, project_root
 
 
 @TOOLS
-async def test_deployment_writes_gate_answers_before_the_launch(tool_name, project_root, launch):
-    with _writes_disabled(), assert_raises_error(error_type="safety_error") as ctx:
+async def test_a_switched_off_target_answers_before_the_launch(tool_name, project_root, launch):
+    _switched_off()
+    with assert_raises_error(error_type="safety_error") as ctx:
         await _call(tool_name, project_root, "x = 1\n", "readwrite")
 
-    assert SAYS_DEPLOYMENT in _said(ctx)
+    assert ctx["envelope"]["error_message"] == SAYS_OFF
+    assert "writes_enabled" not in _said(ctx)
     launch.assert_not_awaited()
 
 
@@ -301,7 +295,6 @@ async def test_a_clean_run_passes_every_gate_in_order(
         patch("osprey.mcp_server.python_executor.executor.execute_code", fake_launch),
         patch(f"{_TOOL_MODULE[tool_name]}.notify_agent_activity_async", notify),
         patch.object(gates, "record_and_alert_refusal", record),
-        _writes(True),
     ):
         await _call(tool_name, project_root, "x = 1\n", execution_mode)
 
@@ -372,10 +365,7 @@ async def test_helper_reports_write_activity_through_its_default_notify():
     from osprey.mcp_server.python_executor.tools import _execution_gates as gates
 
     notify = AsyncMock()
-    with (
-        patch.object(gates, "notify_agent_activity_async", notify),
-        patch.object(gates, "enforce_deployment_writes_gate", lambda *a: None),
-    ):
+    with patch.object(gates, "notify_agent_activity_async", notify):
         await gates.run_gated_execution(
             tool="pyaml_measure",
             code="x = 1\n",

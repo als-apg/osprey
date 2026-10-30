@@ -36,17 +36,17 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # that moves it says why. A comment is not resolved content, and neither is
     # a key the hash pops before digesting, so editing either moves nothing.
     "control-assistant": (
-        "sha256:d9baef351f26bc783484f5d43b8c1fcdbb48cb6357a78b306107008e4e442254"
+        "sha256:a50d71660b96c2544f9aaac26ad53a80ef89125405d925b0ab4ff147e90a3d3e"
     ),
-    "hello-world": ("sha256:029244f425e473d9e22635202920f1bb67474520cb5cffa97318a33c80c45240"),
-    "tiers/admin": ("sha256:1a50a4f75750dd6d006e4ad3238eaeddeba1ff44182bd689a84efcde5585932b"),
-    "tiers/readonly": ("sha256:bec2c97daa2bd8809bd3eb95b8509b3fba3425471a3b93c562a9429b1acde898"),
-    "tiers/readwrite": ("sha256:04c999b7f9da029263f3103065a0d224889a3147359237aa6b815c1fe4dd0bd7"),
+    "hello-world": ("sha256:3634eced947779b5da33c87273b7db9fe8e92d62449efa86ed329df354ca6ac4"),
+    "tiers/admin": ("sha256:b3c44a1abcfd7f1e0a2172b1bc3ef91017d581c04441ce37b8ca50bea4322fec"),
+    "tiers/readonly": ("sha256:2de7e2480b79ffafde8a2fd34b37c4195c31f12fdce5ff376e92c048c44af47f"),
+    "tiers/readwrite": ("sha256:2691f6cdd043bc06eba77aefe140bc86140009465677757c3f0fd5f95e3d5c36"),
     "apps/channel-finder": (
-        "sha256:e2b8213367141ab27e1d71a6fba42143c6a94ade7b7efe48f36b9ca0c0a13df6"
+        "sha256:0a5ebde0372a23ed24d2dd676231ba871233bc05d7d698ac7c79322f7623e196"
     ),
-    "apps/knowledge": ("sha256:3968102d73b9fd2ee13e8f0eb62f9e1e17700a725673222604b3cb833ec29a04"),
-    "apps/logbook": ("sha256:10fdb6c17c6725fc314745f767772c242afbc5ebd67ff6f61f38858e5c8755f6"),
+    "apps/knowledge": ("sha256:9b2cb4dc882df398eca494148016d61e8cf37a0dd18ab8b39fdc7f0c3a9f53d3"),
+    "apps/logbook": ("sha256:3b02f7e2ed3653f996605d480d563407411d8b4d1aad61490d95e24d46013108"),
 }
 
 

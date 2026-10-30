@@ -147,8 +147,8 @@ gives the container it runs in --- is what survives the stripping. In a
 multi-user deployment both answers are the user whose terminal the kernel
 belongs to, so a cell reads that user's own chip settings and nobody else's.
 
-Each channel a cell writes leaves one ``allowed`` record in
-``notebook_kernel.jsonl``, filed after the put. Its reason says how the write
+Each channel a cell writes leaves one ``allowed`` record on the
+``notebook_kernel`` surface, filed after the put. Its reason says how the write
 ended: ``write_landed`` when the write was verified, ``write_unconfirmed`` when
 the value was sent but not verified. The record's ``detail`` names the channel
 and the account and host the control system saw the write come from, which is
@@ -193,8 +193,8 @@ runtime's calls, which take the same address and value:
 ophyd, and ophyd-async's EPICS modules such as ``ophyd_async.epics.core``, are
 refused with them, because they load a client library underneath; ``bluesky``
 and ``ophyd_async.core`` import. Submit a plan that drives devices to a Bluesky
-lane queue instead, where it runs unchanged. Each refusal is filed in
-``notebook_kernel.jsonl`` with reason ``raw_client_import``.
+lane queue instead, where it runs unchanged. Each refusal is filed on the
+``notebook_kernel`` surface with reason ``raw_client_import``.
 
 The refusal keeps a cell on the connector path; it is not a sandbox. A shell
 escape or a subprocess starts a fresh interpreter without it, and what closes
@@ -230,6 +230,33 @@ The multi-user stack gives every user their own container and their own
 volumes, which a redeploy never touches (:doc:`multi-user/index`), so
 notebooks are per user. There is no shared notebook folder in this release.
 Sharing a notebook means handing over the file.
+
+.. _notebooks-outputs-no-script:
+
+What a notebook output cannot run
+---------------------------------
+
+Output an agent or a kernel writes can no longer run script inside the
+console's JupyterLab. The page's policy admits only the scripts the terminal
+served itself, because script in an output would run on the console's origin
+and could switch writes on.
+
+No longer run:
+
+- ``IPython.display.Javascript`` and ``application/javascript`` outputs.
+- ``<script>`` in an HTML output, and inline handlers such as ``onerror``.
+- bokeh's in-notebook renderer (``output_notebook()``).
+- Vega and Altair outputs, whose renderer is disabled with
+  ``@jupyterlab/javascript-extension``.
+- Frontend code a kernel supplies for itself, which is unsupported.
+
+Still work: matplotlib, Plotly ``fig.show()``, standard ipywidgets, tables,
+markdown, math and images. Bokeh dashboards in the artifact gallery are
+unaffected.
+
+The policy keeps ``'unsafe-eval'``, because Plotly and JupyterLab's own
+settings need it. Script in outputs is blocked by the nonce, not by that
+keyword.
 
 .. _notebooks-theming:
 

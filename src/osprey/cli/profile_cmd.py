@@ -33,9 +33,9 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 import click
 
 from osprey.profiles.providers import PROVIDERS_FILENAME
+from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIR_KINDS, TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
-from osprey_connectors.workspace import APPS_DIRNAME, LAYER_DIR_KINDS, TIERS_DIRNAME
 
 from .output import report, section
 from .profile_conventions import (
@@ -339,15 +339,22 @@ def _previous_provider_catalog(target: Path) -> Path | None:
     return None
 
 
-def _plan_provider_catalog(target: Path) -> _ProviderCatalogPlan:
-    """Resolve the catalog to write into ``target``, refreshing what OSPREY ships.
+def _plan_provider_catalog(target: Path, *, keep_values: bool = False) -> _ProviderCatalogPlan:
+    """Resolve the catalog to write into ``target`` from the one OSPREY ships.
 
-    A first init copies the packaged catalog byte for byte. A re-materialization
-    over a repo that already has one REFRESHES every packaged entry — that is
-    the point of re-running the command, and it is how a framework release
-    reaches a repo whose catalog nobody has touched — while carrying over every
-    entry the packaged catalog does not declare, comments included. Those are
-    the operator's own gateways, and nothing else in the repo remembers them.
+    A first init copies the packaged catalog byte for byte. Over a repo that
+    already has one there are two rules, chosen by the caller:
+
+    * ``osprey init --force`` re-materializes the source zone, discarding
+      edits, so it REFRESHES every packaged entry to the packaged text while
+      carrying over every entry the packaged catalog does not declare,
+      comments included. Those are the operator's own gateways, and nothing
+      else in the repo remembers them.
+    * ``osprey init --revalidate`` (``keep_values``) treats the file the way it
+      treats ``profile.yml``: every value it states is kept, an edited packaged
+      entry included, and only what it lacks is added — a packaged entry it
+      does not have, and a packaged key an existing entry does not state.
+      ``osprey validate`` reports each difference that remains as drift.
 
     Build-time resolution is the opposite rule on purpose
     (:func:`~osprey.profiles.providers.load_provider_catalog` replaces rather
@@ -359,6 +366,8 @@ def _plan_provider_catalog(target: Path) -> _ProviderCatalogPlan:
     Args:
         target: The repo root being materialized. Read only — the plan is
             returned, and the caller writes it once the directory exists.
+        keep_values: Keep every value the existing file states and add only
+            what it lacks, rather than refreshing the packaged entries.
 
     Returns:
         The file content, its parsed entries, its hash, and the names carried
@@ -370,7 +379,6 @@ def _plan_provider_catalog(target: Path) -> _ProviderCatalogPlan:
             entry from a packaged one in a file it cannot read, and silently
             replacing it would drop gateways.
     """
-    import tempfile
 
     from osprey.profiles.providers import (
         compute_providers_hash,
@@ -399,26 +407,55 @@ def _plan_provider_catalog(target: Path) -> _ProviderCatalogPlan:
     except BuildProfileError as e:
         raise click.UsageError(
             f"Cannot re-materialize over the provider catalog already in this repo: {e} "
-            f"A re-init refreshes the entries OSPREY ships and keeps yours, and it "
-            f"cannot tell which is which while that file does not parse — fix it, or "
-            f"move it aside."
+            f"The merge tells the entries OSPREY ships from yours, and it cannot "
+            f"while that file does not parse — fix it, or move it aside."
         ) from e
 
     carried = tuple(str(name) for name in existing_entries if name not in packaged_entries)
-    if not carried:
-        return _packaged_only()
 
-    # Merged as TEXT, not through a YAML round-trip: the packaged half then
-    # arrives byte-identical, and each carried entry brings the exact lines the
-    # operator wrote — a comment above the key included, which is precisely
-    # what a round-trip loses, because ruamel files a comment before a key
-    # under the key BEFORE it.
-    blocks = _catalog_entry_blocks(previous.read_text(encoding="utf-8"))
-    text = packaged_text if packaged_text.endswith("\n") else packaged_text + "\n"
-    for name in carried:
-        block = blocks.get(name)
-        if block:
-            text += block if block.endswith("\n") else block + "\n"
+    # Merged as TEXT, not through a YAML round-trip, either way: the packaged
+    # half arrives byte-identical, and the repo's own lines keep their comments,
+    # spacing and quoting — precisely what a round-trip loses, because ruamel
+    # files a comment before a key under the key BEFORE it.
+    if not keep_values:
+        if not carried:
+            return _packaged_only()
+        blocks = _catalog_entry_blocks(previous.read_text(encoding="utf-8"))
+        text = packaged_text if packaged_text.endswith("\n") else packaged_text + "\n"
+        for name in carried:
+            block = blocks.get(name)
+            if block:
+                text += block if block.endswith("\n") else block + "\n"
+        return _staged_provider_plan(text, previous, packaged_entries, existing_entries, carried)
+
+    text = previous.read_text(encoding="utf-8")
+    packaged_raw = _catalog_mapping(packaged_text)
+    existing_raw = _catalog_mapping(text)
+    packaged_blocks = _catalog_entry_blocks(packaged_text)
+    for name, entry in packaged_raw.items():
+        present = existing_raw.get(name)
+        if not isinstance(present, dict) or not isinstance(entry, dict):
+            continue
+        lacking = [key for key in entry if key not in present]
+        if lacking:
+            text = _add_entry_keys(text, name, _entry_key_lines(packaged_blocks[name], lacking))
+    missing = [name for name in packaged_raw if name not in existing_raw]
+    if missing:
+        text = _add_entries(text, "".join(packaged_blocks[name] for name in missing))
+    return _staged_provider_plan(text, previous, packaged_entries, existing_entries, carried)
+
+
+def _staged_provider_plan(
+    text: str,
+    previous: Path,
+    packaged_entries: Mapping[str, Any],
+    existing_entries: Mapping[str, Any],
+    carried: tuple[str, ...],
+) -> _ProviderCatalogPlan:
+    """The plan for writing *text*, validated and hashed as every reader of the file sees it."""
+    import tempfile
+
+    from osprey.profiles.providers import compute_providers_hash, load_provider_catalog
 
     # Staged rather than hashed in memory: the validation and the hash are the
     # ones every other reader of a catalog file gets, over the exact bytes this
@@ -437,6 +474,84 @@ def _plan_provider_catalog(target: Path) -> _ProviderCatalogPlan:
             f"`{PROVIDERS_FILENAME}`, then paste your own entries back into it."
         )
     return _ProviderCatalogPlan(text, entries, digest, carried)
+
+
+def _catalog_mapping(text: str) -> dict[str, Any]:
+    """The ``providers:`` mapping of a catalog file, as written (no defaults applied)."""
+    import yaml
+
+    document = yaml.safe_load(text) or {}
+    providers = document.get("providers") if isinstance(document, dict) else None
+    return providers if isinstance(providers, dict) else {}
+
+
+#: An entry's own key: four spaces, then a name.
+_CATALOG_ENTRY_FIELD = re.compile(r"^ {4}(?![ #])(.+?):")
+
+
+def _entry_key_lines(block: str, keys: list[str]) -> str:
+    """The lines of *block* (one sliced entry) that state *keys*, each with its body."""
+    wanted = set(keys)
+    picked: list[str] = []
+    taking = False
+    for line in block.splitlines(keepends=True):
+        field = _CATALOG_ENTRY_FIELD.match(line)
+        if field:
+            taking = field.group(1).strip().strip("'\"") in wanted
+        elif _CATALOG_ENTRY_KEY.match(line) or line.lstrip().startswith("#"):
+            taking = False
+        if taking:
+            picked.append(line)
+    return "".join(picked)
+
+
+def _catalog_spans(text: str) -> tuple[list[str], dict[str, int], int]:
+    """The file's lines, the index after each entry's last stated line, and after the last entry's.
+
+    A trailing comment run belongs to whatever follows it, so an addition goes
+    above it.
+    """
+    lines = text.splitlines(keepends=True)
+    ends: dict[str, int] = {}
+    current: str | None = None
+    inside = False
+    last = len(lines)
+    for index, line in enumerate(lines):
+        if not inside:
+            inside = bool(_CATALOG_ENTRIES_KEY.match(line.rstrip()))
+            last = index + 1
+            continue
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        match = _CATALOG_ENTRY_KEY.match(line)
+        if match:
+            current = match.group(1).strip().strip("'\"")
+        elif not line.startswith("  "):
+            break
+        if current is not None:
+            ends[current] = index + 1
+        last = index + 1
+    return lines, ends, last
+
+
+def _add_entry_keys(text: str, name: str, key_lines: str) -> str:
+    """*text* with *key_lines* added at the end of entry *name*."""
+    lines, ends, _last = _catalog_spans(text)
+    at = ends[name]
+    if at and not lines[at - 1].endswith("\n"):
+        lines[at - 1] += "\n"
+    lines[at:at] = key_lines.splitlines(keepends=True)
+    return "".join(lines)
+
+
+def _add_entries(text: str, blocks: str) -> str:
+    """*text* with whole entry *blocks* added after its last entry."""
+    lines, _ends, at = _catalog_spans(text)
+    if at and not lines[at - 1].endswith("\n"):
+        lines[at - 1] += "\n"
+    lines[at:at] = blocks.splitlines(keepends=True)
+    return "".join(lines)
 
 
 #: The line the entries hang under. A trailing comment on it is ordinary YAML
@@ -846,7 +961,7 @@ def _exported_provider_keys(
     ``.env`` — the file an operator can read, edit, and account for, and the one
     store compose and every ``${VAR}`` expansion read. There is no second copy
     to derive: a build only ever appends to that file
-    (:func:`~osprey_connectors.dotenv.append_profile_env`), so a key seeded here
+    (:func:`~osprey.deployment.dotenv.append_profile_env`), so a key seeded here
     survives every rebuild and a key that reaches a running deployment was
     written to this file first.
 
@@ -991,7 +1106,7 @@ def _write_secret_channel(
     Returns:
         Profile-relative names of the files written, for the caller's summary.
     """
-    from osprey_connectors.dotenv import append_profile_env
+    from osprey.deployment.dotenv import append_profile_env
 
     from .templates.scaffolding import (
         provider_api_key_entries,
@@ -1267,7 +1382,6 @@ def _layer_profile_texts(
     dispatch_tier = resolved.dispatch.tier if resolved.dispatch is not None else None
     tiers, apps = _roster_layers(resolved.config, dispatch_tier)
     texts: dict[str, str] = {}
-    problems: list[str] = []
     # What each layer can edit, recorded BOTH ways, because the two rules in
     # `_privileged_tier_problems` read two different answers: relative to
     # the host for the inherited `default_tier`, absolute for a shared card.
@@ -1275,11 +1389,11 @@ def _layer_profile_texts(
     host_privileges = tier_privileges(resolved.config)
     privileges: dict[str, tuple[str, ...]] = {}
     absolute: dict[str, tuple[str, ...]] = {}
-    for name in sorted(set(tiers) & set(apps)):
-        problems.append(
-            f"{name!r} is both a tier the roster names and an app in shared:, but a "
-            f"card renders from one file — rename one of them"
-        )
+    problems: list[str] = [
+        f"{name!r} is both a tier the roster names and an app in shared:, but a "
+        f"card renders from one file — rename one of them"
+        for name in sorted(set(tiers) & set(apps))
+    ]
     for dirname, word, names, bundled in (
         (TIERS_DIRNAME, LAYER_DIR_KINDS[TIERS_DIRNAME], tiers, list_tiers()),
         (APPS_DIRNAME, LAYER_DIR_KINDS[APPS_DIRNAME], apps, list_apps()),
@@ -1596,7 +1710,7 @@ def _materialize_profile_directory(
     """
     import shutil
 
-    from osprey_connectors.dotenv import env_lock_path
+    from osprey.deployment.dotenv import env_lock_path
 
     from .build_profile import (
         EXTENDS_OVERRIDE_REFUSAL,
@@ -1849,9 +1963,7 @@ def _materialize_profile_directory(
         if FACILITY_RULE_NAME in resolved.rules:
             rules_dir = target / FACILITY_RULE_DIR
             fresh = not rules_dir.exists()
-            moved = ensure_profile_facility_rule(
-                target, build_dir=None, enabled_agents=resolved.agents
-            )
+            moved = ensure_profile_facility_rule(target, enabled_agents=resolved.agents)
             if moved:
                 logger.debug("  %s", moved)
                 if fresh:
@@ -1891,6 +2003,12 @@ def _materialize_profile_directory(
                 )
         if seeded:
             logger.debug("  Seeded: %s", ", ".join(f"{name}/" for name in seeded))
+
+        # A profile or app that selects the library facility rule by its bare
+        # name selects the copy seeded above instead, by its path.
+        from .init_revalidate import name_shipped_shadows
+
+        name_shipped_shadows(target)
 
         # The round-trip runs last because it validates `data:` against the tree
         # that must already be on disk. Only the host profile is resolved: a

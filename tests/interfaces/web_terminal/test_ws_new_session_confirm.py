@@ -26,17 +26,11 @@ from unittest.mock import patch
 import pytest
 from starlette.testclient import TestClient
 
-from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 from tests.interfaces.web_terminal._fakes import FakePtySession
-from tests.interfaces.web_terminal._ws import recv_json
+from tests.interfaces.web_terminal._ws import patch_spawn, recv_json, resume_url, send_resize
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
-
-
-def _send_resize(ws, cols: int = 80, rows: int = 24):
-    """Send the initial resize the handler waits for before spawning."""
-    ws.send_json({"type": "resize", "cols": cols, "rows": rows})
 
 
 def _forced_session_id(command: list[str]) -> str:
@@ -45,23 +39,13 @@ def _forced_session_id(command: list[str]) -> str:
     return command[command.index("--session-id") + 1]
 
 
-@pytest.fixture()
-def app(tmp_path):
-    """Create a web terminal app pointed at a temp project dir."""
-    with patch(
-        "osprey.interfaces.web_terminal.app._load_web_config",
-        return_value={"watch_dir": str(tmp_path / "ws")},
-    ):
-        yield create_app(shell_command="fake-not-used", project_dir=str(tmp_path))
-
-
-def _patch_spawn(app):
+def _record_spawned_commands(ws_app):
     """Replace ``_spawn_session`` so no real PTY is created.
 
     Returns the registry and the list of commands it was asked to spawn, which
     is where the forced ``--session-id`` can be read back from.
     """
-    reg = app.state.pty_registry
+    reg = ws_app.state.pty_registry
     commands: list[list[str]] = []
 
     def tracked_spawn(command, *_args, **_kwargs):
@@ -72,26 +56,12 @@ def _patch_spawn(app):
     return reg, commands
 
 
-def _patch_spawn_tracking_sessions(app):
-    """As :func:`_patch_spawn`, but hands back the sessions themselves."""
-    reg = app.state.pty_registry
-    spawned: list[FakePtySession] = []
-
-    def tracked_spawn(*_args, **_kwargs):
-        s = FakePtySession()
-        spawned.append(s)
-        return s
-
-    reg._spawn_session = tracked_spawn
-    return reg, spawned
-
-
 # ---------------------------------------------------------------------------
 # The confirmation itself
 # ---------------------------------------------------------------------------
 
 
-def test_new_session_confirms_the_forced_id(app, tmp_path):
+def test_new_session_confirms_the_forced_id(ws_app, tmp_path):
     """A new terminal is confirmed with the id spawned on its command line.
 
     The confirmation must not depend on a transcript: Claude Code writes
@@ -103,10 +73,10 @@ def test_new_session_confirms_the_forced_id(app, tmp_path):
     sessions_dir.mkdir()
 
     with patch.object(SessionDiscovery, "_resolve_sessions_dir", lambda self: sessions_dir):
-        with TestClient(app) as client:
-            _, commands = _patch_spawn(app)
+        with TestClient(ws_app) as client:
+            _, commands = _record_spawned_commands(ws_app)
             with client.websocket_connect("/ws/terminal") as ws:
-                _send_resize(ws)
+                send_resize(ws)
                 msg = recv_json(ws, "session_info")
 
     assert len(commands) == 1
@@ -120,16 +90,16 @@ def test_new_session_confirms_the_forced_id(app, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_new_session_is_pooled_under_its_real_id(app):
+def test_new_session_is_pooled_under_its_real_id(ws_app):
     """The pool is keyed by the session id, not a placeholder needing a rekey.
 
     A placeholder key is what let a reconnect miss the warm PTY it should have
     found and spawn a second one against the same session.
     """
-    with TestClient(app) as client:
-        reg, commands = _patch_spawn(app)
+    with TestClient(ws_app) as client:
+        reg, commands = _record_spawned_commands(ws_app)
         with client.websocket_connect("/ws/terminal") as ws:
-            _send_resize(ws)
+            send_resize(ws)
             msg = recv_json(ws, "session_info")
 
         session_id = msg["session_id"]
@@ -138,7 +108,7 @@ def test_new_session_is_pooled_under_its_real_id(app):
         assert len(commands) == 1
 
 
-def test_stale_handler_teardown_spares_the_replacement_session(app, tmp_path):
+def test_stale_handler_teardown_spares_the_replacement_session(ws_app, tmp_path):
     """A first tab closing must not kill the PTY a second tab is using.
 
     Handing every new session an id the client stores and resumes makes two
@@ -154,12 +124,12 @@ def test_stale_handler_teardown_spares_the_replacement_session(app, tmp_path):
     sessions_dir.mkdir()
 
     with patch.object(SessionDiscovery, "_resolve_sessions_dir", lambda self: sessions_dir):
-        with TestClient(app) as client, ExitStack() as stack:
-            reg, spawned = _patch_spawn_tracking_sessions(app)
+        with TestClient(ws_app) as client, ExitStack() as stack:
+            reg, spawned = patch_spawn(ws_app)
 
             # Tab one: a new session, confirmed with the forced id.
             first = stack.enter_context(client.websocket_connect("/ws/terminal"))
-            _send_resize(first)
+            send_resize(first)
             session_id = recv_json(first, "session_info")["session_id"]
 
             # Its CLI exits after a prompt was sent. The socket stays open, as
@@ -169,10 +139,8 @@ def test_stale_handler_teardown_spares_the_replacement_session(app, tmp_path):
 
             # Tab two resumes the id tab one stored. The dead PTY is dropped
             # and a replacement spawned under the same key.
-            with client.websocket_connect(
-                f"/ws/terminal?session_id={session_id}&mode=resume"
-            ) as second:
-                _send_resize(second)
+            with client.websocket_connect(resume_url(session_id)) as second:
+                send_resize(second)
                 assert recv_json(second, "session_info")["session_id"] == session_id
                 assert len(spawned) == 2
                 assert reg.get_session(session_id) is spawned[1]

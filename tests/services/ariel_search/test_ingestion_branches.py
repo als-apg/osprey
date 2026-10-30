@@ -928,24 +928,21 @@ class TestALSFetchWindowResponses:
         )
 
     @pytest.mark.asyncio
-    async def test_empty_body_is_empty_window(self):
-        """An empty body means no entries in the range, not a failure."""
-        assert await self._fetch("   ") == []
-
-    @pytest.mark.asyncio
-    async def test_html_body_is_empty_window(self):
-        """The endpoint returns an HTML page for an empty date range."""
-        assert await self._fetch("<html><body>No entries</body></html>") == []
-
-    @pytest.mark.asyncio
-    async def test_doctype_body_is_empty_window(self):
-        """A leading doctype declaration is recognised as HTML too."""
-        assert await self._fetch("<!DOCTYPE html><html></html>") == []
-
-    @pytest.mark.asyncio
-    async def test_non_json_body_is_empty_window(self):
-        """A body that is neither HTML nor JSON is treated as an empty window."""
-        assert await self._fetch("retrieve: no records") == []
+    @pytest.mark.parametrize(
+        "body",
+        [
+            # An empty body means no entries in the range, not a failure.
+            pytest.param("   ", id="empty"),
+            # The endpoint returns an HTML page for an empty date range.
+            pytest.param("<html><body>No entries</body></html>", id="html"),
+            # A leading doctype declaration is recognised as HTML too.
+            pytest.param("<!DOCTYPE html><html></html>", id="doctype"),
+            # A body that is neither HTML nor JSON is treated as an empty window.
+            pytest.param("retrieve: no records", id="non_json"),
+        ],
+    )
+    async def test_body_is_empty_window(self, body):
+        assert await self._fetch(body) == []
 
     @pytest.mark.asyncio
     async def test_non_list_json_is_empty_window(self, caplog):

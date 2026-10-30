@@ -146,6 +146,14 @@ from osprey.services.bluesky_bridge.queue_backend import (
 )
 from osprey.services.bluesky_bridge.session_upload import REASON_UNVALIDATED
 from tests.e2e import _facility_select, _orm_stack
+from tests.e2e._deploy_support import (
+    docker_inspect,
+    env_value,
+    format_failure,
+    run_command,
+    wait_for_container_health,
+    wait_for_health,
+)
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 
@@ -191,8 +199,6 @@ PANELS_URL = f"http://localhost:{PANELS_PORT}"
 TILED_PORT = 18191
 VA_CA_PORT = 15064
 POSTGRES_PORT = 25432
-TELEMETRY_GATEWAY_PORT = 24318
-TELEMETRY_STORE_PORT = 28123
 # The archiver's store, deployed by the preset's `va_archiver:` block.
 MONGODB_PORT = 47017
 
@@ -327,17 +333,6 @@ class QueueStack:
 # ---------------------------------------------------------------------------
 
 
-def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        cmd,
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env={**os.environ, "CLAUDECODE": ""},
-    )
-
-
 def _request(
     base: str,
     path: str,
@@ -466,61 +461,6 @@ def _raw_get(path: str, timeout: float = 60.0) -> tuple[int, dict[str, str], byt
         return exc.code, {k.lower(): v for k, v in exc.headers.items()}, exc.read()
 
 
-def _wait_for_health(url: str, timeout: float) -> None:
-    deadline = time.monotonic() + timeout
-    last_err = "(no response yet)"
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=5.0) as resp:  # localhost
-                if resp.status == 200:
-                    return
-                last_err = f"HTTP {resp.status}"
-        except (urllib.error.URLError, ConnectionError, OSError) as exc:
-            last_err = str(exc)
-        time.sleep(1.0)
-    raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
-
-
-def _docker_inspect(container: str, fmt: str) -> str:
-    proc = subprocess.run(
-        ["docker", "inspect", "--format", fmt, container],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    assert proc.returncode == 0, f"docker inspect {container} failed: {proc.stderr}"
-    return proc.stdout.strip()
-
-
-def _wait_for_container_health(container: str, timeout: float) -> None:
-    """Poll ``docker inspect .State.Health.Status`` until ``healthy``.
-
-    An HTTP-readiness gate can pass while Docker still reports ``starting``
-    (the healthcheck only runs on its interval, after ``start_period``), so an
-    instant equality assert would be racy.
-    """
-    deadline = time.monotonic() + timeout
-    last = "(no status yet)"
-    while time.monotonic() < deadline:
-        last = _docker_inspect(container, "{{.State.Health.Status}}")
-        if last == "healthy":
-            return
-        time.sleep(2.0)
-    raise AssertionError(
-        f"{container} did not reach 'healthy' within {timeout:.0f}s (last status: {last!r})"
-    )
-
-
-def _env_value(repo: Path, key: str) -> str:
-    from osprey_connectors.dotenv import parse_dotenv_file
-
-    env_path = repo / ".env"
-    assert env_path.is_file(), f"no .env written at {env_path}"
-    value = parse_dotenv_file(env_path).get(key)
-    assert value, f"{key} missing/empty in the deployment repo's .env"
-    return value
-
-
 # ---------------------------------------------------------------------------
 # Draft + queue helpers
 # ---------------------------------------------------------------------------
@@ -600,7 +540,48 @@ def _draft_snapshot() -> dict[str, Any]:
 
 
 def _enqueue(revision: int, *, token: str | None = None) -> tuple[int, Any]:
-    return _post("/queue/items", {"draft_revision": revision}, token=token)
+    """Add the draft at *revision* for :func:`_queue_owner`, whose switch the stack armed.
+
+    The worker's writes follow the add's owner's switch: an ownerless add has
+    no switch to follow and its first write is refused ``owner_unknown``.
+    """
+    from osprey.utils.owner_header import OWNER_HEADER
+
+    return _post(
+        "/queue/items",
+        {"draft_revision": revision},
+        token=token,
+        extra_headers={OWNER_HEADER: _queue_owner()},
+    )
+
+
+def _queue_owner() -> str:
+    """The login every queue add of this module names (``X-Osprey-Owner``)."""
+    from osprey_connectors import posture_store
+
+    owner = posture_store.current_owner()
+    assert isinstance(owner, str) and owner, f"this process names no owner: {owner!r}"
+    return owner
+
+
+def _arm_queue_owner(repo: Path) -> None:
+    """Turn :func:`_queue_owner`'s switch on for the simulator in the deployment's record.
+
+    The preset's tier already allows writes (``control_system.writes:
+    allowed``); the switch is the other half. Written through the production
+    writers into the control tree the deploy provisions, before ``up`` so the
+    worker reads it.
+    """
+    import yaml
+
+    from osprey.deployment.compose_generator import ensure_control_target_dir
+    from osprey_connectors.types import TARGET_VA
+    from tests.e2e.sdk_helpers import render_dir, switch_on_in_record
+
+    config = yaml.safe_load((render_dir(repo) / "config.yml").read_text(encoding="utf-8"))
+    owner = _queue_owner()
+    ensure_control_target_dir(config, repo, owner, relative_to=repo)
+    switch_on_in_record(repo, owner=owner, targets=[TARGET_VA])
 
 
 def _enqueue_ok(revision: int, *, token: str | None = None) -> str:
@@ -721,10 +702,9 @@ def _profile_edits() -> dict[str, Any]:
     build (same convention as ``_orm_stack.profile_edits``). The preset's
     ``services:`` block holds the record archive, which runs the same project
     image, so it goes with the dispatch stack: ``services: {}`` is the spelling
-    because a single service cannot be nulled. The config port keys move
-    ariel-postgres, the telemetry gateway and the telemetry store -- services
-    the preset deploys unconditionally -- off the ports a locally running
-    tutorial deploy routinely holds.
+    because a single service cannot be nulled. The config port key moves
+    ariel-postgres -- a service the preset deploys unconditionally -- off the
+    port a locally running deploy routinely holds.
 
     The archiver's MongoDB moves through ``va_archiver.port_host`` instead, and
     that difference is load-bearing: the archiver injector RENDERS
@@ -754,8 +734,6 @@ def _profile_edits() -> dict[str, Any]:
         "services": {},
         "config": {
             "services.postgresql.port_host": POSTGRES_PORT,
-            "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
-            "services.telemetry_store.port": TELEMETRY_STORE_PORT,
             "modules.web_terminals.enabled": False,
         },
         "va_archiver": {
@@ -819,7 +797,7 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
 
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset plus these edits, `build` renders build/ from it.
-    init = _run(
+    init = run_command(
         [
             str(osprey_bin),
             "init",
@@ -849,21 +827,15 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
         timeout=BUILD_TIMEOUT_SEC,
     )
     if init.returncode != 0:
-        pytest.fail(
-            f"osprey init failed (rc={init.returncode}):\n"
-            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
-        )
+        pytest.fail(format_failure("osprey init", init))
 
-    build = _run(
+    build = run_command(
         [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         cwd=base,
         timeout=BUILD_TIMEOUT_SEC,
     )
     if build.returncode != 0:
-        pytest.fail(
-            f"osprey build failed (rc={build.returncode}):\n"
-            f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
-        )
+        pytest.fail(format_failure("osprey build", build))
 
     # The repo root's `.env` — the deployment's whole secret store, and the file
     # `osprey up` refuses to start without. It is also where `up` mints
@@ -871,6 +843,7 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
     # reach the worker as the device file the build staged (read back below from
     # the render).
     _orm_stack.seed_repo_env(repo)
+    _arm_queue_owner(repo)
 
     # Force fresh --dev builds so the deployed containers run CURRENT source
     # (`osprey up` does not pass --build to compose, so it would otherwise
@@ -882,21 +855,18 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
             subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
 
     try:
-        up = _run(
+        up = run_command(
             [str(osprey_bin), "up", "-d", "--dev"],
             cwd=repo,
             timeout=DEPLOY_UP_TIMEOUT_SEC,
         )
         if up.returncode != 0:
-            pytest.fail(
-                f"osprey up -d --dev failed (rc={up.returncode}):\n"
-                f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
-            )
+            pytest.fail(format_failure("osprey up -d --dev", up))
 
-        _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
-        _wait_for_health(f"{PANELS_URL}/health", HEALTH_TIMEOUT_SEC)
-        _wait_for_container_health(QUEUESERVER_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
-        _wait_for_container_health(TILED_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
+        wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC, probe_timeout=5.0)
+        wait_for_health(f"{PANELS_URL}/health", HEALTH_TIMEOUT_SEC, probe_timeout=5.0)
+        wait_for_container_health(QUEUESERVER_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
+        wait_for_container_health(TILED_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
         _wait_for_worker_environment(WORKER_ENV_TIMEOUT_SEC)
         # The preset arms the queue, and the bridge does so only once the
         # environment above is open -- wait for the posture too, so stage 2
@@ -908,7 +878,7 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
         # `osprey up` minted the sidecar's operator secret into the repo .env;
         # arm the sidecar helper with it before any stage talks to the gate.
         global _sidecar_secret
-        _sidecar_secret = _env_value(repo, "OSPREY_TERMINAL_SECRET")
+        _sidecar_secret = env_value(repo, "OSPREY_TERMINAL_SECRET")
 
         # Device names come from the device file the BUILD staged and the
         # worker mounts -- the build's Bluesky view of the facility file.
@@ -944,10 +914,10 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
             correctors=correctors,
             bpms=bpms,
             limits=limits,
-            token=_env_value(repo, "BLUESKY_LAUNCH_TOKEN"),
+            token=env_value(repo, "BLUESKY_LAUNCH_TOKEN"),
         )
     finally:
-        down = _run([str(osprey_bin), "down"], cwd=repo, timeout=600)
+        down = run_command([str(osprey_bin), "down"], cwd=repo, timeout=600)
         if down.returncode != 0:
             print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
@@ -1012,7 +982,7 @@ def test_1_capability_never_leaks_the_control_socket_credential(stack: QueueStac
     docstring), so "public" is a misnomer: anything that reaches a panel or a
     log must not contain it.
     """
-    public_key = _env_value(stack.repo, "BLUESKY_QSERVER_ZMQ_PUBLIC_KEY")
+    public_key = env_value(stack.repo, "BLUESKY_QSERVER_ZMQ_PUBLIC_KEY")
     for label, (_status, body) in (
         ("bridge /health", _get("/health")),
         ("sidecar /bridge/health", _sidecar_get("/bridge/health")),
@@ -1410,9 +1380,7 @@ def _stage_the_queue_tools(
     from osprey_connectors.workspace import reset_config_cache
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(
-        "control_system:\n  writes_enabled: true\n", encoding="utf-8"
-    )
+    (tmp_path / "config.yml").write_text("control_system:\n  writes: allowed\n", encoding="utf-8")
     # The builder caches the config it loaded, and the tools load theirs on the
     # first gate they run -- clear it so the posture they read is the one this
     # line just wrote.
@@ -1426,7 +1394,52 @@ def _stage_the_queue_tools(
         monkeypatch.setenv(f"{prefix}_LAUNCH_TOKEN", token)
     monkeypatch.setenv(POSTURE_SESSION_ENV_VAR, _MCP_SESSION)
     monkeypatch.setenv(CONTROL_CONTEXT_DIR_ENV_VAR, str(tmp_path / "control_target"))
+    _switch_on_for_this_login()
     initialize_server_context()
+
+
+def _switch_on_for_this_login() -> None:
+    """Turn this login's switch on for the baseline target, in the record the tools read.
+
+    The tier above allows writes; the switch is the other half of the verdict
+    the queue tools ask before they relay a start. Written through the
+    production writers the chip uses -- the record first, then the gesture
+    against the epoch it was stamped with -- into the control-state directory
+    :func:`_stage_the_queue_tools` bound for this test alone.
+    """
+    from osprey_connectors import control_context
+    from osprey_connectors.types import baseline_target
+
+    target = baseline_target({"writes": "allowed"})
+    control_context.invalidate_cache()
+    path = control_context.record_path()
+    assert path is not None, "the control-context record path did not resolve"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    control_context.write_record(control_context.ControlContext(target=target, generation=1))
+    control_context.invalidate_cache()
+    current = control_context.read_record(path=path)
+    epoch = (current.switch_epoch if current is not None else None) or 0
+    try:
+        control_context.set_switch([target], "on", epoch=epoch, path=path)
+    except control_context.StoppedSince as refused:
+        if not refused.stamped or refused.epoch is None:
+            raise
+        control_context.set_switch([target], "on", epoch=refused.epoch, path=path)
+    control_context.invalidate_cache()
+
+
+def _approved_call(tool: str):
+    """The ask stamp the approval hook files for an approved *tool* call, bound.
+
+    Stage 1 of approval: where the deployment's policy asks about *tool*, the
+    tool runs only on the record the hook left for the call. This is the human's
+    yes, filed in the directory the tool reads (``target_state.state_dir()``).
+    Stage 2, the queue binding, is :func:`_write_start_approval_stamp`.
+    """
+    from osprey.mcp_server.control_system import target_state
+    from tests._approval_stamp_fixture import ApprovalStamps
+
+    return ApprovalStamps(target_state.state_dir()).approved(tool)
 
 
 def _write_start_approval_stamp(uid: str) -> Path:
@@ -1512,7 +1525,10 @@ async def test_3_the_queue_tool_names_its_approved_queue_on_the_wire(
         _stage_the_queue_tools(tmp_path, monkeypatch, hop.url, token=stack.token)
         _write_start_approval_stamp(_UID_NO_MANAGER_MINTED)
         try:
-            with assert_raises_error(error_type="queue_changed_since_approval") as ctx:
+            with (
+                _approved_call("queue_start"),
+                assert_raises_error(error_type="queue_changed_since_approval") as ctx,
+            ):
                 await get_tool_fn(queue_tools.queue_start)()
         finally:
             # A refusal that failed to refuse leaves the queue ARMED, and it
@@ -1575,7 +1591,10 @@ async def test_3_an_unbound_queue_tool_start_names_no_queue_at_all(
     with _recording_bridge_hop() as hop:
         _stage_the_queue_tools(tmp_path, monkeypatch, hop.url, token=None)
         try:
-            with assert_raises_error(error_type="launch_token_invalid"):
+            with (
+                _approved_call("queue_start"),
+                assert_raises_error(error_type="launch_token_invalid"),
+            ):
                 await get_tool_fn(queue_tools.queue_start)()
         finally:
             # Same blast radius as the row above: an unbound start that was not
@@ -2287,8 +2306,8 @@ def test_7_bridge_restart_preserves_queue_and_history() -> None:
     )
     assert restart.returncode == 0, f"docker restart {BRIDGE_CONTAINER} failed: {restart.stderr}"
 
-    _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
-    _wait_for_container_health(BRIDGE_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
+    wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC, probe_timeout=5.0)
+    wait_for_container_health(BRIDGE_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
 
     queue = _queue_snapshot()
     assert queue["status"]["available"] is True, (
@@ -2428,7 +2447,7 @@ def test_8_in_process_flip_makes_the_deployment_browse_only(stack: QueueStack) -
     the simulator in process, and stage 9's probes do not care which connector is
     configured.
     """
-    flip = _run(
+    flip = run_command(
         [
             str(stack.osprey_bin),
             "set",
@@ -2440,7 +2459,7 @@ def test_8_in_process_flip_makes_the_deployment_browse_only(stack: QueueStack) -
     )
     assert flip.returncode == 0, f"the in-process flip failed: {flip.stdout}\n{flip.stderr}"
 
-    rebuild = _run(
+    rebuild = run_command(
         [str(stack.osprey_bin), "build", "--skip-deps", "--skip-lifecycle", "--dev"],
         cwd=stack.repo,
         timeout=BUILD_TIMEOUT_SEC,
@@ -2449,7 +2468,7 @@ def test_8_in_process_flip_makes_the_deployment_browse_only(stack: QueueStack) -
         f"rebuild after the in-process flip failed: {rebuild.stdout}\n{rebuild.stderr}"
     )
 
-    up = _run(
+    up = run_command(
         [str(stack.osprey_bin), "up", "-d", "--dev"],
         cwd=stack.repo,
         timeout=DEPLOY_UP_TIMEOUT_SEC,
@@ -2458,10 +2477,10 @@ def test_8_in_process_flip_makes_the_deployment_browse_only(stack: QueueStack) -
         f"redeploy after the in-process flip failed: {up.stdout}\n{up.stderr}"
     )
 
-    _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
-    _wait_for_health(f"{PANELS_URL}/health", HEALTH_TIMEOUT_SEC)
+    wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC, probe_timeout=5.0)
+    wait_for_health(f"{PANELS_URL}/health", HEALTH_TIMEOUT_SEC, probe_timeout=5.0)
     for container in _STACK_CONTAINERS:
-        _wait_for_container_health(container, CONTAINER_HEALTH_TIMEOUT_SEC)
+        wait_for_container_health(container, CONTAINER_HEALTH_TIMEOUT_SEC)
 
     status, body = _get("/health")
     assert status == 200, f"a browse-only bridge must still answer 200: {status} {body}"
@@ -2534,7 +2553,7 @@ def _project_network(name: str) -> str:
     depends on how ``osprey up`` invoked compose -- so read it off a container
     that is only ever attached to that one network rather than guessing.
     """
-    raw = _docker_inspect(name, "{{json .NetworkSettings.Networks}}")
+    raw = docker_inspect(name, "{{json .NetworkSettings.Networks}}")
     networks = list(json.loads(raw).keys())
     assert networks, f"{name} is attached to no network at all"
     return networks[0]
@@ -2558,7 +2577,7 @@ def test_9_security_redis_is_unreachable_from_osprey_network() -> None:
     # Tiled sits on osprey-network only, so its single network is the one to probe from.
     osprey_network = _project_network(TILED_CONTAINER)
     internal_networks = json.loads(
-        _docker_inspect(REDIS_CONTAINER, "{{json .NetworkSettings.Networks}}")
+        docker_inspect(REDIS_CONTAINER, "{{json .NetworkSettings.Networks}}")
     )
     assert osprey_network not in internal_networks, (
         f"Redis is attached to {osprey_network} -- it must be on the internal network only: "

@@ -27,13 +27,6 @@ from ._proxy_fakes import panel_app
 
 
 @pytest.fixture
-def workspace_dir(tmp_path):
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
-    return ws
-
-
-@pytest.fixture
 def app_and_client(workspace_dir):
     """App + client with a custom panel (my-dash → http://localhost:9000)."""
     custom = [

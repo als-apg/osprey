@@ -21,6 +21,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import psutil
+import pytest
+
+# Bound at import, so a test that patches ``process_tree.snapshot`` with
+# :func:`readable_rows` never has it call itself.
+from osprey.interfaces.web_terminal.process_tree import ProcessRow, ProcessTableUnreadable
+from osprey.interfaces.web_terminal.process_tree import snapshot as _read_table
 
 if TYPE_CHECKING:
     from osprey.interfaces.web_terminal.pty_manager import PtySession
@@ -243,6 +249,33 @@ def pid_gone(pid: int, within: float = 5.0) -> bool:
         if time.monotonic() > deadline:
             return False
         time.sleep(0.05)
+
+
+def readable_rows(
+    holding: Iterable[int] = (), within: float = CHILD_HANG_CEILING
+) -> dict[int, ProcessRow]:
+    """Return the host's process table once a read answers and holds every pid in *holding*.
+
+    A liveness wait: it returns on its condition and never decides a pass. A
+    table that is momentarily unreadable, or does not yet hold a just-spawned
+    pid, makes the caller wait; only a table that stays unreadable, or never
+    holds *holding*, for *within* seconds fails the test, naming the last cause.
+    """
+    wanted = set(holding)
+    deadline = time.monotonic() + within
+    while True:
+        try:
+            rows = _read_table()
+        except ProcessTableUnreadable as exc:
+            cause = str(exc)
+        else:
+            missing = wanted - rows.keys()
+            if not missing:
+                return rows
+            cause = f"the process table does not hold pid(s) {sorted(missing)}"
+        if time.monotonic() > deadline:
+            pytest.fail(f"no readable process table within {within:g} s: {cause}")
+        time.sleep(_POLL_S)
 
 
 def _running_state(pid: int) -> str | None:

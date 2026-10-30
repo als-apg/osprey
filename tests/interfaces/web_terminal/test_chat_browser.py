@@ -54,33 +54,22 @@ Skips cleanly when the chromium headless binary is not installed.
 
 from __future__ import annotations
 
-import asyncio
-import json
-import os
 import re
-import sys
 import time
-from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import patch
 from urllib.parse import urlsplit
 
 import pytest
 import requests
-from claude_agent_sdk import TextBlock, ThinkingBlock, ToolUseBlock
-from fastapi import Request
 
-from osprey.agent_runner.project_paths import claude_project_dir
+from osprey.interfaces._serving import run_app_server
 from tests.interfaces._browser import wait_for_dock_settled
-from tests.interfaces._panel_launch import publish_panel_urls
-from tests.interfaces.conftest import _apply_all, _run_app_server
-
-# The shared SDK-message builders, so the fake yields the real messages the
-# agent runner translates.
-from tests.interfaces.web_terminal._fakes import (
-    assistant_message,
-    result_message,
-    system_message,
+from tests.interfaces.web_terminal._chat_server import (
+    OBSERVED_PROMPTS,
+    PLANS,
+    live_chat_server,
+    seed_record_from,
+    seed_transcript,
 )
 
 # ---------------------------------------------------------------------------
@@ -97,375 +86,7 @@ except ImportError:  # pragma: no cover
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
-_SEAM = "osprey.interfaces.web_terminal.operator_session"
-#: The name the agent runner constructs its client under.
-_CLIENT = "osprey.agent_runner.session.ClaudeSDKClient"
 _OP = "#operator-container"
-
-
-# ---------------------------------------------------------------------------
-# Faked SDK seam: per-prompt conversation plans + a controllable fake client
-# ---------------------------------------------------------------------------
-#
-# All shared state below is module-global, which is safe because the browser
-# fixture is function-scoped (tests never run concurrently) and every test
-# registers its plans BEFORE the prompt that triggers them — reads happen on the
-# server loop, writes on the test thread, always ordered by the round-trip.
-
-# Conversation plans keyed by exact prompt text. Each value is a list of steps;
-# see _FakeSDKClient.receive_response for the step vocabulary.
-_PLANS: dict[str, list[tuple]] = {}
-
-# Every prompt the fake was queried with, across all sessions of the current
-# server — lets a test assert the agent seam actually received each turn.
-_OBSERVED_PROMPTS: list[str] = []
-
-# A gate the fake awaits on a ("gate",) step; POST /__test__/release opens it.
-# Reassigned fresh per server (unbound to any loop until the server loop awaits
-# it) so it never leaks a previous test's event loop.
-_RELEASE_GATE = asyncio.Event()
-
-# Default reply for an unregistered prompt: one line of text, then terminate.
-_DEFAULT_PLAN: list[tuple] = [("text", "ok"), ("result",)]
-
-# Every PTY command the hand-off door asked the registry to spawn, in order.
-# Recorded at the registry seam (see _record_pty_spawns) because the identity
-# half of a spawn — ``--resume <transcript>`` or ``--session-id <key>`` — is
-# decided by the door and spelled on the command line, nowhere else.
-_PTY_SPAWNS: list[list[str]] = []
-
-# Every fake client constructed on the current server, in order; each records
-# itself here so the options a chat session was launched with stay readable.
-_CLIENTS: list[_FakeSDKClient] = []
-
-
-def _reset_fake_state() -> None:
-    """Clear per-server fake state; called at each server launch (test thread)."""
-    global _RELEASE_GATE
-    _PLANS.clear()
-    _OBSERVED_PROMPTS.clear()
-    _PTY_SPAWNS.clear()
-    _CLIENTS.clear()
-    _RELEASE_GATE = asyncio.Event()
-
-
-class _FakeSDKClient:
-    """Stand-in for ``ClaudeSDKClient``, patched where the agent runner builds it.
-
-    ``receive_response`` answers only a prompt that was sent, as the SDK's does:
-    it waits for the next ``query`` and replays that prompt's plan, yielding the
-    real SDK messages the agent runner translates into the records
-    ``_event_to_wire`` turns into chat events. Step vocabulary:
-
-      ("text", md)      one text block (markdown) → a ``text`` event
-      ("thinking",)     one thinking block        → drives the activity line
-      ("tool_use", nm)  one tool_use block        → activity line phrase for <nm>
-      ("system", sub)   a system message
-      ("gate",)         block until POST /__test__/release
-      ("hang",)         block until the reader is cancelled (Stop tests)
-      ("await_interrupt") block until interrupt() (Stop → clean terminal)
-      ("result",)       a terminal ResultMessage
-
-    The real ``ClaudeAgentOptions`` the client was constructed with are kept as
-    ``options``: they are what ``OperatorSession.start`` chose between
-    ``resume=<transcript>`` and ``session_id=<key>``, and the
-    ``/__test__/chat-state`` route serves them back for every client still open.
-    """
-
-    def __init__(self, *args, **kwargs) -> None:
-        self.options = kwargs.get("options")
-        self.open = False
-        # Bound to the server loop (constructed inside session.start()).
-        self._interrupted = asyncio.Event()
-        # The session-long reader calls receive_response before any prompt is sent.
-        self._pending: asyncio.Queue[str] = asyncio.Queue()
-        _CLIENTS.append(self)
-
-    async def __aenter__(self):
-        self.open = True
-        return self
-
-    async def __aexit__(self, *exc):
-        self.open = False
-        return False
-
-    async def query(self, prompt: str) -> None:
-        _OBSERVED_PROMPTS.append(prompt)
-        self._interrupted.clear()
-        self._pending.put_nowait(prompt)
-
-    async def interrupt(self) -> None:
-        self._interrupted.set()
-
-    async def receive_response(self):
-        prompt = await self._pending.get()
-        plan = _PLANS.get(prompt, _DEFAULT_PLAN)
-        for step in plan:
-            kind = step[0]
-            if kind == "text":
-                yield assistant_message([TextBlock(step[1])])
-            elif kind == "thinking":
-                thinking = step[1] if len(step) > 1 else "…"
-                yield assistant_message([ThinkingBlock(thinking, "sig")])
-            elif kind == "tool_use":
-                yield assistant_message([ToolUseBlock("tu_1", step[1], {})])
-            elif kind == "system":
-                yield system_message(step[1])
-            elif kind == "gate":
-                await _RELEASE_GATE.wait()
-            elif kind == "hang":
-                await asyncio.Event().wait()  # blocks until the task is cancelled
-            elif kind == "await_interrupt":
-                await self._interrupted.wait()
-            elif kind == "result":
-                yield result_message(is_error=(step[1] if len(step) > 1 else False))
-
-
-# ---------------------------------------------------------------------------
-# Test-only control routes (run on the server loop, driven over HTTP)
-# ---------------------------------------------------------------------------
-
-
-def _install_test_routes(app) -> None:
-    """Mount /__test__/* helpers so scenarios drive server state from their loop.
-
-    ``Request`` is imported at module scope (not here): ``from __future__ import
-    annotations`` stringizes every annotation, and FastAPI resolves the string
-    against the *module* globals — a function-local import leaves it unresolved,
-    so the parameter is misread as a query field (422).
-    """
-
-    async def _release(request: Request):  # noqa: ARG001 - Request required by FastAPI
-        _RELEASE_GATE.set()
-        return {"released": True}
-
-    async def _evict_all(request: Request):
-        registry = request.app.state.operator_registry
-        chat_ids = list(registry.chats._sessions.keys())
-        for chat_id in chat_ids:
-            await registry.terminate_chat_session(chat_id)
-        return {"evicted": len(chat_ids)}
-
-    async def _chat_state(request: Request):
-        registry = request.app.state.operator_registry
-        chats = list(registry.chats._sessions.values())
-        return {
-            "n": len(chats),
-            "in_flight": any(s.in_flight for s in chats),
-            # The identity each open chat client was launched with — the
-            # question a hand-off answers.
-            "options": [
-                {"resume": c.options.resume, "session_id": c.options.session_id}
-                for c in _CLIENTS
-                if c.open and c.options is not None
-            ],
-        }
-
-    async def _pty_spawns(request: Request):  # noqa: ARG001 - Request required by FastAPI
-        return {"commands": [list(command) for command in _PTY_SPAWNS]}
-
-    async def _pty_state(request: Request):
-        registry = request.app.state.pty_registry
-        key = request.query_params.get("session_id", "")
-        session = registry.get_session(key) if key else None
-        return {"live": bool(session is not None and session.is_alive)}
-
-    app.add_api_route("/__test__/release", _release, methods=["POST"])
-    app.add_api_route("/__test__/evict-all", _evict_all, methods=["POST"])
-    app.add_api_route("/__test__/chat-state", _chat_state, methods=["GET"])
-    app.add_api_route("/__test__/pty-spawns", _pty_spawns, methods=["GET"])
-    app.add_api_route("/__test__/pty-state", _pty_state, methods=["GET"])
-
-
-# ---------------------------------------------------------------------------
-# The project the server serves: PTY child, turn hook, transcripts
-# ---------------------------------------------------------------------------
-
-# A PTY command that outlives the test AND tolerates the ``--resume <id>`` /
-# ``--session-id <id>`` (and any ``--effort <level>``) arguments the websocket
-# route appends. ``sleep``/``cat``/``echo`` each exit or error on the extra
-# args, which would trip terminal.js's auto-resume failover and clear the
-# stored pointer mid-test.
-_LONG_LIVED_SHELL = [sys.executable, "-c", "import time; time.sleep(3600)"]
-
-
-def _write_turn_hook_settings(project_dir: Path) -> None:
-    """Render the turn-state hook registrations a deployment's settings carry.
-
-    ``app.state.turn_hook_present`` is read from these settings at startup and
-    is a permission: without it the door refuses a plain hand-off off a PTY
-    (``handoff_needs_interrupt``), because nothing can ever report the idle
-    edge it would wait for. Writing the real registrations — rather than
-    stamping the flag onto ``app.state`` — keeps the suite honest about which
-    deployment it is describing, and runs the detection itself.
-
-    All four events a rendered ``settings.json`` wires are written, the busy
-    edge included, so the stand-in describes the deployment it stands in for
-    rather than only the two registrations the detection happens to read.
-    """
-    from osprey.interfaces.web_terminal.app import (
-        TURN_HOOK_SESSION_START_MATCHER,
-        TURN_STATE_HOOK,
-    )
-
-    command = f"python3 .claude/hooks/{TURN_STATE_HOOK}"
-    entry = [{"hooks": [{"type": "command", "command": command}]}]
-    settings = {
-        "hooks": {
-            "UserPromptSubmit": entry,
-            "Stop": entry,
-            "StopFailure": entry,
-            "SessionStart": [
-                {
-                    "matcher": TURN_HOOK_SESSION_START_MATCHER,
-                    "hooks": [{"type": "command", "command": command}],
-                }
-            ],
-        }
-    }
-    claude_dir = project_dir / ".claude"
-    claude_dir.mkdir(parents=True, exist_ok=True)
-    (claude_dir / "settings.json").write_text(json.dumps(settings), encoding="utf-8")
-
-
-def _seed_transcript(project_dir: Path, transcript_id: str, turns) -> Path:
-    """Write the JSONL transcript a Claude child would have left for *transcript_id*.
-
-    A real transcript is written by a real ``claude`` process, which needs the
-    binary and a provider; the conversation is therefore seeded in the shape
-    the readers expect (``<config-dir>/projects/<encoded>/<id>.jsonl``, one
-    entry per line). This single file is what the resume decision, the Simple
-    view's replay and the PTY idle judgement all read.
-
-    Args:
-        project_dir: The project the server serves.
-        transcript_id: The Claude session id the file is named for.
-        turns: ``(role, text)`` pairs, oldest first.
-
-    Returns:
-        The path written.
-    """
-    directory = claude_project_dir(project_dir)
-    directory.mkdir(parents=True, exist_ok=True)
-    lines = []
-    for index, (role, text) in enumerate(turns):
-        content = text if role == "user" else [{"type": "text", "text": text}]
-        lines.append(
-            json.dumps(
-                {
-                    "type": role,
-                    "timestamp": f"2026-01-01T00:00:{index:02d}.000Z",
-                    "sessionId": transcript_id,
-                    "message": {"role": role, "content": content},
-                }
-            )
-        )
-    path: Path = directory / f"{transcript_id}.jsonl"
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return path
-
-
-def _record_pty_spawns(app) -> None:
-    """Record every command the door hands the PTY registry, then spawn it.
-
-    Wraps the live registry rather than the route, so what is recorded is the
-    argv a spawn was actually made with.
-    """
-    registry = app.state.pty_registry
-    inner = registry.get_or_create_session
-
-    def get_or_create_session(session_id, command, **kwargs):
-        _PTY_SPAWNS.append(list(command))
-        return inner(session_id, command, **kwargs)
-
-    registry.get_or_create_session = get_or_create_session
-
-
-# ---------------------------------------------------------------------------
-# Live-server context manager
-# ---------------------------------------------------------------------------
-
-
-@contextmanager
-def _live_chat_server(
-    tmp_path,
-    ui_mode: str = "simple",
-    *,
-    enabled_panels: frozenset[str] = frozenset({"artifacts"}),
-    panel_urls: dict[str, str] | None = None,
-):
-    """Launch a real web terminal with the SDK faked at the operator_session seam.
-
-    Mirrors the panels-browser ``_live_server`` patch set (web/panel config +
-    artifact-server bypass) and adds the SDK seam: ``HAS_SDK`` on both the
-    session and route modules, and the fake client where the agent runner
-    constructs it. ``ui_mode``
-    is applied post-startup (root() re-reads it per request), the same
-    app.state seam the ui-mode browser suite uses.
-
-    The project served is a fresh directory under ``tmp_path`` carrying the
-    turn-state hook registrations, and both roots the session machinery writes
-    or reads through — Claude's config directory (transcripts) and the
-    agent-data root (posture and transcript-map stores) — are pinned beside it,
-    so a run neither reads nor writes developer state.
-
-    Args:
-        enabled_panels: The builtin panel ids the hub enables.
-        panel_urls: The address each companion server is published at, by
-            registry key, for a panel a test serves itself. A panel not named
-            is published unlaunched, so by default no companion tab is
-            advertised.
-
-    Yields:
-        (base_url, app) — live server address and the FastAPI app. The project
-        directory is ``tmp_path / "project"``.
-    """
-    workspace = tmp_path / "_agent_data"
-    workspace.mkdir(exist_ok=True)
-    project_dir = tmp_path / "project"
-    project_dir.mkdir(exist_ok=True)
-    _write_turn_hook_settings(project_dir)
-    _reset_fake_state()
-
-    patches = [
-        patch.dict(
-            os.environ,
-            {
-                "CLAUDE_CONFIG_DIR": str(tmp_path / "claude"),
-                "OSPREY_AGENT_DATA_ROOT": str(tmp_path / "agent_data"),
-            },
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=(set(enabled_panels), [], None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_panel_urls(panel_urls or {}),
-        ),
-        # ---- Claude Agent SDK seam ----
-        patch(f"{_SEAM}.HAS_SDK", True),
-        patch("osprey.interfaces.web_terminal.routes.chat.HAS_SDK", True),
-        patch(_CLIENT, _FakeSDKClient),
-        patch(
-            f"{_SEAM}.build_system_prompt",
-            return_value={"type": "preset", "preset": "claude_code"},
-        ),
-        patch(f"{_SEAM}.get_facility_timezone", return_value=None),
-    ]
-    with _apply_all(patches):
-        from osprey.interfaces.web_terminal.app import create_app
-
-        app = create_app(shell_command=_LONG_LIVED_SHELL, project_dir=project_dir)
-        _install_test_routes(app)
-        with _run_app_server(app) as base_url:
-            app.state.web_ui_mode = ui_mode
-            _record_pty_spawns(app)
-            yield base_url, app
 
 
 # ---------------------------------------------------------------------------
@@ -750,8 +371,8 @@ def test_streamed_markdown_renders_in_chat_card(tmp_path, chromium_browser):
     bodies even though the scaffold gallery reconfigures the shared ``marked``
     singleton on the same page.
     """
-    with _live_chat_server(tmp_path) as (base_url, _app):
-        _PLANS["show me markup"] = [
+    with live_chat_server(tmp_path) as (base_url, _app):
+        PLANS["show me markup"] = [
             ("text", "Here is **bold** and `inline_code`:\n\n```python\nprint('hi')\n```\n"),
             ("result",),
         ]
@@ -781,9 +402,9 @@ def test_multi_turn_reaches_same_session(tmp_path, chromium_browser):
     browser says the turn is over answers 409, and the operator reads "a turn
     is already running" for a turn that has finished.
     """
-    with _live_chat_server(tmp_path) as (base_url, _app):
-        _PLANS["first question"] = [("text", "first answer"), ("result",)]
-        _PLANS["second question"] = [("text", "second answer"), ("result",)]
+    with live_chat_server(tmp_path) as (base_url, _app):
+        PLANS["first question"] = [("text", "first answer"), ("result",)]
+        PLANS["second question"] = [("text", "second answer"), ("result",)]
         page = _open_chat_page(chromium_browser, base_url)
 
         _send(page, "first question")
@@ -804,7 +425,7 @@ def test_multi_turn_reaches_same_session(tmp_path, chromium_browser):
         # One chat session held both turns, and it saw both prompts in order.
         state = requests.get(f"{base_url}/__test__/chat-state").json()
         assert state["n"] == 1, state
-        assert _OBSERVED_PROMPTS == ["first question", "second question"]
+        assert OBSERVED_PROMPTS == ["first question", "second question"]
 
         page.close()
 
@@ -816,8 +437,8 @@ def test_multi_turn_reaches_same_session(tmp_path, chromium_browser):
 
 def test_activity_line_shows_tool_then_clears_on_text(tmp_path, chromium_browser):
     """Bash's phrase is visible while the turn is held, and clears once text lands."""
-    with _live_chat_server(tmp_path) as (base_url, _app):
-        _PLANS["run a tool"] = [
+    with live_chat_server(tmp_path) as (base_url, _app):
+        PLANS["run a tool"] = [
             ("tool_use", "Bash"),
             ("gate",),  # hold the turn so the activity line is observable
             ("text", "done running"),
@@ -849,9 +470,9 @@ def test_activity_line_shows_tool_then_clears_on_text(tmp_path, chromium_browser
 
 def test_stop_mid_stream_reenables_and_next_prompt_works(tmp_path, chromium_browser):
     """Stop clears the streaming affordance and re-enables input; a follow-up runs."""
-    with _live_chat_server(tmp_path) as (base_url, _app):
-        _PLANS["long task"] = [("text", "starting…"), ("await_interrupt",), ("result",)]
-        _PLANS["quick follow up"] = [("text", "all clear"), ("result",)]
+    with live_chat_server(tmp_path) as (base_url, _app):
+        PLANS["long task"] = [("text", "starting…"), ("await_interrupt",), ("result",)]
+        PLANS["quick follow up"] = [("text", "all clear"), ("result",)]
         page = _open_chat_page(chromium_browser, base_url)
         _send(page, "long task")
 
@@ -897,8 +518,8 @@ def test_send_button_does_not_move_when_stop_appears_and_leaves(tmp_path, chromi
     operator's target does not move" — a future layout change could keep the
     markup and still shift the slot.
     """
-    with _live_chat_server(tmp_path) as (base_url, _app):
-        _PLANS["long task"] = [("text", "starting…"), ("await_interrupt",), ("result",)]
+    with live_chat_server(tmp_path) as (base_url, _app):
+        PLANS["long task"] = [("text", "starting…"), ("await_interrupt",), ("result",)]
         page = _open_chat_page(chromium_browser, base_url)
 
         send_btn = page.locator(f"{_OP} .op-send-btn")
@@ -934,7 +555,7 @@ def test_send_button_does_not_move_when_stop_appears_and_leaves(tmp_path, chromi
 
 def test_mode_flip_swaps_chat_and_terminal_live(tmp_path, chromium_browser):
     """The header toggle swaps console ↔ xterm via CSS; both stay in the DOM."""
-    with _live_chat_server(tmp_path, ui_mode="simple") as (base_url, _app):
+    with live_chat_server(tmp_path, ui_mode="simple") as (base_url, _app):
         page = _open_chat_page(chromium_browser, base_url)
         html = page.locator("html")
         console = page.locator(_OP)
@@ -971,8 +592,8 @@ def test_mode_flip_swaps_chat_and_terminal_live(tmp_path, chromium_browser):
 
 def test_hostile_markdown_renders_inert(tmp_path, chromium_browser):
     """A <script>/onerror payload from the model is sanitised; nothing executes."""
-    with _live_chat_server(tmp_path) as (base_url, _app):
-        _PLANS["be evil"] = [
+    with live_chat_server(tmp_path) as (base_url, _app):
+        PLANS["be evil"] = [
             (
                 "text",
                 "Safe **bold** "
@@ -1018,9 +639,9 @@ def test_session_expiry_divider_after_eviction(tmp_path, chromium_browser):
     turns on screen, is the one that paints. Its counterpart is the resume
     below, where the same eviction draws nothing.
     """
-    with _live_chat_server(tmp_path) as (base_url, _app):
-        _PLANS["turn one"] = [("text", "answer one"), ("result",)]
-        _PLANS["turn two"] = [("text", "answer two"), ("result",)]
+    with live_chat_server(tmp_path) as (base_url, _app):
+        PLANS["turn one"] = [("text", "answer one"), ("result",)]
+        PLANS["turn two"] = [("text", "answer two"), ("result",)]
         page = _open_chat_page(chromium_browser, base_url)
 
         _send(page, "turn one")
@@ -1054,9 +675,9 @@ def test_no_divider_when_the_recreated_session_resumes(tmp_path, chromium_browse
     claim the server did not make. The divider is reserved for the case that
     genuinely lost the thread.
     """
-    with _live_chat_server(tmp_path) as (base_url, _app):
-        _PLANS["turn one"] = [("text", "answer one"), ("result",)]
-        _PLANS["turn two"] = [("text", "answer two"), ("result",)]
+    with live_chat_server(tmp_path) as (base_url, _app):
+        PLANS["turn one"] = [("text", "answer one"), ("result",)]
+        PLANS["turn two"] = [("text", "answer two"), ("result",)]
         page = _open_chat_page(chromium_browser, base_url)
         key = _wait_for_pointer(page)
 
@@ -1068,7 +689,7 @@ def test_no_divider_when_the_recreated_session_resumes(tmp_path, chromium_browse
 
         # The transcript that turn would have written, so the key has something
         # to be resumed through.
-        _seed_transcript(
+        seed_transcript(
             tmp_path / "project", key, [("user", "turn one"), ("assistant", "answer one")]
         )
 
@@ -1093,7 +714,9 @@ def test_no_divider_when_the_recreated_session_resumes(tmp_path, chromium_browse
 # ---------------------------------------------------------------------------
 
 
-def test_handoff_expert_to_simple_and_back_keeps_one_session(tmp_path, chromium_browser):
+def test_handoff_expert_to_simple_and_back_keeps_one_session(
+    tmp_path, chromium_browser, monkeypatch
+):
     """Both views are windows onto one session key and one conversation.
 
     The Expert view starts a child under the key; the flip to Simple shows the
@@ -1104,8 +727,8 @@ def test_handoff_expert_to_simple_and_back_keeps_one_session(tmp_path, chromium_
     is the same string and the page never reloads — the surfaces are swapped
     live, which is the whole point of the mechanic.
     """
-    with _live_chat_server(tmp_path, ui_mode="expert") as (base_url, _app):
-        _PLANS["and then"] = [("text", "the newer answer"), ("result",)]
+    with live_chat_server(tmp_path, ui_mode="expert") as (base_url, _app):
+        PLANS["and then"] = [("text", "the newer answer"), ("result",)]
         page = _open_expert_page(chromium_browser, base_url)
         key = _wait_for_attached_session(page)
 
@@ -1114,12 +737,16 @@ def test_handoff_expert_to_simple_and_back_keeps_one_session(tmp_path, chromium_
         assert _identity_of(first) == ("--session-id", key)
 
         # The conversation that view then had. Seeded, not generated: a real
-        # transcript is written by a real Claude child (see _seed_transcript).
-        _seed_transcript(
+        # transcript is written by a real Claude child (see seed_transcript).
+        transcript = seed_transcript(
             tmp_path / "project",
             key,
             [("user", "what is the beam current"), ("assistant", "the earlier answer")],
         )
+        # The Simple view replays the conversation from the agent record, so the
+        # record is seeded too: it serves the nodes its own transcript parser and
+        # timeline builder make of that file, as the ingested record would.
+        seed_record_from(monkeypatch, transcript)
 
         _click_segment(page, "simple")
 
@@ -1175,7 +802,7 @@ def test_handoff_before_any_prompt_starts_the_chat_under_the_key(tmp_path, chrom
     writes its transcript under is the key both views are already on — and the
     pointer is untouched by the flip.
     """
-    with _live_chat_server(tmp_path, ui_mode="expert") as (base_url, _app):
+    with live_chat_server(tmp_path, ui_mode="expert") as (base_url, _app):
         page = _open_expert_page(chromium_browser, base_url)
         key = _wait_for_attached_session(page)
         first = _wait_for_pty_spawns(base_url, 1)[0]
@@ -1209,10 +836,10 @@ def test_handoff_pending_shows_the_wait_and_stop_switches_now(tmp_path, chromium
     the running turn instead of waiting for it, and the terminal comes up on
     the key.
     """
-    with _live_chat_server(tmp_path, ui_mode="simple") as (base_url, _app):
+    with live_chat_server(tmp_path, ui_mode="simple") as (base_url, _app):
         # The turn never finishes on its own: the gate is deliberately never
         # released, so the wait the operator sees is real.
-        _PLANS["hold the line"] = [("text", "working"), ("gate",), ("result",)]
+        PLANS["hold the line"] = [("text", "working"), ("gate",), ("result",)]
         page = _open_chat_page(chromium_browser, base_url)
         key = _wait_for_pointer(page)
 
@@ -1290,7 +917,7 @@ def test_handoff_busy_expert_to_simple_waits_for_the_turn(tmp_path, chromium_bro
     what releases it. The terminal's process is torn down and the console comes
     up on the same key.
     """
-    with _live_chat_server(tmp_path, ui_mode="expert") as (base_url, _app):
+    with live_chat_server(tmp_path, ui_mode="expert") as (base_url, _app):
         page, key = _flip_into_a_busy_terminal(base_url, chromium_browser)
 
         # The turn ends: the hook's idle edge is the only thing that says so.
@@ -1314,7 +941,7 @@ def test_handoff_busy_expert_to_simple_waits_then_stops(tmp_path, chromium_brows
     only way out of it: it asks for the same session again, this time cutting
     the running turn short. It must leave the console usable on the key.
     """
-    with _live_chat_server(tmp_path, ui_mode="expert") as (base_url, _app):
+    with live_chat_server(tmp_path, ui_mode="expert") as (base_url, _app):
         page, key = _flip_into_a_busy_terminal(base_url, chromium_browser)
 
         page.locator(f"{_OP} .op-handoff-action").click()
@@ -1341,7 +968,7 @@ def test_handoff_refused_while_another_tab_holds_the_session(tmp_path, chromium_
     the refusal rather than a silent second conversation, and the copy names
     the situation the operator is actually in.
     """
-    with _live_chat_server(tmp_path, ui_mode="expert") as (base_url, _app):
+    with live_chat_server(tmp_path, ui_mode="expert") as (base_url, _app):
         context = chromium_browser.new_context()
 
         holder = _open_expert_page(context, base_url)
@@ -1392,12 +1019,12 @@ def test_panel_citation_opens_the_knowledge_tile_on_the_concept(tmp_path, chromi
     from osprey.interfaces.okf_panel.app import create_app as create_okf_app
 
     with (
-        _run_app_server(create_okf_app(str(_OKF_BUNDLE))) as okf_url,
-        _live_chat_server(
+        run_app_server(create_okf_app(str(_OKF_BUNDLE))) as okf_url,
+        live_chat_server(
             tmp_path, enabled_panels=frozenset({"artifacts", "okf"}), panel_urls={"okf": okf_url}
         ) as (base_url, _app),
     ):
-        _PLANS["where is the bpm documented"] = [
+        PLANS["where is the bpm documented"] = [
             ("text", "The monitor is described under [BPM](panel/okf#devices/bpm)."),
             ("result",),
         ]
@@ -1420,4 +1047,95 @@ def test_panel_citation_opens_the_knowledge_tile_on_the_concept(tmp_path, chromi
         )
         # The hub itself never navigated away.
         assert page.url.startswith(base_url), page.url
+        page.close()
+
+
+# ---------------------------------------------------------------------------
+# Thinking: each turn that reasoned shows one collapsed summary
+# ---------------------------------------------------------------------------
+
+
+def _expect_collapsed_thinking(entry, reasoning: str) -> None:
+    """*entry* carries one finished, collapsed thinking row that opens on *reasoning*."""
+    row = entry.locator(".op-thinking")
+    expect(row).to_have_count(1, timeout=10_000)
+    expect(row).to_have_attribute("data-state", "done")
+    head = row.locator(".op-row-head")
+    expect(head).to_have_attribute("aria-expanded", "false")
+    expect(row.locator(".op-row-body")).to_be_hidden()
+    head.click()
+    expect(row.locator(".op-row-body")).to_be_visible()
+    expect(row.locator(".op-row-body")).to_have_text(reasoning)
+
+
+def test_live_turn_shows_a_collapsed_thinking_summary(tmp_path, chromium_browser):
+    """A turn that reasoned ends with its reasoning folded into one row above the answer."""
+    with live_chat_server(tmp_path) as (base_url, _app):
+        PLANS["think first"] = [
+            ("thinking", "the orbit moved because BPM 3 drifted"),
+            ("text", "BPM 3 drifted"),
+            ("result",),
+        ]
+        page = _open_chat_page(chromium_browser, base_url)
+        _send(page, "think first")
+
+        entry = page.locator(f"{_OP} .op-entry.assistant")
+        expect(entry.locator(".osprey-md-rendered")).to_contain_text(
+            "BPM 3 drifted", timeout=10_000
+        )
+        _expect_collapsed_thinking(entry, "the orbit moved because BPM 3 drifted")
+
+        page.close()
+
+
+def test_replayed_turns_show_their_thinking_collapsed(tmp_path, chromium_browser, monkeypatch):
+    """Simple view opened on a session replays each turn's thinking from the record, folded.
+
+    The record serves the turns the session's transcript holds. The first agent
+    turn reasoned and shows its summary; the second's block was ``omitted``
+    (written with no text) and shows a row that does not open. No tool input or
+    result is drawn for a turn that made no call.
+    """
+    with live_chat_server(tmp_path) as (base_url, _app):
+        page = _open_chat_page(chromium_browser, base_url)
+        key = _wait_for_pointer(page)
+
+        transcript = seed_transcript(
+            tmp_path / "project",
+            key,
+            [
+                ("user", "why did the orbit move"),
+                (
+                    "assistant",
+                    [
+                        {"type": "thinking", "thinking": "compare BPM 3 with its neighbours"},
+                        {"type": "text", "text": "BPM 3 alone drifted"},
+                    ],
+                ),
+                ("user", "and now"),
+                (
+                    "assistant",
+                    [
+                        {"type": "thinking", "thinking": ""},
+                        {"type": "text", "text": "it is back in place"},
+                    ],
+                ),
+            ],
+        )
+        seed_record_from(monkeypatch, transcript)
+
+        # A reload binds the console to the same key and replays its conversation.
+        page.reload()
+        entries = page.locator(f"{_OP} .op-entry.assistant")
+        expect(entries).to_have_count(2, timeout=20_000)
+        expect(entries.nth(0)).to_contain_text("BPM 3 alone drifted")
+        expect(entries.nth(1)).to_contain_text("it is back in place")
+
+        _expect_collapsed_thinking(entries.nth(0), "compare BPM 3 with its neighbours")
+        hidden = entries.nth(1).locator(".op-thinking")
+        expect(hidden).to_have_count(1)
+        expect(hidden).to_have_class(re.compile(r"\bempty\b"))
+        expect(hidden.locator(".op-row-head")).to_be_disabled()
+        expect(page.locator(f"{_OP} .op-tools")).to_have_count(0)
+
         page.close()

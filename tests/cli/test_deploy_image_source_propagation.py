@@ -15,9 +15,7 @@ from typing import Any
 
 import pytest
 import yaml
-from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.cli.build_profile_deploy import (
     IMAGE_SOURCE_CONFIG_KEY,
     REGISTRY_URL_CONFIG_KEY,
@@ -27,6 +25,7 @@ from osprey.cli.build_profile_deploy import (
     parse_deploy_block,
 )
 from osprey_connectors.errors import BuildProfileError
+from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 DEPLOY_BLOCK: dict[str, Any] = {
     "ci": "gitlab",
@@ -42,7 +41,7 @@ WEB_TERMINALS: dict[str, Any] = {
     "enabled": True,
     "nginx_port": 20000,
     "web_base_port": 20100,
-    "users": ["operator"],
+    "users": ["console"],
 }
 
 # The same stack, deployable in LOCAL mode. `image_source: local` builds each
@@ -57,11 +56,6 @@ WEB_TERMINALS_LOCAL: dict[str, Any] = {
     "default_tier": "readwrite",
 }
 LOCAL_TIERS: tuple[str, ...] = ("readwrite",)
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
 
 
 def _profile(deploy: dict[str, Any] | None, config: dict[str, Any] | None) -> dict[str, Any]:
@@ -203,7 +197,6 @@ def test_the_spelling_probe_reports_only_a_real_duplicate(
 
 
 def _build_project(
-    runner: CliRunner,
     tmp_path: Path,
     profile_body: dict[str, Any],
     tiers: tuple[str, ...] = (),
@@ -216,17 +209,12 @@ def _build_project(
         tier_file = tmp_path / "tiers" / f"{tier}.yml"
         tier_file.parent.mkdir(exist_ok=True)
         tier_file.write_text(yaml.safe_dump({"name": f"Demo ({tier})"}), encoding="utf-8")
-    result = runner.invoke(
-        build,
-        ["--repo", str(tmp_path), "--skip-deps", "--skip-lifecycle"],
-    )
+    result = invoke_build(tmp_path)
     assert result.exit_code == 0, result.output
-    return yaml.safe_load((tmp_path / "build" / "config.yml").read_text(encoding="utf-8"))
+    return rendered_config(tmp_path)
 
 
-def test_a_built_project_reads_the_mode_the_deploy_block_named(
-    runner: CliRunner, tmp_path: Path
-) -> None:
+def test_a_built_project_reads_the_mode_the_deploy_block_named(tmp_path: Path) -> None:
     body = _profile({**DEPLOY_BLOCK, "image_source": "local"}, None)
     body["provider"] = "anthropic"
     body["model"] = "claude-haiku-4-5"
@@ -234,14 +222,12 @@ def test_a_built_project_reads_the_mode_the_deploy_block_named(
         "modules.web_terminals": dict(WEB_TERMINALS_LOCAL),
     }
 
-    config = _build_project(runner, tmp_path, body, LOCAL_TIERS)
+    config = _build_project(tmp_path, body, LOCAL_TIERS)
 
     assert config["modules"]["web_terminals"]["image_source"] == "local"
 
 
-def test_the_propagated_leaf_does_not_displace_the_rest_of_the_module(
-    runner: CliRunner, tmp_path: Path
-) -> None:
+def test_the_propagated_leaf_does_not_displace_the_rest_of_the_module(tmp_path: Path) -> None:
     """The derived entry is applied after the profile's own, so it has to land
     inside the subtree those wrote rather than replacing it."""
     body = _profile({**DEPLOY_BLOCK, "image_source": "local"}, None)
@@ -251,20 +237,18 @@ def test_the_propagated_leaf_does_not_displace_the_rest_of_the_module(
         "modules.web_terminals": dict(WEB_TERMINALS_LOCAL),
     }
 
-    web_terminals = _build_project(runner, tmp_path, body, LOCAL_TIERS)["modules"]["web_terminals"]
+    web_terminals = _build_project(tmp_path, body, LOCAL_TIERS)["modules"]["web_terminals"]
 
     assert web_terminals["nginx_port"] == 20000
     assert web_terminals["web_base_port"] == 20100
-    assert web_terminals["users"] == ["operator"]
+    assert web_terminals["users"] == ["console"]
 
 
-def test_a_project_with_no_web_stack_gains_no_web_terminals_module(
-    runner: CliRunner, tmp_path: Path
-) -> None:
+def test_a_project_with_no_web_stack_gains_no_web_terminals_module(tmp_path: Path) -> None:
     body = _profile({**DEPLOY_BLOCK, "image_source": "local"}, None)
     body["provider"] = "anthropic"
     body["model"] = "claude-haiku-4-5"
 
-    config = _build_project(runner, tmp_path, body)
+    config = _build_project(tmp_path, body)
 
     assert "web_terminals" not in config.get("modules", {})

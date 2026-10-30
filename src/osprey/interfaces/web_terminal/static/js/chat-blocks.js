@@ -8,11 +8,12 @@
  * drives it through. None of them reads the event stream or touches the
  * network.
  *
- * The rest of a turn is built by the modules it names: the tool-call group and
- * its chips in chat-tool-cards.js, the plan in chat-plan.js, the approval and
- * question cards in chat-approval.js and chat-question.js (both on the contract
- * in chat-permission.js), and the shared vocabulary and DOM helpers in
- * chat-tool-vocab.js and chat-dom.js.
+ * The rest of a turn is built by the modules it names: the tool and subagent
+ * rows in chat-tool-cards.js, folded into runs by chat-tool-runs.js, the
+ * approval and question cards in chat-approval.js and chat-question.js (both
+ * on the contract in chat-permission.js), the row shape in chat-row.js, and
+ * the shared vocabulary and DOM helpers in chat-tool-vocab.js and chat-dom.js.
+ * The agent's task list sits outside the turn, in chat-tasks.js.
  *
  * Everything that came over the wire (tool inputs, previews, questions) is
  * written with textContent. Nothing here reaches innerHTML.
@@ -20,8 +21,11 @@
  * @module chat-blocks
  */
 
-import { chatIcon } from './chat-icons.js';
-import { button, elem, formatElapsed } from './chat-dom.js';
+import { chatIcon, ospreySprite } from './chat-icons.js';
+import { createRow } from './chat-row.js';
+import { elem, formatElapsed } from './chat-dom.js';
+
+/** @typedef {import('./chat-icons.js').ChatIconName} ChatIconName */
 
 /**
  * @typedef {object} LoaderHandle
@@ -29,6 +33,7 @@ import { button, elem, formatElapsed } from './chat-dom.js';
  * @property {(text: string) => void} setLabel
  * @property {(startedAt: number) => void} start - tick from *startedAt* (epoch ms)
  * @property {() => void} stop
+ * @property {() => void} flourish - the osprey beats its wings twice, quicker, then rolls: a live finish
  */
 
 /**
@@ -36,30 +41,47 @@ import { button, elem, formatElapsed } from './chat-dom.js';
  * @property {HTMLElement} el
  * @property {(text: string) => void} add
  * @property {(text: string) => void} set - replace the reasoning with its final copy
- * @property {() => void} finish
+ * @property {(ms: number | null) => void} record - how long the reasoning took, as the
+ *   history recorded it; `null` when the history holds no time for it
+ * @property {() => void} finish - close the block: the row settles and reads how long it took
  */
+
+/**
+ * How a settled reasoning row reads: how long the agent thought, or a bare
+ * "Thought" when no time is known for it.
+ * @param {number | null} ms
+ * @returns {string}
+ */
+export function thoughtLabel(ms) {
+  if (ms === null) return 'Thought';
+  return ms < 1000 ? 'Thought for <1s' : `Thought for ${formatElapsed(ms)}`;
+}
 
 // ---- Live status ---- //
 
 /**
- * The turn's live status line: a 3×3 pixel grid, the current activity in a
- * shimmer, and the elapsed time. The renderer decides when it shows; the loader
- * owns its label and its clock.
+ * The turn's live status line: the OSPREY mark beating its wings, the current
+ * activity in a shimmer, and the elapsed time. The renderer decides when it
+ * shows; the loader owns its label and its clock. The mark is the brand, and
+ * this line is the one place in a turn it flies: the rows carry glyphs.
  * @returns {LoaderHandle}
  */
 export function createLoader() {
   const el = elem('div', 'op-loader');
   // No live role: the label changes with every step, and chat-announce.js speaks what matters.
-  const grid = elem('span', 'op-loader-grid');
-  grid.setAttribute('aria-hidden', 'true');
-  for (let i = 0; i < 9; i += 1) grid.append(elem('span', 'op-loader-cell'));
+  const bird = ospreySprite();
+  bird.classList.add('op-loader-bird');
+  // One flight per flourish: the roll's end returns the bird to its steady beat.
+  bird.addEventListener('animationend', (event) => {
+    if (event.animationName === 'op-osprey-roll') bird.classList.remove('flying');
+  });
   const label = elem('span', 'op-loader-label op-shimmer', 'Working…');
   const sep = elem('span', 'op-loader-sep', '·');
   sep.setAttribute('aria-hidden', 'true');
   // Off the live region: the label is the announcement; the clock is for the eye.
   const time = elem('span', 'op-loader-time', '0.0s');
   time.setAttribute('aria-live', 'off');
-  el.append(grid, label, sep, time);
+  el.append(bird, label, sep, time);
 
   let since = 0;
   /** @type {number | null} */
@@ -86,55 +108,66 @@ export function createLoader() {
         timer = null;
       }
     },
+    flourish() {
+      bird.classList.add('flying');
+    },
   };
 }
 
 // ---- Reasoning ---- //
 
 /**
- * A collapsible reasoning row, collapsed by default. Its label shimmers while
- * the reasoning is still arriving, then reads how long it took.
+ * A collapsible reasoning row, collapsed by default: the brain glyph in the
+ * gutter, a label that shimmers while the reasoning is still arriving and then
+ * reads how long it took, and the chevron at the right edge. Live, the time
+ * runs from *since*, the turn's last frame before the reasoning: the agent
+ * starts thinking when that frame lands, not when its first words arrive.
+ * @param {number} [since] - epoch ms
  * @returns {ThinkingBlock}
  */
-export function createThinkingBlock() {
-  const startedAt = Date.now();
-  const el = elem('div', 'op-thinking live');
-  const head = button('op-thinking-head');
-  head.setAttribute('aria-expanded', 'false');
-  const glyph = chatIcon('spark');
-  glyph.classList.add('op-thinking-glyph');
-  const label = elem('span', 'op-thinking-label op-shimmer', 'Thinking');
-  const chevron = chatIcon('chevron');
-  chevron.classList.add('op-thinking-chevron');
-  head.append(glyph, label, chevron);
-  const body = elem('div', 'op-thinking-body');
-  body.hidden = true;
-  head.addEventListener('click', () => {
-    const open = body.hidden;
-    body.hidden = !open;
-    el.classList.toggle('open', Boolean(open));
-    head.setAttribute('aria-expanded', String(open));
+export function createThinkingBlock(since = Date.now()) {
+  /** The recorded duration; undefined means measure it live. */
+  let recorded = /** @type {number | null | undefined} */ (undefined);
+  const row = createRow({
+    className: 'op-thinking',
+    kind: 'thinking',
+    glyph: chatIcon('brain'),
+    label: 'Thinking',
+    ownStatus: true,
   });
-  el.append(head, body);
+  row.label.classList.add('op-shimmer');
+  const chevron = chatIcon('chevron');
+  chevron.classList.add('op-row-chevron');
+  row.status.append(chevron);
+  row.head.addEventListener('click', () => row.setOpen(!row.isOpen()));
+
+  // The row opens only onto reasoning it holds: a model that keeps its
+  // reasoning hidden sends empty pieces, live and when it settles alike.
+  function syncOpenable() {
+    const empty = !row.body.textContent?.trim();
+    row.el.classList.toggle('empty', empty);
+    row.head.disabled = empty;
+  }
+  syncOpenable();
 
   return {
-    el,
+    el: row.el,
     add(text) {
-      body.append(text);
+      row.body.append(text);
+      syncOpenable();
     },
     set(text) {
-      body.textContent = text;
+      row.body.textContent = text;
+      syncOpenable();
+    },
+    record(ms) {
+      recorded = ms;
     },
     finish() {
-      el.classList.remove('live');
-      label.classList.remove('op-shimmer');
-      const elapsed = Date.now() - startedAt;
-      label.textContent = elapsed >= 1000 ? `Thought for ${formatElapsed(elapsed)}` : 'Thought';
-      // Models that return redacted reasoning send empty blocks: nothing to open.
-      if (!body.textContent?.trim()) {
-        el.classList.add('empty');
-        head.disabled = true;
-      }
+      row.setState('done');
+      row.label.classList.remove('op-shimmer');
+      row.label.textContent = thoughtLabel(recorded === undefined ? Date.now() - since : recorded);
+      syncOpenable();
     },
   };
 }
@@ -142,15 +175,62 @@ export function createThinkingBlock() {
 // ---- Turn furniture ---- //
 
 /**
- * The line that closes a finished turn: how long it worked. The reply's copy
- * control is chat-export.js's.
- * @param {{ durationMs: number, isError: boolean }} turn
+ * What a turn did, as its footer states it.
+ * @typedef {object} TurnSummary
+ * @property {number} durationMs
+ * @property {boolean} isError
+ * @property {number} actions - the tool and subagent calls the turn made
+ * @property {number} approvals - the approvals it asked the operator for
+ * @property {ChatIconName[]} icons - the actions' icons, in order of first use
+ */
+
+/**
+ * One part of the footer: its small icons, then its text.
+ * @param {(SVGSVGElement | HTMLElement)[]} icons
+ * @param {string} text
+ * @param {string} [className]
+ */
+function footerPart(icons, text, className = '') {
+  const part = elem('span', `op-footer-part ${className}`.trim());
+  if (icons.length > 1) {
+    const stack = elem('span', 'op-footer-stack');
+    stack.append(...icons);
+    part.append(stack);
+  } else {
+    part.append(...icons);
+  }
+  part.append(elem('span', 'op-footer-text', text));
+  return part;
+}
+
+/**
+ * The line that closes a finished turn: how long it worked, then what it did,
+ * counting only what happened. The reply's copy control is chat-export.js's.
+ * @param {TurnSummary} turn
  * @returns {HTMLElement}
  */
-export function createTurnFooter({ durationMs, isError }) {
+export function createTurnFooter({ durationMs, isError, actions, approvals, icons }) {
   const el = elem('div', 'op-footer');
-  const lead = isError ? 'Ended with an error after' : 'Worked for';
-  el.append(elem('span', 'op-footer-text', `${lead} ${formatElapsed(durationMs)}`));
+  const parts = [footerPart([], formatElapsed(durationMs))];
+  if (actions > 0) {
+    const marks = icons.slice(0, 4).map((name) => chatIcon(name));
+    parts.push(footerPart(marks, `${actions} action${actions === 1 ? '' : 's'}`));
+  }
+  if (approvals > 0) {
+    parts.push(
+      footerPart([chatIcon('check')], `${approvals} approval${approvals === 1 ? '' : 's'}`)
+    );
+  }
+  if (isError)
+    parts.push(footerPart([chatIcon('alert')], 'ended with an error', 'op-footer-error'));
+  parts.forEach((part, i) => {
+    if (i > 0) {
+      const sep = elem('span', 'op-footer-sep', '·');
+      sep.setAttribute('aria-hidden', 'true');
+      el.append(sep);
+    }
+    el.append(part);
+  });
   return el;
 }
 

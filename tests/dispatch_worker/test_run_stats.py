@@ -9,12 +9,12 @@ contract that the stats entry is popped in the same ``finally`` that pops
 from __future__ import annotations
 
 import asyncio
-from typing import Any
 
 import pytest
 
-from osprey.agent_runner import ResultEvent, ToolUseEvent
+from osprey.agent_runner import ToolUseEvent
 from osprey.mcp_server.dispatch_worker import run_stats, sdk_runner
+from tests.dispatch_worker._runner import result_event, stub_osprey_helpers
 
 
 @pytest.fixture(autouse=True)
@@ -90,35 +90,7 @@ def test_pop_is_idempotent():
 @pytest.fixture
 def _stub_osprey_helpers(monkeypatch):
     """Stub the deferred OSPREY helpers so run_dispatch runs without a project."""
-    monkeypatch.setattr(
-        "osprey.agent_runner.clean_env.build_clean_env",
-        lambda **kw: {},
-    )
-    monkeypatch.setattr(
-        "osprey.agent_runner.sdk_context.build_system_prompt",
-        lambda *a, **k: "system",
-    )
-    monkeypatch.setattr(
-        "osprey_connectors.config.get_facility_timezone",
-        lambda *a, **k: "UTC",
-    )
-
-
-def _result(**overrides: Any) -> ResultEvent:
-    """A successful result record; any field can be overridden."""
-    fields: dict[str, Any] = {
-        "subtype": "success",
-        "is_error": False,
-        "num_turns": 1,
-        "duration_ms": 0,
-        "session_id": "s",
-        "total_cost_usd": 0.1,
-        "usage": None,
-        "result": None,
-        "api_error_status": None,
-    }
-    fields.update(overrides)
-    return ResultEvent(**fields)
+    stub_osprey_helpers(monkeypatch)
 
 
 def _tool_use(tool_use_id: str, name: str) -> ToolUseEvent:
@@ -131,7 +103,7 @@ async def test_run_dispatch_increments_per_tool_use(monkeypatch, _stub_osprey_he
         yield _tool_use("t1", "Read")
         yield _tool_use("t2", "Read")
         yield _tool_use("t3", "Grep")
-        yield _result(num_turns=2)
+        yield result_event(num_turns=2)
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
@@ -153,7 +125,7 @@ async def test_run_dispatch_counts_beyond_retained_cap(monkeypatch, _stub_osprey
     async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
         for i in range(5):
             yield _tool_use(f"t{i}", "Read")
-        yield _result(num_turns=5)
+        yield result_event(num_turns=5)
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
@@ -170,7 +142,7 @@ async def test_run_dispatch_counts_beyond_retained_cap(monkeypatch, _stub_osprey
 async def test_run_dispatch_without_run_id_creates_no_entry(monkeypatch, _stub_osprey_helpers):
     async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
         yield _tool_use("t1", "Read")
-        yield _result()
+        yield result_event()
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
@@ -192,7 +164,6 @@ async def test_dispatch_task_pops_stats_on_completion(monkeypatch):
     monkeypatch.setattr(dispatch_api, "_runs", {})
     monkeypatch.setattr(dispatch_api, "_queues", {})
     monkeypatch.setattr(dispatch_api, "_tasks", {})
-    monkeypatch.setattr(dispatch_api, "_persist_run", lambda run_id, run: None)
     monkeypatch.setattr(dispatch_api, "describe_run_artifacts", lambda run_id: [])
 
     async def _fake_run_dispatch(*, run_id, event_queue, **kw):  # noqa: ARG001 - the patched run_dispatch is called with event_queue=
@@ -225,7 +196,6 @@ async def test_dispatch_task_pops_stats_on_error(monkeypatch):
     monkeypatch.setattr(dispatch_api, "_runs", {})
     monkeypatch.setattr(dispatch_api, "_queues", {})
     monkeypatch.setattr(dispatch_api, "_tasks", {})
-    monkeypatch.setattr(dispatch_api, "_persist_run", lambda run_id, run: None)
 
     async def _boom(*, run_id, event_queue, **kw):  # noqa: ARG001 - the patched run_dispatch is called with event_queue=
         run_stats.increment_tool_calls(run_id)

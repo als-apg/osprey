@@ -36,26 +36,7 @@ from osprey.registry.mcp import (
     TOOL_PREFIX_ENV,
     resolve_servers,
 )
-from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
-
-
-def _base_ctx(**overrides):
-    """Minimal render context, matching ``tests/registry/test_mcp.py``."""
-    ctx = {
-        "project_root": "/tmp/test-project",
-        "current_python_env": "/usr/bin/python3",
-        "agent_data_root": DEFAULT_AGENT_DATA_BASE_DIR,
-    }
-    ctx.update(overrides)
-    return ctx
-
-
-def _resolve_one(cfg, name, ctx=None):
-    servers = resolve_servers(cfg, ctx or _base_ctx())
-    matches = [s for s in servers if s["name"] == name]
-    assert len(matches) == 1, f"expected exactly one {name!r} server, got {len(matches)}"
-    return matches[0]
-
+from tests.registry._ctx import render_ctx, resolve_one
 
 _PHOEBUS2_SPEC = {
     "extends": "phoebus",
@@ -72,23 +53,23 @@ class TestToolPrefixAssignment:
 
     def test_every_framework_server_carries_its_own_prefix(self):
         """Framework path: enabled or not, every server advertises its name."""
-        servers = resolve_servers({}, _base_ctx())
+        servers = resolve_servers({}, render_ctx())
         assert {s["name"] for s in servers} >= set(FRAMEWORK_SERVERS)
         for srv in servers:
             assert srv["env"][TOOL_PREFIX_ENV] == srv["name"], srv["name"]
 
     def test_extends_clone_carries_the_clone_name(self):
         """Clone path: the prefix follows the clone, not the template."""
-        p2 = _resolve_one({"servers": {"phoebus2": dict(_PHOEBUS2_SPEC)}}, "phoebus2")
+        p2 = resolve_one({"servers": {"phoebus2": dict(_PHOEBUS2_SPEC)}}, "phoebus2")
         assert p2["env"][TOOL_PREFIX_ENV] == "phoebus2"
 
-        pristine = _resolve_one({"servers": {"phoebus": {"enabled": True}}}, "phoebus")
+        pristine = resolve_one({"servers": {"phoebus": {"enabled": True}}}, "phoebus")
         assert pristine["env"][TOOL_PREFIX_ENV] == "phoebus"
 
     def test_custom_server_carries_its_own_name(self):
         """Custom-spec path: a server the registry never heard of still gets it."""
         cfg = {"servers": {"site-tools": {"command": "node", "args": ["s.js"]}}}
-        custom = _resolve_one(cfg, "site-tools")
+        custom = resolve_one(cfg, "site-tools")
         assert custom["env"][TOOL_PREFIX_ENV] == "site-tools"
 
     def test_prefix_qualifies_the_clone_rewritten_matchers(self):
@@ -98,7 +79,7 @@ class TestToolPrefixAssignment:
         must produce exactly that string, or the middleware's fully-qualified
         names would miss the render's gate lists.
         """
-        p2 = _resolve_one({"servers": {"phoebus2": dict(_PHOEBUS2_SPEC)}}, "phoebus2")
+        p2 = resolve_one({"servers": {"phoebus2": dict(_PHOEBUS2_SPEC)}}, "phoebus2")
         prefix = f"mcp__{p2['env'][TOOL_PREFIX_ENV]}__"
         matchers = [r["matcher"] for r in (*p2["hooks_pre"], *p2["hooks_post"])]
         assert matchers, "expected the clone to carry rewritten hook matchers"
@@ -118,7 +99,7 @@ class TestToolPrefixIsNotPinnable:
                 "PHOEBUS_BRIDGE_URL": "${PHOEBUS2_BRIDGE_URL:-http://127.0.0.1:7980}",
             },
         }
-        p2 = _resolve_one({"servers": {"phoebus2": spec}}, "phoebus2")
+        p2 = resolve_one({"servers": {"phoebus2": spec}}, "phoebus2")
         assert p2["env"][TOOL_PREFIX_ENV] == "phoebus2"
         # The rest of the spec env still wins the merge — the override contract
         # is intact, only this one key is framework-owned.
@@ -135,20 +116,20 @@ class TestToolPrefixIsNotPinnable:
                 }
             }
         }
-        custom = _resolve_one(cfg, "site-tools")
+        custom = resolve_one(cfg, "site-tools")
         assert custom["env"][TOOL_PREFIX_ENV] == "site-tools"
         assert custom["env"]["SITE_TOKEN"] == "keep-me"
 
     def test_pinned_value_does_not_survive_the_framework_path(self):
         """A spec against a framework name cannot repoint it either."""
         cfg = {"servers": {"controls": {"enabled": True, "env": {TOOL_PREFIX_ENV: "python"}}}}
-        controls = _resolve_one(cfg, "controls")
+        controls = resolve_one(cfg, "controls")
         assert controls["env"][TOOL_PREFIX_ENV] == "controls"
 
     def test_placeholder_pin_is_not_expanded_into_the_prefix(self):
         """A ``${...}`` pin must not become a runtime-expanded prefix either."""
         spec = {"extends": "phoebus", "env": {TOOL_PREFIX_ENV: "${EVIL:-controls}"}}
-        p2 = _resolve_one({"servers": {"phoebus2": spec}}, "phoebus2")
+        p2 = resolve_one({"servers": {"phoebus2": spec}}, "phoebus2")
         assert p2["env"][TOOL_PREFIX_ENV] == "phoebus2"
 
 
@@ -164,7 +145,7 @@ class TestDriftTriadStaysApart:
                 TOOL_PREFIX_ENV: "custom-panel-id",
             },
         }
-        pinned = _resolve_one({"servers": {"phoebus2": spec}}, "phoebus2")
+        pinned = resolve_one({"servers": {"phoebus2": spec}}, "phoebus2")
         # Panel id: still a facility knob (unchanged behavior).
         assert pinned["env"]["OSPREY_SERVER_NAME"] == "custom-panel-id"
         # Tool prefix: framework-owned, so the two now legitimately DIFFER.
@@ -173,7 +154,7 @@ class TestDriftTriadStaysApart:
 
     def test_prefix_tracks_the_mcp_json_key_not_the_template(self):
         """The dict ``name`` IS the ``.mcp.json`` key the template renders."""
-        p2 = _resolve_one({"servers": {"phoebus2": dict(_PHOEBUS2_SPEC)}}, "phoebus2")
+        p2 = resolve_one({"servers": {"phoebus2": dict(_PHOEBUS2_SPEC)}}, "phoebus2")
         assert p2["name"] == "phoebus2"
         assert p2["env"][TOOL_PREFIX_ENV] == p2["name"]
 
@@ -196,14 +177,14 @@ class TestPinLint:
     )
     def test_pin_is_flagged(self, caplog, spec):
         with caplog.at_level("WARNING"):
-            resolve_servers({"servers": {"srv2": spec}}, _base_ctx())
+            resolve_servers({"servers": {"srv2": spec}}, render_ctx())
         assert TOOL_PREFIX_ENV in caplog.text
         assert "srv2" in caplog.text
 
     def test_framework_override_pin_is_flagged(self, caplog):
         cfg = {"servers": {"controls": {"enabled": True, "env": {TOOL_PREFIX_ENV: "python"}}}}
         with caplog.at_level("WARNING"):
-            resolve_servers(cfg, _base_ctx())
+            resolve_servers(cfg, render_ctx())
         assert TOOL_PREFIX_ENV in caplog.text
         assert "controls" in caplog.text
 
@@ -220,7 +201,7 @@ class TestPinLint:
             }
         }
         with caplog.at_level("WARNING"):
-            resolve_servers(cfg, _base_ctx())
+            resolve_servers(cfg, render_ctx())
         assert TOOL_PREFIX_ENV not in caplog.text
 
     def test_non_dict_spec_env_does_not_crash_the_lint(self):
@@ -232,4 +213,4 @@ class TestPinLint:
         """
         for bad in ([TOOL_PREFIX_ENV], "OSPREY_MCP_TOOL_PREFIX=controls", None):
             cfg = {"servers": {"my__server": {"command": "node", "env": bad}}}
-            assert not [s for s in resolve_servers(cfg, _base_ctx()) if s["name"] == "my__server"]
+            assert not [s for s in resolve_servers(cfg, render_ctx()) if s["name"] == "my__server"]

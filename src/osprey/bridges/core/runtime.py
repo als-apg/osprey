@@ -49,7 +49,7 @@ from .dedup import DedupStore
 from .dispatch_client import DispatchClient
 from .drain import DrainCallbacks, DrainDeps, ensure_alive, run_drain_thread
 from .health_gate import gate_open
-from .history import HistoryStore
+from .history import ConversationHistory
 from .pipeline import (
     PipelineDeps,
     _append_history,
@@ -84,7 +84,7 @@ def build_deps(
     ops: ChannelOps,
     *,
     dedup: DedupStore | None = None,
-    history: HistoryStore | None = None,
+    history: ConversationHistory | None = None,
     dispatcher: DispatchClient | None = None,
 ) -> PipelineDeps:
     """Build the engine's collaborator set from ``cfg`` and the adapter's ``ops``.
@@ -95,8 +95,9 @@ def build_deps(
     serves the live pipeline, startup reconcile and the drain wiring, and there is no
     second place a collaborator could be constructed differently.
 
-    The stores are file-backed at the configured paths and the dispatch client honors
-    ``cfg.trust_env``; each is injectable for tests and for an adapter that needs a
+    The dedup store is file-backed at ``cfg.dedup_path``, conversation history reads
+    and writes the agent record, and the dispatch client honors ``cfg.trust_env``;
+    each is injectable for tests and for an adapter that needs a
     pre-configured instance. The remaining :class:`PipelineDeps` seams (``park``,
     ``probe_capability``, ``fetch_prior_artifact``) keep their real defaults — override
     them with :func:`dataclasses.replace` on the returned bundle, which is also how an
@@ -107,7 +108,7 @@ def build_deps(
         ops=ops,
         dedup=dedup if dedup is not None else DedupStore(cfg.dedup_path),
         dispatcher=dispatcher if dispatcher is not None else DispatchClient(cfg),
-        history=history if history is not None else HistoryStore(cfg.history_path),
+        history=history if history is not None else ConversationHistory(),
     )
 
 

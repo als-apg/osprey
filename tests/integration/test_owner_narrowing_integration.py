@@ -1,16 +1,16 @@
-"""One narrowing, two users, one deployment — from the chip's record to the run record.
+"""One switch, two users, one deployment — from the chip's record to the run record.
 
 The pieces this joins are each pinned on their own elsewhere, and none of those
-files can show what an operator actually meets. ``tests/connectors`` pins the
-store's verdicts against a tree; ``tests/services/bluesky_bridge`` pins the
+files can show what an operator actually meets. ``packages/osprey-connectors``
+pins the write verdict against a tree; ``tests/services/bluesky_bridge`` pins the
 wrapper binding the owner and the single line a refusal earns, both against
 connector doubles that raise refusals the test itself wrote; ``tests/services/
 bluesky_bridge/test_runs*.py`` pins the run-record projection against literal
 manager documents. Here the whole chain runs at once and nobody stands in for
 the decision: a real plan wrapper binds the owner a queue item carried, a real
 ``RunEngine`` schedules a real device's ``set``, the REAL reference monitor in
-``osprey_connectors.control_system._base`` asks the REAL store, and the store
-reads a real provisioned tree. What the monitor answers is then carried out to
+``osprey_connectors.control_system._base`` asks the REAL write verdict, and the
+verdict reads a real provisioned tree. What the monitor answers is then carried out to
 the two surfaces a person reads — the run record's ``error`` and the worker's
 log — rather than asserted at the seam it was decided in.
 
@@ -18,14 +18,20 @@ That is the point of running it whole: every one of those seams agrees with its
 neighbour in isolation, and a deployment where a lane's queueserver holds the
 whole per-user tree is where they have to agree with each other.
 
-**Two users, one deployment.** Alice's narrowing is recorded WHILE a plan is
-running, which is what the feature is for: a target flipped to read-only from
-the header chip refuses the very next write of a plan already in flight, with
-no respawn. The plan's own first write is the clock that says it is running —
-the connector plants the record from inside it, standing in for the other
-process the chip really writes from. The same arrangement, with only the name
-on the item changed, is what shows the narrowing is Alice's alone: Bob's plan
-runs through it and completes.
+**Two users, one deployment.** Alice turns her switch off WHILE a plan is
+running, which is what the switch is for: a machine switched off from the
+header chip refuses the very next write of a plan already in flight, with no
+respawn. The plan's own first write is the clock that says it is running — the
+connector rewrites the record from inside it, standing in for the other process
+the chip really writes from. The same arrangement, with only the name on the
+item changed, is what shows the switch is Alice's alone: Bob's plan runs
+through it and completes.
+
+**The deployment.** Every row runs on a deployment whose write tier allows
+writes, whose target resolves (the connector is stamped ``va``, the simulator),
+and whose ``login_tiers`` map names both users, with each user's switch on for
+that target before the plan starts. What a row changes is then the one thing it
+is about.
 
 **Which surface the run-record rows assert.** A run record is a projection over
 the manager's own history item, and there is no manager in this process: the
@@ -66,41 +72,44 @@ from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import (
     ConnectorFactory,
-    isolated_connector_registries,
 )
 from osprey_connectors.posture_store import (
     NO_OWNER,
     RESERVED_OWNER_KWARG,
-    StoreVerdict,
 )
+from osprey_connectors.refusals import STORE_PATH_MARKERS, refusal_phrase
+from osprey_connectors_tests._harness import isolated_connector_registries, write_payload
 from tests.facility.served_tree import in_process_config, served_tree
 
-#: The person whose chip narrows the target in every row that has a narrowing.
-NARROWING_OWNER = "alice"
-#: The other person on the same deployment, who narrowed nothing.
+#: The person whose chip turns the switch off in every row that turns one off.
+SWITCHING_OWNER = "alice"
+#: The other person on the same deployment, who leaves their switch on.
 OTHER_OWNER = "bob"
+#: A login the deployment's ``login_tiers`` map does not name.
+UNMAPPED_OWNER = "carol"
 
-_TARGET = "live"
+#: The simulator: a target every deployment resolves, so the verdict's target
+#: term passes and the rows reach the owner and the switch.
+_TARGET = "va"
+#: The machine kind :func:`refusal_phrase` names for :data:`_TARGET`.
+_KIND = "simulator"
 _CHANNEL = "SR:QUAD:STRENGTH"
 _DEVICE_NAME = "quadrupole"
 _PLAN_NAME = "two_step_write_plan"
 #: The plan writes twice. The first write is the one that says the plan is
-#: running; the second is the "next write" a narrowing has to reach.
+#: running; the second is the "next write" a switch turned off has to reach.
 _FIRST_SETPOINT = 1.5
 _SECOND_SETPOINT = 3.5
 
-#: The connector type the deployment's write posture is keyed on. The simulator
-#: is a real deployment's spelling for the simulated control system, so the
-#: posture these rows arm is one a deployment can actually set.
+#: The connector type the target resolves to, and the deployment's own type.
 _CONNECTOR_TYPE = "virtual_accelerator"
-#: The config key a deployment sets to arm writes for that connector type, and
-#: the one a refusal by the ceiling names — the type-keyed spelling, because the
-#: connector below carries a type stamp.
-_TYPE_WRITES_ENABLED_KEY = f"control_system.connector.{_CONNECTOR_TYPE}.writes_enabled"
+
+#: Both users' tiers, as the resolved render maps them for a shared container.
+_LOGIN_TIERS = {SWITCHING_OWNER: "allowed", OTHER_OWNER: "allowed"}
 
 #: The machine-readable half of every refusal here: the monitor declined to
-#: attempt the write. Which of its three reasons decided it is in the message,
-#: never in this code, so the code alone never tells a narrowing from a ceiling.
+#: attempt the write. Which verdict term decided it is in the message, never in
+#: this code, so the code alone never tells one reason from another.
 _REFUSAL_CODE = "WRITES_DISABLED"
 
 _RUN_ID = "run-0001"
@@ -185,44 +194,73 @@ def build_plan(devices, params):
 # --- the deployment these rows run in --------------------------------------
 
 
-def arm_deployment_writes(monkeypatch: pytest.MonkeyPatch, *, enabled: bool) -> None:
-    """Set the deployment's write ceiling, the half config owns.
+def arm_deployment_writes(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    tier: str = "allowed",
+    login_tiers: dict[str, str] | None = None,
+) -> None:
+    """Set the half of the verdict config owns: the tier and the login map.
 
-    The monitor ANDs this with the live half a record can narrow, so it has to
-    be armed for a narrowing to be the thing that refuses — and disarmed for the
-    ceiling to be shown to be the thing that refuses an owner-less run. Both
-    key shapes are answered because the monitor asks the deployment-wide key for
-    an unstamped connector and the ``control_system`` block for a stamped one.
+    *tier* is the deployment's ``writes`` leaf, which the verdict asks first;
+    *login_tiers* is the per-login map a container holding the tree reads each
+    owner's tier from, :data:`_LOGIN_TIERS` unless a row names another.
     """
+    section = {
+        "type": _CONNECTOR_TYPE,
+        "writes": tier,
+        "login_tiers": dict(_LOGIN_TIERS if login_tiers is None else login_tiers),
+    }
 
     def config_value(key: str, default: Any = None) -> Any:
-        if key == "control_system.writes_enabled":
-            return enabled
         if key == "control_system":
-            return {"writes_enabled": enabled}
+            return section
         return default
 
     monkeypatch.setattr("osprey_connectors.config.get_config_value", config_value)
+
+
+def switch_for(tree: Path, owner: str, state: str, target: str = _TARGET) -> Path:
+    """Write *owner*'s record with the switch *state* for *target*, as the chip leaves it.
+
+    The payload is written whole rather than through
+    :func:`control_context.write_record`, which keeps the switch already on disk:
+    turning the switch is the one change that writer exists not to make.
+    """
+    payload = control_context.ControlContext(
+        target=target, generation=3, switch_epoch=1
+    ).to_payload()
+    payload["switch"] = {target: state}
+    path = write_payload(tree / owner / control_context.RECORD_FILENAME, payload)
+    posture_store.invalidate_cache()
+    return path
 
 
 @pytest.fixture
 def control_context_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     """A provisioned control-context tree, bound as a lane's queueserver has it.
 
-    The stamped-owner rung and the launch pin are cleared so a developer's
-    environment cannot decide these rows, and the tree bind is what makes
-    ``NO_OWNER`` — rather than the account this process runs as — the ladder's
-    answer for a plan that arrived without a name. The bound owner is reset on
-    the way out as well as in: a run that failed mid-plan would otherwise hand
-    its owner to the next test.
+    Every user starts with their switch on for the target. The stamped-owner
+    rung, the dispatch marker, the read-only mode and the launch pin are
+    cleared so a developer's environment cannot decide these rows, and the tree
+    bind is what makes ``NO_OWNER`` — rather than the account this process runs
+    as — the ladder's answer for a plan that arrived without a name. The bound
+    owner is reset on the way out as well as in: a run that failed mid-plan
+    would otherwise hand its owner to the next test.
     """
     tree = tmp_path / posture_store.STATE_DIR_NAME
     tree.mkdir(parents=True)
     (tree / posture_store.CONTROL_TREE_MARKER_NAME).write_text("provisioned\n", encoding="utf-8")
-    monkeypatch.delenv(posture_store.CONTROL_OWNER_ENV_VAR, raising=False)
-    monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
+    for name in (
+        posture_store.CONTROL_OWNER_ENV_VAR,
+        posture_store.DISPATCH_RUN_ENV_VAR,
+        posture_store.LAUNCH_POSTURE_ENV_VAR,
+        "OSPREY_EXECUTION_MODE",
+    ):
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, str(tree))
-    posture_store.invalidate_cache()
+    for owner in (SWITCHING_OWNER, OTHER_OWNER, UNMAPPED_OWNER):
+        switch_for(tree, owner, "on")
     posture_store._owner_var.set(NO_OWNER)
     yield tree
     posture_store._owner_var.set(NO_OWNER)
@@ -231,23 +269,23 @@ def control_context_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ite
 
 @pytest.fixture
 def armed_deployment(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The deployment ceiling open, so the record is what decides a write."""
-    arm_deployment_writes(monkeypatch, enabled=True)
+    """A tier that allows writes and a login map naming both users."""
+    arm_deployment_writes(monkeypatch)
 
 
 @pytest.fixture
-def connector(armed_deployment: None, tmp_path: Path) -> Iterator[_RecordingInProcessConnector]:  # noqa: ARG001 - the deployment's write ceiling is open before the connector is built
+def connector(armed_deployment: None, tmp_path: Path) -> Iterator[_RecordingInProcessConnector]:  # noqa: ARG001 - the deployment's tier is set before the connector is built
     """The connector a lane builds, through the factory that builds a lane's.
 
-    Built rather than constructed, because the monitor reads two stamps that
-    only the factory sets between construction and ``connect()``: the type,
-    which selects the deployment's connector block, and the control target,
-    which indexes the per-user store. A connector stamped by hand here would be
-    this file agreeing with itself about the shape a lane's connector has.
+    Built rather than constructed, because the monitor reads the control-target
+    stamp that only the factory sets between construction and ``connect()``,
+    and the verdict resolves that target. A connector stamped by hand here
+    would be this file agreeing with itself about the shape a lane's connector
+    has.
 
     The recording subclass is registered under the deployment's own
     ``virtual_accelerator`` spelling inside
-    :func:`~osprey_connectors.factory.isolated_connector_registries`, the
+    :func:`~osprey_connectors_tests._harness.isolated_connector_registries`, the
     sanctioned bracket for mutating the factory registries, so the registration
     is restored on the way out and no later test builds this class. Its block
     names no ``serving`` venue, so the factory takes the registered class
@@ -278,21 +316,6 @@ def connector(armed_deployment: None, tmp_path: Path) -> Iterator[_RecordingInPr
 def _without_venue(block: dict) -> dict:
     """*block* with no ``serving`` leaf, so the registry answers for the type."""
     return {key: value for key, value in block.items() if key != "serving"}
-
-
-def narrow_for(tree: Path, owner: str, target: str = _TARGET) -> Path:
-    """Record *owner*'s narrowing of *target*, the way that owner's chip writes it."""
-    path = tree / owner / control_context.RECORD_FILENAME
-    control_context.write_record(
-        control_context.ControlContext(
-            target=target,
-            generation=3,
-            posture={target: posture_store.POSTURE_SANDBOX},
-        ),
-        path=path,
-    )
-    posture_store.invalidate_cache()
-    return path
 
 
 # --- the two plan wrappers a worker runs -----------------------------------
@@ -361,36 +384,36 @@ def wrapper_warnings(caplog: pytest.LogCaptureFixture, logger_name: str) -> list
     ]
 
 
-def store_answered(verdict: StoreVerdict) -> str:
-    """The clause a refusal decided by the store CLOSES on, for *verdict*.
+def refused_as(reason: str) -> str:
+    """The phrase a refusal for *reason* carries, for this deployment's target.
 
-    The bare verdict word does not separate the two store arms and must never
-    be asserted on alone: the ``control_context_unavailable`` message says "This
-    is not a narrowing anybody set", so ``"narrowing" in message`` is true for
-    both arms and a row written that way passes while the store answered the
-    other thing. The closing clause is what differs, so it is what every row
-    below asserts, composed from the verdict rather than typed out — a renamed
-    member fails these rows instead of leaving them agreeing with a spelling
-    nothing answers any more.
+    Composed from :func:`refusal_phrase` rather than typed out, so a reworded
+    phrase fails these rows instead of leaving them agreeing with a spelling
+    nothing answers any more. Every phrase is distinct, so asserting one in a
+    message and another absent tells the two reasons apart.
     """
-    return f"answered {verdict}"
+    return refusal_phrase(reason, _KIND)
 
 
-def assert_names_the_refusal(line: str, owner: str | object, closing_clause: str) -> None:
+def assert_names_the_refusal(line: str, owner: str | object, reason: str) -> None:
     """The one line a refusal earns, by what a person has to find in it.
 
-    *closing_clause* is the end of the monitor's own message — for a store
-    refusal, :func:`store_answered`; for one the deployment ceiling made, the
-    config key it tells the operator to set. The bracketed reason code is
-    asserted for every refusal alike: a log reader groups on it without parsing
-    prose, and all three refusals here are the monitor declining to attempt a
-    write.
+    The bracketed reason code is asserted for every refusal alike: a log reader
+    groups on it without parsing prose, and every refusal here is the monitor
+    declining to attempt a write. The phrase for *reason* is the operator's
+    words for which verdict term decided it.
     """
     assert _PLAN_NAME in line
     assert str(owner) in line
     assert _CHANNEL in line
     assert _REFUSAL_CODE in line
-    assert closing_clause in line
+    assert refused_as(reason) in line
+
+
+def assert_names_no_store_path(message: str) -> None:
+    """A refusal sends nobody to a file: no store path, no tree marker, no key."""
+    for marker in (*STORE_PATH_MARKERS, posture_store.CONTROL_TREE_MARKER_NAME, "writes_enabled"):
+        assert marker not in message
 
 
 # --- the run record an operator reads --------------------------------------
@@ -448,10 +471,10 @@ def run_record(owner: str | None, failure: BaseException | None = None) -> dict[
     return record
 
 
-# --- a narrowing that lands while the plan is running ----------------------
+# --- a switch turned off while the plan is running ------------------------
 
 
-def test_a_narrowing_recorded_while_the_plan_runs_refuses_its_next_write(
+def test_turning_the_switch_off_while_the_plan_runs_refuses_its_next_write(
     wrapped_plan: tuple[Callable[..., Iterator[Any]], str],
     connector: _RecordingInProcessConnector,
     control_context_tree: Path,
@@ -459,31 +482,28 @@ def test_a_narrowing_recorded_while_the_plan_runs_refuses_its_next_write(
 ) -> None:
     """The whole feature in one row: the chip reaches a plan already in flight.
 
-    The plan's first write lands, the owner's record appears while the run is
+    The plan's first write lands, the owner's switch goes off while the run is
     between writes, and the second write is refused — no respawn, no config
     edit, and nothing re-read at enqueue time. The refusal reaches the operator
     twice over and says the same thing both times: as the run record's error,
     which is what a person reads, and as one line in the worker's log, which is
-    the only place whose narrowing decided it is recorded.
+    the only place whose switch decided it is recorded.
     """
     plan_function, logger_name = wrapped_plan
-    connector.after_first_put = lambda: narrow_for(control_context_tree, NARROWING_OWNER)
+    connector.after_first_put = lambda: switch_for(control_context_tree, SWITCHING_OWNER, "off")
 
     with caplog.at_level(logging.WARNING, logger=logger_name):
         with pytest.raises(FailedStatus) as failure:
-            _run(plan_function, NARROWING_OWNER)
+            _run(plan_function, SWITCHING_OWNER)
 
     assert connector.puts == [(_CHANNEL, _FIRST_SETPOINT)]
 
-    record = run_record(NARROWING_OWNER, failure.value)
+    record = run_record(SWITCHING_OWNER, failure.value)
     assert record["status"] == runs.STATUS_ERROR
-    # The clause, not the word: see `store_answered`. A row asserting the bare
-    # verdict word here passes for a record that could not be read at all, and
-    # would report the store refusing a decision nobody made as this person's
-    # own narrowing.
-    assert store_answered(StoreVerdict.NARROWING) in record["error"]
-    assert store_answered(StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE) not in record["error"]
-    assert record["owner"] == NARROWING_OWNER
+    assert refused_as("switch_off") in record["error"]
+    assert refused_as("record_unavailable") not in record["error"]
+    assert_names_no_store_path(record["error"])
+    assert record["owner"] == SWITCHING_OWNER
     # The attribution is a channel of its own: the reserved kwarg is never a
     # plan argument, and a record that replayed it as one would invite a
     # consumer to re-enqueue it as one.
@@ -491,26 +511,24 @@ def test_a_narrowing_recorded_while_the_plan_runs_refuses_its_next_write(
 
     warnings = wrapper_warnings(caplog, logger_name)
     assert len(warnings) == 1
-    assert_names_the_refusal(
-        warnings[0].getMessage(), NARROWING_OWNER, store_answered(StoreVerdict.NARROWING)
-    )
+    assert_names_the_refusal(warnings[0].getMessage(), SWITCHING_OWNER, "switch_off")
 
 
-def test_two_users_one_deployment_the_unnarrowed_owners_plan_completes(
+def test_two_users_one_deployment_the_other_owners_plan_completes(
     wrapped_plan: tuple[Callable[..., Iterator[Any]], str],
     connector: _RecordingInProcessConnector,
     control_context_tree: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """One person's narrowing is theirs alone, on the deployment they share.
+    """One person's switch is theirs alone, on the deployment they share.
 
-    The arrangement is the row above, unchanged down to the moment the record
-    appears — only the name on the queue item differs. Without this, a refusal
-    there would be explained just as well by a store that refuses everybody
-    once any record exists, and the owner would be deciding nothing.
+    The arrangement is the row above, unchanged down to the moment Alice's
+    switch goes off — only the name on the queue item differs. Without this, a
+    refusal there would be explained just as well by a verdict that refuses
+    everybody once any switch is off, and the owner would be deciding nothing.
     """
     plan_function, logger_name = wrapped_plan
-    connector.after_first_put = lambda: narrow_for(control_context_tree, NARROWING_OWNER)
+    connector.after_first_put = lambda: switch_for(control_context_tree, SWITCHING_OWNER, "off")
 
     with caplog.at_level(logging.WARNING, logger=logger_name):
         _run(plan_function, OTHER_OWNER)
@@ -528,8 +546,8 @@ def test_two_users_one_deployment_the_unnarrowed_owners_plan_completes(
 # --- a tree the container cannot read --------------------------------------
 
 
-@pytest.mark.parametrize("owner", [NARROWING_OWNER, OTHER_OWNER])
-def test_an_unmounted_tree_refuses_every_owners_write_as_control_context_unavailable(
+@pytest.mark.parametrize("owner", [SWITCHING_OWNER, OTHER_OWNER])
+def test_an_unmounted_tree_refuses_every_owners_write_as_record_unavailable(
     owner: str,
     wrapped_plan: tuple[Callable[..., Iterator[Any]], str],
     connector: _RecordingInProcessConnector,
@@ -540,10 +558,9 @@ def test_an_unmounted_tree_refuses_every_owners_write_as_control_context_unavail
     """A lane whose tree volume never arrived refuses, rather than running open.
 
     The reader fails closed, and it has to: a container that cannot see the
-    records would otherwise run everybody's owned plan at the deployment
-    ceiling, which is precisely the state the owner exists to prevent. Both
-    names are driven because this is not anyone's narrowing — the person who
-    narrowed nothing is refused exactly as the person who did.
+    records would otherwise have to guess everybody's switch. Both names are
+    driven because this is nobody's switch — the person whose switch is on is
+    refused exactly as anyone else would be.
     """
     plan_function, logger_name = wrapped_plan
     monkeypatch.setenv(
@@ -559,23 +576,20 @@ def test_an_unmounted_tree_refuses_every_owners_write_as_control_context_unavail
 
     record = run_record(owner, failure.value)
     assert record["status"] == runs.STATUS_ERROR
-    # The closing clause is what tells this apart from a narrowing somebody
-    # set. An operator sent to the chip to lift this would be undoing a
-    # decision they never made, and the message says so in prose the other arm
-    # also uses — so the claim rests on the clause, and the narrowing clause is
-    # asserted absent rather than the word.
-    assert store_answered(StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE) in record["error"]
-    assert store_answered(StoreVerdict.NARROWING) not in record["error"]
+    # An operator sent to the chip to fix this would be flipping a switch that
+    # was never the problem, so the phrase is the unreadable-record one and not
+    # the switch-off one.
+    assert refused_as("record_unavailable") in record["error"]
+    assert refused_as("switch_off") not in record["error"]
+    assert_names_no_store_path(record["error"])
 
     warnings = wrapper_warnings(caplog, logger_name)
     assert len(warnings) == 1
-    assert_names_the_refusal(
-        warnings[0].getMessage(), owner, store_answered(StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE)
-    )
+    assert_names_the_refusal(warnings[0].getMessage(), owner, "record_unavailable")
 
 
-@pytest.mark.parametrize("owner", [NARROWING_OWNER, OTHER_OWNER])
-def test_a_tree_without_its_marker_refuses_every_owners_write_as_control_context_unavailable(
+@pytest.mark.parametrize("owner", [SWITCHING_OWNER, OTHER_OWNER])
+def test_a_tree_without_its_marker_refuses_every_owners_write_as_record_unavailable(
     owner: str,
     wrapped_plan: tuple[Callable[..., Iterator[Any]], str],
     connector: _RecordingInProcessConnector,
@@ -585,9 +599,10 @@ def test_a_tree_without_its_marker_refuses_every_owners_write_as_control_context
     """A directory at the bind is not a provisioned tree.
 
     An empty directory is what a mount points at before the deployment has
-    built anything, and it reads identically to a tree in which nobody has
-    narrowed anything. The marker is what tells those two apart, so a bind
-    without one is unreadable rather than permissive.
+    built anything. The marker is what tells that apart from a tree, so a bind
+    without one is unreadable rather than permissive — even with each owner's
+    switched-on record sitting in it. The refusal names no marker file: the
+    phrase sends the reader to the deployment admin, not to a path.
     """
     plan_function, logger_name = wrapped_plan
     (control_context_tree / posture_store.CONTROL_TREE_MARKER_NAME).unlink()
@@ -601,15 +616,13 @@ def test_a_tree_without_its_marker_refuses_every_owners_write_as_control_context
 
     record = run_record(owner, failure.value)
     assert record["status"] == runs.STATUS_ERROR
-    assert store_answered(StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE) in record["error"]
-    assert store_answered(StoreVerdict.NARROWING) not in record["error"]
-    assert posture_store.CONTROL_TREE_MARKER_NAME in record["error"]
+    assert refused_as("record_unavailable") in record["error"]
+    assert refused_as("switch_off") not in record["error"]
+    assert_names_no_store_path(record["error"])
 
     warnings = wrapper_warnings(caplog, logger_name)
     assert len(warnings) == 1
-    assert_names_the_refusal(
-        warnings[0].getMessage(), owner, store_answered(StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE)
-    )
+    assert_names_the_refusal(warnings[0].getMessage(), owner, "record_unavailable")
 
 
 def plant_unreadable_record(tree: Path, owner: str) -> Path:
@@ -617,9 +630,9 @@ def plant_unreadable_record(tree: Path, owner: str) -> Path:
 
     One of the shapes where a record really exists and still cannot be read.
     The tree reader refuses a present record it cannot parse rather than
-    reading it as an owner who narrowed nothing, which is what makes this the
-    control for the narrowing rows: same owner, same moment, same refusal —
-    a different verdict.
+    reading it as a switch that is off, which is what makes this the control
+    for the switch-off row: same owner, same moment, same refusal — a different
+    reason.
     """
     path = tree / owner / control_context.RECORD_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -628,98 +641,128 @@ def plant_unreadable_record(tree: Path, owner: str) -> Path:
     return path
 
 
-def test_an_unreadable_record_is_not_reported_as_that_owners_narrowing(
+def test_an_unreadable_record_is_not_reported_as_that_owners_switch_off(
     wrapped_plan: tuple[Callable[..., Iterator[Any]], str],
     connector: _RecordingInProcessConnector,
     control_context_tree: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """The control for the headline row: refused, but not by anyone's decision.
+    """The control for the headline row: refused, but not by anyone's switch.
 
-    The arrangement is that row's exactly, down to the record landing between
+    The arrangement is that row's exactly, down to the record changing between
     the plan's two writes — only the bytes in it differ. Both runs are refused,
-    and what the operator is told has to differ: a narrowing is lifted from the
-    person's own chip, while a record the lane cannot read is a deployment to
-    fix and a chip that will not touch it. Written because the two messages
-    share prose: this row fails for any assertion that reads the narrowing
-    arm's verdict word out of the other arm's message.
+    and what the operator is told has to differ: a switch is turned back on
+    from the person's own chip, while a record the lane cannot read is a
+    deployment to fix and a chip that will not touch it.
     """
     plan_function, logger_name = wrapped_plan
     connector.after_first_put = lambda: plant_unreadable_record(
-        control_context_tree, NARROWING_OWNER
+        control_context_tree, SWITCHING_OWNER
     )
 
     with caplog.at_level(logging.WARNING, logger=logger_name):
         with pytest.raises(FailedStatus) as failure:
-            _run(plan_function, NARROWING_OWNER)
+            _run(plan_function, SWITCHING_OWNER)
 
     assert connector.puts == [(_CHANNEL, _FIRST_SETPOINT)]
 
-    record = run_record(NARROWING_OWNER, failure.value)
+    record = run_record(SWITCHING_OWNER, failure.value)
     assert record["status"] == runs.STATUS_ERROR
-    assert store_answered(StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE) in record["error"]
-    assert store_answered(StoreVerdict.NARROWING) not in record["error"]
+    assert refused_as("record_unavailable") in record["error"]
+    assert refused_as("switch_off") not in record["error"]
 
     warnings = wrapper_warnings(caplog, logger_name)
     assert len(warnings) == 1
-    assert_names_the_refusal(
-        warnings[0].getMessage(),
-        NARROWING_OWNER,
-        store_answered(StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE),
-    )
+    assert_names_the_refusal(warnings[0].getMessage(), SWITCHING_OWNER, "record_unavailable")
 
 
-# --- an item that names nobody ---------------------------------------------
-
-
-def test_an_owner_less_item_writes_under_the_deployment_ceiling_alone(
-    wrapped_plan: tuple[Callable[..., Iterator[Any]], str],
-    connector: _RecordingInProcessConnector,
-    control_context_tree: Path,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Work that belongs to nobody reads nobody's record.
-
-    An item enqueued out-of-band names no owner, and the ladder answers
-    ``NO_OWNER`` rather than the account the worker runs as. That is an answer,
-    not a failure: the run is governed by the deployment ceiling alone, and a
-    narrowing landing mid-run — Alice's, here — governs her plans and not this
-    one.
-    """
-    plan_function, logger_name = wrapped_plan
-    connector.after_first_put = lambda: narrow_for(control_context_tree, NARROWING_OWNER)
-
-    with caplog.at_level(logging.WARNING, logger=logger_name):
-        _run(plan_function, None)
-
-    assert connector.puts == [(_CHANNEL, _FIRST_SETPOINT), (_CHANNEL, _SECOND_SETPOINT)]
-
-    record = run_record(None)
-    assert record["status"] == runs.STATUS_COMPLETED
-    # Omitted, not empty: a consumer can tell an unattributed run from one
-    # attributed to a nameless person.
-    assert "owner" not in record
-
-    assert wrapper_warnings(caplog, logger_name) == []
+# --- whose tier governs the write ------------------------------------------
 
 
 @pytest.mark.usefixtures("control_context_tree")
-def test_an_owner_less_item_is_refused_when_the_deployment_arms_no_writes(
+def test_an_owner_missing_from_the_login_map_is_refused(
+    wrapped_plan: tuple[Callable[..., Iterator[Any]], str],
+    connector: _RecordingInProcessConnector,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A container cannot use its own tier for another login's write.
+
+    Carol's record is in the tree with her switch on, but the deployment's
+    ``login_tiers`` map does not name her, so her tier is not known and the
+    verdict refuses before her record is read.
+    """
+    plan_function, logger_name = wrapped_plan
+
+    with caplog.at_level(logging.WARNING, logger=logger_name):
+        with pytest.raises(FailedStatus) as failure:
+            _run(plan_function, UNMAPPED_OWNER)
+
+    assert connector.puts == []
+
+    record = run_record(UNMAPPED_OWNER, failure.value)
+    assert record["status"] == runs.STATUS_ERROR
+    assert refused_as("owner_unknown") in record["error"]
+    assert refused_as("switch_off") not in record["error"]
+
+    warnings = wrapper_warnings(caplog, logger_name)
+    assert len(warnings) == 1
+    assert_names_the_refusal(warnings[0].getMessage(), UNMAPPED_OWNER, "owner_unknown")
+
+
+@pytest.mark.usefixtures("control_context_tree")
+def test_a_demoted_owners_stale_switch_on_is_refused(
     wrapped_plan: tuple[Callable[..., Iterator[Any]], str],
     connector: _RecordingInProcessConnector,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Ceiling ONLY: nobody's record can widen what the deployment did not arm.
+    """The tier is read before the record, so a demoted login's "on" stays inert.
 
-    The row above shows an owner-less run writing, which on its own would also
-    be what a store that had stopped being consulted looks like. This is the
-    other half — the same run, the same tree, one config key — and its refusal
-    has to name the deployment rather than a narrowing, or it sends the person
-    who hit it to a chip that cannot lift it.
+    Alice's record still says "on" from before her login was mapped ``never``.
+    Her plan is refused for her tier, not her switch, and Bob — still allowed,
+    on the same deployment — writes through the same arrangement.
     """
     plan_function, logger_name = wrapped_plan
-    arm_deployment_writes(monkeypatch, enabled=False)
+    arm_deployment_writes(
+        monkeypatch, login_tiers={SWITCHING_OWNER: "never", OTHER_OWNER: "allowed"}
+    )
+
+    with caplog.at_level(logging.WARNING, logger=logger_name):
+        with pytest.raises(FailedStatus) as failure:
+            _run(plan_function, SWITCHING_OWNER)
+
+    assert connector.puts == []
+
+    record = run_record(SWITCHING_OWNER, failure.value)
+    assert record["status"] == runs.STATUS_ERROR
+    assert refused_as("tier_never") in record["error"]
+    assert refused_as("switch_off") not in record["error"]
+
+    warnings = wrapper_warnings(caplog, logger_name)
+    assert len(warnings) == 1
+    assert_names_the_refusal(warnings[0].getMessage(), SWITCHING_OWNER, "tier_never")
+
+    _run(plan_function, OTHER_OWNER)
+    assert connector.puts == [(_CHANNEL, _FIRST_SETPOINT), (_CHANNEL, _SECOND_SETPOINT)]
+
+
+# --- an item that names nobody ---------------------------------------------
+
+
+@pytest.mark.usefixtures("control_context_tree")
+def test_an_owner_less_item_is_refused_as_owner_unknown(
+    wrapped_plan: tuple[Callable[..., Iterator[Any]], str],
+    connector: _RecordingInProcessConnector,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Work that belongs to nobody has no switch to follow, so it does not write.
+
+    An item enqueued out-of-band names no owner, and the ladder answers
+    ``NO_OWNER`` rather than the account the worker runs as. Nothing is
+    governed by the tier alone: the first write is refused, with every user's
+    switch on.
+    """
+    plan_function, logger_name = wrapped_plan
 
     with caplog.at_level(logging.WARNING, logger=logger_name):
         with pytest.raises(FailedStatus) as failure:
@@ -729,13 +772,45 @@ def test_an_owner_less_item_is_refused_when_the_deployment_arms_no_writes(
 
     record = run_record(None, failure.value)
     assert record["status"] == runs.STATUS_ERROR
-    assert _TYPE_WRITES_ENABLED_KEY in record["error"]
-    # Neither store arm: the deployment refused this before any record was
-    # consulted, and a message closing on a verdict would send the reader to
-    # the chip instead of to the build profile.
-    assert store_answered(StoreVerdict.NARROWING) not in record["error"]
-    assert store_answered(StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE) not in record["error"]
+    assert refused_as("owner_unknown") in record["error"]
+    # Omitted, not empty: a consumer can tell an unattributed run from one
+    # attributed to a nameless person.
+    assert "owner" not in record
 
     warnings = wrapper_warnings(caplog, logger_name)
     assert len(warnings) == 1
-    assert_names_the_refusal(warnings[0].getMessage(), NO_OWNER, _TYPE_WRITES_ENABLED_KEY)
+    assert_names_the_refusal(warnings[0].getMessage(), NO_OWNER, "owner_unknown")
+
+
+@pytest.mark.usefixtures("control_context_tree")
+def test_an_owner_less_item_on_a_tier_of_never_is_refused_by_the_tier(
+    wrapped_plan: tuple[Callable[..., Iterator[Any]], str],
+    connector: _RecordingInProcessConnector,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The tier is asked first, so its refusal is the one a person reads.
+
+    The same run, the same tree, one config value. The refusal has to name the
+    tier rather than the owner or a switch, or it sends the person who hit it to
+    a chip that cannot lift it.
+    """
+    plan_function, logger_name = wrapped_plan
+    arm_deployment_writes(monkeypatch, tier="never")
+
+    with caplog.at_level(logging.WARNING, logger=logger_name):
+        with pytest.raises(FailedStatus) as failure:
+            _run(plan_function, None)
+
+    assert connector.puts == []
+
+    record = run_record(None, failure.value)
+    assert record["status"] == runs.STATUS_ERROR
+    assert refused_as("tier_never") in record["error"]
+    assert refused_as("owner_unknown") not in record["error"]
+    assert refused_as("switch_off") not in record["error"]
+    assert_names_no_store_path(record["error"])
+
+    warnings = wrapper_warnings(caplog, logger_name)
+    assert len(warnings) == 1
+    assert_names_the_refusal(warnings[0].getMessage(), NO_OWNER, "tier_never")

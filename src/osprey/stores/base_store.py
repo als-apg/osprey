@@ -114,11 +114,8 @@ class BaseStore(Generic[T]):
         an entry records) and the read side (the gallery resolving one) cannot
         answer differently.
         """
-        from osprey_connectors.workspace import (
-            agent_data_base_dir,
-            load_osprey_config,
-            repo_root_for_agent_data,
-        )
+        from osprey.utils.workspace import repo_root_for_agent_data
+        from osprey_connectors.workspace import agent_data_base_dir, load_osprey_config
 
         return repo_root_for_agent_data(self._workspace, agent_data_base_dir(load_osprey_config()))
 
@@ -146,7 +143,7 @@ class BaseStore(Generic[T]):
         races on the shared index file.
         """
         self._ensure_dirs()
-        fd = open(self._lock_file, "w")
+        fd = open(self._lock_file, "w")  # noqa: SIM115
         # Hold the in-process lock across the whole critical section so a
         # concurrent reload can't rebind ``_entries`` between the caller's
         # mutation and its ``_save_index()``.

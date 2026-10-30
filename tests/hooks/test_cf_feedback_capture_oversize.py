@@ -10,10 +10,12 @@ nothing and says why in the hook log.
 """
 
 import json
+import os
 
 import pytest
 
-from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from osprey.agent_record.contract import SPOOL_DIR_ENV
+from tests.hooks.conftest import hook_debug_records, pending_review_items
 
 HOOK = "osprey_cf_feedback_capture.py"
 BUILD_CHANNELS = "mcp__channel-finder__build_channels"
@@ -69,23 +71,17 @@ def _session(root):
     return transcript, tool_results
 
 
-def _pending_items(repo):
-    store = repo / DEFAULT_AGENT_DATA_BASE_DIR / "feedback" / "pending_reviews.json"
-    if not store.exists():
-        return {}
-    return json.loads(store.read_text()).get("items", {})
+def _hook_log():
+    """The hook debug entries this test's hook runs put on the record's spool.
 
-
-def _hook_log(repo):
-    log = repo / ".claude" / "hooks" / "hook_debug.jsonl"
-    if not log.exists():
-        return []
-    return [json.loads(line) for line in log.read_text().splitlines() if line.strip()]
+    The hook writes into ``$OSPREY_SPOOL_DIR``, which the suite points at the
+    test's own spool zone, so every entry found there is this test's.
+    """
+    return hook_debug_records(os.environ[SPOOL_DIR_ENV])
 
 
 def _run(hook_runner, repo, tool_response, transcript):
     repo.mkdir(parents=True, exist_ok=True)
-    (repo / ".claude" / "hooks").mkdir(parents=True, exist_ok=True)
     hook_runner(
         HOOK,
         BUILD_CHANNELS,
@@ -120,8 +116,8 @@ class TestSavedOutputIsCaptured:
         _run(hook_runner, tmp_path / "inline", inline, transcript)
         _run(hook_runner, tmp_path / "oversize", _notice(saved, len(inline)), transcript)
 
-        inline_items = list(_pending_items(tmp_path / "inline").values())
-        oversize_items = list(_pending_items(tmp_path / "oversize").values())
+        inline_items = list(pending_review_items(tmp_path / "inline").values())
+        oversize_items = list(pending_review_items(tmp_path / "oversize").values())
         assert len(inline_items) == 1
         assert len(oversize_items) == 1
         assert _comparable(oversize_items[0]) == _comparable(inline_items[0])
@@ -136,7 +132,7 @@ class TestSavedOutputIsCaptured:
 
         _run(hook_runner, tmp_path / "repo", _notice(saved, 90_000), transcript)
 
-        items = list(_pending_items(tmp_path / "repo").values())
+        items = list(pending_review_items(tmp_path / "repo").values())
         assert len(items) == 1
         assert items[0]["channel_count"] == answer["total"]
 
@@ -148,8 +144,8 @@ class TestUnfollowableNoticeCapturesNothing:
 
         _run(hook_runner, tmp_path / "repo", _notice(saved, 90_000), transcript)
 
-        assert _pending_items(tmp_path / "repo") == {}
-        statuses = [r["status"] for r in _hook_log(tmp_path / "repo")]
+        assert pending_review_items(tmp_path / "repo") == {}
+        statuses = [r["status"] for r in _hook_log()]
         assert statuses == ["saved-output-unreadable"]
 
     def test_unreadable_saved_file_is_logged_and_captures_nothing(self, tmp_path, hook_runner):
@@ -159,8 +155,8 @@ class TestUnfollowableNoticeCapturesNothing:
 
         _run(hook_runner, tmp_path / "repo", _notice(saved, 90_000), transcript)
 
-        assert _pending_items(tmp_path / "repo") == {}
-        statuses = [r["status"] for r in _hook_log(tmp_path / "repo")]
+        assert pending_review_items(tmp_path / "repo") == {}
+        statuses = [r["status"] for r in _hook_log()]
         assert statuses == ["saved-output-unreadable"]
 
     @pytest.mark.parametrize(
@@ -192,8 +188,8 @@ class TestUnfollowableNoticeCapturesNothing:
 
         _run(hook_runner, tmp_path / "repo", _notice(paths[where], 90_000), transcript)
 
-        assert _pending_items(tmp_path / "repo") == {}
-        statuses = [r["status"] for r in _hook_log(tmp_path / "repo")]
+        assert pending_review_items(tmp_path / "repo") == {}
+        statuses = [r["status"] for r in _hook_log()]
         assert statuses == ["saved-output-untrusted"]
 
     def test_notice_without_a_transcript_reads_nothing(self, tmp_path, hook_runner):
@@ -203,8 +199,8 @@ class TestUnfollowableNoticeCapturesNothing:
 
         _run(hook_runner, tmp_path / "repo", _notice(saved, 90_000), "")
 
-        assert _pending_items(tmp_path / "repo") == {}
-        statuses = [r["status"] for r in _hook_log(tmp_path / "repo")]
+        assert pending_review_items(tmp_path / "repo") == {}
+        statuses = [r["status"] for r in _hook_log()]
         assert statuses == ["saved-output-untrusted"]
 
 
@@ -215,16 +211,16 @@ class TestInlineAnswersAreUnchanged:
 
         _run(hook_runner, tmp_path / "repo", _inline_response(answer), transcript)
 
-        items = list(_pending_items(tmp_path / "repo").values())
+        items = list(pending_review_items(tmp_path / "repo").values())
         assert len(items) == 1
         assert items[0]["tool_response"] == _inline_response(answer)
         assert items[0]["channel_count"] == answer["total"]
-        assert [r["status"] for r in _hook_log(tmp_path / "repo")] == ["captured"]
+        assert [r["status"] for r in _hook_log()] == ["captured"]
 
     def test_non_json_text_that_is_not_a_notice_is_still_a_parse_error(self, tmp_path, hook_runner):
         transcript, _ = _session(tmp_path / "config")
 
         _run(hook_runner, tmp_path / "repo", "Error: channel database unavailable", transcript)
 
-        assert _pending_items(tmp_path / "repo") == {}
-        assert [r["status"] for r in _hook_log(tmp_path / "repo")] == ["parse-error"]
+        assert pending_review_items(tmp_path / "repo") == {}
+        assert [r["status"] for r in _hook_log()] == ["parse-error"]

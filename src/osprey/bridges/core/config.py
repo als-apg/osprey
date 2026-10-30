@@ -3,7 +3,9 @@
 :class:`CoreConfig` carries ONLY the fields a bridge needs to talk to the
 ``osprey.dispatch`` pair and persist its local crash-safety stores — the
 dispatcher/worker URLs + tokens, the trigger name, the poll budget, and the
-dedup/history store paths. Nothing here is chat-, email-, or otherwise
+dedup store path. Conversation history lives in the agent record, reached through
+the record's own environment (``OSPREY_AGENT_RECORD_URL``, the bridge's login and
+``OSPREY_SPOOL_DIR``), not through this config. Nothing here is chat-, email-, or otherwise
 channel-specific, and (like every ``osprey.bridges.core`` module) it carries ZERO
 osprey dispatch imports.
 
@@ -137,9 +139,6 @@ class CoreConfig:
     dedup_path: str = "/data/dedup.json"
     """Path to the persisted message_id -> run store (bridge-owned volume)."""
 
-    history_path: str = "/data/history.json"
-    """Path to the persisted per-conversation transcript store (same volume)."""
-
     history_answer_limit: int = 3000
     """The longest earlier answer, in characters, replayed in full with a
     follow-up. A longer one is replayed as its opening and a note naming its
@@ -211,7 +210,6 @@ class CoreConfig:
             gitlab_project=e.get("GITLAB_PROJECT", ""),
             gitlab_issues_token=e.get("GITLAB_ISSUES_TOKEN", ""),
             dedup_path=e.get("DEDUP_PATH", "/data/dedup.json"),
-            history_path=e.get("HISTORY_PATH", "/data/history.json"),
             history_answer_limit=_i("HISTORY_ANSWER_LIMIT", 3000),
         )
 

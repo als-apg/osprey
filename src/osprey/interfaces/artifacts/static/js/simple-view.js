@@ -55,9 +55,31 @@ const SIMPLE_LIST_LIMIT = 6;
  */
 
 /**
+ * Whether *a* records a script run rather than holding a result: the approval
+ * hook's review notebook and the executor's notebook and result record. New
+ * entries carry `metadata.run_record` (artifact_store.RUN_RECORD_KEY). Entries
+ * saved before that key existed are known by what the writers always gave
+ * them: the `code_output` category, the hook's tool source, and the
+ * executor's "Notebook: <description>" title on its own notebooks.
+ * @param {any} a
+ * @returns {boolean}
+ */
+export function isRunRecord(a) {
+  if (a.metadata?.run_record === true) return true;
+  if (a.category === 'code_output' || a.tool_source === 'osprey_approval') return true;
+  return (
+    a.artifact_type === 'notebook' &&
+    (a.tool_source === 'execute' || a.tool_source === 'execute_file') &&
+    String(a.title ?? '').startsWith('Notebook: ')
+  );
+}
+
+/**
  * The artifact Simple mode shows in the big latest-result card: the
  * user-selected one if it's still in the list, else the agent-focused one,
- * else the newest.
+ * else the newest. A script run takes the card only when someone picked it:
+ * a focus or a newest that is a run record is passed over for the newest
+ * result, and shown only while the session holds nothing else.
  * @param {any[]} recent - newest-first artifact list
  * @returns {any|null}
  */
@@ -65,10 +87,27 @@ function simpleResultArtifact(recent) {
   const sel = getSelectedArtifact();
   if (sel && recent.some((a) => a.id === sel.id)) return sel;
   const foc = getFocusedArtifact();
-  if (foc && recent.some((a) => a.id === foc.id)) return foc;
-  // Newest real result first; the shipped example only when nothing else
-  // exists yet (that is what it is there for).
-  return recent.find((a) => a.origin !== 'demo') || recent[0] || null;
+  if (foc && !isRunRecord(foc) && recent.some((a) => a.id === foc.id)) return foc;
+  // Newest real result first; a script run, then the shipped example, only
+  // when nothing else exists yet.
+  const own = recent.filter((a) => a.origin !== 'demo');
+  return own.find((a) => !isRunRecord(a)) || own[0] || recent[0] || null;
+}
+
+/**
+ * One session-list row.
+ * @param {any} a
+ * @param {string | undefined} selId
+ * @returns {string}
+ */
+function listRow(a, selId) {
+  return `
+      <div class="simple-list-item ${a.id === selId ? 'selected' : ''}" data-id="${escapeHtml(a.id)}">
+        <span class="simple-list-item-icon">${typeIcon(a.artifact_type)}</span>
+        <span class="simple-list-item-name" title="${escapeHtml(a.title)}">${escapeHtml(a.title)}</span>
+        ${isNewThisSession(a, _sessionStart) ? '<span class="simple-badge-new">NEW</span>' : ''}
+        <span class="simple-list-item-time">${escapeHtml(formatTime(a.timestamp))}</span>
+      </div>`;
 }
 
 /**
@@ -93,10 +132,20 @@ export function createSimpleView(callbacks) {
   const simpleListCount = document.getElementById('simple-list-count');
   const simpleListBody = /** @type {HTMLElement} */ (document.getElementById('simple-list-body'));
   const simpleShowAll = /** @type {HTMLElement} */ (document.getElementById('simple-show-all'));
+  const simpleRuns = /** @type {HTMLElement} */ (document.getElementById('simple-runs'));
+  const simpleRunsCount = document.getElementById('simple-runs-count');
+  const simpleRunsBody = /** @type {HTMLElement} */ (document.getElementById('simple-runs-body'));
 
   // Simple mode's session list truncates to the most recent few until the user
   // clicks "Show all"; latched here so re-renders (SSE, fetch) keep it expanded.
   let simpleShowAllResults = false;
+
+  // The entry the result card's preview was built from. Rebuilding the preview
+  // reloads its frame, so the card blanks for a moment: a render that shows the
+  // same entry (a focus on the artifact already shown, a new item in the list)
+  // leaves it alone. An update replaces the entry, so it is rebuilt.
+  /** @type {any} */
+  let previewOf = null;
 
   /** @returns {void} */
   function render() {
@@ -125,13 +174,14 @@ export function createSimpleView(callbacks) {
         simpleSave.href = fileUrl(latest);
         simpleSave.setAttribute('download', latest.filename);
       }
-      if (simpleResultPreview) {
+      if (simpleResultPreview && latest !== previewOf) {
         // Same dispatch the Expert preview pane renders through — Simple has no
         // renderer of its own, so every type Expert can show, Simple shows too.
         simpleResultPreview.innerHTML = artifactViewportHtml(latest);
         mountArtifactViewport(simpleResultPreview, latest, {
           onTimeseriesNeeded: callbacks.onTimeseriesNeeded,
         });
+        previewOf = latest;
       }
       if (simpleResultCaption) {
         simpleResultCaption.textContent =
@@ -139,37 +189,37 @@ export function createSimpleView(callbacks) {
       }
     }
 
-    const resultCount = getArtifactTotal();
+    // Script runs leave the result list for their own collapsed group. The
+    // count is the server's total less the runs held here, exact once every
+    // page is fetched.
+    const results = recent.filter((a) => !isRunRecord(a));
+    const runs = recent.filter(isRunRecord);
+    const resultCount = Math.max(0, getArtifactTotal() - runs.length);
     if (simpleListCount) simpleListCount.textContent = String(resultCount);
     if (simpleShowAll) simpleShowAll.hidden = resultCount <= SIMPLE_LIST_LIMIT;
-    const shown = simpleShowAllResults ? recent : recent.slice(0, SIMPLE_LIST_LIMIT);
+    const shown = simpleShowAllResults ? results : results.slice(0, SIMPLE_LIST_LIMIT);
     const selId = latest?.id;
-    simpleListBody.innerHTML = shown
-      .map(
-        (a) => `
-      <div class="simple-list-item ${a.id === selId ? 'selected' : ''}" data-id="${escapeHtml(a.id)}">
-        <span class="simple-list-item-icon">${typeIcon(a.artifact_type)}</span>
-        <span class="simple-list-item-name" title="${escapeHtml(a.title)}">${escapeHtml(a.title)}</span>
-        ${isNewThisSession(a, _sessionStart) ? '<span class="simple-badge-new">NEW</span>' : ''}
-        <span class="simple-list-item-time">${escapeHtml(formatTime(a.timestamp))}</span>
-      </div>`
-      )
-      .join('');
+    simpleListBody.innerHTML = shown.map((a) => listRow(a, selId)).join('');
+    if (simpleRuns) simpleRuns.hidden = runs.length === 0;
+    if (simpleRunsCount) simpleRunsCount.textContent = String(runs.length);
+    if (simpleRunsBody) simpleRunsBody.innerHTML = runs.map((a) => listRow(a, selId)).join('');
   }
 
-  // Clicking a session-list row promotes it to the shown result.
-  if (simpleListBody) {
-    simpleListBody.addEventListener('click', (e) => {
-      const row = /** @type {HTMLElement} */ (e.target).closest('.simple-list-item');
-      if (!row) return;
-      const id = row.getAttribute('data-id');
-      const a = getArtifacts().find((x) => x.id === id);
-      if (a) {
-        setSelectedArtifact(a);
-        render();
-      }
-    });
+  // Clicking a session-list row, a result or a script run, promotes it to the
+  // shown result.
+  /** @param {Event} e */
+  function onRowClick(e) {
+    const row = /** @type {HTMLElement} */ (e.target).closest('.simple-list-item');
+    if (!row) return;
+    const id = row.getAttribute('data-id');
+    const a = getArtifacts().find((x) => x.id === id);
+    if (a) {
+      setSelectedArtifact(a);
+      render();
+    }
   }
+  simpleListBody?.addEventListener('click', onRowClick);
+  simpleRunsBody?.addEventListener('click', onRowClick);
   if (simpleShowAll) {
     simpleShowAll.addEventListener('click', () => {
       simpleShowAllResults = true;

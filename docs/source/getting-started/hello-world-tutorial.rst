@@ -89,7 +89,7 @@ write-safety chain), three rules, and one output style:
      # system until all three agree. Remove any one of them and `osprey build`
      # refuses the render while writes are armed, naming the hook and the server
      # whose write tools it guarded. Only a read-only deployment may drop them.
-     - writes-check   # Kill switch: refuse every write while writes_enabled is false
+     - writes-check   # Kill switch: refuse every write to a machine whose writes are off
      - approval       # Gate hardware-write tool calls on human approval prompt
      - limits         # Enforce per-channel min/max limits, from data/facility/limits.yaml
 
@@ -108,10 +108,10 @@ per line:
      # and `osprey config --defaults` lists every shipped connector type.
      control_system.type: virtual_accelerator
      control_system.connector.virtual_accelerator.serving: in_process
-     # The FIRST guard in the write-safety chain: while false, every hardware
+     # The FIRST guard in the write-safety chain: while `never`, every hardware
      # write is refused before the limits check or the approval prompt is even
-     # consulted. Set it true, rebuild, and the two hooks below take over.
-     control_system.writes_enabled: false
+     # consulted. Set it `allowed`, rebuild, and the two hooks below take over.
+     control_system.writes: never
      # ...
      # The SECOND guard: every write is checked against the records in
      # data/facility/limits.yaml (per-channel min/max and writable flags).
@@ -124,7 +124,7 @@ per line:
      approval.enabled: true
      # ...
 
-That ``control_system.writes_enabled: false`` line is the one this tutorial
+That ``control_system.writes: never`` line is the one this tutorial
 comes back to in Step 7. For everything the profile can hold, see
 :doc:`../how-to/build-profiles`.
 
@@ -226,17 +226,18 @@ Now ask for a write:
 
 The write is refused before it reaches the control system: the agent reports
 that writes are disabled in this deployment. The exact wording is the agent's
-own, because the refusal happens a layer below it — with the switch off,
-``osprey build`` renders the write tool into the agent's denied permissions,
-so the tool call is blocked before it even executes.
+own, because the refusal happens a layer below it — with the tier at
+``never``, ``osprey build`` renders the write tool into the agent's denied
+permissions, so the tool call is blocked before it even executes.
 
 This is the first of **three guards** that every write must pass:
 
-1. **Master switch** (``writes-check`` hook) — ``control_system.writes_enabled``
-   is ``false`` by default, so all writes are refused outright. This is what
-   just fired: the build bakes the switch into the agent's denied permissions,
-   and the ``writes-check`` hook enforces the same switch again as defense in
-   depth.
+1. **Who may write** (``writes-check`` hook) — the tier key
+   ``control_system.writes`` is ``never`` here, so all writes are refused
+   outright. This is what just fired: the build bakes the tier into the agent's
+   denied permissions. Once the tier allows writes, the hook asks your login's
+   write switch for the machine on every call. See
+   :ref:`write-safety-config`.
 2. **Limits** (``limits`` hook) — the value is checked against per-channel
    bounds and writable flags in ``data/facility/limits.yaml``.
 3. **Approval** (``approval`` hook) — a write that passes both still pauses
@@ -247,18 +248,19 @@ Safety is not optional equipment here: the three hooks are declared in your
 while writes are armed, naming the hook and the server whose write tools it
 guarded. Only a read-only deployment may drop them.
 
-Step 7: Enable Writes — in profile.yml
----------------------------------------
+Step 7: Enable Writes — Tier, Rebuild, Chip
+--------------------------------------------
 
-Open ``profile.yml``, find the ``config:`` block from Step 2, and set one
-key to ``true``:
+Writes take two steps: the deployment allows them, then you turn them on.
+
+Open ``profile.yml``, find the ``config:`` block from Step 2, and allow writes:
 
 .. code-block:: yaml
 
    config:
      control_system.type: virtual_accelerator
      control_system.connector.virtual_accelerator.serving: in_process
-     control_system.writes_enabled: true   # ← was false
+     control_system.writes: allowed   # ← was never
 
 Then re-render and relaunch:
 
@@ -267,9 +269,13 @@ Then re-render and relaunch:
    osprey build
    osprey web
 
-Do **not** edit ``build/config.yml`` to flip this switch — that file is
-generated output, and your edit would vanish on the next build. The profile is
-where the change belongs, and the rebuild carries it into the render.
+Do **not** edit ``build/config.yml`` instead — that file is generated output,
+and your edit would vanish on the next build.
+
+The deployment now *may* write, but your switch is still off. Click the
+control-target chip in the header (``● Simulator · writes off``) and turn the
+simulator's writes on (:ref:`web-terminal-session-posture`). A write asked for
+with the switch off is refused with a line telling you to do exactly that.
 
 Step 8: Write with the Guards Watching
 ---------------------------------------
@@ -278,7 +284,7 @@ The limits file that ships with this preset, ``data/facility/limits.yaml``,
 holds three records: two writable quadrupole setpoints with bounds, and one
 read-only measurement. ``osprey build`` writes them into the render's limits
 database, ``build/data/channel_limits.json``, which is what the guards read.
-With writes enabled, all three remaining behaviors are now observable.
+With the simulator's writes on, all three remaining behaviors are now observable.
 
 **A write inside its limits** — pauses for your approval:
 
@@ -368,46 +374,48 @@ Then ``osprey build`` to carry the change into the render, and try writes on
 either side of the new bounds. This edit-rebuild-observe loop — in ``data/``
 or in ``profile.yml`` — is the same loop every real deployment is grown with.
 
-Step 10: First Containers — Deploy the Telemetry Store
--------------------------------------------------------
+Step 10: Read What the Agent Recorded
+-------------------------------------
 
-Everything so far ran container-free. The preset declares exactly two
-containerized services, the telemetry store and the gateway that feeds it, and
-this is the deployment lesson:
+Every prompt, answer, tool call and approval decision of your session went into
+the **agent record**, which ``osprey web`` runs as a local process beside the
+agent. The preset keeps it on the embedded backend, with no container:
+
+.. code-block:: yaml
+
+   agent_record:
+     backend: embedded
+
+While ``osprey web`` runs, the record answers its read API on
+http://127.0.0.1:10053 (``deployment.port_base`` + 53). ``osprey build`` minted
+an operator login for it into ``.env.agent-record.login.operator`` (mode 0600).
+List your sessions, then the approval decisions the safety chain made:
 
 .. code-block:: bash
 
-   osprey up -d
+   LOGIN="$(sed -n 's/^OSPREY_AGENT_RECORD_LOGIN=//p' .env.agent-record.login.operator)"
+   curl -sS --user "$LOGIN" "http://127.0.0.1:10053/v1/read/list_sessions?limit=5"
+   curl -sS --user "$LOGIN" "http://127.0.0.1:10053/v1/read/entries?kind=decision&limit=10"
 
-This needs a container runtime (Docker or Podman). It starts the store, bound to
-localhost, and the gateway the agent sends its logs and metrics to; the gateway
-also reads the audit ledger under ``var/audit/`` into the store. The preset names
-one reader, ``operator``: ``osprey up`` writes its key to
-``.env.telemetry-reader.operator`` and prints that file's path and the store's
-query page, http://127.0.0.1:10804/play?user=operator
-(``deployment.port_base`` + 804), never the key itself.
-
-Run ``osprey web``, ask the agent something, then ask the store what it
-recorded. This query lists the newest events and ledger records of the last
-hour:
+The record keeps an entry for 14 days. Each UTC day that has closed is also
+exported, whole, as ``var/archive/<day>/agent_record/entries.parquet`` the next
+time the record runs: the lasting copy, which outlives that window. This query
+counts what each identity wrote, by kind, across every exported day:
 
 .. literalinclude:: hello-world-tutorial.sql
-   :language: postgresql
+   :language: sql
 
-Save it as ``hello-world-tutorial.sql`` in the repo root and send it as
-``operator``:
+Save it as ``hello-world-tutorial.sql`` in the repo root and run it with DuckDB,
+which OSPREY installs:
 
 .. code-block:: bash
 
-   KEY="$(sed -n 's/^password=//p' .env.telemetry-reader.operator)"
-   curl -sS --user "operator:$KEY" --data-binary @hello-world-tutorial.sql \
-     "http://127.0.0.1:10804/?http_wait_end_of_query=1"
+   python -c "import duckdb; duckdb.sql(open('hello-world-tutorial.sql').read()).show()"
 
-Each row names its ``source`` table, the time, the ``User`` it was recorded
-under and the session. Or paste the query into the query page with the key.
-See :doc:`/how-to/health-and-monitoring/monitor-agent` for what the store
-holds and :doc:`/how-to/health-and-monitoring/read-the-record` for readers.
-Stop the stack with ``osprey down``; the agent itself keeps working without it.
+On the first day the archive is still empty, and DuckDB reports that no file
+matches. See :doc:`/how-to/health-and-monitoring/agent-record` for what the
+record and its archive hold. The control-assistant preset adds a history page in the browser,
+described in :doc:`/how-to/health-and-monitoring/read-the-record`.
 
 The commands you now know are the complete lifecycle, and they are the same
 for a production facility deployment: ``osprey init`` once, then edit →

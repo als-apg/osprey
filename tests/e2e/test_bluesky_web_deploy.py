@@ -3,7 +3,9 @@ bluesky panel (task 4.3, bluesky-web-deploy-e2e) -- the gold-standard proof
 that the turn-key tutorial stack (Virtual Accelerator + Bluesky bridge + the
 queueserver RE Manager + Redis + co-deployed Tiled + the bluesky-web
 sidecar + its web panel) boots as real containers and drives a real plan end
-to end THROUGH THE SIDECAR, exactly as a browser would.
+to end THROUGH THE SIDECAR, exactly as a browser would. A plan added there
+names no owner, so its writes are refused ``owner_unknown``; the same plan
+completes through the bridge when the add names the login it runs for.
 
 That last clause is this module's subject and the thing no sibling e2e covers:
 the browser never talks to the bridge. Every call a panel makes goes through
@@ -76,17 +78,19 @@ import os
 import shutil
 import subprocess
 import time
-import urllib.error
-import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 
+from osprey_connectors import posture_store
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
+from tests.e2e._deploy_support import env_value, format_failure, run_command, wait_for_health
 from tests.e2e._volumes import remove_project_volumes
+from tests.e2e.sdk_helpers import arm_deployed_queue_owner
 
 # Distinct from every sibling e2e module's pinned bridge port (_orm_stack.py's
 # 18102, test_bluesky_deploy.py's 18090, test_va_substrate_equivalence.py's
@@ -104,16 +108,13 @@ BLUESKY_WEB_URL = f"http://localhost:{BLUESKY_WEB_PORT}"
 
 VA_CA_PORT = _orm_stack.VA_CA_PORT
 
-# ariel-postgres, the telemetry gateway and the telemetry store are deployed
-# unconditionally by the control-assistant preset, and a locally-running
-# tutorial deploy routinely holds their ports. A bound-port collision aborts
-# `osprey up` before the containers this proof needs ever start, so all three
-# move to high, unassigned ports. Stated in this module's own `extra_config`
-# rather than added to _orm_stack: only this module needs them moved, and
-# _orm_stack's shape is shared with the render gate.
+# ariel-postgres is deployed unconditionally by the control-assistant preset,
+# and a locally-running deployment routinely holds its port. A bound-port
+# collision aborts `osprey up` before the containers this proof needs ever
+# start, so it moves to a high, unassigned port. Stated in this module's own
+# `extra_config` rather than added to _orm_stack: only this module needs it
+# moved, and _orm_stack's shape is shared with the render gate.
 POSTGRES_PORT = 25434
-TELEMETRY_GATEWAY_PORT = 24321
-TELEMETRY_STORE_PORT = 28126
 
 # The fixture builds/deploys under this project name; every compose template
 # renders its container_name and locally-built image as ``<project>-<service>``,
@@ -152,28 +153,6 @@ pytestmark = [
 # ---------------------------------------------------------------------------
 
 
-def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        cmd,
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env={**os.environ, "CLAUDECODE": ""},
-    )
-
-
-def _minted_token(repo: Path) -> str:
-    from osprey_connectors.dotenv import parse_dotenv_file
-
-    env_path = repo / ".env"
-    assert env_path.is_file(), f"no .env written at {env_path} — token was not minted"
-    env = parse_dotenv_file(env_path)
-    token = env.get("BLUESKY_LAUNCH_TOKEN")
-    assert token, "BLUESKY_LAUNCH_TOKEN missing/empty in the deployment repo's .env"
-    return token
-
-
 def _minted_sidecar_secret(repo: Path) -> str:
     """The sidecar's operator secret, read from the same .env `osprey up` wrote.
 
@@ -201,21 +180,6 @@ def _auth_headers() -> dict[str, str]:
     return {"X-Osprey-Terminal-Secret": _sidecar_secret} if _sidecar_secret else {}
 
 
-def _wait_for_health(url: str, timeout: float) -> None:
-    deadline = time.monotonic() + timeout
-    last_err = "(no response yet)"
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # localhost
-                if resp.status == 200:
-                    return
-                last_err = f"HTTP {resp.status}"
-        except (urllib.error.URLError, ConnectionError, OSError) as exc:
-            last_err = str(exc)
-        time.sleep(1.0)
-    raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
-
-
 def _request(
     base: str,
     path: str,
@@ -223,28 +187,7 @@ def _request(
     body: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
 ) -> tuple[int, Any]:
-    data = json.dumps(body).encode("utf-8") if body is not None else None
-    all_headers = {"Content-Type": "application/json"} if data is not None else {}
-    all_headers.update(headers or {})
-    req = urllib.request.Request(
-        f"{base}{path}",
-        data=data,
-        method=method,
-        headers=all_headers,
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=15.0) as resp:
-            raw = resp.read()
-            try:
-                return resp.status, json.loads(raw.decode("utf-8"))
-            except ValueError:
-                return resp.status, raw.decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as exc:
-        raw = exc.read()
-        try:
-            return exc.code, json.loads(raw.decode("utf-8"))
-        except ValueError:
-            return exc.code, raw.decode("utf-8", errors="replace")
+    return _queue_drive.request(base, path, method, body, headers=headers, timeout=15.0)
 
 
 def _sidecar_get(path: str) -> tuple[int, Any]:
@@ -259,26 +202,24 @@ def _bridge_get(path: str) -> tuple[int, Any]:
     return _request(BRIDGE_URL, path, "GET")
 
 
-def _bridge_post(path: str, body: dict[str, Any], token: str | None = None) -> tuple[int, Any]:
-    data = json.dumps(body).encode("utf-8")
-    headers = {"Content-Type": "application/json"}
-    if token:
-        headers["X-Launch-Token"] = token
-    req = urllib.request.Request(f"{BRIDGE_URL}{path}", data=data, method="POST", headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=15.0) as resp:
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
+def _bridge_post(
+    path: str, body: dict[str, Any], token: str | None = None, owner: str | None = None
+) -> tuple[int, Any]:
+    # *owner* is the login the plan runs for: the worker's writes follow its switch.
+    return _queue_drive.request(
+        BRIDGE_URL, path, "POST", body, token=token, owner=owner, timeout=15.0
+    )
 
 
 def _get_html(path: str) -> tuple[int, str]:
-    req = urllib.request.Request(f"{BLUESKY_WEB_URL}{path}", method="GET", headers=_auth_headers())
-    try:
-        with urllib.request.urlopen(req, timeout=10.0) as resp:
-            return resp.status, resp.read().decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as exc:
-        return exc.code, exc.read().decode("utf-8", errors="replace")
+    resp = httpx.get(  # localhost only
+        f"{BLUESKY_WEB_URL}{path}",
+        headers=_auth_headers(),
+        timeout=10.0,
+        trust_env=False,
+        follow_redirects=True,
+    )
+    return resp.status_code, resp.text
 
 
 def _docker_port(container: str) -> str:
@@ -424,8 +365,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # _orm_stack.init_args()/build_project_subprocess() don't parameterize
     # the bluesky-web sidecar's port, so build the arg list directly (mirrors
     # what build_project_subprocess does internally) and append one extra
-    # --set for it. The two port moves this module needs go through
-    # `extra_config`, which lands them beside _orm_stack's own `config:` pins.
+    # --set for it. The port move this module needs goes through
+    # `extra_config`, which lands it beside _orm_stack's own `config:` pins.
     args = _orm_stack.init_args(
         PROJECT_NAME,
         output_dir=base,
@@ -438,8 +379,6 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         extra_config={
             "config": {
                 "services.postgresql.port_host": POSTGRES_PORT,
-                "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
-                "services.telemetry_store.port": TELEMETRY_STORE_PORT,
             }
         },
     )
@@ -447,23 +386,17 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
 
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset plus these edits, `build` renders build/ from it.
-    init = _run([str(osprey_bin), "init", *args], cwd=base, timeout=BUILD_TIMEOUT_SEC)
+    init = run_command([str(osprey_bin), "init", *args], cwd=base, timeout=BUILD_TIMEOUT_SEC)
     if init.returncode != 0:
-        pytest.fail(
-            f"osprey init failed (rc={init.returncode}):\n"
-            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
-        )
+        pytest.fail(format_failure("osprey init", init))
 
-    build = _run(
+    build = run_command(
         [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         cwd=base,
         timeout=BUILD_TIMEOUT_SEC,
     )
     if build.returncode != 0:
-        pytest.fail(
-            f"osprey build failed (rc={build.returncode}):\n"
-            f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
-        )
+        pytest.fail(format_failure("osprey build", build))
     _setpoint, _readback, model = _facility_select.bounded_corrector(repo)
     correctors = _orm_stack.select_correctors(repo, count=1, model=model)
     bpms = _orm_stack.select_bpms(repo, count=2, model=model)
@@ -471,6 +404,9 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # The repo root's `.env` — the deployment's whole secret store, and the file
     # `osprey up` refuses to start without.
     _orm_stack.seed_repo_env(repo)
+    # The plans write, and the worker's writes follow the add's owner's switch:
+    # this login's switch on in the deployment's record, before `up`.
+    arm_deployed_queue_owner(repo)
 
     # Force fresh --dev builds so the deployed containers run CURRENT source
     # (osprey up does not pass --build to compose, so it would otherwise
@@ -482,24 +418,21 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
 
     try:
-        up = _run(
+        up = run_command(
             [str(osprey_bin), "up", "-d", "--dev"],
             cwd=repo,
             timeout=DEPLOY_UP_TIMEOUT_SEC,
         )
         if up.returncode != 0:
-            pytest.fail(
-                f"osprey up -d --dev failed (rc={up.returncode}):\n"
-                f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
-            )
+            pytest.fail(format_failure("osprey up -d --dev", up))
         # `osprey up` minted the sidecar's operator secret into the repo .env;
         # arm the sidecar helpers with it before anything talks to the gate
         # (the /health waits below are on the gate's exempt path).
         global _sidecar_secret
         _sidecar_secret = _minted_sidecar_secret(repo)
 
-        _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
-        _wait_for_health(f"{BLUESKY_WEB_URL}/health", HEALTH_TIMEOUT_SEC)
+        wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
+        wait_for_health(f"{BLUESKY_WEB_URL}/health", HEALTH_TIMEOUT_SEC)
         # HTTP readiness is not enqueue readiness -- the worker namespace an
         # enqueue validates against exists only once the RE worker environment
         # is open, and the bridge opens that off the readiness path. See
@@ -519,7 +452,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             plan_args=plan_args,
         )
     finally:
-        down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
+        down = run_command([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
             print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
@@ -571,24 +504,111 @@ def test_sidecar_refuses_unauthenticated_requests() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 3. HEADLINE: a run driven entirely through the sidecar's relays
+# 3. HEADLINE: the operator flow through the sidecar's relays
 # ---------------------------------------------------------------------------
+#
+# A plan added through the sidecar runs for no named login: the sidecar's
+# deployment-wide secret names nobody, and the sidecar drops any inbound
+# ``X-Osprey-Owner``. Since the write-posture rule "no write without a named
+# person", that plan reaches the worker and every write it makes is refused
+# ``owner_unknown``. The test proves both halves: the owner-less add through the
+# sidecar is refused at the write, with a refusal that says who can lift it; and
+# the same writing plan completes through a route that names its owner.
+
+#: The refusal tag the connector appends to every write it refuses.
+_OWNER_UNKNOWN_TAG = "[osprey-refusal: owner_unknown]"
+#: Who the owner_unknown refusal names as able to lift it (refusals.py).
+_OWNER_UNKNOWN_LIFTER = "ask the deployment admin"
+
+
+def _sidecar_remove_item(uid: str) -> None:
+    """Withdraw one queue item through the sidecar's relay and prove it is gone.
+
+    A plan that fails is put back at the front of the queue, and every Start is
+    refused 409 ``interrupted_item_in_queue`` while that copy is queued, so the
+    refused run must be withdrawn before anything else can drain.
+    """
+    status, body = _request(
+        BLUESKY_WEB_URL, f"/queue/items/{uid}", "DELETE", headers=_auth_headers()
+    )
+    assert status == 200, f"DELETE /queue/items/{uid} (via sidecar) failed: {status} {body}"
+    status, queue_body = _sidecar_get("/queue")
+    assert status == 200, f"GET /queue (via sidecar) failed: {status} {queue_body}"
+    queued = [item.get("item_uid") for item in queue_body.get("items") or []]
+    assert uid not in queued, f"refused item {uid} still queued after removal: {queued}"
+
+
+def _run_plan_via_bridge_as_owner(deployed_stack: DeployedStack, client_id: str) -> None:
+    """Stage, enqueue as this login, drain and read back the writing plan via the bridge.
+
+    The named route: the caller holds the launch token and names the login the
+    plan runs for (``X-Osprey-Owner``), whose switch the fixture turned on in the
+    deployment's record. The plan must complete and produce rows.
+    """
+    token = env_value(deployed_stack.repo, "BLUESKY_LAUNCH_TOKEN")
+    # Clear the shared draft first: a same-content PATCH is a no-op that keeps
+    # the consumed revision (409 draft_revision_already_launched otherwise).
+    _request(BRIDGE_URL, f"/draft?client_id={client_id}", "DELETE")
+    status, patched = _request(
+        BRIDGE_URL,
+        "/draft",
+        "PATCH",
+        {
+            "plan_name": deployed_stack.plan_name,
+            "plan_args_patch": deployed_stack.plan_args,
+            "client_id": client_id,
+        },
+    )
+    assert status == 200, f"PATCH /draft (bridge) failed: {status} {patched}"
+
+    status, body = _bridge_post(
+        "/queue/items",
+        {"draft_revision": patched["revision"]},
+        token=token,
+        owner=posture_store.current_owner(),
+    )
+    assert status == 200, f"POST /queue/items (bridge) failed: {status} {body}"
+    run_id = body["run_id"]
+
+    _queue_drive.start_draining(BRIDGE_URL, token, run_id)
+
+    deadline = time.monotonic() + SCAN_TIMEOUT_SEC
+    last_status_body: dict[str, Any] = {}
+    while time.monotonic() < deadline:
+        _, last_status_body = _bridge_get(f"/runs/{run_id}")
+        if last_status_body.get("status") in ("completed", "error", "stopped"):
+            break
+        time.sleep(1.0)
+
+    assert last_status_body.get("status") == "completed", (
+        f"run enqueued via the bridge for a named owner did not complete: {last_status_body}"
+    )
+
+    status, data = _bridge_get(f"/runs/{run_id}/data")
+    assert status == 200, f"GET /runs/{run_id}/data (bridge) failed: {status} {data}"
+    assert data.get("row_count", 0) > 0, f"expected real rows: {data}"
 
 
 @pytest.mark.flaky(reruns=1, only_rerun=["AssertionError"])
-def test_plan_via_sidecar_queue_completes(deployed_stack: DeployedStack) -> None:
-    """The whole operator flow through the sidecar, with NO credential in hand.
+def test_plan_via_sidecar_owner_less_is_refused_and_named_route_completes(
+    deployed_stack: DeployedStack,
+) -> None:
+    """The operator flow through the sidecar, with NO credential in hand.
 
     This is the browser's view: compose the draft, enqueue it at the pinned
-    revision, start the queue where it is stopped, watch the run, read the
-    results -- every call to the sidecar, never to the bridge. The launch token
-    is resolved by the sidecar in-process and attached to each queue WRITE;
-    this test never sends it and asserts, on every single response it reads,
-    that the token has not come back out. On the preset's armed queue the
-    enqueue is that write and the plan runs from it; a Start is sent only
-    where the manager reports the queue stopped.
+    revision, start the queue where it is stopped, watch the run -- every call
+    to the sidecar, never to the bridge. The launch token is resolved by the
+    sidecar in-process and attached to each queue WRITE; this test never sends
+    it and asserts, on every single response it reads, that the token has not
+    come back out.
+
+    (a) The add names no owner, so the plan's write is refused ``owner_unknown``
+    and the run ends in error with a refusal naming who can lift it. The refused
+    item is then withdrawn through the sidecar, so it cannot block later starts.
+    (b) The same writing plan completes through the named route: the bridge,
+    enqueued for this login.
     """
-    token = _minted_token(deployed_stack.repo)
+    token = env_value(deployed_stack.repo, "BLUESKY_LAUNCH_TOKEN")
 
     def _assert_no_token(label: str, payload: Any) -> None:
         assert token not in json.dumps(payload), f"launch token leaked into the sidecar {label}"
@@ -625,41 +645,53 @@ def test_plan_via_sidecar_queue_completes(deployed_stack: DeployedStack) -> None
     run_id = enqueued.get("run_id")
     assert run_id, f"no run_id in the enqueue response: {enqueued}"
 
-    # --- make sure it drains: the sidecar supplies the token we never sent --
-    # An armed queue (the preset's posture) ran the plan off the enqueue above;
-    # a stopped one needs the Start, and the sidecar attaches the token to
-    # that write too.
-    status, queue_body = _sidecar_get("/queue")
-    assert status == 200, f"GET /queue (via sidecar) failed: {status} {queue_body}"
-    _assert_no_token("queue snapshot", queue_body)
-    if not queue_body["status"].get("queue_autostart_enabled"):
-        status, started = _sidecar_post("/queue/start", {})
-        assert status == 200, (
-            "the sidecar must attach the launch token it resolved in-process, so a "
-            f"browser with no credential can still start the queue: {status} {started}"
-        )
-        _assert_no_token("queue-start response", started)
-
-    # --- watch it run, through the sidecar ---------------------------------
-    deadline = time.monotonic() + SCAN_TIMEOUT_SEC
-    last_status_body: dict[str, Any] = {}
-    while time.monotonic() < deadline:
-        _, queue_body = _sidecar_get("/queue")
+    refused_uid: str | None = None
+    try:
+        # --- make sure it drains: the sidecar supplies the token we never sent
+        status, queue_body = _sidecar_get("/queue")
+        assert status == 200, f"GET /queue (via sidecar) failed: {status} {queue_body}"
         _assert_no_token("queue snapshot", queue_body)
-        _, last_status_body = _sidecar_get(f"/runs/{run_id}")
-        _assert_no_token("run-status response", last_status_body)
-        if last_status_body.get("status") in ("completed", "error", "stopped"):
-            break
-        time.sleep(1.0)
+        if not queue_body["status"].get("queue_autostart_enabled"):
+            status, started = _sidecar_post("/queue/start", {})
+            assert status == 200, (
+                "the sidecar must attach the launch token it resolved in-process, so a "
+                f"browser with no credential can still start the queue: {status} {started}"
+            )
+            _assert_no_token("queue-start response", started)
 
-    assert last_status_body.get("status") == "completed", (
-        f"run driven through the sidecar did not complete: {last_status_body}"
-    )
+        # --- watch it run, through the sidecar -----------------------------
+        deadline = time.monotonic() + SCAN_TIMEOUT_SEC
+        last_status_body: dict[str, Any] = {}
+        while time.monotonic() < deadline:
+            _, queue_body = _sidecar_get("/queue")
+            _assert_no_token("queue snapshot", queue_body)
+            _, last_status_body = _sidecar_get(f"/runs/{run_id}")
+            _assert_no_token("run-status response", last_status_body)
+            if last_status_body.get("status") in ("completed", "error", "stopped"):
+                break
+            time.sleep(1.0)
+        refused_uid = last_status_body.get("item_uid")
 
-    ds, data = _sidecar_get(f"/runs/{run_id}/data")
-    assert ds == 200, f"GET /runs/{run_id}/data (via sidecar) failed: {ds} {data}"
-    _assert_no_token("data response", data)
-    assert data.get("row_count", 0) > 0, f"expected real rows: {data}"
+        # --- (a) the owner-less write is refused, naming who can lift it ---
+        assert last_status_body.get("status") == "error", (
+            "a plan added through the sidecar names no owner, so its write must be "
+            f"refused owner_unknown and the run must end in error: {last_status_body}"
+        )
+        error = str(last_status_body.get("error") or "")
+        assert _OWNER_UNKNOWN_TAG in error, (
+            f"the owner-less run must fail on the owner_unknown refusal: {error!r}"
+        )
+        assert _OWNER_UNKNOWN_LIFTER in error, (
+            f"the owner_unknown refusal must name who can lift it: {error!r}"
+        )
+    finally:
+        # Withdraw the refused copy the queue put back, so it cannot 409 every
+        # later start (interrupted_item_in_queue) -- here and in sibling tests.
+        if refused_uid:
+            _sidecar_remove_item(refused_uid)
+
+    # --- (b) the same writing plan completes through a named route ---------
+    _run_plan_via_bridge_as_owner(deployed_stack, "panels-deploy-e2e-named")
 
 
 # ---------------------------------------------------------------------------
@@ -674,50 +706,10 @@ def test_plan_direct_via_bridge(deployed_stack: DeployedStack) -> None:
     The isolation control for test 3: when that one fails, this says whether
     the sidecar's relay broke or the stack underneath it did. Here the caller
     holds the launch token itself -- the bridge gates every arming write (the
-    add, on the preset's armed queue; the Start, on a stopped one), and the
-    sidecar's only job is to hold that credential on the browser's behalf.
+    add, on the preset's armed queue; the Start, on a stopped one) -- and names
+    the login the plan runs for, the one route that may write.
     """
-    token = _minted_token(deployed_stack.repo)
-
-    # Clear the shared draft first — the sidecar test stages these same args,
-    # and a same-content PATCH is a no-op that keeps the consumed revision
-    # (409 draft_revision_already_launched on the enqueue otherwise).
-    _request(BRIDGE_URL, "/draft?client_id=panels-deploy-e2e-direct", "DELETE")
-    status, patched = _request(
-        BRIDGE_URL,
-        "/draft",
-        "PATCH",
-        {
-            "plan_name": deployed_stack.plan_name,
-            "plan_args_patch": deployed_stack.plan_args,
-            "client_id": "panels-deploy-e2e-direct",
-        },
-    )
-    assert status == 200, f"PATCH /draft (bridge) failed: {status} {patched}"
-
-    status, body = _bridge_post(
-        "/queue/items", {"draft_revision": patched["revision"]}, token=token
-    )
-    assert status == 200, f"POST /queue/items (bridge) failed: {status} {body}"
-    run_id = body["run_id"]
-
-    _queue_drive.start_draining(BRIDGE_URL, token, run_id)
-
-    deadline = time.monotonic() + SCAN_TIMEOUT_SEC
-    last_status_body: dict[str, Any] = {}
-    while time.monotonic() < deadline:
-        _, last_status_body = _bridge_get(f"/runs/{run_id}")
-        if last_status_body.get("status") in ("completed", "error", "stopped"):
-            break
-        time.sleep(1.0)
-
-    assert last_status_body.get("status") == "completed", (
-        f"run enqueued directly via the bridge did not complete: {last_status_body}"
-    )
-
-    status, data = _bridge_get(f"/runs/{run_id}/data")
-    assert status == 200, f"GET /runs/{run_id}/data (bridge) failed: {status} {data}"
-    assert data.get("row_count", 0) > 0, f"expected real rows: {data}"
+    _run_plan_via_bridge_as_owner(deployed_stack, "panels-deploy-e2e-direct")
 
 
 # ---------------------------------------------------------------------------

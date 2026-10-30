@@ -61,20 +61,6 @@ SESSION_B = "kernel:9f3c1a2b"
 
 
 @pytest.fixture
-def approval(hook_module):
-    """The `osprey_approval` module, imported through the test seam."""
-    return hook_module("osprey_approval")
-
-
-@pytest.fixture
-def reader(approval):
-    """The reader module the hook actually bound at import time."""
-    module = approval._target_state
-    assert module is not None, "the approval hook did not bind osprey_target_state"
-    return module
-
-
-@pytest.fixture
 def root(tmp_path, monkeypatch):
     """A deployment's agent-data root, stamped so every reader resolves to it.
 
@@ -182,7 +168,7 @@ def test_a_channel_write_ask_stamps_the_binding_it_rendered(approval, root, stat
         "Channel write: TEST:PV=42.0", hook_input_for(write_payload())
     )
 
-    assert f"Target: LIVE MACHINE ({LIVE_ENDPOINT})" in reason_of(output)
+    assert f"Target: Real machine — writes move hardware ({LIVE_ENDPOINT})" in reason_of(output)
     stamps = stamps_in(state_dir)
     assert len(stamps) == 1
     assert stamps[0]["target"] == "live"
@@ -584,7 +570,9 @@ def test_a_stamp_is_neither_the_record_nor_a_server_report(approval, root, state
 
     assert [path.name for path in state_dir.glob("server_*.json")] == [f"server_{os.getpid()}.json"]
     assert len(stamp_files(state_dir)) == 1
-    assert approval._target_line(hook_input_for(write_payload())).startswith("Target: LIVE MACHINE")
+    assert approval._target_line(hook_input_for(write_payload())).startswith(
+        "Target: Real machine — writes move hardware"
+    )
 
 
 # ---------------------------------------------------------------------------

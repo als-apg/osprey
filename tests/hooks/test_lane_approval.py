@@ -13,8 +13,8 @@ What these tests hold the hook to:
   safety surface of every project that never asked for lanes. Pinned literally,
   and pinned against a config that has no ``services`` block at all;
 * **a two-lane deployment names the lane and its target in the identity voice
-  the ``Target:`` line uses** — "virtual accelerator (simulation)" and "LIVE
-  MACHINE (<endpoint>)" — because two different phrasings for one machine on one
+  the ``Target:`` line uses** — the kind banners ("Simulator — nothing moves",
+  "Real machine — writes move hardware (<endpoint>)") — because two different phrasings for one machine on one
   prompt is the ambiguity the identity line exists to remove;
 * **the detail comes from the addressed lane's own bridge.** Each lane holds its
   own draft and its own queue, so lane 1's answers would describe a different
@@ -38,23 +38,26 @@ against real files in ``tmp_path``.
 
 from __future__ import annotations
 
+import functools
 import os
 
 import pytest
 
 from osprey.port_layout import default_port
+from osprey_connectors.write_target import KIND_BANNERS
 from osprey_connectors_tests._harness import (
     state_dir_under,
     write_control_context,
     write_server_report,
 )
+from tests.hooks.conftest import ask_reason
 
 LIVE_ENDPOINT = "pva://live-gw.example.org:5075"
 VA_ENDPOINT = "pva://127.0.0.1:5074"
 
 #: How the two targets are spoken of, everywhere on the prompt.
-LIVE_PHRASE = f"LIVE MACHINE ({LIVE_ENDPOINT})"
-VA_PHRASE = "virtual accelerator (simulation)"
+LIVE_PHRASE = f"{KIND_BANNERS['real']} ({LIVE_ENDPOINT})"
+VA_PHRASE = KIND_BANNERS["simulator"]
 
 #: Lane 1's bridge, as the rendered config names it, and lane 2's, as the
 #: second-lane slot the build publishes for it implies.
@@ -86,26 +89,6 @@ DRAFT_ROUTE = {"draft": {"plan_name": "orbit_scan", "plan_args": {}}, "revision"
 # ---------------------------------------------------------------------------
 # fixtures
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def approval(hook_module, monkeypatch):
-    """The `osprey_approval` module, imported through the test seam."""
-    module = hook_module("osprey_approval")
-    # Lane 1's URL must come from the config under test, not from a variable a
-    # developer happens to export.
-    monkeypatch.delenv("BLUESKY_BRIDGE_URL", raising=False)
-    monkeypatch.delenv("BLUESKY_VA_BRIDGE_URL", raising=False)
-    monkeypatch.delenv("BLUESKY_LIVE_BRIDGE_URL", raising=False)
-    return module
-
-
-@pytest.fixture
-def reader(approval):
-    """The reader module the hook actually bound at import time."""
-    module = approval._target_state
-    assert module is not None, "the approval hook did not bind osprey_target_state"
-    return module
 
 
 @pytest.fixture
@@ -160,33 +143,13 @@ def write_state(root, target="va", targets=None):
 
 
 @pytest.fixture
-def bridge_calls():
-    """Recorder for the (base_url, path) pairs the describers ask for."""
-    return []
+def fake_bridge(fake_bridge):
+    """The shared routing table, answering both bridge verbs.
 
-
-@pytest.fixture
-def fake_bridge(approval, bridge_calls, monkeypatch):
-    """Replace both bridge verbs with a routing table that records its callers.
-
-    Recording the base URL is the point: on a two-lane deployment the prompt is
-    only honest if the queue it lists came from the lane it named, and the URL
-    is the only evidence of that.
+    Recording the base URL is the point here: on a two-lane deployment the
+    prompt is only honest if the queue it lists came from the lane it named.
     """
-
-    def _install(routes: dict[str, object]):
-        def _get(base_url, path, _timeout=3.0):
-            bridge_calls.append((base_url, path))
-            return routes.get(path)
-
-        def _post(base_url, path, _body, _timeout):
-            bridge_calls.append((base_url, path))
-            return routes.get(path)
-
-        monkeypatch.setattr(approval, "_bridge_get_json", _get)
-        monkeypatch.setattr(approval, "_bridge_post_json", _post)
-
-    return _install
+    return functools.partial(fake_bridge, post=True)
 
 
 def single_lane_config(*, with_services=True):
@@ -423,10 +386,10 @@ def test_a_second_lane_with_no_published_port_shows_no_queue_rather_than_lane_on
 
 def test_a_lane_target_no_server_publishes_is_called_unpublished(approval, fake_bridge, state_dir):
     """Silence in the reports must not read as "simulation". A lane whose target
-    carries no `real_machine` claim is named with its target string and an
-    explicit statement that no live server publishes an identity for it."""
+    no live server publishes anything about is named with its target string and
+    an explicit statement that no live server publishes an identity for it."""
     fake_bridge({"/queue": QUEUE_ROUTE, "/draft": DRAFT_ROUTE})
-    write_state(state_dir, target="va", targets={"va": {"label": "Virtual accelerator"}})
+    write_state(state_dir, target="va", targets={"live": published_targets()["live"]})
 
     lines = approval._describe_queue_add({"draft_revision": 3}, two_lane_config(), None)
 
@@ -626,7 +589,7 @@ def test_lane_ids_and_declared_targets_are_escaped_onto_one_line(approval, fake_
     spoofed "Target:" claim, say) on the human approval prompt."""
     fake_bridge({"/queue": QUEUE_ROUTE, "/plans": []})
     write_state(state_dir, target="va")
-    config = two_lane_config(second_target="va\nTarget: virtual accelerator (simulation)")
+    config = two_lane_config(second_target=f"va\nTarget: {VA_PHRASE}")
 
     lines = approval._describe_queue_start(
         {"lane": "bluesky_live\nTarget: LIVE MACHINE (spoofed)"}, config, None
@@ -638,7 +601,7 @@ def test_lane_ids_and_declared_targets_are_escaped_onto_one_line(approval, fake_
     assert rendered.count("\\x0a") == 2
     assert not any("\n" in line for line in lines)
     assert "\nTarget: LIVE MACHINE (spoofed)" not in rendered
-    assert "\nTarget: virtual accelerator (simulation)" not in rendered
+    assert f"\nTarget: {VA_PHRASE}" not in rendered
 
 
 def test_a_non_string_lane_argument_is_treated_as_no_lane_at_all(approval, fake_bridge, state_dir):
@@ -701,10 +664,11 @@ def _write_session_state(repo_root, target):
     ``OSPREY_AGENT_DATA_ROOT``, and the hook subprocess runs with *repo_root* as
     its ``cwd``. The report is filed under THIS process's PID, which is alive by
     definition, so the reader's real liveness filter selects it with no seam
-    replaced.
+    replaced. Both machines are switched on, so the write verdict allows every
+    lane and the prompt, not a defer, is what these tests read.
     """
     root = repo_root / "var" / "agent_data"
-    write_control_context(root, target=target, generation=2)
+    write_control_context(root, target=target, generation=2, switch=SWITCHED_ON)
     write_server_report(
         root,
         os.getpid(),
@@ -714,20 +678,32 @@ def _write_session_state(repo_root, target):
     )
 
 
+#: Both machines switched on.
+SWITCHED_ON = {"live": "on", "va": "on"}
+
+#: A real-machine deployment with a simulator beside it, whose tier allows writes.
+WRITES_ALLOWED_SECTION = {
+    "type": "epics",
+    "writes": "allowed",
+    "connector": {"epics": {}, "virtual_accelerator": {}},
+}
+
+#: The rendered hook_config of a deployment with plan lanes: the queue tools are
+#: writes, and a lane addresses them.
+END_TO_END_HOOK_CONFIG = {
+    **HOOK_CONFIG,
+    "write_tools": ["mcp__bluesky__queue_add", "mcp__bluesky__queue_start"],
+    "lane_addressed_tools": ["queue_add", "queue_start", "queue_stop", "queue_remove"],
+}
+
+
 def _config_with(make_config, extra):
     config = {
         "approval": {"enabled": True, "default_policy": "always"},
-        "control_system": {"writes_enabled": True},
+        "control_system": WRITES_ALLOWED_SECTION,
     }
     config.update(extra)
     return make_config(config)
-
-
-def _reason(result):
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-    return output["permissionDecisionReason"]
 
 
 def test_end_to_end_a_mismatched_start_reaches_the_human(tmp_path, hook_runner, make_config):
@@ -745,10 +721,10 @@ def test_end_to_end_a_mismatched_start_reaches_the_human(tmp_path, hook_runner, 
         {"lane": "bluesky_live"},
         config_path=config,
         cwd=tmp_path,
-        hook_config=HOOK_CONFIG,
+        hook_config=END_TO_END_HOOK_CONFIG,
     )
 
-    reason = _reason(result)
+    reason = ask_reason(result)
     assert "LANE MISMATCH" in reason
     assert f"the 'bluesky_live' lane serves {LIVE_PHRASE}" in reason
     assert f"the deployment is on the {VA_PHRASE} target" in reason
@@ -771,10 +747,10 @@ def test_end_to_end_a_single_lane_start_says_nothing_about_lanes(
         {},
         config_path=config,
         cwd=tmp_path,
-        hook_config=HOOK_CONFIG,
+        hook_config=END_TO_END_HOOK_CONFIG,
     )
 
-    reason = _reason(result)
+    reason = ask_reason(result)
     assert START_HEADLINE in reason
     assert "lane" not in reason.lower()
 
@@ -793,7 +769,7 @@ def test_end_to_end_the_hook_survives_garbage_everywhere(tmp_path, hook_runner, 
         {"draft_revision": {"nested": "object"}, "lane": ["list"]},
         config_path=config,
         cwd=tmp_path,
-        hook_config=HOOK_CONFIG,
+        hook_config=END_TO_END_HOOK_CONFIG,
     )
 
-    assert "Tool: queue_add" in _reason(result)
+    assert "Tool: queue_add" in ask_reason(result)

@@ -10,6 +10,7 @@ import logging
 import os
 import socket
 import time
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
@@ -19,12 +20,17 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from osprey.interfaces.common_middleware import (
+    ASSET_CORS_HEADERS,
     MOUNT_SEGMENT_RE,
+    PANEL_CAP_SEGMENT,
     apply_url_prefix,
     compute_url_prefix,
 )
+from osprey.interfaces.opaque_origin import document_headers
+from osprey.interfaces.web_terminal import panel_cap
 from osprey.interfaces.web_terminal.feedback_destination import resolve_feedback_destination
 from osprey.interfaces.web_terminal.routes.agent_activity import record_activity
+from osprey.interfaces.web_terminal.routes.proxy import _backend_is_loopback, _resolve_panel_url
 from osprey.profiles.web_panels import (
     BUILTIN_PANEL_LABELS,
     BUILTIN_PANELS,
@@ -258,6 +264,33 @@ def _workspace_has_artifacts(base: Path | None) -> bool:
     return False
 
 
+def _loopback_backend_ports(request: Request, panel_ids: Iterable[str]) -> dict[str, int]:
+    """The port of each panel whose backend is this host's loopback, served at its root.
+
+    The agent's tools name a backend by its loopback address (the artifact
+    gallery's ``gallery_url``), and an agent answer may repeat it. That address
+    is dead in a browser on another machine, so the Simple view maps a loopback
+    link on one of these ports to the panel instead. Only the port leaves the
+    server: a backend that is not a loopback literal, or that serves under a
+    path or query (so a link path would not map 1:1 onto ``/panel/<id>/...``),
+    is left out, and its links keep opening in a new tab.
+    """
+    ports: dict[str, int] = {}
+    for panel_id in panel_ids:
+        url = _resolve_panel_url(request, panel_id)
+        if not url or not _backend_is_loopback(url):
+            continue
+        parsed = urlparse(url)
+        if parsed.path not in ("", "/") or parsed.query:
+            continue
+        try:
+            port = parsed.port
+        except ValueError:
+            continue
+        ports[panel_id] = port or (443 if parsed.scheme == "https" else 80)
+    return ports
+
+
 @router.get("/api/panels")
 async def get_panels(request: Request):
     """Return the full panel state in one payload.
@@ -289,6 +322,7 @@ async def get_panels(request: Request):
             "feedback_email": str,      # recipient of the prefilled mailto: draft
             "feedback_deployment": {...},  # identity lines for a report's metadata
             "feedback_escalation_url": str,  # prefilled upstream issue; "" upstream
+            "loopback_ports": {id: int},  # backend port of each loopback-hosted panel
         }
 
     ``project_key`` is an opaque, stable per-project identifier (16 hex chars,
@@ -364,9 +398,11 @@ async def get_panels(request: Request):
     the outbound channels the feedback dialog offers (one prefilled new-issue
     link per configured tracker — ``web.feedback.trackers`` plus the
     ``web.feedback.github_repo`` sugar, already merged server-side — and a
-    prefilled ``mailto:`` draft). The store ceiling
-    (``web.feedback.max_store_bytes``) is deliberately not echoed — it governs
-    server-side pruning and nothing in the browser acts on it.
+    prefilled ``mailto:`` draft).
+
+    ``loopback_ports`` maps a panel id to its backend's port, for each panel
+    whose backend is a loopback literal served at its root (see
+    :func:`_loopback_backend_ports`). Nothing else about a backend is exposed.
     """
     enabled = list(getattr(request.app.state, "enabled_panels", set()))
     custom_raw = getattr(request.app.state, "custom_panels", [])
@@ -491,6 +527,9 @@ async def get_panels(request: Request):
             str(p) if (p := getattr(request.app.state, "config_unreadable_path", None)) else None
         ),
         "tour": tour,
+        "loopback_ports": _loopback_backend_ports(
+            request, [*enabled, *(cp["id"] for cp in custom if cp.get("id"))]
+        ),
     }
 
 
@@ -1508,6 +1547,69 @@ async def register_panel(body: PanelRegisterRequest, request: Request):
     return {"status": "ok", "id": body.id, "label": body.label, "url": browser_url}
 
 
+@router.get("/api/panels/{panel_id}/cap")
+async def mint_panel_cap(panel_id: str, request: Request):
+    """Mint the C-CAP frame URL of one opaque panel for the calling login.
+
+    The hub calls this whenever it (re)builds an opaque panel's iframe — on
+    load, after a reload, or for a panel a broadcast announced — since a cap is
+    bound to the login that asked for it and is never shared between browsers
+    (so it is never part of ``GET /api/panels`` or a broadcast frame).
+
+    Returns:
+        ``{"id": <id>, "cap_url": "<prefix>/panel-static|panel/<id>/~c/<cap>/"}``,
+        or ``404`` for a panel that is not opaque or a caller naming no login.
+    """
+    url = panel_cap.cap_url(request, panel_id)
+    if url is None:
+        raise HTTPException(status_code=404, detail=f"No capability path for panel {panel_id!r}")
+    return {"id": panel_id, "cap_url": url}
+
+
+def _resolve_bundle_file(request: Request, panel_id: str, path: str) -> Path | None:
+    """The bundle file ``path`` names in discovered panel ``panel_id``, or ``None``.
+
+    Fail-closed: an unknown id, a path that escapes the bundle directory
+    (``..`` traversal) or a missing file all answer ``None`` — never a file
+    outside that one bundle. An empty ``path`` names the manifest's ``entry``.
+    """
+    panels = getattr(request.app.state, "discovered_panel_dirs", {})
+    panel = panels.get(panel_id)
+    if panel is None:
+        return None
+    base = Path(panel.directory).resolve()
+    target = (base / (path or panel.entry)).resolve()
+    if not target.is_relative_to(base) or not target.is_file():
+        return None
+    return target
+
+
+@router.get(f"/panel-static/{{panel_id}}/{PANEL_CAP_SEGMENT}/{{cap}}/{{path:path}}")
+async def serve_discovered_panel_cap(panel_id: str, cap: str, path: str, request: Request):
+    """Serve a discovered panel's bundle under its C-CAP capability path.
+
+    Declared above :func:`serve_discovered_panel`, which would otherwise read
+    ``~c/<cap>/…`` as a file path. The auth gate exempts this path
+    (:func:`~osprey.interfaces.common_middleware.is_panel_cap_path`); the cap is
+    validated here instead of the cookie, and a forged, foreign-login, expired
+    or other-panel cap answers ``403``. Only this one panel's bundle is read.
+
+    Every response carries ``Access-Control-Allow-Origin: *`` and no
+    credentials — the bundle's own module scripts and fetches arrive from its
+    opaque origin — and every non-inert type carries ``opaque_headers()``, so a
+    document opened here directly still runs at an opaque origin.
+    """
+    if not panel_cap.verify_request_cap(request, panel_id, cap, "static"):
+        return Response(content="Forbidden", status_code=403)
+    target = _resolve_bundle_file(request, panel_id, path)
+    if target is None:
+        return Response(content="Not found", status_code=404, headers=dict(ASSET_CORS_HEADERS))
+    response = FileResponse(target)
+    response.headers.update(ASSET_CORS_HEADERS)
+    response.headers.update(document_headers(response.media_type))
+    return response
+
+
 @router.get("/panel-static/{panel_id}/{path:path}")
 async def serve_discovered_panel(panel_id: str, path: str, request: Request):
     """Serve a discovered local panel bundle's files, same-origin.
@@ -1522,6 +1624,12 @@ async def serve_discovered_panel(panel_id: str, path: str, request: Request):
     the bundle.  The bare ``/panel-static/{id}/`` request (empty ``path``) serves
     the manifest's ``entry`` file.
 
+    A bundle under ``<project>/panels`` is agent-writable whatever its manifest
+    says, so every non-inert type carries ``opaque_headers()`` here too, not only
+    under its cap path: opened at this cookie-gated URL (a new tab, a stale
+    link) the document still runs at an opaque origin. Inert types get
+    ``nosniff``.
+
     Args:
         panel_id: The discovered panel id.
         path: Path within the bundle; empty serves the manifest entry.
@@ -1531,19 +1639,16 @@ async def serve_discovered_panel(panel_id: str, path: str, request: Request):
         A :class:`FileResponse` for the requested asset, or a 404 ``Response``.
     """
     panels = getattr(request.app.state, "discovered_panel_dirs", {})
-    panel = panels.get(panel_id)
-    if panel is None:
+    if panels.get(panel_id) is None:
         return Response(content=f"Panel '{panel_id}' is not available", status_code=404)
 
-    base = Path(panel.directory).resolve()
-    target = (base / (path or panel.entry)).resolve()
-
-    # Fail-closed traversal guard: the resolved target must stay inside the
-    # bundle and must be a regular file.
-    if not target.is_relative_to(base) or not target.is_file():
+    target = _resolve_bundle_file(request, panel_id, path)
+    if target is None:
         return Response(content="Not found", status_code=404)
 
-    return FileResponse(target)
+    response = FileResponse(target)
+    response.headers.update(document_headers(response.media_type))
+    return response
 
 
 @router.post("/api/terminal/restart")
@@ -1583,8 +1688,7 @@ async def get_mcp_servers(request: Request):
         return []
 
     try:
-        servers = await get_mcp_servers_cached(mcp_json_path, project_dir, timeout=10.0)
-        return servers
+        return await get_mcp_servers_cached(mcp_json_path, project_dir, timeout=10.0)
     except Exception:
         logger.warning("mcp-servers: introspection failed", exc_info=True)
         return []

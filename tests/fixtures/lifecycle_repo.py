@@ -19,7 +19,7 @@ The layout is the four-zone repo — one directory, four kinds of content::
     │  ═ OUTPUT — ignored, disposable ════════════════
     ├── build/                     (never materialized here: a build makes it)
     │  ═ STATE — ignored, durable ════════════════════
-    └── var/agent_data/  var/audit/
+    └── var/agent_data/
 
 ``build/`` is deliberately absent. It is 100% derived, so the source repo the
 exemplar models is the repo *before* any build has run — which is also the
@@ -95,6 +95,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import pytest
+import yaml
 
 #: Directory name of the exemplar deployment. One repo is one deployment and the
 #: directory name is the deployment name, so this is also the compose project
@@ -133,7 +134,7 @@ SHARED_APPS: tuple[str, ...] = ("logbook", "knowledge", "channel-finder")
 
 #: Durable state zone, created empty. A build recreates these when absent
 #: (FR-2), so a fresh clone and a reset repo look identical here.
-STATE_DIRS: tuple[str, ...] = ("var/agent_data", "var/audit")
+STATE_DIRS: tuple[str, ...] = ("var/agent_data",)
 
 #: Paths the shipped ``.gitignore`` must keep out of git, anchored to the repo
 #: root. Unanchored spellings are the foot-gun this list exists to pin: they
@@ -203,7 +204,7 @@ channel_finder_mode: graph
 
 hooks:
   - approval          # Gate hardware-write tool calls on human approval prompt
-  - writes-check      # Kill switch: refuse every write while writes_enabled is false
+  - writes-check      # Kill switch: refuse every write while its machine's write switch is off
   - limits            # Enforce per-channel min/max limits before writes
   - error-guidance    # Post-error hook that surfaces remediation hints
   - memory-guard      # Gate Write to memory files, NotebookEdit to agent-data artifacts and notebooks
@@ -220,7 +221,7 @@ rules:
   - safety              # Core safety rules: never write without approval
   - error-handling      # Standard error handling and retry guidance
   - artifacts           # Rules for saving diagnostic and tuning artifacts
-  - facility            # Facility-level conventions (naming, units, logbook)
+  - rules/facility      # Facility-level conventions (naming, units, logbook)
   - workflows           # Approved workflow patterns (scan, ramp, restore)
   - timezone            # Always localise timestamps to facility timezone
   - python-execution    # Rules governing Python executor sandbox usage
@@ -300,9 +301,9 @@ virtual_accelerator:
   # this key alone the build derives the target's connector block,
   # `control_system.connector.live_standin` — seven leaves, nothing else.
   # `control_target_set standin` points a session at it, and what an operator
-  # meets there is a real machine's behaviour — approval prompts, limit
-  # refusals, the LIVE MACHINE (stand-in) banner — on something that cannot
-  # move a magnet.
+  # meets there is a real machine's behaviour — the write switch, approval
+  # prompts, limit refusals — under the "Rehearsal — nothing moves" banner,
+  # on something that cannot move a magnet.
   # Delete the line on a laptop: the simulator image is amd64-only, so a
   # second emulated container on Apple Silicon doubles what QEMU has to run —
   # one more emulated soft-IOC for the life of the deployment.
@@ -344,6 +345,19 @@ va_archiver:
   # your machine that always changes; delete the key for no check at all.
   freshness_channel: SR:DIAG:DCCT:01:CURRENT:RB
 
+# ── Agent record ─────────────────────────────────────────────────────────────
+# Every prompt, answer, tool call and decision, kept once. `clickhouse` keeps
+# it in a store container that `osprey up` runs beside the agent-record service.
+agent_record:
+  backend: clickhouse
+  # Days an entry is kept after it arrives. The history page reaches as far
+  # back, and the archive keeps every closed day for good.
+  retention_days: 90
+  # Who may read every session, beyond their own: the deployment admin on the
+  # roster below. `kinds:` and `days_back:` narrow a reader to less.
+  readers:
+    - name: carol
+
 # ── Everything else ──────────────────────────────────────────────────────────
 # One dotted `key.path` per line. Never write a nested block here: it would
 # replace the whole subtree and silently drop the keys beside it.
@@ -357,7 +371,8 @@ va_archiver:
 # `provider:` / `model:` above), the channel-finder pipeline block (from
 # `channel_finder_mode:`), the panel selection (from `web_panels:`), every
 # host port, and everything the `bluesky:`, `virtual_accelerator:`,
-# `va_archiver:`, `dispatch:` and `mcp_servers:` sections above stand for.
+# `va_archiver:`, `agent_record:`, `dispatch:` and `mcp_servers:` sections
+# above stand for.
 config:
   # ── Facility ───────────────────────────────────────────────────────────────
   # Your facility's own registry module — the file that registers its
@@ -391,14 +406,13 @@ config:
   # `osprey set config.archiver.type=<the archiver that records it>` and
   # `osprey set va_archiver=null`, because the recorded archive goes with it.
   control_system.type: virtual_accelerator
-  # Master write switch, the FIRST guard in the write-safety chain: while
-  # false, every hardware write is refused before the limits check or the
-  # approval prompt is consulted. On here because the baseline is the
-  # simulator, which cannot move a magnet; the read-only tier pins it off.
-  # Write posture is per connector type: a `control_system.connector.<type>.
-  # writes_enabled` overrides this for that type alone, and only a literal
-  # `true` arms writes at either level.
-  control_system.writes_enabled: true
+  # Write posture, the FIRST guard in the write-safety chain: while `never`,
+  # every hardware write is refused before the limits check or the approval
+  # prompt is consulted. `allowed` here because the baseline is the simulator,
+  # which cannot move a magnet; the read-only tier pins it `never`. Under
+  # `allowed`, each login's own write switch for each machine decides the next
+  # write, so allowing writes arms no machine by itself.
+  control_system.writes: allowed
   # Extra tools the kill switch refuses while writes are off. Framework write
   # tools are covered automatically; list your own servers' write tools here.
   # control_system.write_tools: [mcp__my_server__dangerous_write]
@@ -440,10 +454,6 @@ config:
   #
   # Channel Access timeout in seconds.
   control_system.connector.virtual_accelerator.timeout_s: 5.0
-  # Write posture for the simulator alone. Uncomment to arm writes here while
-  # the master switch keeps the live machine read-only; the shipped
-  # `readwrite` and `admin` tiers in tiers/ write this key.
-  # control_system.connector.virtual_accelerator.writes_enabled: true
   # Where the simulator runs: `served` is its container over Channel Access; `in_process` is inside this process, with no container.
   # control_system.connector.virtual_accelerator.serving: served
   # Milliseconds each read and write takes when the simulator is served in process; unread when served.
@@ -473,9 +483,6 @@ config:
   # value, in seconds. Running out of budget refuses the write, so raise this
   # for a slow gateway — it buys room, never a weaker check.
   # control_system.connector.epics.step_read_timeout_s: 2.0
-  # Write posture for the live machine. Stating it pins it: a type with its
-  # own posture never falls back to the master switch.
-  # control_system.connector.epics.writes_enabled: false
   # Channel the target switch reads to prove the live machine is reachable.
   # While unset this target is never switched to.
   # control_system.connector.epics.probe_channel: SR:BEAM:CURRENT
@@ -500,12 +507,9 @@ config:
   # DOOCS connector: no coordinates of its own. doocs4py reaches the ENS the
   # facility's own DOOCS environment already names, so the empty coordinate set
   # is the point of this block rather than an omission — what is left is how
-  # long a call is given and the two leaves every connector type answers.
+  # long a call is given and the probe channel every connector type answers.
   # Seconds an ENS lookup, a property read or a property set is given.
   # control_system.connector.doocs.timeout_s: 5.0
-  # Write posture for the DOOCS machine. Same tri-state as the epics leaf
-  # above: stating it pins it, and only a literal true arms writes.
-  # control_system.connector.doocs.writes_enabled: false
   # Property the target switch reads to prove this machine is reachable.
   # control_system.connector.doocs.probe_channel: FACILITY/DEVICE/LOCATION/PROPERTY
   # TANGO connector: one coordinate of its own, the device database, spelled
@@ -517,8 +521,7 @@ config:
   # control_system.connector.tango.tango_host: your-tango-db.example.com:10000
   # Seconds a device call waits before it is given up on.
   # control_system.connector.tango.timeout_s: 5.0
-  # The same two leaves as every other connector type, for the TANGO machine.
-  # control_system.connector.tango.writes_enabled: false
+  # Device attribute the target switch reads to prove this machine is reachable.
   # control_system.connector.tango.probe_channel: sys/tg_test/1/ampli
   # Target switch: how a running session moves between the connectors above.
   #
@@ -674,20 +677,11 @@ config:
   approval.tools.register_panel: always
 
   # ── Hook observability ─────────────────────────────────────────────────────
-  # On here. Every hook call logs one line to stderr and appends to
-  # .claude/hooks/hook_debug.jsonl (never rotated: prune it yourself), which
-  # is what the web terminal's Safety panel hook feed reads. OSPREY_HOOK_DEBUG
+  # On here. Every hook call logs one line to stderr and records it
+  # as a hook debug entry on the agent record, which is what the web
+  # terminal's Safety panel hook feed reads. OSPREY_HOOK_DEBUG
   # in the environment forces it on regardless of this key.
   hooks.debug: true
-
-  # ── Full tool-call record ──────────────────────────────────────────────────
-  # On here. Every osprey tool call — reads included — is written whole to
-  # var/audit/<identity>/tool_call.jsonl and sent to the telemetry store as
-  # one log line: arguments, result, control target, approval answer. A
-  # payload over the bound below is stored as an artifact and recorded as its
-  # size and sha256. The value-free audit files are unchanged either way.
-  audit.tool_call.enabled: true
-  audit.tool_call.max_inline_bytes: 262144
 
   # ── ARIEL logbook search ───────────────────────────────────────────────────
   # No `ariel.database.uri`: the DSN is derived from `services.postgresql.*`
@@ -942,53 +936,6 @@ config:
   # claude_code.servers.python.enabled: false
   # claude_code.agents.logbook-search.enabled: false
 
-  # ── Telemetry ──────────────────────────────────────────────────────────────
-  # The agent emits OTLP logs, metrics and traces to the telemetry gateway this
-  # deployment runs, which stamps each record with its sender and writes it to
-  # the telemetry store (`services.telemetry_store.*` below). On by default: the
-  # harness already records every prompt and API body to disk, so this adds no
-  # exposure, only a queryable local store you own.
-  claude_code.telemetry.enabled: true
-  # gateway | generic
-  claude_code.telemetry.backend: gateway
-  # http/protobuf | http/json. The gateway receives HTTP only; grpc is for
-  # backend generic, with an explicit `claude_code.telemetry.endpoint`.
-  claude_code.telemetry.protocol: http/protobuf
-  # Signals to export, all three unless listed. Drop traces for a collector
-  # that takes no traces; built-in tool output rides traces and goes with them.
-  # claude_code.telemetry.signals: [metrics, logs]
-  # No endpoint key: with backend gateway it is derived per network
-  # context (the gateway's published port on the host, or its own listen port
-  # inside the deploy network), so the in-container dispatch worker does not
-  # emit to its own loopback.
-  # For a collector this deployment does not run, name it and the variable
-  # holding its bearer token; the variable goes in this repo's .env.
-  # claude_code.telemetry.backend: generic
-  # claude_code.telemetry.endpoint: https://otel-collector.example.org:4318
-  # claude_code.telemetry.auth.token_env: OTLP_COLLECTOR_TOKEN
-  # No credential key either: every sender logs in to the gateway with a
-  # login `osprey build` mints into a file of its own, outside the .env chain.
-  # Content gates, all on. The store captures full transcripts; a named
-  # reader, and anyone holding the store's admin credential on this host, can
-  # read everything. Set any gate to
-  # false to keep that category out of the emitted telemetry.
-  claude_code.telemetry.log_user_prompts: true
-  claude_code.telemetry.log_assistant_responses: true
-  claude_code.telemetry.log_tool_details: true
-  # Raw provider request and response bodies.
-  claude_code.telemetry.log_raw_api_bodies: true
-  # Built-in tool output as trace span events: what Read and Bash returned,
-  # and, with log_tool_details, what Edit and Write changed.
-  claude_code.telemetry.log_tool_content: true
-  # Longest content value one record carries, in UTF-16 code units, before
-  # Claude Code cuts it and marks it truncated. Its own limit is 61440.
-  claude_code.telemetry.content_max_length: 262144
-
-  # ── Transcripts ────────────────────────────────────────────────────────────
-  # Days Claude Code keeps a session transcript before deleting it at startup
-  # (its own default is 30). Every terminal and the dispatch worker read it.
-  claude_code.transcripts.retention_days: 3650
-
   # ── Services ───────────────────────────────────────────────────────────────
   # Containerized companion services. Declare one as `services.<name>.*` and
   # add its name to `deployed_services` below to launch it with `osprey up`.
@@ -1006,19 +953,6 @@ config:
   # container and the agent's ARIEL DSN, which is derived from this block.
   services.postgresql.database_name: ariel
   services.postgresql.username: ariel
-  # The telemetry store and the gateway the agent emits to (see
-  # `claude_code.telemetry.*` above). Compose directories, under build/.
-  services.telemetry_store.path: ./services/telemetry_store
-  services.telemetry_gateway.path: ./services/telemetry_gateway
-  # Growth bound: the store drops rows older than N days. A named volume has
-  # no size cap, so age is the size knob.
-  services.telemetry_store.retention_days: 14
-  # Who may query the store with SQL: the deployment admin on the roster below.
-  # `osprey up` mints each reader's key into `.env.telemetry-reader.<name>`
-  # (0600) and prints the file and the query page, never the key. Delete the
-  # file and rerun `osprey up` to rotate it; drop the entry to withdraw it.
-  services.telemetry_store.readers:
-    - name: carol
   # qmd, the semantic-search sidecar. It indexes the facility-knowledge bundle
   # and the ARIEL markdown mirror that `ariel.enhancement_modules.qmd_export`
   # writes, and answers ranked KNOWLEDGE search and the `hybrid` logbook mode
@@ -1074,8 +1008,6 @@ config:
   # together with their `services.<name>.*` keys above: remove both or neither.
   deployed_services:
     - postgresql
-    - telemetry_store
-    - telemetry_gateway
     - qmd
     - graphdb
   # Host interface the services publish on. 127.0.0.1 keeps every port
@@ -1200,9 +1132,6 @@ config:
   # over `owner.email` above, on the same grounds as `github_repo`, and
   # commented for the same reason.
   # web.feedback.email: controls@example.org
-  # Ceiling in bytes on the on-disk feedback store (256 MB). Above it the
-  # oldest saved session contexts are deleted; submission headers are kept.
-  web.feedback.max_store_bytes: 268435456
   # Channel-name typeahead in the web panels: the build snapshots the names in
   # this deployment's channel-finder database next to the generated config, so
   # a form field can complete what an operator types. No control-system
@@ -1410,8 +1339,8 @@ config:
   simulation.default_scenarios: [rf-thermal]
 
 # ── Record archive ─────────────────────────────────────────────────────────
-# Copies transcripts, dispatch runs, plan-queue history, the audit ledger and a
-# day of telemetry into var/archive/ once a day. Delete this block to turn it off.
+# Copies artifacts and plan-queue history into var/archive/ once a day, beside
+# the record's own export of each closed day. Delete this block to turn it off.
 services:
   archive:
     template: osprey.archive
@@ -1474,7 +1403,7 @@ requires_osprey_version: '>=2026.10.0'
 # preset that no `# DEVIATION: <why>` comment above the line claims (tag set
 # by `deviation_marker:`). This profile is the source of truth either way.
 # `providers_hash` is the same record for providers.yml beside this file;
-# `osprey init --revalidate` refreshes the packaged entries in it.
+# `osprey init --revalidate` adds the packaged entries and keys it lacks.
 provenance:
   preset: control-assistant
   preset_hash: @PRESET_HASH:control-assistant@
@@ -1653,18 +1582,13 @@ name: Als Exemplar (readonly)
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY, as in the deployment's own config: block.
 config:
-  # The axis this tier hard-pins, and it takes three keys rather than one.
-  # The flat key is the posture a connector type inherits when its own block
-  # says nothing, so on its own it is not a floor: a per-type `true` anywhere
-  # in the deployment's profile would arm that type over it. So the read-only
-  # tier pins every block off as well as the key they inherit from, and a type
-  # that arms writes here has to be added by name.
-  control_system.writes_enabled: false
-  control_system.connector.epics.writes_enabled: false
-  control_system.connector.virtual_accelerator.writes_enabled: false
+  # The axis this tier hard-pins. `never` wins over the deployment's own
+  # `allowed`, since a tier's key beats the root's, so no session of this
+  # tier writes to any machine the deployment configures.
+  control_system.writes: never
   # Pared-down operator layout: chat only, workspace hidden until the agent
   # puts something in it. Pinned on both sides of the tier boundary (readwrite
-  # pins `expert`), same rationale as writes_enabled.
+  # pins `expert`), same rationale as control_system.writes.
   #
   # This tier also has no EVENTS/BLUESKY panels, not by any key here, but
   # because only the write-capable tiers add them by name.
@@ -1707,18 +1631,12 @@ web_panels:
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY, as in the deployment's own config: block.
 config:
-  # The tier boundary, and it takes three keys. Armed on the simulator alone.
-  # The flat key is what every connector type inherits when its own block says
-  # nothing, so its false is what the stand-in reads. The epics block is pinned
-  # by name so a per-type `true` in the deployment's profile cannot lift the
-  # live machine's ceiling. Only a literal `true` arms a type, and a per-type
-  # value never falls back to the flat key.
-  control_system.writes_enabled: false
-  control_system.connector.epics.writes_enabled: false
-  control_system.connector.virtual_accelerator.writes_enabled: true
+  # The tier boundary, pinned rather than left to the deployment's root, so
+  # a root that says `never` does not take this tier's writes away.
+  control_system.writes: allowed
   # Full split-pane terminal + workspace layout for the write-armed operator.
   # Pinned on both sides of the tier boundary (readonly pins `simple`) rather
-  # than left to the server default, for the same reason writes_enabled is.
+  # than left to the server default, for the same reason control_system.writes is.
   web.ui_mode: expert
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
@@ -1765,16 +1683,11 @@ skills:
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY, as in the deployment's own config: block.
 config:
-  # The admin tier carries readwrite's control posture exactly: armed on the
-  # simulator, read-only on both hardware-shaped targets. The flat key is what
-  # every connector type inherits when its own block says nothing, the epics
-  # block is pinned by name so no per-type `true` in the deployment's profile
-  # can lift the live ceiling, and the simulator's block is the one type armed.
+  # The admin tier carries readwrite's control posture exactly: writes
+  # allowed, each machine's write still decided by the login's own switch.
   # What makes this the admin tier is the deployment-editing block below, not a
   # wider write surface.
-  control_system.writes_enabled: false
-  control_system.connector.epics.writes_enabled: false
-  control_system.connector.virtual_accelerator.writes_enabled: true
+  control_system.writes: allowed
   # The axis this tier is defined by: the three privileges the deployment
   # floors, all lifted here and nowhere else.
   #
@@ -1809,7 +1722,8 @@ APP_LOGBOOK_YML = """\
 #
 # A complete agent definition of its own: the lists below are its whole
 # selection, and nothing is inherited from profile.yml's lists or subtracted
-# from them. Services, data, provider and model are profile.yml's, and its
+# from them. Services, data and provider are profile.yml's, and so is the model
+# unless a top-level `model:` here names one the provider serves. Its
 # config: keys are laid over profile.yml's. To see the combined result:
 #   osprey validate apps/logbook.yml
 #
@@ -1855,7 +1769,7 @@ rules:
   - safety            # Core safety rules: never write without approval
   - error-handling    # Standard error handling and retry guidance
   - artifacts         # Rules for saving diagnostic artifacts
-  - facility          # Facility-level conventions (naming, units, logbook)
+  - rules/facility    # Facility-level conventions (naming, units, logbook)
   - workflows         # Approved workflow patterns (plan, delegate, parallelize)
   - timezone          # Always localise timestamps to facility timezone
 
@@ -1901,11 +1815,8 @@ config:
   # deployment's graph store). The event dispatcher renders only with the
   # EVENTS panel, which no app carries.
   #
-  # The write boundary, pinned on all three keys: the flat key every connector
-  # type inherits, and both hardware-shaped types by name.
-  control_system.writes_enabled: false
-  control_system.connector.epics.writes_enabled: false
-  control_system.connector.virtual_accelerator.writes_enabled: false
+  # The write boundary: `never`, the only value an app may spell.
+  control_system.writes: never
   # Creating a logbook entry is this agent's only write of any kind, and it is
   # approval-gated like every other write. Publishing is the half that reaches
   # the facility's logbook, so it is gated too.
@@ -1931,7 +1842,8 @@ APP_KNOWLEDGE_YML = """\
 #
 # A complete agent definition of its own: the lists below are its whole
 # selection, and nothing is inherited from profile.yml's lists or subtracted
-# from them. Services, data, provider and model are profile.yml's, and its
+# from them. Services, data and provider are profile.yml's, and so is the model
+# unless a top-level `model:` here names one the provider serves. Its
 # config: keys are laid over profile.yml's. To see the combined result:
 #   osprey validate apps/knowledge.yml
 #
@@ -1973,7 +1885,7 @@ rules:
   - safety            # Core safety rules: never write without approval
   - error-handling    # Standard error handling and retry guidance
   - artifacts         # Rules for saving diagnostic artifacts
-  - facility          # Facility-level conventions (naming, units, logbook)
+  - rules/facility    # Facility-level conventions (naming, units, logbook)
   - timezone          # Always localise timestamps to facility timezone
 
 # No skills: every bundled skill either writes to the logbook, drives the
@@ -2017,11 +1929,8 @@ config:
   # deployment's editors' work, not a shared card's.
   claude_code.permissions.deny:
     - mcp__osprey_facility_knowledge__draft_concept
-  # The write boundary, pinned on all three keys: the flat key every connector
-  # type inherits, and both hardware-shaped types by name.
-  control_system.writes_enabled: false
-  control_system.connector.epics.writes_enabled: false
-  control_system.connector.virtual_accelerator.writes_enabled: false
+  # The write boundary: `never`, the only value an app may spell.
+  control_system.writes: never
   # Full split-pane layout: the KNOWLEDGE and CHANNELS panels need the panel area.
   web.ui_mode: expert
   # No control-target picker in the title bar: nothing here reaches the machine.
@@ -2042,7 +1951,8 @@ APP_CHANNEL_FINDER_YML = """\
 #
 # A complete agent definition of its own: the lists below are its whole
 # selection, and nothing is inherited from profile.yml's lists or subtracted
-# from them. Services, data, provider and model are profile.yml's, and its
+# from them. Services, data and provider are profile.yml's, and so is the model
+# unless a top-level `model:` here names one the provider serves. Its
 # config: keys are laid over profile.yml's. To see the combined result:
 #   osprey validate apps/channel-finder.yml
 #
@@ -2083,7 +1993,7 @@ rules:
   - safety            # Core safety rules: never write without approval
   - error-handling    # Standard error handling and retry guidance
   - artifacts         # Rules for saving diagnostic artifacts
-  - facility          # Facility-level conventions (naming, units, logbook)
+  - rules/facility    # Facility-level conventions (naming, units, logbook)
   - workflows         # Approved workflow patterns (plan, delegate, parallelize)
   - timezone          # Always localise timestamps to facility timezone
 
@@ -2126,11 +2036,8 @@ config:
   # point of this app). The event dispatcher renders only with the EVENTS
   # panel, which no app carries.
   #
-  # The write boundary, pinned on all three keys: the flat key every connector
-  # type inherits, and both hardware-shaped types by name.
-  control_system.writes_enabled: false
-  control_system.connector.epics.writes_enabled: false
-  control_system.connector.virtual_accelerator.writes_enabled: false
+  # The write boundary: `never`, the only value an app may spell.
+  control_system.writes: never
   # Full split-pane layout: the CHANNELS panel needs the panel area.
   web.ui_mode: expert
   # No control-target picker in the title bar: nothing here reaches the machine.
@@ -2362,7 +2269,7 @@ in `profile.yml`, not the folder name.
 | Your settings | `profile.yml`, `data/`, `tiers/`, `apps/` | yes | yes |
 | Your API keys | `.env` | no | yes |
 | Generated files | `build/` | no | no, safe to delete |
-| The agent's memory and audit log | `var/agent_data/`, `var/audit/` | no | yes |
+| The agent's memory and record | `var/agent_data/`, `var/agent_record/` | no | yes |
 
 In full, the first row is: `profile.yml`, `providers.yml`, `data/`, `tiers/`, `apps/`, `triggers.yml`, `web-terminal-context/`, `.env.example`, `rules/`, `.gitignore`, `.env.shared`, `README.md`, `ci-extra.yml`, `.gitlab-ci.yml`, `scripts/verify.sh`.
 
@@ -2441,8 +2348,8 @@ which nothing ever overwrites.
 osprey reset          # stops everything, then deletes containers, agent data and build/
 ```
 
-`reset` keeps `var/audit/` and your API keys. `osprey reset --purge-audit`
-deletes the audit log as well; that plus deleting this folder removes it all.
+`reset` keeps the agent record and your API keys. `osprey reset --purge-audit`
+deletes the record as well; that plus deleting this folder removes it all.
 
 ## Backups
 
@@ -2885,9 +2792,7 @@ fi
 # ── Deployed services ────────────────────────────────────────────────────────
 if wants services; then
   printf '\\n%s── Services ──%s\\n\\n' "$BOLD" "$RESET"
-  probe_tcp  'virtual-accelerator: Channel Access on 5064'  localhost 5064
-  probe_tcp  'telemetry-gateway: OTLP receiver on 10051'    localhost 10051
-  probe_http 'telemetry-store: query interface on 10804'    http://localhost:10804/ping
+  probe_tcp  'virtual-accelerator: Channel Access on 5064' localhost 5064
 fi
 
 # ── Web tier ─────────────────────────────────────────────────────────────────
@@ -3254,6 +3159,19 @@ def expand_sentinels(text: str) -> str:
     return _PRESET_HASH_SENTINEL.sub(lambda m: _preset_hash(m.group(1)), text)
 
 
+def seeded_facility_rule(profile_text: str) -> str:
+    """``rules/facility.md`` as ``osprey init`` seeds it beside *profile_text*."""
+    import tempfile
+
+    from osprey.cli.build_persistence import ensure_profile_facility_rule
+
+    agents = (yaml.safe_load(expand_sentinels(profile_text)) or {}).get("agents") or []
+    with tempfile.TemporaryDirectory() as scratch:
+        root = Path(scratch)
+        ensure_profile_facility_rule(root, enabled_agents=agents)
+        return (root / "rules" / "facility.md").read_text(encoding="utf-8")
+
+
 def exemplar_source_files(*, with_ci: bool = False) -> dict[str, str]:
     """The exemplar's source zone as repo-relative posix path -> final text.
 
@@ -3283,6 +3201,9 @@ def exemplar_source_files(*, with_ci: bool = False) -> dict[str, str]:
     # package owns the content, and a copy here would prove only that
     # someone remembered to update two places.
     files["providers.yml"] = packaged_providers_yml()
+    # The facility description `osprey init` seeds for a profile selecting the
+    # facility rule, rendered from the package for the same reason.
+    files["rules/facility.md"] = seeded_facility_rule(files["profile.yml"])
     if with_ci:
         files.update(CI_PIPELINE_FILES)
     return {path: expand_sentinels(text) for path, text in files.items()}

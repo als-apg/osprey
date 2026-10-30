@@ -10,12 +10,12 @@ Two endpoints share one composer and one set of app.state reads::
                             -> {bundle}
 
 The field names are pinned by the browser module ``static/js/feedback-client.js``
-and must not drift. The send route writes one record and prunes the store; the
-bundle route writes nothing at all.
+and must not drift. The send route writes one ``feedback`` entry through the
+record writer into the test's own spool; the bundle route writes nothing at all.
 
-The transcript reader and the artifact store are patched at their *source*
-modules, because the route imports them lazily inside the handler (the house
-convention in ``routes/session.py``).
+The session's steps come from a fake record client answering ``timeline`` with
+nodes in the read API's shape; the artifact store is patched at its *source*
+module, because the route imports it lazily inside the handler.
 """
 
 from __future__ import annotations
@@ -32,9 +32,12 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from osprey.agent_record.client import ClientAnswer
+from osprey.agent_record.contract import Drain
 from osprey.interfaces.web_terminal.feedback_composer import (
     CONTEXT_NO_SESSION,
     CONTEXT_OK,
+    CONTEXT_RECORD_UNAVAILABLE,
     CONTEXT_TRANSCRIPT_NOT_FOUND,
     PAYLOAD_CAP_BYTES,
     PAYLOAD_SEPARATOR,
@@ -42,69 +45,92 @@ from osprey.interfaces.web_terminal.feedback_composer import (
 from osprey.interfaces.web_terminal.feedback_destination import resolve_deployment_identity
 from osprey.interfaces.web_terminal.routes.feedback import router
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+from tests.agent_record.fakes import FakeRecordClient
 
 SESSION_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301"
 OTHER_SESSION_ID = "11111111-2222-3333-4444-555555555555"
 
 
-def _events(count: int = 3) -> list[dict[str, Any]]:
-    """Transcript events with the real ``Z``-suffixed stamps Claude Code writes."""
-    return [
-        {
-            "type": "tool_call",
-            "timestamp": f"2026-08-20T18:0{index}:44.210Z",
-            "tool": f"Tool{index}",
-        }
-        for index in range(count)
-    ]
+def _tool_node(index: int, *, error: bool = False) -> dict[str, Any]:
+    """A ``tool_call`` timeline node with its result, as the read API answers it."""
+    return {
+        "key": f"sp:alice:call{index}",
+        "kind": "tool_call",
+        "ts": f"2026-08-20T18:{index % 60:02d}:44.210000+00:00",
+        "body": {"id": f"toolu_{index}", "name": f"Tool{index}", "input": {}},
+        "decision": None,
+        "result": {
+            "key": f"sp:alice:result{index}",
+            "kind": "tool_result",
+            "body": {"tool_use_id": f"toolu_{index}", "content": "ok", "is_error": error},
+        },
+        "subagent": None,
+    }
 
 
-def _chat(count: int = 2) -> list[dict[str, Any]]:
-    return [
-        {
-            "role": "user" if index % 2 == 0 else "assistant",
-            "timestamp": f"2026-08-20T18:0{index}:50.000Z",
-            "content": f"turn {index}",
-        }
-        for index in range(count)
+def _turn_node(index: int, content: str | None = None) -> dict[str, Any]:
+    kind = "prompt" if index % 2 == 0 else "answer"
+    return {
+        "key": f"sp:alice:turn{index}",
+        "kind": kind,
+        "ts": f"2026-08-20T18:{index % 60:02d}:50.000000+00:00",
+        "body": {"text": content if content is not None else f"turn {index}"},
+        "decision": None,
+        "result": None,
+        "subagent": None,
+    }
+
+
+def _nodes(events: int = 3, chat: int = 2) -> list[dict[str, Any]]:
+    return [_tool_node(index) for index in range(events)] + [
+        _turn_node(index) for index in range(chat)
     ]
 
 
 class _Env:
     """The app under test plus the doubles its handlers reach for."""
 
-    def __init__(self, client: TestClient, reader: MagicMock, store: MagicMock, root: Path):
+    def __init__(self, client: TestClient, record: FakeRecordClient, store: MagicMock, recorded):
         self.client = client
-        self.reader = reader
+        self.record = record
         self.store = store
-        self.feedback_dir = root / "feedback"
+        self.nodes: list[dict[str, Any]] = _nodes()
+        self._recorded = recorded
+
+    def timeline(self, **_kwargs: Any) -> ClientAnswer:
+        return ClientAnswer(data=list(self.nodes), complete=True)
+
+    def entries(self) -> list[Any]:
+        return list(self._recorded("feedback"))
 
     def headers(self) -> list[dict[str, Any]]:
-        return [json.loads(p.read_text()) for p in sorted(self.feedback_dir.glob("fb-*.json"))]
+        return [dict(entry.body) for entry in self.entries()]
 
     def contexts(self) -> list[dict[str, Any]]:
-        return [json.loads(p.read_text()) for p in sorted(self.feedback_dir.glob("ctx-*.json"))]
+        return self.headers()
 
-    def files(self) -> list[str]:
-        if not self.feedback_dir.exists():
-            return []
-        return sorted(p.name for p in self.feedback_dir.iterdir())
+    def entry(self, entry_id: str) -> dict[str, Any]:
+        (found,) = [h for h in self.headers() if h["id"] == entry_id]
+        return found
+
+    def files(self) -> list[dict[str, Any]]:
+        return self.headers()
+
+    def timeline_calls(self) -> list[Any]:
+        return self.record.calls_to("timeline")
 
 
 @pytest.fixture
-def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Env:
-    reader = MagicMock()
-    reader.find_transcript_by_id.return_value = tmp_path / "transcript.jsonl"
-    reader.read_session_by_id.return_value = _events()
-    reader.read_chat_history_by_id.return_value = _chat()
+def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spool_for, recorded_entries) -> _Env:
+    from osprey.interfaces.web_terminal.routes import feedback as module
 
+    spool_for()
     store = MagicMock()
     store.list_entries.return_value = []
+    holder: dict[str, _Env] = {}
+    record = FakeRecordClient({"timeline": lambda **kw: holder["env"].timeline(**kw)})
 
-    monkeypatch.setattr(
-        "osprey.mcp_server.workspace.transcript_reader.TranscriptReader",
-        lambda *args, **kwargs: reader,
-    )
+    monkeypatch.setattr(module, "record_client", lambda: record)
     monkeypatch.setattr(
         "osprey.stores.artifact_store.ArtifactStore",
         lambda *args, **kwargs: store,
@@ -114,17 +140,16 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Env:
     app.include_router(router)
     app.state.project_cwd = str(tmp_path / "project")
     app.state.workspace_dir = tmp_path / "workspace"
-    app.state.feedback_dir = tmp_path / "feedback"
-    app.state.feedback_max_store_bytes = 256 * 1024 * 1024
     app.state.terminal_user = "operator"
     app.state.app_name = "OSPREY Test Rig"
-    # The key names its own transcript until a /clear moves it (routes/session.py reads
+    # The key names its own session until a /clear moves it (routes/session.py reads
     # the same map); an empty, non-provisional map keeps the test off the disk.
     app.state.transcript_map = {}
     app.state.transcript_map_provisional = False
 
     with TestClient(app) as client:
-        yield _Env(client, reader, store, tmp_path)
+        holder["env"] = _Env(client, record, store, recorded_entries)
+        yield holder["env"]
 
 
 def _send_body(**overrides: Any) -> dict[str, Any]:
@@ -161,7 +186,9 @@ def test_send_writes_one_record_carrying_its_channel(env: _Env, channel: str) ->
     assert headers[0]["session_id"] == SESSION_ID
     assert headers[0]["version"]
     assert headers[0]["created_at"]
-    assert len(env.contexts()) == 1
+    (entry,) = env.entries()
+    assert entry.kind == "feedback"
+    assert entry.session_id == SESSION_ID
 
 
 def test_send_keeps_the_full_text_and_context_in_the_record(env: _Env) -> None:
@@ -184,11 +211,9 @@ def test_send_stamps_the_payload_digest_only_for_outbound_channels(env: _Env, ch
     assert header["bundle_bytes"] == len(encoded)
     assert header["bundle_sha256"] == hashlib.sha256(encoded).hexdigest()
 
-    for path in env.feedback_dir.iterdir():
-        path.unlink()
-    env.client.post("/api/feedback", json=_send_body(channel="local"))
-    assert "bundle_sha256" not in env.headers()[0]
-    assert "bundle_bytes" not in env.headers()[0]
+    local = env.client.post("/api/feedback", json=_send_body(channel="local")).json()
+    assert "bundle_sha256" not in env.entry(local["id"])
+    assert "bundle_bytes" not in env.entry(local["id"])
 
 
 @pytest.mark.parametrize(
@@ -223,7 +248,7 @@ def test_send_caps_the_payload_at_sixty_thousand_utf8_bytes(env: _Env) -> None:
     # UTF-16 length (40_000) and UTF-8 byte count (80_000) differ, so a
     # character-counted cap would pass this text straight through.
     text = "Ж" * 40_000
-    env.reader.read_session_by_id.return_value = _events(200)
+    env.nodes = _nodes(events=200)
 
     response = env.client.post(
         "/api/feedback", json=_send_body(text=text, scrollback="ы" * 200_000)
@@ -234,8 +259,8 @@ def test_send_caps_the_payload_at_sixty_thousand_utf8_bytes(env: _Env) -> None:
     assert len(payload) < len(payload.encode("utf-8"))
     assert len(payload.encode("utf-8")) <= PAYLOAD_CAP_BYTES
     assert env.headers()[0]["text_truncated"] is True
-    # The record keeps what the clipboard could not carry, and the truncation
-    # marker names the record that actually exists on disk.
+    # The entry keeps what the clipboard could not carry, and the truncation
+    # marker names the entry that was actually written.
     assert env.contexts()[0]["text"] == text
     assert response.json()["id"] in payload
     assert env.headers()[0]["id"] == response.json()["id"]
@@ -246,7 +271,7 @@ def test_send_digests_the_exact_payload_it_returned_when_truncated(env: _Env) ->
     # very bytes the operator pastes — including the truncation marker naming
     # this record. A digest taken before any id substitution would not.
     text = "Ж" * 40_000
-    env.reader.read_session_by_id.return_value = _events(200)
+    env.nodes = _nodes(events=200)
 
     body = env.client.post("/api/feedback", json=_send_body(text=text, channel="github")).json()
 
@@ -261,8 +286,8 @@ def test_send_digests_the_exact_payload_it_returned_when_truncated(env: _Env) ->
 # ---- POST /api/feedback: session handling ----
 
 
-def test_send_reports_transcript_not_found_for_a_dead_session(env: _Env) -> None:
-    env.reader.find_transcript_by_id.return_value = None
+def test_send_reports_transcript_not_found_for_a_session_the_record_lacks(env: _Env) -> None:
+    env.nodes = []
 
     response = env.client.post("/api/feedback", json=_send_body())
 
@@ -274,24 +299,63 @@ def test_send_reports_transcript_not_found_for_a_dead_session(env: _Env) -> None
     # Text and metadata still travel — the dialog promises exactly that.
     assert env.contexts()[0]["text"] == _send_body()["text"]
     assert "## deployment" in env.contexts()[0]["context"]
-    env.reader.read_session_by_id.assert_not_called()
+    assert env.contexts()[0]["refs"] == []
+    env.store.list_entries.assert_not_called()
+
+
+def test_send_still_records_when_the_record_does_not_answer(env: _Env) -> None:
+    env.record.unavailable = "connection refused"
+
+    response = env.client.post("/api/feedback", json=_send_body())
+
+    assert response.status_code == 200
+    assert response.json()["context_status"] == CONTEXT_RECORD_UNAVAILABLE
+    header = env.headers()[0]
+    assert header["context_status"] == CONTEXT_RECORD_UNAVAILABLE
+    assert header["text"] == _send_body()["text"]
+    assert "did not answer" in response.json()["payload"]
+
+
+def test_send_reads_the_timeline_after_a_drain_of_the_session(env: _Env) -> None:
+    env.client.post("/api/feedback", json=_send_body())
+
+    (call,) = env.timeline_calls()
+    assert call["session_id"] == SESSION_ID
+    assert call["wait"] == Drain(session_id=SESSION_ID)
+
+
+def test_the_entry_references_the_steps_instead_of_copying_them(env: _Env) -> None:
+    env.nodes = [_tool_node(0, error=True), _turn_node(0, "the pump tripped at noon")]
+
+    body = env.client.post("/api/feedback", json=_send_body(channel="github")).json()
+
+    entry = env.entry(body["id"])
+    assert entry["refs"] == ["sp:alice:call0", "sp:alice:result0", "sp:alice:turn0"]
+    # The payload the operator pastes still carries the excerpts; the entry does not.
+    assert "the pump tripped at noon" in body["payload"]
+    assert "Tool0" in body["payload"]
+    assert "the pump tripped at noon" not in entry["context"]
+    assert "Tool0" not in entry["context"]
+    assert "event log" not in entry["context"]
+    assert entry["scrollback"] == _send_body()["scrollback"]
 
 
 def test_send_reads_the_transcript_a_cleared_key_moved_to(env: _Env) -> None:
-    """After a ``/clear`` the key points at a new transcript; the report reads that
-    one, and is still tagged with the key the artifacts and the record carry."""
+    """After a ``/clear`` the key points at a new session; the report reads that
+    one and is filed under it, and still names the key the artifacts carry."""
     env.client.app.state.transcript_map[SESSION_ID] = OTHER_SESSION_ID
 
     response = env.client.post("/api/feedback", json=_send_body())
 
     assert response.status_code == 200
     assert response.json()["context_status"] == CONTEXT_OK
-    env.reader.find_transcript_by_id.assert_called_once_with(OTHER_SESSION_ID)
-    env.reader.read_session_by_id.assert_called_once_with(OTHER_SESSION_ID)
-    env.reader.read_chat_history_by_id.assert_called_once_with(OTHER_SESSION_ID)
+    (call,) = env.timeline_calls()
+    assert call["session_id"] == OTHER_SESSION_ID
+    assert call["wait"] == Drain(session_id=OTHER_SESSION_ID)
     header = env.headers()[0]
     assert header["session_id"] == SESSION_ID
     assert SESSION_ID in env.contexts()[0]["context"]
+    assert env.entries()[0].session_id == OTHER_SESSION_ID
 
 
 def test_send_rejects_a_non_uuid_session_id_before_touching_the_transcript(env: _Env) -> None:
@@ -299,7 +363,7 @@ def test_send_rejects_a_non_uuid_session_id_before_touching_the_transcript(env: 
 
     assert response.status_code == 422
     assert "session_id" in response.json()["detail"]
-    env.reader.find_transcript_by_id.assert_not_called()
+    assert env.timeline_calls() == []
     assert env.files() == []
 
 
@@ -313,7 +377,7 @@ def test_send_without_context_composes_metadata_only(env: _Env) -> None:
     header = env.headers()[0]
     assert header["include_context"] is False
     assert header["session_id"] is None
-    env.reader.find_transcript_by_id.assert_not_called()
+    assert env.timeline_calls() == []
     assert env.contexts()[0]["scrollback"] == ""
 
 
@@ -340,8 +404,6 @@ def test_send_metadata_tier_names_the_submitting_browser(env: _Env) -> None:
     ).json()["payload"]
     assert agent in with_metadata
 
-    for path in env.feedback_dir.iterdir():
-        path.unlink()
     without = env.client.post(
         "/api/feedback",
         json=_send_body(include_metadata=False),
@@ -359,8 +421,6 @@ def test_send_carries_the_session_id_in_the_deployment_tier(env: _Env) -> None:
     ]
     assert SESSION_ID in with_context
 
-    for path in env.feedback_dir.iterdir():
-        path.unlink()
     without = env.client.post("/api/feedback", json=_send_body(include_context=False)).json()[
         "payload"
     ]
@@ -378,13 +438,10 @@ def test_send_carries_the_session_id_in_the_deployment_tier(env: _Env) -> None:
     ],
     ids=["send", "bundle"],
 )
-def test_each_transcript_source_is_read_exactly_once(
-    env: _Env, path: str, body: dict[str, Any]
-) -> None:
+def test_each_source_is_read_exactly_once(env: _Env, path: str, body: dict[str, Any]) -> None:
     env.client.post(path, json=body)
 
-    assert env.reader.read_session_by_id.call_count == 1
-    assert env.reader.read_chat_history_by_id.call_count == 1
+    assert len(env.timeline_calls()) == 1
     assert env.store.list_entries.call_count == 1
 
 
@@ -395,33 +452,19 @@ def test_handlers_run_in_the_threadpool(handler: str) -> None:
     assert not inspect.iscoroutinefunction(getattr(module, handler))
 
 
-def test_send_prunes_the_store_after_writing(env: _Env, monkeypatch: pytest.MonkeyPatch) -> None:
-    from osprey.interfaces.web_terminal.routes import feedback as module
-
-    calls: list[tuple[Path, int]] = []
-    monkeypatch.setattr(
-        module, "prune_store", lambda directory, max_bytes: calls.append((directory, max_bytes))
-    )
-
-    env.client.post("/api/feedback", json=_send_body())
-
-    assert calls == [(env.feedback_dir, 256 * 1024 * 1024)]
-
-
 def test_send_fails_loudly_when_the_record_cannot_be_written(
-    env: _Env, monkeypatch: pytest.MonkeyPatch
+    env: _Env, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from osprey.interfaces.web_terminal.routes import feedback as module
-
-    def _boom(*args: Any, **kwargs: Any) -> str:
-        raise OSError("read-only filesystem")
-
-    monkeypatch.setattr(module, "write_record", _boom)
+    # A spool path that is a file: the writer cannot append, and says so by
+    # returning None rather than raising.
+    blocker = tmp_path / "not-a-directory"
+    blocker.write_text("")
+    monkeypatch.setenv("OSPREY_SPOOL_DIR", str(blocker / "alice"))
 
     response = env.client.post("/api/feedback", json=_send_body())
 
     assert response.status_code == 500
-    assert "detail" in response.json()
+    assert "could not record" in response.json()["detail"]
 
 
 def test_send_identity_prefers_the_terminal_user_over_every_environment_rung(
@@ -475,7 +518,7 @@ def test_send_strips_control_characters_from_the_stored_excerpt(env: _Env) -> No
 
 def test_send_survives_a_lone_surrogate_in_the_text(env: _Env) -> None:
     # A lone surrogate reaches the handler intact and used to 500 in Starlette's
-    # response renderer — after the record had been written and the store pruned.
+    # response renderer — after the entry had been written.
     response = env.client.post(
         "/api/feedback",
         content=json.dumps(_send_body(text="bad \ud800 surrogate")).encode("ascii"),
@@ -502,10 +545,8 @@ def test_send_survives_a_lone_surrogate_in_the_scrollback(env: _Env) -> None:
 
 def test_send_survives_a_lone_surrogate_read_from_the_transcript(env: _Env) -> None:
     # Nothing hostile in the request: a browser that stringified an unpaired
-    # UTF-16 half wrote this into the transcript, and it comes back off disk.
-    env.reader.read_chat_history_by_id.return_value = [
-        {"role": "user", "timestamp": "2026-08-20T18:00:50.000Z", "content": "oops \ud800 half"}
-    ]
+    # UTF-16 half wrote this into the transcript, and it comes back from the record.
+    env.nodes = [_turn_node(0, "oops \ud800 half")]
 
     response = env.client.post("/api/feedback", json=_send_body(channel="github"))
 
@@ -530,8 +571,8 @@ def test_send_refuses_a_submission_over_the_body_limit(env: _Env) -> None:
     assert response.status_code == 413
     assert "too large" in response.json()["detail"]
     assert env.files() == []
-    # Refused before any transcript work — a different claim from "no record".
-    env.reader.find_transcript_by_id.assert_not_called()
+    # Refused before any record read — a different claim from "no entry".
+    assert env.timeline_calls() == []
 
 
 def test_send_accepts_a_submission_at_the_body_limit(env: _Env) -> None:
@@ -553,42 +594,6 @@ def test_send_stamps_one_instant_per_request(env: _Env) -> None:
 
     header = env.headers()[0]
     assert header["created_at"] in env.contexts()[0]["context"]
-
-
-def test_send_ignores_a_boolean_store_ceiling(env: _Env, monkeypatch: pytest.MonkeyPatch) -> None:
-    from osprey.interfaces.web_terminal.routes import feedback as module
-
-    # True is an int in Python; honoured literally it is a 1-byte ceiling that
-    # prunes every context in the store.
-    env.client.app.state.feedback_max_store_bytes = True
-    calls: list[tuple[Path, int]] = []
-    monkeypatch.setattr(
-        module, "prune_store", lambda directory, max_bytes: calls.append((directory, max_bytes))
-    )
-
-    env.client.post("/api/feedback", json=_send_body())
-
-    assert calls == [(env.feedback_dir, module.DEFAULT_MAX_STORE_BYTES)]
-
-
-def test_send_falls_back_to_the_workspace_for_an_unset_store_dir(env: _Env) -> None:
-    del env.client.app.state.feedback_dir
-    workspace_dir = Path(env.client.app.state.workspace_dir)
-
-    response = env.client.post("/api/feedback", json=_send_body())
-
-    assert response.status_code == 200
-    assert list((workspace_dir / "feedback").glob("fb-*.json"))
-
-
-def test_send_reports_a_deployment_with_nowhere_to_store_records(env: _Env) -> None:
-    del env.client.app.state.feedback_dir
-    del env.client.app.state.workspace_dir
-
-    response = env.client.post("/api/feedback", json=_send_body())
-
-    assert response.status_code == 500
-    assert "no feedback store is configured" in response.json()["detail"]
 
 
 # ---- POST /api/feedback/bundle ----
@@ -716,13 +721,13 @@ def test_bundle_rejects_a_non_uuid_session_id(env: _Env) -> None:
     )
 
     assert response.status_code == 422
-    env.reader.find_transcript_by_id.assert_not_called()
+    assert env.timeline_calls() == []
     assert env.files() == []
 
 
 @pytest.mark.parametrize("text_len", [-5, None, 10**12])
 def test_bundle_respects_the_cap_for_any_text_len(env: _Env, text_len: Any) -> None:
-    env.reader.read_session_by_id.return_value = _events(400)
+    env.nodes = _nodes(events=400)
 
     response = env.client.post(
         "/api/feedback/bundle",
@@ -753,7 +758,7 @@ def test_bundle_without_a_session_returns_metadata_only(env: _Env) -> None:
     body = response.json()["bundle"]
     assert "## deployment" in body
     assert "## event log" not in body
-    env.reader.find_transcript_by_id.assert_not_called()
+    assert env.timeline_calls() == []
     assert env.files() == []
 
 
@@ -772,7 +777,7 @@ def test_bundle_refuses_a_scrollback_over_the_body_limit(env: _Env) -> None:
     assert response.status_code == 413
     assert "too large" in response.json()["detail"]
     assert env.files() == []
-    env.reader.find_transcript_by_id.assert_not_called()
+    assert env.timeline_calls() == []
 
 
 def test_bundle_uses_the_session_it_was_given(env: _Env) -> None:
@@ -781,7 +786,7 @@ def test_bundle_uses_the_session_it_was_given(env: _Env) -> None:
         json={"session_id": OTHER_SESSION_ID, "text_len": 0, "scrollback": ""},
     )
 
-    env.reader.find_transcript_by_id.assert_called_once_with(OTHER_SESSION_ID)
+    assert [c["session_id"] for c in env.timeline_calls()] == [OTHER_SESSION_ID]
 
 
 def test_bundle_reads_the_transcript_a_cleared_key_moved_to(env: _Env) -> None:
@@ -792,8 +797,7 @@ def test_bundle_reads_the_transcript_a_cleared_key_moved_to(env: _Env) -> None:
         json={"session_id": SESSION_ID, "text_len": 0, "scrollback": ""},
     ).json()
 
-    env.reader.find_transcript_by_id.assert_called_once_with(OTHER_SESSION_ID)
-    env.reader.read_chat_history_by_id.assert_called_once_with(OTHER_SESSION_ID)
+    assert [c["session_id"] for c in env.timeline_calls()] == [OTHER_SESSION_ID]
     assert SESSION_ID in body["bundle"]
 
 

@@ -34,6 +34,7 @@ from claude_agent_sdk import (
 
 from osprey.mcp_server.dispatch_worker import dispatch_api, run_stats, sdk_runner
 from tests._agent_cli import STUB_AGENT_CLI
+from tests.dispatch_worker._runner import drain, stub_osprey_helpers
 
 _TOOL = "mcp__controls__channel_read"
 
@@ -58,19 +59,7 @@ _ENV_KEYS = [
 @pytest.fixture(autouse=True)
 def render_dir(monkeypatch, tmp_path) -> Path:
     """A render with one subagent and one declared MCP server; OSPREY helpers stubbed."""
-    monkeypatch.setattr(
-        "osprey.agent_runner.artifact_resolve.deployed_agent_data_root",
-        lambda: tmp_path / "stub-agent-data",
-    )
-    monkeypatch.setattr("osprey.agent_runner.clean_env.build_clean_env", lambda **kw: {})
-    monkeypatch.setattr(
-        "osprey.agent_runner.sdk_context.build_system_prompt", lambda *a, **k: "system"
-    )
-    monkeypatch.setattr(
-        "osprey.agent_runner.sdk_context.make_tool_allowlist",
-        lambda tools, denied=(): lambda *a, **k: None,
-    )
-    monkeypatch.setattr("osprey_connectors.config.get_facility_timezone", lambda *a, **k: "UTC")
+    stub_osprey_helpers(monkeypatch, agent_data=tmp_path / "stub-agent-data", open_allowlist=True)
     monkeypatch.setattr(
         "osprey_connectors.workspace.resolve_shared_data_root",
         lambda: tmp_path / "agent-data",
@@ -181,13 +170,6 @@ async def _run(queue: asyncio.Queue | None = None) -> dict:
     )
 
 
-async def _drain(queue: asyncio.Queue) -> list[dict]:
-    events = []
-    while not queue.empty():
-        events.append(await queue.get())
-    return events
-
-
 @pytest.mark.asyncio
 async def test_the_agent_options_are_the_ones_dispatch_always_built(monkeypatch, render_dir):
     clients = _install(monkeypatch, _fixed_stream)
@@ -211,6 +193,7 @@ async def test_the_agent_options_are_the_ones_dispatch_always_built(monkeypatch,
         mcp_servers=str(render_dir / ".mcp.json"),
         strict_mcp_config=True,
         cli_path=STUB_AGENT_CLI,
+        extra_args={"thinking-display": "summarized"},
     )
     assert sorted(options.env) == sorted(_ENV_KEYS)
     assert options.env["OSPREY_TERMINAL_SESSION"] == "dispatch-run-p"
@@ -256,7 +239,7 @@ async def test_the_recorded_run_and_its_live_events_are_unchanged_for_a_fixed_st
         "session_id": sid,
         "mcp_servers": [{"name": "controls", "status": "connected", "tools": 1, "error": None}],
     }
-    assert await _drain(queue) == [
+    assert await drain(queue) == [
         {"type": "text", "content": "Reading."},
         {"type": "tool_start", "name": _TOOL, "input": {"channels": ["X"]}},
         {"type": "tool_result", "name": _TOOL, "result": "X=1"},

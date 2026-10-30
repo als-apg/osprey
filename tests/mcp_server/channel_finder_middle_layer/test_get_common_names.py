@@ -2,22 +2,15 @@
 
 from unittest.mock import MagicMock, PropertyMock, patch
 
-from osprey.mcp_server.channel_finder_middle_layer.server_context import (
-    initialize_cf_ml_context,
-)
-from tests.mcp_server.channel_finder_middle_layer.conftest import get_tool_fn
-from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
+import pytest
+
+from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
+
+pytestmark = pytest.mark.usefixtures("cf_ml_context")
 
 
-def _setup(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("{}")
-    initialize_cf_ml_context()
-
-
-def test_get_common_names_returns_names(tmp_path, monkeypatch):
+def test_get_common_names_returns_names():
     """Happy path: returns common names for a family."""
-    _setup(tmp_path, monkeypatch)
     mock_db = MagicMock()
     mock_db.get_common_names.return_value = ["BPM 1", "BPM 2", "BPM 3"]
     with patch(
@@ -37,9 +30,8 @@ def test_get_common_names_returns_names(tmp_path, monkeypatch):
     mock_db.get_common_names.assert_called_once_with("SR", "BPM")
 
 
-def test_get_common_names_returns_none(tmp_path, monkeypatch):
+def test_get_common_names_returns_none():
     """Returns null common_names with message when not available."""
-    _setup(tmp_path, monkeypatch)
     mock_db = MagicMock()
     mock_db.get_common_names.return_value = None
     with patch(
@@ -60,9 +52,8 @@ def test_get_common_names_returns_none(tmp_path, monkeypatch):
     assert "No common names" in data["message"]
 
 
-def test_get_common_names_internal_error(tmp_path, monkeypatch):
+def test_get_common_names_internal_error():
     """Internal error returns standard error envelope."""
-    _setup(tmp_path, monkeypatch)
     mock_db = MagicMock()
     mock_db.get_common_names.side_effect = Exception("DB connection lost")
     with patch(

@@ -432,12 +432,6 @@ def json_run(
     return _run
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    """A Click runner that keeps stdout and stderr apart."""
-    return CliRunner()
-
-
 # --------------------------------------------------------------------------- #
 # The contracts
 # --------------------------------------------------------------------------- #
@@ -516,12 +510,16 @@ def test_audit_verbose_keeps_the_reviewer_transcript_off_the_document(
     with (
         patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True),
         patch("osprey.cli.audit_cmd.stream_query", new=_stream),
-        # The real provider check refuses this fixture, which names no
-        # provider; that wiring is TestReviewerProvider's, this test pins the
-        # streams.
+        # The real provider check and the runner's routing both refuse this
+        # fixture, which names no provider; that wiring is test_audit_cmd's,
+        # this test pins the streams.
         patch(
             "osprey.cli.audit_cmd._check_reviewer_provider",
             new=lambda project_dir: None,
+        ),
+        patch(
+            "osprey.cli.audit_cmd.build_agent_options",
+            new=lambda project_dir, **kwargs: SimpleNamespace(env={}),
         ),
     ):
         result = runner.invoke(audit, [str(project), "--json", "-v"])

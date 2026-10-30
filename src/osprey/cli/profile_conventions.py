@@ -35,7 +35,7 @@ errors. Nothing writes into a project.
 from __future__ import annotations
 
 import posixpath
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from fnmatch import fnmatchcase
@@ -49,10 +49,10 @@ from osprey.profiles.providers import PROVIDERS_FILENAME
 # ``osprey_connectors.config`` into this module's import closure, so naming it
 # here adds no load time to the CLI's lazy-command budget. Imported rather than
 # restated — see :data:`PROTECTED_CONFIG_KEYS`.
-from osprey_connectors.config import RUNTIME_WRITE_PATH_KEYS
+from osprey.utils.workspace import LAYER_DIRNAMES, RUNTIME_WRITE_PATH_KEYS, STATE_DIR_NAME
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
-from osprey_connectors.workspace import BUILD_DIR_NAME, LAYER_DIRNAMES, STATE_DIR_NAME
+from osprey_connectors.workspace import BUILD_DIR_NAME
 
 if TYPE_CHECKING:
     from osprey.facility.errors import FacilityBuildError
@@ -98,6 +98,16 @@ class ConventionDir:
         per_user: Entries are web-terminal users resolved from the build's
             roster rather than free-form names, so the build seeds missing ones
             and skips departed ones (see :func:`partition_context_users`).
+        list_field: The profile list field that selects this directory's
+            entries, or ``None``. An entry of a directory that has one renders
+            only where the render's resolved list names it by its path
+            (``skills/beam-check``, ``output-styles/terse``); a bare entry in
+            the same list always means a library artifact. A hook is the one
+            exception: a list names ``hooks/<file>`` only to replace an OSPREY
+            hook, and any other hook file renders wherever a
+            ``claude_code.hooks`` declaration wiring it is in force (see
+            :func:`render_convention_selections`). Every other directory copies
+            wholesale into every render.
     """
 
     source: str
@@ -106,6 +116,7 @@ class ConventionDir:
     entry_noun: str
     description: str
     per_user: bool = False
+    list_field: str | None = None
 
 
 CONVENTION_DIRS: tuple[ConventionDir, ...] = (
@@ -115,6 +126,7 @@ CONVENTION_DIRS: tuple[ConventionDir, ...] = (
         shape=EntryShape.MARKDOWN,
         entry_noun="rule",
         description="Agent behavior rules",
+        list_field="rules",
     ),
     ConventionDir(
         source="skills",
@@ -122,6 +134,7 @@ CONVENTION_DIRS: tuple[ConventionDir, ...] = (
         shape=EntryShape.DIRECTORY,
         entry_noun="skill",
         description="Agent skills (one directory per skill)",
+        list_field="skills",
     ),
     ConventionDir(
         source="agents",
@@ -129,6 +142,7 @@ CONVENTION_DIRS: tuple[ConventionDir, ...] = (
         shape=EntryShape.MARKDOWN,
         entry_noun="agent",
         description="Subagent definitions",
+        list_field="agents",
     ),
     ConventionDir(
         source="commands",
@@ -143,6 +157,7 @@ CONVENTION_DIRS: tuple[ConventionDir, ...] = (
         shape=EntryShape.MARKDOWN,
         entry_noun="output style",
         description="Output styles",
+        list_field="output_styles",
     ),
     ConventionDir(
         source="hooks",
@@ -150,6 +165,7 @@ CONVENTION_DIRS: tuple[ConventionDir, ...] = (
         shape=EntryShape.FILE,
         entry_noun="hook",
         description="Claude Code hook scripts",
+        list_field="hooks",
     ),
     ConventionDir(
         source="web-terminal-context",
@@ -225,6 +241,14 @@ def context_baseline_slot(root: Path) -> Path:
 
 CONVENTION_SOURCES: tuple[str, ...] = tuple(c.source for c in CONVENTION_DIRS)
 
+#: The convention directories whose entries a render selects by name, keyed by
+#: the profile list field that selects them (``output_styles`` →
+#: ``output-styles``). One list carries both spellings: a bare entry names a
+#: library artifact, a directory-prefixed one the profile's own.
+SELECTED_CONVENTION_SOURCES: dict[str, str] = {
+    c.list_field: c.source for c in CONVENTION_DIRS if c.list_field is not None
+}
+
 PROJECT_MIRROR_DIR = "project"
 
 #: The disposable output zone. Every ``osprey build`` wipes and re-renders it,
@@ -241,7 +265,7 @@ BUILD_OUTPUT_DIR = BUILD_DIR_NAME
 # constant so the copy target and the emitted key cannot drift apart.
 PROFILE_TRIGGERS_FILENAME = "triggers.yml"
 
-#: The durable state zone (``var/agent_data``, ``var/audit``) — git-ignored,
+#: The durable state zone (``var/agent_data`` and the record's directories) — git-ignored,
 #: never rendered, and never wiped by a build. Aliased for the same reason.
 STATE_DIR = STATE_DIR_NAME
 
@@ -572,7 +596,7 @@ FACILITY_AUTHORING_ROUTE = "data/facility/"
 #: one level, and a trailing ``*`` covers the family prefix itself along with
 #: everything below it — see :func:`is_protected_key` for the full rule.
 #:
-#: :data:`~osprey_connectors.config.RUNTIME_WRITE_PATH_KEYS` is *imported and
+#: :data:`~osprey.utils.workspace.RUNTIME_WRITE_PATH_KEYS` is *imported and
 #: unpacked*, never restated: that tuple is already the single list of keys
 #: whose value names a path something writes at run time, and a second copy here
 #: would drift the moment a key is added there. Those keys qualify under the
@@ -811,7 +835,7 @@ def is_reserved_write(project_rel: str) -> str | None:
         boolean, so a refusal can tell an operator the way in.
     """
     normalized = posixpath.normpath(PurePosixPath(project_rel).as_posix())
-    if normalized.startswith("/") or normalized == ".." or normalized.startswith("../"):
+    if normalized.startswith(("/", "../")) or normalized == "..":
         return NOT_PROJECT_RELATIVE_CHANNEL
     folded = normalized.casefold()
 
@@ -884,7 +908,7 @@ def is_protected_key_path(target_file: str, key_path: Sequence[str]) -> bool:
             the final component is consulted, so a writer that already holds an
             absolute target does not have to shorten it first.
         key_path: The key as a sequence of segments, e.g.
-            ``("control_system", "writes_enabled")``.
+            ``("control_system", "writes")``.
 
     Returns:
         ``True`` when some pattern in :data:`PROTECTED_CONFIG_KEYS` covers the
@@ -918,7 +942,7 @@ def is_protected_key(target_file: str, dotted: str) -> bool:
 
     Args:
         target_file: The file the key lives in (see :func:`is_protected_key_path`).
-        dotted: Dotted key path, e.g. ``control_system.writes_enabled``.
+        dotted: Dotted key path, e.g. ``control_system.writes``.
 
     Returns:
         ``True`` when some pattern in :data:`PROTECTED_CONFIG_KEYS` covers the key.
@@ -1243,7 +1267,7 @@ def ownership_name(dest_rel: str, *, is_directory: bool) -> str:
         The ownership name. Whether that destination's *class* is ownable at
         all is a separate question, answered by ``ownership_canonical``.
     """
-    name = dest_rel[len(".claude/") :] if dest_rel.startswith(".claude/") else dest_rel
+    name = dest_rel.removeprefix(".claude/")
     if not is_directory and name.endswith(".md"):
         name = name[: -len(".md")]
     return name
@@ -1687,6 +1711,366 @@ def plan_convention_copies(
             )
 
     return sorted(copies, key=lambda copy: copy.destination)
+
+
+def profile_artifact_lists(profile: Any) -> dict[str, list[Any]]:
+    """A profile's list fields that select convention artifacts, by field name.
+
+    Args:
+        profile: A :class:`~osprey.cli.build_profile_model.BuildProfile`, or
+            anything carrying the same list attributes.
+
+    Returns:
+        Each field in :data:`SELECTED_CONVENTION_SOURCES` to its entries; a
+        field the profile does not carry reads as empty.
+    """
+    return {
+        field: list(getattr(profile, field, None) or []) for field in SELECTED_CONVENTION_SOURCES
+    }
+
+
+def split_convention_selection(
+    field_name: str, names: Iterable[Any]
+) -> tuple[list[Any], list[str]]:
+    """Split one list field into its library names and its own-artifact selections.
+
+    A bare entry names a built-in library artifact; an entry spelled with the
+    field's convention directory (``skills/beam-check`` under ``skills:``,
+    ``output-styles/terse`` under ``output_styles:``) names the profile's own
+    artifact. A field with no convention directory returns every entry as a
+    library name.
+
+    Args:
+        field_name: The profile list field (``skills``, ``output_styles``, ...).
+        names: The field's entries.
+
+    Returns:
+        ``(library, own)``: the entries the artifact library renders, and the
+        directory-prefixed selections, each in list order.
+    """
+    source = SELECTED_CONVENTION_SOURCES.get(field_name)
+    library: list[Any] = []
+    own: list[str] = []
+    for name in names:
+        if source is not None and isinstance(name, str) and name.startswith(f"{source}/"):
+            own.append(name)
+        else:
+            library.append(name)
+    return library, own
+
+
+def _library_file_stem(field_name: str, name: str) -> str | None:
+    """The path-relative name a deployment file replacing library artifact *name* has.
+
+    Every library short name is its file's own name except a hook's, which is
+    selected by a readable name (``writes-check``) while the file it renders is
+    named by the filename the render wires (``osprey_writes_check.py``).
+    """
+    if field_name != "hooks":
+        return name
+    from .templates.artifact_library import resolve_artifact
+
+    try:
+        return resolve_artifact("hooks", name).name
+    except (ValueError, OSError):
+        return None
+
+
+def convention_selections(lists: Mapping[str, Iterable[Any]]) -> frozenset[str]:
+    """The deployment's own artifacts a resolved profile's lists select.
+
+    Only a path selects one (``skills/beam-check``). A bare entry always means
+    the library artifact, even when the deployment ships a file of the same
+    name: that file renders only where its path is named, and there it replaces
+    the library one. A facility hook is selected by its declaration instead
+    (:func:`render_convention_selections`).
+
+    Args:
+        lists: A profile's list fields by name; fields with no convention
+            directory are ignored.
+
+    Returns:
+        Each path entry — the spelling the build names a planned copy by
+        (``rules/facility``, ``hooks/osprey_limits.py`` — :func:`ownership_name`),
+        so a copy is selected exactly when its name is in this set.
+    """
+    selected: set[str] = set()
+    for field_name in SELECTED_CONVENTION_SOURCES:
+        selected.update(split_convention_selection(field_name, lists.get(field_name) or ())[1])
+    return frozenset(selected)
+
+
+#: The hook event that gates a tool call. A hook on it is a guard, and guards
+#: are a floor: every one in force on the deployment's render reaches every
+#: tier and app render.
+GUARD_EVENT = "PreToolUse"
+
+_CLAUDE_CODE_HOOKS = ("claude_code", "hooks")
+
+
+def declared_hooks(config: Mapping[str, Any]) -> dict[str, list[Any]]:
+    """Every ``claude_code.hooks.<event>`` declaration in *config*, by event.
+
+    Nested and dotted spellings (``claude_code: {hooks: {...}}``,
+    ``claude_code.hooks.PreToolUse``) are read alike, in the order they appear.
+
+    Args:
+        config: A profile's ``config:`` block.
+
+    Returns:
+        Each event to its entries, a bare filename or a mapping with ``hook``.
+    """
+    found: dict[str, list[Any]] = {}
+
+    def walk(node: Mapping[str, Any], prefix: tuple[str, ...]) -> None:
+        for key, value in node.items():
+            path = (*prefix, *str(key).split("."))
+            if len(path) == 3 and path[:2] == _CLAUDE_CODE_HOOKS:
+                if isinstance(value, list):
+                    found.setdefault(path[2], []).extend(value)
+            elif (
+                len(path) < 3
+                and path == _CLAUDE_CODE_HOOKS[: len(path)]
+                and isinstance(value, Mapping)
+            ):
+                walk(value, path)
+
+    if isinstance(config, Mapping):
+        walk(config, ())
+    return found
+
+
+def declared_hook_path(entry: Any) -> str | None:
+    """``hooks/<file>`` for one ``claude_code.hooks.<event>`` entry, or ``None``."""
+    ref = entry.get("hook") if isinstance(entry, Mapping) else entry
+    if not isinstance(ref, str) or not ref.strip():
+        return None
+    name = ref.strip()
+    return name if name.startswith("hooks/") else f"hooks/{name}"
+
+
+def declared_hook_paths(config: Mapping[str, Any]) -> frozenset[str]:
+    """The deployment hook files *config*'s ``claude_code.hooks`` declarations wire."""
+    return frozenset(
+        path
+        for entries in declared_hooks(config).values()
+        for path in map(declared_hook_path, entries)
+        if path is not None
+    )
+
+
+def render_convention_selections(profile: Any) -> frozenset[str]:
+    """The deployment's own artifacts one resolved render carries.
+
+    Its lists' path entries (:func:`convention_selections`), and every hook file
+    a ``claude_code.hooks`` declaration in its config wires: a facility hook is
+    copied wherever its declaration is in force, and nowhere else.
+
+    Args:
+        profile: A resolved :class:`~osprey.cli.build_profile_model.BuildProfile`.
+    """
+    config = getattr(profile, "config", None)
+    declared = declared_hook_paths(config) if isinstance(config, Mapping) else frozenset()
+    return convention_selections(profile_artifact_lists(profile)) | declared
+
+
+@lru_cache(maxsize=1)
+def library_guard_hooks() -> frozenset[str]:
+    """The library hooks that run on :data:`GUARD_EVENT`, by short name."""
+    from .templates.artifact_library import hook_events, list_artifacts, resolve_artifact
+
+    return frozenset(
+        name
+        for name in list_artifacts("hooks")
+        if GUARD_EVENT in hook_events(resolve_artifact("hooks", name))
+    )
+
+
+def library_entry_shadow(field_name: str, entry: Any) -> str | None:
+    """The path a deployment file replacing the library artifact *entry* would be named by.
+
+    Args:
+        field_name: The profile list field.
+        entry: One bare entry of it.
+
+    Returns:
+        ``rules/facility`` for ``facility`` under ``rules:``,
+        ``hooks/osprey_writes_check.py`` for ``writes-check`` under ``hooks:``;
+        ``None`` for a path entry, a field with no convention directory, or a
+        hook name the library does not carry. Whether the file exists is the
+        caller's question.
+    """
+    source = SELECTED_CONVENTION_SOURCES.get(field_name)
+    if source is None or not isinstance(entry, str) or entry.startswith(f"{source}/"):
+        return None
+    stem = _library_file_stem(field_name, entry)
+    return f"{source}/{stem}" if stem else None
+
+
+def library_name_for(name: str) -> str | None:
+    """The library artifact the deployment artifact *name* (``rules/safety``) replaces.
+
+    Args:
+        name: A path entry, as the build names a planned copy.
+
+    Returns:
+        The library short name a file at that path stands in for (``safety``,
+        ``writes-check`` for ``hooks/osprey_writes_check.py``), or ``None`` when
+        the library carries no artifact of that name.
+    """
+    source = name.partition("/")[0]
+    field_name = next((f for f, d in SELECTED_CONVENTION_SOURCES.items() if d == source), None)
+    if field_name is None:
+        return None
+    from .templates.artifact_library import list_artifacts
+
+    try:
+        library = list_artifacts(field_name)
+    except (ValueError, OSError):
+        return None
+    return next(
+        (entry for entry in library if library_entry_shadow(field_name, entry) == name), None
+    )
+
+
+def replaces_library_artifact(name: str) -> bool:
+    """Whether the deployment artifact *name* (``rules/safety``) is named like a library one.
+
+    Such a file, where its path is named, renders in place of the library
+    artifact of that name.
+    """
+    return library_name_for(name) is not None
+
+
+def library_selection(field_name: str, names: Iterable[Any]) -> list[Any]:
+    """The library artifacts one list selects, a path that replaces one included.
+
+    A path naming the deployment's copy of a library artifact
+    (``hooks/osprey_writes_check.py``) REPLACES that artifact in the render: it
+    is selected for everything that reads library names — wiring, the write-gate
+    and posture checks, the manifest, the brief — and the deployment's file
+    only supplies the content at its destination. A path with no library
+    counterpart is the deployment's alone and selects nothing here.
+
+    Args:
+        field_name: The profile list field.
+        names: Its entries.
+
+    Returns:
+        The bare entries, then the library name of each replacing path, in
+        list order, without repeats.
+    """
+    library, own = split_convention_selection(field_name, names)
+    selected = list(library)
+    for path in own:
+        name = library_name_for(path)
+        if name is not None and name not in selected:
+            selected.append(name)
+    return selected
+
+
+def shadowed_library_entries(field_name: str, names: Iterable[Any]) -> dict[str, str]:
+    """The bare entries of one list whose library artifact a path entry also renders.
+
+    Args:
+        field_name: The profile list field.
+        names: Its entries.
+
+    Returns:
+        Each such bare entry to the path entry that lands on the same file
+        (``{"facility": "rules/facility"}``).
+    """
+    source = SELECTED_CONVENTION_SOURCES.get(field_name)
+    if source is None:
+        return {}
+    library, own = split_convention_selection(field_name, names)
+    paths = set(own)
+    found: dict[str, str] = {}
+    for name in library:
+        path = library_entry_shadow(field_name, name)
+        if path is not None and path in paths:
+            found[name] = path
+    return found
+
+
+def convention_selection_errors(profile_dir: Path, lists: Mapping[str, Iterable[Any]]) -> list[str]:
+    """Refuse a path entry that names nothing, or that a bare entry duplicates.
+
+    Args:
+        profile_dir: The profile root the convention directories sit in.
+        lists: The profile's list fields by name.
+
+    Returns:
+        One message per path entry that names no artifact, names one of another
+        directory (``agents/orbit`` under ``skills:``), renders the same file
+        as a bare entry in the same list (``facility`` beside
+        ``rules/facility``), or is a hook that replaces no OSPREY hook — a
+        facility hook is wired, and so copied, by its declaration alone.
+    """
+    by_source = {source: field for field, source in SELECTED_CONVENTION_SOURCES.items()}
+    errors: list[str] = []
+    for field_name, source in SELECTED_CONVENTION_SOURCES.items():
+        entries = list(lists.get(field_name) or ())
+        for entry in entries:
+            if not isinstance(entry, str) or "/" not in entry:
+                continue
+            head, _, tail = entry.partition("/")
+            if head != source:
+                if head in by_source:
+                    errors.append(
+                        f"{field_name}: {entry!r} names a {head}/ artifact. "
+                        f"List it under {by_source[head]}: instead."
+                    )
+                continue
+            if not tail or tail.endswith("/") or ".." in PurePosixPath(tail).parts:
+                errors.append(f"{field_name}: {entry!r} names no artifact.")
+                continue
+            shape = _BY_SOURCE[source].shape
+            path = profile_dir / source / tail
+            if shape is EntryShape.MARKDOWN:
+                path = path.with_name(f"{path.name}.md")
+            found = path.is_dir() if shape is EntryShape.DIRECTORY else path.is_file()
+            if not found:
+                shown = path.relative_to(profile_dir).as_posix()
+                shown += "/" if shape is EntryShape.DIRECTORY else ""
+                errors.append(f"{field_name}: {entry!r} — there is no {shown} beside the profile.")
+                continue
+            if field_name == "hooks" and not replaces_library_artifact(entry):
+                errors.append(
+                    f"{field_name}: {entry} replaces no OSPREY hook; wire it with a "
+                    "claude_code.hooks declaration instead (it is copied wherever that "
+                    "declaration applies)"
+                )
+        for bare, own in shadowed_library_entries(field_name, entries).items():
+            # Two artifacts for one file: the build would render one and
+            # silently overwrite it with the other.
+            shape = _BY_SOURCE[source].shape
+            destination = destination_for(f"{own}.md" if shape is EntryShape.MARKDOWN else own)
+            errors.append(
+                f"{field_name}: {bare!r} and {own!r} both render {destination}. Keep one: "
+                f"{bare!r} for OSPREY's, {own!r} for the deployment's own."
+            )
+    return errors
+
+
+def unselected_convention_artifacts(profile_dir: Path, selected: Collection[str]) -> list[str]:
+    """The profile's own list-selected artifacts that no selection names.
+
+    Args:
+        profile_dir: The profile root.
+        selected: The union of :func:`render_convention_selections` over
+            every render this repo builds.
+
+    Returns:
+        Their names (``skills/beam-check``), sorted. Each reaches no render.
+    """
+    sources = set(SELECTED_CONVENTION_SOURCES.values())
+    names = {
+        ownership_name(copy.destination, is_directory=copy.is_directory)
+        for copy in plan_convention_copies(profile_dir)
+        if copy.category in sources
+    }
+    return sorted(names - set(selected))
 
 
 def unknown_root_entries(profile_dir: Path, extra_known: Iterable[str] = ()) -> list[str]:

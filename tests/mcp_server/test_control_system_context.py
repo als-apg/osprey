@@ -25,6 +25,15 @@ from osprey_connectors.errors import ConfigurationError
 # ---------------------------------------------------------------------------
 
 
+#: A deployment whose only connector is the in-process virtual accelerator.
+_VA_IN_PROCESS = {
+    "control_system": {
+        "type": "virtual_accelerator",
+        "connector": {"virtual_accelerator": {"serving": "in_process"}},
+    }
+}
+
+
 def _write_config(tmp_path, config_dict):
     """Write a config.yml to tmp_path and return the path."""
     config_file = tmp_path / "config.yml"
@@ -74,15 +83,7 @@ def test_initialize_missing_config(tmp_path, monkeypatch):
 def test_initialize_idempotent(tmp_path, monkeypatch):
     """Calling initialize() multiple times is a no-op after the first."""
     monkeypatch.chdir(tmp_path)
-    _write_config(
-        tmp_path,
-        {
-            "control_system": {
-                "type": "virtual_accelerator",
-                "connector": {"virtual_accelerator": {"serving": "in_process"}},
-            }
-        },
-    )
+    _write_config(tmp_path, _VA_IN_PROCESS)
 
     registry = ControlSystemContext()
     registry.initialize()
@@ -106,15 +107,7 @@ def test_config_not_initialized_raises():
 def test_singleton_access(tmp_path, monkeypatch):
     """get_server_context() returns the same instance."""
     monkeypatch.chdir(tmp_path)
-    _write_config(
-        tmp_path,
-        {
-            "control_system": {
-                "type": "virtual_accelerator",
-                "connector": {"virtual_accelerator": {"serving": "in_process"}},
-            }
-        },
-    )
+    _write_config(tmp_path, _VA_IN_PROCESS)
 
     initialize_server_context()
     r1 = get_server_context()
@@ -132,15 +125,7 @@ def test_get_before_initialize_raises():
 def test_reset_clears_singleton(tmp_path, monkeypatch):
     """reset_server_context() clears the singleton so get raises again."""
     monkeypatch.chdir(tmp_path)
-    _write_config(
-        tmp_path,
-        {
-            "control_system": {
-                "type": "virtual_accelerator",
-                "connector": {"virtual_accelerator": {"serving": "in_process"}},
-            }
-        },
-    )
+    _write_config(tmp_path, _VA_IN_PROCESS)
 
     initialize_server_context()
     reset_server_context()
@@ -157,15 +142,7 @@ def test_reset_clears_singleton(tmp_path, monkeypatch):
 async def test_connector_caching(tmp_path, monkeypatch):
     """Two calls to registry.control_system() return the same instance."""
     monkeypatch.chdir(tmp_path)
-    _write_config(
-        tmp_path,
-        {
-            "control_system": {
-                "type": "virtual_accelerator",
-                "connector": {"virtual_accelerator": {"serving": "in_process"}},
-            }
-        },
-    )
+    _write_config(tmp_path, _VA_IN_PROCESS)
     registry = initialize_server_context()
 
     mock_connector = AsyncMock()
@@ -208,15 +185,7 @@ async def test_archiver_connector_caching(tmp_path, monkeypatch):
 async def test_connector_invalidation(tmp_path, monkeypatch):
     """After invalidate_connector(), next call creates a fresh instance."""
     monkeypatch.chdir(tmp_path)
-    _write_config(
-        tmp_path,
-        {
-            "control_system": {
-                "type": "virtual_accelerator",
-                "connector": {"virtual_accelerator": {"serving": "in_process"}},
-            }
-        },
-    )
+    _write_config(tmp_path, _VA_IN_PROCESS)
     registry = initialize_server_context()
 
     mock_c1 = AsyncMock()
@@ -240,15 +209,7 @@ async def test_connector_invalidation(tmp_path, monkeypatch):
 async def test_invalidate_unknown_connector(tmp_path, monkeypatch):
     """Invalidating a non-existent connector is a no-op."""
     monkeypatch.chdir(tmp_path)
-    _write_config(
-        tmp_path,
-        {
-            "control_system": {
-                "type": "virtual_accelerator",
-                "connector": {"virtual_accelerator": {"serving": "in_process"}},
-            }
-        },
-    )
+    _write_config(tmp_path, _VA_IN_PROCESS)
     registry = initialize_server_context()
 
     # Should not raise
@@ -258,15 +219,7 @@ async def test_invalidate_unknown_connector(tmp_path, monkeypatch):
 async def test_invalidate_unconnected(tmp_path, monkeypatch):
     """Invalidating a connector that was never created is a no-op."""
     monkeypatch.chdir(tmp_path)
-    _write_config(
-        tmp_path,
-        {
-            "control_system": {
-                "type": "virtual_accelerator",
-                "connector": {"virtual_accelerator": {"serving": "in_process"}},
-            }
-        },
-    )
+    _write_config(tmp_path, _VA_IN_PROCESS)
     registry = initialize_server_context()
 
     # Should not raise (no instance to disconnect)
@@ -448,15 +401,7 @@ def test_mcp_server_config_properties(tmp_path, monkeypatch):
 async def test_unknown_connector_raises(tmp_path, monkeypatch):
     """Requesting an unknown connector type raises ValueError."""
     monkeypatch.chdir(tmp_path)
-    _write_config(
-        tmp_path,
-        {
-            "control_system": {
-                "type": "virtual_accelerator",
-                "connector": {"virtual_accelerator": {"serving": "in_process"}},
-            }
-        },
-    )
+    _write_config(tmp_path, _VA_IN_PROCESS)
     registry = initialize_server_context()
 
     with pytest.raises(ValueError, match="Unknown connector"):

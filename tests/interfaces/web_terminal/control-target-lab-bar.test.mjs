@@ -19,6 +19,10 @@
  * 2. **The bar mounts into the wrong place, or twice.** JupyterLab owns
  *    `#main`'s layout and reflows what it finds there; the chip needs a host
  *    that is stable across its own re-renders. Both are asserted below.
+ * 3. **The bar drifts from the chip.** A popped-out Lab page must say what the
+ *    header chip says and do what it does: the kind and state words, the
+ *    turn-on confirm and its sentence, the stamped-retry rule, the
+ *    stop-not-taken sentence, and C-POST's body with `session_id: null`.
  *
  * Seams: `fetch` is stubbed the way the chip's own suite stubs it, and
  * `EventSource` is stubbed as a class rather than injected — the real
@@ -33,6 +37,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
+
+import { FakeEventSource, stubEventSource } from '../_support/event-source.mjs';
 
 const JS_DIR = join(import.meta.dirname, '../../../src/osprey/interfaces/web_terminal/static/js');
 const ENTRY = 'control-target-lab-bar.js';
@@ -87,90 +93,123 @@ function closureOf(entry) {
 
 /* ---- harness ------------------------------------------------------------ */
 
-/** What GET /api/terminal/posture answers. */
-const VIEW = {
+const FACTS = '../../../src/osprey/interfaces/web_terminal/static/js/control-target-facts.js';
+const { STOP_NOT_TAKEN_SENTENCE, TURN_ON_SENTENCE } = await import(FACTS);
+
+/** The epoch the roster's switch record carries (C-GET `switch_epoch`). */
+// A decimal string, as the route sends it: nanoseconds with low digits that a
+// JSON number would round away.
+const EPOCH = '1793181592449148123';
+
+/** C-GET's columns for a switch that is on, and one that is off. */
+const ON = { switch: 'on', write_allowed: true, write_reason: null, write_phrase: null };
+const OFF = {
+  switch: 'off',
+  write_allowed: false,
+  write_reason: 'switch_off',
+  write_phrase: 'Writes are off; turn it on from the chip in the web terminal.',
+};
+
+/** @param {object} o */
+const rowOf = (o) => ({
+  display_name: '',
+  ...ON,
+  active: false,
+  is_baseline: false,
+  available_now: true,
+  reason: null,
+  reason_detail: null,
+  reachability: {
+    state: 'reached',
+    role: 'write_access',
+    probed_at: '2026-08-30T12:00:00+00:00',
+    age_s: 3,
+    role_detail: { write_access: 'reached' },
+  },
+  ...o,
+});
+
+/** The rehearsal machine the deployment stands on — the chip's card. */
+const STANDIN = {
+  target: 'standin',
+  label: 'Rehearsal — nothing moves',
+  short_label: 'STAND-IN',
+  machine_kind: 'rehearsal',
+  endpoint: 'standin-gw:5064',
+  real_machine: true,
+  active: true,
+  is_baseline: true,
+  available_now: false,
+  reason: 'already_active',
+};
+
+/** The facility's own machine, writes off — a row. */
+const LIVE = {
+  target: 'live',
+  label: 'Real machine — writes move hardware',
+  short_label: 'LIVE',
+  machine_kind: 'real',
+  endpoint: 'gw.example.org:5064',
+  real_machine: true,
+  ...OFF,
+};
+
+/**
+ * What GET /api/terminal/posture answers (C-GET). The Lab page's read carries
+ * no session id, so the route echoes none — and that null is what every POST
+ * from this page sends back.
+ * @param {object} [o]
+ */
+const viewOf = (o = {}) => ({
   session_id: null,
   control_target: 'standin',
   generation: 3,
   owner: { kind: 'web_terminal', pid: 1000, port: 8080, self: true },
-  servers: [
-    {
-      pid: 4242,
-      session: null,
-      applied_target: 'standin',
-      applied_generation: 3,
-      last_switch: null,
-      last_posture_realign: null,
-      updated_at: '2026-08-30T12:00:00+00:00',
-    },
-  ],
+  servers: [],
   store_available: true,
   readonly_run: false,
+  switch_epoch: EPOCH,
+  any_on: true,
+  locks: { readonly_run: false, tier: 'readwrite' },
   execution_in_flight: [],
   last_switch: null,
   last_posture_realign: null,
-  targets: [
-    {
-      target: 'standin',
-      label: 'STAND-IN',
-      short_label: 'STAND-IN',
-      kind: 'stand-in',
-      endpoint: 'standin-gw:5064',
-      real_machine: false,
-      effective: true,
-      posture: 'writes',
-      active: true,
-      is_baseline: true,
-      available_now: true,
-      reason: null,
-      ceiling_writes: true,
-      reachability: {
-        state: 'reached',
-        role: 'write_access',
-        probed_at: '2026-08-30T12:00:00+00:00',
-        age_s: 3,
-        role_detail: { write_access: 'reached' },
-      },
-    },
-  ],
-};
+  targets: [rowOf(STANDIN), rowOf(LIVE)],
+  ...o,
+});
 
-/** @type {{url: string, method: string}[]} */
+/** What the roster route answers next. @type {any} */
+let served = viewOf();
+
+/** Queued answers for the next POSTs, in order. */
+/** @type {{ok: boolean, status?: number, body: any}[]} */
+let postAnswers = [];
+
+/** @type {{url: string, method: string, body: any}[]} */
 let fetchCalls = [];
 
 function stubFetch() {
   fetchCalls = [];
+  postAnswers = [];
   vi.stubGlobal(
     'fetch',
     vi.fn(async (/** @type {any} */ url, /** @type {any} */ init) => {
-      fetchCalls.push({ url: String(url), method: init?.method ?? 'GET' });
+      const method = init?.method ?? 'GET';
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      fetchCalls.push({ url: String(url), method, body });
+      if (method === 'GET') {
+        const snapshot = JSON.parse(JSON.stringify(served));
+        return { ok: true, status: 200, statusText: 'OK', json: async () => snapshot };
+      }
+      const answer = postAnswers.shift() ?? { ok: true, body: {} };
       return {
-        ok: true,
-        status: 200,
-        statusText: 'OK',
-        json: async () => JSON.parse(JSON.stringify(VIEW)),
+        ok: answer.ok,
+        status: answer.status ?? (answer.ok ? 200 : 409),
+        statusText: '',
+        json: async () => answer.body,
       };
     })
   );
-}
-
-/**
- * happy-dom ships no EventSource, and the chip reaches api.js's real shared
- * stream. A class stub keeps that path intact and counts the sockets.
- */
-class FakeEventSource {
-  /** @type {FakeEventSource[]} */
-  static opened = [];
-  /** @param {string} url */
-  constructor(url) {
-    this.url = url;
-    this.readyState = 1;
-    this.closed = false;
-    FakeEventSource.opened.push(this);
-  }
-  close() {
-    this.closed = true;
-  }
 }
 
 /** Drain the microtask/timer queue the async handlers chain through. */
@@ -199,9 +238,12 @@ beforeEach(async () => {
     settings.disableCSSFileLoading = true;
     settings.handleDisabledFileLoadingAsSuccess = true;
   }
-  FakeEventSource.opened = [];
+  served = viewOf();
   stubFetch();
-  vi.stubGlobal('EventSource', FakeEventSource);
+  // The don't-ask-again waivers persist in localStorage; no test inherits
+  // another's.
+  localStorage.clear();
+  stubEventSource({ open: true });
   mountLabFixture();
   Reflect.deleteProperty(window, '__OSPREY_PREFIX__');
   // Importing the module is how the page runs it: there is no app shell on a
@@ -217,6 +259,7 @@ afterEach(() => {
   document.body.innerHTML = '';
   document.body.removeAttribute('data-jp-theme-light');
   document.documentElement.removeAttribute('data-theme');
+  for (const stale of document.querySelectorAll('.posture-modal-overlay')) stale.remove();
 });
 
 /* ---- the import closure ------------------------------------------------- */
@@ -414,5 +457,167 @@ describe('reads', () => {
     await flush();
 
     expect(FakeEventSource.opened.length).toBe(1);
+  });
+});
+
+/* ---- the chip's words and gestures, on a popped-out Lab page -------------- */
+
+describe("the chip's words and gestures", () => {
+  const posts = () => fetchCalls.filter((c) => c.method === 'POST');
+  const chipBtn = () => /** @type {HTMLButtonElement} */ (chipEl());
+  /** The card or the row that carries this target. @param {string} target */
+  const surfaceEl = (target) => {
+    const card = /** @type {HTMLElement|null} */ (document.querySelector('.ctc-card'));
+    if (card?.dataset.target === target) return card;
+    return /** @type {HTMLElement|null} */ (
+      document.querySelector(`.ctc-row[data-target="${target}"]`)
+    );
+  };
+  /** @param {string} target */
+  const toggleEl = (target) =>
+    /** @type {HTMLButtonElement} */ (surfaceEl(target)?.querySelector('.ctc-toggle'));
+  /** @param {string} target */
+  const outcomes = (target) =>
+    [...(surfaceEl(target)?.querySelectorAll('.ctc-outcome') ?? [])].map((n) => n.textContent);
+  const statusEl = () => document.querySelector('.ctc-status');
+  const confirmEl = () =>
+    /** @type {HTMLElement|null} */ (
+      document.querySelector('.posture-modal-overlay:not([data-closing])')
+    );
+  const confirmBtn = () =>
+    /** @type {HTMLButtonElement} */ (confirmEl()?.querySelector('.posture-modal-confirm'));
+
+  /** Boot the page again on another roster — import is how the page boots. @param {any} view */
+  async function rebootOn(view) {
+    barModule.teardownControlTargetLabBar();
+    vi.resetModules();
+    served = view;
+    fetchCalls.length = 0;
+    barModule = await import(MODULE);
+    await flush();
+  }
+
+  async function openPopover() {
+    chipBtn().click();
+    await flush();
+  }
+
+  test('the chip says the kind and the state in the hub’s words', () => {
+    expect(document.querySelector('.ctc-short')?.textContent).toBe('Rehearsal');
+    expect(document.querySelector('.ctc-state')?.textContent).toBe('writes on');
+    expect(chipBtn().dataset.targetKind).toBe('rehearsal');
+    expect(chipBtn().dataset.state).toBe('on');
+  });
+
+  test('a machine the stop reached reads writes off', async () => {
+    await rebootOn(
+      viewOf({ any_on: false, targets: [rowOf({ ...STANDIN, ...OFF }), rowOf(LIVE)] })
+    );
+    expect(document.querySelector('.ctc-state')?.textContent).toBe('writes off');
+    expect(chipBtn().dataset.state).toBe('off');
+  });
+
+  test('turning writes off posts C-POST to the hub with session_id null, and asks nothing', async () => {
+    await openPopover();
+    postAnswers.push({ ok: true, body: { target: 'standin', state: 'off', switch_epoch: EPOCH } });
+    toggleEl('standin').click();
+    await flush();
+
+    expect(confirmEl()).toBeNull();
+    expect(posts()).toHaveLength(1);
+    expect(posts()[0].url).toBe('/api/terminal/posture');
+    expect(posts()[0].body).toEqual({
+      session_id: null,
+      target: 'standin',
+      state: 'off',
+      epoch: EPOCH,
+    });
+  });
+
+  test('turning the real machine on asks first, in the hub’s words, then posts', async () => {
+    await openPopover();
+    toggleEl('live').click();
+    await flush();
+
+    expect(posts()).toHaveLength(0);
+    expect(confirmEl()?.querySelector('.posture-modal-title')?.textContent).toBe(
+      'Turn writes on for Real machine?'
+    );
+    expect(confirmEl()?.querySelector('.posture-modal-live')?.textContent).toBe(
+      'Real machine — writes move hardware'
+    );
+    expect(confirmEl()?.querySelector('.posture-modal-body')?.textContent).toContain(
+      TURN_ON_SENTENCE
+    );
+    expect(confirmBtn().textContent).toBe('Turn writes on');
+
+    postAnswers.push({ ok: true, body: { target: 'live', state: 'on', switch_epoch: EPOCH } });
+    confirmBtn().click();
+    await flush();
+
+    expect(posts()[0].body).toEqual({
+      session_id: null,
+      target: 'live',
+      state: 'on',
+      epoch: EPOCH,
+    });
+    expect(confirmEl()).toBeNull();
+  });
+
+  test('a stamped 409 is retried once, with the epoch it returned', async () => {
+    await openPopover();
+    toggleEl('live').click();
+    await flush();
+    postAnswers.push(
+      {
+        ok: false,
+        status: 409,
+        body: { detail: { reason: 'stopped_since', epoch: '12', stamped: true } },
+      },
+      {
+        ok: false,
+        status: 409,
+        body: { detail: { reason: 'stopped_since', epoch: '13', stamped: true } },
+      },
+      { ok: true, body: {} }
+    );
+    confirmBtn().click();
+    await flush();
+
+    expect(posts().map((p) => p.body)).toEqual([
+      { session_id: null, target: 'live', state: 'on', epoch: EPOCH },
+      { session_id: null, target: 'live', state: 'on', epoch: '12' },
+    ]);
+  });
+
+  test('a stop the record did not take says so', async () => {
+    await openPopover();
+    postAnswers.push({
+      ok: false,
+      status: 503,
+      body: { detail: { reason: 'not_taken', taken: false, phrase: STOP_NOT_TAKEN_SENTENCE } },
+    });
+    toggleEl('standin').click();
+    await flush();
+
+    expect(outcomes('standin')).toContain(`✗ ${STOP_NOT_TAKEN_SENTENCE}`);
+  });
+
+  test('a waived turn-on applies directly and says the turn-on sentence in the status line', async () => {
+    localStorage.setItem('osprey-ctc-skip-confirm:writes-on:standin:rehearsal', '1');
+    await rebootOn(viewOf({ targets: [rowOf({ ...STANDIN, ...OFF }), rowOf(LIVE)] }));
+    await openPopover();
+    postAnswers.push({ ok: true, body: { target: 'standin', state: 'on', switch_epoch: EPOCH } });
+    toggleEl('standin').click();
+    await flush();
+
+    expect(confirmEl()).toBeNull();
+    expect(posts()[0].body).toEqual({
+      session_id: null,
+      target: 'standin',
+      state: 'on',
+      epoch: EPOCH,
+    });
+    expect(statusEl()?.textContent).toBe(TURN_ON_SENTENCE);
   });
 });

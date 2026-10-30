@@ -16,10 +16,10 @@ SessionStart ──► stat config.yml & .claude/settings.json
    (a) config.yml mtime > settings.json mtime? ──► general drift
                      │
                      ▼
-   (b) exactly one writes_enabled key?  ── no ─► claim nothing about writes
+   (b) control_system.writes readable?  ── no ─► claim nothing about writes
                      │ yes
                      ▼
-    its value vs this render's write_tools in deny? ──► precise drift
+    allowed/never vs this render's kill-switch tools in deny? ──► precise drift
                      │
                      ▼
    drift?  ── yes ─► warn (stderr + additionalContext) ─► exit 0
@@ -36,21 +36,25 @@ hand-edited config.yml launched via raw ``claude`` would otherwise run stale
 settings with no signal. This hook is that signal.
 
 The tools check (b) looks for come from this render's own
-``.claude/hooks/hook_config.json`` — the same ``write_tools`` list the
-writes-check hook and the MCP audit middleware read — not from a literal spelled
-here. A deployment whose controls server is an ``extends`` clone denies
+``.claude/hooks/hook_config.json`` — the ``write_tools`` list the writes-check
+hook and the MCP audit middleware read, plus the ``facility_write_tools`` set
+the ``never`` kill switch denies — not from a literal spelled here. A deployment
+whose controls server is an ``extends`` clone denies
 ``mcp__<clone>__channel_write`` and nothing named ``controls``, so a hook probing
-the framework literal claimed nothing while looking like it had checked. Entries
-naming a whole server (``mcp__<name>__.*``) and tools whose reads survive the
-kill switch (``mixed_read_write_tools``) are dropped: neither is denied outright,
-so neither says anything about the posture. An empty list abstains.
+the framework literal claimed nothing while looking like it had checked. Tools
+whose reads survive the kill switch (``mixed_read_write_tools``) and the
+project's ``control_system.write_tools`` are dropped: neither is denied
+outright, so neither says anything about the posture. An empty set abstains.
 
-Check (b) covers one shape of deployment only: the one whose whole posture is
-``control_system.writes_enabled``. Posture is per connector type, and a config
-carrying ``control_system.connector.<type>.writes_enabled`` blocks has an
-answer that depends on the target the session lands on — which this hook cannot
-resolve without importing the framework. It abstains there rather than warn
-about the wrong key, and check (a) still covers such a config.
+The posture check (b) reads is the tier, ``control_system.writes``, exactly as
+the kill switch does (``tier_writes``): only the literal ``allowed`` arms. The
+key is looked up as a direct child of the top-level ``control_system`` section,
+never section-blind, because a facility server's ``writes:`` list lives under
+``claude_code.servers`` and says nothing about the tier. A retired
+``writes_enabled`` leaf, flat or in a connector block, is never read: the kill
+switch does not read it either. Anything the regex cannot read for certain — no
+tier key at all, a duplicated key, a value that is not a plain scalar —
+abstains, and check (a) still covers such a config.
 
 Warn-only by design — it never mutates artifacts and never blocks the session
 (writes stay blocked until a proper regen, which is the safe direction). It is
@@ -73,20 +77,24 @@ import re
 import sys
 from pathlib import Path
 
-# Section-blind on purpose, and `writes_enabled` is not a unique key: alongside the
-# global `control_system.writes_enabled` a config may carry per-connector-type
-# posture blocks (`control_system.connector.<type>.writes_enabled`), so more than
-# one line-anchored match is legitimate. The hook cannot resolve them — it does not
-# know which target the session will run against — and for a warn-only signal a
-# wrong warning is worse than none, so it claims nothing about writes unless
-# exactly one key exists. The value-blind counter decides that; the value pattern
-# reads the single key. Even a mis-parse cannot weaken the write-block gate.
-_WRITES_ENABLED_KEY = re.compile(r"^\s*writes_enabled:", re.MULTILINE | re.IGNORECASE)
-_WRITES_ENABLED = re.compile(r"^\s*writes_enabled:\s*(true|false)\b", re.MULTILINE | re.IGNORECASE)
+#: The section the tier lives in, and its keys (the kill switch's `tier_writes`).
+_SECTION = "control_system"
+_WRITES_LEAF = "writes"
+_TIER_ALLOWED = "allowed"
+
+#: One block-mapping line, `<indent><key>: <rest>`. A key is a plain YAML word;
+#: quoted or complex keys are not posture keys and are passed over.
+_KEY_LINE = re.compile(r"^(?P<indent> *)(?P<key>[A-Za-z0-9_.-]+):(?:\s+(?P<rest>.*))?$")
+#: A block-sequence entry, `<indent>- ...`. Keys inside one are never posture keys.
+_LIST_LINE = re.compile(r"^(?P<indent> *)-(?:\s|$)")
+#: A trailing YAML comment: `#` after whitespace.
+_COMMENT = re.compile(r"\s+#.*$")
+#: Whole-server hook matcher `mcp__<srv>__.*`: as permission syntax it is `mcp__<srv>`.
+_WHOLE_SERVER = re.compile(r"^(?P<server>mcp__[A-Za-z0-9_-]+?)__\.\*$")
 #: Suffix marking a `mcp__<server>__.*` entry in `write_tools` — a whole server
 #: gated by the writes-check hook, whose tool names are unknown at render time.
-#: Such an entry names no tool that could appear in `permissions.deny`, so the
-#: kill-switch comparison skips it.
+#: Such an entry is not itself in `permissions.deny`; the kill switch denies the
+#: server as `mcp__<server>` instead, which `facility_write_tools` supplies.
 _MATCHER_WILDCARD = ".*"
 
 #: Read when `hook_config.json` cannot be, so this check keeps working on a
@@ -97,41 +105,120 @@ _FALLBACK_WRITE_TOOLS = ("mcp__controls__channel_write",)
 _REGEN_HINT = "run 'osprey build' and restart for changes to take effect"
 
 
-def _writes_enabled_in_config(config_path: Path) -> bool | None:
-    """Best-effort parse of control_system.writes_enabled (None if undeterminable)."""
+def _control_system_keys(text: str) -> dict[tuple[str, ...], list[str]]:
+    """Every block-mapping key under the top-level ``control_system`` section.
+
+    Maps each key path (``("control_system", "connector", "epics",
+    "prefix")``) to the raw value text of every line that spells it, in
+    file order, so a duplicated key shows up as two values. A line-level
+    indentation walk rather than a YAML parse (this hook may run without
+    PyYAML): keys inside a block sequence or a block scalar are never recorded,
+    a tab-indented or otherwise unreadable line hides what nests under it, and
+    a key outside ``control_system`` — a facility server's ``writes:`` list
+    under ``claude_code.servers`` included — is never a posture key.
+    """
+    found: dict[tuple[str, ...], list[str]] = {}
+    stack: list[tuple[int, str | None]] = []
+    block_scalar_indent: int | None = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or stripped in ("---", "..."):
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        if block_scalar_indent is not None:
+            if indent > block_scalar_indent:
+                continue
+            block_scalar_indent = None
+        while stack and stack[-1][0] >= indent:
+            stack.pop()
+        match = None if line[indent : indent + 1] == "\t" else _KEY_LINE.match(line.rstrip())
+        if match is None or _LIST_LINE.match(line):
+            # A sequence entry, a tab, a quoted key, a continuation: whatever
+            # nests under it is not a mapping path this walk can name.
+            stack.append((indent, None))
+            continue
+        key = match.group("key")
+        rest = _COMMENT.sub("", match.group("rest") or "").strip()
+        path = tuple(k for _, k in stack) + (key,)
+        stack.append((indent, key))
+        if rest[:1] in ("|", ">"):
+            block_scalar_indent = indent
+        if path[0] != _SECTION or any(k is None for k in path):
+            continue
+        found.setdefault(path, []).append(rest)  # type: ignore[arg-type]
+    return found
+
+
+def _plain_scalar(raw: str) -> str | None:
+    """A value's string, or None when a regex cannot know what YAML makes of it.
+
+    An empty value (a nested block), a flow collection, an alias, anchor or tag,
+    a block scalar and an unexpanded ``${VAR}`` all abstain. Matching quotes
+    are stripped: ``"allowed"`` is the same string as ``allowed``.
+    """
+    if not raw or raw[0] in "[{*&!|>" or "${" in raw:
+        return None
+    if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in ("'", '"'):
+        return raw[1:-1]
+    if raw[0] in ("'", '"'):
+        return None
+    return raw
+
+
+def _tier_in_config(config_path: Path) -> tuple[bool, str] | None:
+    """Whether config.yml's tier allows writes, and the key that says so.
+
+    Returns ``(allows_writes, "<dotted key>: <value>")``, or None when the
+    answer is undeterminable. Mirrors the kill switch's ``tier_writes``:
+    ``control_system.writes`` decides when present, and only the literal
+    ``allowed`` arms. A retired ``writes_enabled`` leaf is never read. No tier
+    key, a duplicated key, or a value the regex cannot read abstains: for a
+    warn-only signal a wrong warning is worse than none.
+    """
     try:
         text = config_path.read_text(encoding="utf-8")
     except OSError:
         return None
-    if len(_WRITES_ENABLED_KEY.findall(text)) != 1:
+    keys = _control_system_keys(text)
+
+    tier = keys.get((_SECTION, _WRITES_LEAF))
+    if tier is None or len(tier) != 1:
         return None
-    match = _WRITES_ENABLED.search(text)
-    if match is None:
+    value = _plain_scalar(tier[0])
+    if value is None:
         return None
-    return match.group(1).lower() == "true"
+    return value == _TIER_ALLOWED, f"{_SECTION}.{_WRITES_LEAF}: {value}"
 
 
 def _kill_switch_tools(hook_config_path: Path) -> tuple[str, ...]:
-    """The tools the writes kill switch renders into ``permissions.deny``.
+    """The tools the ``never`` kill switch renders into ``permissions.deny``.
 
     Read from this render's own ``hook_config.json`` rather than spelled here,
     because the answer is per deployment: an ``extends`` clone of the controls
-    server contributes ``mcp__<clone>__channel_write``, and a facility-custom
-    server that opts into the writes-check hook contributes an
-    ``mcp__<name>__.*`` matcher. A hook that probes one framework literal claims
-    nothing about either — and on a deployment whose only write tool is a clone
-    it claimed nothing at all while looking like it had checked.
+    server contributes ``mcp__<clone>__channel_write``, and a facility server
+    contributes what ``facility_write_tools`` names. A hook that probes one
+    framework literal claims nothing about either — and on a deployment whose
+    only write tool is a clone it claimed nothing at all while looking like it
+    had checked.
 
-    Three kinds of entry are dropped:
+    Two sources, the same two the kill switch denies from:
 
-    * wildcard matchers — they name no tool that could be in ``permissions.deny``;
-    * ``mixed_read_write_tools`` — tools whose reads stay available with writes
-      off, so they are not denied outright and their absence from ``deny`` says
-      nothing about the posture;
-    * ``control_system_write_tools`` — tools the project appended via
-      ``control_system.write_tools``, gated per call rather than by the kill
-      switch, so they never enter ``deny`` either. Read with ``.get``, so a
-      render from before the key existed behaves as it did then.
+    * ``write_tools`` — every writes-check-gated matcher, minus three kinds of
+      entry the kill switch never denies as spelled:
+
+      * wildcard matchers — they name no tool that could be in ``permissions.deny``;
+      * ``mixed_read_write_tools`` — tools whose reads stay available with writes
+        off, so they are not denied outright and their absence from ``deny`` says
+        nothing about the posture;
+      * ``control_system_write_tools`` — tools the project appended via
+        ``control_system.write_tools``, gated per call rather than by the kill
+        switch, so they never enter ``deny`` either. Read with ``.get``, so a
+        render from before the key existed behaves as it did then.
+
+    * ``facility_write_tools`` — the facility write set, every entry denied,
+      a whole-server ``mcp__<srv>__.*`` as the permission rule ``mcp__<srv>``.
+      Read with ``.get`` too: a render from before the key existed carries its
+      facility exact names in ``write_tools`` already.
 
     An unreadable or malformed file falls back to the framework's own controls
     tool, which is what this check was written against before there was a file
@@ -151,11 +238,24 @@ def _kill_switch_tools(hook_config_path: Path) -> tuple[str, ...]:
         value = data.get(key)
         if isinstance(value, list):
             excluded.update(t for t in value if isinstance(t, str))
-    return tuple(
-        tool
-        for tool in tools
-        if isinstance(tool, str) and not tool.endswith(_MATCHER_WILDCARD) and tool not in excluded
-    )
+    result: list[str] = []
+    for tool in tools:
+        if (
+            isinstance(tool, str)
+            and not tool.endswith(_MATCHER_WILDCARD)
+            and tool not in excluded
+            and tool not in result
+        ):
+            result.append(tool)
+    facility = data.get("facility_write_tools")
+    for matcher in facility if isinstance(facility, list) else ():
+        if not isinstance(matcher, str):
+            continue
+        whole = _WHOLE_SERVER.match(matcher)
+        rule = whole.group("server") if whole else matcher
+        if rule and not rule.endswith(_MATCHER_WILDCARD) and rule not in result:
+            result.append(rule)
+    return tuple(result)
 
 
 def _write_tools_denied(settings_path: Path, tools: tuple[str, ...]) -> bool | None:
@@ -193,17 +293,18 @@ def _detect_drift(config_path: Path, settings_path: Path, hook_config_path: Path
         return None
 
     # (b) Targeted, high-signal check: does the kill-switch match the config?
-    writes_enabled = _writes_enabled_in_config(config_path)
+    tier = _tier_in_config(config_path)
     denied = _write_tools_denied(settings_path, _kill_switch_tools(hook_config_path))
-    if writes_enabled is not None and denied is not None:
-        if writes_enabled and denied:
+    if tier is not None and denied is not None:
+        allows_writes, stated = tier
+        if allows_writes and denied:
             return (
-                "config.yml sets control_system.writes_enabled: true, but the agent "
+                f"config.yml sets {stated}, a tier that allows writes, but the agent "
                 f"config still blocks writes — {_REGEN_HINT}."
             )
-        if not writes_enabled and not denied:
+        if not allows_writes and not denied:
             return (
-                "config.yml sets control_system.writes_enabled: false, but the agent "
+                f"config.yml sets {stated}, a tier that never writes, but the agent "
                 f"config still permits writes — {_REGEN_HINT}."
             )
 

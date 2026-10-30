@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import subprocess
 import sys
 from collections.abc import Mapping
@@ -22,6 +21,8 @@ from osprey_connectors.simulation import series
 from osprey_connectors.simulation.archive import build
 from osprey_connectors.simulation.composite import Composite
 from osprey_connectors.simulation.view import SCHEMAS, SimulatorView, ViewSchemaError
+from tests._simulator_view import view_channel
+from tests.connectors._view_records import activate
 
 if TYPE_CHECKING:
     from tests._builds import BuiltProject
@@ -87,23 +88,6 @@ def engine(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
 # -- a synthetic view ----------------------------------------------------------
 
 
-def _channel(address: str, owner: str = "texture", **fields: Any) -> dict[str, Any]:
-    role = fields.pop("role", "readback")
-    return {
-        "address": address,
-        "role": role,
-        "pair": fields.pop("pair", address if role == "setpoint" else None),
-        "value_type": fields.pop("value_type", "float"),
-        "unit": None,
-        "description": None,
-        "writable": fields.pop("writable", False),
-        "value_range": None,
-        "owner": owner,
-        "on": None,
-        **fields,
-    }
-
-
 def _view(
     path: Path,
     *,
@@ -111,13 +95,13 @@ def _view(
     seeds: Mapping[str, Any] | None = None,
 ) -> Path:
     channels = [
-        _channel("M:SP", "M", role="setpoint", writable=True),
-        _channel("M:RB", "M"),
-        _channel("T:SP", role="setpoint", pair="T:RB", writable=True),
-        _channel("T:RB"),
-        _channel("T:NOISY"),
-        _channel("T:MODE", value_type="enum", options=["OFF", "STANDBY", "ON"]),
-        _channel("T:FLAG", value_type="bool"),
+        view_channel("M:SP", "M", role="setpoint", writable=True),
+        view_channel("M:RB", "M"),
+        view_channel("T:SP", role="setpoint", pair="T:RB", writable=True),
+        view_channel("T:RB"),
+        view_channel("T:NOISY"),
+        view_channel("T:MODE", value_type="enum", options=["OFF", "STANDBY", "ON"]),
+        view_channel("T:FLAG", value_type="bool"),
     ]
     documents = {
         "served_models.json": {"models": ["M", "texture"]},
@@ -394,7 +378,7 @@ def test_a_real_readout_fault_archives_the_monitor_the_composite_serves(
     planes = ["SR:DIAG:BPM:17:POSITION:X", "SR:DIAG:BPM:17:POSITION:Y"]
     times = HOUR[:5]
     state = tmp_path / "state"
-    _activate(state, "bpm-polarity")
+    activate(state, "bpm-polarity")
     now = [float(times[0])]
     served = Composite(demo_view, state_dir=state, clock=lambda: now[0])
 
@@ -408,14 +392,6 @@ def test_a_real_readout_fault_archives_the_monitor_the_composite_serves(
     assert served.status("SR") == "ok"
     for plane in planes:
         assert archived[plane] == [read[plane] for read in reads]
-
-
-def _activate(state: Path, *names: str) -> None:
-    state.mkdir(parents=True, exist_ok=True)
-    target = state / "active_scenarios"
-    before = target.stat().st_mtime_ns if target.exists() else 0
-    target.write_text("\n".join(names or ("nominal",)) + "\n", encoding="utf-8")
-    os.utime(target, ns=(before + 1_000_000_000, before + 1_000_000_000))
 
 
 # -- what the served composite reads -------------------------------------------

@@ -33,9 +33,7 @@ from osprey.services.auth_sidecar.sessions import (
     SessionState,
     UnlockedUser,
 )
-
-SESSION_SECRET = "session-secret-value"
-SESSION_LIFETIME = 3600
+from tests.services.auth_sidecar._helpers import SESSION_LIFETIME, SESSION_SECRET
 
 ALICE_HASH = hash_password("alice-password")
 BOB_HASH = hash_password("bob-password")
@@ -266,12 +264,12 @@ class TestRevocation:
     def test_the_surrendered_cookie_stays_refused_by_a_restarted_service(
         self, tmp_path: Path
     ) -> None:
-        """A new app on the same audit directory is what a recreated container
+        """A new app on the same state directory is what a recreated container
         is; the control on an empty directory shows the refusal came from the
         file and not from anything else the cookie carries."""
         zone = tmp_path / "zone"
         zone.mkdir()
-        env = {**PASSWORD_ENV, "OSPREY_AUTH_AUDIT_DIR": str(zone)}
+        env = {**PASSWORD_ENV, "OSPREY_STATE_DIR": str(zone)}
         cookie = _mint(_unlocked("alice"))
         with TestClient(_app(env)) as client:
             _logout(client, "alice", cookie)
@@ -281,7 +279,7 @@ class TestRevocation:
 
         elsewhere = tmp_path / "elsewhere"
         elsewhere.mkdir()
-        control_env = {**PASSWORD_ENV, "OSPREY_AUTH_AUDIT_DIR": str(elsewhere)}
+        control_env = {**PASSWORD_ENV, "OSPREY_STATE_DIR": str(elsewhere)}
         with TestClient(_app(control_env)) as control:
             assert _verify(control, "alice", cookie) == 200
 

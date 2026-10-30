@@ -11,10 +11,21 @@ is deleted.
 (Images are scoped differently, and the boundary below says how.)
 
 **What survives is kept deliberately, and the printed plan says so out loud.**
-``var/audit/`` — the safety audit log, the record of what the agent was asked to
-do and what it did — survives a reset, because the reason to keep an audit trail
-is strongest exactly when someone is wiping the thing it describes.
-``--purge-audit`` destroys it under the same typed gate. And ``.env`` keeps
+``var/audit/`` — the audit files a deployment wrote before the agent record —
+survives a reset, because the reason to keep an audit trail is strongest exactly
+when someone is wiping the thing it describes. The agent
+record survives on the same principle, on either backend: ``var/agent_record/``
+and the spool feeding it, ``var/spool/``, and the record store's data volume
+(:data:`~osprey.deployment.compose_generator.AGENT_RECORD_CLICKHOUSE_VOLUME`)
+when the record lives in ClickHouse, and ``var/archive/`` (the archive, where
+the record exports each closed day beside the artifact and Bluesky copies).
+``--purge-audit`` destroys ``var/audit/``, the record on either backend, the
+spool and the record's exports in the archive (``var/archive/<day>/agent_record/``),
+under the same typed gate, and appends an ``agent_record_purged`` line to each
+of those days' manifests so the archive's own account says the day is no longer
+held. Nothing more: ``var/state/`` (each identity's locks, leases and markers)
+and the rest of ``var/archive/`` — the artifact and Bluesky copies and the
+manifests themselves — survive every reset, plain or purging. And ``.env`` keeps
 every value that was not minted by a deploy: the provider keys an operator
 supplied are theirs, not this deployment's, and a reset that silently took them
 would make a re-deploy impossible for reasons the operator could not see. The
@@ -23,6 +34,16 @@ principle — they are write-once, so what is in them is what an operator or one
 earlier deploy put there — and they are disclosed for the opposite reason: a
 reset that quietly left every account able to log in is as much a surprise as
 one that quietly locked them all out.
+
+**A reset refuses while the host-local record runs.** When no stack is up, a
+host ``osprey web``, ``chat`` or ``query`` runs the agent record as a local
+process that holds ``var/agent_record/`` open, and each session holding it
+keeps a lease under ``var/state/<host identity>/``. Wiping the files under a
+process that owns them, or stopping it under sessions still writing to it,
+loses exactly the data a reset promises to keep, so the plan refuses
+(:class:`HostRecordRunningError`) and names each session holding a lease. It
+refuses before anything is listed or removed, on ``--dry-run`` and on
+``init --reset`` alike, and once more just before the removals begin.
 
 SCOPING BOUNDARY — the safety core of this module
 =================================================
@@ -102,6 +123,7 @@ from enum import Enum
 from pathlib import Path
 
 from osprey.deployment.compose_generator import (
+    AGENT_RECORD_CLICKHOUSE_VOLUME,
     COMPOSE_ENV_FILENAME,
     REPO_ID_LABEL,
     repo_identity,
@@ -142,9 +164,16 @@ from osprey.deployment.web_terminals.env_production import (
     USERS_ENV_FILENAME,
 )
 from osprey.deployment.web_terminals.lifecycle import confirm_destroy
+from osprey.utils.workspace import (
+    ARCHIVE_DIR_RELPATH,
+    PRE_UPGRADE_AUDIT_RELPATH,
+    RECORD_DIR_RELPATH,
+    SPOOL_DIR_RELPATH,
+    STATE_DIR_NAME,
+    STATE_DIR_RELPATH,
+)
 from osprey_connectors.dotenv import parse_dotenv_text
 from osprey_connectors.logger import get_logger
-from osprey_connectors.workspace import STATE_DIR_NAME
 
 logger = get_logger("deployment.reset")
 
@@ -529,6 +558,9 @@ class ResetPlan:
     project_name_source: str
     containers: list[Resource] = field(default_factory=list)
     volumes: list[Resource] = field(default_factory=list)
+    #: Volumes of this project a plain reset keeps on purpose — the record
+    #: store's data volume. Disclosed under WILL BE KEPT, never removed.
+    kept_volumes: list[Resource] = field(default_factory=list)
     images: list[Resource] = field(default_factory=list)
     unidentified: list[Resource] = field(default_factory=list)
     paths: list[Path] = field(default_factory=list)
@@ -542,16 +574,37 @@ class ResetPlan:
     env_blocks: list[EnvBlock] = field(default_factory=list)
     env_kept_keys: tuple[str, ...] = ()
     purge_audit: bool = False
+    #: Archive days whose record export ``--purge-audit`` removes, oldest first:
+    #: each has a ``<day>/agent_record/`` directory or an export mark in the
+    #: archive's manifests. Empty on a plain reset.
+    archive_record_days: tuple[str, ...] = ()
+
+    @property
+    def archive_dir(self) -> Path:
+        """The archive root — kept by every reset but for the record's exports."""
+        return self.repo_root / ARCHIVE_DIR_RELPATH
 
     @property
     def audit_dir(self) -> Path:
-        """The safety audit log — kept unless ``--purge-audit`` was passed."""
-        return self.repo_root / STATE_DIR_NAME / "audit"
+        """The pre-upgrade audit files — kept unless ``--purge-audit`` was passed."""
+        return self.repo_root / PRE_UPGRADE_AUDIT_RELPATH
+
+    @property
+    def record_dirs(self) -> tuple[Path, Path]:
+        """The agent record and its spool — kept unless ``--purge-audit`` was passed."""
+        return (self.repo_root / RECORD_DIR_RELPATH, self.repo_root / SPOOL_DIR_RELPATH)
 
     @property
     def removes_anything(self) -> bool:
         """Whether this plan would change anything at all."""
-        return bool(self.containers or self.volumes or self.images or self.paths or self.env_blocks)
+        return bool(
+            self.containers
+            or self.volumes
+            or self.images
+            or self.paths
+            or self.archive_record_days
+            or self.env_blocks
+        )
 
     def confirmation_summary(self) -> str:
         """What the prompt says is about to be destroyed, counted from the plan.
@@ -571,6 +624,8 @@ class ResetPlan:
             if count:
                 parts.append(f"{count} {noun}{'' if count == 1 else 's'}")
         parts.extend(_relative_to(path, self.repo_root) for path in self.paths)
+        if days := len(self.archive_record_days):
+            parts.append(f"the record's archive of {days} day{'' if days == 1 else 's'}")
         for count, noun in self._env_counts():
             parts.append(f"{count} {noun}{'' if count == 1 else 's'} in {COMPOSE_ENV_FILENAME}")
         return ", ".join(parts) if parts else "nothing"
@@ -602,18 +657,32 @@ class ResetPlan:
         ]
 
         lines.append(f"  containers ({len(self.containers)})")
-        for resource in self.containers:
-            lines.append(f"    {resource.name}")
+        lines.extend(f"    {resource.name}" for resource in self.containers)
         lines.append(f"  volumes ({len(self.volumes)}) — the data in them is not recoverable")
-        for resource in self.volumes:
-            lines.append(f"    {resource.name}")
+        lines.extend(f"    {resource.name}" for resource in self.volumes)
         lines.append(f"  images ({len(self.images)}) — rebuilt by the next `osprey up`")
-        for resource in self.images:
-            lines.append(f"    {resource.name}  ({OSPREY_PROJECT_LABEL}={self.project} verified)")
+        lines.extend(
+            f"    {resource.name}  ({OSPREY_PROJECT_LABEL}={self.project} verified)"
+            for resource in self.images
+        )
 
         lines.append("  files")
-        for path in self.paths:
-            lines.append(f"    {_relative_to(path, self.repo_root)}{self._path_note(path)}")
+        lines.extend(
+            f"    {_relative_to(path, self.repo_root)}{self._path_note(path)}"
+            for path in self.paths
+        )
+        if self.archive_record_days:
+            first, last = self.archive_record_days[0], self.archive_record_days[-1]
+            span = first if first == last else f"{first} to {last}"
+            count = len(self.archive_record_days)
+            lines.append(
+                f"    {ARCHIVE_DIR_RELPATH}/*/agent_record/  the agent record's archive of "
+                f"{count} day{'' if count == 1 else 's'} ({span}) — not recoverable"
+            )
+            lines.append(
+                "      Each of those days' MANIFEST.jsonl gets an agent_record_purged line; "
+                "the rest of the archive is kept."
+            )
         for block in self.env_blocks:
             keys = ", ".join(block.keys)
             lines.append(f"    {COMPOSE_ENV_FILENAME}  minted block '{block.banner}' — {keys}")
@@ -648,15 +717,29 @@ class ResetPlan:
         kept = []
         if self.purge_audit:
             kept.append(
-                f"    (nothing under {STATE_DIR_NAME}/ — --purge-audit was passed, so the "
-                "audit log is in the removal list above)"
+                "    (--purge-audit was passed, so the audit log, the agent record and its "
+                "archive are in the removal list above)"
             )
         else:
             kept.append(
-                f"    {STATE_DIR_NAME}/audit/  the safety audit log — what the agent was "
-                "asked to do and what it did."
+                f"    {PRE_UPGRADE_AUDIT_RELPATH}/  the audit files written before the "
+                "agent record."
             )
-            kept.append("      `osprey reset --purge-audit` destroys this too, under this gate.")
+            record, spool = self.record_dirs
+            if record.exists():
+                kept.append(
+                    f"    {RECORD_DIR_RELPATH}/  the agent record, as the embedded backend keeps it."
+                )
+            if spool.exists():
+                kept.append(
+                    f"    {SPOOL_DIR_RELPATH}/  entries the sources appended that the record has "
+                    "not ingested yet."
+                )
+            kept.extend(
+                f"    volume {resource.name}  the agent record's ClickHouse store."
+                for resource in self.kept_volumes
+            )
+            kept.append("      `osprey reset --purge-audit` destroys these too, under this gate.")
         env_note = f"{len(self.env_kept_keys)} entr{'y' if len(self.env_kept_keys) == 1 else 'ies'}"
         kept.append(
             f"    {COMPOSE_ENV_FILENAME}  everything that was not minted by a deploy, "
@@ -673,18 +756,43 @@ class ResetPlan:
                     "reset leaves it exactly as it is."
                 )
                 kept.append(f"      {refresh}")
-        # Read from the directory, not from a config: a file whose account left
-        # the config long ago is still a secret sitting at the repo root.
-        from osprey.deployment.telemetry_credentials import existing_credential_files
+        from osprey.agent_record.credentials import (
+            existing_credential_files as existing_record_files,
+        )
 
-        telemetry_files = existing_credential_files(self.repo_root)
-        for filename, holds in telemetry_files:
+        record_files = existing_record_files(self.repo_root)
+        for filename, holds in record_files:
             kept.append(f"    {filename}  {holds}.")
-        if telemetry_files:
+        if record_files:
             kept.append(
-                "      Each is written once and never rewritten. Delete one and the next "
-                "`osprey up` creates it again with a new secret."
+                "      Logins and keys are written once and never rewritten; the service file "
+                "is rebuilt from them on every `osprey build` and `osprey up`. Delete a login "
+                "and the next `osprey up` creates it again with a new secret."
             )
+        # Kept by every reset, --purge-audit included: what a session leases
+        # and locks is live state, not this deployment's data to discard. The
+        # archive is kept whole by a plain reset; a purge takes only the
+        # record's exports out of it and leaves its manifests to say so.
+        if (self.repo_root / STATE_DIR_RELPATH).is_dir():
+            kept.append(
+                f"    {STATE_DIR_RELPATH}/  each identity's locks, leases and markers, "
+                "--purge-audit or not."
+            )
+        if self.archive_dir.is_dir():
+            if self.purge_audit:
+                kept.append(
+                    f"    {ARCHIVE_DIR_RELPATH}/  the artifact and Bluesky copies and every "
+                    "manifest — all of the archive but the record's exports."
+                )
+            else:
+                kept.append(
+                    f"    {ARCHIVE_DIR_RELPATH}/  the archive: the agent record's daily "
+                    "exports, with the artifact and Bluesky copies beside them."
+                )
+                kept.append(
+                    "      `osprey reset --purge-audit` removes the record's exports "
+                    "(<day>/agent_record/) and keeps the rest."
+                )
         kept.append(
             f"    {STATE_DIR_NAME}/  everything outside the entries listed above, including "
             "any --archive tarballs."
@@ -732,7 +840,12 @@ class ResetPlan:
                 "`osprey users passwd` are lost"
             )
         if path == self.audit_dir:
-            return "  the safety audit log — not recoverable"
+            return "  the pre-upgrade audit files — not recoverable"
+        record, spool = self.record_dirs
+        if path == record:
+            return "  the agent record — not recoverable"
+        if path == spool:
+            return "  entries the sources appended that the record has not ingested yet"
         return ""
 
     def _external_path_lines(self) -> list[str]:
@@ -769,8 +882,9 @@ class ResetPlan:
                 "it is left entirely alone."
             )
 
-        for path in outside:
-            lines.append(f"    {path}  the agent-data root, which is OUTSIDE this repo")
+        lines.extend(
+            f"    {path}  the agent-data root, which is OUTSIDE this repo" for path in outside
+        )
         if outside:
             lines.append(
                 "      agent_data.base_dir puts it there. Reset removes directories outright, "
@@ -787,12 +901,11 @@ class ResetPlan:
         return lines
 
     def _unidentified_lines(self) -> list[str]:
-        lines = []
-        for resource in self.unidentified:
-            lines.append(
-                f"    {resource.kind} {resource.name}  carries no {REPO_ID_LABEL} label, so it "
-                "cannot be proved to be this repo's"
-            )
+        lines = [
+            f"    {resource.kind} {resource.name}  carries no {REPO_ID_LABEL} label, so it "
+            "cannot be proved to be this repo's"
+            for resource in self.unidentified
+        ]
         if self.unidentified:
             lines.append(
                 "      Containers are labelled when they are CREATED, so one started before "
@@ -811,6 +924,97 @@ def _relative_to(path: Path, repo_root: Path) -> str:
         return f"{path.relative_to(repo_root)}/"
     except ValueError:
         return str(path)
+
+
+# ---------------------------------------------------------------------------
+# The host-local record
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RecordHolder:
+    """A host session holding the host-local record: its pid and its command line."""
+
+    pid: int
+    command: str
+
+
+class HostRecordRunningError(RuntimeError):
+    """The host-local agent record is running — nothing was touched.
+
+    ``str(e)`` is the whole refusal: a headline, the sessions holding the
+    record one per line, and what to do. :attr:`holders` names those sessions
+    for a caller that renders the parts itself.
+    """
+
+    SUMMARY = "Reset refused: the host-local agent record is running"
+    REMEDY = (
+        "end those sessions (exit `osprey chat`, run `osprey web stop`), then run the reset again"
+    )
+
+    def __init__(self, holders: Sequence[RecordHolder], process_pid: int | None) -> None:
+        self.holders = tuple(holders)
+        self.process_pid = process_pid
+        super().__init__("\n".join([self.SUMMARY, self.cause, self.REMEDY]))
+
+    @property
+    def cause(self) -> str:
+        """Why: which sessions hold the record, or the process that runs it unheld."""
+        if self.holders:
+            lines = ["These sessions are using it:"]
+            lines.extend(f"  pid {h.pid}  {h.command}" for h in self.holders)
+        else:
+            lines = [
+                f"Its process (pid {self.process_pid}) is still running, though no session "
+                "holds it; it stops on its own once it is idle."
+            ]
+        lines.append("Nothing was stopped, removed, or written.")
+        return "\n".join(lines)
+
+
+def _command_of(pid: int) -> str:
+    """The command line of live process *pid*, or a placeholder when ``ps`` cannot say."""
+    try:
+        out = subprocess.run(
+            ["ps", "-o", "command=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        out = ""
+    return out or "(command unknown)"
+
+
+def running_host_record_refusal(repo_root: Path) -> HostRecordRunningError | None:
+    """The refusal a reset of *repo_root* owes while a host-local record runs, else ``None``.
+
+    Read from the directory rather than from the build: every identity's state
+    directory under ``var/state/`` is checked for live leases and for a live
+    record process, so a repo whose build is gone or unreadable is judged the
+    same as one with a build. Read-only.
+    """
+    from osprey.agent_record import host
+
+    state_root = Path(repo_root) / STATE_DIR_RELPATH
+    try:
+        state_dirs = sorted(p for p in state_root.iterdir() if p.is_dir())
+    except OSError:
+        return None
+    holders: list[RecordHolder] = []
+    process_pid: int | None = None
+    for state_dir in state_dirs:
+        holders.extend(
+            RecordHolder(lease.pid, _command_of(lease.pid))
+            for lease in host.live_leases(state_dir / host.LEASE_DIR_NAME)
+        )
+        running = host.running_record_pid(state_dir)
+        if running is not None and process_pid is None:
+            process_pid = running
+    if not holders and process_pid is None:
+        return None
+    return HostRecordRunningError(holders, process_pid)
 
 
 # ---------------------------------------------------------------------------
@@ -1161,14 +1365,21 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
     Args:
         repo_root: The deployment repo.
         probe: The runtime seam. Its listings are label-filtered reads.
-        purge_audit: Extend the wipe to ``var/audit`` (same typed gate).
+        purge_audit: Extend the wipe to ``var/audit``, the agent record
+            (``var/agent_record``, ``var/spool``), the record store's data
+            volume and the record's exports in the archive
+            (``var/archive/<day>/agent_record``), under the same typed gate.
 
     Returns:
         The plan, ready to render and to execute.
 
     Raises:
+        HostRecordRunningError: When a host session holds the host-local
+            agent record, or its process still runs.
         ForeignCheckoutError: When a container carrying this project's name
             carries a different checkout's identity.
+        OSError: When ``--purge-audit`` is planned and an archive manifest
+            exists but cannot be read.
     """
     # Resolved once, here, so every path this plan holds is comparable to every
     # other. `resolve_agent_data_target` resolves its answer in order to judge
@@ -1177,6 +1388,10 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
     # symlinked path (macOS /var -> /private/var) it would print an absolute
     # path where it means "inside your repo".
     repo_root = Path(repo_root).resolve()
+    # First, before the runtime is asked anything: the refusal does not depend
+    # on what the runtime holds, and a dry run must refuse exactly as a real one.
+    if (refusal := running_host_record_refusal(repo_root)) is not None:
+        raise refusal
     config = load_as_built_config(repo_root)
     project, source = resolve_reset_project_name(repo_root, config)
     identity = repo_identity(repo_root)
@@ -1188,7 +1403,12 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
         )
     # Volumes belong to the project by name (see the module docstring), so with
     # no other copy's container holding the name, every one of them is ours.
+    # The record store's data volume is kept with the rest of the record unless
+    # --purge-audit was passed.
     volumes = probe.volumes_for_project(project)
+    record_volume = f"{project}_{AGENT_RECORD_CLICKHOUSE_VOLUME}"
+    kept_volumes = [] if purge_audit else [v for v in volumes if v.name == record_volume]
+    volumes = [v for v in volumes if v.name not in {k.name for k in kept_volumes}]
 
     images = [
         image
@@ -1213,7 +1433,13 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
     if contained:
         paths.insert(0, agent_data)
     if purge_audit:
-        paths.append(repo_root / STATE_DIR_NAME / "audit")
+        paths.extend(
+            [
+                repo_root / PRE_UPGRADE_AUDIT_RELPATH,
+                repo_root / RECORD_DIR_RELPATH,
+                repo_root / SPOOL_DIR_RELPATH,
+            ]
+        )
     paths = [path for path in paths if path.exists()]
 
     # An agent-data root outside the repo is reported and never removed. It is
@@ -1230,6 +1456,7 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
         project_name_source=source,
         containers=containers.ours,
         volumes=volumes,
+        kept_volumes=kept_volumes,
         images=images,
         unidentified=containers.unidentified,
         paths=paths,
@@ -1238,7 +1465,34 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
         env_blocks=env_blocks,
         env_kept_keys=env_kept,
         purge_audit=purge_audit,
+        archive_record_days=(
+            record_archive_days(repo_root / ARCHIVE_DIR_RELPATH) if purge_audit else ()
+        ),
     )
+
+
+def record_archive_days(archive_root: Path) -> tuple[str, ...]:
+    """The archive days holding the record's export, or marked as exported, oldest first.
+
+    A day counts when its directory holds ``agent_record/`` or when the folded
+    manifests still mark it exported — an empty day is marked with no file, and
+    a purge must clear that mark too. Read-only; an absent archive holds none.
+
+    Raises:
+        OSError: If a manifest exists but cannot be read.
+    """
+    from osprey.agent_record.archive import EXPORT_SUBDIR
+    from osprey.services.archive.manifest import day_dirs, load_state
+
+    if not archive_root.is_dir():
+        return ()
+    days = {
+        day.name
+        for day in day_dirs(archive_root)
+        if (day / EXPORT_SUBDIR).is_dir() or (day / EXPORT_SUBDIR).is_symlink()
+    }
+    days |= load_state(archive_root).agent_record_days
+    return tuple(sorted(days))
 
 
 # ---------------------------------------------------------------------------
@@ -1268,16 +1522,23 @@ def execute_reset(plan: ResetPlan, *, probe: RuntimeProbe) -> None:
     2. containers, then volumes, then images — dependents before dependencies,
        which is the only order the runtime will accept.
     3. the filesystem: ``var/agent_data``, ``build/`` and the merged compose
-       document (and ``var/audit`` under ``--purge-audit``), each removed and —
+       document (and ``var/audit``, ``var/agent_record`` and ``var/spool`` under
+       ``--purge-audit``), each removed and —
        for the state directories — left behind empty, so the repo has the shape
-       a fresh ``osprey init`` gives it.
+       a fresh ``osprey init`` gives it. Under ``--purge-audit`` the record's
+       export of each planned archive day goes next, under the archive lock,
+       and that day's manifest gets an ``agent_record_purged`` line.
     4. ``.env`` last. It is the one file here that is edited rather than deleted,
        and doing it last means a failure anywhere above leaves the deployment's
        secrets exactly as they were.
 
     Raises:
+        HostRecordRunningError: When a host session took the host-local record
+            between the plan and now. Nothing has been removed.
         RuntimeError: When the ``down`` fails. Nothing has been removed.
     """
+    if (refusal := running_host_record_refusal(plan.repo_root)) is not None:
+        raise refusal
     down_deployment(plan.repo_root)
 
     for resource in plan.containers:
@@ -1298,10 +1559,44 @@ def execute_reset(plan: ResetPlan, *, probe: RuntimeProbe) -> None:
     }
     for path in plan.paths:
         _wipe_directory(path, recreate=path not in derived)
+    if plan.archive_record_days:
+        _purge_record_archive(plan.archive_dir, plan.archive_record_days)
 
     if plan.env_blocks:
         planned_keys = {key for block in plan.env_blocks for key in block.keys}
         _strip_env_file(plan.repo_root / COMPOSE_ENV_FILENAME, planned_keys)
+
+
+def _purge_record_archive(archive_root: Path, days: Sequence[str]) -> None:
+    """Remove the record's export of each of *days* and mark the day purged.
+
+    Written through the archive service's tree, so the one archive lock is held
+    for the whole purge and the mark is appended with the archive's own mode
+    and owner. The export goes first and the mark follows it: the mark records
+    what was done. Everything else in a day's directory is left as it was.
+
+    Raises:
+        osprey.services.archive.run.ArchiveDestinationError: If the archive
+            root cannot be written.
+        OSError: If an export cannot be removed or a manifest appended to.
+    """
+    from datetime import UTC, datetime
+
+    from osprey.agent_record.archive import EXPORT_SUBDIR
+    from osprey.services.archive.manifest import AGENT_RECORD_PURGED
+    from osprey.services.archive.run import ArchiveTree
+
+    tree = ArchiveTree(archive_root, datetime.now(UTC))
+    try:
+        for day in days:
+            export = archive_root / day / EXPORT_SUBDIR
+            if export.is_symlink() or export.is_file():
+                export.unlink()
+            elif export.is_dir():
+                shutil.rmtree(export)
+            tree.append({"kind": AGENT_RECORD_PURGED, "day": day}, day=day)
+    finally:
+        tree.close()
 
 
 def _wipe_directory(path: Path, *, recreate: bool) -> None:
@@ -1375,7 +1670,10 @@ def reset_deployment(
         repo_root: The deployment repo.
         dry_run: Print the plan and stop. Nothing is confirmed and nothing runs.
         assume_yes: Skip the typed confirmation — the scripted path.
-        purge_audit: Destroy ``var/audit`` too, under the same gate.
+        purge_audit: Destroy ``var/audit`` and the agent record (its
+            directories, its store's data volume and its exports in
+            ``var/archive``) too, under the same gate, marking each purged
+            archive day in its manifest. The rest of ``var/archive`` is kept.
         emit: Where the plan is written. The CLI passes its own printer.
             Required rather than defaulted, so no caller can fall through to a
             raw write that lands inside a mounted live region.
@@ -1388,6 +1686,8 @@ def reset_deployment(
         non-zero endings.
 
     Raises:
+        HostRecordRunningError: A host session holds the host-local agent
+            record. Nothing is removed.
         ForeignCheckoutError: Same-name resources belong to another checkout.
         RuntimeError: The container runtime is unreachable, or the ``down``
             failed. Nothing is removed on either path.
@@ -1473,6 +1773,8 @@ def reset_for_reinit(repo_root: Path | str, *, probe: RuntimeProbe | None = None
         ``NOTHING_TO_DO``, ``COMPLETED``, or ``COMPLETED_WITH_FAILURES``.
 
     Raises:
+        HostRecordRunningError: A host session holds the host-local agent
+            record. Nothing is removed.
         ForeignCheckoutError: Same-name resources belong to another checkout.
         RuntimeError: The container runtime is unreachable, or the ``down``
             failed. Nothing is removed on either path.
@@ -1532,7 +1834,7 @@ def _condensed_outcome_lines(plan: ResetPlan) -> list[str]:
     if stripped:
         lines.append(f"stripped {stripped} from {COMPOSE_ENV_FILENAME}")
     lines.append(
-        f"kept the audit log, {COMPOSE_ENV_FILENAME} provider keys "
+        f"kept the audit log, the agent record, {COMPOSE_ENV_FILENAME} provider keys "
         f"({len(plan.env_kept_keys)} entr{'y' if len(plan.env_kept_keys) == 1 else 'ies'}) "
         "and the files you edit"
     )

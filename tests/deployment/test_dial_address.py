@@ -57,8 +57,8 @@ def test_probe_host_is_the_same_rule() -> None:
 def test_no_wildcard_survives_into_a_dialed_url(bind: str, loopback: str) -> None:
     """Parity: every URL built for a wildcard bind names a loopback address."""
     config = {
-        "deployed_services": ["telemetry_store"],
-        "services": {"telemetry_store": {"port": 18123}},
+        "deployed_services": ["mongodb"],
+        "services": {"mongodb": {"port_host": 18123}},
         "deployment": {"bind_address": bind},
     }
     urls = [

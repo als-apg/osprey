@@ -19,8 +19,8 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
+from tests.cli._lifecycle_build import invoke_build
 
 #: A preset whose `rules:` selection includes the facility rule. hello-world
 #: deliberately leaves it out, and a deployment that does not select the rule
@@ -34,7 +34,7 @@ def _init(repo: Path) -> None:
 
 
 def _build(repo: Path) -> None:
-    result = CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    result = invoke_build(repo)
     assert result.exit_code == 0, result.output
 
 
@@ -81,20 +81,42 @@ def test_a_build_only_rule_is_migrated_into_the_source_zone(tmp_path):
     """A repo from before the move keeps the text it only had in ``build/``.
 
     The deployment repos that exist today have no ``rules/`` directory and an
-    edited ``build/.claude/rules/facility.md``. The next build has to rescue
-    that file rather than render over it.
+    edited ``build/.claude/rules/facility.md``. ``osprey init --revalidate`` has
+    to rescue that file rather than let the next build render over it.
     """
     repo = tmp_path / "deployment"
     _init(repo)
     _build(repo)
 
-    # The shape of a repo built before the rule moved: no source-zone copy, and
-    # the operator's own text in the disposable zone.
+    # The shape of a repo built before the rule moved: no source-zone copy, the
+    # library rule selected by its bare name, and the operator's own text in the
+    # disposable zone.
     _source_rule(repo).unlink()
+    profile = repo / "profile.yml"
+    profile.write_text(
+        profile.read_text(encoding="utf-8").replace("  - rules/facility ", "  - facility "),
+        encoding="utf-8",
+    )
     custom = "# Legacy Facility\n\nEdited in build/ years ago.\n"
     _built_rule(repo).write_text(custom, encoding="utf-8")
 
+    # `osprey init --revalidate` moves it into the profile and names it by its
+    # path; the build carries it from there.
+    revalidated = CliRunner().invoke(init, [str(repo), "--revalidate"])
+    assert revalidated.exit_code == 0, revalidated.output
+    assert "  - rules/facility" in profile.read_text(encoding="utf-8")
     _build(repo)
 
     assert _source_rule(repo).read_text(encoding="utf-8") == custom
     assert _built_rule(repo).read_text(encoding="utf-8") == custom
+
+
+def test_the_seeder_reads_nothing_from_a_render():
+    """Only ``osprey init`` seeds the description, and there is no render yet; a
+    copy left in ``build/`` by an older repo is ``osprey init --revalidate``'s to
+    rescue, so the seeder takes no render to read."""
+    import inspect
+
+    from osprey.cli.build_persistence import ensure_profile_facility_rule
+
+    assert "build_dir" not in inspect.signature(ensure_profile_facility_rule).parameters

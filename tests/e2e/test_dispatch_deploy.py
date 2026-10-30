@@ -43,10 +43,10 @@ deployment's own trigger set and narrow the firing user on the host tree:
                          in ``OSPREY_CONTROL_OWNER``.
   O2 the owner's chip:   that job's first control-system write is refused,
                          because its owner is narrowed to read-only.
-  O3 the cron door:      the same two probes fired at the webhook carry no owner
-                         and are held to the deployment ceiling — the control
-                         without which O1 and O2 pass on a wire that stamps
-                         everyone.
+  O3 the cron door:      the same two probes fired at the webhook carry no owner,
+                         and the write probe is refused as ``owner_unscheduled``
+                         — the control without which O1 and O2 pass on a wire
+                         that stamps everyone.
   O4 the gate:           an uncredentialed call to ``/panel/events/mcp`` is
                          refused at the terminal and never reaches the dispatcher.
 
@@ -94,7 +94,6 @@ import os
 import shutil
 import stat
 import subprocess
-import sys
 import time
 import urllib.error
 import urllib.request
@@ -117,17 +116,25 @@ from osprey.deployment.web_terminals.roster import dispatch_tier_name
 from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
 from osprey_connectors.control_context import RECORD_FILENAME, ControlContext, write_record
 from osprey_connectors.posture_store import POSTURE_SANDBOX
+from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.types import (
     CONTROL_TARGETS,
     TARGET_LIVE,
     TARGET_STANDIN,
     TARGET_VA,
-    target_writes_enabled,
+    tier_allows,
 )
 from tests.e2e import _orm_stack, _queue_drive
+from tests.e2e._deploy_support import (
+    find_osprey_console_script,
+    format_failure,
+    run_command,
+    wait_for_health,
+)
 from tests.e2e._mcp_sse import any_answer_succeeded, sse_payloads, tool_result
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
+from tests.e2e.sdk_helpers import switch_on_in_record
 
 #: This deploy's own thousand-port block, chosen so the whole stack — the
 #: dispatcher, nginx and every panel family — coexists with a live
@@ -166,7 +173,7 @@ DISPATCHER_CONTAINER = f"{PROJECT_NAME}-event-dispatcher"
 WORKER_CONTAINER = f"{PROJECT_NAME}-dispatch-worker-1"
 #: The tier this lane runs the dispatch workers at (``dispatch.tier``). The
 #: preset ships ``readonly``, under which a worker has no write or queue tool
-#: to call; the owner rows prove narrowing, the ceiling and plan enqueue, so
+#: to call; the owner rows prove narrowing, the owner-less refusal and plan enqueue, so
 #: their worker is one that may write. A tiered worker runs that tier's image,
 #: whose project is rooted at ``/app/<project_name>-<tier>``; the build is held
 #: to it before the deploy.
@@ -286,6 +293,36 @@ _DEMO_PAYLOAD = {
 #: fired jobs' writes are judged against.
 FIRING_USER = READWRITE_USER
 
+
+# The preset's multi-user web tier deploys as shipped; only its host-global
+# identifiers are remapped to e2e-unique values (see COEXISTENCE in the module
+# docstring): the one port base every published port of the stack derives
+# from. A dotted LEAF key on purpose -- an edit states only its own leaf and
+# leaves its subtree's siblings intact (same convention as
+# tests/e2e/_orm_stack.py). The render catalog's own `project` /
+# `project_path` are deliberately NOT stated: `osprey init` writes them from
+# the repo's name, and the build renders each render exactly there.
+# Module-level so tests/cli/test_e2e_preset_login_tiers.py renders exactly
+# this set-list.
+#: ``osprey init <repo>`` arguments this module's stack is built from.
+INIT_PRESET_ARGS = [
+    "--preset",
+    "control-assistant",
+    "--no-git",
+    *set_pairs({"config": {PORT_BASE_CONFIG_KEY: PORT_BASE}}),
+    "--set",
+    "provider=als-apg",
+    "--set",
+    "model=claude-haiku-5-5",
+    # The Channel Access port PORT_BASE cannot move (see VA_CA_PORT).
+    "--set",
+    f"virtual_accelerator.port={VA_CA_PORT}",
+    "--set",
+    f"virtual_accelerator.pva_port={_orm_stack.VA_PVA_PORT}",
+    "--set",
+    f"dispatch.tier={WORKER_TIER}",
+]
+
 #: The ``.mcp.json`` key of the dispatcher wire — the framework server entry a
 #: render's render carries exactly when that render selects the EVENTS panel.
 DISPATCHER_MCP_SERVER = "event_dispatcher"
@@ -336,12 +373,14 @@ LIMITS_REFUSAL = "CHANNEL LIMITS VIOLATION"
 #: name — a run that failed to print anything must not read as "no owner".
 NO_OWNER_MARKER = "<none>"
 
-#: The closing clause of each store arm of the connector's refusal
-#: (``_writes_disabled_result``). The unavailable arm's prose CONTAINS the word
-#: "narrowing" ("This is not a narrowing anybody set"), so the arms are told
-#: apart by the clause each one CLOSES on and never by the bare word.
-NARROWING_CLAUSE = "The store answered narrowing."
-UNAVAILABLE_CLAUSE = "the store answered control_context_unavailable."
+#: The refusal phrases a judged write can come back with: the owner's switch is
+#: off for the machine (a record narrowed to read-only reads as off), the owner's
+#: record cannot be read, and a run that belongs to no login. Each is the
+#: refusals contract's phrase without its machine-kind suffix, so a row matches
+#: whichever kind the deployment's machine is.
+SWITCH_OFF_REFUSAL = refusal_phrase("switch_off")
+UNAVAILABLE_REFUSAL = refusal_phrase("record_unavailable")
+OWNER_UNSCHEDULED_REFUSAL = refusal_phrase("owner_unscheduled")
 
 pytestmark = [
     pytest.mark.e2e,
@@ -350,27 +389,6 @@ pytestmark = [
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),
     pytest.mark.flaky(reruns=1),
 ]
-
-
-def _find_osprey_console_script() -> Path:
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError("Could not locate the 'osprey' console script.")
-
-
-def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        cmd,
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env={**os.environ, "CLAUDECODE": ""},
-    )
 
 
 #: The two probe actions, each declared under one panel-fired and one
@@ -552,72 +570,32 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     if not os.environ.get("ALS_APG_API_KEY"):
         pytest.skip("ALS_APG_API_KEY not set")
 
-    osprey_bin = _find_osprey_console_script()
+    osprey_bin = find_osprey_console_script()
     base = tmp_path_factory.mktemp("dispatch_deploy_build")
     repo = base / PROJECT_NAME
-
-    # The preset's multi-user web tier deploys as shipped; only its
-    # host-global identifiers are remapped to e2e-unique values (see
-    # COEXISTENCE in the module docstring): the one port base every published
-    # port of the stack derives from. A dotted LEAF key on purpose -- an edit
-    # states only its own leaf and leaves its
-    # subtree's siblings intact (same convention as tests/e2e/_orm_stack.py).
-    # The render catalog's own `project` / `project_path` are deliberately
-    # NOT stated: `osprey init` writes them from the repo's name, and the
-    # build renders each render exactly there.
-    edits = {
-        "config": {
-            PORT_BASE_CONFIG_KEY: PORT_BASE,
-        }
-    }
 
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset, `build` renders build/ from it — including one
     # render project per ``tiers/`` file.
-    init = _run(
-        [
-            str(osprey_bin),
-            "init",
-            str(repo),
-            "--preset",
-            "control-assistant",
-            "--no-git",
-            *set_pairs(edits),
-            "--set",
-            "provider=als-apg",
-            "--set",
-            "model=claude-haiku-5-5",
-            # The Channel Access port PORT_BASE cannot move (see VA_CA_PORT).
-            "--set",
-            f"virtual_accelerator.port={VA_CA_PORT}",
-            "--set",
-            f"virtual_accelerator.pva_port={_orm_stack.VA_PVA_PORT}",
-            "--set",
-            f"dispatch.tier={WORKER_TIER}",
-        ],
+    init = run_command(
+        [str(osprey_bin), "init", str(repo), *INIT_PRESET_ARGS],
         cwd=base,
         timeout=300,
     )
     if init.returncode != 0:
-        pytest.fail(
-            f"osprey init failed (rc={init.returncode}):\n"
-            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
-        )
+        pytest.fail(format_failure("osprey init", init))
 
     # Append the owner probes to the deployment's own trigger set BEFORE the
     # build, so the render the dispatcher loads carries them.
     _append_owner_probe_triggers(repo)
 
-    build = _run(
+    build = run_command(
         [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         cwd=base,
         timeout=300,
     )
     if build.returncode != 0:
-        pytest.fail(
-            f"osprey build failed (rc={build.returncode}):\n"
-            f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
-        )
+        pytest.fail(format_failure("osprey build", build))
 
     # Before anything is deployed: the render must agree with this module about
     # which roster user holds which tier, and the read-write render must carry
@@ -680,17 +658,14 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     subprocess.run(["docker", "rm", "-f", NGINX_CONTAINER], capture_output=True, text=True)
 
     try:
-        up = _run(
+        up = run_command(
             [str(osprey_bin), "up", "-d", "--dev"],
             cwd=repo,
             timeout=DEPLOY_UP_TIMEOUT_SEC,
         )
         if up.returncode != 0:
-            pytest.fail(
-                f"osprey up failed (rc={up.returncode}):\n"
-                f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
-            )
-        _wait_for_health(f"{DISPATCHER_URL}/health", HEALTH_TIMEOUT_SEC)
+            pytest.fail(format_failure("osprey up", up))
+        wait_for_health(f"{DISPATCHER_URL}/health", HEALTH_TIMEOUT_SEC)
         # The dispatcher being healthy does not mean the worker is: the worker runs
         # the heavier project image and boots later. Gate on its proxied feed so
         # tests never race a still-warming worker (and a worker that never comes up
@@ -707,7 +682,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         # the render image tags are namespaced by this repo's name (see
         # COEXISTENCE), so removing them cannot untag a real deployment's
         # images.
-        down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
+        down = run_command([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
             print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
@@ -720,21 +695,6 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         subprocess.run(["docker", "rm", "-f", NGINX_CONTAINER], capture_output=True, text=True)
         for image in (READONLY_IMAGE, READWRITE_IMAGE):
             subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
-
-
-def _wait_for_health(url: str, timeout: float) -> None:
-    deadline = time.monotonic() + timeout
-    last_err = "(no response yet)"
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # localhost
-                if resp.status == 200:
-                    return
-                last_err = f"HTTP {resp.status}"
-        except (urllib.error.URLError, ConnectionError, OSError) as exc:
-            last_err = str(exc)
-        time.sleep(1.0)
-    raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
 
 
 def _dump_stack_diagnostics(context: str) -> str:
@@ -924,8 +884,7 @@ def _worker_run_evidence(run: dict | None) -> str:
     The ``.mcp.json`` probe above says whether the save tool *could* have
     existed; it cannot say whether the agent saw it or what the run did instead.
     Both are on the worker: the run feed carries the tool count and the agent's
-    final text, the persisted record at ``<agent_data>/dispatch/<run_id>.json``
-    carries every tool call, and the container log says which MCP servers were
+    final text, the run's timeline in the agent record carries every tool call, and the container log says which MCP servers were
     ready before the first turn. The stack is torn down before any CI diagnostics
     step runs, so a failure that does not carry these here loses them for good.
     """
@@ -944,15 +903,9 @@ def _worker_run_evidence(run: dict | None) -> str:
     run_id = run.get("run_id")
     if run_id:
         record = _docker_capture(
-            [
-                "docker",
-                "exec",
-                WORKER_CONTAINER,
-                "cat",
-                f"{WORKER_AGENT_DATA}/dispatch/{run_id}.json",
-            ]
+            ["docker", "exec", WORKER_CONTAINER, "python3", "-c", _RECORDED_RUN_CLIENT, run_id]
         )
-        lines.append(f"--- persisted run record ({run_id}.json) ---\n{record}")
+        lines.append(f"--- recorded run ({run_id}) ---\n{record}")
     listing = _docker_capture(
         ["docker", "exec", WORKER_CONTAINER, "ls", "-la", f"{WORKER_AGENT_DATA}/artifacts"]
     )
@@ -1138,12 +1091,12 @@ def _layer_dir(repo: Path, render_project: str) -> Path:
     return layer_dir
 
 
-def _write_posture(render: Path) -> dict[str, bool]:
-    """Whether the render arms writes, per control target, read the way the
-    connector and the settings render read it."""
+def _write_posture(render: Path) -> bool:
+    """Whether the render's login tier allows writes, read the way the write
+    verdict reads it: ``control_system.writes``, target-blind (the session's
+    switch picks the machine)."""
     config = yaml.safe_load((render / "config.yml").read_text(encoding="utf-8"))
-    section = config.get("control_system") or {}
-    return {target: target_writes_enabled(section, target) for target in CONTROL_TARGETS}
+    return tier_allows(config.get("control_system") or {})
 
 
 def _permissions(render: Path) -> dict:
@@ -1206,9 +1159,7 @@ def test_readonly_tier_denies_writes(deployed_stack: Path) -> None:
     assert (config.get("claude_code") or {}).get("provider") == "als-apg", (
         "the deployment's `--set provider=als-apg` did not reach the rendered tier project"
     )
-    assert _write_posture(readonly_dir) == dict.fromkeys(CONTROL_TARGETS, False), (
-        f"readonly tier must arm writes for no target: {_write_posture(readonly_dir)}"
-    )
+    assert _write_posture(readonly_dir) is False, "readonly tier must not allow writes"
     perms = _permissions(readonly_dir)
     assert CHANNEL_WRITE_TOOL in perms.get("deny", []), (
         f"readonly tier must deny {CHANNEL_WRITE_TOOL!r} in rendered settings.json, "
@@ -1225,11 +1176,19 @@ def test_readwrite_render_arms_writes(deployed_stack: Path) -> None:
     tool (one would prompt for a write the live target refuses); the
     per-call writes check and the approval hook gate it instead."""
     readwrite_dir = _layer_dir(deployed_stack, READWRITE_PROJECT)
-    assert _write_posture(readwrite_dir) == {
-        TARGET_LIVE: False,
-        TARGET_VA: True,
-        TARGET_STANDIN: False,
-    }, f"readwrite tier must arm writes on the simulator only: {_write_posture(readwrite_dir)}"
+    assert _write_posture(readwrite_dir) is True, "readwrite tier must allow writes"
+    # The tier allowing writes never makes the real machine writable by itself:
+    # which machine a write may reach is the login's switch, and a read-write
+    # login's switch is off for live and the stand-in until a gesture turns it on.
+    record_path = _host_record_path(deployed_stack, READWRITE_USER)
+    record = json.loads(record_path.read_text(encoding="utf-8")) if record_path.is_file() else {}
+    armed = {
+        target: (record.get("switch") or {}).get(target) for target in (TARGET_LIVE, TARGET_STANDIN)
+    }
+    assert all(state != "on" for state in armed.values()), (
+        f"{READWRITE_USER}'s switch is on for a real machine with no gesture: {armed} "
+        f"(record {record_path})"
+    )
     perms = _permissions(readwrite_dir)
     assert CHANNEL_WRITE_TOOL not in perms.get("deny", []), (
         f"readwrite tier must not deny {CHANNEL_WRITE_TOOL!r}, but deny list is: "
@@ -1249,7 +1208,7 @@ def test_readwrite_render_arms_writes(deployed_stack: Path) -> None:
 
 def test_tiers_share_identical_mcp_surface(deployed_stack: Path) -> None:
     """T4: both render projects declare the IDENTICAL control-system server
-    set — that tier boundary is enforcement (``writes_enabled``), never a
+    set — that tier boundary is enforcement (``control_system.writes``), never a
     quietly different tool surface.
 
     The dispatcher wire is the one entry that differs, and it must: it follows
@@ -1277,7 +1236,7 @@ def test_tiers_share_identical_mcp_surface(deployed_stack: Path) -> None:
     )
     assert readonly_keys == readwrite_keys - {DISPATCHER_MCP_SERVER}, (
         "apart from the dispatcher wire the two tiers must declare the identical MCP "
-        "server set (the boundary is writes_enabled, not tool absence): "
+        "server set (the boundary is the writes tier, not tool absence): "
         f"readonly={sorted(readonly_keys)} readwrite={sorted(readwrite_keys)}"
     )
 
@@ -1417,10 +1376,7 @@ def _run_manual_fire_client(mode: str, trigger: str, payload: dict | None = None
         text=True,
         timeout=180,
     )
-    assert result.returncode == 0, (
-        f"the in-container MCP client failed (rc={result.returncode}):\n"
-        f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
-    )
+    assert result.returncode == 0, format_failure("the in-container MCP client", result)
     return json.loads(result.stdout.strip().splitlines()[-1])
 
 
@@ -1472,26 +1428,71 @@ def _wait_for_terminal_run(trigger: str, timeout: float = RUN_TIMEOUT_SEC) -> di
     )
 
 
-def _persisted_run_record(run_id: str) -> dict:
-    """The worker's own record of a run — the one artifact carrying tool results.
+#: Run inside the worker container, under the worker's own record login: the
+#: run's timeline from the agent record, as ``{name, input, result}`` per tool
+#: call. Retries while the read is incomplete (the transcript still ingesting).
+_RECORDED_RUN_CLIENT = r"""
+import json, os, sys, time
+from osprey.agent_record.client import RecordClient
 
-    The dispatcher feed reports status and a tool COUNT; what a tool ANSWERED
-    lives only in ``<agent_data>/dispatch/<run_id>.json``, which the worker
-    writes with a ``{name, input, result}`` entry per call. These rows assert on
-    the tool's answer, so they read it there rather than trusting the agent's
-    prose summary of it.
+client = RecordClient.from_env(os.environ)
+deadline = time.monotonic() + 60
+while True:
+    answer = client.run_timeline(sys.argv[1])
+    if answer.complete or time.monotonic() > deadline:
+        break
+    time.sleep(2)
+
+
+def text(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(str(b.get("text", "")) for b in content if isinstance(b, dict))
+    return "" if content is None else json.dumps(content)
+
+
+calls = []
+for node in answer.data or []:
+    if node.get("kind") != "tool_call":
+        continue
+    body = node.get("body") or {}
+    result = (node.get("result") or {}).get("body") or {}
+    calls.append(
+        {"name": body.get("name"), "input": body.get("input"), "result": text(result.get("content"))}
+    )
+print(json.dumps({
+    "complete": answer.complete,
+    "unavailable": answer.unavailable,
+    "reason": answer.reason,
+    "tool_calls": calls,
+}))
+"""
+
+
+def _persisted_run_record(run_id: str) -> dict:
+    """The run as the agent record holds it — the one place carrying tool results.
+
+    The dispatcher feed reports status and a tool COUNT; what a tool ANSWERED is
+    in the run's timeline in the agent record, read here from inside the worker
+    under its own record login, as ``tool_calls`` of ``{name, input, result}``.
+    These rows assert on the tool's answer, so they read it there rather than
+    trusting the agent's prose summary of it.
     """
-    record = subprocess.run(
-        ["docker", "exec", WORKER_CONTAINER, "cat", f"{WORKER_AGENT_DATA}/dispatch/{run_id}.json"],
+    proc = subprocess.run(
+        ["docker", "exec", WORKER_CONTAINER, "python3", "-c", _RECORDED_RUN_CLIENT, run_id],
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=120,
     )
-    assert record.returncode == 0, (
-        f"could not read the persisted record for run {run_id}: "
-        f"{(record.stderr or record.stdout).strip()}"
+    assert proc.returncode == 0, (
+        f"could not read run {run_id} from the agent record: {(proc.stderr or proc.stdout).strip()}"
     )
-    return json.loads(record.stdout)
+    recorded = json.loads(proc.stdout)
+    assert recorded["complete"], (
+        f"the record's timeline of run {run_id} is not complete: {recorded}"
+    )
+    return recorded
 
 
 def _tool_answers(record: dict, tool_suffix: str) -> list[str]:
@@ -1512,7 +1513,7 @@ def _owner_run_evidence(trigger: str, run: dict, record: dict | None = None) -> 
         lines.append(f"agent text_output:\n{text[:_EVIDENCE_CAP]}")
     if record is not None:
         calls = json.dumps(record.get("tool_calls"), indent=2)
-        lines.append(f"persisted tool_calls:\n{calls[:_EVIDENCE_CAP]}")
+        lines.append(f"recorded tool_calls:\n{calls[:_EVIDENCE_CAP]}")
     lines.append(
         f"--- {WORKER_CONTAINER} (last 200 log lines) ---\n"
         + _docker_capture(["docker", "logs", "--tail", "200", WORKER_CONTAINER])
@@ -1604,14 +1605,14 @@ def test_manual_fire_owner_narrowing_refuses_the_jobs_first_write() -> None:
     The point of carrying the owner at all. The firing user is narrowed to
     read-only on the host tree (the fixture wrote the record the header chip
     writes), the job runs as that user, and its first control-system write is
-    refused by the reference monitor before the control system is asked.
+    refused by the reference monitor before the control system is asked: the
+    record's narrowing reads as that user's switch being off.
 
     Which refusal is correct is a fact about the HOST rather than about this
     deployment: the tree reaches the container through a group, and a remapped
     bind ownership (Docker Desktop) makes it unreadable, which fails closed with
-    ``control_context_unavailable`` instead. The entrypoint's own access probe
-    says which, and this row asserts that one — by the clause each arm CLOSES on,
-    never by the word "narrowing", which the unavailable arm's prose also carries.
+    ``record_unavailable`` instead. The entrypoint's own access probe says which,
+    and this row asserts that one by its refusal phrase.
     """
     fired = _manual_fire_through_the_panel_proxy(WRITE_PROBE_PANEL_TRIGGER)
     assert (fired.get("call") or {}).get("status") == 200, (
@@ -1627,13 +1628,12 @@ def test_manual_fire_owner_narrowing_refuses_the_jobs_first_write() -> None:
         f"was ever judged.\n{evidence}"
     )
     readable = _control_tree_is_readable_in_the_worker()
-    expected = NARROWING_CLAUSE if readable else UNAVAILABLE_CLAUSE
+    expected = SWITCH_OFF_REFUSAL if readable else UNAVAILABLE_REFUSAL
     why = (
-        f"{FIRING_USER} is narrowed to read-only, so the write must be refused with the "
-        "store's narrowing verdict"
+        f"{FIRING_USER} is narrowed to read-only, so the write must be refused as switch_off"
         if readable
         else "the worker's entrypoint reported it cannot read the control-context tree, "
-        "so every owned write must fail closed on control_context_unavailable"
+        "so every owned write must fail closed on record_unavailable"
     )
     joined = "\n".join(answers)
     assert LIMITS_REFUSAL not in joined, (
@@ -1648,14 +1648,14 @@ def test_manual_fire_owner_narrowing_refuses_the_jobs_first_write() -> None:
 
 
 @pytest.mark.usefixtures("deployed_stack")
-def test_dispatch_owner_less_write_is_held_to_the_deployment_ceiling() -> None:
-    """O3b: the control for O2 — an owner-less job reads nobody's narrowing.
+def test_dispatch_owner_less_write_is_refused_as_unscheduled() -> None:
+    """O3b: the control for O2 — an owner-less job's write is refused for its own reason.
 
     The firing user is narrowed; a cron-shaped fire of the same probe must not
-    inherit that narrowing, because the run belongs to nobody and the deployment
-    ceiling is what governs it. Asserted as the absence of BOTH store clauses: an
-    owner-less run reads no record at all, so neither verdict can be its reason
-    for refusing.
+    inherit that narrowing, because the run belongs to nobody. Nobody's switch
+    covers it either, so its write is refused as ``owner_unscheduled`` — never as
+    the firing user's ``switch_off`` and never as an unreadable record, which
+    would mean the run was judged against somebody's record.
     """
     _fire(WRITE_PROBE_CRON_TRIGGER, {})
     run = _wait_for_terminal_run(WRITE_PROBE_CRON_TRIGGER)
@@ -1667,31 +1667,28 @@ def test_dispatch_owner_less_write_is_held_to_the_deployment_ceiling() -> None:
         f"was ever judged.\n{evidence}"
     )
     joined = "\n".join(answers)
-    for clause in (NARROWING_CLAUSE, UNAVAILABLE_CLAUSE):
-        assert clause not in joined, (
-            "an owner-less job's write was judged against a recorded write state — it "
-            "must be held to the deployment ceiling alone. The channel-write tool "
-            f"answered:\n{joined[:_EVIDENCE_CAP]}\n{evidence}"
-        )
-    # The absence of both clauses is not enough on its own: a probe refused for
-    # some unrelated reason — a read-only address, a limits violation, a
-    # transport error — carries neither clause and would let this row pass having
-    # judged nothing. The control is a control only if the write the narrowed
-    # firing user was refused actually SUCCEEDS when nobody owns the run, so the
-    # tool's own success envelope is asserted too (channel_write answers
-    # ``{"status": "success", "description": "Wrote N channel(s)", ...}``).
+    # A probe refused before the tool ran — a limits violation — judged nothing
+    # about the owner, so it must not read as the refusal this row expects.
     assert LIMITS_REFUSAL not in joined, (
         f"the write to {PROBE_CHANNEL} was refused by the limits hook before the tool "
         "ran, so this row judged nothing. Pick a channel this deployment's "
         "data/channel_limits.json marks writable and a value inside its range.\n"
         f"{joined[:_EVIDENCE_CAP]}\n{evidence}"
     )
-    assert any_answer_succeeded(answers), (
-        f"the owner-less write to {PROBE_CHANNEL} did not succeed. A cron-shaped fire "
-        "belongs to nobody, so no recorded write state governs it and the deployment "
-        "ceiling alone decides — which here permits the write. A refusal of ANY kind "
-        "means either the ceiling is not what this row assumes or the probe never "
-        f"reached the machine.\n{joined[:_EVIDENCE_CAP]}\n{evidence}"
+    for phrase in (SWITCH_OFF_REFUSAL, UNAVAILABLE_REFUSAL):
+        assert phrase not in joined, (
+            "an owner-less job's write was judged against a recorded switch — it belongs "
+            "to no login, so no record governs it. The channel-write tool "
+            f"answered:\n{joined[:_EVIDENCE_CAP]}\n{evidence}"
+        )
+    assert not any_answer_succeeded(answers), (
+        f"the owner-less write to {PROBE_CHANNEL} succeeded. A cron-shaped fire runs "
+        "for no login, so no switch covers it and the write must be refused.\n"
+        f"{joined[:_EVIDENCE_CAP]}\n{evidence}"
+    )
+    assert any(OWNER_UNSCHEDULED_REFUSAL in answer for answer in answers), (
+        "the owner-less write must be refused as owner_unscheduled. The channel-write "
+        f"tool answered:\n{joined[:_EVIDENCE_CAP]}\n{evidence}"
     )
 
 
@@ -1741,7 +1738,7 @@ out = {"status": 0, "body": "(no port variable set in this container)"}
 for port_name, port in candidates:
     req = urllib.request.Request(
         "http://127.0.0.1:%s/api/terminal/posture" % port,
-        data=json.dumps({"target": "all", "posture": "sandbox"}).encode("utf-8"),
+        data=json.dumps({"target": "all", "state": "off", "epoch": None}).encode("utf-8"),
         method="POST",
         headers={"Content-Type": "application/json", "X-Osprey-Terminal-Secret": secret},
     )
@@ -1794,12 +1791,15 @@ def test_a_chip_toggle_lands_the_owners_own_record_on_the_host_tree(
     """O5: the chip writes the record a lane reads, per user, group-readable.
 
     The toggle is made inside the READ-ONLY user's own terminal container,
-    through the endpoint the header chip posts to, and the record appears on the
-    HOST tree under that user's name. That tier is the honest place for it: the
-    fixture already seeded the read-write user's record with ``write_record``
-    before the deploy, so a toggle there could not tell a working chip from a
-    no-op, and narrowing is the one posture gesture no tier gates — only
-    ``writes`` is answered ``writes_disabled``.
+    through the endpoint the header chip posts to (``{target: "all", state:
+    "off"}``, the stop), and the record appears on the HOST tree under that
+    user's name. That tier is the honest place for it: the fixture already
+    seeded the read-write user's record with ``write_record`` before the
+    deploy, and a stop is the one switch gesture no tier gates — a turn-on
+    by a ``never`` login is answered ``tier_never``. A fresh session's switch
+    is off, so the row first turns the user's switch on in the record for the
+    simulator; a stop that left it on is the failure, and one landing on an
+    all-off record could not tell a working chip from a no-op.
 
     The mode is the assertion, not decoration. The record is written 0640
     because the dispatch worker drops to uid 1000 and reads this file across
@@ -1822,17 +1822,15 @@ def test_a_chip_toggle_lands_the_owners_own_record_on_the_host_tree(
     before = other.read_bytes() if other.is_file() else None
 
     # Non-vacuity. A record this toggle did not move would satisfy every
-    # assertion below, so the state it starts from is asserted rather than
-    # assumed: nothing has narrowed this user yet on a fresh deploy.
+    # assertion below, so the state it starts from is set and asserted: the
+    # user's switch on for the simulator, written where the terminal reads it.
     record_path = _host_record_path(deployed_stack, READONLY_USER)
-    if record_path.is_file():
-        seed = json.loads(record_path.read_text(encoding="utf-8"))
-        assert not all(
-            (seed.get("posture") or {}).get(target) == POSTURE_SANDBOX for target in CONTROL_TARGETS
-        ), (
-            f"{READONLY_USER} was already narrowed on every target before the toggle, so "
-            f"this row cannot tell a working chip from a no-op: {seed}"
-        )
+    switch_on_in_record(deployed_stack, owner=READONLY_USER, targets=[TARGET_VA])
+    seed = json.loads(record_path.read_text(encoding="utf-8"))
+    assert (seed.get("switch") or {}).get(TARGET_VA) == "on", (
+        f"{READONLY_USER}'s switch is not on for {TARGET_VA} before the toggle, so this "
+        f"row cannot tell a working chip from a no-op: {seed}"
+    )
 
     answer = _toggle_the_chip_in(READONLY_USER)
     assert answer["status"] == 200, (
@@ -1845,19 +1843,16 @@ def test_a_chip_toggle_lands_the_owners_own_record_on_the_host_tree(
         f"{_docker_capture(['docker', 'logs', '--tail', '200', _web_container(READONLY_USER)])}"
     )
     record = json.loads(record_path.read_text(encoding="utf-8"))
-    posture = record.get("posture") or {}
-    # ``all`` means "narrow whatever can be narrowed" and reports the rest in
-    # ``skipped`` rather than refusing, so a target left armed is a failure only
-    # when the terminal did not say why it stayed that way.
     reported = json.loads(answer["body"])
-    skipped = {str(row.get("target")) for row in (reported.get("skipped") or [])}
-    armed = [target for target in CONTROL_TARGETS if posture.get(target) != POSTURE_SANDBOX]
-    assert not [target for target in armed if target not in skipped], (
-        f"a [ Sandbox everything ] toggle left {sorted(armed)} armed with no reason "
-        f"given for it; the terminal reported skipped={sorted(skipped)}: {record}"
+    assert (reported.get("target"), reported.get("state")) == ("all", "off"), reported
+    on_disk = record.get("switch_epoch")
+    assert reported.get("switch_epoch") == (None if on_disk is None else str(on_disk)), (
+        f"the chip answered epoch {reported.get('switch_epoch')} but the host record "
+        f"carries {record.get('switch_epoch')}: the toggle did not land on this file: {record}"
     )
-    assert len(armed) < len(CONTROL_TARGETS), (
-        f"the toggle narrowed nothing at all — every target is still armed: {record}"
+    still_on = sorted(t for t, state in (record.get("switch") or {}).items() if state == "on")
+    assert not still_on, (
+        f"a stop-everything toggle left {READONLY_USER}'s switch on for {still_on}: {record}"
     )
     mode = stat.S_IMODE(record_path.stat().st_mode)
     assert mode == 0o640, (

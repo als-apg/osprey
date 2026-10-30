@@ -28,21 +28,27 @@ from osprey_connectors.control_system._va_in_process_connector import (
     VAInProcessConnector,
     simulation_state_dir,
 )
+from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
 from tests.facility.served_tree import IN_PROCESS_RENDER_CONFIG, in_process_config, served_tree
 
 REPO = Path(__file__).resolve().parents[2]
 JOURNAL = ("inprocess", "writes.json")
 
 
-def _writes_enabled(key, default=None):
-    if key == "control_system.writes_enabled":
-        return True
-    return default
+@pytest.fixture(autouse=True)
+def _switch_on(monkeypatch, tmp_path):
+    """The login's switch on for the simulator target, connectors stamped with it.
+
+    With :func:`writes_enabled_config` serving a write tier that allows, that is
+    everything the reference monitor's verdict asks before a write reaches the
+    transport; a test that disarms serves a tier that does not.
+    """
+    return arm_switch(monkeypatch, tmp_path / "armed-data")
 
 
 @pytest.fixture(autouse=True)
 def writes_enabled(monkeypatch):
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", _writes_enabled)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
 
 
 def _journal(view: Path) -> Path:
@@ -264,14 +270,17 @@ _WRITER = """
     import asyncio, sys
     import osprey_connectors.config as config
 
+    # A write tier that allows; the parent's armed record (its switch on for
+    # the simulator) reaches this process through the inherited environment.
     real = config.get_config_value
     config.get_config_value = lambda key, default=None, config_path=None: (
-        True if key == "control_system.writes_enabled" else real(key, default, config_path)
+        {"writes": "allowed"} if key == "control_system" else real(key, default, config_path)
     )
     from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 
     async def main():
         connector = VAInProcessConnector()
+        connector._control_target = "va"
         await connector.connect({"simulator_view": sys.argv[1], "response_delay_ms": 0})
         for value in range(50):
             result = await connector.write_channel(sys.argv[2], float(value), confirm=False)

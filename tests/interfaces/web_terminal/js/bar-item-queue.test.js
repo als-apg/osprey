@@ -28,6 +28,8 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
+import { FakeEventSource, stubEventSource } from '../../_support/event-source.mjs';
+
 const HOST_PATH = '../../../../src/osprey/interfaces/web_terminal/static/js/bar-host.js';
 const ITEMS_PATH = '../../../../src/osprey/interfaces/web_terminal/static/js/bar-items.js';
 const QUEUE_PATH = '../../../../src/osprey/interfaces/web_terminal/static/js/bar-item-queue.js';
@@ -38,30 +40,6 @@ let host;
 let items;
 /** Every warning the item logged this test. @type {string[]} */
 let warnings;
-
-/**
- * happy-dom ships no EventSource and the item opens its own; a class stub
- * keeps the module's stream path intact and hands the test the socket.
- */
-class FakeEventSource {
-  /** @type {FakeEventSource[]} */
-  static opened = [];
-  /** @param {string} url */
-  constructor(url) {
-    this.url = url;
-    this.readyState = 1;
-    /** @type {((event: {data: string}) => void) | null} */
-    this.onmessage = null;
-    /** @type {(() => void) | null} */
-    this.onopen = null;
-    /** @type {(() => void) | null} */
-    this.onerror = null;
-    FakeEventSource.opened.push(this);
-  }
-  close() {
-    this.readyState = 2;
-  }
-}
 
 /** Push one queue frame down every open socket. @param {unknown} frame */
 function emit(frame) {
@@ -124,9 +102,8 @@ async function flush() {
 
 beforeEach(async () => {
   warnings = [];
-  FakeEventSource.opened = [];
   stubFetch();
-  vi.stubGlobal('EventSource', FakeEventSource);
+  stubEventSource({ open: true });
   vi.spyOn(console, 'warn').mockImplementation((/** @type {unknown[]} */ ...args) => {
     warnings.push(args.map(String).join(' '));
   });

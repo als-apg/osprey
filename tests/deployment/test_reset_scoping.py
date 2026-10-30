@@ -58,8 +58,9 @@ from osprey.deployment.reset import (
     reset_deployment,
     strip_env_blocks,
 )
-from osprey_connectors.workspace import TIERS_DIRNAME
+from osprey.utils.workspace import TIERS_DIRNAME
 from tests._renders import tier_render
+from tests._text import flat
 
 PROJECT = "als-exemplar"
 OTHER_IDENTITY = "0123456789ab"
@@ -262,17 +263,6 @@ def test_a_resource_labelled_for_this_checkout_is_removed(repo):
     ]
 
 
-def _flowed(message: str) -> str:
-    """``message`` with every run of whitespace collapsed to one space.
-
-    The refusal wraps its prose itself, because the renderer prints cause lines
-    exactly as given. So a multi-word phrase in it is split at whatever column
-    the wrap fell on, and only a flowed view can assert on the words rather than
-    on the line breaks.
-    """
-    return " ".join(message.split())
-
-
 def test_a_same_named_container_from_another_checkout_refuses(repo):
     fake = FakeRuntime(containers={"als-exemplar-dispatch": theirs()})
 
@@ -431,7 +421,7 @@ def test_the_refusal_does_not_claim_a_different_checkout_only_a_different_path(r
     # Flowed, because the refusal wraps its own prose to a terminal width: a
     # phrase assertion against the raw text is an assertion about where the
     # wrap happened to fall.
-    message = _flowed(str(excinfo.value))
+    message = flat(str(excinfo.value))
     assert "created from a different copy of this repo" in message
     assert "renamed or moved" in message
     assert "these are your own resources under its old path" in message
@@ -823,10 +813,14 @@ def test_purge_audit_is_gated_by_the_same_typed_confirmation(repo, monkeypatch):
 
 def test_purge_audit_does_not_claim_the_audit_log_is_kept(repo):
     """The kept section must not still advertise something now on the removal list."""
+    plain = plan_reset(repo, probe=make_probe(FakeRuntime()))
+    plain_kept = "\n".join(plain.render()).split("WILL BE KEPT", 1)[1]
     plan = plan_reset(repo, probe=make_probe(FakeRuntime()), purge_audit=True)
     kept = "\n".join(plan.render()).split("WILL BE KEPT", 1)[1]
 
-    assert "the safety audit log — what the agent was asked" not in kept
+    line = "the audit files written before the agent record"
+    assert line in plain_kept
+    assert line not in kept
 
 
 # ---------------------------------------------------------------------------

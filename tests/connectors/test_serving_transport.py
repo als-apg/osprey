@@ -123,7 +123,8 @@ def test_retired_message_names_the_new_spelling():
 
 @pytest.fixture
 def builtin_connectors():
-    from osprey_connectors.factory import isolated_connector_registries, register_builtin_connectors
+    from osprey_connectors.factory import register_builtin_connectors
+    from osprey_connectors_tests._harness import isolated_connector_registries
 
     with isolated_connector_registries(clear=True):
         register_builtin_connectors()
@@ -210,7 +211,8 @@ def test_no_reader_names_the_wire_by_type():
     ).stdout.split()
     offenders = []
     for relative in listed:
-        if not relative.endswith(".py"):
+        # A tracked file deleted from the working tree has no text to check.
+        if not relative.endswith(".py") or not (root / relative).exists():
             continue
         text = (root / relative).read_text(encoding="utf-8")
         if "CHANNEL_ACCESS_TYPES" in text:

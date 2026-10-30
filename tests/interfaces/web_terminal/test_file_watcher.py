@@ -35,6 +35,7 @@ from tests.interfaces.fsevents_wait import (
     polled_frames,
     wait_for_polling_baseline,
 )
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 #: Tighter than the unit lane's 600 s cap, because this file is the one that
 #: has actually hung: ``test_start_creates_directory_if_missing`` sat inside
@@ -462,10 +463,6 @@ class TestLifespanConcealsItsStores:
     """``app.py`` resolves every server-side store and hands the watcher all of them."""
 
     def _boot(self, tmp_path):
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.web_terminal.app import create_app
-
         workspace_dir = tmp_path / "_agent_data"
         workspace_dir.mkdir(exist_ok=True)
         constructed: list[tuple] = []
@@ -480,11 +477,8 @@ class TestLifespanConcealsItsStores:
             def stop(self):
                 pass
 
-        with (
-            patch(
-                "osprey.interfaces.web_terminal.app._load_web_config",
-                return_value={"watch_dir": str(workspace_dir)},
-            ),
+        with terminal_client(
+            workspace_dir,
             patch(
                 "osprey_connectors.workspace.resolve_shared_data_root",
                 return_value=workspace_dir,
@@ -493,18 +487,15 @@ class TestLifespanConcealsItsStores:
                 "osprey.interfaces.web_terminal.app.WorkspaceWatcher",
                 RecordingWatcher,
             ),
-        ):
-            app = create_app(shell_command="echo")
-            with TestClient(app) as client:
-                yield_state = client.app.state
-                return workspace_dir, constructed, yield_state
+        ) as client:
+            yield_state = client.app.state
+            return workspace_dir, constructed, yield_state
 
     def test_every_store_path_reaches_the_watcher(self, tmp_path):
         workspace_dir, constructed, state = self._boot(tmp_path)
 
-        stores = (PurePath("feedback"), PurePath("bar_items"), PurePath("panel_status"))
+        stores = (PurePath("bar_items"), PurePath("panel_status"))
         assert constructed == [(workspace_dir, stores)]
-        assert state.feedback_rel == PurePath("feedback")
         assert state.bar_items_rel == PurePath("bar_items")
         assert state.panel_status_rel == PurePath("panel_status")
 
@@ -955,25 +946,18 @@ class TestFirstEverStartup:
         case-sensitive, yields ``None``, and leaves concealment off for the
         life of the process."""
         _require_case_insensitive_fs(tmp_path)
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.web_terminal.app import create_app
 
         workspace_dir = tmp_path / "_agent_data"  # deliberately NOT created
         store_root = tmp_path / "_AGENT_DATA"
 
-        with (
-            patch(
-                "osprey.interfaces.web_terminal.app._load_web_config",
-                return_value={"watch_dir": str(workspace_dir)},
-            ),
+        with terminal_client(
+            workspace_dir,
             patch(
                 "osprey_connectors.workspace.resolve_shared_data_root",
                 return_value=store_root,
             ),
-        ):
-            with TestClient(create_app(shell_command="echo")) as client:
-                assert client.app.state.feedback_rel == PurePath("feedback")
+        ) as client:
+            assert client.app.state.bar_items_rel == PurePath("bar_items")
 
 
 class TestStoreRelDerivation:

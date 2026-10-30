@@ -75,6 +75,10 @@
       "reason": "Exercises the dispatch pipeline (webhook -> dispatcher -> worker -> SDK round-trip -> persistence), not model capability — the agent task is hello-world level (one-sentence reply, summarize a payload, save a stub report), so any responding model passes and it measures nothing about the model-under-test. Compounding this, its build fixture is pinned to als-apg/haiku and ignores OSPREY_E2E_FORCE_MODEL; under CBORG cells the als-apg key is shimmed to CBORG, so the worker agent hits the real als-apg endpoint with a wrong credential and hangs to the 300s worker timeout — a fixed ~3-test infra penalty per cell."
     },
     {
+      "path": "tests/e2e/test_agent_record_e2e.py",
+      "reason": "Real-container deploy of the agent record (embedded and ClickHouse backends) that replays captured transcript and spool fixtures and reads them back through the record's API; no agent session runs and nothing contacts a model, so it measures nothing about the model-under-test. Also needs Docker, which the bench box lacks."
+    },
+    {
       "path": "tests/e2e/test_archiver_world_e2e.py",
       "reason": "Full-stack Docker deploy (VA + mongodb store + recorder) asserting seed duration, store size, a setpoint round-trip and document counts; no LLM call anywhere, so it measures nothing about the model-under-test. Also needs Docker, which the bench box lacks."
     },
@@ -139,16 +143,12 @@
       "reason": "Non-agentic ORM round-trip: the test constructs the orm plan request over HTTP and cross-checks the response matrix against the lattice model oracle — no LLM call anywhere."
     },
     {
-      "path": "tests/e2e/test_telemetry_access_e2e.py",
-      "reason": "Model-free: telemetry store accounts, row policies and limits proved with synthetic rows over SQL — no LLM call anywhere."
-    },
-    {
       "path": "tests/e2e/test_telemetry_contract_live.py",
       "reason": "Wire-contract check: one fixed turn of the pinned CLI compared structurally with the recorded OTLP fixture (event names and attribute keys); what the model says is never judged, so it measures nothing about the model-under-test."
     },
     {
-      "path": "tests/e2e/test_telemetry_store_e2e.py",
-      "reason": "Model-free: telemetry gateway and store deploy with synthetic ledger lines and OTLP — no LLM call anywhere."
+      "path": "tests/e2e/test_thinking_display_live.py",
+      "reason": "Launch-wiring check: the pinned CLI on each launch route (interactive settings, `osprey chat --print`, SDK) is asked to record thinking, and the transcripts are checked for thinking text; the answers are never judged, so it measures nothing about the model-under-test."
     },
     {
       "path": "tests/e2e/test_tiled_roundtrip.py",

@@ -21,16 +21,33 @@ in place, with the round-trip writer so every comment the operator kept survives
    joins ``shared:``. An edited file stays where it is, and the step left to
    do by hand is printed, as it is for every catalog field, role or pin the
    rewrite cannot carry over.
-4. Every ``config:`` leaf the profile leaves to its preset is filled in from
+4. The retired write-posture keys (``control_system.writes_enabled`` and every
+   ``control_system.connector.<type>.writes_enabled``) become the tier key
+   ``control_system.writes`` by the rule the build applies at parse, in the
+   profile, every overlay and every tier or app file kept. A comment stanza the
+   previous release shipped about them is replaced by the bundled preset's
+   current one, a commented retired-key example is dropped, and any other
+   prose about them, or a connector block the rewrite empties, is printed as a
+   step left to do by hand.
+5. Every ``config:`` leaf the profile leaves to its preset is filled in from
    that preset, under the preset's own comment; the retired ``app_template:``
    key is dropped. The deployment's own selections (the keys the manifest
    marks ``deployment-data`` or ``data-map``) are never filled: the output
-   names each one left out.
-5. ``providers.yml`` is refreshed: the entries OSPREY ships come back fresh,
-   and every entry the operator added is kept.
-6. ``provenance:`` is restamped with the preset, its hash and the catalog's
+   names each one left out, and so is ``control_system.writes``, so a root
+   that never stated it stays ``never``.
+6. ``providers.yml`` is completed, never rewritten: every value it states is
+   kept, an edited entry OSPREY ships included, and only the entries OSPREY
+   ships that it lacks, and the keys an existing one lacks, are added.
+   ``osprey validate`` reports each remaining difference as drift.
+7. ``provenance:`` is restamped with the preset, its hash and the catalog's
    hash, and ``requires_osprey_version`` at the schema floor, so a release
    that predates the vocabulary refuses the rewritten repo.
+7. The repo's own skills, agents, rules, output styles and hooks are named by
+   path in ``profile.yml`` and each app: each now renders only where its path
+   is named, and before every render carried all of them. A bare entry the
+   repo ships a file for (``safety`` beside ``rules/safety.md``) becomes the
+   path in place; every other unnamed one is appended. Tiers inherit
+   ``profile.yml``'s lists.
 
 Every file is read and rewritten in memory before the repo is touched, so a
 file that cannot be read leaves the repo as it was. The result is reported as
@@ -58,8 +75,7 @@ from ruamel.yaml.tokens import CommentToken
 
 from osprey.profiles.providers import PROVIDERS_FILENAME
 from osprey.utils.config_writer import _yaml as _ROUND_TRIP
-from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.workspace import (
+from osprey.utils.workspace import (
     APPS_DIRNAME,
     LAYER_DIRNAMES,
     PROFILE_FILENAME,
@@ -67,16 +83,25 @@ from osprey_connectors.workspace import (
     TIERS_DIRNAME,
     layer_dir_kind,
 )
+from osprey_connectors.errors import BuildProfileError
 
 from .build_profile_document import (
-    _LAYER_FILE_KNOBS,
     _WEB_TERMINALS,
     _WT_LABEL,
+    RENDER_KEYS,
     RETIRED_CATALOG_KEY,
+    RETIRED_WRITES_LEAF,
+    WRITES_KEY_LEAF,
     _catalog_knobs,
+    _document_kind,
+    _kept_flat_leaf,
+    _mixed_writes_error,
     _refuse_mixed_roster,
     _RosterSpellings,
     _scan_roster,
+    _scan_writes,
+    _WriteSpellings,
+    retired_write_answer,
 )
 from .build_profile_emit import _drop_key_and_pre_comment
 from .build_profile_load import _PROFILE_SCHEMA_MIN_OSPREY
@@ -186,13 +211,25 @@ class RevalidateResult:
 
 
 def _last_slot(container: Any, key: Any) -> tuple[dict, Any, int]:
-    """The comment slot that trails ``container[key]``'s whole subtree."""
+    """The comment slot that trails ``container[key]``'s whole subtree.
+
+    A flow collection (``access: [roster]``) is one line, so it is a leaf here:
+    its own items' slots sit inside its brackets, and a comment block handed to
+    one would be written there.
+    """
     value = container[key]
+    if _is_flow(value):
+        return container.ca.items, key, 0 if isinstance(container, CommentedSeq) else 2
     if isinstance(value, CommentedMap) and len(value):
         return _last_slot(value, list(value.keys())[-1])
     if isinstance(value, CommentedSeq) and len(value):
         return _last_slot(value, len(value) - 1)
     return container.ca.items, key, 0 if isinstance(container, CommentedSeq) else 2
+
+
+def _is_flow(value: Any) -> bool:
+    """Whether *value* is a collection written in flow style (``[a, b]``, ``{k: v}``)."""
+    return isinstance(value, (CommentedMap, CommentedSeq)) and bool(value.fa.flow_style())
 
 
 def _get_tail(slot: tuple[dict, Any, int]) -> tuple[str, int]:
@@ -417,7 +454,8 @@ def _item_column(seq: Any, default: int) -> int:
         line_col = seq.lc.item(0)
     except (AttributeError, KeyError, TypeError, IndexError):
         return default
-    return int(line_col[1]) - 2
+    # An item added in memory has no position yet.
+    return default if line_col is None else int(line_col[1]) - 2
 
 
 def _rewrite_roster_keys(document: Any, source: str) -> dict[str, dict[str, Any]]:
@@ -448,6 +486,424 @@ def _rewrite_roster_keys(document: Any, source: str) -> dict[str, dict[str, Any]
         column = _key_column(container, key, 0)
         _drop_node(container, key, _predecessor(container, key), column)
     return catalog
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The write-posture rewrite
+#
+# The retired ``control_system.writes_enabled`` and every
+# ``control_system.connector.<type>.writes_enabled`` become the one tier key,
+# ``control_system.writes``, by the rule the parse point applies
+# (:func:`~osprey.cli.build_profile_document.retired_write_answer`; ``never``
+# in an app). The keys are rewritten in the round-trip tree; the comments that
+# described them are rewritten as text afterwards, because a comment is not a
+# node: a stanza the previous release shipped is replaced by the current
+# preset's, a commented retired-key example is dropped, and any other prose
+# about the retired keys is left for the operator.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class WriteStanza(NamedTuple):
+    """One comment stanza the previous release shipped about the retired write keys.
+
+    The stanza is the ``old_lines`` lines right above the ``anchor`` line, in
+    the file AFTER the keys are rewritten; it is replaced by the
+    ``new_lines`` lines right above the same anchor in the bundled ``preset``
+    today. Lines are compared without their indentation, and the replacement
+    takes the anchor's indentation in the file it lands in.
+    """
+
+    preset: str
+    """The bundled preset (``tiers/<n>``, ``apps/<n>`` or a deployment preset) holding the successor."""
+    anchor: str
+    """The line below the stanza, stripped; the same in both releases."""
+    old_lines: int
+    old_hash: str
+    """:func:`_stanza_hash` of the previous release's stanza."""
+    new_lines: int
+    new_hash: str
+    """:func:`_stanza_hash` of the preset's stanza today, which locates it there."""
+
+
+#: The stanzas the previous release shipped, by frozen hash: the old text
+#: leaves the package with this release, so only its hash is kept. A stanza
+#: that still hashes to one of these was never edited, so replacing it with
+#: the preset's current words loses nothing the operator wrote.
+WRITE_STANZAS: tuple[WriteStanza, ...] = (
+    WriteStanza(
+        "control-assistant",
+        "control_system.writes: allowed",
+        7,
+        "sha256:ac361105ab01d4cd2a662d5f42d71ee2fa27841d59519084cb1313f05c12e940",
+        6,
+        "sha256:cd08381facbe2d0ec707b3d15b22e76424749dd04bf67092b0c9b7403e00078a",
+    ),
+    WriteStanza(
+        "control-assistant",
+        "# Where the simulator runs: `served` is its container over Channel Access; `in_process` is inside this process, with no container.",
+        4,
+        "sha256:af5020608bfe8231dea1508462dd9880cbb16c3e7cc680e01c565692e127d15a",
+        0,
+        "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ),
+    WriteStanza(
+        "control-assistant",
+        "# Channel the target switch reads to prove the live machine is reachable.",
+        3,
+        "sha256:ce6a8cf56ab8a75fd66cda2b9d67d9a9e465bae5e3d03f25c8aba1ca6e265e75",
+        0,
+        "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ),
+    WriteStanza(
+        "control-assistant",
+        "# Seconds an ENS lookup, a property read or a property set is given.",
+        1,
+        "sha256:eacda895bd3b9b217dea11b3de9c5bdaf04bdba82a45e527c43ced885e4329e2",
+        1,
+        "sha256:c71d12de9f95e34dfe6e9a4e3c62c6b4a26e59b90b1c73eee9373493289b4c6b",
+    ),
+    WriteStanza(
+        "control-assistant",
+        "# Property the target switch reads to prove this machine is reachable.",
+        3,
+        "sha256:268822f74f972ad272b373bc687b5419e76c3c45be3fd9d141daa8562253af2f",
+        0,
+        "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ),
+    WriteStanza(
+        "control-assistant",
+        "# control_system.connector.tango.probe_channel: sys/tg_test/1/ampli",
+        2,
+        "sha256:09c939480a710bcd937052fb6ca9076e2b1f1ba29bbb7f5a92e64cd4fe68ae90",  # osprey:not-a-port — digest digits
+        1,
+        "sha256:a8668b9914da648f2c88cf1cef503f5d2ef4ff64bd642957c7f2d0b594d6df1e",
+    ),
+    # The writes-check hook's entry, which named the retired key; a stanza is
+    # compared line by line, so a list entry's own comment is one too.
+    WriteStanza(
+        "control-assistant",
+        "- limits            # Enforce per-channel min/max limits before writes",
+        1,
+        "sha256:e80aca8e8c01cb79c19c83637e2958d48b8e86843a5b865a4ea618be86d3806e",
+        1,
+        "sha256:8f18a376a22a4d0943887f7020bc7a6c0536d21039ee1f22ab541b117a133999",
+    ),
+    # The stand-in's comment, which named the banner the real machine wears.
+    WriteStanza(
+        "control-assistant",
+        "# Delete the line on a laptop: the simulator image is amd64-only, so a",
+        3,
+        "sha256:7557ddf3c86a9245e4d5b1dc31a72d46a89e8c2fd425b42702f6c42170e11afe",
+        3,
+        "sha256:24247dd971887136c2a7e38327cc656e7a5c6d9ee9b6bcaa6bb5fed6e8c0b477",
+    ),
+    WriteStanza(
+        "hello-world",
+        "# write is refused before the limits check or the approval prompt is even",
+        1,
+        "sha256:cae435052c5791048c3acd5a74b7d278beac811cf47826bd2bd16e17c49823e9",
+        1,
+        "sha256:383412beeae8fa33449e63d1ebdb2e794e1a6ee70ec4c6d3d20334dd15d88562",
+    ),
+    WriteStanza(
+        "hello-world",
+        "control_system.writes: never",
+        1,
+        "sha256:88194b282cd242f33511a448710834fec5058da5c5925ba1d331d998f33bcfcb",
+        1,
+        "sha256:5e17e001d64e7e41ebfb856f2e5bcb30ef17d389c777da36448a446d91b63a18",
+    ),
+    WriteStanza(
+        "tiers/readonly",
+        "# at every write surface: channel-write tools land in the rendered",
+        4,
+        "sha256:2651efc04017af2746b818e064ecf4b10f6748a79877c69bea8d5421162c60ba",
+        3,
+        "sha256:afe4814f5c9f725d1aa17a0ab628d0ed68f29c3e53a4cc1b79f7695ef16b3312",
+    ),
+    WriteStanza(
+        "tiers/readonly",
+        "control_system.writes: never",
+        6,
+        "sha256:6e8ec4d3d2c95777f8c7e9233505b1d3b700599c74998cbe972141ed9e484ed7",
+        3,
+        "sha256:82e67cda3b2f935543a1a8ccb791b5ac0504321f25efd3fd1c99022319b64361",
+    ),
+    WriteStanza(
+        "tiers/readonly",
+        "#",
+        1,
+        "sha256:cfacbbb8563ef4d25cce60db32cb514f44a113b30d3b2cd90d2cdb2bd475bc8a",
+        1,
+        "sha256:31af145311961adff92ca6de4e8826a1d8131b9b0594cf1c029bf7869843b560",
+    ),
+    WriteStanza(
+        "tiers/readwrite",
+        "#",
+        6,
+        "sha256:b27562646623c3588a64e7185477ae24ef4b3cad9757733725209f53f60bcf86",
+        4,
+        "sha256:164599a2833156b9a036bfb19384a9ec5f7c4145e70f3e4bb7bffc481f2c933a",
+    ),
+    WriteStanza(
+        "tiers/readwrite",
+        "control_system.writes: allowed",
+        6,
+        "sha256:f570e2a1d6767f477cb13bf517f0012496dc1fc8604a710519ac91bddca0f2dc",
+        2,
+        "sha256:5bad65a1da7fdf15488a9490dbd180e08ca051f1b0f4b0ebff6e6bed261d4434",
+    ),
+    WriteStanza(
+        "tiers/readwrite",
+        "web.ui_mode: expert",
+        1,
+        "sha256:10d72c4916bfd1c7bb01e2a0f8302c118ed14fdd1c05aec617e6f1b2140058fe",
+        1,
+        "sha256:577f2e4790d551676cccda3ec34d49f56a0e6e1dc1255b99ce2872d261bd0fdc",
+    ),
+    WriteStanza(
+        "tiers/admin",
+        "# What makes this the admin tier is the deployment-editing block below, not a",
+        5,
+        "sha256:10020b2115f76dd4b0400534961374c024fcc9795a1c579f4dea2635433abf30",
+        2,
+        "sha256:6fdf4ff685e405e1b6b69e269b0384c00368057d5588de99a850de77661367dc",
+    ),
+    WriteStanza(
+        "apps/logbook",
+        "#",
+        3,
+        "sha256:7c4114f59e4681876a8e717a2b4473341cb08217693ec7e6b6a874383d5cea71",
+        2,
+        "sha256:45f8414a6ae749ae66d67bab745ac0e474b11e48197a6c6ee4f523604e6eb3bc",
+    ),
+    WriteStanza(
+        "apps/logbook",
+        "control_system.writes: never",
+        2,
+        "sha256:95d2f2142ddaed64959e9ae2e542ce94bc197b53e6b7e8471578f356d70582fd",
+        1,
+        "sha256:269e8240b883386a56542b4380304cd348e3b356d9cf50a1c200f874a722c3e4",
+    ),
+    WriteStanza(
+        "apps/knowledge",
+        "#",
+        3,
+        "sha256:7c4114f59e4681876a8e717a2b4473341cb08217693ec7e6b6a874383d5cea71",
+        2,
+        "sha256:45f8414a6ae749ae66d67bab745ac0e474b11e48197a6c6ee4f523604e6eb3bc",
+    ),
+    WriteStanza(
+        "apps/knowledge",
+        "control_system.writes: never",
+        2,
+        "sha256:95d2f2142ddaed64959e9ae2e542ce94bc197b53e6b7e8471578f356d70582fd",
+        1,
+        "sha256:269e8240b883386a56542b4380304cd348e3b356d9cf50a1c200f874a722c3e4",
+    ),
+    WriteStanza(
+        "apps/channel-finder",
+        "#",
+        3,
+        "sha256:7c4114f59e4681876a8e717a2b4473341cb08217693ec7e6b6a874383d5cea71",
+        2,
+        "sha256:45f8414a6ae749ae66d67bab745ac0e474b11e48197a6c6ee4f523604e6eb3bc",
+    ),
+    WriteStanza(
+        "apps/channel-finder",
+        "control_system.writes: never",
+        2,
+        "sha256:95d2f2142ddaed64959e9ae2e542ce94bc197b53e6b7e8471578f356d70582fd",
+        1,
+        "sha256:269e8240b883386a56542b4380304cd348e3b356d9cf50a1c200f874a722c3e4",
+    ),
+)
+
+#: A commented example of a retired write key, any spelling: dropped.
+_RETIRED_WRITE_EXAMPLE = re.compile(r"^\s*#\s*(?:[^\s#:]+\.)?writes_enabled\s*:")
+
+#: The tier key, dotted from ``config:``.
+_TIER_KEY = f"control_system.{WRITES_KEY_LEAF}"
+
+#: The tier key in its dotted spelling, as a line of a ``config:`` block.
+_TIER_KEY_LINE = re.compile(r"^\s*control_system\.writes\s*:")
+
+
+def _stanza_hash(lines: list[str]) -> str:
+    """Hash of a stanza's lines with their indentation and line ends removed."""
+    canonical = "\n".join(line.strip() for line in lines)
+    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def _preset_stanza(stanza: WriteStanza) -> list[str] | None:
+    """The lines the bundled preset writes above *stanza*'s anchor today; ``None`` if it no longer does."""
+    from .build_profile_presets import _presets_dir
+
+    path = _presets_dir() / f"{stanza.preset}.yml"
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    except OSError:
+        return None
+    for index, line in enumerate(lines):
+        if line.strip() != stanza.anchor or index < stanza.new_lines:
+            continue
+        region = lines[index - stanza.new_lines : index]
+        if _stanza_hash(region) == stanza.new_hash:
+            column = _indent(line)
+            return [entry[min(column, _indent(entry)) :] for entry in region]
+    return None
+
+
+def _rewrite_write_keys(document: Any, rel: str, steps: list[str]) -> bool:
+    """Rewrite the retired write-posture keys of one document to the tier key, in place.
+
+    The decision is the parse point's (:func:`retired_write_answer`, ``never``
+    in an app, the kind read from where *rel* lives); the placement is
+    :func:`~osprey.cli.build_profile_document._place_tier_key`'s, done with the
+    comment-keeping helpers: the tier key takes the place of the retired flat
+    key the render reads, else goes at the end of a nested ``control_system:``
+    block, else in front of the first per-type key. A connector block the
+    rewrite empties is reported in *steps*, not removed.
+
+    Returns:
+        Whether the document spelled a retired key.
+
+    Raises:
+        BuildProfileError: When it also spells ``control_system.writes``.
+    """
+    config = document.get("config") if isinstance(document, dict) else None
+    if not isinstance(config, dict):
+        return False
+    found = _WriteSpellings()
+    _scan_writes(config, (), None, found)
+    if not (found.flat or found.per_type):
+        return False
+    if found.new:
+        raise _mixed_writes_error(found, rel)
+    answer = (
+        "never" if _document_kind(Path(rel)) == "app" else retired_write_answer(config) or "never"
+    )
+
+    kept = _kept_flat_leaf(found)
+
+    if kept is None and found.block is not None:
+        block: Any = found.block  # a CommentedMap: the document is round-trip loaded
+        last = list(block.keys())[-1]
+        pred = _last_slot(block, last)
+        column = _key_column(block, next(iter(block)), 2)
+        block.insert(len(block), WRITES_KEY_LEAF, answer)
+        _place_after(pred, block, WRITES_KEY_LEAF, column, [])
+    elif kept is None:
+        top = found.per_type[0][2]
+        commented: Any = config
+        commented.insert(list(config.keys()).index(top), _TIER_KEY, answer)
+
+    for container, key, _top, name in found.per_type:
+        _drop_node(container, key, _predecessor(container, key), _key_column(container, key, 0))
+        if container is not config and not len(container):
+            steps.append(
+                f"{rel}: `control_system.connector.{name}` held only the retired "
+                f"`{RETIRED_WRITES_LEAF}`, so it is now empty; delete it, or give "
+                f"that machine the settings it needs"
+            )
+    for container, key, _top in found.flat:
+        if kept is not None and container is kept[0] and key == kept[1]:
+            continue
+        _drop_node(container, key, _predecessor(container, key), _key_column(container, key, 0))
+    if kept is not None:
+        container, key = kept
+        _rename_key(container, key, WRITES_KEY_LEAF)
+        renamed = key.rsplit(".", 1)[0] + "." + WRITES_KEY_LEAF if "." in key else WRITES_KEY_LEAF
+        old = container[renamed]
+        old_text = str(old).lower() if isinstance(old, bool) else str(old)
+        container[renamed] = answer
+        # The end-of-line comment keeps the gap the author left after the value.
+        commented_map: Any = container  # a CommentedMap: the document is round-trip loaded
+        entry = commented_map.ca.items.get(renamed)
+        token = entry[2] if entry and len(entry) > 2 else None
+        if isinstance(token, CommentToken) and not token.value.startswith("\n"):
+            column = max(0, token.column + len(answer) - len(old_text))
+            entry[2] = CommentToken(token.value, CommentMark(column))
+    return True
+
+
+def _rewrite_write_prose(text: str, rel: str, steps: list[str], *, rewrote: bool) -> str:
+    """*text* with the previous release's write-posture comments brought to this one.
+
+    A stanza in :data:`WRITE_STANZAS` is replaced by the bundled preset's
+    current stanza, and every commented example of a retired write key is
+    dropped. Prose left describing the retired keys — a comment line that names
+    ``writes_enabled``, the comment above a dropped example, or (when
+    *rewrote*) the comment above the tier key the rewrite wrote — is named in
+    *steps* for a hand edit. A line that is not a whole comment (the end of a
+    ``hooks:`` entry, say) is never named; only a stanza replaces one.
+    """
+    lines = text.splitlines(keepends=True)
+    replacements: list[tuple[int, int, list[str]]] = []
+    for stanza in WRITE_STANZAS:
+        for index, line in enumerate(lines):
+            if line.strip() != stanza.anchor or index < stanza.old_lines:
+                continue
+            start = index - stanza.old_lines
+            if _stanza_hash(lines[start:index]) != stanza.old_hash:
+                continue
+            if any(s < index and start < e for s, e, _ in replacements):
+                continue
+            current = _preset_stanza(stanza)
+            if current is None:
+                continue
+            pad = " " * _indent(line)
+            replacements.append(
+                (start, index, [pad + entry if entry.strip() else entry for entry in current])
+            )
+    # Each line paired with whether a replaced stanza now sits right above it.
+    marked = [(line, False) for line in lines]
+    for start, end, new in sorted(replacements, reverse=True):
+        marked[start : end + 1] = [(line, True) for line in new] + [(marked[end][0], True)]
+
+    prose: list[str] = []
+    kept: list[tuple[str, bool]] = []
+    for line, fresh in marked:
+        if _RETIRED_WRITE_EXAMPLE.match(line):
+            above = kept[-1] if kept else None
+            if above and not above[1] and _is_prose(above[0]):
+                prose.append(f"`{above[0].strip()}`, above the dropped `{line.strip()}`")
+            continue
+        kept.append((line, fresh))
+    for index, (line, fresh) in enumerate(kept):
+        stripped = line.strip()
+        if stripped.startswith("#") and RETIRED_WRITES_LEAF in stripped:
+            prose.append(f"`{stripped}`")
+        elif rewrote and not fresh and _TIER_KEY_LINE.match(line):
+            first = index
+            while first and not kept[first - 1][1] and _is_prose(kept[first - 1][0]):
+                first -= 1
+            if first < index:
+                prose.append(f"the comment from `{kept[first][0].strip()}` down to `{stripped}`")
+    if prose:
+        unique = list(dict.fromkeys(prose))
+        steps.append(
+            f"{rel}: comments written for the retired `{RETIRED_WRITES_LEAF}` keys "
+            f"remain; reword them for `{_TIER_KEY}` (`allowed` or `never`): " + "; ".join(unique)
+        )
+    return "".join(line for line, _fresh in kept)
+
+
+def _is_prose(line: str) -> bool:
+    """A whole-line comment with words in it (not a ``#`` spacer, not a key line)."""
+    stripped = line.strip()
+    if not stripped.startswith("#"):
+        return False
+    words = stripped.lstrip("#").strip()
+    return bool(words) and not _COMMENTED_KEY.match(words)
+
+
+#: A commented-out key line (``control_system.connector.epics.timeout_s: 5.0``).
+_COMMENTED_KEY = re.compile(r"^[\w\-]*[._][\w.\-]*:(\s|$)")
 
 
 def _tier_pins(config: Any) -> list[tuple[str, Any, Any]]:
@@ -866,8 +1322,7 @@ def _comment_text(lines: list[str]) -> str | None:
         stripped = line.strip()
         if stripped.startswith("#"):
             stripped = stripped[1:]
-            if stripped.startswith(" "):
-                stripped = stripped[1:]
+            stripped = stripped.removeprefix(" ")
         text.append(stripped)
     while text and not text[-1]:
         text.pop()
@@ -1046,10 +1501,12 @@ def _claimed_elsewhere(document: Any) -> dict[str, str]:
 def _skipped_keys(document: Any, lacking: list[str]) -> dict[str, str]:
     """The lacking keys the fill must NOT write, each with the reason.
 
-    Two reasons, both about a key whose absence is correct rather than
+    Three reasons, each about a key whose absence is correct rather than
     accidental: it is, or sits below, the deployment's own data
-    (:func:`_deployment_data_keys`), or its fact is stated in another block of
-    this profile (:func:`_claimed_elsewhere`).
+    (:func:`_deployment_data_keys`); its fact is stated in another block of
+    this profile (:func:`_claimed_elsewhere`); or it is the tier key
+    ``control_system.writes``, which a silent root reads as ``never`` and a
+    preset never decides for a deployment.
     """
     if not lacking:
         return {}
@@ -1057,6 +1514,12 @@ def _skipped_keys(document: Any, lacking: list[str]) -> dict[str, str]:
     claimed = _claimed_elsewhere(document)
     skipped: dict[str, str] = {}
     for key in lacking:
+        if key == _TIER_KEY:
+            skipped[key] = (
+                "a root that does not state it reads as `never`; whether this "
+                "deployment allows writes is never filled in from a preset."
+            )
+            continue
         if key in claimed:
             skipped[key] = f"stated by `{claimed[key]}`. The build writes it here for you."
             continue
@@ -1502,6 +1965,352 @@ def _drop_helper_selections(document: Any) -> list[str]:
     return removed
 
 
+def _rewrite_shipped_shadows(document: Any, artifacts: list[str]) -> list[str]:
+    """Turn every bare entry the deployment ships a file for into that file's path, in place.
+
+    Before the by-name rule such a file replaced the library artifact wherever
+    the bare name was selected; now it does only where its path is named. The
+    entry keeps its position and its line comment.
+
+    Args:
+        document: A round-trip profile or app document.
+        artifacts: The repo's list-selected artifacts, as the build names them.
+
+    Returns:
+        The paths written, in list order.
+    """
+    from .profile_conventions import SELECTED_CONVENTION_SOURCES, library_entry_shadow
+
+    shipped = set(artifacts)
+    written: list[str] = []
+    if not isinstance(document, CommentedMap):
+        return written
+    for field_name in SELECTED_CONVENTION_SOURCES:
+        seq = document.get(field_name)
+        if not isinstance(seq, CommentedSeq):
+            continue
+        for index, entry in enumerate(seq):
+            path = library_entry_shadow(field_name, entry)
+            if path is not None and path in shipped and path not in seq:
+                seq[index] = path
+                written.append(path)
+    return written
+
+
+def name_shipped_shadows(root: Path) -> list[str]:
+    """Name every library-named file the repo at *root* ships by its path, in place.
+
+    ``osprey init`` seeds the deployment's own copy of the facility description
+    beside a profile that selects the library rule by its bare name; this is
+    what makes the profile, and every app, select the copy instead.
+
+    Args:
+        root: The repo root; holds ``profile.yml`` and maybe ``apps/``.
+
+    Returns:
+        The files rewritten, repo-relative.
+    """
+    from .profile_conventions import unselected_convention_artifacts
+
+    shipped = unselected_convention_artifacts(root, frozenset())
+    if not shipped:
+        return []
+    apps_dir = root / APPS_DIRNAME
+    rels = [PROFILE_FILENAME]
+    if apps_dir.is_dir():
+        rels += [f"{APPS_DIRNAME}/{path.name}" for path in sorted(apps_dir.glob("*.yml"))]
+    changed: list[str] = []
+    for rel in rels:
+        path = root / rel
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        rewritten = _rewrite_shadow_lines(text, rel, shipped)
+        if rewritten != text:
+            path.write_text(rewritten, encoding="utf-8")
+            changed.append(rel)
+    return changed
+
+
+def _name_convention_artifacts_text(text: str, rel: str, artifacts: list[str]) -> str:
+    """:func:`_name_convention_artifacts` on a file's text, changing nothing else in it.
+
+    For a file revalidate does not otherwise re-dump — an app — so its quoting,
+    its empty values and its comments come back byte for byte: a bare entry the
+    repo ships a file for becomes that path on its own line, and every artifact
+    still unnamed is added as a line of its own.
+    """
+    from .profile_conventions import SELECTED_CONVENTION_SOURCES, convention_selections
+
+    text = _rewrite_shadow_lines(text, rel, artifacts)
+    document = _load_text(text, rel)
+    if not isinstance(document, CommentedMap):
+        return text
+    selected = convention_selections(
+        {field: document.get(field) or [] for field in SELECTED_CONVENTION_SOURCES}
+    )
+    field_for = {source: field for field, source in SELECTED_CONVENTION_SOURCES.items()}
+    missing: dict[str, list[str]] = {}
+    for artifact in artifacts:
+        if artifact not in selected:
+            missing.setdefault(field_for[artifact.partition("/")[0]], []).append(artifact)
+    for field_name, entries in missing.items():
+        text = _append_list_lines(text, rel, field_name, entries)
+    return text
+
+
+def _append_list_lines(text: str, rel: str, field_name: str, entries: list[str]) -> str:
+    """*text* with *entries* added to its top-level list *field_name*, line by line.
+
+    A block list gains one line per entry under its last item, a one-line flow
+    list gains them inside its brackets, an empty key gains a block under it,
+    and an absent key is added as a block above ``config:`` and the comment
+    that introduces it (at the end of a file with no ``config:``).
+    """
+    document = _load_text(text, rel)
+    lines = text.splitlines(keepends=True)
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    value = document.get(field_name)
+    key_line, key_col = document.lc.key(field_name) if field_name in document else (0, 0)
+    # Read off the text: ruamel does not mark an empty `[]` as flow style.
+    after_key = lines[key_line][key_col:].split(":", 1)[-1].lstrip() if value is not None else ""
+    if isinstance(value, CommentedSeq) and after_key.startswith("["):
+        line = lines[key_line]
+        start = line.find("[", key_col)
+        end = line.find("]", start)
+        if start < 0 or end < 0:
+            raise BuildProfileError(
+                f"{rel}: `{field_name}:` is a flow list over several lines; write it one "
+                f"entry per line and run `osprey init --revalidate` again"
+            )
+        inner = line[start + 1 : end].rstrip()
+        joined = ", ".join([inner, *entries]) if inner.strip() else ", ".join(entries)
+        lines[key_line] = line[: start + 1] + joined + line[end:]
+    elif isinstance(value, CommentedSeq) and len(value):
+        first_line, first_col = value.lc.item(0)
+        prefix = lines[first_line][:first_col]
+        last_line = value.lc.item(len(value) - 1)[0]
+        lines[last_line + 1 : last_line + 1] = [f"{prefix}{entry}\n" for entry in entries]
+    elif field_name in document:
+        block = [f"{' ' * (key_col + 2)}- {entry}\n" for entry in entries]
+        lines[key_line + 1 : key_line + 1] = block
+    else:
+        at = len(lines)
+        if "config" in document:
+            at = document.lc.key("config")[0]
+            while at and lines[at - 1].startswith("#"):
+                at -= 1
+        lines[at:at] = [f"{field_name}:\n", *(f"  - {entry}\n" for entry in entries)]
+    return "".join(lines)
+
+
+def shipped_shadow_texts(root: Path, texts: dict[str, str]) -> dict[str, str]:
+    """*texts* (repo-relative path → YAML) as :func:`name_shipped_shadows` leaves them in *root*."""
+    from .profile_conventions import unselected_convention_artifacts
+
+    shipped = unselected_convention_artifacts(root, frozenset())
+    if not shipped:
+        return dict(texts)
+    return {rel: _rewrite_shadow_lines(text, rel, shipped) for rel, text in texts.items()}
+
+
+def _rewrite_shadow_lines(text: str, rel: str, shipped: list[str]) -> str:
+    """*text* with each bare entry the repo ships a file for spelled as its path.
+
+    Edited line by line rather than re-dumped, so a file ``osprey init`` just
+    emitted changes in those entries and nowhere else: the round-trip writer
+    does not keep every scalar's spelling (an empty value comes back ``null``).
+    A line comment keeps its column where the longer entry leaves room.
+    """
+    from .profile_conventions import SELECTED_CONVENTION_SOURCES, library_entry_shadow
+
+    document = _load_text(text, rel)
+    if not isinstance(document, CommentedMap):
+        return text
+    lines = text.splitlines(keepends=True)
+    shipped_set = set(shipped)
+    for field_name in SELECTED_CONVENTION_SOURCES:
+        seq = document.get(field_name)
+        if not isinstance(seq, CommentedSeq) or seq.fa.flow_style():
+            continue
+        for index, entry in enumerate(seq):
+            path = library_entry_shadow(field_name, entry)
+            if path is None or path not in shipped_set or path in seq:
+                continue
+            line_no, column = seq.lc.item(index)
+            line = lines[line_no]
+            if line[column : column + len(entry)] != entry:
+                continue
+            rest = line[column + len(entry) :]
+            pad = len(rest) - len(rest.lstrip(" "))
+            grow = len(path) - len(entry)
+            if rest.lstrip(" ").startswith("#") and pad > grow:
+                rest = rest[grow:]
+            lines[line_no] = line[:column] + path + rest
+    return "".join(lines)
+
+
+def _name_convention_artifacts(document: Any, artifacts: list[str]) -> list[str]:
+    """Append every artifact in *artifacts* that *document*'s lists do not select, in place.
+
+    Before the by-name rule a profile's own skills, agents, rules, output styles
+    and hooks rendered into every render, and one named like a library artifact
+    replaced it wherever the bare name was selected; now each renders only where
+    its path is named. So a bare entry the deployment ships a file for becomes
+    that path, in place, and every artifact still unnamed is appended — which
+    keeps the file's render exactly what it was. No kind is left out for any
+    file: trimming one is an edit the operator makes afterwards.
+
+    Args:
+        document: A round-trip profile or app document.
+        artifacts: Every list-selected convention artifact the repo ships, as
+            the build names them (``skills/beam-check``, ``hooks/osprey_limits.py``);
+            a facility hook is never among them (its declaration wires it).
+
+    Returns:
+        The paths written: rewritten bare entries first, then those appended.
+    """
+    from .profile_conventions import SELECTED_CONVENTION_SOURCES, convention_selections
+
+    if not isinstance(document, CommentedMap):
+        return []
+    added = _rewrite_shipped_shadows(document, artifacts)
+    lists = {
+        field: value if isinstance(value, list) else []
+        for field in SELECTED_CONVENTION_SOURCES
+        for value in (document.get(field),)
+    }
+    selected = convention_selections(lists)
+    field_for = {source: field for field, source in SELECTED_CONVENTION_SOURCES.items()}
+    for artifact in artifacts:
+        if artifact in selected:
+            continue
+        field_name = field_for[artifact.partition("/")[0]]
+        seq = document.get(field_name)
+        if not isinstance(seq, CommentedSeq):
+            keys = list(document.keys())
+            if field_name in document:
+                position = keys.index(field_name)
+                document.pop(field_name)
+            else:
+                position = keys.index("config") if "config" in keys else len(keys)
+            pred = _last_slot(document, keys[position - 1]) if position else None
+            document.insert(position, field_name, CommentedSeq())
+            seq = document[field_name]
+            seq.append(artifact)
+            if pred is not None:
+                # What followed the key before it introduced the next key; it
+                # still does, rather than now sitting above this list.
+                _place_after(pred, document, field_name, 0, [])
+        elif not len(seq):
+            # `skills: []` grows into a block list, the way every list with
+            # entries is spelled.
+            seq.fa.set_block_style()
+            seq.append(artifact)
+        else:
+            column = _item_column(seq, 2)
+            pred = _last_slot(seq, len(seq) - 1)
+            seq.append(artifact)
+            _place_after(pred, seq, len(seq) - 1, column, [])
+        added.append(artifact)
+    return added
+
+
+def _listed_artifacts(artifacts: list[str]) -> list[str]:
+    """The artifacts of *artifacts* a list may name: every one but a facility hook.
+
+    A facility hook is wired, and so copied, by its ``claude_code.hooks``
+    declaration alone; only a file replacing an OSPREY hook is listed.
+    """
+    from .profile_conventions import replaces_library_artifact
+
+    return [a for a in artifacts if not a.startswith("hooks/") or replaces_library_artifact(a)]
+
+
+def _host_session_hooks(config: Any) -> dict[str, list[Any]]:
+    """The host's facility hook declarations on every event but the guard event.
+
+    Before the by-name rule an app inherited every host declaration. A guard
+    still reaches every app (guards are a floor); any other event reaches only
+    an app whose own ``config:`` declares it, so the migration writes it there.
+    """
+    from .profile_conventions import GUARD_EVENT, declared_hooks
+
+    return {
+        event: entries
+        for event, entries in declared_hooks(config if isinstance(config, dict) else {}).items()
+        if event != GUARD_EVENT and entries
+    }
+
+
+def _yaml_flow(entry: Any) -> str:
+    """One declaration entry as a single-line YAML value."""
+    if isinstance(entry, str):
+        return entry
+    return yaml.safe_dump(dict(entry), default_flow_style=True, sort_keys=False).strip()
+
+
+def _carry_host_hooks_text(text: str, rel: str, declared: dict[str, list[Any]]) -> str:
+    """*text* (an app file) declaring each of the host's *declared* hooks it does not yet.
+
+    Each missing entry is added under the app's own dotted
+    ``claude_code.hooks.<event>`` key — appended to it when the app has one,
+    added at the top of ``config:`` otherwise — and nothing else in the file
+    changes.
+
+    Raises:
+        BuildProfileError: If the app declares that event in another spelling,
+            which a line edit cannot extend safely.
+    """
+    from .profile_conventions import declared_hook_path, declared_hooks
+
+    for event, entries in declared.items():
+        document = _load_text(text, rel)
+        if not isinstance(document, CommentedMap):
+            return text
+        config = document.get("config")
+        own = declared_hooks(config) if isinstance(config, CommentedMap) else {}
+        have = {declared_hook_path(e) for e in own.get(event, [])}
+        missing = [e for e in entries if declared_hook_path(e) not in have]
+        if not missing:
+            continue
+        key = f"claude_code.hooks.{event}"
+        lines = text.splitlines(keepends=True)
+        if lines and not lines[-1].endswith("\n"):
+            lines[-1] += "\n"
+        value = config.get(key) if isinstance(config, CommentedMap) else None
+        if isinstance(value, CommentedSeq) and len(value) and not value.fa.flow_style():
+            first_line, first_col = value.lc.item(0)
+            prefix = lines[first_line][:first_col]
+            last_line = value.lc.item(len(value) - 1)[0]
+            lines[last_line + 1 : last_line + 1] = [f"{prefix}{_yaml_flow(e)}\n" for e in missing]
+        elif event in own:
+            raise BuildProfileError(
+                f"{rel}: declares claude_code.hooks.{event} in a spelling revalidate cannot "
+                f"extend; add {', '.join(_yaml_flow(e) for e in missing)} to it by hand, or "
+                f"spell it as one `{key}:` block list and run `osprey init --revalidate` again"
+            )
+        else:
+            if isinstance(config, CommentedMap) and len(config):
+                at, column = config.lc.key(next(iter(config)))
+                indent = " " * column
+            elif "config" in document:
+                at, indent = document.lc.key("config")[0] + 1, "  "
+            else:
+                lines.append("config:\n")
+                at, indent = len(lines), "  "
+            block = [
+                f"{indent}# Carried from profile.yml: an app runs a host hook on {event} "
+                "only where it declares it.\n",
+                f"{indent}{key}:\n",
+                *(f"{indent}  - {_yaml_flow(e)}\n" for e in missing),
+            ]
+            lines[at:at] = block
+        text = "".join(lines)
+    return text
+
+
 def _catalog_stem(build_profile: Any) -> str | None:
     """``<s>`` when a catalog ``build_profile`` names ``<d>/<s>.yml`` for a directory ``<d>`` read as tiers."""
     if not isinstance(build_profile, str):
@@ -1642,10 +2451,18 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
             continue
         if edited:
             if retired.kind == APPS_DIRNAME:
+                # The one edit worth naming: a model the card ran on, which the
+                # bundled app does not set, so the app would run the host's.
+                model = data.get("model") if isinstance(data, dict) else None
+                carry = (
+                    f"your edits, its `model: {model}` among them, into {app_rel}"
+                    if model
+                    else f"your edits into {app_rel}"
+                )
                 steps.append(
                     f"{rel} was made from `{source}` and has been edited, so it stays a tier. "
                     f"To run it as the `{successor}` app: run `osprey scaffold apps`, carry "
-                    f"your edits into {app_rel}, list `{successor}` under `shared:`, and "
+                    f"{carry}, list `{successor}` under `shared:`, and "
                     f"remove {rel} and the users pinned to it"
                 )
             else:
@@ -1731,7 +2548,7 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
             for knob, value in fields.items():
                 if knob == "build_profile":
                     continue
-                if knob in _LAYER_FILE_KNOBS:
+                if knob in RENDER_KEYS:
                     target = knobs if rel == PROFILE_FILENAME else overlay_knobs
                     target.setdefault(name, {})[knob] = value
                 elif knob == "landing_group":
@@ -1767,6 +2584,84 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
             )
             continue
         writes[rel] = _put_knobs(text, rel, values)
+
+    # ── The write posture, in every file kept ───────────────────────────────
+    # After the tier files are classified (a retired preset is recognized by
+    # its text as the previous release wrote it) and before the fill, which
+    # must see the tier key where the retired one stood rather than add it.
+    for rel, doc in list(documents.items()):
+        rewrote = _rewrite_write_keys(doc, rel, steps)
+        dumped = _dump_text(doc)
+        text = _rewrite_write_prose(dumped, rel, steps, rewrote=rewrote)
+        if text != dumped:
+            documents[rel] = _load_text(text, rel)
+    document = documents[PROFILE_FILENAME]
+    kept_layers = {layers[stem].rel: layers[stem].text for stem in sorted(tiers_left)}
+    for path in existing_apps.values():
+        kept_layers.setdefault(f"{APPS_DIRNAME}/{path.name}", path.read_text(encoding="utf-8"))
+    for rel, original in kept_layers.items():
+        if rel in deletes:
+            continue
+        text = writes.get(rel, original)
+        try:
+            layer_doc = _load_text(text, rel)
+        except BuildProfileError:
+            # The round-trip reader is stricter than the build's (a key
+            # written twice, say), so a file it refuses is not rewritten.
+            data = _safe_load(text, rel)
+            if isinstance(data, dict) and retired_write_answer(data.get("config")) is not None:
+                steps.append(
+                    f"{rel} spells the retired `{RETIRED_WRITES_LEAF}` keys but could not be "
+                    f"rewritten in place; replace them with `{_TIER_KEY}: allowed` or "
+                    f"`{_TIER_KEY}: never` by hand"
+                )
+            continue
+        rewrote = _rewrite_write_keys(layer_doc, rel, steps)
+        rewritten = _rewrite_write_prose(
+            _dump_text(layer_doc) if rewrote else text, rel, steps, rewrote=rewrote
+        )
+        if rewritten != text:
+            writes[rel] = rewritten
+    # ── Own skills, agents, rules, output styles, hooks: named ──────────────
+    # Each now renders only where a list names it. profile.yml and every app
+    # name all of them, which is what each render carried before; a tier
+    # inherits profile.yml's lists. A facility hook is the exception: its
+    # declaration wires and copies it, so it is never listed, and each app
+    # declares the host's non-guard hooks it used to inherit.
+    from .build_persistence import (
+        FACILITY_RULE_NAME,
+        FACILITY_RULE_PATH_ENTRY,
+        FACILITY_RULE_RELPATH,
+    )
+    from .profile_conventions import BUILD_OUTPUT_DIR, unselected_convention_artifacts
+
+    shipped = _listed_artifacts(unselected_convention_artifacts(root, frozenset()))
+    # A repo from before the facility description moved into the profile keeps
+    # its only, edited copy in build/; the bare `facility` it selects now means
+    # OSPREY's rule, so that copy is moved into the profile (below, with the
+    # other writes) and named by its path like every shipped shadow.
+    rescued_facility_rule = (
+        root / BUILD_OUTPUT_DIR / ".claude" / FACILITY_RULE_RELPATH
+        if not (root / FACILITY_RULE_RELPATH).exists()
+        and FACILITY_RULE_NAME in (document.get("rules") or [])
+        and (root / BUILD_OUTPUT_DIR / ".claude" / FACILITY_RULE_RELPATH).is_file()
+        else None
+    )
+    if rescued_facility_rule is not None:
+        shipped = sorted({*shipped, FACILITY_RULE_PATH_ENTRY})
+        writes[FACILITY_RULE_RELPATH.as_posix()] = rescued_facility_rule.read_text(encoding="utf-8")
+    session_hooks = _host_session_hooks(document.get("config"))
+    if shipped or session_hooks:
+        if shipped:
+            _name_convention_artifacts(document, shipped)
+        app_rels = {f"{APPS_DIRNAME}/{path.name}" for path in existing_apps.values()}
+        app_rels |= {rel for rel in writes if rel.startswith(f"{APPS_DIRNAME}/")}
+        for rel in sorted(app_rels - deletes):
+            text = writes.get(rel) or (root / rel).read_text(encoding="utf-8")
+            named = _name_convention_artifacts_text(text, rel, shipped) if shipped else text
+            named = _carry_host_hooks_text(named, rel, session_hooks)
+            if named != text:
+                writes[rel] = named
 
     # ── Lacking config leaves, providers.yml, provenance ────────────────────
     resolved = _resolve_preset(document, preset, root / PROFILE_FILENAME)
@@ -1828,7 +2723,7 @@ def _plan_providers(root: Path) -> Any:
     from .profile_cmd import _plan_provider_catalog
 
     try:
-        return _plan_provider_catalog(root)
+        return _plan_provider_catalog(root, keep_values=True)
     except click.UsageError as e:
         raise BuildProfileError(e.message) from e
 

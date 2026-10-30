@@ -42,6 +42,9 @@ def _base_ctx(**overrides):
         "current_python_env": "/usr/bin/python3",
         "agent_data_root": DEFAULT_AGENT_DATA_BASE_DIR,
         "phoebus_agent_access": "read_write",
+        # The render funnel derives it from agent_record.retention_days;
+        # settings.json.j2 renders it unconditionally.
+        "cleanup_period_days": 30,
     }
     ctx.update(overrides)
     return ctx
@@ -1325,12 +1328,6 @@ class TestResolveAgents:
 
 class TestTemplateRendering:
     """Tests that templates render valid JSON with the new data-driven approach."""
-
-    @pytest.fixture()
-    def template_manager(self):
-        from osprey.cli.templates.manager import TemplateManager
-
-        return TemplateManager()
 
     def _render(self, tm, template_path, ctx):
         template = tm.jinja_env.get_template(template_path)

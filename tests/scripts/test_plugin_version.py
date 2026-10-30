@@ -18,7 +18,6 @@ No test reads the real checkout's history.
 
 from __future__ import annotations
 
-import importlib.util
 import shutil
 import subprocess
 from datetime import date
@@ -26,12 +25,11 @@ from pathlib import Path
 
 import pytest
 
+from tests._by_path import load_module
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _MODULE_PATH = _REPO_ROOT / "scripts" / "plugin_version.py"
-_spec = importlib.util.spec_from_file_location("plugin_version", _MODULE_PATH)
-assert _spec and _spec.loader
-pv = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(pv)
+pv = load_module("plugin_version", _MODULE_PATH)
 
 CLAUDE_MANIFEST = """\
 {

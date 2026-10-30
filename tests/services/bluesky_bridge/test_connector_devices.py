@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import inspect
 import time
-from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
@@ -40,76 +39,10 @@ from osprey.services.bluesky_bridge.devices.connector import (  # noqa: E402
 )
 from osprey.services.bluesky_bridge.devices.specs import ReadableSpec, SettableSpec  # noqa: E402
 from osprey_connectors.errors import ChannelWriteBlockedError, ChannelWriteFailedError  # noqa: E402
-
-
-@dataclass
-class _FakeChannelValue:
-    """Stand-in for ``osprey_connectors.control_system._base.ChannelValue``."""
-
-    value: Any
-    timestamp: float = field(default_factory=time.time)
-
-
-@dataclass
-class _FakeWriteResult:
-    """Stand-in for a ``ChannelWriteResult`` returned by ``write_channel_checked``.
-
-    Only the fields the device reads: the single owned ``outcome`` word and the
-    ``observed_value`` the confirming re-read returned. ``write_channel_checked``
-    only ever returns ``confirmed`` or ``unrequested`` — every other outcome
-    raises before the device sees a result.
-    """
-
-    channel_address: str
-    value_written: Any
-    outcome: str = "confirmed"
-    observed_value: Any = None
-
-
-class FakeConnector:
-    """A minimal async double for ``ControlSystemConnector``.
-
-    ``read_channel`` returns whatever ``readbacks[address]`` currently holds
-    (a plain mutable dict, so a test can move the simulated readback after
-    the fact). ``write_channel_checked`` either records the call and updates
-    the readback (default), or raises/behaves however the test configures it
-    via ``write_side_effect``/``echo_readback``.
-    """
-
-    def __init__(self, readbacks: dict[str, float] | None = None) -> None:
-        self.readbacks: dict[str, float] = dict(readbacks or {})
-        self.write_calls: list[tuple[str, Any, dict[str, Any]]] = []
-        self.read_calls: list[str] = []
-        self.write_side_effect: Exception | None = None
-        self.echo_readback = True
-        # Maps a written channel address to the (possibly separate) readback
-        # address it should echo into. Defaults to echoing into the same
-        # address that was written.
-        self.echo_target: dict[str, str] = {}
-        # The outcome the returned result carries. ``confirmed`` is the default;
-        # ``unrequested`` simulates a channel configured ``confirm: false``, the
-        # only other outcome ``write_channel_checked`` returns rather than raises.
-        self.write_outcome = "confirmed"
-
-    async def read_channel(self, channel_address: str, timeout: float | None = None):  # noqa: ARG002 - the connector read signature
-        self.read_calls.append(channel_address)
-        return _FakeChannelValue(value=self.readbacks.get(channel_address))
-
-    async def write_channel_checked(self, channel_address: str, value: Any, **kwargs: Any):
-        self.write_calls.append((channel_address, value, kwargs))
-        if self.write_side_effect is not None:
-            raise self.write_side_effect
-        if self.echo_readback:
-            target = self.echo_target.get(channel_address, channel_address)
-            self.readbacks[target] = value
-        # Like a real connector, the value the result observed is of the channel
-        # that was WRITTEN — not of any separate readback channel.
-        return _FakeWriteResult(
-            channel_address,
-            value,
-            outcome=self.write_outcome,
-            observed_value=self.readbacks.get(channel_address),
-        )
+from tests.services.bluesky_bridge._fake_connector import (  # noqa: E402
+    FakeChannelValue,
+    FakeConnector,
+)
 
 
 async def test_set_raises_on_blocked_write() -> None:
@@ -215,7 +148,7 @@ async def test_set_settles_within_an_authored_tolerance(
 
     async def read_near_miss(channel_address: str, timeout: float | None = None):  # noqa: ARG001 - the connector read signature
         fake.read_calls.append(channel_address)
-        return _FakeChannelValue(value=5.0 - 0.005)
+        return FakeChannelValue(value=5.0 - 0.005)
 
     monkeypatch.setattr(fake, "read_channel", read_near_miss)
     device = ConnectorSettable(fake, "SP", readback_pv="RB", name="motor")
@@ -230,7 +163,7 @@ def _held_at(fake: FakeConnector, value: float) -> Any:
 
     async def read(channel_address: str, timeout: float | None = None):  # noqa: ARG001 - the connector read signature
         fake.read_calls.append(channel_address)
-        return _FakeChannelValue(value=value)
+        return FakeChannelValue(value=value)
 
     return read
 
@@ -497,7 +430,7 @@ async def test_set_polls_an_unrequested_write_until_the_readback_settles(
     async def settle_after_first_poll(channel_address: str, timeout: float | None = None):  # noqa: ARG001 - the connector read signature
         fake.read_calls.append(channel_address)
         fake.readbacks["SP"] = 3.5
-        return _FakeChannelValue(value=fake.readbacks["SP"])
+        return FakeChannelValue(value=fake.readbacks["SP"])
 
     fake.read_channel = settle_after_first_poll  # type: ignore[method-assign]
 
@@ -628,7 +561,7 @@ def test_a_connector_settable_is_bluesky_locatable() -> None:
     located: list[Any] = []
 
     def _plan():
-        located.append((yield from bps.locate(device)))
+        located.append((yield from bps.loc(device)))
 
     assert isinstance(device, Locatable)
     RunEngine(context_managers=[])(_plan())

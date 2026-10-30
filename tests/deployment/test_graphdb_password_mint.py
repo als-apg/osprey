@@ -39,6 +39,7 @@ from osprey.deployment.service_tokens import (
     _generate_token,
     _validate_var,
 )
+from tests.deployment._dotenv import project_env
 
 #: The bare password half of the compose template's published
 #: ``NEO4J_AUTH: "neo4j/${GRAPHDB_PASSWORD:-ospreygraph}"`` fallback. Spelled
@@ -48,7 +49,7 @@ from osprey.deployment.service_tokens import (
 PUBLISHED_DEFAULT = "ospreygraph"
 
 
-def _deploy_fixture(monkeypatch, tmp_path, services):
+def _deploy_fixture(stub_deploy_up, monkeypatch, services):
     """Patch deploy_up's collaborators for a project deploying ``services``.
 
     The stubbed config carries a ``services.graphdb`` block whenever graphdb is
@@ -63,47 +64,24 @@ def _deploy_fixture(monkeypatch, tmp_path, services):
     store to answer — left in, every test here would sit out the staging step's
     full connection budget before failing on something unrelated to minting.
     """
-    captured: dict = {}
-
     config: dict = {"deployed_services": list(services)}
     if "graphdb" in services:
         config["services"] = {"graphdb": {"port_host": 7687, "http_port_host": 7474}}
 
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        container_lifecycle,
-        "prepare_compose_files",
-        lambda *a, **k: (config, ["docker-compose.yml"]),
-    )
-    monkeypatch.setattr(
-        container_lifecycle,
-        "_stage_graphdb_store",
-        lambda *a, **k: None,
-    )
-    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
-    monkeypatch.setattr(
-        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
-    )
-
-    def _fake_run(cmd, env=None, check=False, **kwargs):  # noqa: ARG001 - subprocess.run's keywords
-        captured["cmd"] = cmd
-        # run_captured re-wraps this result to carry its spool path, so the
-        # stand-in has to be a real completed process, and it passes redirection
-        # kwargs this ignores.
-        return subprocess.CompletedProcess(list(cmd), 0)
-
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
-    return captured
+    # Every start builds the project image agent-record runs on; no build here.
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "_stage_graphdb_store", lambda *a, **k: None)
+    return stub_deploy_up(config, seam="subprocess.run")
 
 
 @pytest.fixture
-def captured_argv(monkeypatch, tmp_path):
+def captured_argv(stub_deploy_up, monkeypatch):
     """A project with only 'graphdb' deployed — the minting path."""
-    return _deploy_fixture(monkeypatch, tmp_path, ["graphdb"])
+    return _deploy_fixture(stub_deploy_up, monkeypatch, ["graphdb"])
 
 
 @pytest.fixture
-def external_store_argv(monkeypatch, tmp_path):
+def external_store_argv(stub_deploy_up, monkeypatch):
     """A project with NO graphdb deployed — the external-store path.
 
     ``postgresql`` stands in for "some other service is deployed" so the deploy
@@ -111,7 +89,7 @@ def external_store_argv(monkeypatch, tmp_path):
     is absent from ``deployed_services``, which is what makes GRAPHDB_PASSWORD
     validate-only rather than minted.
     """
-    return _deploy_fixture(monkeypatch, tmp_path, ["postgresql"])
+    return _deploy_fixture(stub_deploy_up, monkeypatch, ["postgresql"])
 
 
 @pytest.fixture(autouse=True)
@@ -132,18 +110,11 @@ def _clean_token_env(monkeypatch):
     monkeypatch.delenv("ARIEL_DSN", raising=False)
 
 
-def _parse_env(tmp_path):
-    from osprey_connectors.dotenv import parse_dotenv_file
-
-    path = tmp_path / ".env"
-    return parse_dotenv_file(path) if path.is_file() else {}
-
-
 @pytest.mark.usefixtures("captured_argv")
 def test_graphdb_deploy_mints_graphdb_password(tmp_path):
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
 
-    env = _parse_env(tmp_path)
+    env = project_env(tmp_path)
     assert env.get("GRAPHDB_PASSWORD")
     # token_hex(32) → 64 hex chars, 256 bits of entropy.
     assert len(env["GRAPHDB_PASSWORD"]) == 64
@@ -178,9 +149,9 @@ def test_minted_value_is_never_the_published_default():
 @pytest.mark.usefixtures("captured_argv")
 def test_graphdb_mint_is_idempotent(tmp_path):
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
-    first = _parse_env(tmp_path)
+    first = project_env(tmp_path)
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
-    second = _parse_env(tmp_path)
+    second = project_env(tmp_path)
 
     assert first["GRAPHDB_PASSWORD"] == second["GRAPHDB_PASSWORD"]
     assert (tmp_path / ".env").read_text().count("GRAPHDB_PASSWORD=") == 1
@@ -191,7 +162,7 @@ def test_existing_graphdb_password_is_preserved(tmp_path):
     """The volume that adopted the value outlives any later mint."""
     (tmp_path / ".env").write_text("GRAPHDB_PASSWORD=preexistingvalue\n", encoding="utf-8")
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
-    assert _parse_env(tmp_path)["GRAPHDB_PASSWORD"] == "preexistingvalue"
+    assert project_env(tmp_path)["GRAPHDB_PASSWORD"] == "preexistingvalue"
 
 
 @pytest.mark.parametrize(
@@ -234,7 +205,7 @@ def test_password_at_the_minimum_length_is_accepted(tmp_path):
     """Exactly 8 characters is Neo4j's floor, not one over it."""
     (tmp_path / ".env").write_text("GRAPHDB_PASSWORD=eightchr\n", encoding="utf-8")
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
-    assert _parse_env(tmp_path)["GRAPHDB_PASSWORD"] == "eightchr"
+    assert project_env(tmp_path)["GRAPHDB_PASSWORD"] == "eightchr"
 
 
 @pytest.mark.usefixtures("captured_argv")
@@ -272,7 +243,7 @@ class TestExternalStore:
     @pytest.mark.usefixtures("external_store_argv")
     def test_absent_password_is_never_fabricated(self, tmp_path):
         container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
-        env = _parse_env(tmp_path)
+        env = project_env(tmp_path)
         assert "GRAPHDB_PASSWORD" not in env
         # The deploy still ran its own service's mint, so this is a scoped
         # absence rather than a deploy that did nothing.
@@ -282,7 +253,7 @@ class TestExternalStore:
     def test_operator_supplied_password_is_preserved(self, tmp_path):
         (tmp_path / ".env").write_text("GRAPHDB_PASSWORD=externalstorepw\n", encoding="utf-8")
         container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
-        assert _parse_env(tmp_path)["GRAPHDB_PASSWORD"] == "externalstorepw"
+        assert project_env(tmp_path)["GRAPHDB_PASSWORD"] == "externalstorepw"
 
     @pytest.mark.parametrize("bad", ["neo4j/secret", "p@ssword", "short"])
     @pytest.mark.usefixtures("external_store_argv")
@@ -554,7 +525,7 @@ class TestStalenessAndAdoption:
         )
         _adopt_original_credentials(env_path, stale, originals)
 
-        written = _parse_env(tmp_path)["GRAPHDB_PASSWORD"]
+        written = project_env(tmp_path)["GRAPHDB_PASSWORD"]
         assert written == "theOriginal"
         assert not written.startswith("neo4j/")
 
@@ -619,7 +590,7 @@ class TestExternalStoreForbiddenValue:
 
         container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
-        assert _parse_env(tmp_path)["GRAPHDB_PASSWORD"] == "notthedefault"
+        assert project_env(tmp_path)["GRAPHDB_PASSWORD"] == "notthedefault"
 
     def test_a_validate_only_var_with_no_forbidden_entry_is_unaffected(self, tmp_path):
         """ARIEL_DSN registers no forbidden values; the lookup must be a no-op."""
@@ -631,7 +602,7 @@ class TestExternalStoreForbiddenValue:
             {"deployed_services": []}, expose_network=False, env_path=env_path
         )
 
-        assert _parse_env(tmp_path)["ARIEL_DSN"] == dsn
+        assert project_env(tmp_path)["ARIEL_DSN"] == dsn
 
 
 # ---------------------------------------------------------------------------

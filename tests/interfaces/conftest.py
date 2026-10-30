@@ -26,13 +26,7 @@ from urllib.parse import urlsplit
 import pytest
 import yaml
 
-# The port/uvicorn helpers now live in a supported module shared with the docs
-# screenshot runner; re-export them under their historical underscore names so
-# every ``tests/interfaces`` importer stays byte-for-byte unchanged.
-from osprey.interfaces._serving import authorize_browser_context as _authorize_browser_context
-from osprey.interfaces._serving import free_port as _free_port
-from osprey.interfaces._serving import run_app_server as _run_app_server
-from osprey.interfaces._serving import wait_for_port as _wait_for_port
+from osprey.interfaces._serving import authorize_browser_context, run_app_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -40,11 +34,6 @@ if TYPE_CHECKING:
     from playwright.sync_api import Browser
 
 __all__ = [
-    "_apply_all",
-    "_authorize_browser_context",
-    "_free_port",
-    "_run_app_server",
-    "_wait_for_port",
     "BROWSER_ENGINES",
     "chromium_browser",
     "launch_graph_channel_finder",
@@ -136,7 +125,7 @@ def use_process_web_credentials(app: Any) -> None:
     (``bluesky_web.app.app``) they diverge after the first reset, and the gate
     ends up verifying against a holder nothing else in the process can see: the
     operator header the two seams above inject, and the session
-    :func:`_authorize_browser_context` mints, both come from the *current*
+    :func:`authorize_browser_context` mints, both come from the *current*
     holder and are refused as "invalid credential".
 
     Call this immediately before serving such an app. It assigns rather than
@@ -161,7 +150,7 @@ def use_process_web_credentials(app: Any) -> None:
 # ``MagicMock`` answered every later config read in the worker — which is how
 # an unrelated store suite ended up resolving its repo root one directory short.
 #
-# The suite-wide ``_isolate_audit_zone`` (``tests/conftest.py``) does request
+# The suite-wide ``_isolate_ahead_of_monkeypatch`` (``tests/conftest.py``) does request
 # ``monkeypatch``, so that early creation is the normal order everywhere. What
 # keeps it harmless is the invariant on the other side: a fixture and a test
 # body that repoint the SAME seam must both go through ``monkeypatch`` (see
@@ -248,30 +237,6 @@ def _httpx_auth_seam() -> Iterator[None]:
         httpx.Client.send = original_send
 
 
-# ---------------------------------------------------------------------------
-# Helpers: mock-patch aggregation
-# ---------------------------------------------------------------------------
-
-
-@contextmanager
-def _apply_all(patches: list) -> Iterator[None]:
-    """Enter a variable-length list of ``unittest.mock`` patch objects together.
-
-    Starts each patch in order and stops them in reverse on exit, so a suite can
-    aggregate a patch set (some entries conditional) and apply it as a single
-    context around ``create_app()`` + the server lifespan.
-
-    Each patch's ``stop`` is registered before the next one starts, so a raising
-    ``start()`` mid-list unwinds the ones already applied. Left unwound, those
-    patches would stay live process-globally for the rest of the worker.
-    """
-    with ExitStack() as stack:
-        for p in patches:
-            p.start()
-            stack.callback(p.stop)
-        yield
-
-
 @pytest.fixture(autouse=True)
 def _agent_data_root_in_tmp(tmp_path, monkeypatch):
     """Keep the control-context record an app lifespan claims out of the checkout.
@@ -296,7 +261,7 @@ def _agent_data_root_in_tmp(tmp_path, monkeypatch):
 # the graph UI — the load smoke, the visual baselines — needs two things this
 # tree cannot supply per suite without duplicating them: a config on disk that
 # resolves to ``pipeline_mode: graph``, and a store seam that answers without a
-# store running. Both live here, beside ``_run_app_server``, so every lane boots
+# store running. Both live here, beside ``run_app_server``, so every lane boots
 # the same app over the same corpus.
 
 
@@ -343,7 +308,7 @@ def launch_graph_channel_finder(
 ) -> Iterator[str]:
     """Serve the Channel Finder in graph mode over the shared demo corpus.
 
-    Mirrors ``_launch_channel_finder`` in ``test_load_smokes.py`` — same
+    Mirrors ``launch_channel_finder`` in ``_launchers.py`` — same
     contract, same yielded live base URL — with the two differences the graph
     paradigm needs: a config that selects it, and the app's ``_make_graph_context``
     seam repointed at the fake store from
@@ -375,7 +340,7 @@ def launch_graph_channel_finder(
         monkeypatch.setattr(app_module, "_make_graph_context", demo_context)
 
         app = app_module.create_app(project_cwd=str(tmp_path))
-        with _run_app_server(app) as base_url:
+        with run_app_server(app) as base_url:
             yield base_url
 
 
@@ -450,11 +415,11 @@ _DISMISS_TOUR = """
 def _install_auth_seam(browser: Browser) -> None:
     """Wrap ``browser.new_context``/``new_page`` so each is authorized on creation.
 
-    Every interface app these suites launch (through :func:`_run_app_server`)
+    Every interface app these suites launch (through :func:`run_app_server`)
     installs :class:`~osprey.interfaces.common_middleware.WebAuthMiddleware`,
     which refuses an unauthenticated navigation with ``401`` — so a page opened
     from a bare context never renders and every DOM assertion times out. The apps
-    run in *this* process, so :func:`_authorize_browser_context` can mint a
+    run in *this* process, so :func:`authorize_browser_context` can mint a
     session directly in the shared credential holder and install it as the
     session cookie; wrapping the two context/page factories here means individual
     tests keep calling ``browser.new_page()`` / ``browser.new_context()``
@@ -473,13 +438,13 @@ def _install_auth_seam(browser: Browser) -> None:
 
     def new_context(*args, **kwargs):
         context = original_new_context(*args, **kwargs)
-        _authorize_browser_context(context)
+        authorize_browser_context(context)
         context.add_init_script(_DISMISS_TOUR)
         return context
 
     def new_page(*args, **kwargs):
         page = original_new_page(*args, **kwargs)
-        _authorize_browser_context(page.context)
+        authorize_browser_context(page.context)
         page.context.add_init_script(_DISMISS_TOUR)
         return page
 

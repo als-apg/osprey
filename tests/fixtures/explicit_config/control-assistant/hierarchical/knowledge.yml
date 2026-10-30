@@ -1,5 +1,15 @@
 agent_data:
   base_dir: var/agent_data
+agent_record:
+  backend: clickhouse
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.8.18.2
+    memory: 2g
+  memory: 1g
+  port: 10053
+  readers:
+  - name: carol
+  retention_days: 90
 api:
   providers:
   - als-apg
@@ -103,10 +113,6 @@ artifact_server:
   example_artifact: false
   host: 127.0.0.1
   port: 10200
-audit:
-  tool_call:
-    enabled: true
-    max_inline_bytes: 262144
 bluesky:
   queue_autostart: true
 build_dir: ./build
@@ -133,18 +139,6 @@ claude_code:
       enabled: false
     python:
       enabled: false
-  telemetry:
-    backend: gateway
-    content_max_length: 262144
-    enabled: true
-    log_assistant_responses: true
-    log_raw_api_bodies: true
-    log_tool_content: true
-    log_tool_details: true
-    log_user_prompts: true
-    protocol: http/protobuf
-  transcripts:
-    retention_days: 3650
 cli:
   theme: default
 container_runtime: docker
@@ -153,7 +147,6 @@ control_system:
   connector:
     epics:
       timeout_s: 5.0
-      writes_enabled: false
     live_standin:
       gateways:
         read_only:
@@ -175,7 +168,6 @@ control_system:
           use_name_server: true
       probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB
       timeout_s: 5.0
-      writes_enabled: false
   limits_checking:
     database_path: data/channel_limits.json
     enabled: true
@@ -186,7 +178,7 @@ control_system:
     probe_interval_s: 30
     probe_timeout_s: 5
   type: virtual_accelerator
-  writes_enabled: false
+  writes: never
 deploy:
   fqdn: 127.0.0.1
 deployed_services: []
@@ -195,7 +187,6 @@ execution:
 facility_knowledge:
   bundle_path: data/facility/knowledge
 file_paths:
-  api_calls_dir: api_calls
   registry_exports_dir: registry_exports
 health:
   auto:
@@ -264,8 +255,6 @@ services:
     username: ariel
   qmd:
     port: 10060
-  telemetry_gateway:
-    port: 10051
   virtual_accelerator:
     port: 5064
 simulation:
@@ -291,8 +280,6 @@ web:
     enabled: false
   control_target_picker: false
   default_panel: okf
-  feedback:
-    max_store_bytes: 268435456
   panels:
     channel-finder:
       enabled: true

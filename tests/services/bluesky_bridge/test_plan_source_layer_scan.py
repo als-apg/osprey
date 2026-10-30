@@ -41,20 +41,9 @@ from fastapi.testclient import TestClient
 
 from osprey.services.bluesky_bridge import plan_loader
 from osprey.services.bluesky_bridge.app import app
+from tests.services.bluesky_bridge._session_plans import write_session_plan
 
-_SESSION_PLAN_DIR_ENV = "BLUESKY_SESSION_PLAN_DIR"
 _PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
-_PLAN_MODULE_ENV = "BLUESKY_PLAN_MODULE"
-
-
-@pytest.fixture(autouse=True)
-def _isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.delenv(_PLAN_DIRS_ENV, raising=False)
-    monkeypatch.delenv(_PLAN_MODULE_ENV, raising=False)
-    monkeypatch.setenv(_SESSION_PLAN_DIR_ENV, str(tmp_path / "plans_session"))
-    plan_loader.reset_facility_plans()
-    yield
-    plan_loader.reset_facility_plans()
 
 
 @pytest.fixture
@@ -316,9 +305,7 @@ def test_the_session_layer_is_not_scanned_by_the_layer_lookup(
     from osprey.services.bluesky_bridge.app import _find_layer_source_path
 
     _shipped_layer(tmp_path, monkeypatch)
-    session_dir = tmp_path / "plans_session"
-    session_dir.mkdir(parents=True, exist_ok=True)
-    (session_dir / "layer_plan.py").write_text(_plan_source(_VALID_METADATA, "layer_plan"))
+    write_session_plan("layer_plan", _plan_source(_VALID_METADATA, "layer_plan"))
 
     assert _find_layer_source_path("layer_plan") is None
 

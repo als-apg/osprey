@@ -31,7 +31,7 @@ import pytest
 
 from osprey.cli.build_profile import BuildProfile, _parse_profile
 from osprey.port_layout import DEFAULT_PORT_BASE, WORKER_MAX, default_port
-from osprey_connectors.errors import BuildProfileError
+from tests.cli._profiles import validation_errors
 
 #: The bundled trigger file every dispatch block below points at. The dispatch
 #: stanza requires a resolvable one, and which file it is has nothing to do
@@ -39,15 +39,7 @@ from osprey_connectors.errors import BuildProfileError
 _TRIGGERS = "tutorial_triggers.yml"
 
 
-@pytest.fixture(autouse=True)
-def _facility_data_tree(tmp_path: Path) -> None:
-    """The tree every profile's ``data:`` key names, beside the profile.
-
-    ``data:`` is required of every repo profile and must resolve to a real
-    directory, so without this each profile below would report one extra
-    failure about a key none of these tests is about.
-    """
-    (tmp_path / "data").mkdir(exist_ok=True)
+pytestmark = pytest.mark.usefixtures("facility_data_tree")
 
 
 def _profile(**raw: Any) -> BuildProfile:
@@ -112,15 +104,6 @@ def test_the_refused_user_access_is_still_reported_by_lint():
     assert "'alice'" in access[0].message
 
 
-def _errors(profile: BuildProfile, profile_dir: Path) -> list[str]:
-    """Validate ``profile`` and return the individual accumulated failures."""
-    with pytest.raises(BuildProfileError) as exc:
-        profile.validate(profile_dir)
-    header, _, body = str(exc.value).partition(":\n  - ")
-    assert header == "Build profile validation failed"
-    return body.split("\n  - ")
-
-
 def _worker_ports(profile: BuildProfile) -> dict[str, int]:
     """Only the worker entries of a profile's ledger."""
     return {
@@ -157,7 +140,7 @@ def test_bridge_mode_workers_leave_the_stand_in_and_its_neighbours_alone(
         dispatch={"triggers": _TRIGGERS, "worker_count": 60},
         virtual_accelerator={"port": 5064, "live_standin": True},
         bluesky={"port": default_port("bluesky"), "tiled_enabled": True},
-        config={"services.telemetry_gateway.port": default_port("telemetry_gateway")},
+        config={"services.qmd.port": default_port("qmd")},
     )
     profile.validate(tmp_path)
 
@@ -165,7 +148,7 @@ def test_bridge_mode_workers_leave_the_stand_in_and_its_neighbours_alone(
 def test_host_mode_refuses_a_fan_out_that_reaches_the_tiled_slot(tmp_path: Path) -> None:
     """Sixty host-network workers end on the slot the layout gives to tiled."""
     top = default_port("worker", 1) + 59
-    reported = _errors(_dispatch_profile(worker_count=60, network="host"), tmp_path)
+    reported = validation_errors(_dispatch_profile(worker_count=60, network="host"), tmp_path)
 
     assert len(reported) == 1
     assert f"would publish worker 60 on port {top}" in reported[0]
@@ -184,7 +167,7 @@ def test_host_mode_refuses_a_stride_that_reaches_the_qmd_slot(tmp_path: Path) ->
     or below it, not the nearest.
     """
     top = default_port("worker", 1) + 50
-    reported = _errors(
+    reported = validation_errors(
         _dispatch_profile(worker_count=6, worker_port_stride=10, network="host"), tmp_path
     )
 
@@ -212,7 +195,7 @@ def test_workers_moved_off_the_band_are_not_held_to_it(tmp_path: Path) -> None:
 
 def test_worker_port_stride_must_be_at_least_one(tmp_path: Path) -> None:
     """A stride of zero stacks every worker on one port, so it is refused by name."""
-    reported = _errors(
+    reported = validation_errors(
         _dispatch_profile(worker_count=2, worker_port_stride=0, network="host"), tmp_path
     )
 
@@ -287,8 +270,6 @@ def test_the_second_lane_is_derived_at_the_deployments_own_base() -> None:
 #: services it runs; nothing renders one underneath it, so a fixture that spells
 #: none has no ports to seed.
 _DEPLOYED_SERVICES = {
-    "services.telemetry_store.path": "./services/telemetry_store",
-    "services.telemetry_gateway.path": "./services/telemetry_gateway",
     "services.qmd.path": "./services/qmd",
     "services.postgresql.path": "./services/postgresql",
     "services.graphdb.path": "./services/graphdb",
@@ -304,8 +285,6 @@ def test_the_ledger_carries_the_layout_slots_the_build_deploys() -> None:
     """
     claimed = _profile(config=dict(_DEPLOYED_SERVICES))._claimed_ports()
 
-    assert claimed["services.telemetry_store.port"] == default_port("telemetry_store")
-    assert claimed["services.telemetry_gateway.port"] == default_port("telemetry_gateway")
     assert claimed["services.qmd.port"] == default_port("qmd")
     assert claimed["services.postgresql.port_host"] == default_port("postgres")
     assert claimed["services.graphdb.port_host"] == default_port("graphdb_bolt")

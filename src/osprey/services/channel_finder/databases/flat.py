@@ -71,10 +71,7 @@ class ChannelDatabase(BaseDatabase):
         Returns:
             List of validation entries with 'channel' (str) and 'valid' (bool) keys
         """
-        validation_results = []
-        for name in channel_names:
-            validation_results.append({"channel": name, "valid": self.validate_channel(name)})
-        return validation_results
+        return [{"channel": name, "valid": self.validate_channel(name)} for name in channel_names]
 
     def get_valid_channels(self, validation_results: list[dict]) -> list[str]:
         """Extract only valid channel names from validation results."""

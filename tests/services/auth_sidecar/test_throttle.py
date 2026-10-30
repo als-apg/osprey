@@ -12,24 +12,7 @@ from osprey.services.auth_sidecar.throttle import (
     AttemptThrottle,
     throttle_problems,
 )
-
-
-class FakeClock:
-    """A hand-advanced stand-in for ``time.monotonic``."""
-
-    def __init__(self, now: float = 1000.0) -> None:
-        self.now = now
-
-    def __call__(self) -> float:
-        return self.now
-
-    def advance(self, seconds: float) -> None:
-        self.now += seconds
-
-
-@pytest.fixture
-def clock() -> FakeClock:
-    return FakeClock()
+from tests.services.auth_sidecar._helpers import FakeClock
 
 
 @pytest.fixture

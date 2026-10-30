@@ -80,7 +80,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import time
 import uuid
 from collections.abc import Iterator
@@ -99,10 +98,16 @@ from websockets.sync.client import connect as ws_connect
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
 from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
+from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.control_context import RECORD_FILENAME
 from osprey_connectors.dotenv import parse_dotenv_file
 from osprey_connectors.posture_store import STATE_DIR_NAME
-from osprey_connectors.workspace import TIERS_DIRNAME
+from tests.e2e._deploy_support import (
+    find_osprey_console_script,
+    format_failure,
+    run_osprey,
+    runtime_cli,
+)
 from tests.e2e._facility_select import repo_view
 from tests.e2e._orm_stack import VA_CA_PORT, VA_PVA_PORT
 from tests.e2e._volumes import remove_project_volumes
@@ -170,9 +175,9 @@ HINT_RAW_CLIENT_IMPORT = (
 #: The text every client refusal carries, re-spelled for the same reason.
 CLIENT_REFUSED_TEXT = "control-system client refused"
 
-#: The audit surface a cell's refusals file under, and the ledger it lands in.
+#: The audit surface a cell's refusals file under. The audit writer files them
+#: as ``audit`` entries in the agent record, under the terminal user's identity.
 SURFACE = "notebook_kernel"
-LEDGER = Path("var") / "audit" / USER / f"{SURFACE}.jsonl"
 
 DEPLOY_UP_TIMEOUT_SEC = 2400
 VERB_TIMEOUT_SEC = 180
@@ -194,46 +199,12 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 # ---------------------------------------------------------------------------
 
 
-def _runtime_cli(*args: str, timeout: int = 30) -> subprocess.CompletedProcess:
-    return subprocess.run([RUNTIME, *args], capture_output=True, text=True, timeout=timeout)
-
-
-def _fmt(label: str, result: subprocess.CompletedProcess) -> str:
-    return (
-        f"{label} failed (rc={result.returncode}):\n"
-        f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
-    )
-
-
-def _find_osprey_console_script() -> Path:
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError("Could not locate the 'osprey' console script.")
-
-
-def _run_osprey(
-    osprey_bin: Path, args: list[str], cwd: Path, timeout: int = VERB_TIMEOUT_SEC
-) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [str(osprey_bin), *args],
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env={**os.environ, "CLAUDECODE": "", "CONTAINER_RUNTIME": RUNTIME},
-    )
-
-
 def _web_container() -> str:
     return f"{PROJECT}-web-{USER}"
 
 
 def _logs(name: str) -> str:
-    result = _runtime_cli("logs", "--tail", "80", name, timeout=20)
+    result = runtime_cli("logs", "--tail", "80", name, timeout=20)
     return f"--- {name} stdout ---\n{result.stdout}\n--- {name} stderr ---\n{result.stderr}"
 
 
@@ -248,7 +219,7 @@ def _exec(*argv: str, user: str = "1000", cwd: str | None = None, stdin: str | N
 
 def _exec_text(*argv: str) -> str:
     result = _exec(*argv)
-    assert result.returncode == 0, _fmt(f"docker exec {' '.join(argv)}", result)
+    assert result.returncode == 0, format_failure(f"docker exec {' '.join(argv)}", result)
     return result.stdout
 
 
@@ -338,7 +309,6 @@ def _profile_edits() -> dict[str, Any]:
             "deploy.fqdn": "127.0.0.1",
             PORT_BASE_CONFIG_KEY: PORT_BASE,
             "control_system.type": "virtual_accelerator",
-            "claude_code.telemetry.enabled": False,
             "claude_code.servers.bluesky.enabled": False,
             "claude_code.servers.health.enabled": False,
             "modules.web_terminals": {
@@ -384,7 +354,7 @@ def _shape_repo(repo: Path) -> None:
     (renders / f"{RENDER}.yml").write_text(
         f"name: {PROJECT_NAME} ({RENDER})\n"
         "config:\n"
-        "  control_system.writes_enabled: true\n"
+        "  control_system.writes: allowed\n"
         "  web.ui_mode: expert\n",
         encoding="utf-8",
     )
@@ -393,7 +363,7 @@ def _shape_repo(repo: Path) -> None:
 def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
     repo = tmp_path / PROJECT_NAME
 
-    init = _run_osprey(
+    init = run_osprey(
         osprey_bin,
         [
             "init",
@@ -410,16 +380,16 @@ def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
         tmp_path,
         timeout=RENDER_TIMEOUT_SEC,
     )
-    assert init.returncode == 0, _fmt("osprey init (notebook panel)", init)
+    assert init.returncode == 0, format_failure("osprey init (notebook panel)", init)
     _shape_repo(repo)
 
-    build = _run_osprey(
+    build = run_osprey(
         osprey_bin,
         ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         tmp_path,
         timeout=RENDER_TIMEOUT_SEC,
     )
-    assert build.returncode == 0, _fmt("osprey build (notebook panel)", build)
+    assert build.returncode == 0, format_failure("osprey build (notebook panel)", build)
 
     rendered = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
     resolved_base = (rendered.get("deployment") or {}).get("port_base")
@@ -437,7 +407,7 @@ def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
 
 def _compose_project() -> str | None:
     """The compose project stamped on the terminal container, if it exists."""
-    result = _runtime_cli(
+    result = runtime_cli(
         "inspect",
         "--type",
         "container",
@@ -451,14 +421,14 @@ def _compose_project() -> str | None:
 
 def _teardown(project: str | None) -> None:
     """Exact-named sweep; failures swallowed (a safety net, never an assertion)."""
-    _runtime_cli("rm", "-f", _web_container())
-    _runtime_cli("rm", "-f", f"{PROJECT}-nginx")
+    runtime_cli("rm", "-f", _web_container())
+    runtime_cli("rm", "-f", f"{PROJECT}-nginx")
     for project_name in {project, PROJECT_NAME} - {None}:
-        _runtime_cli("compose", "-p", str(project_name), "down", timeout=120)
+        runtime_cli("compose", "-p", str(project_name), "down", timeout=120)
         remove_project_volumes(str(project_name), runtime=RUNTIME)
     if not os.environ.get("E2E_REUSE_IMAGES"):
         for tag in (RENDER_IMAGE_TAG, *SERVICE_IMAGE_TAGS):
-            _runtime_cli("rmi", "-f", tag, timeout=120)
+            runtime_cli("rmi", "-f", tag, timeout=120)
 
 
 # ---------------------------------------------------------------------------
@@ -509,14 +479,37 @@ class Terminal:
         return response.json()
 
     def ledger(self) -> list[dict[str, Any]]:
-        path = self.repo / LEDGER
-        if not path.is_file():
-            return []
-        return [
-            json.loads(line)
-            for line in path.read_text(encoding="utf-8").splitlines()
-            if line.strip()
+        """Every :data:`SURFACE` audit entry :data:`USER` wrote, oldest first.
+
+        Read from the deployed agent record under the user's own login, drained
+        first so a refusal a cell just spooled is in the answer. A partial
+        answer fails the test rather than reading as "nothing was audited".
+        """
+        from osprey.agent_record.client import RecordClient
+        from osprey.agent_record.config import parse_agent_record_block
+        from osprey.agent_record.contract import Drain
+        from osprey.agent_record.credentials import login_file, read_login
+        from osprey.agent_record.identities import login_for
+        from osprey.port_layout import resolve_port_base
+
+        config = yaml.safe_load((self.repo / "build" / "config.yml").read_text(encoding="utf-8"))
+        port = parse_agent_record_block(config, base=resolve_port_base(config)).port
+        login = login_for(USER)
+        token = read_login(self.repo / login_file(login), login)
+        assert token, f"no {login!r} record login at the repo root"
+        answer = RecordClient(f"http://127.0.0.1:{port}", login, token).recent_audit(
+            surface=SURFACE, written_by="self", wait=Drain()
+        )
+        assert answer.available, f"the agent record is unavailable: {answer.unavailable}"
+        assert answer.complete and not answer.more, (
+            f"the record's {SURFACE} audit answer is partial: {answer.reason or 'more pages'}"
+        )
+        bodies = [
+            dict(item["body"])
+            for item in answer.data or []
+            if isinstance(item, dict) and isinstance(item.get("body"), dict)
         ]
+        return list(reversed(bodies))
 
     def start_notebook_session(self, notebook: str) -> dict[str, Any]:
         response = self.post(
@@ -585,6 +578,44 @@ def _fleet_settled(posture: dict[str, Any], target: str) -> bool:
         if (row.get("applied_target"), row.get("applied_generation")) != (target, generation):
             return False
     return True
+
+
+def _switch_of(terminal: Terminal, target: str) -> str | None:
+    """This login's switch for *target*, as ``GET /api/terminal/posture`` reports it."""
+    rows = [row for row in terminal.posture().get("targets") or [] if row.get("target") == target]
+    assert len(rows) == 1, terminal.posture()
+    state: str | None = rows[0].get("switch")
+    return state
+
+
+def _turn_switch(terminal: Terminal, target: str, state: str) -> dict[str, Any]:
+    """Turn this login's switch *state* for *target* the way the header chip does.
+
+    ``GET`` reads the record's ``switch_epoch`` and the ``POST`` sends it back
+    with ``{target, state, epoch}``; a ``409`` that just stamped an epoch-less
+    record is retried once with the epoch it carries, the chip's own single
+    retry. Anything but a 200 fails here with the route's body. Returns that body.
+    """
+    epoch = terminal.posture().get("switch_epoch")
+    for _attempt in range(2):
+        answer = terminal.post(
+            "/api/terminal/posture",
+            json={
+                "session_id": terminal.session_id,
+                "target": target,
+                "state": state,
+                "epoch": epoch,
+            },
+        )
+        detail = answer.json().get("detail") if answer.status_code == 409 else None
+        if isinstance(detail, dict) and detail.get("stamped"):
+            epoch = detail.get("epoch")
+            continue
+        break
+    assert answer.status_code == 200, answer.text
+    body: dict[str, Any] = answer.json()
+    assert (body.get("target"), body.get("state")) == (target, state), body
+    return body
 
 
 def _wait_for_switch_to_settle(terminal: Terminal, target: str) -> dict[str, Any]:
@@ -798,18 +829,18 @@ def terminal(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Terminal]:
     """One ``osprey up --dev`` for the whole module; torn down whatever happens."""
     if shutil.which(RUNTIME) is None:
         pytest.skip(f"{RUNTIME} not available")
-    if _runtime_cli("ps", timeout=10).returncode != 0:
+    if runtime_cli("ps", timeout=10).returncode != 0:
         pytest.skip(f"{RUNTIME} daemon not responding")
 
     tmp_path = tmp_path_factory.mktemp("notebook-panel")
-    osprey_bin = _find_osprey_console_script()
+    osprey_bin = find_osprey_console_script()
     repo = _make_repo(tmp_path, osprey_bin)
 
     client = httpx.Client(timeout=60)
     try:
         _teardown(_compose_project())
-        up = _run_osprey(osprey_bin, ["up", "--dev"], repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
-        assert up.returncode == 0, _fmt("osprey up --dev (notebook panel)", up)
+        up = run_osprey(osprey_bin, ["up", "--dev"], repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
+        assert up.returncode == 0, format_failure("osprey up --dev (notebook panel)", up)
         secret = (parse_dotenv_file(repo / ".env").get(terminal_secret_var(USER)) or "").strip()
         assert secret, f"{terminal_secret_var(USER)} was not provisioned into the deploy .env"
         deployed = Terminal(repo=repo, osprey_bin=osprey_bin, secret=secret, client=client)
@@ -817,7 +848,7 @@ def terminal(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Terminal]:
         yield deployed
     finally:
         project = _compose_project()
-        _run_osprey(osprey_bin, ["down"], repo)
+        run_osprey(osprey_bin, ["down"], repo, timeout=VERB_TIMEOUT_SEC)
         _teardown(project)
         client.close()
 
@@ -919,7 +950,8 @@ def test_a_cell_cannot_load_a_client_library_while_a_runtime_write_lands(
 ) -> None:
     """A kernel's cells reach the machine through the runtime; a client library does not load.
 
-    On a card with writes on, the runtime write is the positive control: it
+    On a card with writes on — the tier allows them and the chip turns the
+    switch on for the machine — the runtime write is the positive control: it
     lands, so anything refused afterwards is refused for going around the
     runtime and not for the card's posture. A client package's import and a
     client library's ``ctypes`` load are each refused with the line that names
@@ -931,6 +963,8 @@ def test_a_cell_cannot_load_a_client_library_while_a_runtime_write_lands(
     # The baseline target is the only one whose limits make the setpoint writable.
     assert terminal.first_target == "va", terminal.first_target
     _wait_for_switch_to_settle(terminal, "va")
+    # A fresh login's switch is off; the chip's turn-on is what arms this card.
+    _turn_switch(terminal, "va", "on")
     band = repo_view(terminal.repo).motion_envelope(WRITE_READBACK)
 
     session = terminal.start_notebook_session(STARTER_NOTEBOOK)
@@ -996,20 +1030,19 @@ def test_a_sandboxed_cell_refuses_writes_with_the_turn_writes_on_line(
 ) -> None:
     """The narrowing is per target and the pin is per cell.
 
-    The chip narrows the target the deployment is on; the kernel re-reads the
-    record before this cell and stamps the launch pin from it, so the refusal
-    is the cell's rather than the kernel process's. The audit session is the
+    The chip turns the switch off for the target the deployment is on (the
+    previous row left it on); the kernel re-reads the record before this cell
+    and stamps the launch pin from it. The write verdict reads the switch live,
+    and the switch comes before the pin in its order, so the refusal names the
+    switch being off and points at the chip. The audit session is the
     kernel's own — a notebook cell files under the kernel that ran it, which is
     what makes a cell's refusal attributable when several kernels are open.
     """
     assert terminal.session_id and terminal.first_target
     target = terminal.first_target
-    narrowed = terminal.post(
-        "/api/terminal/posture",
-        json={"session_id": terminal.session_id, "target": target, "posture": "sandbox"},
-    )
-    assert narrowed.status_code == 200, narrowed.text
-    assert narrowed.json()["entry"].get(target) == "sandbox", narrowed.text
+    assert _switch_of(terminal, target) == "on", terminal.posture()
+    _turn_switch(terminal, target, "off")
+    assert _switch_of(terminal, target) == "off", terminal.posture()
 
     session = terminal.start_notebook_session(STARTER_NOTEBOOK)
     terminal.kernel_id = session["kernel"]["id"]
@@ -1026,10 +1059,10 @@ def test_a_sandboxed_cell_refuses_writes_with_the_turn_writes_on_line(
 
         refused = _run_cell(socket, WRITE_CELL, channel_session)
         assert refused.error_name == "ChannelWriteBlockedError", refused
-        assert (
-            f"Write to '{CHANNEL}' blocked: this run launched while writes were off for "
-            f"'{target}'; a write state set since applies to the next run" in refused.error_value
+        assert refused.error_value.startswith(
+            f"Write to '{CHANNEL}' blocked: Writes are off; turn it on from the chip"
         ), refused.error_value
+        assert "[osprey-refusal: switch_off]" in refused.error_value, refused.error_value
         assert HINT_WRITES_OFF in refused.stdout, refused.stdout
 
     new_records = terminal.ledger()[records_before:]
@@ -1041,6 +1074,21 @@ def test_a_sandboxed_cell_refuses_writes_with_the_turn_writes_on_line(
     assert record["session"] == f"kernel:{terminal.kernel_id}"
     assert record["subject"] == "notebook_cell"
     assert dict(token.split("=", 1) for token in record["detail"].split())["channel"] == CHANNEL
+
+    # The pin is per cell: the SAME kernel, with the switch turned back on,
+    # stamps its next cell from the record again, so that cell no longer
+    # carries the narrowing the refused cell launched under. A kernel that
+    # stamped its pin once, or kept a stale one, would still read sandbox here.
+    _turn_switch(terminal, target, "on")
+    assert _switch_of(terminal, target) == "on", terminal.posture()
+    channel_session = uuid.uuid4().hex
+    with terminal.kernel_channels(terminal.kernel_id, channel_session) as socket:
+        restamped = _stamps(socket, channel_session)
+        assert restamped.get("OSPREY_CONTROL_TARGET") == target, restamped
+        assert restamped.get("OSPREY_LAUNCH_POSTURE") != f"{target}=sandbox", restamped
+    # Leave the switch as this row set it: off for the target the deployment is on.
+    _turn_switch(terminal, target, "off")
+    assert _switch_of(terminal, target) == "off", terminal.posture()
 
 
 # ---------------------------------------------------------------------------
@@ -1151,11 +1199,11 @@ def test_notebook_edit_is_allowed_under_notebooks_and_badges_the_panel(terminal:
         }
 
     allowed = _run_hook(f"{hooks_dir}/osprey_memory_guard.py", pre_tool_use(inside), hook_env)
-    assert allowed.returncode == 0, _fmt("memory guard (inside)", allowed)
+    assert allowed.returncode == 0, format_failure("memory guard (inside)", allowed)
     assert json.loads(allowed.stdout)["hookSpecificOutput"]["permissionDecision"] == "allow"
 
     denied = _run_hook(f"{hooks_dir}/osprey_memory_guard.py", pre_tool_use(outside), hook_env)
-    assert denied.returncode == 0, _fmt("memory guard (outside)", denied)
+    assert denied.returncode == 0, format_failure("memory guard (outside)", denied)
     verdict = json.loads(denied.stdout)["hookSpecificOutput"]
     assert verdict["permissionDecision"] == "deny", verdict
     assert "NOTEBOOK EDIT DENIED" in verdict["permissionDecisionReason"], verdict
@@ -1165,7 +1213,7 @@ def test_notebook_edit_is_allowed_under_notebooks_and_badges_the_panel(terminal:
         {**pre_tool_use(inside), "hook_event_name": "PostToolUse", "tool_response": {}},
         hook_env,
     )
-    assert badged.returncode == 0, _fmt("notebook update", badged)
+    assert badged.returncode == 0, format_failure("notebook update", badged)
     assert badged.stdout == "", badged.stdout
 
     # The strip renders a NotebookEdit panel frame as "agent edited <detail>"
@@ -1210,12 +1258,12 @@ def test_notebooks_survive_a_restart_and_kernels_do_not(terminal: Terminal) -> N
     terminal.start_notebook_session(SURVIVOR_NOTEBOOK)
     assert len(terminal.get(f"{PANEL}/api/kernels").json()) >= 1
 
-    down = _run_osprey(terminal.osprey_bin, ["down"], terminal.repo)
-    assert down.returncode == 0, _fmt("osprey down", down)
-    up = _run_osprey(
+    down = run_osprey(terminal.osprey_bin, ["down"], terminal.repo, timeout=VERB_TIMEOUT_SEC)
+    assert down.returncode == 0, format_failure("osprey down", down)
+    up = run_osprey(
         terminal.osprey_bin, ["up", "--dev"], terminal.repo, timeout=DEPLOY_UP_TIMEOUT_SEC
     )
-    assert up.returncode == 0, _fmt("osprey up --dev (second start)", up)
+    assert up.returncode == 0, format_failure("osprey up --dev (second start)", up)
     _wait_for_ready(terminal, READY_TIMEOUT_SEC)
 
     names = sorted(

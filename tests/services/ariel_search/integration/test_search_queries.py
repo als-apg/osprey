@@ -11,6 +11,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from tests.services.ariel_search.integration._support import is_ollama_available
+
 # xdist_group("docker"): pins every container-starting test file onto one worker, so
 # a run has a single testcontainers session and a single ryuk reaper -- concurrent
 # reaper starts race the Docker daemon's port mapper. It also serializes the shared
@@ -397,17 +399,6 @@ class TestKeywordPartialMatch:
 # ==============================================================================
 
 
-def is_ollama_available() -> bool:
-    """Check if Ollama is available for tests."""
-    try:
-        import requests
-
-        response = requests.get("http://localhost:11434/api/tags", timeout=2)
-        return response.status_code == 200
-    except Exception:
-        return False
-
-
 @pytest.mark.requires_ollama
 class TestSemanticSearchWithRealEmbeddings:
     """Test semantic search with real Ollama embeddings.
@@ -635,8 +626,7 @@ class TestSchemaFactOnRealStores:
         from osprey.services.ariel_search.database.repository import ARIELRepository
 
         config = _raw_text_config(scratch_config)
-        pool = await create_connection_pool(config.database)
-        try:
+        async with await create_connection_pool(config.database) as pool:
             await run_migrations(pool, config)
             async with pool.connection() as conn:
                 await conn.execute(
@@ -650,8 +640,6 @@ class TestSchemaFactOnRealStores:
                 await _insert(conn, "behind-001", "QX-772 tripped on the north magnet string.")
                 await _insert(conn, "behind-002", "Klystron forty one fault cleared by operator.")
             yield ARIELRepository(pool, config), config
-        finally:
-            await pool.close()
 
     @pytest.fixture
     async def migrated_store(self, scratch_config):
@@ -660,12 +648,9 @@ class TestSchemaFactOnRealStores:
         from osprey.services.ariel_search.database.repository import ARIELRepository
 
         config = _raw_text_config(scratch_config)
-        pool = await create_connection_pool(config.database)
-        try:
+        async with await create_connection_pool(config.database) as pool:
             await run_migrations(pool, config)
             yield ARIELRepository(pool, config), config, pool
-        finally:
-            await pool.close()
 
     async def test_schema_behind_store_answers_pattern_and_fuzzy_with_the_diagnostic(
         self, schema_behind_store
@@ -842,8 +827,7 @@ class TestRequirement3CaptionSearch:
         from osprey.services.ariel_search.database.repository import ARIELRepository
 
         config = _caption_only_config(scratch_config)
-        pool = await create_connection_pool(config.database)
-        try:
+        async with await create_connection_pool(config.database) as pool:
             await run_migrations(pool, config)
             plot, plot_id = _picture(
                 "req3-bpm", "orbit.png", "Orbit plot from SR:C07 BPM readbacks"
@@ -862,8 +846,6 @@ class TestRequirement3CaptionSearch:
                 )
                 await _insert(conn, "req3-control", "Klystron forty one fault cleared.")
             yield ARIELRepository(pool, config), config, {"bpm": plot_id, "qx": magnet_id}
-        finally:
-            await pool.close()
 
     async def test_requirement_3_caption_only_bpm_mention_is_found_with_its_id(
         self, captioned_store
@@ -909,8 +891,7 @@ class TestRequirement3CaptionSearch:
         assert not config.is_enhancement_module_enabled("image_caption")
         item, _attachment_id = _picture("req3-b1", "beamline.png", "Upstream caption QX-418 hutch")
 
-        pool = await create_connection_pool(config.database)
-        try:
+        async with await create_connection_pool(config.database) as pool:
             await run_migrations(pool, config)
             # Roll back to the B1 schema: no text columns, no fold, no V2 index,
             # no copy state.
@@ -943,5 +924,3 @@ class TestRequirement3CaptionSearch:
             assert (await repository.schema_facts()).has_v2_fts
             hits = await keyword_search("QX-418", repository, config, max_results=10)
             assert [entry["entry_id"] for entry, _s, _h in hits] == ["req3-b1"]
-        finally:
-            await pool.close()

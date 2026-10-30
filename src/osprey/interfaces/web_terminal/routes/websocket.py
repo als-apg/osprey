@@ -7,10 +7,11 @@ import copy
 import json
 import logging
 import os
+import re
 import uuid
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
@@ -18,7 +19,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 import yaml  # type: ignore[import-untyped]
 from fastapi import APIRouter, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from starlette.concurrency import run_in_threadpool
 
 from osprey.agent_runner.launcher import NoConversationWatch, build_session_argv
@@ -33,6 +34,7 @@ from osprey.interfaces.common_middleware import (
 from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, get_web_credentials
 from osprey.interfaces.web_terminal import session_handoff
 from osprey.interfaces.web_terminal.control_context_owner import (
+    CONTROL_CONTEXT_FRAME,
     ContextOwnedElsewhere,
     ContextOwnerError,
     Mutation,
@@ -49,7 +51,11 @@ from osprey.interfaces.web_terminal.operator_session import (
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 from osprey.interfaces.web_terminal.session_key import is_posture_key
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.control_system import is_readonly_run
+from osprey_connectors.identity import acting_identity
+from osprey_connectors.posture_env import is_readonly_run
+from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.types import published_machine_kind
+from osprey_connectors.write_target import KIND_BANNERS
 
 if TYPE_CHECKING:
     from osprey.interfaces.web_terminal.pty_manager import PtyRegistry, PtySession
@@ -65,41 +71,64 @@ router = APIRouter()
 
 # ── Per-target runtime posture ───────────────────────────────────────────────
 #
-# The posture is the operator's per-target sandbox toggle: narrow one control
-# target to ``sandbox`` and leave the others alone. It is deliberately *not* a
-# config edit — config is a build-time input that reaches the agent only
-# through a re-render. The record it is a field of is filed one per identity,
-# so a narrowing is the operator's own rather than the deployment's: one
-# person's chip decides that person's writes and leaves every other
-# operator's alone.
+# The write switch is the person's: one ``on``/``off`` per machine, in the
+# ``switch`` field of the login's own control-context record, written only by
+# :func:`osprey_connectors.control_context.set_switch` and read live by every
+# write path through the write verdict. It is deliberately *not* a config
+# edit — config is a build-time input that reaches the agent only through a
+# re-render — and it is one login's, so one person's chip decides that
+# person's writes and leaves every other operator's alone.
 #
-# It lives in the ``posture`` field of the control-context record. Its grammar
-# is :mod:`osprey_connectors.posture_store`'s, which is what every reader in
-# the connector chain decodes with, and the values below are that module's. A
-# narrowing this server spelled differently would be one the operator can see
-# and the machine cannot.
-POSTURE_SANDBOX = posture_store.POSTURE_SANDBOX
-POSTURE_WRITES = posture_store.POSTURE_WRITES
+# The GET roster reports each machine's switch and the write verdict a new call
+# by the login would meet (C-GET); it carries no narrowing.
+
+#: The switch state that arms a machine; the other is ``"off"``.
+SWITCH_ON = "on"
+
+
+#: The one spelling of a switch epoch on the wire: a canonical decimal string.
+_WIRE_EPOCH = re.compile(r"0|[1-9][0-9]{0,19}")
+
+#: What a turn-on whose ``epoch`` is not that spelling is told (422).
+EPOCH_FORMAT_PHRASE = "epoch must be the switch_epoch string the posture read returned, or null"
+
+
+def wire_epoch(epoch: int | None) -> str | None:
+    """A record's ``switch_epoch`` as the posture API carries it: a decimal string.
+
+    The record keeps integer nanoseconds, which exceed the 2**53 a browser's
+    JSON numbers hold exactly; a number would come back rounded and every
+    turn-on would read as overtaken by a stop. A string travels unchanged.
+    """
+    return None if epoch is None else str(epoch)
 
 
 class PostureRequest(BaseModel):
-    """Body of ``POST /api/terminal/posture``.
+    """Body of ``POST /api/terminal/posture`` (C-POST): the person's switch gesture.
 
-    ``posture`` is a ``Literal`` so an unknown value is rejected by request
-    validation with a 422 naming the field, before any handler code runs — the
-    value decides whether writes to a target are refused, and a silent coercion
-    to some default would be the worst possible failure here.
+    ``state`` is a ``Literal`` so an unknown value is a 422 naming the field
+    before any handler code runs: it decides whether a machine moves, and a
+    silent coercion would be the worst failure here. ``epoch`` is the
+    ``switch_epoch`` the chip read, or ``null`` when it read none, as the
+    decimal string the read returned (see :func:`wire_epoch`): a number is a
+    422, never coerced.
 
-    ``target`` names one configured control target, or the literal
-    :data:`ALL_TARGETS` for the popover's ``[ Sandbox everything ]`` gesture.
-    It is a plain string rather than a ``Literal`` for the reason given on
-    :class:`TargetRequest`: which targets exist is a property of the rendered
-    deployment, not of this build's vocabulary.
+    ``target`` names one configured control target, or :data:`ALL_TARGETS`
+    (only with ``off``). A plain string for the reason given on
+    :class:`TargetRequest`.
     """
 
     session_id: str | None = None
     target: str
-    posture: Literal["sandbox", "writes"]
+    state: Literal["on", "off"]
+    epoch: str | None = None
+
+    @field_validator("epoch", mode="before")
+    @classmethod
+    def _epoch_is_a_decimal_string(cls, value: Any) -> Any:
+        if value is None or (isinstance(value, str) and _WIRE_EPOCH.fullmatch(value)):
+            return value
+        raise ValueError(EPOCH_FORMAT_PHRASE)
 
 
 class TargetRequest(BaseModel):
@@ -169,7 +198,7 @@ def _chat_pool_answers_to(app, session_id: str) -> bool:
     — it is the first prompt of a chat, the moment the child is being armed
     with tools — and answering ``False`` there refuses the operator's toggle
     with a 409 that stores nothing, on a session that is starting in front of
-    them. The narrowing they were refused would have been read live by that
+    them. The switch they were refused would have been read live by that
     child's very first write.
 
     Reached through the registry's own read-only facade
@@ -193,23 +222,6 @@ def _record_available() -> bool:
     would read back.
     """
     return control_context.record_path() is not None
-
-
-def _recorded_posture() -> dict[str, str]:
-    """This login's per-target narrowings — ``{target: "sandbox"}``.
-
-    The record's ``posture`` field, which is the whole of what this login has
-    narrowed: there is one control context per login identity, and no
-    per-session posture store behind it. A target that narrows nothing is
-    ABSENT from the map — absence is how this field spells ``writes``, and a
-    stored ``"writes"`` would be a second spelling of it.
-
-    Every way of not knowing answers ``{}``, and that grants nothing: a
-    narrowing can only refuse, so failing to read one leaves whatever the
-    deployment ceiling already decided.
-    """
-    record = control_context.read_record()
-    return {} if record is None else dict(record.posture)
 
 
 @dataclass(frozen=True)
@@ -514,9 +526,9 @@ def _build_extra_env(
     # pair, so this expression is the pool key in every one of them (a
     # brand-new session, whose claude id is still None, included).
     #
-    # **No execution mode is stamped here.** The write posture is per target and
+    # **No execution mode is stamped here.** The write switch is per target and
     # lives in the control-context record; every write-time gate reads it there,
-    # which is what lets a narrowing land on a session already
+    # which is what lets a switch change land on a session already
     # mid-conversation. An ``OSPREY_EXECUTION_MODE=readonly`` stamped at spawn
     # could not express "the stand-in is read-only and the simulator is not" —
     # it sandboxes the whole session — and it could only be changed by killing
@@ -1205,7 +1217,7 @@ async def terminal_ws(websocket: WebSocket):
 #: ledger sees one kind of event whichever surface asked for it.
 AUDIT_SUBJECT_TARGET_SET = "control_target_set"
 
-#: Audit subject for a gesture that narrows or widens one target's posture.
+#: Audit subject for a gesture that turns one target's write switch on or off.
 AUDIT_SUBJECT_POSTURE_SET = "session_posture_set"
 
 #: Audit surface for a control gesture that names no session. The control
@@ -1695,7 +1707,7 @@ def _switch_mutation(
         baseline=facts.baseline,
         in_flight=facts.in_flight,
         reports=facts.reports,
-        writes_enabled=target_eligibility.effective_writes_for_target(facts.section, wanted),
+        writes_enabled=target_eligibility.target_write_verdict(facts.section, wanted).allowed,
         # A pure lookup: the sidecar was asked in the facts hop, because this
         # call happens under the record lock.
         kernel_name=facts.kernel_names.get,
@@ -1927,418 +1939,290 @@ async def request_terminal_target(body: TargetRequest, request: Request):
     }
 
 
-#: The popover's ``[ Sandbox everything ]`` gesture, spelled in the ``target``
-#: field. Narrowing everything is one unambiguous act; there is deliberately no
-#: matching "arm everything", because each target's ceiling is its own.
+#: The ``target`` value for every machine at once. Only ever with ``off``: a
+#: stop is one unambiguous act, while a machine is turned on one at a time, so
+#: ``all`` with ``on`` is a client error the route refuses before the record.
 ALL_TARGETS = "all"
+
+#: What the operator reads when a stop could not be written: the switch is
+#: still on, so the words must not say writes are refused. One of the C-WORDS
+#: literals; the chip shows it as the 503's ``phrase``.
+STOP_NOT_TAKEN_PHRASE = (
+    "The stop did not take effect — writes are still on. Retry; if it fails again, "
+    "ask the deployment admin."
+)
+
+#: Route outcomes of ``POST /api/terminal/posture`` that are not write-verdict
+#: reasons. They are answers about the request — a turn-on of everything, a
+#: machine this render does not describe, a record that did not take the
+#: gesture — so they stay out of :data:`osprey_connectors.refusals.REASONS`.
+POSTURE_REASON_BULK_ON = "bulk_on_refused"
+POSTURE_REASON_UNKNOWN_TARGET = "unknown_target"
+POSTURE_REASON_NOT_TAKEN = "not_taken"
+POSTURE_REASON_INVALID_SESSION = "invalid_session_id"
+
+#: The write-verdict terms that lock a turn-on at the route. Every later term
+#: is a fact the switch itself changes (``switch_off``) or one the next write
+#: re-reads, so only the two locks no chip gesture can lift refuse here.
+_TURN_ON_LOCKS = frozenset({"readonly_run", "tier_never"})
+
+#: The optional keys a posture refusal may carry beside ``reason`` (C-POST).
+_POSTURE_REFUSAL_FIELDS = frozenset({"phrase", "epoch", "stamped", "taken"})
 
 
 @dataclass(frozen=True)
 class _PostureRequestFacts:
-    """Everything ``POST /api/terminal/posture`` needs off the event loop.
+    """Everything ``POST /api/terminal/posture`` decides on before it writes.
 
-    One worker-thread hop for the whole ladder: the render parse, the record
-    read, the hypothetical narrowing derivation and — only when the request
-    widens — the execution-marker sweep. Answers drawn from separate hops could
-    straddle each other: a ceiling read from one render beside a narrowing
-    verdict taken from the next.
+    Read in one worker-thread hop: the render parse, the record status and the
+    turn-on's lock verdict. The switch write itself is a second hop and is a
+    compare-and-swap on the record, so nothing decided here can be overtaken by
+    a stop that lands in between.
     """
 
     #: Target names this render configures — the 400's vocabulary.
     configured: tuple[str, ...]
-    #: The targets this request actually touches (``all`` expands here).
-    wanted: tuple[str, ...]
-    #: ``session_posture(section)``: the render ceiling, per target.
-    ceilings: dict[str, bool]
-    #: The ``writes_enabled`` config key each wanted target's ceiling came from.
-    writes_keys: dict[str, str]
-    #: ``{target: why}`` for every target this request would CHANGE that cannot
-    #: be narrowed. Keyed per target rather than reduced to a first refusal,
-    #: because ``all`` narrows around one and a single target refuses on it.
-    narrowing_refusals: dict[str, str]
-    #: The first live execution marker, when the request widens; else ``None``.
-    in_flight: dict[str, Any] | None
-    #: The deployment's narrowings as this hop read them. The ladder is decided
-    #: against these; the write recomputes from the record it lands on.
-    current: dict[str, str]
-
-
-def _session_ceilings(section: Any) -> dict[str, bool]:
-    """The render ceiling per target: ``session_posture(section)``.
-
-    The per-target map, never the union. The union is true as soon as ONE
-    target is armed, so on a mixed render it would offer a writes toggle on the
-    facility's own machine that every write through it then refuses. An
-    unreadable render arms nothing, which is where every other predicate here
-    lands too.
-    """
-    if section is _UNREADABLE_SECTION:
-        return {}
-    try:
-        from osprey_connectors.types import session_posture
-
-        return dict(session_posture(section))
-    except Exception:  # an unreadable render arms no target
-        logger.warning("Could not read the per-target write ceilings")
-        return {}
-
-
-def _target_writes_key(section: Any, target: str) -> str:
-    """The config key that decided *target*'s ceiling, for the 403 to name.
-
-    :func:`~osprey_connectors.types.target_writes_enabled_key`, so the key a
-    refusal names is the key that answered it — the operator's next action is
-    to go and look at that line.
-    """
-    from osprey_connectors.types import WRITES_ENABLED_KEY
-
-    if section is _UNREADABLE_SECTION:
-        return WRITES_ENABLED_KEY
-    try:
-        from osprey_connectors.types import target_writes_enabled_key
-
-        return str(target_writes_enabled_key(section, target))
-    except Exception:  # name the deployment-wide key rather than none
-        logger.warning("Could not derive the writes key for control target %s", target)
-        return WRITES_ENABLED_KEY
-
-
-def _narrowing_refusals(
-    config: Any, targets: tuple[str, ...], *, config_path: str | None
-) -> dict[str, str]:
-    """Which of *targets* cannot be narrowed, and why. ``{target: detail}``.
-
-    *config_path* is the file *config* was parsed from; an unset gateway port is filled from it.
-
-    Delegated to
-    :func:`~osprey.mcp_server.control_system.target_eligibility.narrowing_refusal`,
-    the same hypothetical derivation the roster and the tool consult, so the
-    popover's locked toggle and this route's refusal carry one sentence.
-
-    **Only pass targets the request would actually CHANGE.** That function is
-    store-blind — it answers "what would narrowing this target cost?" from the
-    config alone — so a target already sitting in ``sandbox`` answers the same
-    refusal it answered when it was narrowed. Asking about one would let a
-    target that is *already* read-only veto a gesture that does not touch it.
-
-    Fails **open** on an unreadable render: the 400 above has already refused
-    every target there, and a narrowing on a config nobody can read is the safe
-    direction to let through.
-    """
-    if config is _UNREADABLE_SECTION:
-        return {}
-    refusals: dict[str, str] = {}
-    try:
-        from osprey.mcp_server.control_system.target_eligibility import narrowing_refusal
-
-        for target in targets:
-            verdict = narrowing_refusal(config, target, config_path=config_path)
-            if verdict is not None:
-                refusals[target] = verdict.detail
-    except Exception:  # an underivable narrowing is not a refusal
-        logger.warning("Could not evaluate what narrowing would cost", exc_info=True)
-    return refusals
-
-
-def _first_live_execution() -> dict[str, Any] | None:
-    """The oldest live execution marker, or ``None``. Never raises.
-
-    The one the refusal names, and the one the switch gate would name for the
-    same deployment: both read :func:`_live_executions`, which hands markers
-    back oldest first.
-    """
-    running = _live_executions()
-    return running[0] if running else None
+    #: How reading the login's record ended: ``ok``, ``missing``, ``unreadable``.
+    record_status: str
+    #: The verdict that locks a turn-on (:data:`_TURN_ON_LOCKS`), else ``None``.
+    lock: posture_store.WriteVerdict | None
 
 
 def _posture_post_facts(
-    config_path: Path | None, target: str, posture: str
+    config_path: Path | None, target: str, state: str, login: str
 ) -> _PostureRequestFacts:
-    """Read everything the posture ladder decides on. BLOCKING.
+    """Read the render, the record status and a turn-on's lock. BLOCKING.
 
-    Called through ``run_in_threadpool``: it parses ``config.yml`` and reads
-    the control-context record. Neither may happen on the event loop, where one
-    slow shared volume would stall every request this server is serving, the
-    terminal websocket included.
+    The lock is :func:`~osprey_connectors.posture_store.write_verdict` for
+    *login* with the launch pin ignored — the pin is a fact about a run, not
+    about the switch — and only its :data:`_TURN_ON_LOCKS` refuse: asked of a
+    machine whose switch is still off, the verdict would otherwise always
+    answer ``switch_off``.
     """
-    config = _rendered_config(config_path)
-    section = _section_of(config)
+    section = _section_of(_rendered_config(config_path))
     configured = _configured_target_names(section)
-    wanted = configured if target == ALL_TARGETS else (target,)
-    widening = posture == POSTURE_WRITES
+    _record, status = control_context.read_record_status()
+    lock = None
+    if state == SWITCH_ON and target in configured:
+        verdict = posture_store.write_verdict(section, target, owner=login, ignore_launch_pin=True)
+        if verdict.reason in _TURN_ON_LOCKS:
+            lock = verdict
+    return _PostureRequestFacts(configured=configured, record_status=status, lock=lock)
 
-    # The narrowing question is asked only about targets this request MOVES. A
-    # target already in ``sandbox`` is not being narrowed by this gesture, and
-    # ``narrowing_refusal`` — which reads the config, never the record — would
-    # otherwise let it refuse on behalf of a change nobody requested.
-    current = _recorded_posture()
-    changing = tuple(t for t in wanted if current.get(t) != POSTURE_SANDBOX)
-    derive_path = str(config_path) if config_path else None
 
-    return _PostureRequestFacts(
-        configured=configured,
-        wanted=wanted,
-        ceilings=_session_ceilings(section),
-        writes_keys={t: _target_writes_key(section, t) for t in wanted},
-        narrowing_refusals={}
-        if widening
-        else _narrowing_refusals(config, changing, config_path=derive_path),
-        in_flight=_first_live_execution() if widening else None,
-        current=current,
+def _refuse_posture(
+    session_key: str | None,
+    *,
+    status_code: int,
+    gesture: str,
+    reason: str,
+    **fields: Any,
+) -> HTTPException:
+    """File one refusal line for a posture gesture and build its C-POST answer.
+
+    The posture route's own envelope, ``{detail: {reason, phrase?, epoch?,
+    stamped?, taken?}}`` — never the target route's ``{error, message}``, which
+    :func:`_refuse_gesture` keeps. Returned rather than raised, like that
+    helper, so the control flow visibly leaves at the caller's ``raise``.
+
+    Raises:
+        TypeError: A field outside the C-POST envelope — a programming error.
+    """
+    unknown = set(fields) - _POSTURE_REFUSAL_FIELDS
+    if unknown:
+        raise TypeError(f"Not a C-POST refusal field: {sorted(unknown)}")
+    from osprey.audit.envelope import DECISION_REFUSED
+
+    audit = f"{gesture} outcome={reason}"
+    if "epoch" in fields:
+        audit += f" epoch={fields['epoch']} stamped={str(fields.get('stamped')).lower()}"
+    _record_control_gesture(
+        session_key,
+        subject=AUDIT_SUBJECT_POSTURE_SET,
+        decision=DECISION_REFUSED,
+        reason=reason,
+        detail=audit,
+    )
+    return HTTPException(status_code=status_code, detail={"reason": reason, **fields})
+
+
+def _posture_not_taken(
+    session_key: str | None, *, gesture: str, state: str, record_missing: bool
+) -> HTTPException:
+    """The 503 for a gesture the record could not take.
+
+    A stop answers ``not_taken`` with :data:`STOP_NOT_TAKEN_PHRASE` whether the
+    record is missing, unreadable or unwritable: the operator must not read a
+    failed stop as "writes are refused". A turn-on over no usable record
+    answers ``record_unavailable``; one whose write failed answers
+    ``not_taken`` with that same phrase.
+    """
+    if state != SWITCH_ON:
+        phrase = STOP_NOT_TAKEN_PHRASE
+    else:
+        phrase = refusal_phrase("record_unavailable")
+        if record_missing:
+            return _refuse_posture(
+                session_key,
+                status_code=503,
+                gesture=gesture,
+                reason="record_unavailable",
+                phrase=phrase,
+            )
+    return _refuse_posture(
+        session_key,
+        status_code=503,
+        gesture=gesture,
+        reason=POSTURE_REASON_NOT_TAKEN,
+        taken=False,
+        phrase=phrase,
     )
 
 
-def _in_flight_message(marker: dict[str, Any]) -> str:
-    """The refusal sentence the switch gate already says for a running run.
+def _push_control_context(app: Any) -> None:
+    """Tell every open tab the record moved, so each re-reads GET. Never raises.
 
-    Borrowed rather than reworded: an operator who has read it once in the
-    agent's answer should read the same words in the popover. Only the message
-    and the remedy are kept — the middle suggestion names the busy client, and
-    :func:`~osprey.mcp_server.control_system.target_eligibility.busy_client`
-    resolves it from the marker's own session and surface, which is a fact
-    wherever it is read.
+    The owner task would notice the new signature on its next tick; pushing
+    here makes the other tabs follow the gesture at once.
     """
+    broadcaster = getattr(app.state, "broadcaster", None)
+    if broadcaster is None:
+        return
     try:
-        from osprey.mcp_server.control_system.target_eligibility import in_flight_detail
-
-        message, suggestions, _details = in_flight_detail(marker, "")
-        remedy = [suggestions[-1]] if suggestions else []
-        return " ".join([message[:1].upper() + message[1:], *remedy])
-    except Exception:  # the refusal stands even without the gate's words
-        logger.warning("Could not build the in-flight refusal message", exc_info=True)
-        running_on = str(marker.get("target") or "unknown")
-        return (
-            f"An execution in flight on target {running_on!r}; wait or stop it, then widen again."
-        )
-
-
-def _posture_refusal(
-    session_id: str | None,
-    body: PostureRequest,
-    facts: _PostureRequestFacts,
-    context: _ContextState,
-    gesture: str,
-) -> HTTPException | None:
-    """The posture ladder's refusals, in order — or ``None`` to let it through.
-
-    Split out of :func:`set_terminal_posture` so the ladder reads as the
-    ordered list of reasons it is, and the handler as the steps it performs
-    around it: refuse, apply, record, answer. Everything here is decided from
-    :class:`_PostureRequestFacts` and :class:`_ContextState`; the one refusal
-    that fires BEFORE the threadpool hop stays in the handler, where it can be
-    reached without paying for the facts. The rungs, in order and with their
-    reasons, are documented on the route.
-
-    Returns the exception rather than raising it, for the same reason
-    :func:`_refuse_gesture` does: the audit record is filed here, and the
-    control flow leaves at the caller's ``raise``.
-    """
-    subject = AUDIT_SUBJECT_POSTURE_SET
-    widening = body.posture == POSTURE_WRITES
-
-    if not facts.wanted or (body.target != ALL_TARGETS and body.target not in facts.configured):
-        return _refuse_gesture(
-            session_id,
-            subject=subject,
-            status_code=400,
-            error="unknown_target",
-            message=_unknown_target_message(facts.configured),
-            detail=gesture,
-        )
-
-    context_refusal = _context_write_rung(session_id, context, subject=subject, detail=gesture)
-    if context_refusal is not None:
-        return context_refusal
-
-    if widening:
-        unarmed = [t for t in facts.wanted if not facts.ceilings.get(t, False)]
-        if unarmed:
-            blocked = unarmed[0]
-            return _refuse_gesture(
-                session_id,
-                subject=subject,
-                status_code=403,
-                error="writes_disabled",
-                message=(
-                    f"This deployment does not arm writes for target {blocked!r}: "
-                    f"{facts.writes_keys.get(blocked, '')} is off. A posture "
-                    "narrows what the render permits and never widens it."
-                ),
-                detail=gesture,
-            )
-
-    # A named target that cannot go read-only is a refusal: the operator asked
-    # for exactly that one and must be told it would strand the target.
-    # ``all`` is a different gesture — "narrow whatever can be narrowed" — so a
-    # single unnarrowable target must not veto the rest. Refusing wholesale
-    # there would leave "Sandbox everything" doing nothing at all on a
-    # deployment with one write_access-only target, which is the opposite of
-    # what the operator reached for.
-    if body.target != ALL_TARGETS and facts.narrowing_refusals:
-        blocked, why = next(iter(facts.narrowing_refusals.items()))
-        return _refuse_gesture(
-            session_id,
-            subject=subject,
-            status_code=409,
-            error="selected_role_missing",
-            message=why,
-            detail=f"{gesture} blocked_by={blocked}",
-        )
-
-    if facts.in_flight is not None:
-        return _refuse_gesture(
-            session_id,
-            subject=subject,
-            status_code=409,
-            error="execution_in_flight",
-            message=_in_flight_message(facts.in_flight),
-            detail=f"{gesture} executor_pid={facts.in_flight.get('pid')}",
-        )
-
-    return None
-
-
-def _posture_mutation(
-    record: Any, *, applying: tuple[str, ...], widening: bool
-) -> Mutation[dict[str, str]]:
-    """Apply the gesture to *record*'s narrowings and return what is stored.
-
-    Runs inside :meth:`ControlContextOwner.mutate_record`'s worker thread, so
-    the entry is derived from the record the write lands on: two toggles
-    arriving together are serialised by the mutation lock, and the second one
-    computes from a record that already holds the first one's narrowing.
-
-    An entry that narrows nothing REMOVES the key. Absence is how this field
-    spells ``writes``, and a stored ``"writes"`` would be a second spelling of
-    it — one the connector chain does not read.
-    """
-    posture = dict(record.posture)
-    for target in applying:
-        if widening:
-            posture.pop(target, None)
-        else:
-            posture[target] = POSTURE_SANDBOX
-    if posture == record.posture:
-        return Mutation.unchanged(posture)
-    return Mutation(record=replace(record, posture=posture), result=posture)
+        broadcaster.broadcast(dict(CONTROL_CONTEXT_FRAME))
+    except Exception:  # a missed push costs one tick of latency, not the gesture
+        logger.warning("Could not push the control-context frame", exc_info=True)
 
 
 @router.post("/api/terminal/posture")
 async def set_terminal_posture(body: PostureRequest, request: Request):
-    """Narrow or widen one control target's write posture for this deployment.
+    """Turn this login's write switch on or off for one machine, or off for all.
 
-    **Nothing is respawned.** The posture is read live from the control-context
-    record by every write-time gate — the connector's reference monitor, the
-    executor's clamp, the write hook — so a running agent obeys a narrowing on
-    its very next write.
+    The switch is the login's, in its own control-context record, and
+    :func:`~osprey_connectors.control_context.set_switch` is its one writer: a
+    compare-and-swap under the record lock. The route calls it directly rather
+    than through the owner primitive, so a terminal following another one acts
+    exactly like the holder — the switch is the person's, not the terminal's.
+    **Nothing is respawned**: every write path reads the switch at write time.
 
-    **The record write is the commit point.** It happens inside the mutation
-    primitive: the read, the derivation and the atomic replace are one unit,
-    serialised against every other write to the record, so a toggle can never
-    be computed from a record that a switch has since moved.
+    The ladder, in order (every non-200 is ``{detail: {reason, ...}}``):
 
-    **One posture per deployment, not one per session.** The narrowing is the
-    operator's statement about a machine, and the machine is the deployment's.
-    A ``session_id`` is therefore optional here: it names who made the gesture
-    for the audit trail and decides nothing about what the gesture does.
+    * **400** ``invalid_session_id`` (a session id outside the key grammar),
+      ``bulk_on_refused`` (``all`` with ``on``), ``unknown_target``.
+    * **403** ``tier_never`` / ``readonly_run`` with ``phrase`` — a turn-on the
+      verdict locks. A stop is never refused for tier, read-only run, follower
+      or an execution in flight.
+    * **503** — no usable record: a turn-on answers ``record_unavailable``, a
+      stop ``not_taken`` with :data:`STOP_NOT_TAKEN_PHRASE`; a record that
+      could not be written answers ``not_taken`` (``taken: false``).
+    * **409** ``stopped_since`` with ``epoch`` and ``stamped`` — the turn-on's
+      epoch is not the record's. A null epoch is sent as ``0``, so an
+      epoch-less record is stamped and the chip retries once with ``epoch``.
+      The server never retries.
+    * **422** — ``epoch`` is neither null nor a decimal string
+      (:data:`EPOCH_FORMAT_PHRASE`).
+    * **200** ``{target, state, switch_epoch}``.
 
-    The ladder, in order:
+    Every epoch on this route, in and out, is a decimal string
+    (:func:`wire_epoch`); it is compared as an integer only here.
 
-    * **400** — a session id outside the closed key grammar (only when one is
-      sent); a target this render does not configure; or :data:`ALL_TARGETS`
-      with ``writes``.
-    * **503** ``store_unavailable`` — this terminal holds no control context to
-      write. The toggle was refused and nothing changed.
-    * **409** ``context_owned_elsewhere`` — another web terminal owns the
-      context. The refusal names its pid and port; the toggle is made there.
-    * **403** ``writes_disabled`` — ``writes`` on a target this render does not
-      arm, naming that target's OWN ``writes_enabled`` key. Per target, never
-      the union: a deployment that arms only its simulator must not offer a
-      writes toggle on the facility's machine.
-    * **409** ``selected_role_missing`` — narrowing a NAMED target would move
-      the selected gateway role to one this deployment does not configure,
-      leaving the target unusable. The operator is owed that sentence *before*
-      they act. :data:`ALL_TARGETS` does not refuse on it: that gesture means
-      "narrow whatever can be narrowed", so it narrows the rest and reports the
-      others in ``skipped``. Only targets the request would actually MOVE are
-      asked — a target already in ``sandbox`` must not veto a gesture that does
-      not touch it.
-    * **409** ``execution_in_flight`` — ``writes`` while any execution marker is
-      live. A run is pinned to the posture it launched under, so a widening
-      cannot reach it; refusing here turns a silent no-op into an answer.
+    Every outcome files one audit line naming the login, the machine(s), the
+    state and the outcome; a session-less gesture is the Lab bar's surface.
     """
     session_id = body.session_id
-    _require_session_uuid(session_id)
+    try:
+        _require_session_uuid(session_id)
+    except HTTPException as exc:
+        # The middleware files this line itself: there is no key to name.
+        raise HTTPException(
+            status_code=exc.status_code, detail={"reason": POSTURE_REASON_INVALID_SESSION}
+        ) from exc
 
     app = request.app
-    subject = AUDIT_SUBJECT_POSTURE_SET
-    widening = body.posture == POSTURE_WRITES
-    gesture = f"target={body.target} posture={body.posture}"
+    login = acting_identity()
+    gesture = f"login={login} target={body.target} state={body.state}"
 
-    if widening and body.target == ALL_TARGETS:
-        raise _refuse_gesture(
-            session_id,
-            subject=subject,
-            status_code=400,
-            error="writes_requires_one_target",
-            message=(
-                "Writes are armed one target at a time. Every target's ceiling is "
-                "its own, so name the target to widen."
-            ),
-            detail=gesture,
+    if body.target == ALL_TARGETS and body.state == SWITCH_ON:
+        raise _refuse_posture(
+            session_id, status_code=400, gesture=gesture, reason=POSTURE_REASON_BULK_ON
         )
 
-    context = _context_state(app)
     facts: _PostureRequestFacts = await run_in_threadpool(
-        _posture_post_facts, app.state.config_path, body.target, body.posture
+        _posture_post_facts, app.state.config_path, body.target, body.state, login
     )
 
-    refusal = _posture_refusal(session_id, body, facts, context, gesture)
-    if refusal is not None:
-        raise refusal
-
-    # Everything ``all`` could not narrow is reported rather than silently
-    # dropped: the popover has to be able to say which machine stayed writable
-    # and why, or "Sandbox everything" would be a claim the record does not back.
-    skipped = [
-        {"target": target, "reason": "selected_role_missing", "detail": why}
-        for target, why in sorted(facts.narrowing_refusals.items())
-    ]
-    applying = tuple(t for t in facts.wanted if t not in facts.narrowing_refusals)
-
-    try:
-        stored = await context.owner.mutate_record(
-            partial(_posture_mutation, applying=applying, widening=widening)
+    if body.target != ALL_TARGETS and body.target not in facts.configured:
+        raise _refuse_posture(
+            session_id, status_code=400, gesture=gesture, reason=POSTURE_REASON_UNKNOWN_TARGET
         )
-    except ContextOwnerError as exc:
-        raise _context_error_refusal(session_id, exc, subject=subject, detail=gesture) from exc
 
+    if facts.lock is not None:
+        lock_reason = cast(str, facts.lock.reason)
+        raise _refuse_posture(
+            session_id,
+            status_code=403,
+            gesture=gesture,
+            reason=lock_reason,
+            phrase=refusal_phrase(lock_reason, facts.lock.kind),
+        )
+
+    if facts.record_status != "ok":
+        raise _posture_not_taken(session_id, gesture=gesture, state=body.state, record_missing=True)
+
+    targets: Sequence[str] | Literal["all"] = (
+        ALL_TARGETS if body.target == ALL_TARGETS else [body.target]
+    )
+    # A chip that read no epoch sends null; 0 is never a record's epoch, so the
+    # sentinel reaches ``set_switch``'s stamping branch on an epoch-less record.
+    epoch = 0 if body.epoch is None else int(body.epoch)
+    try:
+        stored = await run_in_threadpool(
+            partial(control_context.set_switch, targets, body.state, epoch=epoch)
+        )
+    except control_context.StoppedSince as exc:
+        if exc.epoch is None:  # the record went away after the status read
+            raise _posture_not_taken(
+                session_id, gesture=gesture, state=body.state, record_missing=True
+            ) from exc
+        if exc.stamped:
+            _push_control_context(app)
+        raise _refuse_posture(
+            session_id,
+            status_code=409,
+            gesture=gesture,
+            reason=exc.reason,
+            epoch=wire_epoch(exc.epoch),
+            stamped=exc.stamped,
+        ) from exc
+    except ValueError as exc:  # a name the switch vocabulary does not know
+        raise _refuse_posture(
+            session_id, status_code=400, gesture=gesture, reason=POSTURE_REASON_UNKNOWN_TARGET
+        ) from exc
+    except (OSError, RuntimeError) as exc:
+        logger.warning("The switch gesture %s was not taken", gesture, exc_info=True)
+        raise _posture_not_taken(
+            session_id, gesture=gesture, state=body.state, record_missing=False
+        ) from exc
+
+    if stored is None:  # a stop that found no record after the status read
+        raise _posture_not_taken(session_id, gesture=gesture, state=body.state, record_missing=True)
+
+    _push_control_context(app)
     from osprey.audit.envelope import DECISION_ALLOWED
 
+    on = ",".join(sorted(stored.switch)) or "none"
     _record_control_gesture(
         session_id,
-        subject=subject,
+        subject=AUDIT_SUBJECT_POSTURE_SET,
         decision=DECISION_ALLOWED,
-        reason="posture_set",
-        detail=(
-            f"{gesture} narrowed={','.join(sorted(stored)) or 'none'}"
-            f" skipped={','.join(row['target'] for row in skipped) or 'none'}"
-        ),
+        reason="switch_set",
+        detail=f"{gesture} outcome=switch_set on={on}",
     )
-    logger.info(
-        "Posture %s on %s; narrowed targets: %s; skipped: %s",
-        body.posture,
-        body.target,
-        ", ".join(sorted(stored)) or "none",
-        ", ".join(row["target"] for row in skipped) or "none",
-    )
-
+    logger.info("Switch %s for %s by %s; on now: %s", body.state, body.target, login, on)
     return {
-        "session_id": session_id,
         "target": body.target,
-        "posture": body.posture,
-        "entry": stored,
-        "skipped": skipped,
+        "state": body.state,
+        "switch_epoch": wire_epoch(stored.switch_epoch),
     }
 
 
@@ -2348,9 +2232,9 @@ async def set_terminal_posture(body: PostureRequest, request: Request):
 # agent writes now, where does it land and will it be refused? The chip shows
 # that answer for the target the deployment is on; its popover shows one row per
 # configured target, and every row carries enough for the operator to act on it
-# — the machine's name, where it points, whether anything is reaching it, the
-# ceiling the rendered, the operator's own narrowing, and what a switch
-# would do.
+# — the machine's name and kind, where it points, whether anything is reaching
+# it, the login's switch for it and the write verdict a new call would meet,
+# and what a target switch would do.
 #
 # Every one of those facts is derived HERE and not in the browser, for the same
 # three reasons each time. The words a refusal uses are the switch tool's and
@@ -2368,12 +2252,9 @@ SHORT_LIVE = "LIVE"
 SHORT_STANDIN = "STAND-IN"
 SHORT_VIRTUAL = "VIRTUAL"
 
-#: The same three in plain language, for the popover's simple density: one word
-#: per row, chosen so an operator who has never met the word "target" can still
-#: tell the facility's machine from a simulation of it.
-KIND_LIVE = "live machine"
-KIND_STANDIN = "stand-in"
-KIND_VIRTUAL = "virtual accelerator"
+#: The short word per published machine kind (C-KIND). The kind is the one value
+#: every surface reads, so the chip's word can never disagree with the verdict's.
+_SHORT_BY_KIND = {"real": SHORT_LIVE, "rehearsal": SHORT_STANDIN, "simulator": SHORT_VIRTUAL}
 
 #: The two reachability states the prober never publishes, because both are
 #: read-time verdicts: ``unknown`` is the absence of a row (no live server has
@@ -2425,25 +2306,15 @@ def _aged(block: Any) -> dict[str, Any] | None:
     return {**block, "age_s": _age_seconds(block.get("at"))}
 
 
-def _short_label_and_kind(label: Any, real_machine: bool) -> tuple[str, str]:
-    """The chip's short word and the popover's plain word for one row.
+def _short_label(machine_kind: str) -> str:
+    """The chip's short word for a row of *machine_kind* (C-KIND).
 
-    Derived from the row's ``real_machine`` flag and the SHAPE of the label the
-    controls server minted — never from the target name. ``live`` is a name in a
-    config file; whether writing there moves hardware is a property of the
-    connector behind it, and reading the name would put ``LIVE`` on a simulator.
-
-    ``real_machine`` decides the loud half — it is true for the facility's own
-    machine AND for a stand-in, both of which get every strict limit and
-    approval prompt hardware gets — and the label's shape then separates those
-    two. An unrecognised real-machine label falls back to the louder answer,
-    which is the direction this stack must fail in. A row that is not a real
-    machine is the simulator.
+    Read off the published kind and nothing else — never the label's shape nor
+    the target name. Only the controls server can vouch that a ``standin`` is
+    this deployment's live stand-in; any kind this table does not know reads as
+    the real machine, the direction this stack must fail in.
     """
-    if not real_machine:
-        return SHORT_VIRTUAL, KIND_VIRTUAL
-    text = str(label or "").strip().lower()
-    return (SHORT_STANDIN, KIND_STANDIN) if "(stand-in)" in text else (SHORT_LIVE, KIND_LIVE)
+    return _SHORT_BY_KIND.get(machine_kind, SHORT_LIVE)
 
 
 def _probe_staleness_threshold_s(config: Any) -> float | None:
@@ -2511,9 +2382,9 @@ def _collapse_reachability(
     A target has one probe row per gateway role the deployment configures and a
     connector uses exactly one of them — EPICS keeps a single process-wide
     context. So the row reports the state of the role ``derive_endpoints``
-    selects under the target's EFFECTIVE posture: a target narrowed to
-    read-only is reachable if its READ gateway answers, and a write gateway that
-    is down says nothing about it.
+    selects under the row's ``write_allowed``: a machine that may not be written
+    is reachable if its READ gateway answers, and a write gateway that is down
+    says nothing about it.
 
     The other roles are not merged in. An OR would call a target reachable
     through a gateway it will not use; an AND would call it unreachable for the
@@ -2537,45 +2408,19 @@ def _collapse_reachability(
     }
 
 
-def _effective_writes(section: Any, target: str) -> bool:
-    """Whether *target* may be written on this deployment, right now.
-
-    ``ceiling ∧ not is_readonly_run() ∧ recorded posture ≠ sandbox`` — rule 3
-    of the posture contract, and delegated to
-    :func:`~osprey_connectors.posture_store.effective_writes` rather than
-    restated. The contract has exactly two implementations (that one and the
-    stdlib restatement the hooks carry); a third spelled out in a route is how a
-    popover comes to show ``writes`` on a machine the connector refuses.
-
-    No key is passed because there is none to pass: the narrowing lives in the
-    deployment's control-context record, and that function reads it. A web
-    server carries no ``OSPREY_POSTURE_SESSION`` stamp and needs none.
-
-    An unreadable render answers ``False``, where every other predicate on this
-    surface lands.
-    """
-    if section is _UNREADABLE_SECTION:
-        return False
-    try:
-        return bool(posture_store.effective_writes(section, target))
-    except Exception:  # an underivable posture is not a writable one
-        logger.warning("Could not resolve the effective write posture for target %s", target)
-        return False
-
-
 def _row_selected_role(
     config: Any, target: str, writes_enabled: bool, *, config_path: str | None
 ) -> str | None:
-    """The gateway role a connector would select for *target* under this posture.
+    """The gateway role a connector would select for *target* under this verdict.
 
     *config_path* is the file *config* was parsed from; an unset gateway port is filled from it.
 
     The reachability collapse keys on it, so it is derived through
     :func:`~osprey_connectors.ipc.derive_endpoints`
     — the function the connector-host child's own selection is verified against
-    — with the recorded effective posture rather than the configured one. A
-    role derived from config alone would name the write gateway for a target the
-    operator has just narrowed, and the row would report the reachability of a
+    — with the row's ``write_allowed`` rather than the configured ceiling. A
+    role derived from config alone would name the write gateway for a machine
+    whose switch is off, and the row would report the reachability of a
     gateway no connector on this deployment will open.
 
     ``None`` for a target this render cannot derive at all, which the collapse
@@ -2592,42 +2437,6 @@ def _row_selected_role(
     except Exception:  # an underivable target selects no role
         logger.warning("Could not derive the selected gateway role for target %s", target)
         return None
-
-
-def _row_narrowing_refusal(config: Any, target: str, *, config_path: str | None) -> str | None:
-    """What narrowing *target* would cost, as a reason word, or ``None``.
-
-    *config_path* is the file *config* was parsed from; an unset gateway port is filled from it.
-
-    :func:`~osprey.mcp_server.control_system.target_eligibility.narrowing_refusal`
-    — the same hypothetical derivation the POST answers its 409 with, so the
-    toggle the popover LOCKS and the toggle the route would refuse are decided
-    by one function. A deployment whose block configures ``write_access`` alone
-    has nothing for a narrowed session to select: it would land on ``read_only``,
-    find no such gateway, and the target would stop being usable at all. The
-    operator is owed that before they click, not after.
-
-    Reported as the reason word rather than the sentence: the sentence is the
-    POST's to say when the gesture is actually made, and the row needs a token
-    to key a lock label on. ``selected_role_missing`` is the case this exists
-    for; ``target_unresolvable`` can arrive from the same call and is passed
-    through rather than flattened, because a row that cannot be derived at all
-    is not a row whose toggle should look live.
-
-    Fails **open** (``None``) on an unreadable render, which is where the POST's
-    own narrowing check lands: a narrowing on a config nobody can read is the
-    safe direction to let through.
-    """
-    if config is _UNREADABLE_SECTION:
-        return None
-    try:
-        from osprey.mcp_server.control_system.target_eligibility import narrowing_refusal
-
-        verdict = narrowing_refusal(config, target, config_path=config_path)
-    except Exception:  # an underivable narrowing is not a refusal
-        logger.warning("Could not evaluate what narrowing target %s would cost", target)
-        return None
-    return verdict.reason if verdict is not None else None
 
 
 def _row_availability(
@@ -2759,20 +2568,19 @@ def _server_rows(reports: Sequence[Any]) -> list[dict[str, Any]]:
     binding. A row with children is a connector serving or mid-launch, and is
     owed to the wait.
     """
-    rows: list[dict[str, Any]] = []
-    for report in sorted(reports, key=lambda r: _stamp_epoch(r.updated_at)):
-        rows.append(
-            {
-                "pid": report.server_pid,
-                "session": report.session,
-                "applied_target": report.applied_target,
-                "applied_generation": report.applied_generation,
-                "children": list(report.children),
-                "last_switch": _aged(report.last_switch),
-                "last_posture_realign": report.last_posture_realign,
-                "updated_at": report.updated_at,
-            }
-        )
+    rows: list[dict[str, Any]] = [
+        {
+            "pid": report.server_pid,
+            "session": report.session,
+            "applied_target": report.applied_target,
+            "applied_generation": report.applied_generation,
+            "children": list(report.children),
+            "last_switch": _aged(report.last_switch),
+            "last_posture_realign": report.last_posture_realign,
+            "updated_at": report.updated_at,
+        }
+        for report in sorted(reports, key=lambda r: _stamp_epoch(r.updated_at))
+    ]
     return rows
 
 
@@ -2781,7 +2589,7 @@ def _published_targets(reports: Sequence[Any]) -> dict[str, Any]:
 
     Each server publishes the identity of the targets IT rendered, under the
     posture IT is running, so two servers on one deployment can name two
-    gateways for one target — one narrowed, one not. The newer report is the
+    gateways for one target — one with writes off, one not. The newer report is the
     answer, decided per target rather than per fleet: a server that has just
     started has published nothing for the targets it has not rendered, and
     letting its empty block win would blank a row another server has named.
@@ -2833,7 +2641,7 @@ def _published_reachability(reports: Sequence[Any]) -> dict[str, Any]:
     return {target: roles for target, (_, roles) in newest.items()}
 
 
-#: The ``last_posture_realign`` state that means a narrowing has not reached the
+#: The ``last_posture_realign`` state that means a switch change has not reached the
 #: agent yet. The connector is rebuilt only once the run in flight finishes, and
 #: the popover says so rather than leaving a toggle that appears to have done
 #: nothing.
@@ -2843,7 +2651,7 @@ REALIGN_PENDING = "pending"
 def _fleet_realign(reports: Sequence[Any]) -> dict[str, Any] | None:
     """The deployment's posture realignment — any pending one wins.
 
-    A narrowing lands on a server only when its connector is rebuilt, so one
+    A switch change lands on a server only when its connector is rebuilt, so one
     server still ``pending`` is the fact the operator needs even when a second
     server finished realigning afterwards. Ordering by time alone would let that
     newer ``done`` hide the toggle that has not taken effect.
@@ -2894,7 +2702,7 @@ def _execution_rows() -> list[dict[str, Any]]:
 def _target_display(
     config: Any,
     published: Mapping[str, Any],
-    effective_writes: Mapping[str, bool],
+    write_allowed: Mapping[str, bool],
     *,
     config_path: str | None,
 ) -> dict[str, dict[str, Any]]:
@@ -2905,8 +2713,11 @@ def _target_display(
     wherever it carries a label: it describes a process that owns a connector,
     while the render describes what a *new* server would do with the config as
     it stands now. A labelled row therefore names the gateway that server last
-    published, which after a narrowing is the gateway the previous posture
-    selected until the reconciler's next pass republishes it.
+    published, which after a switch change is the gateway the previous posture
+    selected until the reconciler's next pass republishes it. The GET row's
+    own ``label`` is not read from here: it is the banner of the row's machine
+    kind (D4), so only the endpoint and the other display facts come from a
+    published row.
 
     The render is the fallback, through the same
     :func:`~osprey.mcp_server.control_system.connector_host_manager.target_display_metadata`
@@ -2914,21 +2725,21 @@ def _target_display(
     to name its targets, and naming them with a second derivation of this
     module's own is how a badge comes to disagree with a prompt.
 
-    That fallback is rendered under the deployment's effective posture, which is
-    what *effective_writes* carries. The renderer's own default resolves the
-    posture from ``OSPREY_POSTURE_SESSION``, a stamp the web server does not
-    carry, so an uninjected render would find no narrowing at all and name the
-    write gateway of a target the operator has already given up writes on. The
-    caller resolves the column once and hands it over, so the endpoint on a row
-    and the ``effective`` flag beside it are one answer rather than two.
+    That fallback is rendered under each row's write verdict, which is what
+    *write_allowed* carries. The renderer's own default resolves the posture
+    from ``OSPREY_POSTURE_SESSION``, a stamp the web server does not carry, so
+    an uninjected render would name the write gateway of a machine whose switch
+    is off. The caller resolves the column once and hands it over, so the
+    endpoint on a row and the ``write_allowed`` flag beside it are one answer
+    rather than two.
 
     Args:
         config: The rendered config mapping, or ``_UNREADABLE_SECTION`` when
             ``config.yml`` could not be read.
         published: The fleet's per-target display metadata, collapsed by
             :func:`_published_targets`.
-        effective_writes: Per-target effective write posture, keyed by target
-            name. A target the mapping does not answer for is rendered from the
+        write_allowed: Per-target write verdict, keyed by target name. A
+            target the mapping does not answer for is rendered from the
             deployment ceiling and this run's mode.
         config_path: The file *config* was parsed from; an unset
             virtual-accelerator gateway port is filled from it.
@@ -2942,7 +2753,7 @@ def _target_display(
 
             derived = dict(
                 target_display_metadata(
-                    config, effective_writes=effective_writes, config_path=config_path
+                    config, write_allowed=write_allowed, config_path=config_path
                 )
             )
         except Exception:  # the roster must render, not 500
@@ -2955,12 +2766,68 @@ def _target_display(
         if isinstance(row, dict) and row.get("label"):
             # MERGED over the derivation, never substituted for it. A writer
             # from an older build publishes a label and no ``real_machine``,
-            # and that key decides which half of
-            # :func:`_short_label_and_kind` answers — losing it renders a
-            # stand-in as a muted simulator on the one surface whose job is
-            # write safety. Published fields still win where they exist.
+            # and losing the derived key would render a stand-in as a muted
+            # simulator on the one surface whose job is write safety.
+            # Published fields still win where they exist.
             meta[str(target)] = {**(meta.get(str(target)) or {}), **row}
     return meta
+
+
+#: ``locks.tier`` when the login's tier cannot be read — the verdict refuses it
+#: as ``owner_unknown``, which no chip gesture lifts either.
+TIER_UNKNOWN = "unknown"
+
+
+def _login_tier(section: Any, login: str) -> str:
+    """The write tier that governs *login* here: ``allowed``, ``never`` or ``unknown``.
+
+    The deployment's tier (:func:`~osprey_connectors.types.tier_writes`) first,
+    then the login's own rung (:func:`~osprey_connectors.posture_store.owner_tier_term`)
+    — the two tier terms of the write verdict, in its order. A rung that does
+    not apply leaves the deployment's answer. Never raises.
+    """
+    try:
+        from osprey_connectors.types import tier_writes
+
+        deployment = tier_writes(None if section is _UNREADABLE_SECTION else section)
+        if deployment != "allowed":
+            return "never"
+        rung = posture_store.owner_tier_term(section, login)
+    except Exception:  # an unreadable tier is not an allowed one
+        logger.warning("Could not read the write tier for login %s", login)
+        return TIER_UNKNOWN
+    if rung == "never":
+        return "never"
+    if rung == "unknown":
+        return TIER_UNKNOWN
+    return "allowed"
+
+
+def _row_verdict(section: Any, target: str, login: str) -> posture_store.WriteVerdict:
+    """The write verdict for a new call by *login* to *target* (C-GET, FR 5).
+
+    The launch pin is ignored: it is a fact about a run already going, and the
+    row answers what the next write would meet — exactly the verdict the POST's
+    turn-on lock reads.
+    """
+    return posture_store.write_verdict(
+        None if section is _UNREADABLE_SECTION else section,
+        target,
+        owner=login,
+        ignore_launch_pin=True,
+    )
+
+
+def _switch_state(record: Any, status: str, target: str) -> str | None:
+    """The login's switch for *target*: ``on``, ``off``, or ``None`` when unreadable.
+
+    An absent record is every switch off; only an unreadable one is unknown.
+    """
+    if status == "unreadable":
+        return None
+    if record is not None and record.switch.get(target) == SWITCH_ON:
+        return SWITCH_ON
+    return "off"
 
 
 def _posture_view(app: Any, config_path: Path | None) -> dict[str, Any]:
@@ -2975,24 +2842,18 @@ def _posture_view(app: Any, config_path: Path | None) -> dict[str, Any]:
 
     **One resolution for what this function reads itself.** The record is read
     once here and every fact this body draws from it — the target, the
-    generation, the narrowings, ``last_switch``, the owner — comes from that one
-    read; the fleet is listed once and the server rows, the reachability and the
-    display metadata all come from that one listing. Two resolutions could
-    straddle a switch and describe two different machines in one payload. The
-    render is read once for the same reason and memoized by ``config.yml``'s
-    signature besides (:func:`_rendered_config`).
+    generation, the switch, its epoch, ``last_switch``, the owner — comes from
+    that one read; the fleet is listed once and the server rows, the
+    reachability and the display metadata all come from that one listing. The
+    render is read once and memoized by ``config.yml``'s signature besides
+    (:func:`_rendered_config`).
 
-    **``effective`` is the exception, and it is not one this route can close.**
-    :func:`_effective_writes` delegates to
-    :func:`~osprey_connectors.posture_store.effective_writes`, which resolves the
-    narrowing by reading the record itself, once per target — that function is
-    the single implementation of rule 3 and restating it here to reuse the
-    record above would be the second implementation it exists to prevent. So a
-    switch landing mid-render can move ``effective`` on a later row while the
-    earlier rows and the top-level fields still describe the previous record.
-    The window is one poll wide, the chip refetches on the ``control_context``
-    frame, and closing it properly means letting that function take an
-    already-read record rather than opening the file again.
+    **The write columns are the verdict's.** Each row carries
+    :func:`~osprey_connectors.posture_store.write_verdict` for a new call by the
+    signed-in login — the one rule every write path applies — and that function
+    reads the record itself (cached by signature, so ordinarily the same read).
+    A switch landing mid-render can still move a later row's verdict; the window
+    is one poll wide and the chip refetches on the ``control_context`` frame.
 
     **No session is involved.** There is one control context per login
     identity, so every answer here is that login's: the caller's ``session_id``
@@ -3001,36 +2862,21 @@ def _posture_view(app: Any, config_path: Path | None) -> dict[str, Any]:
     config = _rendered_config(config_path)
     derive_path = str(config_path) if config_path else None
     section = _section_of(config)
-    record = control_context.read_record()
+    record, record_status = control_context.read_record_status()
     reports = _live_reports()
+    login = acting_identity()
 
     baseline = _baseline_target(section)
     control_target = record.target if record is not None else baseline
 
-    entry = {} if record is None else dict(record.posture)
-    ceilings = _session_ceilings(section)
     configured = list(_configured_target_names(section))
     # Resolved BEFORE the render, and exactly once. The display metadata names
-    # one gateway per target, and WHICH gateway depends on the same effective
-    # answer the rows below publish — the renderer's own default would resolve
-    # it from a posture stamp this process does not carry, and name the write
-    # gateway of a target this deployment has narrowed.
-    #
-    # ONE ceiling per row. ``ceiling_writes`` reports ``session_posture``'s
-    # per-target map; ``effective`` runs through the record, whose own ceiling is
-    # ``target_writes_enabled`` for every configured target. On a NON-switch-
-    # capable render those two disagree — ``session_posture`` answers for the
-    # baseline alone, while ``configured_targets`` still lists the others — so
-    # an unarmed row would render ceiling-off beside effective-on: a filled dot
-    # for a target no connector here is ever built for. Gating on the ceiling
-    # the route already holds keeps the row internally consistent; where the two
-    # agree (every switch-capable deployment) this changes nothing.
-    effective_by_target = {
-        target: bool(ceilings.get(target, False)) and _effective_writes(section, target)
-        for target in configured
-    }
+    # one gateway per target, and WHICH gateway depends on the same verdict the
+    # rows below publish.
+    verdicts = {target: _row_verdict(section, target, login) for target in configured}
+    write_allowed = {target: verdict.allowed for target, verdict in verdicts.items()}
     display = _target_display(
-        config, _published_targets(reports), effective_by_target, config_path=derive_path
+        config, _published_targets(reports), write_allowed, config_path=derive_path
     )
     threshold_s = _probe_staleness_threshold_s(config)
     probed = _published_reachability(reports)
@@ -3038,59 +2884,59 @@ def _posture_view(app: Any, config_path: Path | None) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     for target in configured:
         meta = display.get(target) or {}
-        real_machine = bool(meta.get("real_machine"))
-        label = str(meta.get("label") or "") or target
-        short_label, kind = _short_label_and_kind(label, real_machine)
-        ceiling_writes = bool(ceilings.get(target, False))
-        effective = effective_by_target[target]
-        posture = entry.get(target, POSTURE_WRITES)
-        # Only for a row a narrowing would actually CHANGE, mirroring the POST's
-        # "targets the request would touch" rule: a target already narrowed
-        # cannot be stranded by narrowing it, and reporting the refusal there
-        # would lock the toggle that brings it back.
-        narrowing = (
-            None
-            if posture == POSTURE_SANDBOX
-            else _row_narrowing_refusal(config, target, config_path=derive_path)
-        )
+        verdict = verdicts[target]
+        allowed = verdict.allowed
+        # C-KIND: the verdict's kind, which is the published report's. A target
+        # the verdict could not resolve still names a kind from the same reader.
+        kind = verdict.kind or published_machine_kind(target)
         available_now, reason, reason_detail = _row_availability(
-            config, target, control_target, baseline, effective, config_path=derive_path
+            config, target, control_target, baseline, allowed, config_path=derive_path
         )
         rows.append(
             {
                 "target": target,
-                "label": label,
+                # D4: the label is the kind's banner, never a writer's string, so
+                # a stand-in no live server vouches for reads as the real machine.
+                "label": KIND_BANNERS.get(kind, KIND_BANNERS["real"]),
                 "display_name": str(meta.get("display_name") or ""),
-                "short_label": short_label,
-                "kind": kind,
+                "short_label": _short_label(kind),
+                "machine_kind": kind,
                 "endpoint": str(meta.get("endpoint") or ""),
-                "real_machine": real_machine,
+                "real_machine": bool(meta.get("real_machine")),
                 "active": target == control_target,
                 "is_baseline": target == baseline,
                 "available_now": available_now,
                 "reason": reason,
                 "reason_detail": reason_detail,
-                "ceiling_writes": ceiling_writes,
-                "posture": posture,
-                "effective": effective,
-                "narrowing_refusal": narrowing,
+                "switch": _switch_state(record, record_status, target),
+                "write_allowed": allowed,
+                "write_reason": verdict.reason,
+                "write_phrase": (
+                    None if verdict.reason is None else refusal_phrase(verdict.reason, kind)
+                ),
                 "reachability": _collapse_reachability(
                     probed.get(target),
-                    _row_selected_role(config, target, effective, config_path=derive_path),
+                    _row_selected_role(config, target, allowed, config_path=derive_path),
                     threshold_s,
                 ),
             }
         )
 
+    readonly_run = is_readonly_run()
     return {
         "control_target": control_target,
         "generation": None if record is None else record.generation,
         "store_available": _record_available(),
-        # Published rather than left for the client to infer from
-        # ``ceiling_writes ∧ posture ≠ sandbox ∧ ¬effective``: that signature
-        # is also what a record that fails to resolve leaves behind, and an
-        # operator must not be told the deployment is read-only when it is not.
-        "readonly_run": is_readonly_run(),
+        # Published rather than left for the client to infer from the rows'
+        # ``write_reason``: an operator must not be told the deployment is
+        # read-only when a record simply failed to resolve.
+        "readonly_run": readonly_run,
+        "switch_epoch": None if record is None else wire_epoch(record.switch_epoch),
+        # What enables "Turn all off": any machine on in this login's record,
+        # configured here or not — a machine a later render dropped is still on.
+        "any_on": record is not None
+        and any(state == SWITCH_ON for state in record.switch.values()),
+        "locks": {"readonly_run": readonly_run, "tier": _login_tier(section, login)},
         "owner": _owner_row(app, record),
         "servers": _server_rows(reports),
         "execution_in_flight": _execution_rows(),
@@ -3112,29 +2958,23 @@ async def get_terminal_posture(request: Request, session_id: str | None = None):
     One row per configured control target, each answering the whole of what the
     operator needs about that machine:
 
-    * ``label`` / ``display_name`` / ``short_label`` / ``kind`` / ``endpoint``
-      / ``real_machine`` — what to call it and what it is. The label is the one
-      a running controls server published for the target it is on, or the one
-      this render derives where no server has published one;
+    * ``label`` / ``display_name`` / ``short_label`` / ``machine_kind`` /
+      ``endpoint`` / ``real_machine`` — what to call it and what it is. The
+      label is the one a running controls server published for the target it
+      is on, or the one this render derives where no server has published one;
       ``display_name`` is the operator-facing name minted beside it
-      (``control_system.target_display_names`` renames it per deployment);
-      ``short_label`` and ``kind`` come from ``real_machine`` and the label's
-      shape, never from the target name, so a stand-in never renders as the
-      facility's own machine.
-    * ``ceiling_writes`` / ``posture`` / ``effective`` — the three terms of the
-      write decision, kept separate on purpose. The ceiling is the deployment's
-      (``session_posture``); the posture is the operator's own narrowing; the
-      effective answer is the whole rule the connector applies, which also folds
-      in a read-only run. A popover that showed only the last of them could not
-      say whether a locked toggle is the render's doing or the operator's.
-    * ``narrowing_refusal`` — ``null``, or the reason word narrowing this target
-      would earn (``selected_role_missing`` on a deployment whose block
-      configures ``write_access`` alone). It is the one lock reason the payload
-      could not otherwise be derived from, and it is the same verdict the POST
-      answers its 409 with, so the toggle the popover locks and the toggle the
-      route would refuse are decided by one function. ``null`` on a row already
-      narrowed: that toggle brings the target BACK, and nothing about it can
-      strand anything.
+      (``control_system.target_display_names`` renames it per deployment).
+      ``machine_kind`` (``real`` | ``rehearsal`` | ``simulator``) is the write
+      verdict's kind, read from the controls server's published report
+      (C-KIND), and ``short_label`` follows it — never the label's shape or
+      the target name, so a stand-in no server vouched for reads as the real
+      machine.
+    * ``switch`` / ``write_allowed`` / ``write_reason`` / ``write_phrase`` —
+      the login's switch for the machine (``on`` | ``off``, ``null`` when the
+      record cannot be read) and the write verdict a new call by the signed-in
+      login would meet: ``write_reason`` is a refusal reason or ``null`` and
+      ``write_phrase`` its operator sentence (C-PHRASE). The chip renders only
+      these; a demoted login's ``on`` stays ``on`` and reads refused.
     * ``active`` / ``is_baseline`` / ``available_now`` / ``reason`` /
       ``reason_detail`` — where the deployment is standing and whether a switch
       is offered. ``reason`` is the switch tool's own machine code, so the
@@ -3142,7 +2982,7 @@ async def get_terminal_posture(request: Request, session_id: str | None = None):
       ``reason_detail`` is the eligibility verdict's operator sentence, which
       the popover renders as the tooltip behind its short phrase.
     * ``reachability`` — the state of the gateway role this target would
-      actually select under its effective posture, aged server-side, with the
+      actually select under its write verdict, aged server-side, with the
       other roles named beside it (see :func:`_collapse_reachability`). It is
       the sweep of whichever live server probed that target most recently.
 
@@ -3164,12 +3004,17 @@ async def get_terminal_posture(request: Request, session_id: str | None = None):
     * ``execution_in_flight`` — one row per live execution marker, carrying
       ``session``, ``surface`` and ``kernel_id`` so the surface can say WHOSE
       run is holding the target rather than only that something is.
-    * ``store_available`` — whether there is anywhere to record a narrowing at
+    * ``store_available`` — whether there is anywhere to record a switch at
       all.
-    * ``readonly_run`` — the whole deployment was started read-only, which is
-      the one thing besides the ceiling and the narrowing that holds
-      ``effective`` down. Stated outright, so a client never has to infer it
-      from a row whose ``effective`` a failed record read zeroed.
+    * ``readonly_run`` — the whole deployment was started read-only. Stated
+      outright, so a client never has to infer it from the rows' reasons.
+    * ``switch_epoch`` — the record's epoch as a decimal string, which the chip
+      sends back unchanged with a turn-on (C-POST); ``null`` for no record or an
+      epoch-less one.
+    * ``any_on`` — whether any machine is on in this login's record,
+      configured here or not; it enables "Turn all off".
+    * ``locks`` — ``{readonly_run, tier}``: the two locks no chip gesture
+      lifts. ``tier`` is ``allowed``, ``never`` or ``unknown`` for this login.
     * ``last_switch`` — the record's terminus, passed through whole with
       ``age_s`` added, and ``last_posture_realign``, the fleet's, with any
       pending realignment winning over a settled one.
