@@ -1047,29 +1047,83 @@ def _host_guard_wiring(config: dict[str, Any]) -> dict[str, Any]:
     return kept
 
 
-def _guard_floor(host_hooks: Any, app_hooks: Any) -> list[Any]:
+@dataclass(frozen=True)
+class GuardFloor:
+    """The host guards every app render keeps, whatever composes or edits it.
+
+    Attributes:
+        hooks: The host's ``hooks:`` entries that select a library guard, as
+            the host spells them — the deployment's replacement file where the
+            host names one.
+        wiring: The host's ``claude_code.hooks.PreToolUse`` declarations (its
+            facility guards).
+    """
+
+    hooks: tuple[Any, ...] = ()
+    wiring: tuple[Any, ...] = ()
+
+    @classmethod
+    def of(cls, host: dict[str, Any]) -> GuardFloor:
+        """The floor *host*, a resolved root profile, sets for its apps."""
+        from .profile_conventions import GUARD_EVENT, library_guard_hooks, library_selection
+
+        guards = library_guard_hooks()
+        host_hooks = host.get("hooks")
+        hooks = tuple(
+            entry
+            for entry in (host_hooks if isinstance(host_hooks, list) else [])
+            if (names := library_selection("hooks", [entry])) and names[0] in guards
+        )
+        config = host.get("config")
+        flat = _flatten_section(config if isinstance(config, dict) else {}, _CLAUDE_CODE_SECTION)
+        wiring = flat.get(f"{_CLAUDE_CODE_SECTION}.hooks.{GUARD_EVENT}")
+        return cls(hooks, tuple(wiring) if isinstance(wiring, list) else ())
+
+
+def _guard_floor(floor: GuardFloor, app_hooks: Any) -> list[Any]:
     """The app's ``hooks:`` list with every host library guard it omits appended.
 
     A guard is a library hook on :data:`~osprey.cli.profile_conventions.GUARD_EVENT`
     (approval, the kill switch, limits, the memory guard). Each one the host
-    selects reaches the app as the host spells it — the deployment's
-    replacement file where the host names one — unless the app selects it
+    selects reaches the app as the host spells it unless the app selects it
     already, in either spelling. The kill switch is pinned whatever the host
     says: an app render can never write.
     """
-    from .profile_conventions import library_guard_hooks, library_selection
+    from .profile_conventions import library_selection
 
     hooks = list(app_hooks) if isinstance(app_hooks, list) else []
     selected = set(library_selection("hooks", hooks))
-    guards = library_guard_hooks()
-    for entry in host_hooks if isinstance(host_hooks, list) else []:
-        names = library_selection("hooks", [entry])
-        if names and names[0] in guards and names[0] not in selected:
+    for entry in floor.hooks:
+        name = library_selection("hooks", [entry])[0]
+        if name not in selected:
             hooks.append(entry)
-            selected.add(names[0])
+            selected.add(name)
     if _WRITES_CHECK_HOOK not in selected:
         hooks.append(_WRITES_CHECK_HOOK)
     return hooks
+
+
+def _guard_wiring_floor(floor: GuardFloor, config: dict[str, Any]) -> dict[str, Any]:
+    """*config* with every host facility guard it omits declared again.
+
+    The ``claude_code`` section is flattened first, so a nested and a dotted
+    spelling are one path; a key above the guard path is dropped, since the
+    only thing it can hold there is a value that would erase the floor (an
+    empty mapping, or no mapping at all).
+    """
+    from .profile_conventions import GUARD_EVENT
+
+    if not floor.wiring:
+        return config
+    key = f"{_CLAUDE_CODE_SECTION}.hooks.{GUARD_EVENT}"
+    flat = {
+        k: v
+        for k, v in _flatten_section(config, _CLAUDE_CODE_SECTION).items()
+        if not key.startswith(f"{k}.")
+    }
+    declared = flat.get(key)
+    flat[key] = _merge_lists(list(floor.wiring), declared if isinstance(declared, list) else [])
+    return flat
 
 
 def compose_app_render(host: dict[str, Any], app: dict[str, Any], app_rel: str) -> dict[str, Any]:
@@ -1157,25 +1211,26 @@ def compose_app_render(host: dict[str, Any], app: dict[str, Any], app_rel: str) 
     )
     _judge_app_posture(app_config, app_rel)
     render["config"] = config
-    # Guards are a floor: every host guard the app omits is appended, as the
-    # host spells it; the seal then pins the kill switch.
-    render["hooks"] = _guard_floor(host.get("hooks"), render.get("hooks"))
-    return seal_app_render(render, app_rel)
+    # Guards are a floor: the seal appends every host guard the app omits, as
+    # the host spells it, and pins the kill switch.
+    return seal_app_render(render, app_rel, GuardFloor.of(host))
 
 
-def seal_app_render(render: dict[str, Any], app_rel: str) -> dict[str, Any]:
+def seal_app_render(render: dict[str, Any], app_rel: str, floor: GuardFloor) -> dict[str, Any]:
     """Pin an app render shut and check it: the composer's last step, and the edit's.
 
     ``control_system.writes`` is pinned ``never`` with every retired leaf
-    dropped, every deployment-edit door is closed, ``writes-check`` is
-    selected, and :func:`~osprey.deployment.web_terminals.lint.lint_app_render`
-    checks the result. A ``--set`` edit lands after the composer, so the build
-    seals an edited app render again: an app is ``never`` whatever the
-    command line says.
+    dropped, every deployment-edit door is closed, every host guard in
+    *floor* is in force, ``writes-check`` is selected, and
+    :func:`~osprey.deployment.web_terminals.lint.lint_app_render` checks the
+    result. A ``--set`` edit lands after the composer, so the build seals an
+    edited app render again: an app is ``never``, and keeps its host's
+    guards, whatever the command line says.
 
     Args:
         render: The app render, composed or edited.
         app_rel: The app file's repo-relative label, for messages.
+        floor: The host guards the render keeps (:meth:`GuardFloor.of`).
 
     Returns:
         ``render`` with its ``config`` and ``hooks`` pinned.
@@ -1186,11 +1241,11 @@ def seal_app_render(render: dict[str, Any], app_rel: str) -> dict[str, Any]:
     """
     config = render.get("config")
     config = dict(config) if isinstance(config, dict) else {}
-    render["config"] = _pin_edit_doors(_pin_write_switches(config))
+    render["config"] = _guard_wiring_floor(floor, _pin_edit_doors(_pin_write_switches(config)))
 
-    # The kill switch is pinned whatever the list says, in either spelling: an
-    # app render can never write. The host floor was applied by the composer.
-    render["hooks"] = _guard_floor((), render.get("hooks"))
+    # The host's guards and the kill switch are in force whatever the list
+    # says, in either spelling: an app render can never write, nor drop a guard.
+    render["hooks"] = _guard_floor(floor, render.get("hooks"))
 
     from osprey.deployment.web_terminals.lint import lint_app_render
 
@@ -1528,6 +1583,9 @@ class ResolvedProfileDocument:
         app_rel: The app file's repo-relative label when the document was
             composed as an app render (:func:`compose_app_render`), else
             ``None``.
+        guard_floor: The host guards an app render keeps, which an edit of
+            the render is sealed against (:func:`seal_app_render`); empty for
+            a document that is not an app.
     """
 
     raw: dict[str, Any]
@@ -1536,6 +1594,7 @@ class ResolvedProfileDocument:
     excluded_artifacts: frozenset[str]
     inherited_preset: str | None = None
     app_rel: str | None = None
+    guard_floor: GuardFloor = GuardFloor()
 
 
 def resolve_profile_document(
@@ -1595,7 +1654,10 @@ def resolve_profile_document(
     lineage: list[str] = []
 
     def finish(
-        resolved: dict[str, Any], as_delta: bool, app_rel: str | None = None
+        resolved: dict[str, Any],
+        as_delta: bool,
+        app_rel: str | None = None,
+        guard_floor: GuardFloor = GuardFloor(),
     ) -> ResolvedProfileDocument:
         """Report the exclusion diagnostics, then package the result.
 
@@ -1613,6 +1675,7 @@ def resolve_profile_document(
             frozenset(artifacts),
             lineage[0] if lineage else None,
             app_rel,
+            guard_floor,
         )
 
     if not is_layer:
@@ -1704,8 +1767,9 @@ def resolve_profile_document(
     served_error = render_served_models_error(normalized, merged, layer_rel)
     if served_error is not None:
         raise served_error
-    is_app = kind is ProfileKind.APP and not retired_tier
-    return finish(merged, True, layer_rel if is_app else None)
+    if kind is ProfileKind.APP and not retired_tier:
+        return finish(merged, True, layer_rel, GuardFloor.of(root_resolved))
+    return finish(merged, True)
 
 
 # ---------------------------------------------------------------------------

@@ -619,9 +619,10 @@ def resolve_build_document(
         # exist: every literal dotted key any layer contributes.
         raw = apply_cli_edits(raw, set_pairs)
         # The edit lands after the app composer pinned the render, so an app
-        # is sealed again: no edit arms it or opens a deployment-edit door.
+        # is sealed again: no edit arms it, opens a deployment-edit door or
+        # drops a host guard.
         if document.app_rel is not None and set_pairs:
-            raw = seal_app_render(raw, document.app_rel)
+            raw = seal_app_render(raw, document.app_rel, document.guard_floor)
 
     profile = _parse_profile(raw)
     profile.inherited_preset = inherited_preset
