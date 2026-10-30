@@ -156,7 +156,7 @@ class TestPtySession:
         finally:
             session.terminate()
 
-    def test_terminate_ends_the_process_groups_the_child_started(self, tmp_path):
+    def test_terminate_ends_and_logs_the_process_groups_the_child_started(self, tmp_path, caplog):
         pid_file = tmp_path / "pids"
         scripts = [
             sleeper_script(tmp_path, "magnet_scan.py"),
@@ -169,10 +169,15 @@ class TestPtySession:
         pids: list[int] = []
         try:
             pids = wait_for_pids(session, pid_file, 3)
-            session.terminate()
+            with caplog.at_level(logging.INFO):
+                session.terminate()
             assert not session.is_alive
             for pid in pids:
                 assert pid_gone(pid), f"process {pid} the child started is still running"
+            assert any(
+                "magnet_scan.py" in record.getMessage() and str(pids[0]) in record.getMessage()
+                for record in caplog.records
+            ), [record.getMessage() for record in caplog.records]
         finally:
             session.terminate()
             kill_quietly(pids)
@@ -203,26 +208,6 @@ class TestPtySession:
             pids = wait_for_pids(session, pid_file, 2)
             session.terminate()
             assert pid_gone(pids[0], within=10.0), "the SIGTERM-ignoring process is still running"
-        finally:
-            session.terminate()
-            kill_quietly(pids)
-
-    def test_terminate_logs_what_it_ended(self, tmp_path, caplog):
-        pid_file = tmp_path / "pids"
-        script = sleeper_script(tmp_path, "magnet_scan.py")
-        session = PtySession(
-            [sys.executable, "-c", detaching_child_script(pid_file, scripts=[script])]
-        )
-        session.start()
-        pids: list[int] = []
-        try:
-            pids = wait_for_pids(session, pid_file, 2)
-            with caplog.at_level(logging.INFO):
-                session.terminate()
-            assert any(
-                "magnet_scan.py" in record.getMessage() and str(pids[0]) in record.getMessage()
-                for record in caplog.records
-            ), [record.getMessage() for record in caplog.records]
         finally:
             session.terminate()
             kill_quietly(pids)
