@@ -63,7 +63,9 @@ def _write(result: Any) -> dict[str, Any]:
 
 async def _connect() -> EPICSConnector:
     connector = EPICSConnector()
-    await connector.connect({"timeout_s": 2})
+    # Room for a slow host's first connect; every case that expects a miss
+    # passes a timeout of its own.
+    await connector.connect({"timeout_s": 5})
     return connector
 
 
@@ -180,12 +182,13 @@ async def dispatch(prefix: str) -> dict[str, Any]:
         lambda: bool(source._watchers) and source._watchers[0]._last_value is not None,
         what="the trigger's first read",
     )
+    writes = []
     for value in (1.0, 6.0, 2.0, 7.5):
-        await connector.write_channel(f"{prefix}:AO", value)
+        writes.append((await connector.write_channel(f"{prefix}:AO", value)).outcome.name)
         await asyncio.sleep(0.3)
-    await async_wait_until(lambda: len(fired) >= 2, what="the second crossing's fire")
+    await async_wait_until(lambda: len(fired) >= 2 and fired, what="the second crossing's fire")
     await source.stop()
-    return {"fired": fired}
+    return {"fired": fired, "writes": writes}
 
 
 async def stopped_before_teardown(prefix: str) -> dict[str, Any]:
@@ -293,20 +296,28 @@ async def dispatch_repoint(prefix: str) -> dict[str, Any]:
     )
     source = EpicsCaSource()
     await source.start([trigger], fire)
-    await asyncio.sleep(0.3)
+    await async_wait_until(
+        lambda: bool(source._watchers) and source._watchers[0]._last_value is not None,
+        what="the trigger's first read",
+    )
 
     ioc_port = os.environ["EPICS_CA_SERVER_PORT"]
     for port in (1, ioc_port):
         await EPICSConnector().connect(
             {"timeout_s": 1, "gateways": {"read_only": {"address": "127.0.0.1", "port": port}}}
         )
-    await asyncio.sleep(0.5)
     writer = await _connect()
-    for value in (1.0, 6.0):
-        await writer.write_channel(f"{prefix}:AO", value)
-        await asyncio.sleep(0.3)
+    writes = [(await writer.write_channel(f"{prefix}:AO", 1.0)).outcome.name]
+    # The baseline the watcher holds may still be the first context's value, so
+    # wait until the re-opened monitor has delivered the 1.0 just written.
+    await async_wait_until(
+        lambda: source._watchers[0]._last_value == 1.0,
+        what="the re-opened monitor's update",
+    )
+    writes.append((await writer.write_channel(f"{prefix}:AO", 6.0)).outcome.name)
+    await async_wait_until(lambda: fired, what="the crossing's fire")
     await source.stop()
-    return {"fired": fired}
+    return {"fired": fired, "writes": writes}
 
 
 def recorder(prefix: str) -> dict[str, Any]:
@@ -383,7 +394,7 @@ def _writes_armed() -> Iterator[None]:
     and an ownerless record under a scratch agent-data root whose switch is on
     for that machine — the same three a deployment needs, so a write here passes
     the real monitor rather than a bypass of it. This module runs as a script,
-    outside the ``tests`` package, so it spells the arming itself.
+    not under pytest, so no fixture arms it and it spells the arming itself.
     """
     for name in (
         "OSPREY_CONTROL_OWNER",
