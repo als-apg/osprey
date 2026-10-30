@@ -31,6 +31,9 @@
  *     side for itself as well, so the View row reflects what was actually
  *     applied — and so a page that mounts the element without wiring a
  *     listener of its own still gets a working mode flip.
+ *     On a page that offers no Expert view (frame-params.js's
+ *     `expertViewOffered()`, false under `web.expert_view: false`) the row
+ *     is removed at render: there is nothing to choose between.
  *   - **Theme** (family pills) — one pill per family from theme-manager.js's
  *     `themeFamilies()`, applied with `setFamily()` so the current light/dark
  *     preference survives the family change.
@@ -96,7 +99,7 @@
  * @module components/osprey-display-menu
  */
 
-import { onModeChange, pickUiMode } from '/design-system/js/frame-params.js';
+import { expertViewOffered, onModeChange, pickUiMode } from '/design-system/js/frame-params.js';
 import {
   getFamily,
   getTheme,
@@ -416,6 +419,12 @@ export class OspreyDisplayMenu extends HTMLElement {
       this.querySelector('.display-menu-appearance')
     );
     this._viewSeg = /** @type {HTMLElement} */ (this.querySelector('.display-menu-view'));
+    if (!expertViewOffered()) {
+      // No Expert view on this deployment: the View row has one option, so
+      // it goes rather than offering a toggle that cannot toggle.
+      this._viewSeg.closest('.display-menu-row')?.remove();
+      this._viewSeg = null;
+    }
     this._familyPicker = /** @type {HTMLElement} */ (this.querySelector('.display-menu-families'));
 
     this._buildFamilyPills();
@@ -427,7 +436,7 @@ export class OspreyDisplayMenu extends HTMLElement {
       else this.openMenu();
     });
     this._appearanceSeg.addEventListener('click', (event) => this._onAppearancePick(event));
-    this._viewSeg.addEventListener('click', (event) => this._onViewPick(event));
+    this._viewSeg?.addEventListener('click', (event) => this._onViewPick(event));
 
     this._syncUI();
     this._subscribeToThemeManager();

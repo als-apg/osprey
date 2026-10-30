@@ -58,6 +58,7 @@ afterEach(() => {
   sync = null;
   delete document.documentElement.dataset.landingUrl;
   delete document.documentElement.dataset.uiMode;
+  delete document.documentElement.dataset.expertView;
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -76,6 +77,17 @@ describe('the mode switch', () => {
       window.location.origin
     );
     expect(localStorage.getItem('osprey-ui-mode')).toBe('simple');
+  });
+});
+
+describe('the mode switch on a deployment with no Expert view', () => {
+  test('is not offered at all (web.expert_view: false)', async () => {
+    ({ customize, sync } = await boot({ uiMode: 'simple' }));
+    document.documentElement.dataset.expertView = 'off';
+
+    await openPalette();
+
+    expect(paletteLabels().some((label) => label.startsWith('Switch to'))).toBe(false);
   });
 });
 
