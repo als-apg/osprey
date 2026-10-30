@@ -310,11 +310,14 @@ def facility_view(tree: Path, root: Path) -> SimulatorView:
     For a lane that must name a channel in a file it writes before ``osprey
     build`` runs: it renders the repo's own ``data/facility/`` the way the
     build does and asks the view, and checks the build agrees afterwards.
+    ``root`` is created when missing, as the build's render root exists before
+    the facility file is written into it.
     """
     from osprey.facility.build import build_facility
     from osprey.facility.render import render_facility_outputs
     from osprey_connectors.simulation.view import SimulatorView
 
+    root.mkdir(parents=True, exist_ok=True)
     render_facility_outputs(root, build_facility(tree, project_name=tree.name), {}, tree)
     return SimulatorView.of_render(root)
 

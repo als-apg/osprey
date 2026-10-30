@@ -70,6 +70,12 @@ def test_facility_view_serves_the_trees_channels(tmp_path: Path) -> None:
     assert set(view.channels()) == {channel["id"] for channel in document["channels"]}
 
 
+def test_facility_view_creates_the_root_it_renders_into(tmp_path: Path) -> None:
+    view = facility_view(HELLO_WORLD, tmp_path / "probe_view")
+    document = build_facility(HELLO_WORLD, project_name=HELLO_WORLD.name)
+    assert set(view.channels()) == {channel["id"] for channel in document["channels"]}
+
+
 def test_lane_model_is_the_bounded_correctors_model(example: tuple[SimulatorView, dict]) -> None:
     view, _ = example
     found = bounded_corrector_of(view)
