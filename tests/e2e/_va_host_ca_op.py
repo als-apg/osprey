@@ -131,11 +131,11 @@ def _arm_switch(target: str) -> None:
     current = control_context.read_record(path=path)
     epoch = (current.switch_epoch if current is not None else None) or 0
     try:
-        control_context.set_switch([target], "on", epoch=epoch, path=path)
+        control_context.set_switch([target], "asked", epoch=epoch, path=path)
     except control_context.StoppedSince as refused:
         if not refused.stamped or refused.epoch is None:
             raise
-        control_context.set_switch([target], "on", epoch=refused.epoch, path=path)
+        control_context.set_switch([target], "asked", epoch=refused.epoch, path=path)
     control_context.invalidate_cache()
 
 

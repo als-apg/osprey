@@ -696,14 +696,14 @@ def test_set_writes_tier_writes_a_config_block_a_profile_lacks(tmp_path, monkeyp
 def test_the_record_arm_turns_on_the_named_owners_switch_only(tmp_path):
     repo = _fake_repo(tmp_path)
 
-    stored = sdk_helpers.switch_on_in_record(repo, owner="alice")
+    stored = sdk_helpers.set_switch_in_record(repo, owner="alice")
 
     path = repo / "var" / "agent_data" / "control_target" / "alice" / "control_context.json"
     assert sdk_helpers.switch_record_path(repo, "alice") == path
     control_context.invalidate_cache()
     on_disk = control_context.read_record(path=path)
     assert on_disk is not None
-    assert dict(on_disk.switch) == {_baseline(): "on"} == dict(stored.switch)
+    assert dict(on_disk.switch) == {_baseline(): "asked"} == dict(stored.switch)
     assert on_disk.target == _baseline()
     assert isinstance(on_disk.switch_epoch, int) and on_disk.switch_epoch > 0
     assert not (path.parent.parent / "bob").exists()
@@ -716,11 +716,11 @@ def test_the_record_arm_keeps_an_existing_record_and_is_idempotent(tmp_path):
         control_context.ControlContext(target=_baseline(), generation=7), path=path
     )
 
-    sdk_helpers.switch_on_in_record(repo, owner="alice")
-    again = sdk_helpers.switch_on_in_record(repo, owner="alice")
+    sdk_helpers.set_switch_in_record(repo, owner="alice")
+    again = sdk_helpers.set_switch_in_record(repo, owner="alice")
 
     assert again.generation == 7
-    assert dict(again.switch) == {_baseline(): "on"}
+    assert dict(again.switch) == {_baseline(): "asked"}
 
 
 def test_the_record_arm_retries_an_epochless_record_once(tmp_path):
@@ -732,16 +732,24 @@ def test_the_record_arm_retries_an_epochless_record_once(tmp_path):
     path.write_text(json.dumps(payload))
     control_context.invalidate_cache()
 
-    stored = sdk_helpers.switch_on_in_record(repo, owner="alice")
+    stored = sdk_helpers.set_switch_in_record(repo, owner="alice")
 
-    assert dict(stored.switch) == {_baseline(): "on"}
+    assert dict(stored.switch) == {_baseline(): "asked"}
     assert isinstance(stored.switch_epoch, int)
+
+
+def test_the_record_arm_stores_the_position_it_is_given(tmp_path):
+    repo = _fake_repo(tmp_path)
+
+    stored = sdk_helpers.set_switch_in_record(repo, owner="alice", position="allowed")
+
+    assert dict(stored.switch) == {_baseline(): "allowed"}
 
 
 def test_the_record_arm_refuses_an_owner_that_is_not_a_login(tmp_path):
     repo = _fake_repo(tmp_path)
     with pytest.raises(ValueError):
-        sdk_helpers.switch_on_in_record(repo, owner="../escape")
+        sdk_helpers.set_switch_in_record(repo, owner="../escape")
     assert not (repo / "var" / "agent_data" / "escape").exists()
 
 
@@ -798,23 +806,44 @@ def test_the_chip_arm_sends_the_epoch_it_read_and_retries_a_stamp_once():
             return 200, {"switch_epoch": None}
         if body["epoch"] is None:
             return 409, {"detail": {"reason": "stopped_since", "epoch": "42", "stamped": True}}
-        return 200, {"target": body["target"], "state": "on", "switch_epoch": body["epoch"]}
+        return 200, {
+            "target": body["target"],
+            "state": body["state"],
+            "switch_epoch": body["epoch"],
+        }
 
     with _FakeTerminal(answers) as terminal:
         chip = sdk_helpers.ChipRoute(
             terminal.base_url, session_id="sess-1", headers={"X-Osprey-Terminal-Secret": "s"}
         )
-        reply = sdk_helpers.switch_on_through_chip(chip, "va")
+        reply = sdk_helpers.set_switch_through_chip(chip, "va")
 
-    assert reply == {"target": "va", "state": "on", "switch_epoch": "42"}
+    assert reply == {"target": "va", "state": "asked", "switch_epoch": "42"}
     posts = [entry for entry in terminal.seen if entry[0] == "POST"]
     assert [body for *_rest, body in posts] == [
-        {"session_id": "sess-1", "target": "va", "state": "on", "epoch": None},
-        {"session_id": "sess-1", "target": "va", "state": "on", "epoch": "42"},
+        {"session_id": "sess-1", "target": "va", "state": "asked", "epoch": None},
+        {"session_id": "sess-1", "target": "va", "state": "asked", "epoch": "42"},
     ]
     assert all(entry[1] == sdk_helpers.CHIP_POSTURE_PATH for entry in posts)
     assert terminal.seen[0][1] == f"{sdk_helpers.CHIP_POSTURE_PATH}?session_id=sess-1"
     assert all(entry[2].get("X-Osprey-Terminal-Secret") == "s" for entry in terminal.seen)
+
+
+def test_the_chip_arm_posts_the_position_it_is_given():
+    def answers(method, _path, body):
+        if method == "GET":
+            return 200, {"switch_epoch": "7"}
+        return 200, {"target": body["target"], "state": body["state"], "switch_epoch": "7"}
+
+    with _FakeTerminal(answers) as terminal:
+        reply = sdk_helpers.set_switch_through_chip(
+            sdk_helpers.ChipRoute(terminal.base_url), "va", "allowed"
+        )
+
+    assert reply["state"] == "allowed"
+    assert [body["state"] for method, *_rest, body in terminal.seen if method == "POST"] == [
+        "allowed"
+    ]
 
 
 def test_the_chip_arm_fails_with_the_refusal_it_was_given():
@@ -825,7 +854,7 @@ def test_the_chip_arm_fails_with_the_refusal_it_was_given():
 
     with _FakeTerminal(answers) as terminal:
         with pytest.raises(AssertionError, match="tier_never"):
-            sdk_helpers.switch_on_through_chip(sdk_helpers.ChipRoute(terminal.base_url), "va")
+            sdk_helpers.set_switch_through_chip(sdk_helpers.ChipRoute(terminal.base_url), "va")
     assert len([entry for entry in terminal.seen if entry[0] == "POST"]) == 1
 
 
@@ -833,18 +862,18 @@ def _arming_steps(monkeypatch) -> list[tuple]:
     steps: list[tuple] = []
     monkeypatch.setattr(sdk_helpers, "set_writes_tier", lambda _repo: steps.append(("tier",)))
 
-    def record(_repo, *, owner, targets):
-        steps.append(("record", owner, targets))
+    def record(_repo, *, owner, targets, position):
+        steps.append(("record", owner, targets, position))
         return control_context.ControlContext(
-            target=targets[0], generation=1, switch=dict.fromkeys(targets, "on"), switch_epoch=9
+            target=targets[0], generation=1, switch=dict.fromkeys(targets, position), switch_epoch=9
         )
 
-    def chip(route, target):
-        steps.append(("chip", route.base_url, target))
-        return {"target": target, "state": "on", "switch_epoch": "11"}
+    def chip(route, target, position):
+        steps.append(("chip", route.base_url, target, position))
+        return {"target": target, "state": position, "switch_epoch": "11"}
 
-    monkeypatch.setattr(sdk_helpers, "switch_on_in_record", record)
-    monkeypatch.setattr(sdk_helpers, "switch_on_through_chip", chip)
+    monkeypatch.setattr(sdk_helpers, "set_switch_in_record", record)
+    monkeypatch.setattr(sdk_helpers, "set_switch_through_chip", chip)
     return steps
 
 
@@ -854,7 +883,7 @@ def test_arm_writes_sets_the_tier_before_the_record_switch(tmp_path, monkeypatch
 
     armed = sdk_helpers.arm_writes(repo, owner="alice")
 
-    assert steps == [("tier",), ("record", "alice", [_baseline()])]
+    assert steps == [("tier",), ("record", "alice", [_baseline()], "asked")]
     assert armed == sdk_helpers.ArmedWrites(
         owner="alice", targets=[_baseline()], via="record", switch_epoch=9
     )
@@ -868,8 +897,33 @@ def test_arm_writes_through_the_chip_posts_each_target(tmp_path, monkeypatch):
         repo, owner="bob", targets=["va", "live"], chip=sdk_helpers.ChipRoute("http://t")
     )
 
-    assert steps == [("tier",), ("chip", "http://t", "live"), ("chip", "http://t", "va")]
+    assert steps == [
+        ("tier",),
+        ("chip", "http://t", "live", "asked"),
+        ("chip", "http://t", "va", "asked"),
+    ]
     assert armed.via == "chip" and armed.owner == "bob" and armed.switch_epoch == 11
+
+
+def test_arm_writes_takes_the_no_prompt_position_on_both_routes(tmp_path, monkeypatch):
+    steps = _arming_steps(monkeypatch)
+    repo = _fake_repo(tmp_path)
+
+    sdk_helpers.arm_writes(repo, owner="alice", position="allowed")
+    sdk_helpers.arm_writes(
+        repo,
+        owner="bob",
+        targets=["va"],
+        chip=sdk_helpers.ChipRoute("http://t"),
+        position="allowed",
+    )
+
+    assert steps == [
+        ("tier",),
+        ("record", "alice", [_baseline()], "allowed"),
+        ("tier",),
+        ("chip", "http://t", "va", "allowed"),
+    ]
 
 
 def test_enable_writes_in_project_arms_the_identity_this_process_acts_as(tmp_path, monkeypatch):

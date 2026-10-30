@@ -106,7 +106,7 @@ from tests.e2e._deploy_support import (
 )
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
-from tests.e2e.sdk_helpers import render_dir, switch_on_in_record
+from tests.e2e.sdk_helpers import render_dir, set_switch_in_record
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SWEEP_SCRIPT = REPO_ROOT / "scripts" / "va" / "sweep_check.py"
@@ -616,13 +616,13 @@ def _arm_queue_owner(repo: Path) -> None:
 
     The preset's tier already allows writes (``control_system.writes:
     allowed``); the switch is the other half. Written through the production
-    writers (:func:`~tests.e2e.sdk_helpers.switch_on_in_record`) into the
+    writers (:func:`~tests.e2e.sdk_helpers.set_switch_in_record`) into the
     control tree the deploy provisions, before ``up`` so the worker reads it.
     """
     config = yaml.safe_load((render_dir(repo) / "config.yml").read_text(encoding="utf-8"))
     owner = _queue_owner()
     ensure_control_target_dir(config, repo, owner, relative_to=repo)
-    switch_on_in_record(repo, owner=owner, targets=[TARGET_VA])
+    set_switch_in_record(repo, owner=owner, targets=[TARGET_VA])
 
 
 def _dead_container_logs() -> str:

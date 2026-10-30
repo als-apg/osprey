@@ -567,7 +567,7 @@ def _switch_of(terminal: Terminal, target: str) -> str | None:
 
 
 def _turn_switch(terminal: Terminal, target: str, state: str) -> dict[str, Any]:
-    """Turn this login's switch *state* for *target* the way the header chip does.
+    """Move this login's switch to *state* for *target* the way the header chip does.
 
     ``GET`` reads the record's ``switch_epoch`` and the ``POST`` sends it back
     with ``{target, state, epoch}``; a ``409`` that just stamped an epoch-less
@@ -942,7 +942,7 @@ def test_a_cell_cannot_load_a_client_library_while_a_runtime_write_lands(
     assert terminal.first_target == "va", terminal.first_target
     _wait_for_switch_to_settle(terminal, "va")
     # A fresh login's switch is off; the chip's turn-on is what arms this card.
-    _turn_switch(terminal, "va", "on")
+    _turn_switch(terminal, "va", "asked")
     band = repo_view(terminal.repo).motion_envelope(WRITE_READBACK)
 
     session = terminal.start_notebook_session(STARTER_NOTEBOOK)
@@ -1018,7 +1018,7 @@ def test_a_sandboxed_cell_refuses_writes_with_the_turn_writes_on_line(
     """
     assert terminal.session_id and terminal.first_target
     target = terminal.first_target
-    assert _switch_of(terminal, target) == "on", terminal.posture()
+    assert _switch_of(terminal, target) == "asked", terminal.posture()
     _turn_switch(terminal, target, "off")
     assert _switch_of(terminal, target) == "off", terminal.posture()
 
@@ -1057,8 +1057,8 @@ def test_a_sandboxed_cell_refuses_writes_with_the_turn_writes_on_line(
     # stamps its next cell from the record again, so that cell no longer
     # carries the narrowing the refused cell launched under. A kernel that
     # stamped its pin once, or kept a stale one, would still read sandbox here.
-    _turn_switch(terminal, target, "on")
-    assert _switch_of(terminal, target) == "on", terminal.posture()
+    _turn_switch(terminal, target, "asked")
+    assert _switch_of(terminal, target) == "asked", terminal.posture()
     channel_session = uuid.uuid4().hex
     with terminal.kernel_channels(terminal.kernel_id, channel_session) as socket:
         restamped = _stamps(socket, channel_session)

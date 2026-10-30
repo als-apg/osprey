@@ -404,7 +404,7 @@ def module_environment(tmp_path_factory, endpoints):
             target=TARGET_VA,
             generation=0,
             owned_by=None,
-            switch={TARGET_VA: "on", TARGET_STANDIN: "on"},
+            switch={TARGET_VA: "asked", TARGET_STANDIN: "asked"},
         )
         with patch.object(audit_writer, "record", side_effect=lambda **f: records.append(f)):
             yield SimpleNamespace(root=root, config_path=written)
@@ -466,11 +466,11 @@ def web(tmp_path_factory, config_path, module_environment):  # noqa: ARG001 - th
 def post_switch(client, target: str, state: str):
     """The chip's switch gesture for *target*, as the chip sends it.
 
-    A turn-on names the ``switch_epoch`` the chip read, which is the GET's
-    answer at that moment; a turn-off needs none.
+    A move to an armed position names the ``switch_epoch`` the chip read, which
+    is the GET's answer at that moment; a turn-off needs none.
     """
     body: dict = {"session_id": SESSION_ID, "target": target, "state": state}
-    if state == "on":
+    if state != "off":
         posture_view = client.get("/api/terminal/posture", params={"session_id": SESSION_ID})
         body["epoch"] = posture_view.json()["switch_epoch"]
     return client.post("/api/terminal/posture", json=body)
@@ -958,7 +958,7 @@ async def session(config_path, web, module_environment):  # noqa: ARG001 - the s
             await move_session(TARGET_VA)
             journal["pin_narrow_status"] = post_switch(web, TARGET_VA, "off").status_code
             journal["narrow_stamps"] = launch_stamps()
-            widen = post_switch(web, TARGET_VA, "on")
+            widen = post_switch(web, TARGET_VA, "asked")
             journal["widen_status"] = widen.status_code
             journal["widen_body"] = widen.json()
             journal["switch_after_widen"] = switch_now()
@@ -1017,7 +1017,7 @@ class TestTheNarrowingLandsWithoutARespawn:
         assert session["narrow_body"]["target"] == TARGET_STANDIN
         assert session["narrow_body"]["state"] == "off"
         # Per target: the stand-in went off and the virtual accelerator stayed on.
-        assert session["switch_after_narrow"] == {TARGET_VA: "on"}
+        assert session["switch_after_narrow"] == {TARGET_VA: "asked"}
 
     def test_no_child_was_respawned_to_apply_it(self, session) -> None:
         """The whole point of enforcing at write time.
@@ -1394,8 +1394,8 @@ class TestARunLaunchedNarrowStaysNarrow:
         """
         assert session["pin_narrow_status"] == 200
         assert session["widen_status"] == 200
-        assert session["widen_body"]["state"] == "on"
-        assert session["switch_after_widen"].get(TARGET_VA) == "on"
+        assert session["widen_body"]["state"] == "asked"
+        assert session["switch_after_widen"].get(TARGET_VA) == "asked"
         assert session["narrow_stamps"][host_executor.ENV_LAUNCH_POSTURE] == f"{TARGET_VA}=sandbox"
         assert session["wide_stamps"][host_executor.ENV_LAUNCH_POSTURE] == f"{TARGET_VA}=writes"
 

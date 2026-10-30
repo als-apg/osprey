@@ -34,12 +34,41 @@ class Answer:
     for_session: bool = False
 
 
-def gates_since(render: Path, start: int) -> dict[str, list[tuple[str, str]]]:
+class Gate(tuple):
+    """One hook decision for one call: equal to ``(hook, status)``, with its ``detail``.
+
+    It compares, hashes and unpacks as the ``(hook, status)`` pair, so a proof that
+    asks ``("approval", "ask") in statuses`` reads it unchanged; :attr:`detail` is the
+    free-form text the hook logged beside the decision (``position=allowed tool=...``),
+    ``""`` when it logged none.
+    """
+
+    detail: str
+
+    def __new__(cls, hook: str, status: str, detail: str = "") -> Gate:
+        gate = super().__new__(cls, (hook, status))
+        gate.detail = detail
+        return gate
+
+    @property
+    def hook(self) -> str:
+        return self[0]
+
+    @property
+    def status(self) -> str:
+        return self[1]
+
+    def __repr__(self) -> str:
+        return f"({self[0]!r}, {self[1]!r}, detail={self.detail!r})"
+
+
+def gates_since(render: Path, start: int) -> dict[str, list[Gate]]:
     """Every hook decision the render's ``hook_debug.jsonl`` logged after byte *start*.
 
     The hooks log each decision they make, denials included, when hook debugging is on
     (the child runs with it on). The decisions are keyed by tool-use id, as
-    ``(hook, status)`` in the order the hooks ran.
+    :class:`Gate` -- ``(hook, status)`` with the record's ``detail`` -- in the order the
+    hooks ran.
     """
     path = render / ".claude" / "hooks" / "hook_debug.jsonl"
     if not path.exists():
@@ -47,11 +76,13 @@ def gates_since(render: Path, start: int) -> dict[str, list[tuple[str, str]]]:
     with path.open("rb") as handle:
         handle.seek(start)
         text = handle.read().decode("utf-8")
-    gates: dict[str, list[tuple[str, str]]] = {}
+    gates: dict[str, list[Gate]] = {}
     for line in text.splitlines():
         record = json.loads(line)
         gates.setdefault(str(record.get("tool_use_id")), []).append(
-            (str(record.get("hook")), str(record.get("status")))
+            Gate(
+                str(record.get("hook")), str(record.get("status")), str(record.get("detail") or "")
+            )
         )
     return gates
 
@@ -105,7 +136,7 @@ async def drive_turn(
     *,
     env: dict[str, str] | None = None,
     await_controls: bool = True,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, list[tuple[str, str]]]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, list[Gate]]]:
     """Run one turn of *prompt* through the chat's own launch on *repo*, as *operator*.
 
     The child is launched by :class:`OperatorSession` with the render as its working

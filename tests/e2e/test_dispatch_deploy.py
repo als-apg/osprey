@@ -134,7 +134,7 @@ from tests.e2e._deploy_support import (
 from tests.e2e._mcp_sse import any_answer_succeeded, sse_payloads, tool_result
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
-from tests.e2e.sdk_helpers import switch_on_in_record
+from tests.e2e.sdk_helpers import set_switch_in_record
 
 #: This deploy's own thousand-port block, chosen so the whole stack — the
 #: dispatcher, nginx and every panel family — coexists with a live
@@ -1192,8 +1192,8 @@ def test_readwrite_render_arms_writes(deployed_stack: Path) -> None:
     armed = {
         target: (record.get("switch") or {}).get(target) for target in (TARGET_LIVE, TARGET_STANDIN)
     }
-    assert all(state != "on" for state in armed.values()), (
-        f"{READWRITE_USER}'s switch is on for a real machine with no gesture: {armed} "
+    assert all(state in (None, "off") for state in armed.values()), (
+        f"{READWRITE_USER}'s switch is armed for a real machine with no gesture: {armed} "
         f"(record {record_path})"
     )
     perms = _permissions(readwrite_dir)
@@ -1787,10 +1787,10 @@ def test_a_chip_toggle_lands_the_owners_own_record_on_the_host_tree(
     # assertion below, so the state it starts from is set and asserted: the
     # user's switch on for the simulator, written where the terminal reads it.
     record_path = _host_record_path(deployed_stack, READONLY_USER)
-    switch_on_in_record(deployed_stack, owner=READONLY_USER, targets=[TARGET_VA])
+    set_switch_in_record(deployed_stack, owner=READONLY_USER, targets=[TARGET_VA])
     seed = json.loads(record_path.read_text(encoding="utf-8"))
-    assert (seed.get("switch") or {}).get(TARGET_VA) == "on", (
-        f"{READONLY_USER}'s switch is not on for {TARGET_VA} before the toggle, so this "
+    assert (seed.get("switch") or {}).get(TARGET_VA) == "asked", (
+        f"{READONLY_USER}'s switch is not armed for {TARGET_VA} before the toggle, so this "
         f"row cannot tell a working chip from a no-op: {seed}"
     )
 
@@ -1812,9 +1812,11 @@ def test_a_chip_toggle_lands_the_owners_own_record_on_the_host_tree(
         f"the chip answered epoch {reported.get('switch_epoch')} but the host record "
         f"carries {record.get('switch_epoch')}: the toggle did not land on this file: {record}"
     )
-    still_on = sorted(t for t, state in (record.get("switch") or {}).items() if state == "on")
-    assert not still_on, (
-        f"a stop-everything toggle left {READONLY_USER}'s switch on for {still_on}: {record}"
+    still_armed = sorted(
+        t for t, state in (record.get("switch") or {}).items() if state not in (None, "off")
+    )
+    assert not still_armed, (
+        f"a stop-everything toggle left {READONLY_USER}'s switch armed for {still_armed}: {record}"
     )
     mode = stat.S_IMODE(record_path.stat().st_mode)
     assert mode == 0o640, (

@@ -102,7 +102,7 @@ from tests.e2e._deploy_support import find_osprey_console_script
 from tests.e2e._orm_stack import VA_PVA_PORT, seed_repo_env
 from tests.e2e._queue_drive import wait_for_worker_environment
 from tests.e2e.profile_edits import set_pairs
-from tests.e2e.sdk_helpers import switch_on_in_record
+from tests.e2e.sdk_helpers import set_switch_in_record
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
@@ -616,7 +616,9 @@ def session_state(tmp_path, monkeypatch):
     control_context.invalidate_cache()
 
     def switch_session_to(target: str, *, generation: int = 0) -> None:
-        write_control_context(root, target=target, generation=generation, switch={TARGET_VA: "on"})
+        write_control_context(
+            root, target=target, generation=generation, switch={TARGET_VA: "asked"}
+        )
 
     yield switch_session_to
     target_state.delete_on_shutdown(server_pid=os.getpid())
@@ -660,7 +662,7 @@ def bluesky_tools(stack: LaneStack, monkeypatch):
     assert isinstance(owner, str) and owner, f"this process names no owner: {owner!r}"
     config = yaml.safe_load(stack.config_path.read_text(encoding="utf-8"))
     ensure_control_target_dir(config, stack.repo, owner, relative_to=stack.repo)
-    switch_on_in_record(stack.repo, owner=owner, targets=[TARGET_VA])
+    set_switch_in_record(stack.repo, owner=owner, targets=[TARGET_VA])
     initialize_server_context()
     try:
         yield queue_tools

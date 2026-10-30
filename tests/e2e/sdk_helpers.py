@@ -31,7 +31,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 
@@ -544,6 +544,9 @@ def _run_osprey(verb: str, args: list[str], *, timeout: int) -> None:
     )
 
 
+#: A position a login's switch can be moved to.
+SwitchPosition = Literal["off", "asked", "allowed"]
+
 #: The one tier value that lets a login's switch arm anything (D9). Spelled
 #: here rather than imported: the connectors package keeps it private, and the
 #: profile a deployer writes spells exactly this word.
@@ -612,10 +615,14 @@ def _default_switch_targets(repo: Path) -> list[str]:
     return [baseline_target(section)]
 
 
-def switch_on_in_record(
-    repo: Path, *, owner: str, targets: list[str] | None = None
+def set_switch_in_record(
+    repo: Path,
+    *,
+    owner: str,
+    targets: list[str] | None = None,
+    position: SwitchPosition = "asked",
 ) -> control_context.ControlContext:
-    """Turn *owner*'s switch on for *targets* by writing the record directly.
+    """Move *owner*'s switch to *position* for *targets* by writing the record directly.
 
     The record fixture of D9, for lanes whose subject is not the chip. It goes
     through the production writers rather than a hand-rolled payload: a missing
@@ -626,8 +633,10 @@ def switch_on_in_record(
     epoch-less record is stamped by the first attempt and armed by the retry,
     the same one retry the chip makes.
 
-    *targets* defaults to the deployment's baseline target. Returns the record
-    as stored.
+    *targets* defaults to the deployment's baseline target. *position* is the
+    narrowest arming word by default: ``"asked"`` when a lane only needs an armed
+    machine, ``"allowed"`` when its subject is the path without a prompt. Returns
+    the record as stored.
     """
     names = sorted(targets) if targets is not None else _default_switch_targets(repo)
     path = switch_record_path(repo, owner)
@@ -642,14 +651,83 @@ def switch_on_in_record(
         current = control_context.read_record(path=path)
     epoch = (current.switch_epoch if current is not None else None) or 0
     try:
-        stored = control_context.set_switch(names, "on", epoch=epoch, path=path)
+        stored = control_context.set_switch(names, position, epoch=epoch, path=path)
     except control_context.StoppedSince as refused:
         if not refused.stamped or refused.epoch is None:
             raise
-        stored = control_context.set_switch(names, "on", epoch=refused.epoch, path=path)
+        stored = control_context.set_switch(names, position, epoch=refused.epoch, path=path)
     control_context.invalidate_cache()
     assert stored is not None, f"the switch for {owner!r} was not stored at {path} ({status})"
     return stored
+
+
+@dataclass(frozen=True)
+class ApprovalTrail:
+    """What the deployment at a repo holds about one call's approval.
+
+    Attributes:
+        stamp: The approval hook's ask stamp for the call, or ``None``. The hook
+            files it before the prompt is shown (or as the switch's ``allowed``
+            position approves the call) and removes it once the call has settled,
+            so it is on disk while the call is waiting on a card and gone after.
+        ledger: Every audit ledger line under ``<repo>/var/audit`` that names the
+            call's tool-use id, hook and server surfaces alike, with the surface
+            each came from as ``surface``.
+    """
+
+    stamp: dict[str, Any] | None
+    ledger: list[dict[str, Any]]
+
+    def lines(self, surface_prefix: str) -> list[dict[str, Any]]:
+        """The ledger lines whose surface starts with *surface_prefix*."""
+        return [line for line in self.ledger if str(line.get("surface")).startswith(surface_prefix)]
+
+
+def ledger_now() -> str:
+    """Now, spelled as the audit ledger spells a line's ``ts``: for :func:`approval_trail`."""
+    from osprey.audit.envelope import utc_timestamp
+
+    return utc_timestamp()
+
+
+def approval_trail(repo: Path, tool_use_id: str, *, since: str | None = None) -> ApprovalTrail:
+    """Read the ask stamp and the audit ledger lines for *tool_use_id* at *repo*.
+
+    The stamp is found by its file name (``approval_ask_<id>.json``) anywhere in
+    the agent-data zone, the zone every identity's state directory hangs under, so
+    the read does not depend on which identity this process resolves. The ledger
+    is every ``<repo>/var/audit/<identity>/<surface>.jsonl``; a line that is not
+    JSON is skipped, as the ledger's own reader does. With *since* (a
+    :func:`ledger_now` reading) only the lines filed at or after it are kept: a
+    scripted model numbers its calls the same way in every session, so one
+    deployment's ledger holds many calls under one id.
+    """
+    from osprey.mcp_server.approval_record import APPROVAL_ASK_PREFIX, APPROVAL_ASK_SUFFIX
+
+    stamp = None
+    name = f"{APPROVAL_ASK_PREFIX}{tool_use_id}{APPROVAL_ASK_SUFFIX}"
+    zone = agent_data_dir(repo)
+    for path in sorted(zone.rglob(name)) if zone.is_dir() else []:
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(loaded, dict):
+            stamp = loaded
+            break
+    ledger: list[dict[str, Any]] = []
+    audit_root = Path(repo) / "var" / "audit"
+    for path in sorted(audit_root.glob("*/*.jsonl")) if audit_root.is_dir() else []:
+        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                line = json.loads(raw)
+            except ValueError:
+                continue
+            if not isinstance(line, dict) or line.get("tool_use_id") != tool_use_id:
+                continue
+            if since is None or str(line.get("ts") or "") >= since:
+                ledger.append({"surface": path.stem, **line})
+    return ApprovalTrail(stamp=stamp, ledger=ledger)
 
 
 #: The header chip's write route: ``POST {target, state, epoch}`` (C-POST).
@@ -676,11 +754,13 @@ class ChipRoute:
     headers: dict[str, str] = field(default_factory=dict)
 
 
-def switch_on_through_chip(chip: ChipRoute, target: str) -> dict[str, Any]:
-    """Turn the switch on for *target* the way the header chip does; return the 200 body.
+def set_switch_through_chip(
+    chip: ChipRoute, target: str, position: SwitchPosition = "asked"
+) -> dict[str, Any]:
+    """Move the switch for *target* to *position* the way the header chip does; return the 200 body.
 
-    Reads ``switch_epoch`` off ``GET`` first and sends it back with
-    ``state: "on"``, as the decimal string it was read as. A ``409 stopped_since`` that just ``stamped`` an epoch-less
+    Reads ``switch_epoch`` off ``GET`` first and sends it back with the position
+    as ``state``, as the decimal string it was read as. A ``409 stopped_since`` that just ``stamped`` an epoch-less
     record is retried once with the epoch it carries — the chip's own single
     retry; any other refusal fails here with its body, so a lane learns the
     reason (``tier_never``, ``record_unavailable`` ...) rather than a later
@@ -693,7 +773,12 @@ def switch_on_through_chip(chip: ChipRoute, target: str) -> dict[str, Any]:
     assert status == 200, f"GET {CHIP_POSTURE_PATH} failed: {status} {body}"
     epoch = body.get("switch_epoch") if isinstance(body, dict) else None
     for _attempt in range(2):
-        payload = {"session_id": chip.session_id, "target": target, "state": "on", "epoch": epoch}
+        payload = {
+            "session_id": chip.session_id,
+            "target": target,
+            "state": position,
+            "epoch": epoch,
+        }
         status, body = request(
             chip.base_url, CHIP_POSTURE_PATH, "POST", payload, headers=chip.headers
         )
@@ -702,7 +787,7 @@ def switch_on_through_chip(chip: ChipRoute, target: str) -> dict[str, Any]:
             epoch = detail.get("epoch")
             continue
         break
-    assert status == 200, f"the chip did not turn {target!r} on: {status} {body}"
+    assert status == 200, f"the chip did not move {target!r} to {position}: {status} {body}"
     return body
 
 
@@ -722,20 +807,22 @@ def arm_writes(
     owner: str,
     targets: list[str] | None = None,
     chip: ChipRoute | None = None,
+    position: SwitchPosition = "asked",
 ) -> ArmedWrites:
-    """The one e2e arming helper (D9): tier ``allowed``, rebuilt, switch on for *owner*.
+    """The one e2e arming helper (D9): tier ``allowed``, rebuilt, switch armed for *owner*.
 
     A write is allowed only when the login's tier allows it AND that login's
-    switch is on for the machine written, so arming is both halves, in order:
+    switch is armed for the machine written, so arming is both halves, in order:
     :func:`set_writes_tier` spells ``control_system.writes: allowed`` and
-    rebuilds, and then the switch is turned on for *owner* —
+    rebuilds, and then the switch moves to *position* for *owner* —
 
-    * through the header chip's ``POST`` (:func:`switch_on_through_chip`) when
+    * through the header chip's ``POST`` (:func:`set_switch_through_chip`) when
       *chip* is given: lanes whose subject is the chip arm this way, and the
       terminal behind *chip* must act as *owner*;
-    * otherwise through the record fixture (:func:`switch_on_in_record`),
+    * otherwise through the record fixture (:func:`set_switch_in_record`),
       written where the verdict reads *owner*'s record.
 
+    *position* is ``"asked"`` unless the lane's subject is the no-prompt path.
     *targets* defaults to the deployment's baseline target. A queue add that
     is meant to write names the same *owner* (``_queue_drive.enqueue(...,
     owner=...)``): an ownerless add has no switch to follow.
@@ -745,11 +832,11 @@ def arm_writes(
     if chip is not None:
         epoch = None
         for name in names:
-            epoch = switch_on_through_chip(chip, name).get("switch_epoch")
+            epoch = set_switch_through_chip(chip, name, position).get("switch_epoch")
         # The route carries the epoch as a decimal string; the record holds an int.
         switch_epoch = None if epoch is None else int(epoch)
         return ArmedWrites(owner=owner, targets=names, via="chip", switch_epoch=switch_epoch)
-    stored = switch_on_in_record(repo, owner=owner, targets=names)
+    stored = set_switch_in_record(repo, owner=owner, targets=names, position=position)
     return ArmedWrites(owner=owner, targets=names, via="record", switch_epoch=stored.switch_epoch)
 
 
@@ -759,27 +846,27 @@ def enable_writes_in_project(repo: Path, *, owner: str | None = None) -> ArmedWr
     Takes the REPO ROOT. *owner* defaults to the identity this process acts as
     (:func:`~osprey_connectors.identity.acting_identity`), which is the login
     the controls server the agent spawns resolves too — it inherits this
-    environment — so the switch turned on is the one its writes read.
+    environment — so the switch armed is the one its writes read.
 
     Required for tests that exercise the approval-hook path: with the tier at
     ``never`` the build bakes the write tools into ``permissions.deny`` and the
     PreToolUse write check refuses before the approval hook can ask, so the
     SDK's ``can_use_tool`` callback never fires. Idempotent: arming an armed
-    repo rebuilds and finds the switch already on.
+    repo rebuilds and finds the switch already armed.
     """
     return arm_writes(repo, owner=owner if owner is not None else acting_identity())
 
 
 def arm_deployed_queue_owner(repo: Path, targets: list[str] | None = None) -> str:
-    """Turn this process's login's switch on in a DEPLOYED stack's record; return the login.
+    """Arm this process's login's switch in a DEPLOYED stack's record; return the login.
 
     For lanes that drive a deployed bridge queue over HTTP. The bridge worker's
     writes follow the add's owner (``X-Osprey-Owner``, sent by
     ``_queue_drive.enqueue(..., owner=...)``), read from the control tree the
     deploy binds into the worker, so an ownerless add, or an owner whose switch
     is off, fails its first write. The tier half is the deployment's own
-    (``control_system.writes: allowed`` in the preset); this is the switch half,
-    through :func:`switch_on_in_record`, after the identity directory is
+    (``control_system.writes`` in the preset); this is the switch half, through
+    :func:`set_switch_in_record`, after the identity directory is
     provisioned the way the deploy provisions it. Call it after ``osprey build``
     and before ``osprey up``.
 
@@ -793,7 +880,7 @@ def arm_deployed_queue_owner(repo: Path, targets: list[str] | None = None) -> st
     owner = posture_store.current_owner()
     assert isinstance(owner, str) and owner, f"this process names no owner: {owner!r}"
     ensure_control_target_dir(_render_config(repo), repo, owner, relative_to=repo)
-    switch_on_in_record(repo, owner=owner, targets=targets)
+    set_switch_in_record(repo, owner=owner, targets=targets)
     return owner
 
 
