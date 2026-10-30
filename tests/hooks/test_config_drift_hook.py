@@ -8,7 +8,7 @@ The hook warns (never blocks) when config.yml has drifted from the rendered
   one test per documented return branch. The hook is stdlib-only and imports nothing at module scope, so
   a plain import is safe — it is still written inside the test bodies so that
   importing this file stays free of side effects (tests/README.md §5).
-* Parity with the renderer: a real ``never`` / ``allowed`` render's
+* Parity with the renderer: a real ``never`` / ``asked`` / ``allowed`` render's
   ``hook_config.json`` and ``permissions.deny`` are fed to the hook, so the set
   it compares is the set the kill switch actually denies.
 * The end-to-end behaviour goes through the shared ``hook_runner_raw`` harness,
@@ -258,8 +258,10 @@ control_system:
     ("text", "expected"),
     [
         ("control_system:\n  writes: allowed\n", (True, "control_system.writes: allowed")),
+        ("control_system:\n  writes: asked\n", (True, "control_system.writes: asked")),
         ("control_system:\n  writes: never\n", (False, "control_system.writes: never")),
         # Quotes do not change the string.
+        ('control_system:\n  writes: "asked"\n', (True, "control_system.writes: asked")),
         ("control_system:\n  writes: 'allowed'\n", (True, "control_system.writes: allowed")),
         ('control_system:\n  writes: "never"\n', (False, "control_system.writes: never")),
         # A trailing comment is not part of the value.
@@ -267,10 +269,14 @@ control_system:
             "control_system:\n  writes: allowed  # armed for MD\n",
             (True, "control_system.writes: allowed"),
         ),
-        # Only the literal `allowed` arms, as in `tier_writes`: a capital, a
-        # boolean, any other word all answer never.
+        # Only the literal `asked` and `allowed` arm, as in `tier_writes`: a
+        # capital, a boolean, the switch's retired word, any other word all
+        # answer never.
         ("control_system:\n  writes: Allowed\n", (False, "control_system.writes: Allowed")),
+        ("control_system:\n  writes: Asked\n", (False, "control_system.writes: Asked")),
         ("control_system:\n  writes: true\n", (False, "control_system.writes: true")),
+        ("control_system:\n  writes: on\n", (False, "control_system.writes: on")),
+        ("control_system:\n  writes: maybe\n", (False, "control_system.writes: maybe")),
         # The tier decides; a retired leaf beside it is not read.
         (
             "control_system:\n  writes: never\n  writes_enabled: true\n",
@@ -283,12 +289,17 @@ control_system:
     ],
     ids=[
         "allowed",
+        "asked",
         "never",
+        "double-quoted-asked",
         "single-quoted",
         "double-quoted",
         "trailing-comment",
         "capital-is-never",
+        "capital-asked-is-never",
         "boolean-is-never",
+        "retired-on-is-never",
+        "garbage-is-never",
         "tier-beats-retired-true",
         "tier-beats-retired-false",
     ],
@@ -360,7 +371,9 @@ def test_tier_in_config_abstains(tmp_path, text):
 
 
 @pytest.mark.parametrize(
-    ("tier", "expected"), [("allowed", True), ("never", False)], ids=["allowed", "never"]
+    ("tier", "expected"),
+    [("allowed", True), ("asked", True), ("never", False)],
+    ids=["allowed", "asked", "never"],
 )
 def test_tier_in_config_ignores_a_facility_servers_writes_list(tmp_path, tier, expected):
     """A facility `writes:` list above the section never reads as the tier."""
@@ -699,22 +712,34 @@ def test_retired_leaves_alone_claim_nothing(tmp_path, run_drift, config_text, ch
     [
         ("allowed", DENIED, "still blocks writes"),
         ("allowed", ALLOWED, None),
+        ("asked", DENIED, "still blocks writes"),
+        ("asked", ALLOWED, None),
         ("never", DENIED, None),
         # Safety-critical direction: the tier forbids writes, the render does not.
         ("never", ALLOWED, "still permits writes"),
         ("never", NO_PERMISSIONS, None),
-        # Not the literal `allowed`: the kill switch denied, so the render agrees.
+        # Not an arming word: the kill switch denied, so the render agrees.
         ("Allowed", DENIED, None),
         ("Allowed", ALLOWED, "still permits writes"),
+        ("on", DENIED, None),
+        ("on", ALLOWED, "still permits writes"),
+        ("garbage", DENIED, None),
+        ("garbage", ALLOWED, "still permits writes"),
     ],
     ids=[
         "allowed-denied-drift",
         "allowed-allowed-sync",
+        "asked-denied-drift",
+        "asked-allowed-sync",
         "never-denied-sync",
         "never-allowed-drift",
         "never-nopermissions-silent",
         "capital-denied-sync",
         "capital-allowed-drift",
+        "retired-on-denied-sync",
+        "retired-on-allowed-drift",
+        "garbage-denied-sync",
+        "garbage-allowed-drift",
     ],
 )
 def test_tier_drift_matrix(tmp_path, run_drift, writes, channel_write, expected_fragment):
@@ -722,7 +747,7 @@ def test_tier_drift_matrix(tmp_path, run_drift, writes, channel_write, expected_
     config_path, settings_path = _make_project(
         tmp_path,
         writes=writes,
-        writes_enabled=writes != "allowed",
+        writes_enabled=writes not in ("asked", "allowed"),
         channel_write=channel_write,
     )
     _set_mtimes(config_path, settings_path, config_newer=False)
@@ -1034,13 +1059,15 @@ def _render(tmp_path, *, writes: str):
     return project_dir / "config.yml", hook_config_path, settings_path, ctx
 
 
-@pytest.mark.parametrize(("writes", "denied"), [("never", True), ("allowed", False)])
+@pytest.mark.parametrize(
+    ("writes", "denied"), [("never", True), ("asked", False), ("allowed", False)]
+)
 def test_the_compared_set_matches_the_rendered_kill_switch(tmp_path, writes, denied):
-    """A real render agrees with the hook in both tiers — never a partial overlap.
+    """A real render agrees with the hook in every tier — never a partial overlap.
 
     On ``never`` every tool the hook compares is in the rendered deny, and on
-    ``allowed`` none is; a set that drifted from the kill switch would answer
-    None (partial) and silence the warning on every such deployment.
+    ``asked`` and ``allowed`` none is; a set that drifted from the kill switch
+    would answer None (partial) and silence the warning on every such deployment.
     """
     hook = _hook()
     config_path, hook_config_path, settings_path, ctx = _render(tmp_path, writes=writes)
@@ -1054,7 +1081,7 @@ def test_the_compared_set_matches_the_rendered_kill_switch(tmp_path, writes, den
     assert not set(tools) & set(ctx["mixed_read_write_tools"])
     assert hook._write_tools_denied(settings_path, tools) is denied
     assert hook._tier_in_config(config_path) == (
-        writes == "allowed",
+        not denied,
         f"control_system.writes: {writes}",
     )
     if writes == "never":
@@ -1063,8 +1090,18 @@ def test_the_compared_set_matches_the_rendered_kill_switch(tmp_path, writes, den
 
 @pytest.mark.parametrize(
     ("rendered", "edited", "fragment"),
-    [("never", "allowed", "still blocks writes"), ("allowed", "never", "still permits writes")],
-    ids=["never-render-allowed-config", "allowed-render-never-config"],
+    [
+        ("never", "allowed", "still blocks writes"),
+        ("never", "asked", "still blocks writes"),
+        ("allowed", "never", "still permits writes"),
+        ("asked", "never", "still permits writes"),
+    ],
+    ids=[
+        "never-render-allowed-config",
+        "never-render-asked-config",
+        "allowed-render-never-config",
+        "asked-render-never-config",
+    ],
 )
 def test_a_tier_edited_after_the_render_warns(tmp_path, rendered, edited, fragment):
     """The #244 case end to end: a real render, then a hand-edited tier."""
