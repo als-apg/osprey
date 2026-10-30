@@ -43,7 +43,6 @@ import hashlib
 import json
 import os
 import shutil
-import socket
 import subprocess
 import sys
 from collections.abc import Iterator, Mapping
@@ -499,29 +498,6 @@ def unhurried_runtime(stub_runtime: StubRuntime, pty_env: dict[str, str], tmp_pa
     pty_env["PATH"] = f"{directory}{os.pathsep}{pty_env['PATH']}"
 
 
-def _free_host_ports(count: int) -> list[int]:
-    """*count* distinct ports, none of them listened on as of now.
-
-    Every probe socket is held open until the whole set has been allocated.
-    Asking the kernel *count* times in a row and closing each probe before the
-    next would let it hand back a port it has just released, and two services
-    published on one port is a deploy that fails for a reason that has nothing
-    to do with what the scenario is testing. Nothing binds these ports
-    afterwards — the runtime is a stub — so releasing them at the end is safe;
-    what matters is that they were distinct when they were chosen.
-    """
-    probes = []
-    try:
-        for _ in range(count):
-            probe = socket.socket()
-            probe.bind(("127.0.0.1", 0))
-            probes.append(probe)
-        return [int(probe.getsockname()[1]) for probe in probes]
-    finally:
-        for probe in probes:
-            probe.close()
-
-
 def configured_port_block(service: str) -> tuple[str, ...]:
     """The rendered-config block whose ``port`` the deploy dials *service* on.
 
@@ -568,7 +544,7 @@ def _move_configured_port(config_path: Path, service: str, old: int, new: int) -
 
 
 @pytest.fixture
-def startable_repo(exemplar_copy: Path, stub_runtime: StubRuntime) -> Iterator[Path]:
+def startable_repo(exemplar_copy: Path, stub_runtime: StubRuntime, reserve_port) -> Iterator[Path]:
     """An ``exemplar_copy`` whose published ports are free on this host.
 
     The start verb's host-port preflight is a real socket probe and refuses the
@@ -576,9 +552,9 @@ def startable_repo(exemplar_copy: Path, stub_runtime: StubRuntime) -> Iterator[P
     it cannot tell a stub deploy from a real one. On a developer box something
     usually holds the exemplar's 5080 (a container runtime's own proxy, most
     often), and the scenarios below are about the terminal, not about port
-    policy. So each published binding is moved to a free port in *this copy's*
-    rendered compose file, which is the same edit ``osprey up``'s own refusal
-    asks the operator for.
+    policy. So each published binding is moved to a reserved port, held for the
+    test, in *this copy's* rendered compose file, which is the same edit
+    ``osprey up``'s own refusal asks the operator for.
 
     A service the deploy also dials (the agent record's service, which
     ``osprey up`` waits on over HTTP) has its configured port moved with it, in
@@ -605,7 +581,8 @@ def startable_repo(exemplar_copy: Path, stub_runtime: StubRuntime) -> Iterator[P
         f"would be a no-op and the scenarios would depend on this host's free ports"
     )
     record_port: int | None = None
-    for binding, port in zip(bindings, _free_host_ports(len(bindings)), strict=True):
+    for binding in bindings:
+        port = reserve_port()
         path = Path(binding.compose_file)
         text = path.read_text(encoding="utf-8")
         moved = text.replace(

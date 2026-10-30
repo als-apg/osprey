@@ -4061,7 +4061,9 @@ jobs:
         # and pinning it is the fixture's call to make — via its
         # OSPREY_E2E_GCHAT_PUBSUB_IMAGE override, which this step would then
         # follow for free.
-        IMAGE=$(uv run python -c 'from tests.e2e.fixtures.gchat_pubsub_emulator import IMAGE; print(IMAGE)')
+        # The fixture imports the connectors test harness, which pytest finds
+        # through its pythonpath; a plain interpreter is handed the same path.
+        IMAGE=$(PYTHONPATH=packages/osprey-connectors/tests uv run python -c 'from tests.e2e.fixtures.gchat_pubsub_emulator import IMAGE; print(IMAGE)')
         echo "Pulling emulator image: $IMAGE"
         docker pull "$IMAGE"
 

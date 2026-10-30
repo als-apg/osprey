@@ -46,7 +46,6 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey.interfaces._serving import free_port
 from tests._container_support import is_docker_available, start_or_skip, stop_quietly
 
 # xdist_group("docker"): this file starts a real container, and every
@@ -550,7 +549,9 @@ def test_an_unconfigured_catalog_is_refused_before_any_read(monkeypatch: Any) ->
 
 
 @pytest.mark.usefixtures("stored_runs", "impatient_tiled_client")
-def test_a_configured_but_unreachable_catalog_is_refused_not_a_500(monkeypatch: Any) -> None:
+def test_a_configured_but_unreachable_catalog_is_refused_not_a_500(
+    reserve_port, monkeypatch: Any
+) -> None:
     """The ordinary outage: Tiled is configured, and nothing is listening.
 
     This is the case the unset-variable test above cannot reach — that one takes
@@ -566,12 +567,9 @@ def test_a_configured_but_unreachable_catalog_is_refused_not_a_500(monkeypatch: 
     ``500 Internal Server Error`` with no body to branch on before the catalog
     resolution was guarded.
 
-    The port is bound and then closed, so it is a port nothing can be listening
-    on rather than one that merely looked free.
+    The port is reserved for the test, so nothing listens on it.
     """
-    closed_port = free_port()
-
-    monkeypatch.setenv(_TILED_URI_ENV, f"http://127.0.0.1:{closed_port}")
+    monkeypatch.setenv(_TILED_URI_ENV, f"http://127.0.0.1:{reserve_port()}")
     monkeypatch.setenv(_TILED_API_KEY_ENV, API_KEY)
 
     from osprey.services.bluesky_bridge.app import app

@@ -49,9 +49,9 @@ from pathlib import Path
 
 import pytest
 
-from osprey.cli.web_cmd import DECLARED_BIND_ENV, resolve_bind_host
-from osprey.interfaces._serving import free_port
+from osprey.cli.web_cmd import _STARTUP_LINE, DECLARED_BIND_ENV, resolve_bind_host
 from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV
+from tests.e2e._server_port import bound_port
 from tests.e2e.web_terminals._minimal_repo import stop_host_record, write_minimal_repo
 
 pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke, pytest.mark.model_free]
@@ -145,7 +145,6 @@ def test_declared_loopback_survives_hostile_host_flag_over_real_socket(
         "meaningful left to probe if that assumption doesn't hold."
     )
 
-    port = free_port()
     # `osprey web` serves a deployment repo's RENDER: it walks up from the
     # working directory to the nearest `profile.yml` and refuses when that repo
     # has no `build/config.yml` to serve, and it holds the deployment's agent
@@ -167,7 +166,7 @@ def test_declared_loopback_survives_hostile_host_flag_over_real_socket(
         "--host",
         "0.0.0.0",  # the hostile flag; DECLARED_BIND_ENV below must win anyway
         "--port",
-        str(port),
+        "0",  # the server binds a port the system chooses and names it
         "--shell",
         "true",  # avoid spawning `claude`; the PTY just runs /usr/bin/true
         "--skip-preflight",  # avoid companion-port/provider pre-flight probes
@@ -206,6 +205,7 @@ def test_declared_loopback_survives_hostile_host_flag_over_real_socket(
         )
 
     try:
+        port = bound_port(log_path, _STARTUP_LINE, child=proc, timeout=_READY_TIMEOUT)
         ready = _wait_for_port("127.0.0.1", port, proc, timeout=_READY_TIMEOUT)
         if not ready:
             exit_code = proc.poll()

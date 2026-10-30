@@ -84,7 +84,7 @@ modules pin (5064, 15064-15067, 15080, 18090-18110, 18191-18194, 19080-19085, 19
 20700-21699, 21781, 21791, 25080-25085, 25432-25436, 27117-27118) and clear of the
 thousand-port block a deployment claims from ``deployment.port_base``
 (10000-10999 at the default base). The
-dispatcher/worker pair deliberately takes **free** ports instead (:func:`free_port`):
+dispatcher/worker pair deliberately binds port 0 instead and reports the port it got:
 they are per-run subprocesses with no need to be predictable, and a pin would collide
 with a developer's own running stack.
 
@@ -759,7 +759,7 @@ def agent_record(
 def dispatch_stack(
     built_repo: Path, agent_record: WorkerRecord, tmp_path_factory: pytest.TempPathFactory
 ) -> Iterator[dict]:
-    """A real worker + dispatcher pair as subprocesses on free ports.
+    """A real worker + dispatcher pair as subprocesses, each on the port it bound.
 
     Module-scoped: the bridge is what these tests exercise, and the pair carries no state
     any assertion reads (every observation is made through the bridge's own dedup/offset

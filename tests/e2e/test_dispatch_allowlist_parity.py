@@ -51,7 +51,6 @@ from pathlib import Path
 import pytest
 
 from osprey.agent_runner.tool_policy import PASSTHROUGH_TOOLS
-from osprey.interfaces._serving import free_port
 from tests._live import wait_until
 from tests.e2e._dispatch_harness import build_repo, start_worker, terminate
 from tests.e2e._worker_record import WORKER_IDENTITY, WorkerRecord, worker_record
@@ -148,11 +147,10 @@ def approval_off_repo(built_repo: Path, tmp_path_factory: pytest.TempPathFactory
 # ---------------------------------------------------------------------------
 
 
-def _start_worker(repo: Path, record: WorkerRecord) -> tuple[subprocess.Popen, str]:
+def _start_worker(repo: Path, log: Path, record: WorkerRecord) -> tuple[subprocess.Popen, str]:
     """A worker on *repo* that records its runs in *record* and reads them back from it."""
-    port = free_port()
-    proc = start_worker(
-        repo, port, token=TOKEN, health_timeout=HEALTH_TIMEOUT_SEC, env=record.worker_env()
+    proc, port = start_worker(
+        repo, log, token=TOKEN, health_timeout=HEALTH_TIMEOUT_SEC, env=record.worker_env()
     )
     return proc, f"http://127.0.0.1:{port}"
 
@@ -170,7 +168,7 @@ def worker(request, tmp_path: Path) -> Iterator[Worker]:
     """Start a real worker, recording into its own record, on the repo fixture named by the param."""
     repo = request.getfixturevalue(request.param)
     with worker_record(tmp_path / "agent_record", repo) as record:
-        proc, url = _start_worker(repo, record)
+        proc, url = _start_worker(repo, tmp_path / "worker.log", record)
         try:
             yield Worker(url, record)
         finally:

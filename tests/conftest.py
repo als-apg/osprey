@@ -6,7 +6,7 @@ This module provides shared fixtures and utilities for all Osprey tests.
 
 import os
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -42,6 +42,7 @@ from osprey_connectors_tests._harness._guards import (  # noqa: F401 - fixtures 
     write_control_context,
     write_server_report,
 )
+from osprey_connectors_tests._harness._ports import port_reserver
 from tests import _scoped_temp
 from tests._agent_cli import STUB_AGENT_CLI
 from tests._builds import (  # noqa: F401 - the session's shared builds
@@ -85,6 +86,13 @@ def agent_cli_resolved_per_test():
 @pytest.fixture
 def real_agent_cli():
     """Opt a test out of :func:`stub_agent_cli`: it resolves the real Claude Code."""
+
+
+@pytest.fixture
+def reserve_port() -> Iterator[Callable[[], int]]:
+    """A harness ``_ports.port_reserver`` call, its reservations held until the test ends."""
+    with port_reserver() as reserve:
+        yield reserve
 
 
 @pytest.fixture(autouse=True, scope="function")

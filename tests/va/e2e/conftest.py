@@ -62,7 +62,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from osprey.interfaces._serving import free_port
+from osprey_connectors_tests._harness._ports import hold_ports, reserved_port
 
 # Re-exported: the modules of this directory read the image under test and its
 # remedy as ``e2e_conftest.IMAGE`` and ``e2e_conftest.IMAGE_REMEDY``.
@@ -89,7 +89,7 @@ E2E_ENABLED = os.environ.get(ENV_FLAG) == "1"
 # removes the container uses this one name.
 CONTAINER_NAME = f"osprey-va-e2e-{os.getpid()}"
 # The CONTAINER serves Channel Access on the protocol default, which the image
-# fixes; the HOST side of the publish is an ephemeral free port, because 5064
+# fixes; the HOST side of the publish is a reserved port, because 5064
 # on this host belongs to whatever real deployment the operator is running
 # (`port_layout.CA_DEFAULT_PORT` keeps VA instance 1 there on purpose, so a
 # dev machine routinely holds it). Name-server mode (`use_name_server: true`,
@@ -104,9 +104,10 @@ CONTAINER_CA_PORT = 5064
 # import-time required because CA_PORT is per-process module state: every
 # fixture and helper in this package must agree on the one reserved number,
 # and a fixture-scoped reservation would hand xdist workers different ports
-# for constants already bound at collection. The port was free at reservation
-# time only: the bind is released before docker publishes it.
-CA_PORT = free_port()
+# for constants already bound at collection. The reservation is held until the
+# process exits, so no other test process on the host is handed the number
+# before docker publishes it.
+(CA_PORT,) = hold_ports(1)
 # Generous on purpose. Boot-to-first-served-answer measured 9-15 s across six
 # container boots on this host -- the VA images are pinned ``linux/amd64`` and
 # the host is Apple Silicon, so every local boot is emulated. A 30 s ceiling is
@@ -675,11 +676,12 @@ PUBLISH_ATTEMPTS = 5
 def run_on_free_port(
     container_for: Callable[[int], tuple[str, list[str]]],
 ) -> tuple[int, str]:
-    """``docker run`` a container published on a free port, retrying a lost race.
+    """``docker run`` a container published on a reserved port, retrying a lost race.
 
-    A reserved port is free only until the probe socket closes, and anything on
-    the host can take it before ``docker run`` binds it. Docker then refuses
-    the publish with "address already in use", and the answer is another port
+    The reservation is held until ``docker run`` returns, so no other test
+    process is handed the port in between; a process that binds explicit ports
+    without reserving them can still take it first. Docker then refuses the
+    publish with "address already in use", and the answer is another port
     rather than a failed boot.
 
     Args:
@@ -690,13 +692,13 @@ def run_on_free_port(
         The port the container is published on, and its name.
     """
     for _ in range(PUBLISH_ATTEMPTS):
-        port = free_port()
-        name, arguments = container_for(port)
-        # Stale-cleanup only, of a container an earlier run left under this name.
-        _docker_rm(name)
-        started = subprocess.run(
-            ["docker", *arguments], capture_output=True, text=True, timeout=120
-        )
+        with reserved_port() as port:
+            name, arguments = container_for(port)
+            # Stale-cleanup only, of a container an earlier run left under this name.
+            _docker_rm(name)
+            started = subprocess.run(
+                ["docker", *arguments], capture_output=True, text=True, timeout=120
+            )
         if started.returncode == 0:
             return port, name
         # A refused publish still leaves the created container behind.
