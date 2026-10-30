@@ -12,39 +12,48 @@
  * machine.
  *
  * **Two shapes, not one list.** The machine the agent stands on is a card —
- * name, ⓘ, and its writes switch. Every other machine is a row: name, ⓘ,
- * its writes switch, and Switch to. Where a control cannot act it stays
+ * name, ⓘ, and its writes control. Every other machine is a row: name, ⓘ,
+ * its writes control, and Switch to. Where a control cannot act it stays
  * visible and says why on hover; what a machine is and what writing there
  * does — the consequence line, the server's own label, the endpoint — live
  * behind the name's ⓘ tooltip, never at rest.
  *
- * **One switch per machine.** The write state is this login's switch for
- * that machine: position and control are the same widget, so nothing says
- * "writes on" twice. Turning off applies on click — it only ever removes
- * reach, and no lock refuses it; turning on parks the knob mid-track and
- * confirms first, because it is the gesture after which a write can land
- * somewhere new. Locked, a switch that is on keeps its off control and shows
- * the verdict's own sentence; a switch that is off and cannot be turned on
- * stays on screen, disabled, with the reason on hover.
+ * **One control per machine.** The write state is this login's switch for
+ * that machine, one of three positions (`off` / `asked` / `allowed`), and the
+ * control is a `radiogroup` whose `aria-checked` is always the STORED position
+ * — never the focus and never a dialog's question. Arrows and Home/End move
+ * focus only (roving tabindex, skipping disabled options); Space, Enter or a
+ * click commit. A narrowing applies at once: it only ever takes reach away,
+ * and no lock holds `off`. Every widening
+ * confirms first, and the option it asked for reads `data-pending` while the
+ * dialog is up. `off` is never disabled; an armed position a lock holds stays
+ * on screen, disabled, with the reason on hover. So a stored `allowed` the
+ * login's tier caps reads `asked` beside a checked, disabled `allowed`.
+ *
+ * **Focus survives a rebuild.** Every poll and push repaints the whole
+ * subtree, so {@link render} re-focuses the option that had focus, and a
+ * dismissed confirm hands focus back to the option that raised it.
  *
  * **The epoch the chip read.** Every switch gesture carries the
  * `switch_epoch` of the payload the operator was shown, as the decimal string
  * it was read as — never a number, which would round it. A stop that landed
- * since refuses a turn-on (409 `stopped_since`): the popover re-reads and the
- * operator clicks again — a turn-on never silently re-arms after a stop. The
+ * since refuses a widening (409 `stopped_since`): the popover re-reads and the
+ * operator clicks again — a widening never silently re-arms after a stop. The
  * one exception is a 409 that says it just STAMPED the record's first epoch,
  * which is retried once with that epoch.
  *
- * **No process claims.** Nothing rendered here says whether a write will ask
- * for approval or what limits apply — that is deployment configuration this
- * module cannot see. Confirms state scope, endpoint and consequence only.
+ * **No process claims.** Beyond the confirm's own sentence about the position
+ * being chosen, nothing rendered here says what limits apply — that is
+ * deployment configuration this module cannot see. Confirms state scope,
+ * endpoint and consequence only.
  *
- * **A confirm can be waived, mostly.** Both confirms carry a "don't ask
- * again" checkbox — per gesture, per machine, per render (scopedStorageKey),
- * remembered only when the operator confirms. The one exception is turning
- * writes ON for a live machine, which keeps asking always: it is the gesture
- * after which hardware can move. A waived dialog is re-shown by holding Shift
- * on the gesture, which is also where the waiver is undone.
+ * **A confirm can be waived, sometimes.** {@link confirmSkippable} decides. A
+ * target switch and a move to `asked` on the rehearsal or the simulator carry
+ * a "don't ask again" checkbox — per gesture, per machine, per render
+ * (scopedStorageKey), remembered only when the operator confirms. A move to
+ * `asked` on the real machine and a move to `allowed` anywhere keep asking
+ * always. A waived dialog is re-shown by holding Shift on the gesture, which
+ * is also where the waiver is undone.
  *
  * **The popover stays open beneath a confirm.** Both confirms raise a
  * `.posture-modal-overlay` at `--z-modal`, a full layer above the popover's
@@ -60,7 +69,7 @@
  */
 
 import {
-  LIFTED_BY_TURN_ON,
+  POSITIONS,
   SWITCH_APPLIED,
   bannerNote,
   confirmSkipKeyBase,
@@ -75,12 +84,19 @@ import {
   lockReason,
   reachException,
   reasonPhrase,
-  statePhrase,
   switchConfirm,
   TURN_ON_SENTENCE,
   turnOnConfirm,
 } from './control-target-facts.js';
 import { confirmSkipped } from './confirm-skip.js';
+import {
+  button,
+  el,
+  focusOption,
+  focusedOption,
+  renderSwitch,
+  writePhraseLine,
+} from './control-target-popover-switch.js';
 import { dismissConfirm, isConfirmUp, showConfirm } from './posture-confirm.js';
 
 import {
@@ -149,7 +165,7 @@ let pendingTarget = null;
 const gestureNotes = new Map();
 
 /**
- * The popover's status line: the turn-on sentence, after a turn-on whose
+ * The popover's status line: the widening sentence, after a move whose
  * confirm was waived lands — the one place it can be read when no dialog said
  * it. Shown until the next gesture or the popover closes; never beside the
  * off control.
@@ -159,17 +175,23 @@ let statusNote = null;
 
 /** Whether a POST from this popover is in flight (one gesture at a time). */
 let posting = false;
+/** A stop pressed while another POST was out, run when that one settles. */
+/** @type {(() => Promise<void>)|null} */
+let queuedStop = null;
+const GESTURE_DEADLINE_MS = 15000;
+const BUSY_SENTENCE = 'Another change is still being sent. Try again in a moment.';
+const DEADLINE_SENTENCE = 'No answer from the server. The re-read shows what the record holds.';
 
 /**
- * The target whose turn-on confirm is on screen, if any.
+ * The widening whose confirm is on screen, if any.
  *
- * The switch that raised it parks its knob mid-track (`data-pending="on"`)
- * until the dialog is answered: a switch implies "now", and the knob must not
- * sit in `on` while nothing has been applied. Cleared on every dismissal
- * path — {@link dismissConfirm} is the one chokepoint.
- * @type {string|null}
+ * The option it asked for reads `data-pending` until the dialog is answered;
+ * `aria-checked` stays on the stored position, because nothing has been
+ * applied. Cleared on every dismissal path — {@link dismissConfirm} is the one
+ * chokepoint.
+ * @type {{target: string, position: 'asked'|'allowed'}|null}
  */
-let confirmingTarget = null;
+let confirmingMove = null;
 
 /**
  * The handles a confirm hands to the gesture it raised — see
@@ -224,8 +246,9 @@ export function teardownControlTargetPopover() {
   popover = null;
   open = false;
   posting = false;
+  queuedStop = null;
   pendingTarget = null;
-  confirmingTarget = null;
+  confirmingMove = null;
   statusNote = null;
   gestureNotes.clear();
 }
@@ -346,26 +369,6 @@ function switchOutcome(row, state) {
 
 /* ---- render ---- */
 
-/** @param {string} tag @param {string} [cls] @param {string} [text] */
-function el(tag, cls, text) {
-  const node = document.createElement(tag);
-  if (cls) node.className = cls;
-  if (text != null) node.textContent = text;
-  return node;
-}
-
-/**
- * A button, typed and with its `type` set. Every button here lives inside no
- * form, but an unset `type` is `submit` and a stray form anywhere above would
- * make each of these navigate.
- * @param {string} cls @param {string} text @returns {HTMLButtonElement}
- */
-function button(cls, text) {
-  const node = /** @type {HTMLButtonElement} */ (el('button', cls, text));
-  node.type = 'button';
-  return node;
-}
-
 /**
  * Repaint the popover from the chip's current answer.
  *
@@ -376,6 +379,7 @@ function button(cls, text) {
  */
 function render() {
   if (!popover) return;
+  const focused = focusedOption(popover);
   const state = getState();
   popover.replaceChildren();
   if (!state) return;
@@ -414,6 +418,7 @@ function render() {
   }
 
   popover.append(renderFoot(state));
+  if (focused) focusOption(popover, focused.target, focused.position);
 }
 
 /**
@@ -442,7 +447,7 @@ function renderCard(row, state) {
   if (info) title.append(info);
   card.append(title);
 
-  card.append(renderSwitch(row, state, word, lock));
+  card.append(writesSwitch(row, state, word));
   const phrase = writePhraseLine(row, word, lock);
   if (phrase) card.append(phrase);
 
@@ -501,7 +506,7 @@ function renderRow(row, state) {
   for (const line of outcomeLines(row, state)) ident.append(line);
   node.append(ident);
 
-  node.append(renderSwitch(row, state, word, lock));
+  node.append(writesSwitch(row, state, word));
   node.append(renderAction(row, state));
   return node;
 }
@@ -566,74 +571,6 @@ function outcomeLines(row, state) {
 }
 
 /**
- * The switch that both states and changes a machine's writes.
- *
- * One widget instead of pill + verb: the knob's position is this login's
- * switch, the word beside it (`on` / `off` / `locked`, the row's `data-state`)
- * is the glance-and-screen-reader copy, and the click is the gesture. Off
- * applies on click, on confirms first — said on the hover title — and while
- * that confirm is up the knob parks mid-track (`data-pending`) rather than
- * claiming a state nothing has applied.
- *
- * Under every lock a switch that is on — or one nobody can read — keeps its
- * off control: no lock refuses a stop. Only a switch that is off and cannot
- * be turned on is disabled, with the reason on hover.
- * @param {any} row
- * @param {any} state
- * @param {string} word
- * @param {string|null} lock
- * @returns {HTMLElement}
- */
-function renderSwitch(row, state, word, lock) {
-  const name = displayName(row, kindAttr(row));
-  // An unreadable switch is shown as one that may be on: the loud answer, and
-  // the one that leaves the operator a way to stop it.
-  const armed = row.switch !== 'off';
-  const wrap = el('span', 'ctc-switchwrap');
-  wrap.dataset.state = word;
-  wrap.append(el('span', 'ctc-switch-word', 'Writes'));
-  const toggle = button('ctc-toggle', '');
-  toggle.setAttribute('role', 'switch');
-  toggle.setAttribute('aria-checked', String(row.switch === 'on'));
-  toggle.setAttribute('aria-label', `${statePhrase(word)} for ${name}`);
-  if (confirmingTarget === row.target) toggle.dataset.pending = 'on';
-  toggle.disabled = !armed && Boolean(lock);
-  toggle.title = armed
-    ? `Turn writes off for ${name} — applies now`
-    : lock || `Turn writes on for ${name} — asks first`;
-  toggle.addEventListener('click', (event) => {
-    event.stopPropagation();
-    if (armed) void setSwitch(row.target, 'off', state);
-    else confirmTurnOn(row, state, event.shiftKey);
-  });
-  wrap.append(toggle);
-  const stateWordEl = el('span', 'ctc-switch-state', word);
-  const why = word === 'locked' ? row.write_phrase || lock : armed ? null : lock;
-  if (why) stateWordEl.title = why;
-  wrap.append(stateWordEl);
-  return wrap;
-}
-
-/**
- * The verdict's own sentence for a refused machine, at rest: what stopped the
- * write and who lifts it (C-PHRASE). Shown for a locked row — on and still
- * refused, or unreadable — and for an off row held by a lock no turn-on lifts;
- * never for a row that is merely off, whose switch already says so.
- * @param {any} row
- * @param {string} word
- * @param {string|null} lock
- * @returns {HTMLElement|null}
- */
-function writePhraseLine(row, word, lock) {
-  const held = word === 'off' && row.write_reason && !LIFTED_BY_TURN_ON.has(row.write_reason);
-  const text = word === 'locked' || held ? row.write_phrase || lock : null;
-  if (!text) return null;
-  const line = el('div', 'ctc-write-phrase', text);
-  line.dataset.state = word;
-  return line;
-}
-
-/**
  * The Switch slot: the button, or the phrase for why there is no button.
  *
  * The refusal is keyed on the switch tool's own machine code, published by the
@@ -675,7 +612,7 @@ function renderAction(row, state) {
 /**
  * The foot: all-off, and the popover's scope said once. `Turn all writes off`
  * only ever removes reach, so it applies on click; it is enabled exactly when
- * the read says some switch of this login's is on (`any_on`) — including a
+ * the read says some switch of this login's is armed (`any_armed`) — including a
  * machine no longer configured, which no row shows.
  *
  * The note beside it is the popover's scope, said once at rest: the switch is
@@ -686,7 +623,7 @@ function renderAction(row, state) {
 function renderFoot(state) {
   const foot = el('div', 'ctc-foot');
   const all = button('ctc-all-off', 'Turn all writes off');
-  all.disabled = state.any_on !== true;
+  all.disabled = state.any_armed !== true;
   all.addEventListener('click', (event) => {
     event.stopPropagation();
     void setSwitch(ALL_TARGETS, 'off', state);
@@ -694,6 +631,16 @@ function renderFoot(state) {
   foot.append(all);
   foot.append(el('span', 'ctc-foot-note', 'Applies to every session of this login'));
   return foot;
+}
+
+/**
+ * One machine's writes control, wired to this popover's gestures.
+ * @param {any} row @param {any} state @param {string} word
+ */
+function writesSwitch(row, state, word) {
+  return renderSwitch(row, state, word, confirmingMove, (to, reshow) =>
+    moveSwitch(row, to, state, reshow)
+  );
 }
 
 /* ---- gestures ---- */
@@ -718,8 +665,17 @@ function renderFoot(state) {
  * @param {(err: unknown) => {message: string, close: boolean}} [refusal]
  * @returns {Promise<void>}
  */
-async function postGesture(send, noteKey, ui, onAccepted, refusal = plainRefusal) {
-  if (posting) return;
+async function postGesture(send, noteKey, ui, onAccepted, refusal = plainRefusal, stop = false) {
+  if (posting) {
+    // A stop is never dropped: it runs the moment the outstanding POST
+    // settles. Anything else waits for a fresh click, and a confirm says why.
+    if (stop) queuedStop = () => postGesture(send, noteKey, ui, onAccepted, refusal, true);
+    else if (ui) {
+      ui.error.textContent = BUSY_SENTENCE;
+      ui.error.hidden = false;
+    }
+    return;
+  }
   posting = true;
   gestureNotes.clear();
   statusNote = null;
@@ -728,7 +684,7 @@ async function postGesture(send, noteKey, ui, onAccepted, refusal = plainRefusal
     ui.cancel.disabled = true;
   }
   try {
-    onAccepted(await send());
+    onAccepted(await withDeadline(send()));
     ui?.done();
   } catch (err) {
     const { message, close } = refusal(err);
@@ -743,9 +699,30 @@ async function postGesture(send, noteKey, ui, onAccepted, refusal = plainRefusal
     }
   }
   posting = false;
+  const next = queuedStop;
+  queuedStop = null;
+  // The queued stop re-reads and renders on its own way out.
+  if (next) return next();
   // A refusal may itself be news about the render, so every outcome re-reads.
   await refetch();
   render();
+}
+
+/**
+ * Settle a gesture's request within {@link GESTURE_DEADLINE_MS}, so one hung
+ * POST cannot hold the in-flight guard — and every later stop — forever. The
+ * request itself may still land; the re-read shows what the record holds.
+ * @template T
+ * @param {Promise<T>} request
+ * @returns {Promise<T>}
+ */
+function withDeadline(request) {
+  /** @type {ReturnType<typeof setTimeout>|undefined} */
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(DEADLINE_SENTENCE)), GESTURE_DEADLINE_MS);
+  });
+  return Promise.race([request, deadline]).finally(() => clearTimeout(timer));
 }
 
 /** @param {unknown} err @returns {{message: string, close: boolean}} */
@@ -754,31 +731,51 @@ function plainRefusal(err) {
 }
 
 /**
- * Turn one machine's switch on or off for this login, or every machine's off
+ * POST one machine's position for this login, or every machine's off
  * (C-POST), carrying the `switch_epoch` of the payload the operator was shown
  * — {@link postSwitch} owns the one stamped retry. A stop that overtook a
- * turn-on closes its confirm and wants a new click on what the re-read shows;
+ * widening closes its confirm and wants a new click on what the re-read shows;
  * a stop that was not taken says so, and the re-read keeps showing the machine
- * on — nothing here paints an off the record does not hold.
+ * armed — nothing here paints a position the record does not hold.
+ * {@link moveSwitch} decides whether a move gets here directly or by a confirm.
  * @param {string} target  a configured target name, or {@link ALL_TARGETS}
- * @param {'on'|'off'} to
+ * @param {'off'|'asked'|'allowed'} to
  * @param {any} state  the payload the operator was shown
  * @param {ConfirmUi} [ui]  the confirm this gesture was raised from, if any
- * @param {boolean} [waived]  a turn-on whose confirm was skipped: its
- *   sentence goes to the status line once it lands
+ * @param {boolean} [waived]  a widening whose confirm was skipped: the route
+ *   checks the claim, and its sentence goes to the status line once it lands
  * @returns {Promise<void>}
  */
 function setSwitch(target, to, state, ui, waived = false) {
   const epoch = typeof state.switch_epoch === 'string' ? state.switch_epoch : null;
   return postGesture(
-    () => postSwitch(state.session_id ?? null, target, to, epoch),
+    () => postSwitch(state.session_id ?? null, target, to, epoch, waived),
     target,
     ui,
     () => {
-      if (waived && to === 'on') statusNote = TURN_ON_SENTENCE;
+      if (waived) statusNote = TURN_ON_SENTENCE;
     },
-    (err) => switchRefusal(err, to)
+    (err) => switchRefusal(err, to),
+    to === 'off'
   );
+}
+
+/**
+ * Route one committed option: the stored position is a no-op, a widening goes
+ * through its confirm, and anything else POSTs at once. `off` is always a
+ * narrowing, including from a record nobody can read.
+ * @param {any} row
+ * @param {'off'|'asked'|'allowed'} to
+ * @param {any} state  the payload the operator was shown
+ * @param {boolean} [reshow]  Shift was held: show the dialog even when waived
+ */
+function moveSwitch(row, to, state, reshow = false) {
+  if (to === row.switch) return;
+  if (to === 'off' || POSITIONS.indexOf(to) < POSITIONS.indexOf(row.switch)) {
+    void setSwitch(row.target, to, state);
+  } else {
+    confirmWiden(row, to, state, reshow);
+  }
 }
 
 /**
@@ -819,47 +816,51 @@ function requestSwitch(row, state, ui) {
 /* ---- confirms (the dialog itself lives in posture-confirm.js) ---- */
 
 /**
- * Release the parked switch on every dismissal path: cancel, Escape, a
+ * Release the parked option on every dismissal path: cancel, Escape, a
  * confirmed gesture's done(), the popover closing over it. Registered as the
- * turn-on confirm's `onDismiss`, which posture-confirm.js runs exactly once
- * per dialog.
+ * widening confirm's `onDismiss`, which posture-confirm.js runs exactly once
+ * per dialog. Focus returns to the option that raised the dialog, unless the
+ * popover closed with it.
  */
 function releaseParkedSwitch() {
-  if (confirmingTarget) {
-    confirmingTarget = null;
-    render();
-  }
+  const move = confirmingMove;
+  if (!move) return;
+  confirmingMove = null;
+  render();
+  if (open) focusOption(popover, move.target, move.position);
 }
 
 /**
- * The confirm for turning one machine's writes on — or, when its waiver is
- * recorded and Shift is not held, the gesture applied directly. A live
- * machine never takes the waiver ({@link confirmSkippable}): its dialog is
- * the one gate that must not be muted.
+ * The confirm for one widening — or, when its waiver is recorded and Shift is
+ * not held, the move applied directly. {@link confirmSkippable} decides which
+ * moves take a waiver; the rest have no key to read or write.
  * Wording lives in control-target-facts.js ({@link turnOnConfirm}); this
  * only wires the gesture.
  * @param {any} row
+ * @param {'asked'|'allowed'} to
  * @param {any} state
  * @param {boolean} [reshow]  Shift was held: show the dialog even when waived
  */
-function confirmTurnOn(row, state, reshow = false) {
+function confirmWiden(row, to, state, reshow = false) {
   const kind = kindAttr(row);
-  const skippable = confirmSkippable('writes-on', kind);
-  const keyBase = confirmSkipKeyBase('writes-on', row);
-  if (skippable && !reshow && confirmSkipped(keyBase)) {
-    void setSwitch(row.target, 'on', state, undefined, true);
+  const keyBase =
+    to === 'asked' && confirmSkippable('writes-asked', kind)
+      ? confirmSkipKeyBase('writes-asked', row)
+      : null;
+  if (keyBase && !reshow && confirmSkipped(keyBase)) {
+    void setSwitch(row.target, to, state, undefined, true);
     return;
   }
   showConfirm({
-    ...turnOnConfirm(row, kind),
-    skipKeyBase: skippable ? keyBase : null,
-    onConfirm: (ui) => void setSwitch(row.target, 'on', state, ui),
+    ...turnOnConfirm(row, kind, to),
+    skipKeyBase: keyBase,
+    onConfirm: (ui) => void setSwitch(row.target, to, state, ui),
     onDismiss: releaseParkedSwitch,
   });
   // After showConfirm: its stale-dialog sweep dismisses (and releases) any
-  // previous confirm first. The render is what parks the switch beneath the
+  // previous confirm first. The render is what marks the option beneath the
   // dialog.
-  confirmingTarget = row.target;
+  confirmingMove = { target: row.target, position: to };
   render();
 }
 

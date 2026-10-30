@@ -20,9 +20,13 @@
  *    `#main`'s layout and reflows what it finds there; the chip needs a host
  *    that is stable across its own re-renders. Both are asserted below.
  * 3. **The bar drifts from the chip.** A popped-out Lab page must say what the
- *    header chip says and do what it does: the kind and state words, the
- *    turn-on confirm and its sentence, the stamped-retry rule, the
+ *    header chip says and do what it does: the kind and the three state
+ *    words (off, asked, allowed), the three-option control, the widening
+ *    confirm and its sentence, all-off, the stamped-retry rule, the
  *    stop-not-taken sentence, and C-POST's body with `session_id: null`.
+ * 4. **The sheet keeps a louder `allowed`.** The bar ships no style of its
+ *    own; `terminal.css` is pinned here to carry a distinct
+ *    `[data-state="allowed"]` treatment and no two-position toggle.
  *
  * Seams: `fetch` is stubbed the way the chip's own suite stubs it, and
  * `EventSource` is stubbed as a class rather than injected — the real
@@ -101,10 +105,24 @@ const { STOP_NOT_TAKEN_SENTENCE, TURN_ON_SENTENCE } = await import(FACTS);
 // JSON number would round away.
 const EPOCH = '1793181592449148123';
 
-/** C-GET's columns for a switch that is on, and one that is off. */
-const ON = { switch: 'on', write_allowed: true, write_reason: null, write_phrase: null };
+/** C-GET's columns for the three positions a switch can stand in. */
+const ASKED = {
+  switch: 'asked',
+  prompt: true,
+  write_allowed: true,
+  write_reason: null,
+  write_phrase: null,
+};
+const ALLOWED = {
+  switch: 'allowed',
+  prompt: false,
+  write_allowed: true,
+  write_reason: null,
+  write_phrase: null,
+};
 const OFF = {
   switch: 'off',
+  prompt: false,
   write_allowed: false,
   write_reason: 'switch_off',
   write_phrase: 'Writes are off; turn it on from the chip in the web terminal.',
@@ -113,7 +131,7 @@ const OFF = {
 /** @param {object} o */
 const rowOf = (o) => ({
   display_name: '',
-  ...ON,
+  ...ASKED,
   active: false,
   is_baseline: false,
   available_now: true,
@@ -169,8 +187,8 @@ const viewOf = (o = {}) => ({
   store_available: true,
   readonly_run: false,
   switch_epoch: EPOCH,
-  any_on: true,
-  locks: { readonly_run: false, tier: 'readwrite' },
+  any_armed: true,
+  locks: { readonly_run: false, tier: 'allowed' },
   execution_in_flight: [],
   last_switch: null,
   last_posture_realign: null,
@@ -280,6 +298,7 @@ describe('import closure', () => {
       'confirm-skip.js',
       'control-target-chip.js',
       'control-target-facts.js',
+      'control-target-popover-switch.js',
       'control-target-popover.js',
       'modal-overlay.js',
       'posture-confirm.js',
@@ -473,9 +492,19 @@ describe("the chip's words and gestures", () => {
       document.querySelector(`.ctc-row[data-target="${target}"]`)
     );
   };
-  /** @param {string} target */
-  const toggleEl = (target) =>
-    /** @type {HTMLButtonElement} */ (surfaceEl(target)?.querySelector('.ctc-toggle'));
+  /** One option of a surface's three-option writes control. @param {string} target @param {string} position */
+  const optionEl = (target, position) =>
+    /** @type {HTMLButtonElement} */ (
+      surfaceEl(target)?.querySelector(
+        `[role="radiogroup"] [role="radio"][data-position="${position}"]`
+      )
+    );
+  /** The positions that read checked, in order. @param {string} target */
+  const checked = (target) =>
+    [...(surfaceEl(target)?.querySelectorAll('[role="radio"][aria-checked="true"]') ?? [])].map(
+      (n) => /** @type {HTMLElement} */ (n).dataset.position
+    );
+  const allOffEl = () => /** @type {HTMLButtonElement} */ (document.querySelector('.ctc-all-off'));
   /** @param {string} target */
   const outcomes = (target) =>
     [...(surfaceEl(target)?.querySelectorAll('.ctc-outcome') ?? [])].map((n) => n.textContent);
@@ -502,25 +531,54 @@ describe("the chip's words and gestures", () => {
     await flush();
   }
 
-  test('the chip says the kind and the state in the hub’s words', () => {
+  test.each([
+    ['asked', ASKED],
+    ['allowed', ALLOWED],
+    ['off', OFF],
+  ])('the chip says the kind and writes %s in the hub’s words', async (word, columns) => {
+    await rebootOn(
+      viewOf({
+        any_armed: word !== 'off',
+        targets: [rowOf({ ...STANDIN, ...columns }), rowOf(LIVE)],
+      })
+    );
     expect(document.querySelector('.ctc-short')?.textContent).toBe('Rehearsal');
-    expect(document.querySelector('.ctc-state')?.textContent).toBe('writes on');
+    expect(document.querySelector('.ctc-state')?.textContent).toBe(`writes ${word}`);
     expect(chipBtn().dataset.targetKind).toBe('rehearsal');
-    expect(chipBtn().dataset.state).toBe('on');
+    expect(chipBtn().dataset.state).toBe(word);
   });
 
-  test('a machine the stop reached reads writes off', async () => {
+  test('a stored allowed the tier holds at asked reads writes asked', async () => {
     await rebootOn(
-      viewOf({ any_on: false, targets: [rowOf({ ...STANDIN, ...OFF }), rowOf(LIVE)] })
+      viewOf({ targets: [rowOf({ ...STANDIN, ...ALLOWED, prompt: true }), rowOf(LIVE)] })
     );
-    expect(document.querySelector('.ctc-state')?.textContent).toBe('writes off');
-    expect(chipBtn().dataset.state).toBe('off');
+    expect(document.querySelector('.ctc-state')?.textContent).toBe('writes asked');
+    expect(chipBtn().dataset.state).toBe('asked');
+  });
+
+  test('the popover offers the same three-position control, the stored one checked', async () => {
+    await rebootOn(viewOf({ targets: [rowOf(STANDIN), rowOf({ ...LIVE, ...ALLOWED })] }));
+    await openPopover();
+
+    for (const target of ['standin', 'live']) {
+      const options = surfaceEl(target)?.querySelectorAll('[role="radiogroup"] [role="radio"]');
+      expect(
+        [...(options ?? [])].map((n) => /** @type {HTMLElement} */ (n).dataset.position)
+      ).toEqual(['off', 'asked', 'allowed']);
+    }
+    expect(checked('standin')).toEqual(['asked']);
+    expect(checked('live')).toEqual(['allowed']);
+    expect(surfaceEl('live')?.querySelector('.ctc-switchwrap')?.getAttribute('data-state')).toBe(
+      'allowed'
+    );
+    // No two-position toggle survives on this page either.
+    expect(document.querySelector('.ctc-toggle')).toBeNull();
   });
 
   test('turning writes off posts C-POST to the hub with session_id null, and asks nothing', async () => {
     await openPopover();
     postAnswers.push({ ok: true, body: { target: 'standin', state: 'off', switch_epoch: EPOCH } });
-    toggleEl('standin').click();
+    optionEl('standin', 'off').click();
     await flush();
 
     expect(confirmEl()).toBeNull();
@@ -531,17 +589,18 @@ describe("the chip's words and gestures", () => {
       target: 'standin',
       state: 'off',
       epoch: EPOCH,
+      waived: false,
     });
   });
 
-  test('turning the real machine on asks first, in the hub’s words, then posts', async () => {
+  test('setting the real machine to asked asks first, in the hub’s words, then posts', async () => {
     await openPopover();
-    toggleEl('live').click();
+    optionEl('live', 'asked').click();
     await flush();
 
     expect(posts()).toHaveLength(0);
     expect(confirmEl()?.querySelector('.posture-modal-title')?.textContent).toBe(
-      'Turn writes on for Real machine?'
+      'Set writes to asked on Real machine?'
     );
     expect(confirmEl()?.querySelector('.posture-modal-live')?.textContent).toBe(
       'Real machine — writes move hardware'
@@ -549,24 +608,92 @@ describe("the chip's words and gestures", () => {
     expect(confirmEl()?.querySelector('.posture-modal-body')?.textContent).toContain(
       TURN_ON_SENTENCE
     );
-    expect(confirmBtn().textContent).toBe('Turn writes on');
+    expect(confirmBtn().textContent).toBe('Set writes to asked');
 
-    postAnswers.push({ ok: true, body: { target: 'live', state: 'on', switch_epoch: EPOCH } });
+    postAnswers.push({ ok: true, body: { target: 'live', state: 'asked', switch_epoch: EPOCH } });
     confirmBtn().click();
     await flush();
 
     expect(posts()[0].body).toEqual({
       session_id: null,
       target: 'live',
-      state: 'on',
+      state: 'asked',
       epoch: EPOCH,
+      waived: false,
     });
     expect(confirmEl()).toBeNull();
   });
 
+  test('setting the real machine to allowed asks first, then posts allowed', async () => {
+    await openPopover();
+    optionEl('live', 'allowed').click();
+    await flush();
+
+    expect(posts()).toHaveLength(0);
+    expect(confirmEl()?.querySelector('.posture-modal-title')?.textContent).toBe(
+      'Set writes to allowed on Real machine?'
+    );
+    expect(confirmBtn().textContent).toBe('Set writes to allowed');
+
+    postAnswers.push({ ok: true, body: { target: 'live', state: 'allowed', switch_epoch: EPOCH } });
+    confirmBtn().click();
+    await flush();
+
+    expect(posts()[0].body).toEqual({
+      session_id: null,
+      target: 'live',
+      state: 'allowed',
+      epoch: EPOCH,
+      waived: false,
+    });
+  });
+
+  test('narrowing allowed to asked posts at once', async () => {
+    await rebootOn(viewOf({ targets: [rowOf(STANDIN), rowOf({ ...LIVE, ...ALLOWED })] }));
+    await openPopover();
+    optionEl('live', 'asked').click();
+    await flush();
+
+    expect(confirmEl()).toBeNull();
+    expect(posts()[0].body).toEqual({
+      session_id: null,
+      target: 'live',
+      state: 'asked',
+      epoch: EPOCH,
+      waived: false,
+    });
+  });
+
+  test('turn all writes off posts all/off from the bar, and asks nothing', async () => {
+    await openPopover();
+    expect(allOffEl().disabled).toBe(false);
+    postAnswers.push({ ok: true, body: { target: 'all', state: 'off', switch_epoch: EPOCH } });
+    allOffEl().click();
+    await flush();
+
+    expect(confirmEl()).toBeNull();
+    expect(posts()).toHaveLength(1);
+    expect(posts()[0].url).toBe('/api/terminal/posture');
+    expect(posts()[0].body).toEqual({
+      session_id: null,
+      target: 'all',
+      state: 'off',
+      epoch: EPOCH,
+      waived: false,
+    });
+  });
+
+  test('all-off is disabled when the read says nothing is armed', async () => {
+    await rebootOn(
+      viewOf({ any_armed: false, targets: [rowOf({ ...STANDIN, ...OFF }), rowOf(LIVE)] })
+    );
+    await openPopover();
+    expect(allOffEl().disabled).toBe(true);
+  });
+
   test('a stamped 409 is retried once, with the epoch it returned', async () => {
     await openPopover();
-    toggleEl('live').click();
+    optionEl('live', 'asked').click();
     await flush();
     postAnswers.push(
       {
@@ -585,8 +712,8 @@ describe("the chip's words and gestures", () => {
     await flush();
 
     expect(posts().map((p) => p.body)).toEqual([
-      { session_id: null, target: 'live', state: 'on', epoch: EPOCH },
-      { session_id: null, target: 'live', state: 'on', epoch: '12' },
+      { session_id: null, target: 'live', state: 'asked', epoch: EPOCH, waived: false },
+      { session_id: null, target: 'live', state: 'asked', epoch: '12', waived: false },
     ]);
   });
 
@@ -597,27 +724,76 @@ describe("the chip's words and gestures", () => {
       status: 503,
       body: { detail: { reason: 'not_taken', taken: false, phrase: STOP_NOT_TAKEN_SENTENCE } },
     });
-    toggleEl('standin').click();
+    optionEl('standin', 'off').click();
     await flush();
 
     expect(outcomes('standin')).toContain(`✗ ${STOP_NOT_TAKEN_SENTENCE}`);
   });
 
-  test('a waived turn-on applies directly and says the turn-on sentence in the status line', async () => {
-    localStorage.setItem('osprey-ctc-skip-confirm:writes-on:standin:rehearsal', '1');
-    await rebootOn(viewOf({ targets: [rowOf({ ...STANDIN, ...OFF }), rowOf(LIVE)] }));
+  test('a waived move to asked applies directly and says the turn-on sentence in the status line', async () => {
+    localStorage.setItem('osprey-ctc-skip-confirm:writes-asked:standin:rehearsal', '1');
+    await rebootOn(
+      viewOf({ any_armed: false, targets: [rowOf({ ...STANDIN, ...OFF }), rowOf(LIVE)] })
+    );
     await openPopover();
-    postAnswers.push({ ok: true, body: { target: 'standin', state: 'on', switch_epoch: EPOCH } });
-    toggleEl('standin').click();
+    postAnswers.push({
+      ok: true,
+      body: { target: 'standin', state: 'asked', switch_epoch: EPOCH },
+    });
+    optionEl('standin', 'asked').click();
     await flush();
 
     expect(confirmEl()).toBeNull();
     expect(posts()[0].body).toEqual({
       session_id: null,
       target: 'standin',
-      state: 'on',
+      state: 'asked',
       epoch: EPOCH,
+      waived: true,
     });
     expect(statusEl()?.textContent).toBe(TURN_ON_SENTENCE);
+  });
+});
+
+/* ---- the sheet the bar links ---------------------------------------------- */
+
+describe('terminal.css', () => {
+  const CSS = readFileSync(
+    join(
+      import.meta.dirname,
+      '../../../src/osprey/interfaces/web_terminal/static/css/terminal.css'
+    ),
+    'utf8'
+  ).replace(/\/\*[\s\S]*?\*\//g, '');
+
+  /** Every selector list the sheet declares, one string per rule. */
+  const selectors = () => [...CSS.matchAll(/([^{}]+)\{[^{}]*\}/g)].map((m) => m[1].trim());
+
+  test('carries a distinct allowed treatment, louder on the real machine', () => {
+    const allowed = selectors().filter((sel) => sel.includes('[data-state="allowed"]'));
+    expect(allowed.length).toBeGreaterThan(0);
+    // The loudest cell: the real machine at allowed, on the chip itself.
+    expect(
+      allowed.some(
+        (sel) =>
+          sel.includes('.control-target-chip') &&
+          sel.includes('[data-target-kind="real"]') &&
+          !sel.includes('[data-state="asked"]')
+      )
+    ).toBe(true);
+    // Asked has its own rules too, so the two never collapse into one look.
+    expect(selectors().some((sel) => sel.includes('[data-state="asked"]'))).toBe(true);
+  });
+
+  test('styles the three-option control, and no two-position toggle or on-state remains', () => {
+    const all = selectors().join('\n');
+    expect(all).toContain('.ctc-positions');
+    expect(all).toMatch(/\.ctc-position\[aria-checked="true"\]/);
+    expect(all).toMatch(/\.ctc-position:focus-visible/);
+    expect(all).toMatch(/\.ctc-position\[data-pending="true"\]/);
+    expect(all).toMatch(/\.ctc-position:disabled/);
+    expect(all).toContain('.ctc-all-off');
+    expect(all).not.toContain('.ctc-toggle');
+    expect(all).not.toContain('[data-state="on"]');
   });
 });

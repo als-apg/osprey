@@ -36,10 +36,11 @@
  *
  * What it deliberately does NOT do: position itself relative to any JupyterLab
  * element, take focus, bind a key, or add a word of its own copy. The chip is
- * the whole surface — its words (the machine's kind, `writes on`/`off`/
- * `locked`, the turn-on sentence) and its gestures (turning writes off at
- * once, turning them on through the confirm, the one stamped retry, the
- * stop-not-taken sentence) are the hub's, from `control-target-chip.js`,
+ * the whole surface — its words (the machine's kind, `writes off`/`asked`/
+ * `allowed`/`locked`, the turn-on sentence) and its gestures (the three-option
+ * off/asked/allowed control, narrowing at once, widening through the confirm,
+ * turning all writes off, the one stamped retry, the stop-not-taken sentence)
+ * are the hub's, from `control-target-chip.js`,
  * `control-target-popover.js` and `control-target-facts.js`. Every switch
  * posts C-POST with the `session_id` the read echoed, which on this page is
  * `null`: the Lab page reads without a session, as any page does.

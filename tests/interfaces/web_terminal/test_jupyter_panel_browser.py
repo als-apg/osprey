@@ -911,7 +911,7 @@ _PAYLOAD = (
     ".then((r) => r.json())"
     f".then((s) => fetch('{_PROBE_URL}', {{method: 'POST', credentials: 'include',"
     " headers: {'Content-Type': 'application/json'},"
-    f" body: JSON.stringify({{target: '{POSTURE_TARGET}', state: 'on',"
+    f" body: JSON.stringify({{target: '{POSTURE_TARGET}', state: 'asked',"
     " epoch: s.switch_epoch})}));"
 )
 
@@ -982,7 +982,7 @@ def _violations(page: Page) -> list[dict]:
 
 
 def _switch_of(target: str) -> str | None:
-    """The record's writes switch for *target*: ``"on"``, or ``None`` for off."""
+    """The record's writes switch for *target*: its armed position, or ``None`` for off."""
     record = read_record()
     assert record is not None, "the deployment has no control-context record"
     return dict(record.switch or {}).get(target)
@@ -1114,7 +1114,7 @@ def test_agent_script_in_an_output_makes_no_request_and_the_switch_stays_off(
             # The control: the same payload, from outside the policy, is a
             # working credentialed write.
             page.evaluate(f"() => {{ {_PAYLOAD.replace('PROBE', 'control')} }}")
-            _wait_for_switch(page, POSTURE_TARGET, "on")
+            _wait_for_switch(page, POSTURE_TARGET, "asked")
             control = f"{base_url}/api/terminal/posture?probe=control"
             assert [(m, url) for m, url in sent if "probe=" in url] == [
                 ("GET", control),
@@ -1175,14 +1175,17 @@ def test_the_renderers_an_operator_relies_on_survive_the_policy(
 def test_the_lab_bar_mounts_on_a_popped_out_page_and_flips_a_switch(
     tmp_path, monkeypatch, chromium_browser
 ):
-    """Behind the per-user prefix, the bar mounts and its switch writes the record.
+    """Behind the per-user prefix, the bar mounts and its off→asked lands everywhere.
 
     The popped-out page is its own window, so the injected module mounts the
-    bar. The switch is flipped on through the confirm a fresh browser always
-    shows, then off again, which applies at once; both land in the record. The
-    gestures post to the PREFIXED route — the stand-in passes a bare path
-    through untouched, so a chip that forgot the prefix would still reach the
-    app, and only the request URL can tell.
+    bar. The machine the deployment stands on is moved off→asked from the
+    bar's card, through the confirm a fresh browser always shows; the move
+    lands in the record, the bar's chip reads ``writes asked``, and the hub's
+    own chip — another page, reading the same record — reads the same word.
+    Then off again, which applies at once. The gestures post to the PREFIXED
+    route — the stand-in passes a bare path through untouched, so a chip that
+    forgot the prefix would still reach the app, and only the request URL can
+    tell.
     """
     with _control_target_lab(tmp_path, monkeypatch, terminal_user=_USER) as (
         base_url,
@@ -1195,6 +1198,7 @@ def test_the_lab_bar_mounts_on_a_popped_out_page_and_flips_a_switch(
             "request",
             lambda request: posts.append(request.url) if request.method == "POST" else None,
         )
+        hub = None
         try:
             expect(page.locator(f'script[src$="{_LAB_BAR_MODULE}"]')).to_have_attribute(
                 "src", f"{_PREFIX}/panel/jupyter/terminal-static/js/{_LAB_BAR_MODULE}"
@@ -1203,25 +1207,45 @@ def test_the_lab_bar_mounts_on_a_popped_out_page_and_flips_a_switch(
             expect(page.locator(_LAB_CHIP)).to_have_attribute(
                 "data-enforceable", "true", timeout=TIMEOUT
             )
+            expect(page.locator(f"{_LAB_CHIP} .ctc-state")).to_have_text(
+                "writes off", timeout=TIMEOUT
+            )
 
             page.locator(_LAB_CHIP).click()
             expect(page.locator(POPOVER)).to_be_visible(timeout=TIMEOUT)
-            toggle = page.locator(f'{POPOVER} .ctc-row[data-target="{POSTURE_TARGET}"] .ctc-toggle')
-            expect(toggle).to_have_attribute("aria-checked", "false", timeout=TIMEOUT)
+            machine = f'{POPOVER} .ctc-card[data-target="{ACTIVE_TARGET}"]'
+            asked = page.locator(f'{machine} .ctc-position[data-position="asked"]')
+            off = page.locator(f'{machine} .ctc-position[data-position="off"]')
+            expect(off).to_have_attribute("aria-checked", "true", timeout=TIMEOUT)
 
-            toggle.click()
-            expect(page.locator(MODAL_CONFIRM)).to_be_visible(timeout=TIMEOUT)
+            asked.click()
+            expect(page.locator(MODAL_TITLE)).to_have_text(
+                f"Set writes to asked on {NAMES[ACTIVE_TARGET]}?", timeout=TIMEOUT
+            )
             page.locator(MODAL_CONFIRM).click()
             expect(page.locator(OPEN_MODAL)).to_have_count(0, timeout=TIMEOUT)
-            expect(toggle).to_have_attribute("aria-checked", "true", timeout=TIMEOUT)
-            _wait_for_switch(page, POSTURE_TARGET, "on")
+            expect(asked).to_have_attribute("aria-checked", "true", timeout=TIMEOUT)
+            expect(page.locator(machine)).to_have_attribute("data-state", "asked", timeout=TIMEOUT)
+            _wait_for_switch(page, ACTIVE_TARGET, "asked")
+            expect(page.locator(f"{_LAB_CHIP} .ctc-state")).to_have_text(
+                "writes asked", timeout=TIMEOUT
+            )
 
-            toggle.click()
-            expect(toggle).to_have_attribute("aria-checked", "false", timeout=TIMEOUT)
-            _wait_for_switch(page, POSTURE_TARGET, None)
+            # The hub's own chip, on its own page, reads the same word.
+            hub = chromium_browser.new_page()
+            hub.goto(base_url, wait_until="domcontentloaded")
+            expect(hub.locator(CHIP)).to_be_visible(timeout=TIMEOUT)
+            expect(hub.locator(CHIP)).to_have_attribute("data-state", "asked", timeout=TIMEOUT)
+            expect(hub.locator(f"{CHIP} .ctc-state")).to_have_text("writes asked", timeout=TIMEOUT)
+
+            off.click()
+            expect(off).to_have_attribute("aria-checked", "true", timeout=TIMEOUT)
+            _wait_for_switch(page, ACTIVE_TARGET, None)
 
             switch_posts = [url for url in posts if url.endswith("/api/terminal/posture")]
             assert switch_posts == [f"{base_url}/api/terminal/posture"] * 2, posts
             assert _violations(page) == []
         finally:
+            if hub is not None:
+                hub.close()
             page.close()
