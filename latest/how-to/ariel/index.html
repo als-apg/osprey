@@ -579,9 +579,12 @@ ollama<span class="w"> </span>pull<span class="w"> </span>nomic-embed-text
 </div>
 </div>
 </div>
-<p class="sd-card-text">Ollama is optional. ARIEL degrades gracefully to keyword-only search
-if Ollama or pgvector is unavailable. You can install them later and
-re-run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">quickstart</span></code> to enable semantic search.</p>
+<p class="sd-card-text">Ollama is optional. Without it, semantic queries return a diagnostic
+and keyword search keeps answering. Semantic search also needs its
+embedding table, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">quickstart</span></code> creates (it needs the
+pgvector extension, which the deployed PostgreSQL image includes). A
+semantic search configured with no table is refused, and the refusal
+names this command.</p>
 </li>
 <li><p class="sd-card-text"><strong>(Optional) Picture captions</strong> — a local vision model, also served by
 Ollama:</p>

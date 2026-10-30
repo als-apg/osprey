@@ -531,8 +531,40 @@ for the ones that answered and names the unknown address under <code class="docu
 (see <a class="reference internal" href="partial-answers.html"><span class="doc">Partial Answers</span></a>); a batch write reports the unknown address as its
 <code class="docutils literal notranslate"><span class="pre">refused</span></code> row beside the rows that were written.</p>
 <p>A Channel Access connector cannot tell an unknown name from an unreachable one
-– a search that finds nothing times out – so it reports a connection error
-for both.</p>
+– a search that finds nothing times out – so it reports
+<code class="docutils literal notranslate"><span class="pre">ChannelUnreachableError</span></code> for both.</p>
+</section>
+<section id="connection-failures">
+<h2>Connection Failures<a class="headerlink" href="#connection-failures" title="Link to this heading">#</a></h2>
+<p>A connector separates a failure about one channel from the loss of the
+connector itself, and the supervisor that owns the connector’s lifetime acts
+on the difference:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">ChannelUnreachableError</span></code> – one channel could not be reached, or did not
+answer in time. It names the channel under <code class="docutils literal notranslate"><span class="pre">channel_address</span></code> and is no
+<code class="docutils literal notranslate"><span class="pre">ConnectionError</span></code>: the connector keeps serving every other channel, and
+nothing is restarted. The controls tools report it as error type
+<code class="docutils literal notranslate"><span class="pre">channel_unreachable</span></code>, naming the channel under <code class="docutils literal notranslate"><span class="pre">details.channel</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ConnectorUnavailableError</span></code> – the connector’s own transport is gone: its
+context, its service or its connector-host child. It is a
+<code class="docutils literal notranslate"><span class="pre">ConnectionError</span></code>. Its supervisor replaces the connector once per
+instance or child, however many calls saw it fail, and attaches what it did
+as the error’s <code class="docutils literal notranslate"><span class="pre">recovery</span></code>. A bare <code class="docutils literal notranslate"><span class="pre">ConnectionError</span></code> from a connector that
+does not say which is treated the same way.</p></li>
+</ul>
+<p>A child that misses a call’s deadline is pinged: one that answers is kept, one
+that does not is replaced. The controls tools report a lost connector as
+<code class="docutils literal notranslate"><span class="pre">connection_error</span></code> and a missed deadline as <code class="docutils literal notranslate"><span class="pre">timeout_error</span></code>, with the
+supervisor’s records under <code class="docutils literal notranslate"><span class="pre">details.recovery</span></code> (see <a class="reference internal" href="partial-answers.html"><span class="doc">Partial Answers</span></a>).
+A call that finds the connector-host child already dead is refused, the
+refusal names the fresh child the supervisor started on the same target, and
+the next call is served by it.</p>
+<p>Every failure about one channel – an unreachable or unknown channel, a
+refused, failed or limits-violating write – is a <code class="docutils literal notranslate"><span class="pre">ChannelError</span></code> whose
+<code class="docutils literal notranslate"><span class="pre">channel_address</span></code> names the channel, in process or across the connector
+host. The registry that carries failures across the host is derived from
+<code class="docutils literal notranslate"><span class="pre">osprey_connectors.errors</span></code>: each public class there crosses as itself, and a
+connector’s own subclass crosses as the nearest public class it extends.</p>
 </section>
 <section id="write-confirmation">
 <h2>Write Confirmation<a class="headerlink" href="#write-confirmation" title="Link to this heading">#</a></h2>
@@ -598,7 +630,9 @@ there to be shown, not parsed.</p>
 <code class="docutils literal notranslate"><span class="pre">unconfirmed</span></code>; the mismatch message names both the value sent and the value
 observed. The <code class="docutils literal notranslate"><span class="pre">channel_write</span></code> MCP tool reports the outcome for every channel
 instead of raising, so the agent can describe a batch in which some channels
-took the value and others did not.</p>
+took the value and others did not. A call where no value reached any channel is
+refused, with the same rows under <code class="docutils literal notranslate"><span class="pre">details.results</span></code> (see
+<a class="reference internal" href="partial-answers.html"><span class="doc">Partial Answers</span></a>).</p>
 <section id="switching-confirmation-off">
 <h3>Switching confirmation off<a class="headerlink" href="#switching-confirmation-off" title="Link to this heading">#</a></h3>
 <p><code class="docutils literal notranslate"><span class="pre">confirm</span></code> is a per-channel boolean in the limits database, sitting beside
@@ -1039,6 +1073,7 @@ relabeled – to your backend’s UTC wire format; <code class="docutils literal
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#reading-large-values">Reading Large Values</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#addresses-outside-the-facility">Addresses Outside the Facility</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#connection-failures">Connection Failures</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-confirmation">Write Confirmation</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#switching-confirmation-off">Switching confirmation off</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-values-are-compared">How values are compared</a></li>

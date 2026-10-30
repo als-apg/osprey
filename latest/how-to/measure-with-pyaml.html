@@ -600,8 +600,9 @@ measurement.</p>
 <ul class="simple">
 <li><p>a second read-write run on the target is refused while it runs;</p></li>
 <li><p>a measurement that stops part-way, fails or is interrupted leaves each
-setpoint where it stopped, and its result’s <code class="docutils literal notranslate"><span class="pre">moved</span></code> lists each one with its
-value before the call; report them to the operator;</p></li>
+setpoint where it stopped, and its result’s <code class="docutils literal notranslate"><span class="pre">moved</span></code> lists each setpoint
+whose write may have gone out, an unknown outcome included, with its value
+before the call; report them to the operator;</p></li>
 <li><p>a measurement that reaches the execution timeout is killed like any other
 run, with no early stop; its failure lists only the channels it attempted;</p></li>
 <li><p>a pyAML write from <code class="docutils literal notranslate"><span class="pre">execute</span></code> is refused; measurements go through

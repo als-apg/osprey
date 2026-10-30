@@ -539,8 +539,9 @@ than a status field it might overlook.</p>
 facility file states for it: its <code class="docutils literal notranslate"><span class="pre">tolerance</span></code>, else on the simulator its
 readback’s motion band. A setpoint with neither is not waited on. A readback
 that is not inside its bound within 5 seconds raises <code class="docutils literal notranslate"><span class="pre">SettleTimeoutError</span></code>,
-and the run fails. A readback that cannot be read, or answers no value, raises
-<code class="docutils literal notranslate"><span class="pre">SettleReadError</span></code>, which names it, and the run fails.</p>
+and the run fails. A readback that cannot be reached, is not a channel, or
+times out raises <code class="docutils literal notranslate"><span class="pre">SettleReadError</span></code>, which names it, as does one that answers
+no value, and the run fails; a lost connector raises its own error.</p>
 </section>
 <section id="measurement-tools">
 <span id="executor-measurement-tools"></span><h2>Measurement Tools<a class="headerlink" href="#measurement-tools" title="Link to this heading">#</a></h2>
@@ -624,12 +625,14 @@ saved is the one the run left in its own execution folder under the script’s
 fixed name; a run that names any other file saves nothing, answers
 <code class="docutils literal notranslate"><span class="pre">data_file</span></code> as <code class="docutils literal notranslate"><span class="pre">null</span></code> and says why in <code class="docutils literal notranslate"><span class="pre">data_file_refused</span></code>. Every result
 carries <code class="docutils literal notranslate"><span class="pre">moved</span></code>, each setpoint the call moved as <code class="docutils literal notranslate"><span class="pre">{address,</span> <span class="pre">device,</span> <span class="pre">before}</span></code>
-with its value before the call; a stopped run also carries its <code class="docutils literal notranslate"><span class="pre">remainder</span></code>
-and, when an error stopped it, <code class="docutils literal notranslate"><span class="pre">error</span></code>; a killed run’s failure names
-<code class="docutils literal notranslate"><span class="pre">written_channels</span></code>. A refusal means no
-setpoint moved; a completed run whose result cannot be read answers
-<code class="docutils literal notranslate"><span class="pre">execution_error</span></code> with the saved measurement named in <code class="docutils literal notranslate"><span class="pre">details.data_file</span></code>,
-never a refusal.</p>
+with its value before the call, and <code class="docutils literal notranslate"><span class="pre">missing</span></code>: <code class="docutils literal notranslate"><span class="pre">{}</span></code> for a completed run;
+for a stopped run each setpoint address not measured, or the kind when none is
+left, mapped to the first line of what stopped the run, or <code class="docutils literal notranslate"><span class="pre">null</span></code> when
+nothing raised (see
+<a class="reference internal" href="partial-answers.html"><span class="doc">Partial Answers</span></a>); a killed run’s failure names <code class="docutils literal notranslate"><span class="pre">written_channels</span></code>. A
+refusal means no setpoint moved; a completed run whose result cannot be read
+answers <code class="docutils literal notranslate"><span class="pre">execution_error</span></code> with the saved measurement named in
+<code class="docutils literal notranslate"><span class="pre">details.data_file</span></code>, never a refusal.</p>
 </section>
 <section id="model-response-matrix">
 <h3><code class="docutils literal notranslate"><span class="pre">model_response_matrix</span></code><a class="headerlink" href="#model-response-matrix" title="Link to this heading">#</a></h3>
@@ -667,12 +670,15 @@ converted to the corrector’s hardware unit through its wiring calibration; a
 model whose measurement file states none is refused. Each entry is a readback
 change in its hardware unit per setpoint change in its own. The result carries
 <code class="docutils literal notranslate"><span class="pre">rows</span></code> and <code class="docutils literal notranslate"><span class="pre">columns</span></code>, each named by address and device id, each column’s
-<code class="docutils literal notranslate"><span class="pre">step</span></code>, the <code class="docutils literal notranslate"><span class="pre">matrix</span></code> and <code class="docutils literal notranslate"><span class="pre">unsolved</span></code>. A corrector whose step has no solve
-has no column; <code class="docutils literal notranslate"><span class="pre">unsolved</span></code> maps it to the engine’s text. When no corrector
-solves, the call is refused as an <code class="docutils literal notranslate"><span class="pre">execution_error</span></code> with every unsolved text,
-and <code class="docutils literal notranslate"><span class="pre">details.unsolved</span></code> holds the same map as the result’s <code class="docutils literal notranslate"><span class="pre">unsolved</span></code>. When
-the engine refuses the request itself, the call is refused as a
-<code class="docutils literal notranslate"><span class="pre">validation_error</span></code> with the engine’s text.</p>
+<code class="docutils literal notranslate"><span class="pre">step</span></code>, the <code class="docutils literal notranslate"><span class="pre">matrix</span></code> and <code class="docutils literal notranslate"><span class="pre">missing</span></code>. A corrector whose step has no solve
+has no column; <code class="docutils literal notranslate"><span class="pre">missing</span></code> maps it to the engine’s text. When no corrector
+solves, the call is refused as <code class="docutils literal notranslate"><span class="pre">nothing_answered</span></code> with <code class="docutils literal notranslate"><span class="pre">details.missing</span></code>
+holding the same map (see <a class="reference internal" href="partial-answers.html"><span class="doc">Partial Answers</span></a>). When the engine refuses the
+request itself, the call is refused as a <code class="docutils literal notranslate"><span class="pre">validation_error</span></code> with the engine’s
+text; a defective facility file is refused the same way with the remedy to
+rebuild. When the whole request has no solve, the call fails as an
+<code class="docutils literal notranslate"><span class="pre">execution_error</span></code> with the engine’s text. Any other engine error is an
+<code class="docutils literal notranslate"><span class="pre">execution_error</span></code> carrying the solve’s stderr.</p>
 </section>
 </section>
 <section id="installation">

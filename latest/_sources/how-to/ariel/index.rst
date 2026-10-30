@@ -62,9 +62,12 @@ reasoning over results delegated to the OSPREY agent layer.
               ollama serve &            # Start Ollama in the background
               ollama pull nomic-embed-text
 
-     Ollama is optional. ARIEL degrades gracefully to keyword-only search
-     if Ollama or pgvector is unavailable. You can install them later and
-     re-run ``osprey ariel quickstart`` to enable semantic search.
+     Ollama is optional. Without it, semantic queries return a diagnostic
+     and keyword search keeps answering. Semantic search also needs its
+     embedding table, which ``osprey ariel quickstart`` creates (it needs the
+     pgvector extension, which the deployed PostgreSQL image includes). A
+     semantic search configured with no table is refused, and the refusal
+     names this command.
 
    - **(Optional) Picture captions** --- a local vision model, also served by
      Ollama:

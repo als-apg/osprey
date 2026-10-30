@@ -583,15 +583,16 @@ project image (tagged <code class="docutils literal notranslate"><span class="pr
 <section id="quickstart">
 <h2>Quickstart<a class="headerlink" href="#quickstart" title="Link to this heading">#</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w">                            </span><span class="c1"># renders the container repo too</span>
-<span class="nb">cd</span><span class="w"> </span>build/.image/my-project<span class="w">              </span><span class="c1"># the context the build rendered</span>
-docker<span class="w"> </span>build<span class="w"> </span>-t<span class="w"> </span>my-project<span class="w"> </span>-f<span class="w"> </span>build/Dockerfile<span class="w"> </span>.
-<span class="nb">cd</span><span class="w"> </span>-<span class="w">                                    </span><span class="c1"># back to the deployment repo root</span>
+docker<span class="w"> </span>build<span class="w"> </span>-t<span class="w"> </span>my-project<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-f<span class="w"> </span>build/.image/my-project/build/Dockerfile<span class="w"> </span>build/.image/my-project
 docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>-p<span class="w"> </span><span class="m">10100</span>:10100<span class="w"> </span>--env-file<span class="w"> </span>.env<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-v<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">/.env.agent-record.login.</span><span class="nv">$USER</span><span class="s2">:/app/my-project/.env.agent-record.login.</span><span class="nv">$USER</span><span class="s2">:ro&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-v<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">/.env.agent-record.service:/app/my-project/.env.agent-record.service:ro&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>my-project
 </pre></div>
 </div>
+<p>Every line runs at the deployment repo root; the build names the container repo
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> rendered (<code class="docutils literal notranslate"><span class="pre">build/.image/&lt;name&gt;/</span></code>) as its context.</p>
 <p>The terminal holds the agent record; like the provider key, its login and
 service file are supplied at run time and never enter the image. The build
 writes both readable by the building account alone (<code class="docutils literal notranslate"><span class="pre">$USER</span></code> above), so where
@@ -697,7 +698,8 @@ vendored assets for an air-gapped host:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>build<span class="w"> </span>-t<span class="w"> </span>my-project<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--build-arg<span class="w"> </span><span class="nv">OSPREY_PIP_SPEC</span><span class="o">=</span><span class="s2">&quot;git+https://git.example.gov/tools/osprey.git@main&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--build-arg<span class="w"> </span><span class="nv">PIP_NO_PROXY</span><span class="o">=</span><span class="s2">&quot;git.example.gov&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--build-arg<span class="w"> </span><span class="nv">OSPREY_OFFLINE</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>.
+<span class="w">  </span>--build-arg<span class="w"> </span><span class="nv">OSPREY_OFFLINE</span><span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-f<span class="w"> </span>build/.image/my-project/build/Dockerfile<span class="w"> </span>build/.image/my-project
 </pre></div>
 </div>
 <div class="admonition warning">
@@ -757,10 +759,9 @@ into each context and passes its staged name:</p>
 </pre></div>
 </div>
 <p>Building by hand, stage the copy yourself and name it:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>build/.image/my-project
-cp<span class="w"> </span>/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem<span class="w"> </span>site-ca.pem
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cp<span class="w"> </span>/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem<span class="w"> </span>build/.image/my-project/site-ca.pem
 docker<span class="w"> </span>build<span class="w"> </span>-t<span class="w"> </span>my-project<span class="w"> </span>--build-arg<span class="w"> </span><span class="nv">OSPREY_SITE_CA</span><span class="o">=</span>site-ca.pem<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-f<span class="w"> </span>build/Dockerfile<span class="w"> </span>.
+<span class="w">  </span>-f<span class="w"> </span>build/.image/my-project/build/Dockerfile<span class="w"> </span>build/.image/my-project
 </pre></div>
 </div>
 <p>That first path is where a RHEL-family build host keeps its system bundle
@@ -898,8 +899,8 @@ They are for whoever edits the repository, and the agent runs in <code class="do
 a root <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code> would be loaded into every session. The rest of the
 repository’s source travels, which is what lets the container’s drift check
 agree with the host.</p>
-<p>That is why the by-hand build below runs from <code class="docutils literal notranslate"><span class="pre">build/.image/&lt;name&gt;/</span></code> rather
-than from the repository root. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">--runtime-root</span> <span class="pre">PATH</span></code> is the same
+<p>That is why the by-hand build uses <code class="docutils literal notranslate"><span class="pre">build/.image/&lt;name&gt;/</span></code> as its context
+rather than the repository root. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">--runtime-root</span> <span class="pre">PATH</span></code> is the same
 mechanism exposed directly, for a render whose output will run somewhere other
 than where it was made.</p>
 </section>
@@ -1175,7 +1176,8 @@ of OSPREY’s dependency chain ship prebuilt wheels for <code class="docutils li
 so an arm64 build must compile them from source, which is where it breaks.
 Build (and run) the amd64 image under Docker Desktop’s emulation instead; it
 matches the usual amd64 deployment target:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>build<span class="w"> </span>--platform<span class="w"> </span>linux/amd64<span class="w"> </span>-t<span class="w"> </span>my-project<span class="w"> </span>.
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>build<span class="w"> </span>--platform<span class="w"> </span>linux/amd64<span class="w"> </span>-t<span class="w"> </span>my-project<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-f<span class="w"> </span>build/.image/my-project/build/Dockerfile<span class="w"> </span>build/.image/my-project
 docker<span class="w"> </span>run<span class="w"> </span>--platform<span class="w"> </span>linux/amd64<span class="w"> </span>--rm<span class="w"> </span>-p<span class="w"> </span><span class="m">10100</span>:10100<span class="w"> </span>--env-file<span class="w"> </span>.env<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-v<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">/.env.agent-record.login.</span><span class="nv">$USER</span><span class="s2">:/app/my-project/.env.agent-record.login.</span><span class="nv">$USER</span><span class="s2">:ro&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-v<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">/.env.agent-record.service:/app/my-project/.env.agent-record.service:ro&quot;</span><span class="w"> </span><span class="se">\</span>

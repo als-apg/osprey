@@ -147,6 +147,8 @@ Search modules are leaf-level functions that execute a single search strategy ag
 
       **Requirements:** Ollama (or another embedding provider) running with the configured model, embedding table populated via the ``text_embedding`` :ref:`enhancement module <Enhancement Pipeline>`, and the pgvector extension installed in PostgreSQL.
 
+      A configuration that enables semantic search on a database with no embedding table for its model is refused on every search, and the refusal names the command that creates the table; the MCP server, the web interface and ``osprey ariel status`` report it at start.
+
    .. tab-item:: hybrid (qmd sidecar)
 
       **Module:** ``search/qmd.py``
@@ -249,9 +251,10 @@ Modules may also export ``get_parameter_descriptors()`` to declare tunable param
 
 **What a module returns.** ``execute`` may return a plain list of entries, as it always could, or a ``ModuleOutput(entries, diagnostics, expansion)`` when it has something to report alongside them: ``diagnostics`` for the notices the caller should see (a truncated query, a skipped step), and ``expansion`` for the :ref:`vocabulary groups <vocabulary-expansion>` that actually reached the query it ran. A bare list stays valid and needs no change.
 
-**Opting into the shared query work.** Two descriptor fields, both off by default, let a module receive work the service has already done. Declare neither and the module is called with exactly the arguments it is called with today.
+**Opting into the shared query work.** Three descriptor fields, all off by default, let a module receive work the service has already done. Declare none and the module is called with exactly the arguments it is called with today.
 
 * ``accepts_expansion`` --- set it to ``True`` and the service passes ``query_expansion=`` when, and only when, expansion was resolved for that request. The module never sees the ``expand_query`` request argument itself: whether to expand is settled once, in the service.
+* ``needs_search_calls`` --- set it to ``True`` and the service passes its search-call pool as ``search_calls=``. A module that calls a provider at search time runs that call on the pool it receives, with ``await search_calls.run(fn, *args, timeout_s=...)``, and never builds a pool of its own. The service closes the pool when it stops.
 * ``query_parser`` --- an optional callable that takes the raw query string and returns a ``ParsedKeywordQuery`` (search text, field filters, phrases, pattern spans, diagnostics). The service calls it once and hands the result to the module as ``parsed=``. Keyword search declares its own ``parse_keyword_query`` here; a module that wants a different query language supplies its own parser, and one that wants none is never given ARIEL's.
 
 .. admonition:: Collaboration Welcome

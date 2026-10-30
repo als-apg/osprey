@@ -832,9 +832,10 @@ agent:</p>
 </div>
 <p><strong>Lifecycle:</strong> The singleton is created once per process. In the web
 interface, the <code class="docutils literal notranslate"><span class="pre">create_app()</span></code> factory manages its own service instance
-through the FastAPI lifespan. For cleanup in tests, use
-<code class="docutils literal notranslate"><span class="pre">close_ariel_service()</span></code> (closes the connection pool) or
-<code class="docutils literal notranslate"><span class="pre">reset_ariel_service()</span></code> (resets without closing).</p>
+through the FastAPI lifespan. The web lifespan, the MCP server’s shutdown and
+<code class="docutils literal notranslate"><span class="pre">close_ariel_service()</span></code> all end the service with <code class="docutils literal notranslate"><span class="pre">ARIELSearchService.aclose()</span></code>,
+which ends its search-call threads and closes its connection pools.
+<code class="docutils literal notranslate"><span class="pre">reset_ariel_service()</span></code> drops the singleton without closing it.</p>
 <p><strong>Source:</strong> <code class="file docutils literal notranslate"><span class="pre">src/osprey/services/ariel_search/capability.py</span></code></p>
 </section>
 <section id="capabilities-api">

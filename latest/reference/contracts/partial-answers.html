@@ -515,11 +515,21 @@ always present; <code class="docutils literal notranslate"><span class="pre">{}<
 <tr class="row-odd"><td><p>Every item tried, none answered</p></td>
 <td><p>An error whose <code class="docutils literal notranslate"><span class="pre">details.missing</span></code> holds the same map. When every item
 failed with the same error the controls server answers on its own –
-<code class="docutils literal notranslate"><span class="pre">not_found</span></code>, <code class="docutils literal notranslate"><span class="pre">timeout_error</span></code>, <code class="docutils literal notranslate"><span class="pre">connection_error</span></code> – that error is
-returned, with its own message and remedy and <code class="docutils literal notranslate"><span class="pre">details.missing</span></code>
-added. Otherwise the error type is <code class="docutils literal notranslate"><span class="pre">nothing_answered</span></code>.</p></td>
+<code class="docutils literal notranslate"><span class="pre">not_found</span></code>, <code class="docutils literal notranslate"><span class="pre">channel_unreachable</span></code>, <code class="docutils literal notranslate"><span class="pre">timeout_error</span></code>,
+<code class="docutils literal notranslate"><span class="pre">connection_error</span></code> – that error is returned, with its own message
+and remedy and <code class="docutils literal notranslate"><span class="pre">details.missing</span></code> added. Otherwise the error type is
+<code class="docutils literal notranslate"><span class="pre">nothing_answered</span></code>. When the supervisor that owns the connector
+dropped it, replaced its connector-host child, or kept a child that
+still answers, because of one of those failures, the error lists each
+action once under <code class="docutils literal notranslate"><span class="pre">details.recovery</span></code>, as an <code class="docutils literal notranslate"><span class="pre">action</span></code> word and its
+sentence, and repeats the sentence in the message. A
+<code class="docutils literal notranslate"><span class="pre">channel_unreachable</span></code> failure is that channel’s alone and carries no
+<code class="docutils literal notranslate"><span class="pre">details.recovery</span></code>. A write batch in which no value
+reached any channel is refused the same way, with its rows under
+<code class="docutils literal notranslate"><span class="pre">details.results</span></code>: as <code class="docutils literal notranslate"><span class="pre">write_refused</span></code> when every write was
+refused, and as <code class="docutils literal notranslate"><span class="pre">nothing_answered</span></code> when any was sent and not taken.</p></td>
 </tr>
-<tr class="row-even"><td><p>The request refused as a whole</p></td>
+<tr class="row-even"><td><p>A request refused before any item was tried</p></td>
 <td><p>The refusal’s own error type (<code class="docutils literal notranslate"><span class="pre">validation_error</span></code>, <code class="docutils literal notranslate"><span class="pre">write_refused</span></code>,
 …), with no map: nothing was tried, so nothing is missing.</p></td>
 </tr>
@@ -554,6 +564,14 @@ entry by entry.</p>
 <td><p>An entry id</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">null</span></code>: the logbook does not hold the id and gives no text</p></td>
 </tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">model_response_matrix</span></code></p></td>
+<td><p>A corrector setpoint address</p></td>
+<td><p>The engine’s text</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code></p></td>
+<td><p>A stepped setpoint address, or the measurement kind when none is left</p></td>
+<td><p>The first line of what stopped the run; <code class="docutils literal notranslate"><span class="pre">null</span></code> when nothing raised</p></td>
+</tr>
 </tbody>
 </table>
 </div>
@@ -563,8 +581,9 @@ entry by entry.</p>
 <dl class="simple">
 <dt><code class="docutils literal notranslate"><span class="pre">channel_write</span></code></dt><dd><p>A write answers with one row per channel, and each row’s <code class="docutils literal notranslate"><span class="pre">outcome</span></code> word
 says what happened to that write (see <a class="reference internal" href="connectors.html"><span class="doc">Connector Contracts</span></a>). A write’s map is
-its rows. It has no <code class="docutils literal notranslate"><span class="pre">missing</span></code> key: a written but unconfirmed channel was
-answered, and a second map would state the refused and failed rows twice.</p>
+its rows, and a refusal carries them under <code class="docutils literal notranslate"><span class="pre">details.results</span></code>. It has no
+<code class="docutils literal notranslate"><span class="pre">missing</span></code> key: a written but unconfirmed channel was answered, and a
+second map would state the refused and failed rows twice.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">archiver_read</span></code></dt><dd><p>A channel with no points in the requested window is answered, not missing:
 the data file has its column, and the <code class="docutils literal notranslate"><span class="pre">coverage</span></code> block says from the

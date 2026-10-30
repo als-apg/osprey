@@ -507,8 +507,10 @@ deployment, which is why none of them is a config key.</p>
 </thead>
 <tbody>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">CONTAINER_RUNTIME</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">docker</span></code> or <code class="docutils literal notranslate"><span class="pre">podman</span></code>, overriding the runtime recorded for this
-deployment for one invocation. See
+<td><p><code class="docutils literal notranslate"><span class="pre">docker</span></code> or <code class="docutils literal notranslate"><span class="pre">podman</span></code>: the runtime <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">restart</span></code>
+and the repository’s virtual-accelerator developer scripts start with.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">down</span></code>, <code class="docutils literal notranslate"><span class="pre">status</span></code>, <code class="docutils literal notranslate"><span class="pre">logs</span></code>, <code class="docutils literal notranslate"><span class="pre">reset</span></code> and the health checks
+use the runtime <code class="docutils literal notranslate"><span class="pre">var/deployment.json</span></code> recorded. See
 <a class="reference internal" href="../../how-to/deploy-project/index.html"><span class="doc">Container Deployment</span></a>.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_IMAGE_REGISTRY</span></code>, <code class="docutils literal notranslate"><span class="pre">OSPREY_IMAGE_TAG</span></code></p></td>

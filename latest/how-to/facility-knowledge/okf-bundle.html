@@ -564,6 +564,15 @@ ones:</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>See [<span class="nt">Personnel Safety System</span>](<span class="na">/subsystems/pss.md</span>) for the interlock hierarchy.
 </pre></div>
 </div>
+<p><strong>Facility links.</strong> A document names a channel or a device of the facility
+file with a <code class="docutils literal notranslate"><span class="pre">facility:</span></code> link to its address or device id. Wrap the whole
+destination in angle brackets when the address holds a space:</p>
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>Read [<span class="nt">the X position</span>](<span class="na">facility:SR:DIAG:BPM:01:POSITION:X</span>) of [<span class="nt">BPM 01</span>](<span class="na">facility:SR/BPM01</span>).
+Check [<span class="nt">the gauge</span>](<span class="na">&lt;facility:SECTOR 1 GAUGE&gt;</span>) first.
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> warns <code class="docutils literal notranslate"><span class="pre">link-dangling</span></code> for each link the facility file does not
+hold. The KNOWLEDGE panel shows the linked record when you hover over the link.</p>
 <p><strong>4. Validation levels.</strong> OKF distinguishes two strictness levels, so
 half-finished stubs and finished documents can coexist. <em>Consuming</em> validation
 requires only a <code class="docutils literal notranslate"><span class="pre">type</span></code> (a tolerant reader check); <em>authoring</em> validation also

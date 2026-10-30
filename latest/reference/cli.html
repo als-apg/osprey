@@ -594,9 +594,9 @@ previous release.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--up</span></code> / <code class="docutils literal notranslate"><span class="pre">-d,</span> <span class="pre">--detach</span></code> / <code class="docutils literal notranslate"><span class="pre">--dev</span></code> — Build and start the deployment right
 away, optionally in the background or in development mode.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>init<span class="w"> </span>--list-presets
-osprey<span class="w"> </span>init<span class="w"> </span>als-assistant<span class="w"> </span>--preset<span class="w"> </span>control-assistant
+osprey<span class="w"> </span>init<span class="w"> </span>my-assistant<span class="w"> </span>--preset<span class="w"> </span>control-assistant
 osprey<span class="w"> </span>init<span class="w"> </span>demo<span class="w"> </span>--preset<span class="w"> </span>control-assistant<span class="w"> </span>--up<span class="w"> </span>-d<span class="w"> </span>--dev
-osprey<span class="w"> </span>init<span class="w"> </span>als-assistant<span class="w"> </span>--revalidate
+osprey<span class="w"> </span>init<span class="w"> </span>my-assistant<span class="w"> </span>--revalidate
 </pre></div>
 </div>
 </section>
@@ -676,7 +676,7 @@ has moved on. A <code class="docutils literal notranslate"><span class="pre">pro
 is reported the same way — as a note, never a refusal.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>validate
 osprey<span class="w"> </span>validate<span class="w"> </span>tiers/readonly.yml
-osprey<span class="w"> </span>validate<span class="w"> </span>--repo<span class="w"> </span>~/als-assistant
+osprey<span class="w"> </span>validate<span class="w"> </span>--repo<span class="w"> </span>~/my-assistant
 </pre></div>
 </div>
 </section>
@@ -806,7 +806,7 @@ a build whose output runs somewhere other than where it was made.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--repo</span> <span class="pre">DIRECTORY</span></code> — Deployment repository to act on (default: the nearest
 <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> at or above the working directory).</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build
-osprey<span class="w"> </span>build<span class="w"> </span>--repo<span class="w"> </span>~/deployments/als-assistant
+osprey<span class="w"> </span>build<span class="w"> </span>--repo<span class="w"> </span>~/deployments/my-assistant
 osprey<span class="w"> </span>build<span class="w"> </span>--skip-lifecycle<span class="w"> </span>--skip-deps<span class="w">          </span><span class="c1"># CI: no venv, no hooks</span>
 </pre></div>
 </div>
@@ -870,7 +870,9 @@ this labelling existed cannot be found that way; run <code class="docutils liter
 <h3>osprey restart<a class="headerlink" href="#osprey-restart" title="Link to this heading">#</a></h3>
 <p>Stop and start this deployment again. Takes the same options as <code class="docutils literal notranslate"><span class="pre">up</span></code>:
 <code class="docutils literal notranslate"><span class="pre">-d/--detached</span></code>, <code class="docutils literal notranslate"><span class="pre">--dev</span></code>, <code class="docutils literal notranslate"><span class="pre">--build</span></code>, <code class="docutils literal notranslate"><span class="pre">--as-built</span></code>,
-<code class="docutils literal notranslate"><span class="pre">--keep-archiver-base</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">--keep-archiver-base</span></code>. The stop half acts on the runtime and compose project
+the last <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> recorded; the start half picks the runtime the setting
+selects now.</p>
 </section>
 <section id="osprey-status">
 <h3>osprey status<a class="headerlink" href="#osprey-status" title="Link to this heading">#</a></h3>
@@ -904,7 +906,7 @@ osprey<span class="w"> </span>logs<span class="w"> </span>--tail<span class="w">
 <p>Wipe this deployment back to a fresh state. It stops the stack, removes the
 containers, volumes and images of this deployment, destroys the
 agent’s memory under <code class="docutils literal notranslate"><span class="pre">var/agent_data/</span></code>, strips the tokens <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> minted
-out of <code class="docutils literal notranslate"><span class="pre">.env</span></code>, and deletes <code class="docutils literal notranslate"><span class="pre">build/</span></code>.</p>
+out of <code class="docutils literal notranslate"><span class="pre">.env</span></code>, and deletes <code class="docutils literal notranslate"><span class="pre">build/</span></code> and <code class="docutils literal notranslate"><span class="pre">var/deployment.json</span></code>.</p>
 <p>What survives, the plan lists before you confirm:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">var/audit/</span></code> — the audit files written before the agent record;</p></li>
@@ -1246,7 +1248,7 @@ the build as it stands.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>chat
 osprey<span class="w"> </span>chat<span class="w"> </span>--print<span class="w"> </span><span class="s2">&quot;what is the stored beam current?&quot;</span>
 osprey<span class="w"> </span>chat<span class="w"> </span>--resume<span class="w"> </span>abc123
-osprey<span class="w"> </span>chat<span class="w"> </span>--repo<span class="w"> </span>~/als-assistant
+osprey<span class="w"> </span>chat<span class="w"> </span>--repo<span class="w"> </span>~/my-assistant
 </pre></div>
 </div>
 </section>
@@ -1272,7 +1274,7 @@ returned an error result, or the run hit its cost or turn budget), <code class="
 error (nothing built to answer from, the agent SDK is not installed, or the
 provider is not configured).</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>query<span class="w"> </span><span class="s2">&quot;What PVs are used for beam current?&quot;</span>
-osprey<span class="w"> </span>query<span class="w"> </span>--repo<span class="w"> </span>~/als-assistant<span class="w"> </span><span class="s2">&quot;List vacuum sections&quot;</span>
+osprey<span class="w"> </span>query<span class="w"> </span>--repo<span class="w"> </span>~/my-assistant<span class="w"> </span><span class="s2">&quot;List vacuum sections&quot;</span>
 osprey<span class="w"> </span>query<span class="w"> </span>--json<span class="w"> </span><span class="s2">&quot;Summarise recent alarms&quot;</span>
 </pre></div>
 </div>
@@ -1371,8 +1373,9 @@ A device whose stated <code class="docutils literal notranslate"><span class="pr
 modulo the deck’s length, and both <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and this command print
 one <code class="docutils literal notranslate"><span class="pre">facility:</span> <span class="pre">place-wrapped:</span> <span class="pre">device</span> <span class="pre">&lt;id&gt;</span> <span class="pre">—</span> <span class="pre">…;</span> <span class="pre">fix:</span> <span class="pre">…</span></code> warning per device
 on stderr; the exit code is unchanged.
-A knowledge page under <code class="docutils literal notranslate"><span class="pre">data/facility/knowledge</span></code> whose <code class="docutils literal notranslate"><span class="pre">device_id</span></code> is no
-device id of the facility file prints one
+Each link of a knowledge page under <code class="docutils literal notranslate"><span class="pre">data/facility/knowledge</span></code> that the
+facility file does not hold, a <code class="docutils literal notranslate"><span class="pre">device_id</span></code> that is no device id or a
+<code class="docutils literal notranslate"><span class="pre">facility:</span></code> link in the body that names no channel or device, prints one
 <code class="docutils literal notranslate"><span class="pre">facility:</span> <span class="pre">link-dangling:</span> <span class="pre">page</span> <span class="pre">&lt;path&gt;</span> <span class="pre">—</span> <span class="pre">…;</span> <span class="pre">fix:</span> <span class="pre">…</span></code> warning, in
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and in this command; the exit code is unchanged.
 The check converts a monitor reading to position with one slope, taken at

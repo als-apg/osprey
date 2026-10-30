@@ -501,7 +501,10 @@ uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </sp
 <p><code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">python</span> <span class="pre">scripts/check.py</span> <span class="pre">list</span></code> prints what each tier runs. The scoped
 run also names the CI lanes your diff touches. <code class="docutils literal notranslate"><span class="pre">--base</span> <span class="pre">BASE</span></code> arms the checks
 that judge a range without scoping the tier, so <code class="docutils literal notranslate"><span class="pre">full</span> <span class="pre">--base</span> <span class="pre">origin/main</span></code>
-judges the whole tree and the range in one verdict.</p>
+judges the whole tree and the range in one verdict. Before any check runs, the
+command puts the tree’s pins in place: the pinned Claude Code first on <code class="docutils literal notranslate"><span class="pre">PATH</span></code>
+for the test sweep, and <code class="docutils literal notranslate"><span class="pre">npm</span> <span class="pre">ci</span></code> when <code class="docutils literal notranslate"><span class="pre">node_modules</span></code> differs from
+<code class="docutils literal notranslate"><span class="pre">package-lock.json</span></code>. When it cannot, it refuses and names what to install.</p>
 <p>A check is declared by the code that owns it, in a <code class="docutils literal notranslate"><span class="pre">repo_checks.py</span></code> module
 beside that code: <code class="docutils literal notranslate"><span class="pre">scripts/repo_checks.py</span></code> holds the framework’s and the
 repository-wide checks, and a package that brings checks of its own, such as

@@ -659,11 +659,11 @@ is reachable.</p>
 up to the nearest <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and answers from that repository’s <code class="docutils literal notranslate"><span class="pre">build/</span></code>
 as it was last rendered. <code class="docutils literal notranslate"><span class="pre">--repo</span> <span class="pre">DIRECTORY</span></code> names another one.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># The deployment you are standing in</span>
-<span class="nb">cd</span><span class="w"> </span>~/deployments/als-assistant
+<span class="nb">cd</span><span class="w"> </span>~/deployments/my-assistant
 osprey<span class="w"> </span>query<span class="w"> </span><span class="s2">&quot;List vacuum sections&quot;</span>
 
 <span class="c1"># A deployment somewhere else</span>
-osprey<span class="w"> </span>query<span class="w"> </span>--repo<span class="w"> </span>~/deployments/als-assistant<span class="w"> </span><span class="s2">&quot;List vacuum sections&quot;</span>
+osprey<span class="w"> </span>query<span class="w"> </span>--repo<span class="w"> </span>~/deployments/my-assistant<span class="w"> </span><span class="s2">&quot;List vacuum sections&quot;</span>
 </pre></div>
 </div>
 <p>When <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> or a file it points at has changed since that build, a
@@ -800,7 +800,7 @@ validate a facility-specific agent.</p>
 </div>
 <p>For a deployment not in the current directory:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>query<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--repo<span class="w"> </span>/opt/osprey/als-assistant<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--repo<span class="w"> </span>/opt/osprey/my-assistant<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span><span class="s2">&quot;List all vacuum sections&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span><span class="o">||</span><span class="w"> </span><span class="nb">exit</span><span class="w"> </span><span class="m">1</span>
 </pre></div>

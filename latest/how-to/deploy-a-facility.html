@@ -1144,6 +1144,8 @@ before you trust it:</p>
 ./scripts/verify.sh<span class="w"> </span>--strict<span class="w">     </span><span class="c1"># exit 1 if anything is flagged</span>
 </pre></div>
 </div>
+<p>It checks the deployment <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> recorded in <code class="docutils literal notranslate"><span class="pre">var/deployment.json</span></code>;
+before the first <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> it says nothing has been deployed.</p>
 <p>It exits 0 unless run with <code class="docutils literal notranslate"><span class="pre">--strict</span></code>. A container that is not running or not
 healthy, and a probe that gets no answer, is flagged and tells you where to
 look. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> never passes <code class="docutils literal notranslate"><span class="pre">--strict</span></code>, so a flag is never the reason a
