@@ -359,7 +359,8 @@ async def model_response_matrix(
         ``matrix`` (one list per row) and ``missing`` (each corrector whose
         step has no solve, mapped to the engine's text). When no corrector
         solves, the call is refused as ``nothing_answered`` with
-        ``details.missing`` holding the same map (see :doc:`partial-answers`).
+        ``details.missing`` holding the same map (docs: Reference → Contracts →
+        Partial Answers).
         When the engine refuses the request, the call is refused with the
         engine's text; when the facility file is defective, it is refused
         with the rebuild remedy; when the whole request has no solve, it

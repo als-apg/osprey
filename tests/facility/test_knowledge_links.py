@@ -293,7 +293,7 @@ def test_the_example_pages_link_only_held_records(built_control_assistant: Built
     assert [w for w in validated.warnings if w.kind == "link-dangling"] == []
 
 
-def test_every_rewritten_example_page_links_a_held_record(
+def test_every_linking_example_page_links_a_held_record(
     built_control_assistant: BuiltProject,
 ) -> None:
     from osprey.facility.records import FacilityRecords

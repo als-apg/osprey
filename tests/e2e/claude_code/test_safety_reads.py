@@ -29,7 +29,7 @@ async def test_channel_read_succeeds(safety_project):
     """Scenario 1: Reading a channel should succeed without error.
 
     Uses channel_read on the safety world's unlisted reading (unlisted in
-    limits DB, so no restrictions apply). The mock connector returns synthetic data.
+    limits DB, so no restrictions apply). The in-process simulator serves its value.
 
     Cost budget: $0.25
     """

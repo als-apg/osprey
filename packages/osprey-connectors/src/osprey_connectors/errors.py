@@ -23,8 +23,7 @@ branches on and the outcome the result reports are one vocabulary.
 
 The connector-host IPC registry is derived from this module: every class in
 ``__all__`` under a contract root crosses the process boundary as itself,
-with its channel, and a new public failure is carried in the commit that adds
-it.
+with its channel, so a public failure needs no registry entry of its own.
 """
 
 from enum import StrEnum

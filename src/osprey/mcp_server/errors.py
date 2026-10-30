@@ -147,8 +147,8 @@ class NothingAnsweredError(Exception):
     ``missing`` maps each item to the source's own text, or ``results`` holds
     the rows of a tool whose map is its rows; never both. The handler merges
     the one given into the envelope's ``details``. ``errors`` holds every
-    item's error, so the handler can run the recovery each class of failure
-    calls for even when no one cause names the envelope.
+    item's error, so the handler can report the recovery records the
+    supervisor attached to each even when no one cause names the envelope.
     """
 
     def __init__(

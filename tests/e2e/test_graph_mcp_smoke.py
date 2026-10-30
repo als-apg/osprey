@@ -191,9 +191,8 @@ def _device_address_pattern(device: ProbeDevice) -> re.Pattern[str]:
     The **whole** address length is required, rather than "the prefix and one
     or more tokens". A greedy prefix match reads a *truncated* mention as an
     address in its own right, and then reports it as fabricated because the
-    corpus holds no such channel: an answer that rendered a setpoint with
-    markdown emphasis on its last token failed an earlier floor on the address
-    without that token. Hence also :data:`_MARKDOWN_EMPHASIS`: agents format
+    corpus holds no such channel: a real setpoint rendered with markdown
+    emphasis on its last token would read as an invention. Hence also :data:`_MARKDOWN_EMPHASIS`: agents format
     addresses, and a fabrication detector that trips on bold text detects
     formatting, not fabrication.
 

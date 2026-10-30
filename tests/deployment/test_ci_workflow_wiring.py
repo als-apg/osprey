@@ -9303,9 +9303,9 @@ def test_no_job_display_name_states_when_it_runs() -> None:
     _assert_no_display_name_states_when_it_runs(names)
 
 
-def test_no_job_display_name_states_when_it_runs__mutation_restores_the_old_name() -> None:
-    """The regression this exists for: a lifecycle lane named for one trigger
-    while its `if:` also runs it on the revalidation dispatch."""
+def test_no_job_display_name_states_when_it_runs__mutation_names_a_trigger() -> None:
+    """A lifecycle lane named for one trigger while its `if:` also runs it on
+    the revalidation dispatch fails the check."""
     mutated = _load_workflow()
     _jobs(mutated)["multi-user-deploy-lifecycle-e2e"]["name"] = (
         "Multi-User Deploy Lifecycle E2E (PRs into main, real container runtime)"

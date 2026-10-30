@@ -32,8 +32,8 @@ The registry is derived from the vocabulary
 (:class:`~osprey_connectors.errors.ChannelError`,
 :class:`~osprey_connectors.errors.ConnectorUnavailableError`,
 :class:`~osprey_connectors.errors.ConnectorInternalError`). It is computed at
-import, never listed by hand, so a public failure crosses as itself from the
-commit that adds it. A :class:`~osprey_connectors.errors.ChannelError` spec
+import, never listed by hand, so every public failure crosses as itself with
+no entry here to keep in step. A :class:`~osprey_connectors.errors.ChannelError` spec
 carries ``channel_address`` first, by construction; what else a class carries
 is its wire detail, held here and nowhere in the class itself, because the
 vocabulary says what a failure is and this module says what of it crosses.

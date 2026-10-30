@@ -61,7 +61,7 @@ def test_a_started_group_and_the_roots_own_group_are_found(tmp_path):
 
 def test_tree_groups_orders_same_second_starts_by_pgid(monkeypatch):
     """Groups whose earliest members started in the same second come back by pgid."""
-    # ``ps`` reports whole seconds, so commands started within one second compare equal.
+    # Commands started within one second carry the same whole-second start.
     second = 1_700_000_000.0
     rows = {
         pid: process_tree.ProcessRow(pid, ppid, pgid, started, command, "S")
@@ -79,10 +79,10 @@ def test_tree_groups_orders_same_second_starts_by_pgid(monkeypatch):
     assert [g.label for g in groups] == ["agent", "magnet_scan.py", "orbit_poll.py"]
 
 
-# ``ps`` reports whole seconds, so every row of one look carries a fixed, round start.
+# Every row of one look carries a fixed, round start.
 _SECOND = 1_700_000_000.0
 _AGENT = "/home/op/.local/bin/claude --setting-sources project --mcp-config=.mcp.json"
-# The agent CLI's shell wrapper as ``ps`` lists it, around the command it evaluates.
+# The agent CLI's shell wrapper as the process table lists it, around the command it evaluates.
 _WRAPPER_HEAD = (
     "/bin/zsh -c source /home/op/.claude/shell-snapshots/snapshot-zsh-1791044269505-8e7vp7.sh "
     "2>/dev/null || true && setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL 2>/dev/null || true && eval "

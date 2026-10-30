@@ -324,8 +324,8 @@ def encode_result(request_id: str, value: Any) -> bytes:
 def encode_error(request_id: str, exc: BaseException) -> bytes:
     """Encode a failure reply, keeping the exception's structured fields.
 
-    An exception outside the registry is still encoded under its own class
-    name with an empty field set, so the far side can report what it was
+    An exception with no registered class in its MRO is still encoded under
+    its own class name with an empty field set, so the far side can report what it was
     rather than pretending the call succeeded: it decodes as a
     ``ConnectorInternalError`` naming that class.
     """
