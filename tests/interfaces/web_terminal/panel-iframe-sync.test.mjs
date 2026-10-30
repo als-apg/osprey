@@ -131,6 +131,24 @@ describe('the artifacts viewer messages', () => {
       window.location.origin
     );
   });
+
+  test('a change names the artifact and carries a copy only for an update', () => {
+    const { iframe, postMessage } = fakeFrame();
+    const copy = { id: 'a1', title: 'Tunes report', pinned: true };
+    sync.sendArtifactChangedToIframe(iframe, 'a1', 'updated', copy);
+    sync.sendArtifactChangedToIframe(iframe, 'a1', 'deleted');
+    expect(postMessage.mock.calls).toEqual([
+      [
+        { type: 'osprey-artifact-changed', artifact_id: 'a1', change: 'updated', artifact: copy },
+        window.location.origin,
+      ],
+      [
+        { type: 'osprey-artifact-changed', artifact_id: 'a1', change: 'deleted' },
+        window.location.origin,
+      ],
+    ]);
+    expect(Object.keys(postMessage.mock.calls[1][0])).not.toContain('artifact');
+  });
 });
 
 describe('buildEmbedSrc', () => {

@@ -14,6 +14,10 @@
  * one and tells the iframe with `osprey-artifact-select`. It never changes the
  * agent's focus: that endpoint belongs to the agent and to the chat's artifact
  * links, and a click in the list is only the operator looking at something.
+ * The viewer opens no event stream of its own (every stream holds one of the
+ * browser's six connections to the hub's origin), so this module forwards the
+ * shown artifact's update and delete frames to it with
+ * `osprey-artifact-changed`; frames about any other artifact stay here.
  *
  * Which artifact is shown (the rules the gallery applied before the list moved
  * here):
@@ -47,7 +51,11 @@ import { onModeChange } from '/design-system/js/frame-params.js';
 import { createEventSource } from './api.js';
 import { getCurrentSessionId, onSessionChange } from './terminal.js';
 import { contributeLocal } from './tile-header-contrib.js';
-import { sendArtifactActionToIframe, sendArtifactSelectToIframe } from './panel-iframe-sync.js';
+import {
+  sendArtifactActionToIframe,
+  sendArtifactChangedToIframe,
+  sendArtifactSelectToIframe,
+} from './panel-iframe-sync.js';
 import { activateTab } from './panel-manager.js';
 import { hasDockedTile } from './panel-placement.js';
 import { setServiceMenuExtras } from './panel-menu-policy.js';
@@ -324,7 +332,10 @@ function onFrame(frame) {
     listingFor(entry).add(entry);
   } else if (frame.type === 'artifact_updated') {
     if (!lists().artifacts.update(entry)) lists().runs.update(entry);
+    if (frame.id === state.shownId) sendChanged('updated', entry);
   } else if (frame.type === 'artifact_deleted') {
+    // Before render(), which then selects the next artifact.
+    if (frame.id === state.shownId) sendChanged('deleted');
     lists().artifacts.remove(frame.id);
     lists().runs.remove(frame.id);
     if (state.pickId === frame.id) state.pickId = null;
@@ -368,6 +379,16 @@ function artifactsIframe() {
 function sendSelect() {
   const iframe = artifactsIframe();
   if (iframe) sendArtifactSelectToIframe(iframe, state.shownId);
+}
+
+/**
+ * Tell the viewer that the artifact it shows changed on the server.
+ * @param {'updated' | 'deleted'} change
+ * @param {ArtifactEntry} [artifact]  updated: the server's copy
+ */
+function sendChanged(change, artifact) {
+  const iframe = artifactsIframe();
+  if (iframe && state.shownId) sendArtifactChangedToIframe(iframe, state.shownId, change, artifact);
 }
 
 /**

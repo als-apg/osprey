@@ -2,8 +2,9 @@
 /* OSPREY Web Terminal — Panel Iframe State Sync
  *
  * The per-iframe "push host state into a panel" seam: theme, active session,
- * UI mode and header actions, plus the artifacts viewer's two messages (which
- * artifact to show, and a tile-menu action on it), each serialized to a panel
+ * UI mode and header actions, plus the artifacts viewer's three messages
+ * (which artifact to show, a tile-menu action on it, and a server-side change
+ * to it), each serialized to a panel
  * iframe via postMessage. Extracted from panel-manager so that module stays
  * focused on panel lifecycle, rail rendering, and health — these helpers
  * share one shape (take an iframe, guard its contentWindow, swallow the
@@ -146,6 +147,27 @@ export function sendArtifactSelectToIframe(iframe, artifactId) {
  */
 export function sendArtifactActionToIframe(iframe, artifactId, action) {
   postToIframe(iframe, { type: 'osprey-artifact-action', artifact_id: artifactId, action });
+}
+
+/**
+ * Tell the artifacts viewer that the artifact it shows changed on the server.
+ * The embedded viewer opens no event stream of its own (each stream holds one
+ * of the browser's few connections to the hub's origin), so the hub forwards
+ * the shown artifact's own frames from its stream: an update, with the
+ * server's copy, re-renders it; a delete empties the viewer until the hub
+ * selects another.
+ * @param {HTMLIFrameElement | null} iframe  the artifacts panel's iframe
+ * @param {string} artifactId  the artifact the viewer shows
+ * @param {'updated' | 'deleted'} change
+ * @param {object} [artifact]  updated: the server's copy of the artifact
+ */
+export function sendArtifactChangedToIframe(iframe, artifactId, change, artifact) {
+  postToIframe(iframe, {
+    type: 'osprey-artifact-changed',
+    artifact_id: artifactId,
+    change,
+    ...(artifact ? { artifact } : {}),
+  });
 }
 
 /**
