@@ -252,6 +252,74 @@ def test_previous_release_readwrite_tier_warns_widening(tmp_path, caplog):
     assert "write posture was" not in message
 
 
+@pytest.mark.parametrize("word", ["allowed", "asked"])
+def test_a_tier_word_over_a_partly_armed_root_warns_widening_and_names_the_word(
+    tmp_path, caplog, word
+):
+    """Both arming words widen: a retired root armed the simulator, the tier reaches EPICS too."""
+    path = _repo(
+        tmp_path,
+        {
+            **_TWO_MACHINES,
+            "control_system.writes_enabled": False,
+            "control_system.connector.virtual_accelerator.writes_enabled": True,
+        },
+        {"control_system.writes": word},
+    )
+    with caplog.at_level(logging.WARNING):
+        document = _resolve(path)
+
+    assert _tier(document) == word
+    [message] = _posture_warnings(caplog)
+    assert "tiers/ops.yml" in message
+    assert f"`control_system.writes: {word}` lets a session write" in message
+    assert "become armable" in message
+    assert "`live` (`epics`)" in message.split("so", 1)[1]
+    assert "write posture was" not in message
+
+
+def test_an_asked_tier_over_an_unarmed_retired_root_warns_the_change(tmp_path, caplog):
+    path = _repo(
+        tmp_path,
+        {**_TWO_MACHINES, "control_system.writes_enabled": False},
+        {"control_system.writes": "asked"},
+    )
+    with caplog.at_level(logging.WARNING):
+        document = _resolve(path)
+
+    assert _tier(document) == "asked"
+    [message] = _posture_warnings(caplog)
+    assert "was never, now asked" in message
+    assert "`control_system.writes` reads `asked`" in message
+
+
+def test_an_asked_tier_over_a_fully_armed_retired_root_stays_silent(tmp_path, caplog):
+    """Every configured machine was armed: asked reaches nothing new."""
+    path = _repo(
+        tmp_path,
+        {**_TWO_MACHINES, "control_system.writes_enabled": True},
+        {"control_system.writes": "asked"},
+    )
+    with caplog.at_level(logging.WARNING):
+        document = _resolve(path)
+
+    assert _tier(document) == "asked"
+    assert _posture_warnings(caplog) == []
+
+
+def test_a_never_tier_over_an_armed_retired_root_still_warns_the_change(tmp_path, caplog):
+    path = _repo(
+        tmp_path,
+        {**_TWO_MACHINES, "control_system.writes_enabled": True},
+        {"control_system.writes": "never"},
+    )
+    with caplog.at_level(logging.WARNING):
+        _resolve(path)
+
+    [message] = _posture_warnings(caplog)
+    assert "was allowed, now never" in message
+
+
 def test_flat_true_with_every_type_false_and_new_never_does_not_widen(tmp_path, caplog):
     path = _repo(
         tmp_path,

@@ -18,7 +18,7 @@ Typical usage:
     # Apply structured key-value updates
     config_update_fields(Path("config.yml"), {
         "control_system.writes": "allowed",
-        "approval.tools.channel_write": "always",
+        "approval.tools.entry_create": "always",
     })
 
     # A run of edits to one file: loaded once, written once at the end
