@@ -2,8 +2,9 @@
 
 The build writes the Bluesky devices view from the facility file and stages it
 unchanged, so neither a profile key nor a rendered config key can point the
-worker at a second device file. The resurrection guard lists the retired
-config key and proves no shipped surface spells it again.
+worker at a second device file. The manifest lists the retired config key as
+deleted, and ``tests/scripts/test_config_key_guard.py`` proves no shipped surface
+spells it again.
 """
 
 from __future__ import annotations

@@ -2,8 +2,9 @@
 
 The dispatcher dashboard shows the identity's name like every other surface,
 so neither a config key nor a profile key can name the facility a second time.
-The resurrection guard lists each retired config key and proves no shipped
-surface spells it again.
+The manifest lists each retired config key as deleted, and
+``tests/scripts/test_config_key_guard.py`` proves no shipped surface spells it
+again.
 """
 
 from __future__ import annotations

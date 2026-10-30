@@ -3,8 +3,9 @@
 The mock connector, the mock archiver and the Virtual Accelerator all serve the
 simulator view the build writes from the facility file. No connector block names
 a machine file to load, and the noise a reading carries belongs to that view, so
-neither has a config key or a container variable. The resurrection guard lists
-each retired key and proves no shipped surface spells it again.
+neither has a config key or a container variable. The manifest lists each retired
+key as deleted, and ``tests/scripts/test_config_key_guard.py`` proves no shipped
+surface spells it again.
 """
 
 from __future__ import annotations
