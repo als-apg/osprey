@@ -92,6 +92,18 @@ describe('first placement — the classic 60/40 split', () => {
       initialWidth: 600,
     });
   });
+
+  test("the overlay iframe takes the card's surface and its bottom corners", async () => {
+    const api = makeApi();
+    addTerminal(api);
+    const mod = await freshAdapter(api);
+    const iframe = makeIframe();
+
+    mod.adoptIframe('artifacts', iframe, { title: 'Artifacts' });
+
+    expect(iframe.style.borderRadius).toContain('var(--radius-xl)');
+    expect(iframe.style.background).toContain('var(--surface-card)');
+  });
 });
 
 describe("activation ('replace') — the new panel takes over the tile", () => {

@@ -216,6 +216,15 @@ function wireDragShield(api) {
   );
 }
 
+/**
+ * Corner rounding of a tile BODY drawn over the dock: an overlay covers a
+ * group's `.dv-content-container`, which sits under the tile bar inside the
+ * card (dockview-overrides.css), so only its two bottom corners meet the
+ * card's `--radius-xl` corners. The iframe, its notice and its glow each take
+ * it, because the overlay is outside the card and its `overflow: hidden` clip.
+ */
+const TILE_BODY_RADIUS = '0 0 var(--radius-xl) var(--radius-xl)';
+
 /** @param {HTMLIFrameElement} iframe */
 function styleOverlayIframe(iframe) {
   Object.assign(iframe.style, {
@@ -225,7 +234,8 @@ function styleOverlayIframe(iframe) {
     padding: '0',
     display: 'none',
     pointerEvents: 'auto',
-    background: 'var(--bg-primary)',
+    background: 'var(--surface-card)',
+    borderRadius: TILE_BODY_RADIUS,
     opacity: '1',
   });
 }
@@ -711,6 +721,9 @@ function ensureGlowEl(entry) {
   if (entry.glowEl?.isConnected) return entry.glowEl;
   const el = document.createElement('div');
   el.className = GLOW_CLASS;
+  // Inline, so it outranks the flash class's own radius: the glow traces the
+  // tile body's rounded corners (see TILE_BODY_RADIUS).
+  el.style.borderRadius = TILE_BODY_RADIUS;
   /** @type {HTMLElement} */ (overlayEl).appendChild(el);
   entry.glowEl = el;
   return el;
@@ -813,6 +826,8 @@ function ensureNoticeEl(panelId, entry, parent) {
   }
   const el = buildNoticeEl();
   el.dataset.panel = panelId;
+  el.style.borderRadius = TILE_BODY_RADIUS;
+  el.style.overflow = 'hidden';
   parent.appendChild(el);
   entry.noticeEl = el;
   return el;

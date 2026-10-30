@@ -779,13 +779,23 @@ function setConnectionIndicator(connected) {
 /**
  * Single owner of the header session label (`#terminal-label`) — exported
  * so sessions.js updates it through terminal.js instead of reaching into
- * terminal-owned DOM. Pass null for the generic placeholder shown before a
- * session id is known.
+ * terminal-owned DOM. The visible text is always `Agent`, the pane's name;
+ * the session id rides on the label as its tooltip (`Session <id>`) and as
+ * `data-session-id`, and the session selector beside it marks the session in
+ * its list. Pass null before a session id is known.
  * @param {string|null} sessionId
  */
 export function setSessionLabel(sessionId) {
   const label = document.getElementById('terminal-label');
-  if (label) label.textContent = sessionId ? `Session ${sessionId.slice(0, 8)}` : 'Session';
+  if (!label) return;
+  label.textContent = 'Agent';
+  if (sessionId) {
+    label.title = `Session ${sessionId}`;
+    label.dataset.sessionId = sessionId;
+  } else {
+    label.removeAttribute('title');
+    delete label.dataset.sessionId;
+  }
 }
 
 /**
@@ -911,11 +921,10 @@ export function getTerminalDimensions() {
  *
  *   `docs/screenshots/contact_sheet.py` reads the fitted COLUMN count before
  *   every capture, to prove the demo transcript will not wrap at the terminal's
- *   real width. It used to scrape the `#term-dims` status-bar readout. That
- *   element is gone: the size is now a bar ITEM the operator can move, fold or
- *   remove, so any DOM scrape would become a guard that silently reads nothing
- *   and passes. Playwright evaluates in page scope and cannot import an ES
- *   module, so the getter has to be reachable from `window` or not at all.
+ *   real width. No element on the page shows the size any more, so a DOM
+ *   scrape would be a guard that silently reads nothing and passes.
+ *   Playwright evaluates in page scope and cannot import an ES module, so
+ *   the getter has to be reachable from `window` or not at all.
  *
  * It is a TEST SEAM, not a second public API: nothing in the page may read it.
  * Anything running inside the module graph imports `getTerminalDimensions`

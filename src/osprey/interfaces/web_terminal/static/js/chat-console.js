@@ -2,30 +2,59 @@
 /**
  * OSPREY Web Terminal — Simple-mode chat: the operator console's DOM.
  *
- * Builds the console interior once, at boot: the session bar, the message
+ * Builds the console interior once, at boot: the Agent bar, the message
  * list, the hand-off overlay, and the composer (input, slash button, and the
  * send and stop controls). It returns the handles the controller in chat.js
  * drives. Nothing here reads the session pointer or the transport.
+ *
+ * The Agent bar is the Agent pane's one header row. In the dock it does not
+ * stay in the console: the Agent tile adopts it as its tile bar in the Simple
+ * view (dock-tab.js), so the console body below it is the card interior.
+ * Left to right: the status dot, `Agent`, then the icon buttons — New
+ * conversation, the notifications bell (chat-attention.js appends it),
+ * Export (chat-export.js appends it) and ⋯, the earlier conversations. The
+ * ⋯ is returned unattached: chat.js appends it after the feature modules,
+ * so it stays last, and sessions.js gives it its menu.
  *
  * @module chat-console
  */
 
 import { chatIcon } from './chat-icons.js';
 import { elem } from './chat-dom.js';
+import { icon } from '/design-system/js/icons.js';
 
 /**
- * Build the operator console interior — session bar, message list, hand-off
+ * One of the Agent bar's icon buttons: an `.osprey-icon-btn` whose name is
+ * its `aria-label`, repeated as the tooltip.
+ * @param {string} className
+ * @param {string} iconName  a name from design-system icons.js
+ * @param {string} label
+ * @returns {HTMLButtonElement}
+ */
+export function barButton(className, iconName, label) {
+  const btn = /** @type {HTMLButtonElement} */ (elem('button', `osprey-icon-btn ${className}`));
+  btn.type = 'button';
+  btn.title = label;
+  btn.setAttribute('aria-label', label);
+  btn.append(icon(iconName));
+  return btn;
+}
+
+/**
+ * Build the operator console interior — Agent bar, message list, hand-off
  * overlay, and the command-line input row — and return the handles the
  * controller drives.
  */
 export function buildConsole() {
   const bar = elem('div', 'op-session-bar');
-  const led = elem('span', 'op-session-led');
-  const newBtn = /** @type {HTMLButtonElement} */ (
-    elem('button', 'op-session-new', 'New conversation')
-  );
-  newBtn.type = 'button';
-  bar.append(led, elem('span', 'op-session-label', 'Operator'), newBtn);
+  const led = elem('span', 'osprey-dot ok op-session-led');
+  led.title = 'Connected';
+  const label = elem('span', 'op-session-label', 'Agent');
+  const newBtn = barButton('op-session-new', 'pen', 'New conversation');
+  bar.append(led, label, newBtn);
+  const moreBtn = barButton('op-session-more', 'more', 'Earlier conversations');
+  moreBtn.setAttribute('aria-haspopup', 'menu');
+  moreBtn.setAttribute('aria-expanded', 'false');
 
   const messages = elem('div', 'op-messages');
   // A log by role, but silent by itself: a log is polite by default, and streamed
@@ -51,7 +80,7 @@ export function buildConsole() {
   const textarea = document.createElement('textarea');
   textarea.placeholder = 'Message the agent…';
   textarea.rows = 1;
-  textarea.setAttribute('aria-label', 'Operator message');
+  textarea.setAttribute('aria-label', 'Message the agent');
 
   // The composer's own controls. Send and Stop share one slot: a turn swaps one
   // for the other, so the button under the pointer is always the one on screen.
@@ -86,8 +115,8 @@ export function buildConsole() {
 
   return {
     bar,
-    led,
     newBtn,
+    moreBtn,
     messages,
     overlay,
     overlayMessage,
