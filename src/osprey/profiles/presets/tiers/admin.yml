@@ -48,8 +48,8 @@ skills:
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY, as in the deployment's own config: block.
 config:
-  # The admin tier carries readwrite's control posture exactly: writes
-  # allowed, each machine's write still decided by the login's own switch.
+  # The top of `never`, `asked` and `allowed`, one above readwrite's `asked`;
+  # each machine's write is still decided by the login's own switch.
   # What makes this the admin tier is the deployment-editing block below, not a
   # wider write surface.
   control_system.writes: allowed

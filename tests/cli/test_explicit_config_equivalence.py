@@ -28,9 +28,10 @@ Allowed differences: the delta table
 from its fixture by, save the host-resolved ones below. It is exact in both
 directions. A difference that is not
 declared fails, and a declared difference that is not observed fails too, so a
-delta cannot outlive the change that justified it. The table is empty while the
-fixtures match the live render; a change that moves the render either declares
-its leaves here or re-freezes the fixtures with ``freeze.py``. A delta is spelt
+delta cannot outlive the change that justified it. A change that moves the
+render either declares its leaves here or re-freezes the fixtures with
+``freeze.py``; the three-way write switch declares, so the frozen baseline
+render stays the proof of render-identity. A delta is spelt
 like this::
 
     "hello-world/unset": (
@@ -45,7 +46,8 @@ staged into the shared containers' ``build/services/*`` copies only, never into
 a root, tier or app render, so the completeness check compares those copies
 with it removed and the map is frozen on its own at
 ``<cell>/staged/login_tiers.yml``. :func:`test_staged_login_map_equals_frozen_map`
-compares it exactly: same presence, same logins, same tier per login. Both
+compares it exactly — same presence, same logins, same tier per login — save
+the logins :data:`STAGED_LOGIN_DELTAS` declares, exact in both directions. Both
 sides build as the pinned account (``freeze.FROZEN_BUILD_ACCOUNT``), which is
 how the build account's own entry can be compared at all.
 
@@ -213,11 +215,76 @@ class Delta:
         return None
 
 
+#: The leaves the three-way write switch moves in every render, root, tier or
+#: app: the governed tools' per-tool approval policies retire, so the presets no
+#: longer spell ``approval.tools.channel_write: always`` or
+#: ``approval.tools.execute: selective`` and the position decides instead.
+def _retired_governed_policies(document: str) -> tuple[Delta, ...]:
+    return (
+        Delta(document=document, path="approval.tools.channel_write", fixture="always"),
+        Delta(document=document, path="approval.tools.execute", fixture="selective"),
+    )
+
+
+#: The control-assistant renders the feature moves: its root and its
+#: ``readwrite`` tier open at ``asked`` instead of ``allowed``. ``admin``,
+#: ``readonly`` and the apps keep their writes posture.
+_ASKED_RENDERS = ("root", "readwrite")
+
+#: Every render a control-assistant cell freezes.
+_CONTROL_ASSISTANT_RENDERS = (
+    "root",
+    "admin",
+    "channel-finder",
+    "knowledge",
+    "logbook",
+    "readonly",
+    "readwrite",
+)
+
+
+def _control_assistant_deltas() -> tuple[Delta, ...]:
+    deltas: list[Delta] = []
+    for document in _CONTROL_ASSISTANT_RENDERS:
+        deltas.extend(_retired_governed_policies(document))
+        if document in _ASKED_RENDERS:
+            deltas.append(
+                Delta(
+                    document=document,
+                    path="control_system.writes",
+                    fixture="allowed",
+                    live="asked",
+                )
+            )
+    return tuple(deltas)
+
+
 #: Every leaf each cell is allowed to differ from its frozen fixture by, keyed by
 #: the cell directory as ``cells.json`` spells it. A cell absent from this
-#: mapping must equal its fixture exactly. Empty while the fixtures match the
-#: live render; see the module docstring for how to spell a delta.
-CELL_DELTAS: dict[str, tuple[Delta, ...]] = {}
+#: mapping must equal its fixture exactly. See the module docstring for how to
+#: spell a delta. The fixtures stay frozen at the baseline: the render-identity
+#: proof is the baseline render plus exactly these leaves.
+CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
+    "hello-world/unset": _retired_governed_policies("root"),
+    **{
+        f"control-assistant/{mode}": _control_assistant_deltas()
+        for mode in ("in_context", "hierarchical", "middle_layer", "graph")
+    },
+}
+
+#: Logins whose staged tier posture each cell is allowed to differ from its
+#: frozen ``staged/login_tiers.yml`` by, as ``login -> (fixture, live)`` — the
+#: login-map twin of :data:`CELL_DELTAS`, exact in both directions. A login that
+#: lands on the deployment's default or on ``readwrite`` follows that render's
+#: ``control_system.writes`` from ``allowed`` to ``asked``; one granted another
+#: tier (``admin``'s ``allowed``, ``readonly``'s ``never``) does not move.
+STAGED_LOGIN_DELTAS: dict[str, dict[str, tuple[Any, Any]]] = {
+    f"control-assistant/{mode}": {
+        "alice": ("allowed", "asked"),
+        "osprey-freeze-builder": ("allowed", "asked"),
+    }
+    for mode in ("in_context", "hierarchical", "middle_layer", "graph")
+}
 
 #: Build-relative ``config.yml`` documents a cell's build gains over the count
 #: its freeze recorded, keyed by cell directory — the completeness twin of
@@ -739,6 +806,8 @@ def test_every_recorded_cell_is_covered() -> None:
     assert sorted(META["completeness"]) == sorted(cell.directory for cell in FROZEN_CELLS)
     stale = sorted(set(CELL_DELTAS) - {cell.directory for cell in FROZEN_CELLS})
     assert not stale, f"CELL_DELTAS names cells that are not frozen: {stale}"
+    stale = sorted(set(STAGED_LOGIN_DELTAS) - {cell.directory for cell in FROZEN_CELLS})
+    assert not stale, f"STAGED_LOGIN_DELTAS names cells that are not frozen: {stale}"
 
 
 @pytest.mark.parametrize("cell", FROZEN_CELLS, ids=FROZEN_IDS)
@@ -834,8 +903,31 @@ def test_staged_login_map_equals_frozen_map(cell: Cell, rendered_cells: CellRend
         f"{cell.directory}: meta.json says login_tiers={expected_presence}, the fixture "
         f"{'has' if frozen is not None else 'has no'} {STAGED_DIR}/{LOGIN_TIERS_FILE}"
     )
-    assert rendered.login_tiers == frozen, (
-        f"{cell.directory}: the staged login map moved. frozen={frozen} live={rendered.login_tiers}"
+    live = rendered.login_tiers
+    if frozen is None or live is None:
+        assert live == frozen, f"{cell.directory}: frozen={frozen} live={live}"
+        return
+    declared = STAGED_LOGIN_DELTAS.get(cell.directory, {})
+    problems: list[str] = []
+    for login in sorted(set(frozen) | set(live)):
+        observed = (frozen.get(login, ABSENT), live.get(login, ABSENT))
+        expected = declared.get(login)
+        if expected is None:
+            if observed[0] != observed[1]:
+                problems.append(
+                    f"  undeclared  {login}: {_render_value(observed[0])} -> "
+                    f"{_render_value(observed[1])}"
+                )
+        elif observed[0] == observed[1]:
+            problems.append(f"  stale delta {login}: declared {expected}, but it did not move")
+        elif observed != expected:
+            problems.append(
+                f"  wrong delta {login}: declared {expected[0]!r} -> {expected[1]!r}, observed "
+                f"{_render_value(observed[0])} -> {_render_value(observed[1])}"
+            )
+    assert not problems, (
+        f"{cell.directory}: the staged login map moved outside STAGED_LOGIN_DELTAS. "
+        f"frozen={frozen} live={live}\n" + "\n".join(problems)
     )
 
 

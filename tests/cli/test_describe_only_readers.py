@@ -138,7 +138,7 @@ def test_a_switch_capable_render_prints_one_tier_wide_right() -> None:
     profile = _card_profile({})
     deltas = {"rw": {"config": {"control_system.writes": "allowed"}}}
 
-    assert _write_rights(profile, deltas, "rw") == ["rights approval-gated"]
+    assert _write_rights(profile, deltas, "rw") == ["rights allowed"]
 
 
 def test_a_never_layer_over_an_allowed_host_prints_no_right() -> None:
@@ -152,7 +152,7 @@ def test_a_silent_layer_inherits_the_host_tier() -> None:
     profile = _card_profile({"control_system.writes": "allowed"})
 
     assert _write_rights(profile, {"plain": {"config": {"web.ui_mode": "simple"}}}, "plain") == [
-        "rights approval-gated"
+        "rights allowed"
     ]
     assert _write_rights(_card_profile({}), {}, "plain") == []
 
@@ -172,7 +172,7 @@ def test_a_retired_layer_is_read_as_its_rewrite_over_a_normalized_host() -> None
     }
 
     assert _write_rights(profile, readonly, "ro") == []
-    assert _write_rights(_card_profile({}), va_write, "va") == ["rights approval-gated"]
+    assert _write_rights(_card_profile({}), va_write, "va") == ["rights allowed"]
 
 
 # ---------------------------------------------------------------------------

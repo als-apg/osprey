@@ -275,6 +275,12 @@ _SUCCESSORS = {
     "logbook": "apps/logbook.yml",
 }
 
+#: The one successor that deliberately states a lower ceiling than its retired
+#: predecessor reads as: the read-write tier ships `asked` (FR4), so its logins
+#: keep today's prompts, while an un-revalidated `writes_enabled: true` reads as
+#: the top word, `allowed`. Every other successor states the predecessor's word.
+_LOWERED_SUCCESSORS = {"readwrite": "asked"}
+
 
 def test_every_previous_release_document_reads_as_its_bundled_successor(tmp_path):
     """Every shipped document spelling the old keys reads as the old render did,
@@ -294,11 +300,14 @@ def test_every_previous_release_document_reads_as_its_bundled_successor(tmp_path
         new_path = presets / successor
         new = yaml.safe_load(new_path.read_text(encoding="utf-8"))
         assert retired_write_answer(new["config"]) is None, new_path
-        assert new["config"]["control_system.writes"] == answer, new_path
+        successor_answer = _LOWERED_SUCCESSORS.get(stem, answer)
+        if stem in _LOWERED_SUCCESSORS:
+            assert answer == "allowed", path
+        assert new["config"]["control_system.writes"] == successor_answer, new_path
         if new_path.parent.name == "apps":
             assert answer == "never", new_path
         new_rendered = _section(_read_profile_document(new_path)["config"], tmp_path)
-        assert new_rendered["writes"] == answer, new_path
+        assert new_rendered["writes"] == successor_answer, new_path
         assert _retired_leaves_in(new_rendered) == [], new_path
         checked += 1
     assert checked == len(_SUCCESSORS)
@@ -313,7 +322,7 @@ def test_every_bundled_preset_agrees_with_tier_writes_of_its_raw_render(tmp_path
         if not isinstance(raw, dict) or not isinstance(raw.get("config"), dict):
             continue
         assert retired_write_answer(raw["config"]) is None, path
-        assert raw["config"].get("control_system.writes") in ("allowed", "never"), path
+        assert raw["config"].get("control_system.writes") in ("allowed", "asked", "never"), path
         rendered = _section(_read_profile_document(path)["config"], tmp_path)
         if path.parent.name == "apps":
             assert rendered["writes"] == "never", path
