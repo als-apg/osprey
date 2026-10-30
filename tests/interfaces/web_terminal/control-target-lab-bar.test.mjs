@@ -12,7 +12,7 @@
  *    fetchable through `/panel/{id}/terminal-static/js/`, and the first
  *    unreachable one breaks the whole graph — the bar simply never appears,
  *    with a 404 in a console nobody is watching. One import of `terminal.js`,
- *    `panel-manager.js` or `bar-host.js` would drag the hub's page machinery
+ *    `panel-manager.js` or `sidebar.js` would drag the hub's page machinery
  *    onto a page that has none of it. The closure is walked transitively here
  *    and asserted as an exact set, so growing it is a deliberate edit to this
  *    list rather than a surprise in a browser.
@@ -20,7 +20,7 @@
  *    `#main`'s layout and reflows what it finds there; the chip needs a host
  *    that is stable across its own re-renders. Both are asserted below.
  * 3. **The bar drifts from the chip.** A popped-out Lab page must say what the
- *    header chip says and do what it does: the kind and the three state
+ *    sidebar chip says and do what it does: the kind and the three state
  *    words (off, asked, allowed), the three-option control, the widening
  *    confirm and its sentence, all-off, the stamped-retry rule, the
  *    stop-not-taken sentence, and C-POST's body with `session_id: null`.
@@ -290,7 +290,7 @@ describe('import closure', () => {
     // the point of pinning it in both languages. The walk follows relative
     // specifiers only; an absolute `/design-system/js/…` import is served by
     // the design-system route and proven there. An exact set also rules out
-    // every hub-page module (terminal.js, panel-manager.js, bar-host.js,
+    // every hub-page module (terminal.js, panel-manager.js, sidebar.js,
     // app.js) this page has none of.
     expect([...closureOf(ENTRY)].sort()).toEqual([
       'activity-format.js',
@@ -298,6 +298,7 @@ describe('import closure', () => {
       'confirm-skip.js',
       'control-target-chip.js',
       'control-target-facts.js',
+      'control-target-popover-chrome.js',
       'control-target-popover-switch.js',
       'control-target-popover.js',
       'modal-overlay.js',
@@ -402,7 +403,7 @@ describe('framed inside the hub', () => {
     expect(document.getElementById(barModule.TERMINAL_CSS_ID)).toBeNull();
     expect(document.getElementById(barModule.TOKENS_CSS_ID)).toBeNull();
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
-    // The header chip on the hub page is the one reader and the one socket.
+    // The sidebar chip on the hub page is the one reader and the one socket.
     expect(getCount()).toBe(0);
     expect(FakeEventSource.opened).toHaveLength(0);
   });

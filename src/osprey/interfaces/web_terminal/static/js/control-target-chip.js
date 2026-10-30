@@ -1,14 +1,17 @@
 // @ts-check
-/* OSPREY Web Terminal — Control-Target Header Chip
+/* OSPREY Web Terminal — Control-Target Chip
  *
  * The one-glance answer to "if the agent writes now, where does it land, and
- * will it be refused?". A 28 px chip in the global header reading
- * `● Rehearsal · writes asked ▾`: the name of the machine this deployment stands
- * on, the effective write state on THAT machine, and a dot whose colour says
- * how much a write there matters and whose shape says who is holding writes
- * back. The popover behind it (control-target-popover.js) lists every
- * configured target and owns every gesture that CHANGES something; this module
- * owns the chip, the read, and the state every renderer shares.
+ * will it be refused?". A chip reading `● Rehearsal · writes asked ▾`: the name
+ * of the machine this deployment stands on, the effective write state on THAT
+ * machine, and a dot whose colour says how much a write there matters and
+ * whose shape says who is holding writes back. On the hub it is the button of
+ * the sidebar's control-system block (sidebar-target.js lays it out); on a
+ * popped-out JupyterLab page it is a 28 px chip in the Lab menu bar
+ * (control-target-lab-bar.js). The popover behind it
+ * (control-target-popover.js) lists every configured target and owns every
+ * gesture that CHANGES something; this module owns the chip, the read, and the
+ * state every renderer shares.
  *
  * ONE truth: `GET /api/terminal/posture`. The chip renders what that route
  * says and never what this page last did — a posture narrowed in another tab,
@@ -277,37 +280,20 @@ let listeners = [];
 /* ---- mount ---- */
 
 /**
- * Mount the chip into a host and keep it current.
+ * Mount the chip into `host` and keep it current.
  *
- * WHERE the chip sits is the layout's answer, not this module's. On the
- * terminal page the header is a bar-item host and the `control-target` item
- * has a `.bar-item` shell that the server renders and bar-host.js reconciles
- * into the operator's order, so the chip only ever APPENDS into that shell.
- * It does not position itself relative to any neighbour — the palette trigger
- * it used to sit in front of now lives inside a shell of its own and is no
- * longer a child of the host, so a positional insert against it would both
- * misplace the chip and throw.
- *
- * `.header-actions` remains as a fallback host for a header rendered without
- * shells; appending there degrades to "somewhere in the action run", which is
- * strictly better than not mounting the chip at all.
- *
- * A caller that already knows its host passes one. That is how the JupyterLab
- * bar mounts the chip: its page has neither shell nor `.header-actions`, and
- * an element it owns is the only honest answer to where the chip goes.
+ * WHERE the chip sits is the caller's answer, not this module's: the hub hands
+ * it the sidebar's control-system block (`#sidebar-target`), and the
+ * JupyterLab bar an element of its own. The chip only ever APPENDS into its
+ * host; it never positions itself relative to a neighbour.
  *
  * Idempotent: a second call re-renders rather than mounting a second chip, and
- * re-homes the existing anchor if the host turned up after a fallback mount.
+ * re-homes the existing anchor when called with a different host.
  *
  * @param {{host?: HTMLElement|null}} [opts]
  */
 export function initControlTargetChip({ host } = {}) {
-  const mountPoint = /** @type {HTMLElement|null} */ (
-    host ??
-      document.querySelector('[data-bar-item="control-target"]') ??
-      document.querySelector('.header-actions')
-  );
-  if (!mountPoint) return;
+  if (!host) return;
 
   if (!chip || !anchor || !anchor.isConnected) {
     anchor = document.createElement('div');
@@ -315,13 +301,12 @@ export function initControlTargetChip({ host } = {}) {
     anchor.hidden = true;
     chip = buildChip();
     anchor.appendChild(chip);
-    mountPoint.appendChild(anchor);
-  } else if (anchor.parentElement !== mountPoint) {
-    // A host that arrived after a fallback mount. Move the whole positioning
-    // context rather than rebuilding it: the popover, the click listener and
-    // the chip's current paint all ride along, and a rebuild would leave the
-    // old chip orphaned in the header.
-    mountPoint.appendChild(anchor);
+    host.appendChild(anchor);
+  } else if (anchor.parentElement !== host) {
+    // A different host. Move the whole positioning context rather than
+    // rebuilding it: the popover, the click listener and the chip's current
+    // paint all ride along, and a rebuild would leave the old chip orphaned.
+    host.appendChild(anchor);
   }
 
   if (!sse) sse = subscribeRefetchHints();
@@ -341,7 +326,7 @@ export function teardownControlTargetChip() {
     sse = null;
   }
   // The anchor goes with it, popover and all: a positioning context with
-  // nothing to position is a stray flex child in the header's action gap.
+  // nothing to position is a stray box in its host.
   if (anchor) anchor.remove();
   else chip?.remove();
   anchor = null;
@@ -388,7 +373,7 @@ function span(cls) {
 /**
  * Status and action are separate gestures: the chip only opens. Every change
  * is a labelled action inside the popover, where the row it applies to is on
- * screen — a header chip that toggled something on click would be a one-click
+ * screen — a chip that toggled something on click would be a one-click
  * path to arming writes on a real machine.
  */
 function onChipClick() {
@@ -872,9 +857,10 @@ export function getChipElement() {
 
 /**
  * The positioning context the popover mounts into (`.ctc-anchor`, the chip's
- * own parent). The popover is `position: absolute` under its trigger and only
- * `.ctc-anchor` is guaranteed `position: relative` — appending the popover
- * anywhere else would anchor it to whatever ancestor happens to be positioned.
+ * own parent). Under a chip on a page bar the popover is `position:
+ * absolute` and only `.ctc-anchor` is guaranteed `position: relative`;
+ * beside the sidebar it is fixed and placed by the popover module. Either
+ * way it belongs in the anchor, travelling with the chip.
  */
 export function getAnchorElement() {
   return anchor;
@@ -981,6 +967,28 @@ export function activeKind() {
 }
 
 /**
+ * What the chip says right now: the machine's name, the write state in words
+ * (`switching…` under a pending request), and the kind and state word its
+ * attributes carry — or null while nothing is known. The one derivation the
+ * chip paints from and any surface that repeats the chip's words reads (the
+ * sidebar block's tooltip), so the two cannot word the same machine apart.
+ * @returns {{name: string, state: string, kind: string, word: 'off'|'asked'|'allowed'|'locked'}|null}
+ */
+export function targetReading() {
+  const state = getState();
+  const row = state ? activeRow(state) : null;
+  if (!row) return null;
+  const kind = kindAttr(row);
+  const word = stateWord(row);
+  return {
+    name: displayName(row, kind),
+    state: pending ? 'switching…' : statePhrase(word),
+    kind,
+    word,
+  };
+}
+
+/**
  * Paint the chip from {@link getState}, then tell the subscribers.
  *
  * Everything visual is a data attribute; not one colour name is spelled here.
@@ -991,20 +999,19 @@ export function activeKind() {
 function render() {
   const state = getState();
   if (chip && shortEl && stateEl) {
+    const reading = targetReading();
     const row = state ? activeRow(state) : null;
-    if (!state || !row) {
-      // The ANCHOR is what hides: hiding the chip alone would leave a
-      // zero-width flex child holding open the header's action gap.
+    if (!state || !row || !reading) {
+      // The ANCHOR is what hides: hiding the chip alone would leave an empty
+      // positioning context holding its host's layout open.
       if (anchor) anchor.hidden = true;
       chip.hidden = true;
       chip.removeAttribute('data-pending');
     } else {
-      const word = stateWord(row);
-      const kind = kindAttr(row);
       if (anchor) anchor.hidden = false;
       chip.hidden = false;
-      chip.dataset.targetKind = kind;
-      chip.dataset.state = word;
+      chip.dataset.targetKind = reading.kind;
+      chip.dataset.state = reading.word;
       // A question about the CONTEXT, not about the switch: whether a target
       // switch made here would be written at all, or refused because there is
       // no context to write or because another terminal holds it. When it
@@ -1013,15 +1020,15 @@ function render() {
       chip.dataset.enforceable = String(contextWritable(state));
       if (pending) chip.dataset.pending = 'true';
       else chip.removeAttribute('data-pending');
-      shortEl.textContent = displayName(row, kind);
+      shortEl.textContent = reading.name;
       // `data-state` keeps the real state under a pending request: the dot and
       // the border still describe the machine the deployment is on until the
       // switch actually lands.
-      stateEl.textContent = pending ? 'switching…' : statePhrase(word);
+      stateEl.textContent = reading.state;
       chip.title = row.label || row.target;
       chip.setAttribute(
         'aria-label',
-        `Control target: ${displayName(row, kind)} · ${pending ? 'switching' : statePhrase(word)}`
+        `Control target: ${reading.name} · ${pending ? 'switching' : reading.state}`
       );
     }
   }

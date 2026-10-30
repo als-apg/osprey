@@ -80,7 +80,7 @@ Which machine a kernel writes to
 
 A kernel has no control-system identity of its own, and it follows no chat
 session. Cells read and write through the deployment's current control target
-and write posture — the same one the chip in the header shows and the agent
+and write posture — the same one the control-target block in the sidebar shows and the agent
 uses.
 
 The kernel re-reads that before **every cell**, so a switch made anywhere, by
@@ -98,10 +98,11 @@ with:
 **Nothing restarts.** Switch the control target from the chip, or move the
 write switch, and the next cell you run is routed by the new state.
 
-Inside the web terminal the header chip is the only place to do that; the
-JUPYTER tab carries no chip of its own. A notebook opened in its own window —
-popped out of the terminal, or opened at its own address — has no header above
-it, so that page shows the same chip in its top-right corner. It is the same
+Inside the web terminal the control-target block in the sidebar is the only
+place to do that; the JUPYTER tab carries no chip of its own. A notebook
+opened in its own window — popped out of the terminal, or opened at its own
+address — has no sidebar beside it, so that page shows the same chip in its
+top-right corner. It is the same
 switch either way: a change made from either place lands deployment-wide.
 
 A cell already running is not re-routed --- but taking writes away still
@@ -211,7 +212,7 @@ Notebooks the agent also edits
 
 The OSPREY agent may edit a notebook under ``notebooks/`` (and, as before,
 under ``artifacts/``); an edit anywhere else is refused by the memory guard.
-When it edits one, the rail's JUPYTER entry badges and the history row reads
+When it edits one, the JUPYTER row in the sidebar badges and the history row reads
 *agent edited <notebook>*.
 
 What you see next depends on what the notebook was doing at the time:

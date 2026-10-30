@@ -32,12 +32,12 @@ Themes come in **families**. OSPREY ships four:
 - **retro** — a navy-and-teal family, in light and dark, for teams who
   prefer that look.
 
-In the terminal, click the sliders button at the top right to open the
-display menu — it holds the light/dark switch, the Expert/Simple view toggle,
-and the theme family picker, as pictured below. Every panel opened as its own
-page (ARIEL, the workspace, Channel Finder, the lattice dashboard, the
-knowledge panel) has the same button and the same display controls in its
-own header.
+In the terminal, click **☰ More** at the bottom of the sidebar. It holds the
+light/dark switch, the theme family picker and the Expert/Simple view. Every
+panel opened as its own page (ARIEL, the workspace, Channel Finder, the
+lattice dashboard, the knowledge panel) has a sliders button in its own
+header. It opens the display menu, which has the same display controls, as
+pictured below.
 
 A pick made on any of those pages is remembered by your browser and becomes
 your preference for every OSPREY page served from the same address — set a
@@ -109,7 +109,8 @@ worked example in :ref:`multi-user-registry-images`).
 
 The value takes the same two forms as ``web.theme``: a family, or a specific
 theme to also pin light or dark. It overrides ``web.theme`` for that user's
-terminal only, and their own pick in the display menu still wins over it.
+terminal only, and their own pick in the terminal's **☰ More** menu or a panel's
+display menu still wins over it.
 
 The landing page that lists everyone's terminals uses the deployment-wide
 ``web.theme``, and so does the sign-in page a user reaches from it, which also
@@ -121,17 +122,15 @@ to apply yet.
 A navy-and-teal terminal
 ------------------------
 
-Two settings in ``config.yml`` give the terminal a navy-and-teal look with its
-panel buttons along the top:
+One setting in ``config.yml`` gives the terminal a navy-and-teal look:
 
 .. code-block:: yaml
 
    web:
      theme: retro            # the navy/teal palette
-     rail_position: top      # panel buttons along the top
 
-Each user can still override both from the interface: the theme from the
-display menu in the header, and the rail position from the panel "+" menu.
+The retro family uses the same sidebar as every other theme. Each user can
+still change the theme from **☰ More** in the sidebar.
 
 Propose a theme
 ---------------

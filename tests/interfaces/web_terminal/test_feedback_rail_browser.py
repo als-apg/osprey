@@ -1,26 +1,17 @@
-"""Browser tests: where the rail's utility cluster actually lands.
+"""Browser tests: where the sidebar's footer (Docs, Feedback, ☰ More) lands.
 
-``#panel-utility`` (Documentation + Feedback + ⋯ More) is pinned to the far end of the
-rail by nothing but ``margin-top: auto`` in the left column and
-``margin-left: auto`` under a top rail — ``.panel-rail`` has no ``flex: 1``, so
-those two declarations are the whole mechanism. A stylesheet edit that drops
-either one leaves the pair riding directly under the panel tabs, where it reads
-as two more panel tabs. That is a geometry fact: no unit test can see it,
-because only a real layout engine resolves ``auto`` margins.
+The footer sits at the bottom of the sidebar, below the Tools group, and never
+scrolls off: only the Workspace section gives up height. That is a geometry
+fact no unit test can see, because only a real layout engine resolves the flex
+column.
 
 Coverage:
 
-  (1) left mode (default) — the cluster's bottom sits on the rail region's
-      bottom content edge, and the whole cluster is below the last panel tab.
-  (2) ``?rail=top`` — the cluster's right edge sits on the region's right
-      content edge, and every visible button fits the 40px strip.
-  (3) both modes — each control's label fits its cell, rather than being
-      quietly ellipsised down to an abbreviation nobody chose.
-  (4) the ⋯ More menu opens back toward the rail's start and stays in the
-      window: beside the column with its foot on the button's, or below the
-      strip right-aligned to the button.
-  (5) Feedback hides from its own right-click menu and returns from ⋯ More,
-      staying in the DOM throughout (the status bar's item clicks it by id).
+  (1) at 1280×700 the footer is inside the sidebar and the window, below the
+      ``+ Add panel`` row that closes the Tools group.
+  (2) each footer label fits its row, rather than being quietly ellipsised.
+  (3) the ☰ More menu opens beside the sidebar, stays in the window, and closes
+      on Escape with focus back on its button.
 
 Run:
     .venv/bin/pytest tests/interfaces/web_terminal/test_feedback_rail_browser.py -v
@@ -53,9 +44,11 @@ pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
 #: Sub-pixel slack for a "these two edges coincide" comparison. Chromium
 #: reports fractional device-pixel geometry, so an exact equality on box edges
-#: is a flake waiting to happen; a whole pixel is far below the failure this
-#: suite exists to catch (a lost ``margin: auto`` moves the cluster by hundreds).
+#: is a flake waiting to happen.
 _EDGE_TOLERANCE_PX = 1.0
+
+#: The smallest window the sidebar's height rule is written for.
+_SMALL_VIEWPORT = {"width": 1280, "height": 700}
 
 
 @contextmanager
@@ -64,14 +57,13 @@ def _hub_server(workspace_dir: Path) -> Iterator[str]:
 
     The same patch set every hub browser suite uses: the companion backends are
     bypassed and the artifacts panel reports the standard fallback URL, so the
-    rail renders one real panel tab without a backend process.
+    sidebar renders one real panel row without a backend process.
 
     Yields:
         The hub's base URL.
     """
-    # The feedback and bar-items stores live under the shared data root;
-    # pinning it to this test's workspace keeps a saved rail layout from
-    # leaking into later hub suites in the same worker.
+    # The server-side stores live under the shared data root; pinning it to
+    # this test's workspace keeps one suite's state out of the next.
     shared_root = patch(
         "osprey_connectors.workspace.resolve_shared_data_root", return_value=workspace_dir
     )
@@ -80,13 +72,12 @@ def _hub_server(workspace_dir: Path) -> Iterator[str]:
 
 
 def _open_hub_page(browser: Browser, url: str) -> Page:
-    """Open a hub URL and wait for the rail entries AND the utility cluster.
+    """Open a hub URL at 1280×700 and wait for the panel rows AND the footer.
 
-    The cluster is static markup, but the pin only becomes measurable once
-    ``createRail()`` has filled the nav above it — before that the column has a
-    different amount of free space to absorb.
+    The footer is static markup, but its position only settles once
+    ``createRail()`` has filled the Workspace and Tools groups above it.
     """
-    page = browser.new_page()
+    page = browser.new_page(viewport=_SMALL_VIEWPORT)
     page.goto(url, wait_until="domcontentloaded")
     expect(page.locator('button.panel-rail-button[data-panel-id="artifacts"]')).to_be_attached(
         timeout=10_000
@@ -102,79 +93,37 @@ def _box(page: Page, selector: str) -> dict[str, float]:
     return {**box, "right": box["x"] + box["width"], "bottom": box["y"] + box["height"]}
 
 
-def _padding_px(page: Page, selector: str, side: str) -> float:
-    """One computed padding edge, in CSS pixels.
+def test_footer_sits_below_tools_inside_the_window(tmp_path, chromium_browser):
+    """The footer is the sidebar's last block and stays on screen at 1280×700."""
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
 
-    Read rather than hardcoded: the assertions below are about the cluster
-    reaching the region's *content* edge, and the region's padding is a
-    presentational choice that may legitimately change.
-    """
-    return float(
-        page.evaluate(
-            "([sel, side]) => parseFloat("
-            "  getComputedStyle(document.querySelector(sel)).getPropertyValue('padding-' + side)"
-            ")",
-            [selector, side],
-        )
-    )
+    with _hub_server(workspace) as base_url:
+        page = _open_hub_page(chromium_browser, base_url)
+        try:
+            sidebar = _box(page, "#sidebar")
+            foot = _box(page, ".sidebar-foot")
+            add = _box(page, "#panel-add-btn")
 
-
-def _content_height_px(page: Page, selector: str) -> float:
-    """The element's content-box height, in CSS pixels.
-
-    Read for the same reason ``_padding_px`` is: the strip's height is a
-    presentational choice, and the claim under test is that a button fits
-    *inside whatever the strip is* — not that either one equals 40px.
-    """
-    return float(
-        page.evaluate(
-            "(sel) => {"
-            "  const el = document.querySelector(sel);"
-            "  const cs = getComputedStyle(el);"
-            "  return el.clientHeight"
-            "    - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);"
-            "}",
-            selector,
-        )
-    )
+            assert foot["y"] >= add["bottom"] - _EDGE_TOLERANCE_PX, (
+                "the footer is interleaved with the Tools group"
+            )
+            assert foot["bottom"] <= sidebar["bottom"] + _EDGE_TOLERANCE_PX, (foot, sidebar)
+            assert foot["bottom"] <= _SMALL_VIEWPORT["height"] + _EDGE_TOLERANCE_PX, (
+                "the footer scrolled off the bottom of the window"
+            )
+            expect(page.locator("#panel-feedback-btn")).to_be_in_viewport()
+            expect(page.locator("#more-btn")).to_be_in_viewport()
+        finally:
+            page.close()
 
 
-#: One row per visible utility button: its label and icon boxes, and whether
-#: its content overflows it vertically. A hidden button (the docs anchor
-#: without a configured ``web.docs_url``) has no layout box and is skipped.
-_BUTTON_PARTS_JS = """
-() => Array.from(document.querySelectorAll('#panel-utility .panel-utility-btn'))
-  .filter((btn) => btn.offsetParent !== null)
-  .map((btn) => {
-    const labelEl = btn.querySelector('.panel-utility-label');
-    const icon = btn.querySelector('.panel-utility-icon').getBoundingClientRect();
-    const label = labelEl.getBoundingClientRect();
-    return {
-      label: labelEl.textContent,
-      iconRight: icon.right,
-      iconBottom: icon.bottom,
-      labelLeft: label.left,
-      labelTop: label.top,
-      overflowsY: btn.scrollHeight > btn.clientHeight + 1,
-    };
-  })
-"""
+def test_footer_labels_fit_their_rows_uncut(tmp_path, chromium_browser):
+    """The expanded footer's labels are fully readable, not ellipsised away.
 
-
-def _button_parts(page: Page) -> list[dict]:
-    """The icon/label geometry of every visible utility button."""
-    parts: list[dict] = page.evaluate(_BUTTON_PARTS_JS)
-    assert parts, "no visible utility button to measure"
-    return parts
-
-
-def test_utility_cluster_is_pinned_to_the_bottom_of_the_left_rail(tmp_path, chromium_browser):
-    """Left mode: the cluster's bottom edge is the rail region's bottom edge.
-
-    ``margin-top: auto`` on ``.panel-utility`` eats the column's free space.
-    Without it the cluster rides under the "+" control instead, so the second
-    assertion — a clear gap below the last panel tab — is what distinguishes
-    "pinned to the far end" from "next in the list".
+    ``text-overflow: ellipsis`` means a label that outgrows its row degrades
+    silently rather than overflowing visibly — so the failure this catches is
+    one that no layout exception and no unit test reports.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -182,137 +131,21 @@ def test_utility_cluster_is_pinned_to_the_bottom_of_the_left_rail(tmp_path, chro
     with _hub_server(workspace) as base_url:
         page = _open_hub_page(chromium_browser, base_url)
         try:
-            # State the mode this test measures. The rail can move out from
-            # under a page with no stored pin: app.js couples rail position to
-            # the theme family, and a family whose default is "top" would turn
-            # every assertion below into an opaque edge mismatch rather than
-            # "the page is not in left mode".
-            expect(page.locator("html")).to_have_attribute("data-rail-position", "left")
-
-            region = _box(page, ".panel-rail-region")
-            cluster = _box(page, "#panel-utility")
-            pad_bottom = _padding_px(page, ".panel-rail-region", "bottom")
-
-            content_bottom = region["bottom"] - pad_bottom
-            assert abs(cluster["bottom"] - content_bottom) <= _EDGE_TOLERANCE_PX, (
-                f"utility cluster bottom {cluster['bottom']} is not on the rail region's "
-                f"content bottom {content_bottom} — the margin-top:auto pin is gone"
+            overflow = page.evaluate(
+                "() => Array.from("
+                "  document.querySelectorAll('.sidebar-foot .osprey-nav-label')"
+                ").filter((el) => el.offsetParent !== null)"
+                " .filter((el) => el.scrollWidth > el.clientWidth + 1)"
+                " .map((el) => el.textContent)"
             )
-
-            assert page.locator("button.panel-rail-button").count() >= 1
-            last_tab = _box(page, "button.panel-rail-button >> nth=-1")
-            assert cluster["y"] >= last_tab["bottom"], (
-                "utility cluster overlaps the panel tabs above it"
-            )
-            # ...and below the "+" control, which is the last cell of the tab
-            # block. Both orderings hold whether or not the pin survives, so
-            # they are the ordering half of the contract; the edge assertion
-            # above is what proves the cluster reached the far end.
-            assert cluster["y"] >= _box(page, "#panel-add")["bottom"], (
-                "utility cluster is interleaved with the add-panel control"
-            )
-
-            # Each cell stacks its mark over its label, like a panel entry. A
-            # label beside an 18px mark in the 62px column has no room left.
-            for part in _button_parts(page):
-                assert part["labelTop"] >= part["iconBottom"] - _EDGE_TOLERANCE_PX, (
-                    f"a utility label sits beside its mark in the left column: {part}"
-                )
+            assert overflow == [], f"footer labels are cut off: {overflow}"
         finally:
             page.close()
-
-
-def test_utility_cluster_is_pinned_to_the_right_of_the_top_rail(tmp_path, chromium_browser):
-    """Top mode: the cluster turns the corner — far end becomes far right.
-
-    ``margin-left: auto`` replaces ``margin-top: auto``, and the 52px column
-    cell has to shrink to the 40px strip: the strip does not clip, so an
-    un-overridden button would hang over the workspace below it.
-    """
-    workspace = tmp_path / "_agent_data"
-    workspace.mkdir()
-
-    with _hub_server(workspace) as base_url:
-        page = _open_hub_page(chromium_browser, f"{base_url}/?rail=top")
-        try:
-            expect(page.locator("html")).to_have_attribute("data-rail-position", "top")
-
-            region = _box(page, ".panel-rail-region")
-            cluster = _box(page, "#panel-utility")
-            pad_right = _padding_px(page, ".panel-rail-region", "right")
-
-            content_right = region["right"] - pad_right
-            assert abs(cluster["right"] - content_right) <= _EDGE_TOLERANCE_PX, (
-                f"utility cluster right edge {cluster['right']} is not on the rail region's "
-                f"content right edge {content_right} — the margin-left:auto pin is gone"
-            )
-
-            strip_height = _content_height_px(page, ".panel-rail-region")
-
-            buttons = page.locator("#panel-utility .panel-utility-btn")
-            measured = 0
-            for index in range(buttons.count()):
-                button = buttons.nth(index)
-                box = button.bounding_box()
-                if box is None:
-                    continue  # the docs anchor is hidden without a configured web.docs_url
-                measured += 1
-                assert box["height"] <= strip_height + _EDGE_TOLERANCE_PX, (
-                    f"utility button {index} is {box['height']}px tall — it hangs below the "
-                    f"{strip_height}px strip, which does not clip"
-                )
-            assert measured >= 1, "no visible utility button to measure"
-            assert cluster["bottom"] <= region["bottom"] + _EDGE_TOLERANCE_PX, (
-                "the utility cluster hangs below the top strip"
-            )
-
-            # The stack turns the corner the panel pills do: the label beside
-            # its mark, and nothing spilling out of the 40px strip's cells.
-            for part in _button_parts(page):
-                assert part["labelLeft"] >= part["iconRight"] - _EDGE_TOLERANCE_PX, (
-                    f"a utility label is stacked under its mark in the top strip: {part}"
-                )
-                assert not part["overflowsY"], (
-                    f"a utility button's content overflows the strip vertically: {part}"
-                )
-        finally:
-            page.close()
-
-
-def test_utility_labels_fit_their_cells_uncut(tmp_path, chromium_browser):
-    """Both orientations: the label is fully readable, not ellipsised away.
-
-    "FEEDBACK" is the long one, and in the left column it has 62px minus the
-    cell's own padding to live in. ``text-overflow: ellipsis`` means a label
-    that outgrows its cell degrades silently to "FEEDBA…" rather than
-    overflowing visibly — so the failure this catches is one that no layout
-    exception and no unit test reports. Only a layout engine knows whether the
-    text fits, which is why the check lives here and not in the vitest suite.
-    """
-    workspace = tmp_path / "_agent_data"
-    workspace.mkdir()
-
-    with _hub_server(workspace) as base_url:
-        for url in (base_url, f"{base_url}/?rail=top"):
-            page = _open_hub_page(chromium_browser, url)
-            try:
-                labels = page.locator("#panel-utility .panel-utility-label")
-                assert labels.count() == 3, "the cluster lost a label"
-
-                overflow = page.evaluate(
-                    "() => Array.from("
-                    "  document.querySelectorAll('#panel-utility .panel-utility-label')"
-                    ").filter((el) => el.scrollWidth > el.clientWidth + 1)"
-                    " .map((el) => el.textContent)"
-                )
-                assert overflow == [], f"utility labels are cut off at {url}: {overflow}"
-            finally:
-                page.close()
 
 
 def _menu_fits_viewport(page: Page) -> None:
-    """The open ⋯ More menu lies wholly inside the window."""
-    menu = _box(page, "#rail-more-menu")
+    """The open ☰ More menu lies wholly inside the window."""
+    menu = _box(page, "#more-menu")
     size = page.viewport_size
     assert size is not None
     assert menu["x"] >= -_EDGE_TOLERANCE_PX, menu
@@ -321,89 +154,25 @@ def _menu_fits_viewport(page: Page) -> None:
     assert menu["bottom"] <= size["height"] + _EDGE_TOLERANCE_PX, menu
 
 
-def test_more_menu_opens_beside_the_left_rail_bottom_aligned(tmp_path, chromium_browser):
-    """Left mode: the menu opens right of the column, its foot on the button's.
-
-    The cluster sits at the bottom of the column, so a menu hung from the
-    button's top would run off the bottom of the window.
-    """
+def test_more_menu_opens_beside_the_sidebar(tmp_path, chromium_browser):
+    """The menu opens right of the sidebar, inside the window, and Escape closes it."""
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
 
     with _hub_server(workspace) as base_url:
         page = _open_hub_page(chromium_browser, base_url)
         try:
-            expect(page.locator("html")).to_have_attribute("data-rail-position", "left")
-            page.locator("#rail-more-btn").click()
-            expect(page.locator("#rail-more-menu")).to_be_visible()
-            expect(page.locator("#rail-more-btn")).to_have_attribute("aria-expanded", "true")
+            page.locator("#more-btn").click()
+            expect(page.locator("#more-menu")).to_be_visible()
+            expect(page.locator("#more-btn")).to_have_attribute("aria-expanded", "true")
 
-            button = _box(page, "#rail-more-btn")
-            menu = _box(page, "#rail-more-menu")
-            region = _box(page, ".panel-rail-region")
-            assert menu["x"] >= region["right"] - _EDGE_TOLERANCE_PX, (menu, region)
-            assert abs(menu["bottom"] - button["bottom"]) <= _EDGE_TOLERANCE_PX, (menu, button)
+            menu = _box(page, "#more-menu")
+            sidebar = _box(page, "#sidebar")
+            assert menu["x"] >= sidebar["right"] - _EDGE_TOLERANCE_PX, (menu, sidebar)
             _menu_fits_viewport(page)
-
-            # The rarely used controls are rows here, not rail cells.
-            expect(page.locator("#rail-more-menu .rail-more-label")).to_have_text(
-                ["Take tour", "Activity log"]
-            )
 
             page.keyboard.press("Escape")
-            expect(page.locator("#rail-more-menu")).to_be_hidden()
-            expect(page.locator("#rail-more-btn")).to_be_focused()
-        finally:
-            page.close()
-
-
-def test_more_menu_drops_below_the_top_rail(tmp_path, chromium_browser):
-    """Top mode: the menu opens downward from the strip, right-aligned to the button."""
-    workspace = tmp_path / "_agent_data"
-    workspace.mkdir()
-
-    with _hub_server(workspace) as base_url:
-        page = _open_hub_page(chromium_browser, f"{base_url}/?rail=top")
-        try:
-            expect(page.locator("html")).to_have_attribute("data-rail-position", "top")
-            page.locator("#rail-more-btn").click()
-            expect(page.locator("#rail-more-menu")).to_be_visible()
-
-            button = _box(page, "#rail-more-btn")
-            menu = _box(page, "#rail-more-menu")
-            region = _box(page, ".panel-rail-region")
-            assert menu["y"] >= region["bottom"] - _EDGE_TOLERANCE_PX, (menu, region)
-            assert abs(menu["right"] - button["right"]) <= _EDGE_TOLERANCE_PX, (menu, button)
-            _menu_fits_viewport(page)
-        finally:
-            page.close()
-
-
-def test_feedback_hides_from_its_menu_and_returns_from_more(tmp_path, chromium_browser):
-    """Right-click → Hide Feedback withdraws the button; ⋯ More brings it back.
-
-    The hidden button stays in the DOM, because the status bar's Feedback item
-    reaches the dialog by clicking it.
-    """
-    workspace = tmp_path / "_agent_data"
-    workspace.mkdir()
-
-    with _hub_server(workspace) as base_url:
-        page = _open_hub_page(chromium_browser, base_url)
-        try:
-            feedback = page.locator("#panel-feedback-btn")
-            feedback.click(button="right")
-            page.locator(".rail-context-menu .rail-context-item", has_text="Hide Feedback").click()
-
-            expect(page.locator("html")).to_have_attribute("data-rail-feedback", "hidden")
-            expect(feedback).to_be_hidden()
-            expect(feedback).to_be_attached()
-            expect(page.locator("#undo-notice")).to_contain_text("Feedback hidden")
-
-            page.locator("#rail-more-btn").click()
-            page.locator("#rail-more-menu .rail-more-item", has_text="Show Feedback").click()
-
-            expect(page.locator("html")).to_have_attribute("data-rail-feedback", "visible")
-            expect(feedback).to_be_visible()
+            expect(page.locator("#more-menu")).to_be_hidden()
+            expect(page.locator("#more-btn")).to_be_focused()
         finally:
             page.close()

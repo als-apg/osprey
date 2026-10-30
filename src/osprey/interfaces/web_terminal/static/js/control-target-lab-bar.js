@@ -2,20 +2,21 @@
 /**
  * OSPREY Web Terminal — the control-target bar on an embedded JupyterLab page.
  *
- * A notebook cell writes to the machine, so the question the hub's header chip
- * answers — *if this writes now, where does it land, and will it be refused?* —
- * has to be answerable without leaving the notebook. This module is the whole
- * of that: it is the entry module the panel proxy injects into JupyterLab's
- * `<head>` (`_inject_control_target_bar` in `routes/proxy.py`), and everything
- * below it is the hub's own chip, unchanged.
+ * A notebook cell writes to the machine, so the question the hub's
+ * control-system chip answers — *if this writes now, where does it land, and
+ * will it be refused?* — has to be answerable without leaving the notebook.
+ * This module is the whole of that: it is the entry module the panel proxy
+ * injects into JupyterLab's `<head>` (`_inject_control_target_bar` in
+ * `routes/proxy.py`), and everything below it is the hub's own chip,
+ * unchanged.
  *
- * **One picker per window.** Inside the hub the JUPYTER tab is an iframe under
- * the header, and the header chip is the picker; a second one in the frame
- * would be the same switch drawn twice. So the bar mounts only when the Lab
- * page is its own top-level document — popped out of the hub, or opened at
- * its own address — and does nothing at all when framed: no host, no
- * stylesheets, no stream. The proxy injects the tag either way, because only
- * the page can tell which it is ({@link isEmbedded}).
+ * **One picker per window.** Inside the hub the Jupyter tile is an iframe
+ * beside the sidebar, and the sidebar's chip is the picker; a second one in
+ * the frame would be the same switch drawn twice. So the bar mounts only when
+ * the Lab page is its own top-level document — popped out of the hub, or
+ * opened at its own address — and does nothing at all when framed: no host,
+ * no stylesheets, no stream. The proxy injects the tag either way, because
+ * only the page can tell which it is ({@link isEmbedded}).
  *
  * It owns three things and nothing else:
  *
@@ -62,8 +63,8 @@
  *   saves are 401ing too, and the reload lands on the login explanation), but
  *   anything unsaved since Lab's last autosave goes with it.
  *
- * The page has no `terminal.js`, no bar-item shell and no `.header-actions`,
- * which is exactly why `initControlTargetChip` takes a `host`.
+ * The page has no `terminal.js` and no sidebar, which is exactly why
+ * `initControlTargetChip` takes a `host`.
  */
 
 import { initControlTargetChip, teardownControlTargetChip } from './control-target-chip.js';

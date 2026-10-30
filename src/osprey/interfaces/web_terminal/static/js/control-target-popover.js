@@ -1,15 +1,16 @@
 // @ts-check
 /* OSPREY Web Terminal — Control-Target Popover
  *
- * The panel behind the header chip, answering the three questions an operator
- * opens it with: which machine is the agent on and does writing there move
- * anything real; are writes on, off (their own doing, one click undoes it) or
- * locked (the deployment's, no click here moves it); and where else can the
- * session go. The chip (control-target-chip.js) owns the read, the poll and
- * the state; this module owns the card, the rows and the actions, and never
- * fetches the roster itself — it subscribes to the chip and re-renders from
- * `getState()`, so the popover and the chip can never disagree about the same
- * machine.
+ * The panel behind the control-target chip, answering the three questions an
+ * operator opens it with: which machine is the agent on and does writing
+ * there move anything real; are writes on, off (their own doing, one click
+ * undoes it) or locked (the deployment's, no click here moves it); and where
+ * else can the session go. The chip (control-target-chip.js) owns the read,
+ * the poll and the state; this module owns the card, the rows and the
+ * actions, and never fetches the roster itself — it subscribes to the chip and
+ * re-renders from `getState()`, so the popover and the chip can never disagree
+ * about the same machine. Beside the sidebar it opens fixed at the sidebar's
+ * right edge; under a chip on a page bar it hangs below its trigger.
  *
  * **Two shapes, not one list.** The machine the agent stands on is a card —
  * name, ⓘ, and its writes control. Every other machine is a row: name, ⓘ,
@@ -97,7 +98,8 @@ import {
   renderSwitch,
   writePhraseLine,
 } from './control-target-popover-switch.js';
-import { dismissConfirm, isConfirmUp, showConfirm } from './posture-confirm.js';
+import { dismissConfirm, showConfirm } from './posture-confirm.js';
+import { attachDismissals, placeBesideSidebar } from './control-target-popover-chrome.js';
 
 import {
   CHIP_TOGGLE_EVENT,
@@ -202,11 +204,11 @@ let confirmingMove = null;
 /* ---- mount ---- */
 
 /**
- * Mount the popover under the header chip and keep it current.
+ * Mount the popover beside the chip and keep it current.
  *
- * Idempotent, and a no-op on a page with no chip: the chip mounts into its
- * bar-item shell, `.header-actions`, or a host its caller passes, so on a page
- * with none of those there is nothing to hang under.
+ * Idempotent, and a no-op on a page with no chip: the chip mounts into the
+ * host its caller passes (the sidebar's control-system block, the JupyterLab
+ * bar), so on a page that mounted none there is nothing to hang under.
  *
  * @returns {{open: () => void, close: () => void, isOpen: () => boolean}|null}
  */
@@ -238,7 +240,8 @@ export function initControlTargetPopover() {
  */
 export function teardownControlTargetPopover() {
   dismissConfirm();
-  detachDocumentListeners();
+  detachDismissals?.();
+  detachDismissals = null;
   unsubscribe?.();
   unsubscribe = null;
   getChipElement()?.removeEventListener(CHIP_TOGGLE_EVENT, onChipToggle);
@@ -262,49 +265,12 @@ function onChipToggle(event) {
 
 /* ---- open / close ---- */
 
-/**
- * A click anywhere that is not the chip, the popover, or a confirm raised by
- * it. Capture phase, so it dismisses before the click does anything else.
- * @param {MouseEvent} event
- */
-function onDocumentClick(event) {
-  const target = /** @type {Node|null} */ (event.target);
-  if (!target) return;
-  const anchor = getAnchorElement();
-  if (anchor?.contains(target)) return;
-  // The confirm mounts on `document.body`, outside the anchor, and is a full
-  // layer ABOVE the popover: clicking inside it is the operator answering the
-  // question the popover asked, not leaving the popover.
-  if (target instanceof Element && target.closest('.posture-modal-overlay')) return;
-  closePopover();
-}
+/** Unwires the open popover's dismissals (control-target-popover-chrome.js). */
+let detachDismissals = /** @type {(() => void) | null} */ (null);
 
-/**
- * Escape, in the order the things on screen were opened: a confirm first, the
- * popover only when none is up. Cancelling a confirm and losing the rows it
- * was about in the same keystroke would undo the whole point of leaving the
- * popover open beneath it.
- * @param {KeyboardEvent} event
- */
-function onDocumentKeydown(event) {
-  if (event.key !== 'Escape') return;
-  if (isConfirmUp()) {
-    event.stopPropagation();
-    dismissConfirm();
-    return;
-  }
-  closePopover();
-  getChipElement()?.focus();
-}
-
-function attachDocumentListeners() {
-  document.addEventListener('click', onDocumentClick, true);
-  document.addEventListener('keydown', onDocumentKeydown, true);
-}
-
-function detachDocumentListeners() {
-  document.removeEventListener('click', onDocumentClick, true);
-  document.removeEventListener('keydown', onDocumentKeydown, true);
+function placePopover() {
+  if (!popover) return;
+  placeBesideSidebar(popover, getChipElement(), getAnchorElement()?.closest('#sidebar'));
 }
 
 /** Show the popover, rendered from the chip's current answer. */
@@ -313,8 +279,13 @@ function openPopover() {
   open = true;
   render();
   popover.classList.add('open');
+  placePopover();
   setExpanded(true);
-  attachDocumentListeners();
+  detachDismissals = attachDismissals({
+    anchor: getAnchorElement,
+    close: closePopover,
+    focusChip: () => getChipElement()?.focus(),
+  });
 }
 
 /** Hide the popover, and any confirm it raised. */
@@ -325,7 +296,8 @@ function closePopover() {
   dismissConfirm();
   popover?.classList.remove('open');
   setExpanded(false);
-  detachDocumentListeners();
+  detachDismissals?.();
+  detachDismissals = null;
 }
 
 /* ---- derived facts (the pure ones live in control-target-facts.js) ---- */
@@ -418,6 +390,9 @@ function render() {
   }
 
   popover.append(renderFoot(state));
+  // A re-render while open can change the height the placement kept inside
+  // the window.
+  if (open) placePopover();
   if (focused) focusOption(popover, focused.target, focused.position);
 }
 

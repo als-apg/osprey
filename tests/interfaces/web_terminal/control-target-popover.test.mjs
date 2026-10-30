@@ -3,7 +3,7 @@
  * Unit tests for the control-target popover (control-target-popover.js):
  *   npx vitest run tests/interfaces/web_terminal/control-target-popover.test.mjs
  *
- * The popover is the panel behind the header chip: a card for the machine the
+ * The popover is the panel behind the sidebar's chip: a card for the machine the
  * agent stands on, a row per other configured target, and every gesture that
  * CHANGES where this session writes. It fetches nothing of its own — it
  * subscribes to the chip and renders `getState()` — so these tests drive it
@@ -271,18 +271,21 @@ function stubFetch() {
   );
 }
 
-/** The global header the chip mounts into (index.html's shape). */
+/**
+ * The sidebar's control-system block the chip mounts into (index.html's
+ * shape), and somewhere outside it to click.
+ */
 function mountFixture() {
   document.body.innerHTML = `
-    <header class="header">
-      <div class="header-right">
-        <div class="header-actions">
-          <button id="command-palette-btn" type="button"></button>
-        </div>
-      </div>
-    </header>
+    <nav class="sidebar" id="sidebar" aria-label="Panels">
+      <div class="sidebar-target" id="sidebar-target"></div>
+      <button class="osprey-search" id="command-palette-btn" type="button"></button>
+    </nav>
     <div id="outside"></div>`;
 }
+
+/** The sidebar's control-system block, the host app.js hands the chip. */
+const targetHost = () => /** @type {HTMLElement} */ (document.getElementById('sidebar-target'));
 
 /** Drain the microtask/timer queue the async handlers chain through. */
 async function flush() {
@@ -292,10 +295,11 @@ async function flush() {
 /**
  * Boot the chip and its popover against a roster.
  * @param {any} [payload]
+ * @param {HTMLElement} [host] where the chip mounts; the sidebar's block by default
  */
-async function boot(payload) {
+async function boot(payload, host = targetHost()) {
   served = payload ?? viewOf();
-  chipModule.initControlTargetChip();
+  chipModule.initControlTargetChip({ host });
   popoverModule.initControlTargetPopover();
   await flush();
 }
@@ -418,7 +422,7 @@ describe('mounting', () => {
   });
 
   test('init no-ops on a page with no chip', () => {
-    document.body.innerHTML = '<header></header>';
+    document.body.innerHTML = '<div id="elsewhere"></div>';
     expect(popoverModule.initControlTargetPopover()).toBeNull();
   });
 });
@@ -453,6 +457,86 @@ describe('open and close', () => {
     pressEscape();
     expect(isOpen()).toBe(false);
     expect(document.activeElement).toBe(chipEl());
+  });
+});
+
+describe('beside the sidebar', () => {
+  /**
+   * Give the sidebar a right edge and the chip a top, as layout would.
+   * @param {number} chipTop
+   */
+  function layout(chipTop) {
+    const sidebar = /** @type {HTMLElement} */ (document.getElementById('sidebar'));
+    vi.spyOn(sidebar, 'getBoundingClientRect').mockReturnValue(
+      /** @type {DOMRect} */ ({ left: 0, right: 220, top: 0, bottom: 700, width: 220, height: 700 })
+    );
+    const chip = /** @type {HTMLElement} */ (chipEl());
+    vi.spyOn(chip, 'getBoundingClientRect').mockReturnValue(
+      /** @type {DOMRect} */ ({
+        left: 8,
+        right: 212,
+        top: chipTop,
+        bottom: chipTop + 40,
+        width: 204,
+        height: 40,
+      })
+    );
+  }
+
+  test('opens 8 px right of the sidebar, level with the chip', async () => {
+    await boot();
+    layout(64);
+    chipEl()?.click();
+    await flush();
+    expect(isOpen()).toBe(true);
+    expect(popEl()?.style.left).toBe('228px');
+    expect(popEl()?.style.top).toBe('64px');
+  });
+
+  test('keeps its top inside the window', async () => {
+    await boot();
+    layout(window.innerHeight + 500);
+    chipEl()?.click();
+    await flush();
+    // happy-dom lays nothing out, so the popover is 0 px tall: the clamp is
+    // the window's height less the 8 px margin.
+    expect(popEl()?.style.top).toBe(`${window.innerHeight - 8}px`);
+
+    chipEl()?.click();
+    await flush();
+    layout(-30);
+    chipEl()?.click();
+    await flush();
+    expect(popEl()?.style.top).toBe('8px');
+  });
+
+  test('a window resize closes it', async () => {
+    await bootOpen();
+    window.dispatchEvent(new Event('resize'));
+    expect(isOpen()).toBe(false);
+    expect(chipEl()?.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  test('a change of sidebar width closes it', async () => {
+    await bootOpen();
+    document.dispatchEvent(
+      new CustomEvent('osprey-collapsible-change', {
+        detail: { attribute: 'data-sidebar', state: 'collapsed' },
+      })
+    );
+    expect(isOpen()).toBe(false);
+    expect(chipEl()?.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  test('under a chip outside the sidebar it carries no inline position', async () => {
+    const bar = document.createElement('div');
+    document.body.appendChild(bar);
+    await boot(undefined, bar);
+    chipEl()?.click();
+    await flush();
+    expect(isOpen()).toBe(true);
+    expect(popEl()?.style.left).toBe('');
+    expect(popEl()?.style.top).toBe('');
   });
 });
 

@@ -1,12 +1,11 @@
 // @ts-check
-/* OSPREY Web Terminal — Rail Utility Cluster (Documentation + Feedback)
+/* OSPREY Web Terminal — the sidebar footer's Docs and Feedback rows
  *
- * The rail's two NON-panel controls, pinned to the far end of the rail frame:
- * an anchor to the deployment's documentation and the button that opens the
- * feedback dialog. Their markup is hand-written in index.html beside the
- * entry <nav>, never inside it — panel-rail.js's createRail() calls
- * replaceChildren() on that node, so a control parked in there vanishes the
- * first time a panel renders. (.panel-add is the same arrangement.)
+ * The sidebar's two NON-panel rows above ☰ More, in `.sidebar-foot`: an
+ * anchor to the deployment's documentation and the button that opens the
+ * feedback dialog. Their markup is hand-written in index.html, outside
+ * `#panel-rail` — panel-rail.js's createRail() re-places that list's rows on
+ * every render, and the footer is a fixed part of the sidebar, not a panel.
  *
  * This module owns only the two facts the markup cannot state by itself:
  *
@@ -32,22 +31,27 @@ const DOCS_LINK_ID = 'panel-docs-link';
 const FEEDBACK_BUTTON_ID = 'panel-feedback-btn';
 
 /**
- * Point one documentation anchor at this deployment's documentation site.
+ * Point the sidebar's Docs row at this deployment's documentation site.
  *
- * The rule, in one place, because the rail's anchor and the status bar's Docs
- * link are one affordance in two places and must not drift: the href is the
- * deployment's `web.docs_url` and nothing else, the control ships hidden and is
- * revealed only once it has a target, and anything that is not a non-blank
- * string leaves it hidden and href-less (an air-gapped control room has nothing
- * to point at, and a dead link that opens a blank tab is worse than no link).
- * Two-way, so a later payload moves the anchor in either direction.
+ * The href is the deployment's `web.docs_url` and nothing else, the row ships
+ * hidden and is revealed only once it has a target, and anything that is not
+ * a non-blank string leaves it hidden and href-less (an air-gapped control
+ * room has nothing to point at, and a dead link that opens a blank tab is
+ * worse than no link). Two-way, so a later payload moves the anchor in either
+ * direction.
  *
- * @param {HTMLAnchorElement} link - the anchor to point.
+ * Safe to call with a partial, absent or malformed payload, safe to call on a
+ * page that has no sidebar (it no-ops), and safe to call again with a later
+ * payload.
+ *
  * @param {{docs_url?: unknown}|null|undefined} panelsPayload
  *   The `GET /api/panels` response, or any object carrying its `docs_url`.
  * @returns {void}
  */
-export function applyDocsLink(link, panelsPayload) {
+export function initRailUtility(panelsPayload) {
+  const link = document.getElementById(DOCS_LINK_ID);
+  if (!(link instanceof HTMLAnchorElement)) return;
+
   const configured = panelsPayload == null ? undefined : panelsPayload.docs_url;
   const url = typeof configured === 'string' ? configured.trim() : '';
 
@@ -65,32 +69,14 @@ export function applyDocsLink(link, panelsPayload) {
 }
 
 /**
- * Point the rail's Documentation control at this deployment's documentation
- * site, per {@link applyDocsLink}.
- *
- * Safe to call with a partial, absent or malformed payload, safe to call on a
- * page that has no rail (it no-ops), and safe to call again with a later
- * payload.
- *
- * @param {{docs_url?: unknown}|null|undefined} panelsPayload
- *   The `GET /api/panels` response, or any object carrying its `docs_url`.
- * @returns {void}
- */
-export function initRailUtility(panelsPayload) {
-  const link = document.getElementById(DOCS_LINK_ID);
-  if (!(link instanceof HTMLAnchorElement)) return;
-  applyDocsLink(link, panelsPayload);
-}
-
-/**
- * Register a handler for clicks on the Feedback control.
+ * Register a handler for clicks on the Feedback row.
  *
  * Any number of handlers may be registered; they run in registration order.
  * The click's default action is suppressed so the control never doubles as a
  * form submit or a navigation.
  *
  * @param {() => void} handler - invoked on each click of the Feedback button.
- * @returns {() => void} Unsubscribe. A no-op when the page has no rail.
+ * @returns {() => void} Unsubscribe. A no-op when the page has no sidebar.
  */
 export function onFeedbackClick(handler) {
   const button = document.getElementById(FEEDBACK_BUTTON_ID);

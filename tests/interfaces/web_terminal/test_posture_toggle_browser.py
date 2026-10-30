@@ -277,8 +277,12 @@ def test_the_chip_names_the_recorded_target_and_lists_every_row(
     with chip_hub(tmp_path, monkeypatch) as (base_url, _app, _root):
         page, _session_id = settled_chip(chromium_browser, base_url)
         try:
-            # The chip's home is the global header, never the terminal card's.
-            expect(page.locator(f".header-actions {CHIP}")).to_have_count(1)
+            # The chip's home is the sidebar's control-system block, and the
+            # terminal card's own header carries no control-target affordance.
+            # The badge module is deleted on this branch, so this is the guard
+            # against a second control-target affordance reappearing in the
+            # card rather than a live check.
+            expect(page.locator(f"#sidebar-target {CHIP}")).to_have_count(1)
             expect(page.locator(".terminal-header .posture-badge")).to_have_count(0)
             expect(page.locator(f".terminal-header {CHIP}")).to_have_count(0)
 

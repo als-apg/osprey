@@ -20,36 +20,18 @@
  * bootstrap never fires in this environment (the event has already passed
  * by the time a test module is evaluated) — `initLogoutButton` is exported
  * precisely so it can be driven directly here instead of relying on that
- * bootstrap.
+ * bootstrap. Sign out renders once, as `#logout-btn` in ☰ More.
+ *
+ * sidebar-artifacts.js is mocked: app.js only calls its init, which this file
+ * never reaches.
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
-// The host-chrome import graph below reaches bar-sync.js, which GETs the
-// operator's bar layout at import time. Nothing serves this environment, so
-// that request is answered here — from `vi.hoisted`, which runs before the
-// static imports are evaluated and therefore before the GET is made. Any other
-// URL is a dependency this file has not declared, and fails loudly.
-vi.hoisted(() => {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (/** @type {string} */ url) => {
-      if (url !== '/api/bar-items') throw new Error(`unstubbed fetch: ${url}`);
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          version: 1,
-          rev: 0,
-          header: [],
-          status: [],
-          header_visible: true,
-          status_visible: true,
-        }),
-      };
-    })
-  );
-});
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/sidebar-artifacts.js', () => ({
+  initSidebarArtifacts: vi.fn(),
+  teardownSidebarArtifacts: vi.fn(),
+}));
 
 import { initLogoutButton } from '../../../src/osprey/interfaces/web_terminal/static/js/app.js';
 
@@ -193,40 +175,6 @@ describe('initLogoutButton: click flow', () => {
     releaseFetch();
     await vi.waitFor(() => expect(assign).toHaveBeenCalledTimes(1));
     expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  test('binds the display-menu copy too, and locks only the clicked button', async () => {
-    // Log out renders twice — `#logout-btn` in the header identity menu and
-    // `#display-menu-logout-btn` in the display menu's action row — and one
-    // initLogoutButton() call wires both to the same flow.
-    document.body.innerHTML =
-      '<button id="logout-btn" data-landing-url="/landing"></button>' +
-      '<button id="display-menu-logout-btn" data-landing-url="/landing"></button>';
-    const chipBtn = /** @type {HTMLButtonElement} */ (document.getElementById('logout-btn'));
-    const menuBtn = /** @type {HTMLButtonElement} */ (
-      document.getElementById('display-menu-logout-btn')
-    );
-
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      statusText: 'OK',
-      json: async () => ({ status: 'ok' }),
-    }));
-    vi.stubGlobal('fetch', fetchMock);
-    const assign = vi.fn();
-    vi.stubGlobal('location', { origin: 'http://localhost:5000', assign });
-
-    initLogoutButton();
-    menuBtn.click();
-
-    await vi.waitFor(() => expect(assign).toHaveBeenCalledTimes(1));
-    expect(fetchMock).toHaveBeenCalledWith('/api/terminal/logout', { method: 'POST' });
-    // The in-flight lock lands on the control the operator clicked; the other
-    // copy is left alone (every path navigates away regardless).
-    expect(menuBtn.disabled).toBe(true);
-    expect(menuBtn.getAttribute('aria-busy')).toBe('true');
-    expect(chipBtn.disabled).toBe(false);
   });
 
   test('a failed logout request still clears storage and navigates (best effort)', async () => {

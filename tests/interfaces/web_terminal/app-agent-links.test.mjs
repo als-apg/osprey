@@ -13,39 +13,24 @@
  * Seams as in app-paste-bridge.test.mjs: terminal.js is mocked whole and app.js
  * is imported once, statically, with `initAgentLinks` exported so it can be
  * driven directly. panel-manager.js keeps its real exports except the two the
- * wiring reads.
+ * wiring reads. sidebar-artifacts.js is mocked: app.js only calls its init,
+ * which this file never reaches.
  */
 
 import { describe, expect, test, vi } from 'vitest';
 
-// The host-chrome import graph below reaches bar-sync.js, which GETs the
-// operator's bar layout at import time. Nothing serves this environment, so
-// that request is answered here — from `vi.hoisted`, which runs before the
-// static imports are evaluated and therefore before the GET is made. Any other
+// `/api/panels` names the loopback ports the wiring reads. Stubbed from
+// `vi.hoisted`, which runs before the static imports are evaluated. Any other
 // URL is a dependency this file has not declared, and fails loudly.
 vi.hoisted(() => {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (/** @type {string} */ url) => {
-      if (url === '/api/panels') {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ loopback_ports: { artifacts: 10200 } }),
-        };
-      }
-      if (url !== '/api/bar-items') throw new Error(`unstubbed fetch: ${url}`);
+      if (url !== '/api/panels') throw new Error(`unstubbed fetch: ${url}`);
       return {
         ok: true,
         status: 200,
-        json: async () => ({
-          version: 1,
-          rev: 0,
-          header: [],
-          status: [],
-          header_visible: true,
-          status_visible: true,
-        }),
+        json: async () => ({ loopback_ports: { artifacts: 10200 } }),
       };
     })
   );
@@ -91,6 +76,11 @@ vi.mock(
     };
   }
 );
+
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/sidebar-artifacts.js', () => ({
+  initSidebarArtifacts: vi.fn(),
+  teardownSidebarArtifacts: vi.fn(),
+}));
 
 import { initAgentLinks } from '../../../src/osprey/interfaces/web_terminal/static/js/app.js';
 

@@ -27,36 +27,20 @@ import { initScaffoldGallery } from './scaffold-gallery.js';
 import { initHookDebug } from './hook-debug.js';
 import { initSessionSelector, startNewSession } from './sessions.js';
 import { initCommandPalette } from './palette-boot.js';
-import { initRailMoreMenu } from './rail-more-menu.js';
-import {
-  getFamily,
-  initTheme,
-  subscribe as subscribeTheme,
-} from '/design-system/js/theme-manager.js';
+import { initMoreMenu } from './more-menu.js';
+import { initTheme } from '/design-system/js/theme-manager.js';
 import { onModeChange } from '/design-system/js/frame-params.js';
-import '/design-system/js/components/osprey-display-menu.js';
+import { isMacPlatform } from '/design-system/js/platform.js';
 import { initChat, enterFromExpert, renderChatBootFailure } from './chat.js';
 import { initDockWorkspace, applyDockMode } from './dock-workspace.js';
 import { initHeaderContrib } from './tile-header-contrib.js';
-import { initIdentityMenu } from './identity-menu.js';
 import { initControlTargetChip } from './control-target-chip.js';
 import { insertPrompt } from './first-contact.js';
 import { initControlTargetPopover } from './control-target-popover.js';
-import { followThemeFamily, getRailPosition, setRailPosition } from './rail-position.js';
 import { initFeedback } from './feedback-boot.js';
-// The bar stack, in the order its own contract requires. bar-host.js hydrates
-// the server-rendered shells SYNCHRONOUSLY at import time (no fetch, no await),
-// and bar-items.js — which imports it — registers the body builder for every
-// non-adopted item; registering fills any already-hydrated shell of that type,
-// so import order between the two cannot leave an item blank. Both are bare
-// imports because their whole contribution is that side effect. What is left
-// for boot to do is the ladder, which needs a laid-out page (see initBars).
-import './bar-items.js';
-import './bar-item-queue.js';
-import './bar-item-health.js';
-import { deploymentContext } from './bar-sync.js';
-import './bar-customize.js';
-import { watchCrowding } from './bar-overflow.js';
+import { initSidebar } from './sidebar.js';
+import { initSidebarTarget } from './sidebar-target.js';
+import { initSidebarArtifacts } from './sidebar-artifacts.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   initTheme({ role: 'hub' });
@@ -90,6 +74,9 @@ document.addEventListener('DOMContentLoaded', () => {
   } catch (err) {
     console.error('Failed to init artifact links:', err);
   }
+  // The sidebar shell — width toggle (Cmd/Ctrl+\), tooltips, list disclosure,
+  // the Agent row — before the panel manager renders its rows into it.
+  initSidebar();
   // Before the panel manager creates any iframe, so no contribution can
   // arrive without a listener.
   initHeaderContrib();
@@ -103,35 +90,25 @@ document.addEventListener('DOMContentLoaded', () => {
   } catch (err) {
     console.error('Failed to init dock workspace:', err);
   }
+  // The sidebar's Artifacts and Script runs lists. Their rows are page-owned,
+  // so they exist already; the lists follow every later sidebar render
+  // through `osprey-sidebar-rendered`.
+  try {
+    initSidebarArtifacts();
+  } catch (err) {
+    console.error('Failed to init the sidebar artifact lists:', err);
+  }
   initKeyboardShortcuts();
   initCommandPalette();
   try {
-    initRailMoreMenu({ getSessionId: getCurrentSessionId });
+    initMoreMenu({ getSessionId: getCurrentSessionId });
   } catch (err) {
-    console.error('Failed to init the rail More menu:', err);
+    console.error('Failed to init the More menu:', err);
   }
   initNewSessionButton();
   initLogoutButton();
   initUiModeFollowUps();
-  initDisplayMenu();
-  initIdentityMenu();
-  // The control-target chip: which machine this session stands on, and
-  // whether a write there would land. Mounts itself into `.header-actions`
-  // ahead of the palette trigger and stays hidden until the terminal reports
-  // a session, so boot order only needs the static header markup.
-  // With the picker switched off neither mounts, so no chip lands in the
-  // header-actions fallback and nothing reads the posture route.
-  const controlTargetAvailable = deploymentContext(document).controlTargetAvailable;
-  if (controlTargetAvailable) initControlTargetChip();
-  // Its popover — the roster and every gesture that changes where this session
-  // writes. Mounts under the chip's own positioning context, so it has to
-  // follow the chip's init and no-ops on a page that renders no chip.
-  if (controlTargetAvailable) initControlTargetPopover();
-  // Last of the bar wiring, and deliberately after the chip: the ladder's first
-  // pass MEASURES the bars, and a bar measured before its widest item mounted
-  // would report room it does not have.
-  initBars();
-  initRailPosition();
+  initControlSystemBlock();
   initFeedbackDialog();
   initDrawerTriggerHighlight();
   initSettings();
@@ -141,6 +118,31 @@ document.addEventListener('DOMContentLoaded', () => {
   // Listen for paste requests from embedded iframes (gallery, ARIEL)
   initIframePasteBridge();
 });
+
+/* ---- Control-system block ---- */
+
+/**
+ * The sidebar's control-system block. The chip — which machine this session
+ * stands on, and whether a write there would land — mounts into
+ * `#sidebar-target` and stays hidden until its first read answers; its
+ * popover, the roster and every gesture that changes where this session
+ * writes, mounts beside it. A deployment without the picker
+ * (`html[data-control-target="off"]`, stamped by the server) mounts neither
+ * and reads nothing from the posture route; the block then shows the health
+ * dot and the facility clock alone. Guarded: a failure here costs the block,
+ * not the rest of boot.
+ */
+function initControlSystemBlock() {
+  try {
+    if (document.documentElement.dataset.controlTarget !== 'off') {
+      initControlTargetChip({ host: document.getElementById('sidebar-target') });
+      initControlTargetPopover();
+    }
+    initSidebarTarget();
+  } catch (err) {
+    console.error('Failed to init the control-system block:', err);
+  }
+}
 
 /* ---- New Session Button ---- */
 
@@ -163,42 +165,36 @@ function initNewSessionButton() {
 /* ---- Logout Button ---- */
 
 /**
- * Log out renders in TWO places — `#logout-btn` in the header identity chip's
- * menu and `#display-menu-logout-btn` in the display menu's action row — and
- * both are only present in the DOM when the server rendered a non-empty
- * `landing_url` (multi-user deployments). Plain `osprey web` never emits
- * either button, so this is a no-op there. The flow itself is logout.js's,
- * shared with the command palette, which offers Log out with neither button
- * on the page.
+ * Sign out renders in the More menu as `#logout-btn`, present only when the
+ * server rendered a user and a non-empty `landing_url` (multi-user
+ * deployments). Plain `osprey web` never emits it, so this is a no-op there.
+ * The flow itself is logout.js's, shared with the command palette, which
+ * offers Log out with no button on the page.
  *
  * Exported for testability (see app-logout.test.mjs) — the module's
  * DOMContentLoaded bootstrap never fires the button wiring on its own once
  * that event has already passed, e.g. in a test environment.
  */
 export function initLogoutButton() {
-  for (const id of ['logout-btn', 'display-menu-logout-btn']) {
-    const btn = /** @type {HTMLButtonElement|null} */ (document.getElementById(id));
-    if (!btn) continue;
-
-    const landingUrl = btn.dataset.landingUrl;
-    if (!landingUrl) continue;
-
-    btn.addEventListener('click', () => logout(landingUrl, btn));
-  }
+  const btn = /** @type {HTMLButtonElement|null} */ (document.getElementById('logout-btn'));
+  const landingUrl = btn?.dataset.landingUrl;
+  if (!btn || !landingUrl) return;
+  btn.addEventListener('click', () => logout(landingUrl, btn));
 }
 
 /* ---- UI Mode Toggle (Expert / Simple) ---- */
 
 /**
- * The hub-only half of an Expert/Simple flip. The View row of the header
- * `<osprey-display-menu>` owns the pick itself — it persists the choice,
- * drops a leftover one-shot ?mode=, and posts the same-origin
- * `osprey-mode-change` message to this window — and frame-params.js's shared
- * receive side stamps html[data-ui-mode] before handing the mode here. What
- * follows is what only the hub has to do with it: broadcast to the panels,
- * the dock and panel follow-ups, then hand the session to the view the
- * operator flipped to. mode-boot.js already resolved the initial mode
- * pre-paint, so this only ever handles the runtime flip.
+ * The hub-only half of an Expert/Simple flip. The View rows of the More menu
+ * (more-menu.js) and the command palette own the pick itself — through
+ * frame-params.js's `pickUiMode()`, which persists the choice, drops a
+ * leftover one-shot ?mode=, and posts the same-origin `osprey-mode-change`
+ * message to this window — and frame-params.js's shared receive side stamps
+ * html[data-ui-mode] before handing the mode here. What follows is what only
+ * the hub has to do with it: broadcast to the panels, the dock and panel
+ * follow-ups, then hand the session to the view the operator flipped to.
+ * mode-boot.js already resolved the initial mode pre-paint, so this only ever
+ * handles the runtime flip.
  *
  * Exported for testability (see app-mode-flip.test.mjs) — the module's
  * DOMContentLoaded bootstrap never fires on its own once that event has
@@ -276,28 +272,12 @@ function handOffSession(mode) {
 }
 
 /**
- * The hub's glue around the header `<osprey-display-menu>`: its projected
- * Settings row is the one entry that closes the card, because opening the
- * drawer moves the operator to another surface. The component leaves
- * projected children alone by design (the projected Log out must NOT be
- * closed away — see index.html), so the hub asks for the close itself. The
- * open itself stays settings.js's: it binds the same `[data-drawer-trigger]`
- * button behind its first-time warning gate.
- */
-function initDisplayMenu() {
-  const menu = /** @type {any} */ (document.getElementById('display-menu'));
-  const settings = document.getElementById('display-menu-settings');
-  if (!menu || !settings || typeof menu.closeMenu !== 'function') return;
-  settings.addEventListener('click', () => menu.closeMenu());
-}
-
-/**
- * Wire the rail's utility cluster (Documentation + Feedback) and the feedback
- * dialog — see feedback-boot.js, which owns the whole arrangement.
+ * Wire the sidebar footer's Docs and Feedback rows and the feedback dialog —
+ * see feedback-boot.js, which owns the whole arrangement.
  *
  * Returns as soon as the button is live; the deployment's own config arrives
  * over HTTP afterwards and fills itself in. Guarded like the other
- * network-dependent inits above, so a failure costs the two rail controls and
+ * network-dependent inits above, so a failure costs the two footer rows and
  * nothing more.
  *
  * Both terminal dependencies are injected from here rather than imported
@@ -319,30 +299,6 @@ function initFeedbackDialog() {
   }
 }
 
-/**
- * Adopt a one-shot `?rail=` as an explicit choice. rail-boot.js already
- * stamped the attribute pre-paint; re-setting it through setRailPosition
- * persists it and strips the param, so a reload (or a stale bookmark of the
- * bare URL) keeps the arrangement the link put the operator in. No `?rail=`
- * means nothing to adopt — the boot-resolved position already IS the stored
- * or configured one.
- */
-function initRailPosition() {
-  // Follow the theme family for as long as neither the operator nor the
-  // deployment has pinned a rail of their own: picking Retro hands back the
-  // pre-redesign look, and the horizontal tab strip is part of that look.
-  // followThemeFamily() decides whether the move is allowed; this only tells
-  // it which family is now active, on every apply (init included).
-  subscribeTheme(() => followThemeFamily(getFamily()));
-
-  try {
-    if (!new URLSearchParams(window.location.search).has('rail')) return;
-  } catch {
-    return;
-  }
-  setRailPosition(getRailPosition());
-}
-
 /* ---- Drawer Trigger Highlight ---- */
 
 /**
@@ -352,11 +308,10 @@ function initRailPosition() {
  * this via the `drawer:open`/`drawer:close` events the component dispatches
  * (bubbling) on the host, matching any trigger for that drawer id — either
  * the component's own `[data-drawer]` marker, or `[data-drawer-trigger]`,
- * web_terminal's convention for a trigger (like the display menu's System
- * Settings row) that
- * needs its own gating logic before opening and so must never match the
- * component's delegated `[data-drawer]` handler. Either way the highlight
- * stays in sync.
+ * web_terminal's convention for a trigger (like the More menu's Settings
+ * row) that needs its own gating logic before opening and so must never
+ * match the component's delegated `[data-drawer]` handler. Either way the
+ * highlight stays in sync.
  */
 function initDrawerTriggerHighlight() {
   const setActive = (/** @type {boolean} */ active) => (/** @type {Event} */ event) => {
@@ -368,46 +323,6 @@ function initDrawerTriggerHighlight() {
   };
   document.addEventListener('drawer:open', setActive(true));
   document.addEventListener('drawer:close', setActive(false));
-}
-
-/* ---- Item bars (header + status) ---- */
-
-/**
- * The last step of standing the two item bars up.
- *
- * This replaces `initStatusBar()`, which wrote the WS dot, the terminal
- * dimensions and the clock into three hardcoded ids. All three are bar ITEMS
- * now (`connection`, `terminal-size`, `clock` in bar-items.js), which is not
- * just a move: each owns its own subscription and hands back a disposer, so an
- * item the operator folds away stops working instead of writing forever into a
- * pooled node. The retired function armed two bare `setInterval`s at boot, kept
- * no handle to either, and \u2014 on any layout that did not render those ids \u2014 ran
- * them against `null` for the life of the page.
- *
- * Everything the bars need at first paint has already happened by the time this
- * runs, at IMPORT time and with no network in the path (see the bar imports at
- * the top of this file). What is left is the overflow ladder, which is the one
- * part that cannot run early: it measures.
- *
- * bar-overflow.js's wiring contract is two calls, and this is the first of
- * them \u2014 `watchCrowding(document)` ONCE, which runs a first pass itself and
- * re-runs it whenever a host changes width. The second, `applyOverflow(document)`
- * after every `reconcile()`, has no site yet: nothing reconciles in this phase,
- * because the layout each deployment gets is the one the server rendered. The
- * saved-layout store that lands next owns its own reconcile and calls
- * `applyOverflow()` there \u2014 a fold decided against the previous layout's widths
- * is a stale fold.
- *
- * Guarded like the other boot steps: a throw here would cost the operator the
- * rail position, the feedback dialog, settings and both galleries, which is a
- * far worse trade than a bar that does not fold.
- */
-function initBars() {
-  try {
-    watchCrowding(document);
-  } catch (err) {
-    console.error('Failed to watch bar crowding:', err);
-  }
 }
 
 /* ---- Iframe Paste Bridge ---- */
@@ -594,12 +509,28 @@ function panelIdForMessageSource(source) {
 
 /* ---- Keyboard Shortcuts ---- */
 
+/** The Settings row's trigger contract (settings-warning-gate.js binds it). */
+const SETTINGS_TRIGGER = '[data-drawer-trigger="settings-drawer"]';
+
+/**
+ * Ctrl+` focuses the terminal; Cmd+, (macOS) / Ctrl+, opens or closes the
+ * settings drawer through the same click the More menu's Settings row takes,
+ * so the warning gate runs exactly as it does there. Cmd/Ctrl+\ (the
+ * sidebar's width) and Cmd/Ctrl+K (the palette) are bound by their own
+ * modules.
+ */
 function initKeyboardShortcuts() {
+  const mac = isMacPlatform();
   document.addEventListener('keydown', (e) => {
-    // Ctrl+` — focus terminal
     if (e.ctrlKey && e.key === '`') {
       e.preventDefault();
       focusTerminal();
+      return;
     }
+    if (e.key !== ',' || !(mac ? e.metaKey : e.ctrlKey) || e.altKey || e.shiftKey) return;
+    const trigger = /** @type {HTMLElement | null} */ (document.querySelector(SETTINGS_TRIGGER));
+    if (!trigger) return;
+    e.preventDefault();
+    trigger.click();
   });
 }

@@ -51,20 +51,28 @@ import { FACILITY_ZONE, stampFacilityZone } from '../_support/facility-zone.mjs'
 // engine in dock-iframe.js / dock-sync.js. `dockState.api` stays null by
 // default, which is exactly what the real getDockApi returns with no dockview
 // shell — every test that does not opt in keeps running in fallback mode.
-const { getDockApi, openTerminalPanel, closeTerminalPanel, resetDockLayout, dockState } =
-  vi.hoisted(() => ({
-    dockState: { api: /** @type {any} */ (null) },
-    getDockApi: vi.fn(() => /** @type {any} */ (null)),
-    openTerminalPanel: vi.fn(),
-    closeTerminalPanel: vi.fn(),
-    resetDockLayout: vi.fn(),
-  }));
+const {
+  getDockApi,
+  openTerminalPanel,
+  closeTerminalPanel,
+  isTerminalPanelOpen,
+  resetDockLayout,
+  dockState,
+} = vi.hoisted(() => ({
+  dockState: { api: /** @type {any} */ (null) },
+  getDockApi: vi.fn(() => /** @type {any} */ (null)),
+  openTerminalPanel: vi.fn(),
+  closeTerminalPanel: vi.fn(),
+  isTerminalPanelOpen: vi.fn(() => true),
+  resetDockLayout: vi.fn(),
+}));
 getDockApi.mockImplementation(() => dockState.api);
 
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js', () => ({
   getDockApi,
   openTerminalPanel,
   closeTerminalPanel,
+  isTerminalPanelOpen,
   resetDockLayout,
   // Pulled in by dock-iframe.js on the transitive import chain; a mock must
   // supply them or they resolve to undefined.
@@ -78,22 +86,23 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js
 // boundary so a menu pick can be asserted as the call it makes — the restart
 // PAIR above all, which is a correctness contract, not a detail: restartTerminal
 // tears the PTY down without reconnecting.
-// Only the three verbs are replaced: terminal.js is already on the import
+// Only the four verbs are replaced: terminal.js is already on the import
 // chain (panel-iframe-sync reads the live session id from it), so a whole-module
 // stub would strand that reader — these are partial mocks, registered per
 // import next to the dock-iframe one below for the same freshness reason.
 const TERMINAL_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/terminal.js';
 const SESSIONS_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/sessions.js';
-const { restartTerminal, startTerminal, startNewSession } = vi.hoisted(() => ({
+const { restartTerminal, startTerminal, focusTerminal, startNewSession } = vi.hoisted(() => ({
   restartTerminal: vi.fn(async () => {}),
   startTerminal: vi.fn(),
+  focusTerminal: vi.fn(),
   startNewSession: vi.fn(),
 }));
 
 /** @param {() => Promise<unknown>} importOriginal */
 async function terminalWithVerbSpies(importOriginal) {
   const actual = /** @type {Record<string, unknown>} */ (await importOriginal());
-  return { ...actual, restartTerminal, startTerminal };
+  return { ...actual, restartTerminal, startTerminal, focusTerminal };
 }
 
 /** @param {() => Promise<unknown>} importOriginal */
@@ -1233,7 +1242,7 @@ describe('rail membership (launcher model: entry ⇔ member, never dimmed)', () 
     expect(strip).not.toHaveBeenCalled();
   });
 
-  test('the SESSION (terminal) entry is always present and enabled', async () => {
+  test('the Agent (terminal) row is always present and enabled', async () => {
     await bootMembership();
     const term = entry('terminal');
     expect(term).not.toBeNull();
@@ -1386,8 +1395,8 @@ const menuRow = (label) =>
   );
 
 /**
- * Right-click a rail surface the way the browser does — on the entry button or
- * on a child of it (the "×" corner), letting the event bubble. The returned
+ * Right-click a sidebar row the way the browser does — on the row button or
+ * on a child of it, letting the event bubble. The returned
  * event's `defaultPrevented` is the visible half of the handler's boolean:
  * true means a menu was claimed and the browser's native menu is suppressed.
  * @param {Element} el
@@ -2704,7 +2713,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     open.mockRestore();
   });
 
-  test('"Remove from rail" POSTs the same membership change the "×" does', async () => {
+  test('"Remove from rail" POSTs the same membership change the Delete key does', async () => {
     const { calls } = await bootWorkspace();
 
     rightClick(entry('ariel'));
@@ -2717,20 +2726,33 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(JSON.parse(post.opts.body)).toEqual({ panel: 'ariel', visible: false });
   });
 
-  test('Focus on the ALREADY-active panel is a no-op — never the entry click’s retire branch', async () => {
+  test('Focus on the ALREADY-active panel is a no-op — never the row click’s retire branch', async () => {
     const { api } = await bootWorkspace();
     expect(activeStamp()).toBe('artifacts');
 
     rightClick(entry('artifacts'));
-    /** @type {HTMLElement} */ (menuRow('Focus WORKSPACE')).click();
+    /** @type {HTMLElement} */ (menuRow('Focus Artifacts')).click();
 
     expect(dockedTiles(api)).toContain('artifacts');
     expect(activeStamp()).toBe('artifacts');
 
-    // The contrast that makes the row’s wording true: clicking the entry
+    // The contrast that makes the row’s wording true: clicking a plain row
     // itself toggles, and DOES retire the tile it is already showing.
     entry('artifacts').click();
     expect(dockedTiles(api)).not.toContain('artifacts');
+  });
+
+  test('a parent row (Artifacts) only ever brings its tile forward, never retires it', async () => {
+    const { api } = await bootWorkspace();
+    expect(activeStamp()).toBe('artifacts');
+    // The page ships the Artifacts row as a `.parent`: its click opens the
+    // row's list, which is what the operator reached for.
+    entry('artifacts').classList.add('parent');
+
+    entry('artifacts').click();
+
+    expect(dockedTiles(api)).toContain('artifacts');
+    expect(activeStamp()).toBe('artifacts');
   });
 
   test('Focus surfaces a member that holds no tile', async () => {
@@ -2756,22 +2778,17 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     ]);
   });
 
-  test('a disabled entry gets no menu — not by right-click, not through its still-live "×"', async () => {
+  test('a disabled entry gets no menu, and the browser keeps its own', async () => {
     await bootWorkspace({ panels: ['artifacts', 'ariel'], unhealthy: ['ariel'] });
     expect(entry('ariel').classList.contains('disabled')).toBe(true);
 
     // The gate is the handler’s, not the CSS’s: happy-dom applies no
-    // pointer-events, so these dispatches are exactly the two routes that get
-    // past `pointer-events: none` in a real browser.
+    // pointer-events, so this dispatch is exactly the route that gets past
+    // `pointer-events: none` in a real browser.
     const onEntry = rightClick(entry('ariel'));
     expect(contextMenu()).toBeNull();
     // Declining leaves the event alone, so the browser’s own menu still shows.
     expect(onEntry.defaultPrevented).toBe(false);
-
-    const close = /** @type {Element} */ (entry('ariel').querySelector('.panel-rail-close'));
-    const onClose = rightClick(close);
-    expect(contextMenu()).toBeNull();
-    expect(onClose.defaultPrevented).toBe(false);
   });
 
   test('the keyboard route obeys the same gate', async () => {
@@ -2789,7 +2806,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(opened.defaultPrevented).toBe(true);
   });
 
-  test('the terminal entry offers the session verbs, and pairs restart with reconnect', async () => {
+  test('the Agent row offers the session verbs, and pairs restart with reconnect', async () => {
     await bootWorkspace();
 
     const ev = rightClick(entry('terminal'));
@@ -2799,9 +2816,9 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
       'Restart terminal',
       'New session',
       'Reset layout',
-      'Close terminal tile',
+      'Close Agent pane',
     ]);
-    expect(contextMenu()?.getAttribute('aria-label')).toBe('SESSION actions');
+    expect(contextMenu()?.getAttribute('aria-label')).toBe('Agent actions');
 
     /** @type {HTMLElement} */ (menuRow('Restart terminal')).click();
     await settled(() => expect(startTerminal).toHaveBeenCalled());
@@ -2813,7 +2830,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     );
   });
 
-  test('the terminal entry’s other verbs reach the session list and the dock', async () => {
+  test('the Agent row’s other verbs reach the session list and the dock', async () => {
     await bootWorkspace();
 
     rightClick(entry('terminal'));
@@ -2821,7 +2838,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(startNewSession).toHaveBeenCalled();
 
     rightClick(entry('terminal'));
-    /** @type {HTMLElement} */ (menuRow('Close terminal tile')).click();
+    /** @type {HTMLElement} */ (menuRow('Close Agent pane')).click();
     expect(closeTerminalPanel).toHaveBeenCalled();
 
     // Reset puts the current view's default arrangement back.
@@ -2830,7 +2847,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(resetDockLayout).toHaveBeenCalledTimes(1);
   });
 
-  test('simple mode keeps only the layout rows on the terminal menu', async () => {
+  test('simple mode keeps only the layout rows on the Agent menu', async () => {
     await bootWorkspace({ mode: 'simple' });
 
     // The tile hosts the operator console there, so the two PTY verbs would
@@ -2839,12 +2856,53 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     const ev = rightClick(entry('terminal'));
 
     expect(ev.defaultPrevented).toBe(true);
-    expect(menuLabels()).toEqual(['Reset layout', 'Close terminal tile']);
+    expect(menuLabels()).toEqual(['Reset layout', 'Close Agent pane']);
     /** @type {HTMLElement} */ (menuRow('Reset layout')).click();
     expect(resetDockLayout).toHaveBeenCalledTimes(1);
     rightClick(entry('terminal'));
-    /** @type {HTMLElement} */ (menuRow('Close terminal tile')).click();
+    /** @type {HTMLElement} */ (menuRow('Close Agent pane')).click();
     expect(closeTerminalPanel).toHaveBeenCalled();
+  });
+
+  test('a click on the Agent row opens the pane and focuses the terminal — twice, never a close', async () => {
+    await bootWorkspace();
+    openTerminalPanel.mockClear();
+    focusTerminal.mockClear();
+
+    entry('terminal').click();
+    entry('terminal').click();
+
+    expect(openTerminalPanel).toHaveBeenCalledTimes(2);
+    expect(focusTerminal).toHaveBeenCalledTimes(2);
+    expect(closeTerminalPanel).not.toHaveBeenCalled();
+  });
+
+  test('in simple mode the Agent row puts the caret in the chat composer', async () => {
+    await bootWorkspace({ mode: 'simple' });
+    focusTerminal.mockClear();
+    const operator = document.createElement('div');
+    operator.id = 'operator-container';
+    const composer = document.createElement('textarea');
+    operator.append(composer);
+    document.body.append(operator);
+
+    entry('terminal').click();
+
+    expect(openTerminalPanel).toHaveBeenCalled();
+    expect(document.activeElement).toBe(composer);
+    expect(focusTerminal).not.toHaveBeenCalled();
+    expect(closeTerminalPanel).not.toHaveBeenCalled();
+  });
+
+  test('an Agent pane that did not open takes no focus', async () => {
+    await bootWorkspace();
+    focusTerminal.mockClear();
+    isTerminalPanelOpen.mockReturnValueOnce(false);
+
+    entry('terminal').click();
+
+    expect(openTerminalPanel).toHaveBeenCalled();
+    expect(focusTerminal).not.toHaveBeenCalled();
   });
 });
 
@@ -2879,7 +2937,7 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
     expect(railIds()).toEqual(['terminal', 'artifacts', 'lattice']);
 
     /** @type {HTMLElement} */ (undoButton()).click();
-    // The position counts panel entries only — SESSION is not one of them.
+    // The position counts panel rows only — the Agent row is not one of them.
     await settled(() =>
       expect(visibilityBodies(calls).at(-1)).toEqual({ panel: 'ariel', visible: true, index: 1 })
     );
@@ -2888,11 +2946,18 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
     expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'lattice']);
   });
 
-  test('the entry\'s "×" corner offers the same Undo', async () => {
+  /** Press Delete on a focused row, as an operator removing it from the keyboard.
+   *  @param {string} id */
+  const pressDelete = (id) =>
+    entry(id).dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true })
+    );
+
+  test('the row’s Delete key offers the same Undo', async () => {
     const { calls } = await bootWorkspace({ panels: PANELS3 });
 
-    /** @type {HTMLElement} */ (entry('artifacts').querySelector('.panel-rail-close')).click();
-    await settled(() => expect(notice()?.textContent).toContain('WORKSPACE removed from the rail'));
+    pressDelete('artifacts');
+    await settled(() => expect(notice()?.textContent).toContain('Artifacts removed from the rail'));
     /** @type {HTMLElement} */ (undoButton()).click();
     await settled(() =>
       expect(visibilityBodies(calls).at(-1)).toEqual({
@@ -2940,16 +3005,28 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
     const { emit } = await bootWorkspace({ panels: PANELS3, visible: ['artifacts', 'lattice'] });
     expect(railIds()).toEqual(['terminal', 'artifacts', 'lattice']);
 
-    emit({ type: 'panel_visibility', panel: 'ariel', visible: true, index: 0 });
-    expect(railIds()).toEqual(['terminal', 'ariel', 'artifacts', 'lattice']);
+    // Index 1 among the panel rows: after artifacts, before lattice.
+    emit({ type: 'panel_visibility', panel: 'ariel', visible: true, index: 1 });
+    expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'lattice']);
 
     emit({ type: 'panel_visibility', panel: 'ariel', visible: true, index: 2 });
-    expect(railIds()).toEqual(['terminal', 'ariel', 'artifacts', 'lattice']);
+    expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'lattice']);
 
-    // Past the end clamps to the foot of the rail.
+    // Past the end clamps to the foot of Tools.
+    emit({ type: 'panel_visibility', panel: 'ariel', visible: false });
+    emit({ type: 'panel_visibility', panel: 'ariel', visible: true, index: 9 });
+    expect(railIds()).toEqual(['terminal', 'artifacts', 'lattice', 'ariel']);
+
+    // An index naming a Workspace row lands at the head of Tools: the
+    // Workspace rows keep the sidebar's fixed order.
+    emit({ type: 'panel_visibility', panel: 'ariel', visible: false });
+    emit({ type: 'panel_visibility', panel: 'ariel', visible: true, index: 0 });
+    expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'lattice']);
+
+    // A Workspace panel comes back to its own place whatever the index.
     emit({ type: 'panel_visibility', panel: 'artifacts', visible: false });
     emit({ type: 'panel_visibility', panel: 'artifacts', visible: true, index: 9 });
-    expect(railIds()).toEqual(['terminal', 'ariel', 'lattice', 'artifacts']);
+    expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'lattice']);
   });
 
   test('Undo also reopens the tile the removal closed, and only that', async () => {
@@ -2957,7 +3034,7 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
     expect(dockedTiles(api)).toEqual(['artifacts']);
 
     // artifacts holds a tile; its removal closes it, and Undo brings it back.
-    /** @type {HTMLElement} */ (entry('artifacts').querySelector('.panel-rail-close')).click();
+    pressDelete('artifacts');
     await settled(() => expect(undoButton()).not.toBeNull());
     emit({ type: 'panel_visibility', panel: 'artifacts', visible: false });
     expect(dockedTiles(api)).not.toContain('artifacts');
@@ -2966,7 +3043,7 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
     emit({ type: 'panel_visibility', panel: 'artifacts', visible: true, index: 0 });
 
     // lattice held no tile, so its Undo restores the rail entry alone.
-    /** @type {HTMLElement} */ (entry('lattice').querySelector('.panel-rail-close')).click();
+    pressDelete('lattice');
     await settled(() => expect(undoButton()).not.toBeNull());
     emit({ type: 'panel_visibility', panel: 'lattice', visible: false });
     /** @type {HTMLElement} */ (undoButton()).click();
@@ -2979,129 +3056,27 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
     expect(dockedTiles(api)).not.toContain('lattice');
   });
 
-  test('"Close terminal tile" offers Undo, which reopens the tile', async () => {
+  test('"Close Agent pane" offers Undo, which reopens the pane', async () => {
     await bootWorkspace();
     closeTerminalPanel.mockReturnValueOnce(true);
 
     rightClick(entry('terminal'));
-    /** @type {HTMLElement} */ (menuRow('Close terminal tile')).click();
+    /** @type {HTMLElement} */ (menuRow('Close Agent pane')).click();
 
-    expect(notice()?.textContent).toContain('Terminal tile closed');
+    expect(notice()?.textContent).toContain('Agent pane closed');
     openTerminalPanel.mockClear();
     /** @type {HTMLElement} */ (undoButton()).click();
     expect(openTerminalPanel).toHaveBeenCalledTimes(1);
   });
 
-  test('no notice when there was no terminal tile to close', async () => {
+  test('no notice when there was no Agent pane to close', async () => {
     await bootWorkspace();
     closeTerminalPanel.mockReturnValueOnce(false);
 
     rightClick(entry('terminal'));
-    /** @type {HTMLElement} */ (menuRow('Close terminal tile')).click();
+    /** @type {HTMLElement} */ (menuRow('Close Agent pane')).click();
 
     expect(notice()).toBeNull();
-  });
-});
-
-describe('openPanelOffRail — a tile that opens and leaves the rail unchanged', () => {
-  const POLICY = '../../../src/osprey/interfaces/web_terminal/static/js/panel-menu-policy.js';
-  const railIds = () =>
-    [...document.querySelectorAll('.panel-rail-button')].map((el) =>
-      el.getAttribute('data-panel-id')
-    );
-  const PANELS3 = ['artifacts', 'ariel', 'system-health'];
-  const OFF_RAIL = { panels: PANELS3, visible: ['artifacts', 'ariel'] };
-
-  /** Open the tile-header menu of `id` on the manager's own module graph. @param {string} id */
-  async function openTileMenu(id) {
-    const policy = await import(POLICY);
-    const anchor = document.createElement('div');
-    document.body.append(anchor);
-    return policy.openTileContextMenu(id, { x: 10, y: 10, anchorEl: anchor });
-  }
-
-  afterEach(() => {
-    document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
-  });
-
-  test('opens and focuses the tile with no rail entry and no POST', async () => {
-    const { api, mod, calls } = await bootWorkspace(OFF_RAIL);
-
-    mod.openPanelOffRail('system-health');
-
-    expect(dockedTiles(api)).toContain('system-health');
-    expect(mod.getActivePanel()).toBe('system-health');
-    expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel']);
-    expect(posts(calls)).toEqual([]);
-  });
-
-  test('a member is activated as a rail click would, focus report included', async () => {
-    const { api, mod, calls } = await bootWorkspace(OFF_RAIL);
-
-    mod.openPanelOffRail('ariel');
-
-    expect(dockedTiles(api)).toContain('ariel');
-    expect(posts(calls)).toEqual(['/api/panel-focus']);
-  });
-
-  test('its tile header offers "Pin to rail" in place of "Remove from rail"', async () => {
-    const { mod, calls, emit } = await bootWorkspace(OFF_RAIL);
-    mod.openPanelOffRail('system-health');
-
-    expect(await openTileMenu('system-health')).toBe(true);
-    expect(menuLabels()).toEqual([
-      'Focus SYSTEM',
-      'Open in a new tile',
-      'Open in a new window',
-      'Pin to rail',
-    ]);
-    /** @type {HTMLElement} */ (menuRow('Pin to rail')).click();
-
-    await settled(() => expect(posts(calls)).toEqual(['/api/panel-visibility']));
-    expect(JSON.parse(calls[0].opts.body)).toEqual({ panel: 'system-health', visible: true });
-    // The echo appends the entry where any new member goes, and the open tile
-    // it already had carries the active accent onto it.
-    emit({ type: 'panel_visibility', panel: 'system-health', visible: true });
-    expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'system-health']);
-    expect(
-      document
-        .querySelector('.panel-rail-button[data-panel-id="system-health"]')
-        ?.classList.contains('active')
-    ).toBe(true);
-
-    expect(await openTileMenu('system-health')).toBe(true);
-    expect(menuLabels().at(-1)).toBe('Remove from rail');
-  });
-
-  test('moving it to a new tile and focusing it from its header keep it off the rail', async () => {
-    const { api, mod, calls } = await bootWorkspace(OFF_RAIL);
-    mod.openPanelOffRail('system-health');
-
-    await openTileMenu('system-health');
-    /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
-    await openTileMenu('system-health');
-    /** @type {HTMLElement} */ (menuRow('Focus SYSTEM')).click();
-
-    expect(dockedTiles(api)).toContain('system-health');
-    expect(railIds()).not.toContain('system-health');
-    expect(posts(calls)).toEqual([]);
-  });
-
-  test('a hide of a panel that was never on the rail leaves its off-rail tile alone', async () => {
-    const { api, mod, emit } = await bootWorkspace(OFF_RAIL);
-    mod.openPanelOffRail('system-health');
-
-    emit({ type: 'panel_visibility', panel: 'system-health', visible: false, source: 'agent' });
-
-    expect(dockedTiles(api)).toContain('system-health');
-  });
-
-  test('a reload does not bring an off-rail tile back — the rail is the way back', async () => {
-    // ariel's restored tile is the focused one, so the boot's default panel
-    // takes that tile over; system-health's tile is left to the prune alone.
-    const { api } = await bootWorkspace({ ...OFF_RAIL, restored: ['system-health', 'ariel'] });
-
-    expect(dockedTiles(api)).toEqual(['artifacts']);
   });
 });
 
@@ -3225,7 +3200,7 @@ describe('sidecar start failure and retry', () => {
     await settled(() => expect(jupyter.classList.contains('disabled')).toBe(false));
     await settled(() => expect(jupyter.classList.contains('active')).toBe(true));
     expect(jupyter.classList.contains('failed')).toBe(false);
-    expect(jupyter.title).toBe('JUPYTER · right-click for actions');
+    expect(jupyter.title).toBe('Jupyter · right-click for actions');
     expect(calls.some((c) => c.url === '/api/panel-focus' && c.opts?.method === 'POST')).toBe(true);
   });
 
