@@ -72,6 +72,22 @@ export async function fetchArtifact(id) {
 }
 
 /**
+ * The artifact the agent last focused, as the panel keeps it across reloads
+ * and tabs; null when nothing is focused (the panel then names its newest
+ * artifact with `focused: false`, which is no focus) or the panel is down.
+ * @returns {Promise<string | null>}
+ */
+export async function fetchFocusedId() {
+  try {
+    const data = await getJSON(withPrefix(`${ARTIFACTS_BASE}/api/focus`));
+    const id = data?.focused === true ? data.artifact?.id : null;
+    return typeof id === 'string' ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Newest first, the listing's own order: by timestamp, the id breaking a tie.
  * @param {ArtifactEntry[]} entries
  * @returns {ArtifactEntry[]}
@@ -156,6 +172,9 @@ export function createListing({ run, sessionId, onChange }) {
       const held = new Set(entries.map((a) => a.id));
       /** @type {ArtifactEntry[]} */
       const page = data.artifacts ?? [];
+      // An entry held on its own is counted by the server's total once its
+      // page arrives.
+      for (const a of page) uncounted.delete(a.id);
       const fresh = page.filter((a) => !held.has(a.id));
       entries = newestFirst([...entries, ...fresh]);
       total = data.total ?? total;

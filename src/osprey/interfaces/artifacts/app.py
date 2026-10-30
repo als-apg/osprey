@@ -774,7 +774,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     # Also after config priming: the one gallery process each workspace has
     # (single-user `osprey web` and every render container alike) seeds the
-    # shipped example here, so the WORKSPACE is not empty on a first visit.
+    # shipped example here, so the Artifacts panel is not empty on a first visit.
     # Idempotent and sentinel-aware — see example_artifact.py.
     if _example_artifact_enabled():
         try:

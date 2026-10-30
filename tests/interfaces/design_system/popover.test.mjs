@@ -4,8 +4,8 @@
  *   npx vitest run tests/interfaces/design_system/popover.test.mjs
  *
  * happy-dom does no layout, so each test stubs getBoundingClientRect on the
- * anchor (and the edge) and asserts the fixed-position style the module
- * computes from it.
+ * anchor (and the edge), and offsetHeight on the popover where its height
+ * matters, and asserts the fixed-position style the module computes.
  */
 
 import { test, expect, describe, beforeEach } from 'vitest';
@@ -41,6 +41,22 @@ function pointerDown(target) {
   target.dispatchEvent(new Event('pointerdown', { bubbles: true }));
 }
 
+/**
+ * Press `key` on the focused element.
+ * @param {string} key
+ * @returns {KeyboardEvent}
+ */
+function press(key) {
+  const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+  (document.activeElement ?? document.body).dispatchEvent(event);
+  return event;
+}
+
+/** @param {HTMLElement} el @param {number} height */
+function stubHeight(el, height) {
+  Object.defineProperty(el, 'offsetHeight', { value: height, configurable: true });
+}
+
 beforeEach(() => {
   closeAllPopovers();
   document.body.innerHTML = `
@@ -59,6 +75,19 @@ beforeEach(() => {
     </div>
     <div id="more" class="osprey-popover" role="menu" hidden>
       <button class="osprey-popover-item" type="button">Settings</button>
+    </div>
+    <div id="wrapped" class="osprey-popover" hidden>
+      <div role="menu">
+        <button id="w-a" class="osprey-popover-item" type="button" role="menuitem">Refresh</button>
+        <button id="w-hidden" class="osprey-popover-item" type="button" role="menuitemradio" hidden>Gone</button>
+        <button id="w-b" class="osprey-popover-item" type="button" role="menuitemradio">Types</button>
+        <button id="w-off" class="osprey-popover-item" type="button" role="menuitem" disabled>Off</button>
+        <button id="w-c" class="osprey-popover-item" type="button" role="menuitemcheckbox">All sessions</button>
+      </div>
+    </div>
+    <div id="dialog" class="osprey-popover" role="dialog" hidden>
+      <button id="d-a" class="osprey-popover-item" type="button" role="menuitem">One</button>
+      <button id="d-b" class="osprey-popover-item" type="button" role="menuitem">Two</button>
     </div>
   `;
   stubRect($('opener'), { top: 100, bottom: 128, left: 8, right: 200 });
@@ -111,6 +140,25 @@ describe('openPopover', () => {
     expect($('more').style.left).toBe('240px');
     expect($('more').style.bottom).toBe(`${window.innerHeight - 628}px`);
     expect($('more').style.top).toBe('');
+  });
+
+  test("'beside-right-bottom' moves down rather than leave the top of the window", () => {
+    stubHeight($('more'), 300);
+
+    openPopover($('more'), $('opener'), { place: 'beside-right-bottom', edge: $('sidebar') });
+
+    // The anchor's bottom is 128; a 300 px popover ending there would start
+    // at -172, so its bottom edge drops to 8 + 300.
+    expect($('more').style.bottom).toBe(`${window.innerHeight - 308}px`);
+  });
+
+  test("'beside-right-bottom' moves up rather than leave the bottom of the window", () => {
+    const below = window.innerHeight + 40;
+    stubRect($('other-opener'), { top: below - 28, bottom: below, left: 8, right: 200 });
+
+    openPopover($('more'), $('other-opener'), { place: 'beside-right-bottom', edge: $('sidebar') });
+
+    expect($('more').style.bottom).toBe('8px');
   });
 
   test('opening one popover closes another', () => {
@@ -186,7 +234,9 @@ describe('dismissal', () => {
     openPopover($('menu'), $('opener'));
     expect(document.activeElement).toBe($('menu-first'));
 
-    document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    document.activeElement?.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+    );
 
     expect($('menu').hidden).toBe(true);
     expect(document.activeElement).toBe($('opener'));
@@ -203,12 +253,71 @@ describe('dismissal', () => {
     expect(document.activeElement).toBe($('opener'));
   });
 
+  test('closing returns focus to the opener when it was inside', () => {
+    openPopover($('menu'), $('opener'));
+    expect(document.activeElement).toBe($('menu-first'));
+
+    closePopover($('menu'));
+
+    expect(document.activeElement).toBe($('opener'));
+  });
+
+  test('closing leaves focus alone when it was outside', () => {
+    openPopover($('menu'), $('opener'));
+    $('other-opener').focus();
+
+    closePopover($('menu'));
+
+    expect(document.activeElement).toBe($('other-opener'));
+  });
+
+  test('a press outside with focus inside hands focus back to the opener', () => {
+    openPopover($('menu'), $('opener'));
+
+    pointerDown($('outside'));
+
+    expect(document.activeElement).toBe($('opener'));
+  });
+
   test('a window resize closes', () => {
     openPopover($('menu'), $('opener'));
 
     window.dispatchEvent(new Event('resize'));
 
     expect($('menu').hidden).toBe(true);
+  });
+});
+
+describe('menu keys', () => {
+  test('ArrowDown and ArrowUp step over hidden and disabled rows, wrapping', () => {
+    openPopover($('wrapped'), $('opener'));
+    expect(document.activeElement).toBe($('w-a'));
+
+    expect(press('ArrowDown').defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe($('w-b'));
+    press('ArrowDown');
+    expect(document.activeElement).toBe($('w-c'));
+    press('ArrowDown');
+    expect(document.activeElement).toBe($('w-a'));
+    press('ArrowUp');
+    expect(document.activeElement).toBe($('w-c'));
+  });
+
+  test('Home and End jump to the first and last rows', () => {
+    openPopover($('wrapped'), $('opener'));
+
+    press('End');
+    expect(document.activeElement).toBe($('w-c'));
+    press('Home');
+    expect(document.activeElement).toBe($('w-a'));
+  });
+
+  test('a popover that is not a menu keeps its arrow keys', () => {
+    openPopover($('dialog'), $('opener'));
+    expect(document.activeElement).toBe($('d-a'));
+
+    expect(press('ArrowDown').defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe($('d-a'));
   });
 });
 

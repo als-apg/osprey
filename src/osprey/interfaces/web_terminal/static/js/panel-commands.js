@@ -18,7 +18,7 @@ import { withPrefix } from './api.js';
  * Never rejects.
  *
  * `index` places an ADDED panel at that position among the rail's panel
- * entries (the SESSION entry not counted) — how an Undo puts a removed entry
+ * entries (the Agent entry not counted) — how an Undo puts a removed entry
  * back where the operator saw it. Without one an addition goes to the end. The
  * server ignores it when hiding and when the panel is already on the rail.
  * @param {string} panelId

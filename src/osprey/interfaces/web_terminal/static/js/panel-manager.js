@@ -116,11 +116,11 @@ import { subscribePanelEvents } from './panel-sse.js';
  * @property {boolean} visible
  * @property {'agent'} [source]
  * @property {number} [index] - where an addition goes among the rail's panel
- *   entries (SESSION not counted); absent, it goes to the end
+ *   entries (Agent not counted); absent, it goes to the end
  *
  * @typedef {object} RailOrderEvent
  * @property {'rail_order'} type
- * @property {string[]} order - every rail member, top to bottom (SESSION not included)
+ * @property {string[]} order - every rail member, top to bottom (Agent not included)
  *
  * @typedef {object} PanelCloseEvent
  * @property {'panel_close'} type

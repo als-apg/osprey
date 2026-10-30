@@ -280,7 +280,9 @@ function paintFade(el, top = false) {
 
 /**
  * Keep a scroller's fades current: on scroll, on a size change, and when its
- * rows change.
+ * rows change. The Workspace scroller watches its whole subtree: a row added
+ * inside one of its lists, or a list opened, changes its scroll height
+ * without changing its own children or size.
  * @param {HTMLElement} el
  * @param {boolean} top
  */
@@ -288,7 +290,11 @@ function watchFade(el, top) {
   const paint = () => paintFade(el, top);
   el.addEventListener('scroll', paint, { passive: true });
   if (typeof ResizeObserver !== 'undefined') new ResizeObserver(paint).observe(el);
-  new MutationObserver(paint).observe(el, { childList: true, subtree: !top });
+  new MutationObserver(paint).observe(el, {
+    childList: true,
+    subtree: true,
+    attributeFilter: ['hidden'],
+  });
   paint();
 }
 

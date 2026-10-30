@@ -227,7 +227,7 @@ export function subscribePanelEvents(sseDeps) {
  * hidden active panel never strands a blank pane.
  *
  * An addition with an `index` lands at that position among the rail's panel
- * entries, counted without SESSION — the same count the operator's Undo took
+ * entries, counted without Agent — the same count the operator's Undo took
  * at removal — so every client puts a restored entry back where it was, not
  * only the one that clicked. A panel that was already a member keeps its
  * place.

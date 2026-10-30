@@ -10,8 +10,8 @@
  * tests drive the module through the sidebar skeleton's ids, the panel's event
  * stream (api.js's real shared stream over a stubbed EventSource) and stubbed
  * fetches, and observe what it draws, what it fetches, what it tells the
- * viewer (`osprey-artifact-select`, never the agent's `/api/focus`) and what
- * it contributes to the pane header.
+ * viewer (`osprey-artifact-select`; the agent's `/api/focus` is only read,
+ * never written) and what it contributes to the pane header.
  *
  * Seams mocked: the session source (terminal.js), the header region
  * (tile-header-contrib.js), the iframe sends (panel-iframe-sync.js), the
@@ -94,9 +94,11 @@ const A1 = art('a1', 'markdown', '2026-10-30T09:00:00Z', 'Chroma report');
 const R1 = art('r1', 'notebook', '2026-10-30T10:30:00Z', 'Notebook: compute', { run_record: true });
 
 /**
- * The pages each listing serves, by cursor (`first` for the first page), and
- * the single artifacts `GET /api/artifacts/{id}` answers.
- * @type {{artifacts: Record<string, any>, runs: Record<string, any>, byId: Record<string, any>}}
+ * The pages each listing serves, by cursor (`first` for the first page), the
+ * single artifacts `GET /api/artifacts/{id}` answers, and what `GET /api/focus`
+ * answers.
+ * @type {{artifacts: Record<string, any>, runs: Record<string, any>, byId: Record<string, any>,
+ *   focus: any}}
  */
 let server;
 
@@ -105,6 +107,7 @@ function defaultServer() {
     artifacts: { first: { artifacts: [A3, A2, A1], total: 3, next_cursor: null } },
     runs: { first: { artifacts: [R1], total: 1, next_cursor: null } },
     byId: {},
+    focus: { focused: false, artifact: null },
   };
 }
 
@@ -119,6 +122,7 @@ function route(url) {
     const entry = server.byId[decodeURIComponent(one[1])];
     return entry ? reply(entry) : reply({ detail: 'not found' }, 404);
   }
+  if (u.pathname.endsWith('/panel/artifacts/api/focus')) return reply(server.focus);
   if (u.pathname.endsWith('/panel/artifacts/api/artifacts')) {
     const pages = u.searchParams.get('run') === 'true' ? server.runs : server.artifacts;
     return reply(pages[u.searchParams.get('cursor') ?? 'first'] ?? { artifacts: [], total: 0 });
@@ -428,13 +432,17 @@ describe('selection', () => {
 
   test('a row click shows it and never asks for the agent focus', async () => {
     await boot();
+    const before = fetchMock.mock.calls.length;
     row('sidebar-artifacts-list', 'a2').click();
+    await settle();
     expect(shown()).toBe('a2');
     expect(row('sidebar-artifacts-list', 'a2').getAttribute('aria-selected')).toBe('true');
     expect(row('sidebar-artifacts-list', 'a3').getAttribute('aria-selected')).toBe('false');
     expect(mocks.activateTab).not.toHaveBeenCalled();
-    const urls = fetchMock.mock.calls.map(([url]) => String(url));
-    expect(urls.some((url) => url.includes('/api/focus'))).toBe(false);
+    // The only focus request is the read at start; a pick writes nothing.
+    expect(fetchMock.mock.calls.slice(before)).toEqual([]);
+    const writes = fetchMock.mock.calls.filter(([, init]) => init?.method && init.method !== 'GET');
+    expect(writes).toEqual([]);
   });
 
   test('a row click brings the artifacts tile up when it is not docked', async () => {
@@ -509,6 +517,45 @@ describe('the pane header', () => {
     await settle();
     expect(shown()).toBe('a1');
     expect(headerItem('pager').text).toBe('2 of 2');
+  });
+
+  test('a scope change during that fetch keeps the pick and steps nowhere', async () => {
+    server.artifacts.first = { artifacts: [A3], total: 2, next_cursor: 'c1' };
+    /** @type {(value: unknown) => void} */
+    let release = () => {};
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    fetchMock.mockImplementation(async (/** @type {string} */ url) => {
+      if (String(url).includes('cursor=c1')) {
+        await gate;
+        return reply({ artifacts: [A1], total: 2, next_cursor: null });
+      }
+      return route(url);
+    });
+    await boot();
+    headerNow().dispatch('next');
+    await settle();
+    // The new session's list no longer holds a3; drawn by type it starts at
+    // a1, its newest is a2.
+    server.artifacts.first = { artifacts: [A2, A1], total: 2, next_cursor: null };
+    mocks.sessionId = 'sess-2';
+    for (const listener of mocks.sessionListeners) listener('sess-2');
+    await settle();
+    expect(shown()).toBe('a2');
+    release(undefined);
+    await settle();
+    expect(shown()).toBe('a2');
+  });
+
+  test('a shown artifact its own list does not hold gets no pager', async () => {
+    await boot();
+    // The server's verdict moved a3 to the run records; the artifacts list
+    // still holds and shows it until the next first page.
+    events.emit({ type: 'artifact_updated', id: 'a3', run_record: true });
+    await settle();
+    expect(shown()).toBe('a3');
+    expect(headerNow().items.map((item) => item.id)).toEqual(['crumb', 'open', 'save']);
   });
 
   test('Open full size and Save act on the shown artifact', async () => {
@@ -625,6 +672,42 @@ describe('agent focus', () => {
     events.emit({ type: 'focus', domain: 'artifact', id: 'alien' });
     await settle();
     expect(shown()).toBe('old');
+  });
+
+  test('a reload or a second tab shows the focus the panel kept', async () => {
+    server.focus = { focused: true, artifact: A1 };
+    await boot();
+    expect(shown()).toBe('a1');
+    const urls = fetchMock.mock.calls.map(([url]) => String(url));
+    expect(urls).toContain('/panel/artifacts/api/focus');
+  });
+
+  test("the panel's newest-artifact fallback is no focus", async () => {
+    server.focus = { focused: false, artifact: A1 };
+    await boot();
+    expect(shown()).toBe('a3');
+  });
+
+  test('Simple: a kept focus on a script run is recorded, not shown', async () => {
+    document.documentElement.dataset.uiMode = 'simple';
+    server.focus = { focused: true, artifact: R1 };
+    await boot();
+    expect(shown()).toBe('a3');
+  });
+
+  test('a reconnect reads the focus again; an unchanged one keeps the pick', async () => {
+    server.focus = { focused: true, artifact: A1 };
+    await boot();
+    const [source] = events.opened;
+    source.onopen?.();
+    row('sidebar-artifacts-list', 'a2').click();
+    source.onopen?.();
+    await settle();
+    expect(shown()).toBe('a2');
+    server.focus = { focused: true, artifact: A3 };
+    source.onopen?.();
+    await settle();
+    expect(shown()).toBe('a3');
   });
 });
 

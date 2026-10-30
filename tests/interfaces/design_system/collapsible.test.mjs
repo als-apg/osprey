@@ -21,7 +21,12 @@ const toggleButton = () => /** @type {HTMLButtonElement} */ (document.getElement
 
 /** @param {Partial<KeyboardEventInit>} init @returns {KeyboardEvent} */
 function pressBackslash(init) {
-  const event = new KeyboardEvent('keydown', { key: '\\', bubbles: true, cancelable: true, ...init });
+  const event = new KeyboardEvent('keydown', {
+    key: '\\',
+    bubbles: true,
+    cancelable: true,
+    ...init,
+  });
   document.body.dispatchEvent(event);
   return event;
 }
@@ -47,9 +52,17 @@ describe('initCollapsible', () => {
   test('syncs the toggle to the expanded state on init', () => {
     initCollapsible({ storageKey: KEY, toggle: toggleButton() });
 
-    expect(toggleButton().getAttribute('aria-pressed')).toBe('false');
+    expect(toggleButton().getAttribute('aria-expanded')).toBe('true');
+    expect(toggleButton().getAttribute('aria-controls')).toBe('sidebar');
+    expect(toggleButton().hasAttribute('aria-pressed')).toBe(false);
     expect(toggleButton().getAttribute('aria-label')).toBe('Hide sidebar labels');
     expect(toggleButton().title).toBe('Hide labels (Ctrl+\\)');
+  });
+
+  test('aria-controls names the region passed as controls', () => {
+    initCollapsible({ storageKey: KEY, toggle: toggleButton(), controls: 'ref-sidebar' });
+
+    expect(toggleButton().getAttribute('aria-controls')).toBe('ref-sidebar');
   });
 
   test('picks up a state sidebar-boot.js stamped before init', () => {
@@ -58,7 +71,7 @@ describe('initCollapsible', () => {
     const region = initCollapsible({ storageKey: KEY, toggle: toggleButton() });
 
     expect(region.isCollapsed()).toBe(true);
-    expect(toggleButton().getAttribute('aria-pressed')).toBe('true');
+    expect(toggleButton().getAttribute('aria-expanded')).toBe('false');
   });
 
   test('a toggle click flips the attribute, the storage and the button', () => {
@@ -69,7 +82,7 @@ describe('initCollapsible', () => {
     expect(document.documentElement.getAttribute(ATTR)).toBe('collapsed');
     expect(region.isCollapsed()).toBe(true);
     expect(window.localStorage.getItem(KEY)).toBe('collapsed');
-    expect(toggleButton().getAttribute('aria-pressed')).toBe('true');
+    expect(toggleButton().getAttribute('aria-expanded')).toBe('false');
     expect(toggleButton().getAttribute('aria-label')).toBe('Show sidebar labels');
     expect(toggleButton().title).toBe('Show labels (Ctrl+\\)');
 
@@ -77,7 +90,7 @@ describe('initCollapsible', () => {
 
     expect(document.documentElement.getAttribute(ATTR)).toBe('expanded');
     expect(window.localStorage.getItem(KEY)).toBe('expanded');
-    expect(toggleButton().getAttribute('aria-pressed')).toBe('false');
+    expect(toggleButton().getAttribute('aria-expanded')).toBe('true');
   });
 
   test('the title names ⌘ on macOS', () => {
@@ -143,7 +156,12 @@ describe('the Cmd/Ctrl+\\ shortcut', () => {
     pressBackslash({});
     pressBackslash({ ctrlKey: true, shiftKey: true });
     pressBackslash({ ctrlKey: true, altKey: true });
-    const consumed = new KeyboardEvent('keydown', { key: '\\', ctrlKey: true, bubbles: true, cancelable: true });
+    const consumed = new KeyboardEvent('keydown', {
+      key: '\\',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
     consumed.preventDefault();
     document.body.dispatchEvent(consumed);
 
@@ -156,7 +174,8 @@ describe('the change event', () => {
     const region = initCollapsible({ storageKey: KEY });
     /** @type {any[]} */
     const seen = [];
-    const listener = (/** @type {Event} */ event) => seen.push(/** @type {CustomEvent} */ (event).detail);
+    const listener = (/** @type {Event} */ event) =>
+      seen.push(/** @type {CustomEvent} */ (event).detail);
     document.addEventListener('osprey-collapsible-change', listener);
 
     region.set('collapsed');

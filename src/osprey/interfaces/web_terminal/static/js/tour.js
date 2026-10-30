@@ -31,7 +31,9 @@
  * in facility-configured free text.
  *
  * Steps whose anchor is absent or hidden on this page (panel not enabled,
- * simple UI mode, no control target) drop out and the step count adjusts.
+ * simple UI mode) drop out and the step count adjusts. The control-target
+ * step also drops out when the deployment has no control target
+ * (`<html data-control-target="off">`): the block then holds only the clock.
  * See `liveAnchor()`. Esc closes at any point; arrows/Enter navigate; focus
  * is trapped inside the card.
  */
@@ -259,7 +261,11 @@ const STEPS = [
     ],
   },
   {
-    anchor: () => document.querySelector('#sidebar-target'),
+    // With no control target the block holds only the clock: nothing to tour.
+    anchor: () =>
+      document.documentElement.dataset.controlTarget === 'off'
+        ? null
+        : document.querySelector('#sidebar-target'),
     activate: () => toggleOpen('.control-target-chip'),
     extras: () => [document.querySelector('.ctc-popover.open')],
     place: 'right',

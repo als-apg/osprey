@@ -10,7 +10,9 @@
  *   - 'beside-right': left = the right edge + 8, top = the anchor's top
  *     (moved up when the popover would leave the bottom of the window);
  *   - 'beside-right-bottom': left = the right edge + 8, bottom edge level with
- *     the anchor's bottom edge (for an opener at the foot of the sidebar);
+ *     the anchor's bottom edge (for an opener at the foot of the sidebar),
+ *     moved down when the popover would leave the top of the window and up
+ *     when the anchor is below the bottom;
  *   - 'below-end': 4 px under the anchor, right edges aligned.
  * "The right edge" is the anchor's, or that of `edge` when given: pass the
  * sidebar as `edge` so a popover opened from any sidebar row starts beside the
@@ -25,10 +27,16 @@
  * inside another keeps its parent open.
  *
  * Close: on a pointer press outside every open popover and its opener, on
- * Escape (focus returns to the opener when it was inside the popover), on
- * window resize, and on window blur (a click into a panel iframe never reaches
- * this document). Closing a popover also closes the popovers opened from it.
- * The opener gets `aria-expanded="false"`.
+ * Escape, on window resize, and on window blur (a click into a panel iframe
+ * never reaches this document). Closing a popover also closes the popovers
+ * opened from it. The opener gets `aria-expanded="false"`, and when focus was
+ * inside the popover it returns to the opener, so it never stays on a hidden
+ * element. (A click into an iframe has already made the iframe the active
+ * element, so the blur close does not pull focus back out of it.)
+ *
+ * Menu: in a popover that is, or whose first child is, a `[role="menu"]`,
+ * ArrowUp / ArrowDown (wrapping), Home and End move focus between its visible,
+ * enabled `menuitem`, `menuitemradio` and `menuitemcheckbox` rows.
  *
  * Only popovers opened through this module are tracked and closed: a
  * `.osprey-popover` shown statically (a specimen, a popover another module
@@ -51,6 +59,8 @@ const GAP_BESIDE = 8;
 const GAP_BELOW = 4;
 const VIEWPORT_MARGIN = 8;
 const FOCUS_TARGETS = '.osprey-popover-item, .osprey-mini, input';
+const MENU_ITEMS = '[role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]';
+const MENU_KEYS = ['ArrowDown', 'ArrowUp', 'Home', 'End'];
 
 /** @type {WeakMap<HTMLElement, HTMLElement>} popover → the element that opened it */
 const openers = new WeakMap();
@@ -104,11 +114,52 @@ function position(pop, anchor, { place = 'below-end', edge } = {}) {
   const right = (edge ?? anchor).getBoundingClientRect().right;
   style.left = `${right + GAP_BESIDE}px`;
   if (place === 'beside-right-bottom') {
-    style.bottom = `${window.innerHeight - rect.bottom}px`;
+    const maxBottom = window.innerHeight - VIEWPORT_MARGIN;
+    const minBottom = VIEWPORT_MARGIN + pop.offsetHeight;
+    const bottom = Math.max(minBottom, Math.min(rect.bottom, maxBottom));
+    style.bottom = `${window.innerHeight - bottom}px`;
     return;
   }
   const maxTop = window.innerHeight - pop.offsetHeight - VIEWPORT_MARGIN;
   style.top = `${Math.max(VIEWPORT_MARGIN, Math.min(rect.top, maxTop))}px`;
+}
+
+/**
+ * The `[role="menu"]` element of `pop`: the popover itself or its first child.
+ * @param {HTMLElement} pop
+ * @returns {Element | null}
+ */
+function menuOf(pop) {
+  if (pop.getAttribute('role') === 'menu') return pop;
+  const first = pop.firstElementChild;
+  return first?.getAttribute('role') === 'menu' ? first : null;
+}
+
+/**
+ * Move focus between the rows of the open menu that holds the event's target.
+ * @param {KeyboardEvent} event
+ */
+function moveInMenu(event) {
+  const target = /** @type {Node | null} */ (event.target);
+  if (!target) return;
+  const pop = openPopovers().find((p) => p.contains(target));
+  const menu = pop ? menuOf(pop) : null;
+  if (!menu || !menu.contains(target)) return;
+  // A hidden group or a disabled row cannot take focus: stepping onto one
+  // would leave focus where it was.
+  const rows = /** @type {HTMLElement[]} */ (
+    Array.from(menu.querySelectorAll(MENU_ITEMS)).filter(
+      (el) => !el.closest('[hidden]') && !el.hasAttribute('disabled')
+    )
+  );
+  if (!rows.length) return;
+  event.preventDefault();
+  const at = rows.indexOf(/** @type {HTMLElement} */ (document.activeElement));
+  let next = 0;
+  if (event.key === 'End') next = rows.length - 1;
+  else if (event.key === 'ArrowDown') next = (at + 1) % rows.length;
+  else if (event.key === 'ArrowUp') next = (at - 1 + rows.length) % rows.length;
+  rows[next].focus();
 }
 
 /**
@@ -144,10 +195,15 @@ export function closePopover(pop) {
   for (const other of openPopovers()) {
     if (other !== pop && withAncestors(other).includes(pop)) closePopover(other);
   }
+  // Read before hiding: a hidden subtree drops its focus to <body>.
+  const active = document.activeElement;
+  const hadFocus = !!active && pop.contains(active);
   pop.hidden = true;
   opened.delete(pop);
   const opener = openers.get(pop);
-  if (opener) opener.setAttribute('aria-expanded', 'false');
+  if (!opener) return;
+  opener.setAttribute('aria-expanded', 'false');
+  if (hadFocus) opener.focus({ preventScroll: true });
 }
 
 /**
@@ -195,14 +251,14 @@ function listen() {
     true
   );
   document.addEventListener('keydown', (event) => {
+    if (MENU_KEYS.includes(event.key)) {
+      moveInMenu(event);
+      return;
+    }
     if (event.key !== 'Escape') return;
-    const open = openPopovers();
-    if (open.length === 0) return;
-    const active = document.activeElement;
-    const focused = open.find((pop) => active && pop.contains(active));
-    const returnTo = focused ? openers.get(withAncestors(focused).at(-1) ?? focused) : null;
+    // closePopover hands focus back up the chain, so focus inside a nested
+    // popover ends on the opener of the outermost one.
     closeAllPopovers();
-    returnTo?.focus({ preventScroll: true });
   });
   window.addEventListener('resize', () => closeAllPopovers());
   window.addEventListener('blur', () => closeAllPopovers());

@@ -466,6 +466,9 @@ describe('rows with their own owners', () => {
 
 /* ---- keyboard --------------------------------------------------------------- */
 
+/* popover.js owns the menu keys (more-menu.js has no handler of its own);
+   these pin that ☰ More's rows get them. */
+
 describe('keyboard', () => {
   test('ArrowDown and ArrowUp move between the rows, wrapping', () => {
     boot();

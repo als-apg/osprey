@@ -776,7 +776,7 @@ def test_resumed_session_wait_reads_the_chat_in_simple() -> None:
 
 @pytest.mark.parametrize("mode", ["expert", None])
 def test_resumed_session_wait_reads_the_terminal_in_expert(mode: str | None) -> None:
-    """Expert waits for the sentinel in the terminal, then for the confirmed hex."""
+    """Expert waits for the sentinel in the terminal, then for the confirmed id."""
     page = _FakeHubPage(drawn=[])
     _wait_for_resumed_session(page, mode, variant="theme=light")
     assert len(page.functions) == 2
@@ -784,6 +784,7 @@ def test_resumed_session_wait_reads_the_terminal_in_expert(mode: str | None) -> 
     assert ".xterm-rows" in first
     assert first_arg == TRANSCRIPT_SENTINEL
     assert "terminal-label" in second
+    assert "dataset.sessionId" in second
     assert second_arg == DEMO_SESSION_ID[:8]
 
 

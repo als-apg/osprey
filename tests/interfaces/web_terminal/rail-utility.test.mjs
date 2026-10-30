@@ -36,7 +36,10 @@ import { qs } from '../_support/dom.mjs';
 // override of the global URL (which breaks fileURLToPath(new URL(...)) here).
 const STATIC_DIR = join(import.meta.dirname, '../../../src/osprey/interfaces/web_terminal/static');
 const indexHtml = readFileSync(join(STATIC_DIR, 'index.html'), 'utf8');
-const terminalCss = readFileSync(join(STATIC_DIR, 'css/terminal.css'), 'utf8');
+const primitivesCss = readFileSync(
+  join(STATIC_DIR, '../../design_system/static/css/primitives.css'),
+  'utf8'
+);
 
 /** The three footer controls, top to bottom, with their visible names. */
 const FOOTER_CONTROLS = [
@@ -79,17 +82,18 @@ function parseFooter() {
 }
 
 /**
- * The declaration block of the first CSS rule whose selector list ends with
- * `selector`.
+ * The declaration block of the first primitives.css rule whose selector list
+ * names `selector`.
  * @param {string} selector
  * @returns {string}
  */
 function ruleBody(selector) {
-  const start = terminalCss.indexOf(`${selector} {`);
-  expect(start, `terminal.css has no rule for \`${selector}\``).toBeGreaterThan(-1);
-  const open = terminalCss.indexOf('{', start);
-  const close = terminalCss.indexOf('}', open);
-  return terminalCss.slice(open + 1, close);
+  const start = primitivesCss.indexOf(selector);
+  expect(start, `primitives.css has no rule for \`${selector}\``).toBeGreaterThan(-1);
+  const open = primitivesCss.indexOf('{', start);
+  expect(primitivesCss.slice(start, open)).not.toMatch(/[;}]/);
+  const close = primitivesCss.indexOf('}', open);
+  return primitivesCss.slice(open + 1, close);
 }
 
 /** @returns {HTMLAnchorElement} */
@@ -255,7 +259,7 @@ describe('initRailUtility', () => {
   test('a hidden anchor does not paint: the row display rule yields to [hidden]', () => {
     // `[hidden] { display: none }` is a UA rule and loses to any class
     // selector, so a Docs anchor hidden by initRailUtility would still paint.
-    expect(ruleBody('.sidebar .osprey-nav-row[hidden]')).toMatch(/display:\s*none;/);
+    expect(ruleBody('.osprey-nav-row[hidden]')).toMatch(/display:\s*none;/);
   });
 
   test('no-ops on a page without the sidebar', () => {

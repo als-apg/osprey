@@ -230,12 +230,11 @@ def _assert_artifact_viewer(root: Page | FrameLocator) -> None:
     """The embedded artifacts page is the hub's viewer of one artifact.
 
     The preview pane shows; the browser column is hidden (the hub's sidebar
-    owns the list); there is no separate Simple section and no preview header
-    (the hub's tile header names the artifact).
+    owns the list); there is no preview header (the hub's tile header names the
+    artifact).
     """
     expect(root.locator("#browse-preview-pane")).to_be_visible(timeout=10_000)
     expect(root.locator("#browse-sidebar")).to_be_hidden()
-    expect(root.locator("#view-artifacts-simple")).to_have_count(0)
     expect(root.locator(".preview-header")).to_have_count(0)
 
 

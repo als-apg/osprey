@@ -72,7 +72,7 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 #: One session id shared by every seeded artifact. The hermetic launcher writes
-#: a fake session record with this exact UUID so the Expert session hex renders
+#: a fake session record with this exact UUID so the Expert terminal confirms it
 #: and every session-scoped panel resolves to the same populated session.
 DEMO_SESSION_ID = "3f9a1c72-5e84-4b21-9d6a-8c0f2e1b7a44"
 
@@ -362,8 +362,8 @@ class HermeticHub(NamedTuple):
     backend. ``project_dir`` is the seeded, throwaway project the hub treats as
     its cwd; ``session_dir`` is where the hub's :class:`SessionDiscovery` looks
     for session transcripts (``~/.claude/projects/<encoded>/``), so the capture
-    step writes its one fake session record there to make the Expert session hex
-    render. All four are torn down when :func:`hermetic_hub` exits.
+    step writes its one fake session record there for the Expert terminal to
+    resume and confirm. All four are torn down when :func:`hermetic_hub` exits.
     """
 
     base_url: str
@@ -652,9 +652,10 @@ def _wait_for_resumed_session(page, mode: str | None, *, variant: str) -> None:
 
     Expert (and ``None``) waits for :data:`TRANSCRIPT_SENTINEL` in
     ``.xterm-rows`` (xterm's DOM renderer keeps the text there; its appearance
-    implies the PTY spawned), then for ``DEMO_SESSION_ID[:8]`` in
-    ``#terminal-label``, the proof that the hub confirmed the id this harness
-    asked it to resume.
+    implies the PTY spawned), then for ``#terminal-label``'s
+    ``data-session-id`` to start with ``DEMO_SESSION_ID[:8]``, the proof that
+    the hub confirmed the id this harness asked it to resume (the label's text
+    is always ``Agent``; terminal.js carries the id in that attribute).
 
     Simple waits once, for the operator chat's replay of
     :data:`DEMO_OPENING_PROMPT`. The Simple view never connects the terminal, so
@@ -691,7 +692,7 @@ def _wait_for_resumed_session(page, mode: str | None, *, variant: str) -> None:
             )
             page.wait_for_function(
                 "(h) => { const l = document.getElementById('terminal-label');"
-                " return !!l && (l.textContent || '').includes(h); }",
+                " return !!l && (l.dataset.sessionId || '').startsWith(h); }",
                 arg=DEMO_SESSION_ID[:8],
                 timeout=_NAV_TIMEOUT_MS,
             )

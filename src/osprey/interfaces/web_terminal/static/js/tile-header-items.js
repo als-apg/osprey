@@ -379,9 +379,9 @@ function patchNav(item, nav) {
 /* ---- menu popover ----
  * Appended to document.body rather than inside the bar: the contribution
  * region is overflow:hidden and only 36px tall, so an in-place popover would
- * be clipped to nothing. Open/close grammar matches panel-add-menu.js and
- * <osprey-display-menu> — capture-phase outside pointerdown, Escape, and a
- * scroll/resize close rather than a reposition loop. */
+ * be clipped to nothing. It closes on a capture-phase outside pointerdown, on
+ * Escape, and on a resize or a scroll that moves its button, rather than
+ * running a reposition loop. */
 
 /**
  * Open an empty popover anchored to btn and register it as THE open menu

@@ -26,6 +26,8 @@
  *     records the focus; any other focus frame also takes the pick.
  *   - Fallback, both views: the newest result, then the newest script run,
  *     then the shipped example.
+ * A page that opens after the agent focused (a reload, a second tab) or a
+ * stream that reconnects reads the focus the panel kept, as an automatic one.
  *
  * The module also draws the artifacts pane header (Artifacts › title,
  * ‹ N of M ›, Open full size, Save) as the tile bar's local contribution
@@ -49,7 +51,12 @@ import { sendArtifactActionToIframe, sendArtifactSelectToIframe } from './panel-
 import { activateTab } from './panel-manager.js';
 import { hasDockedTile } from './panel-placement.js';
 import { setServiceMenuExtras } from './panel-menu-policy.js';
-import { ARTIFACTS_BASE, createListing, fetchArtifact } from './sidebar-artifact-listing.js';
+import {
+  ARTIFACTS_BASE,
+  createListing,
+  fetchArtifact,
+  fetchFocusedId,
+} from './sidebar-artifact-listing.js';
 import {
   artifactRows,
   drawnOrder,
@@ -157,13 +164,13 @@ export function initSidebarArtifacts() {
     if (!active) return;
     state.allSessions = false;
     render();
-    refresh();
+    void refresh();
   });
   onModeChange(() => {
     if (active) render();
   });
   setServiceMenuExtras(ARTIFACTS_PANEL_ID, menuExtras);
-  refresh();
+  void restoreFocus();
   render();
 }
 
@@ -189,10 +196,26 @@ export function teardownSidebarArtifacts() {
   wired = new WeakSet();
 }
 
-/** Fetch the first page of both lists again (scope change, Refresh, a reconnect). */
+/**
+ * Fetch the first page of both lists again (scope change, Refresh, a reconnect).
+ * @returns {Promise<unknown>} settled once both first pages have landed or failed
+ */
 function refresh() {
-  void lists().artifacts.loadFirst();
-  void lists().runs.loadFirst();
+  return Promise.all([lists().artifacts.loadFirst(), lists().runs.loadFirst()]);
+}
+
+/**
+ * Read the lists and the agent's persisted focus: a focus frame only reaches a
+ * page that is open when it is sent, so a reload, a second tab or a reconnect
+ * learns the focus here. It is applied once the first pages have landed (a
+ * first page replaces what the lists hold, the fetched focus included) and
+ * only when it changed, so a reconnect does not take back the operator's pick.
+ * It counts as automatic: the panel does not keep whether the agent's tooling
+ * sent it, and an automatic focus never puts a run record in Simple's viewer.
+ */
+async function restoreFocus() {
+  const [, id] = await Promise.all([refresh(), fetchFocusedId()]);
+  if (active && id && id !== state.focusId) await onFocus(id, true);
 }
 
 // ---- Which artifact is shown ----
@@ -273,7 +296,10 @@ async function step(delta) {
   const listing = listingFor(shown);
   if (delta > 0 && stepOrder(listing).at(-1)?.id === shown.id) await listing.loadNext();
   const order = stepOrder(listing);
-  const target = order[order.findIndex((a) => a.id === shown.id) + delta];
+  const index = order.findIndex((a) => a.id === shown.id);
+  // A scope change while the page was in flight can leave the shown artifact
+  // out of the list: the pick stays, and there is nothing to step to.
+  const target = index < 0 ? undefined : order[index + delta];
   if (!target || !active) return;
   state.pickId = target.id;
   render();
@@ -281,10 +307,10 @@ async function step(delta) {
 
 // ---- The event stream ----
 
-/** A reconnect: the stream does not replay, so the lists are read again. */
+/** A reconnect: the stream does not replay, so the lists and the focus are read again. */
 function onStreamOpen() {
   if (!active) return;
-  if (streamOpened) refresh();
+  if (streamOpened) void restoreFocus();
   streamOpened = true;
 }
 
@@ -366,6 +392,8 @@ function pagerPosition(shown) {
   const listing = listingFor(shown);
   const order = stepOrder(listing);
   const index = order.findIndex((a) => a.id === shown.id);
+  // Not in its list (the scope changed under it): no position to show.
+  if (index < 0) return null;
   return {
     index,
     count: Math.max(listing.total, order.length),
@@ -604,10 +632,10 @@ function onClick(event) {
   } else if (target.closest('[data-art-all-sessions]')) {
     state.allSessions = !state.allSessions;
     render();
-    refresh();
+    void refresh();
   } else if (target.closest('[data-art-refresh]') && menu) {
     closePopover(menu);
-    refresh();
+    void refresh();
   }
 }
 

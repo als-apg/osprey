@@ -172,10 +172,11 @@ describe('tile-tab renderer', () => {
     const tab = createTileTab('iframe:okf');
     tab.init({ title: 'KNOWLEDGE', params: {}, api });
 
-    expect(tab.element.getAttribute('aria-label')).toBe('KNOWLEDGE');
+    // One string for eye and ear: the title-cased label the sidebar row shows.
+    expect(tab.element.getAttribute('aria-label')).toBe('Knowledge');
     expect(tab.element.querySelector('.tile-tab-title')?.textContent).toBe('Knowledge');
     onTitle({ title: 'RENAMED' });
-    expect(tab.element.getAttribute('aria-label')).toBe('RENAMED');
+    expect(tab.element.getAttribute('aria-label')).toBe('Renamed');
     expect(tab.element.querySelector('.tile-tab-title')?.textContent).toBe('Renamed');
   });
 

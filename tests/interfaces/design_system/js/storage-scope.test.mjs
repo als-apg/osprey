@@ -64,9 +64,9 @@ describe('storage-scope.js', () => {
     });
 
     test('the scope is read per call, not captured at module load', () => {
-      expect(scopedStorageKey('osprey-rail-position')).toBe('osprey-rail-position');
+      expect(scopedStorageKey('osprey-sidebar')).toBe('osprey-sidebar');
       document.documentElement.setAttribute(SCOPE_ATTR, 'bob');
-      expect(scopedStorageKey('osprey-rail-position')).toBe('osprey-rail-position--bob');
+      expect(scopedStorageKey('osprey-sidebar')).toBe('osprey-sidebar--bob');
     });
 
     test('is base-agnostic — every axis derives its key the same way', () => {

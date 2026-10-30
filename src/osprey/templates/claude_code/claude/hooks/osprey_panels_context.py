@@ -280,12 +280,12 @@ def _build_ux_context(ux):
     if ux == "simple":
         return (
             "This session serves the web UI's SIMPLE surface: the operator sees "
-            "the chat, and the WORKSPACE panel beside it once there is something "
+            "the chat, and the Artifacts panel beside it once there is something "
             "in it. When you produce an artifact the operator should see (a plot, "
-            "report, page, or other file) and the WORKSPACE panel (artifacts) is not "
+            "report, page, or other file) and the Artifacts panel (artifacts) is not "
             'among the open tiles, call open_panel("artifacts") once to bring it up '
             "next to the chat. When it is already on screen, do not call it: the "
-            "workspace shows the artifact you focus."
+            "Artifacts panel shows the artifact you focus."
         )
     if ux == "expert":
         return "This session serves the web UI's EXPERT surface (full terminal + workspace layout)."

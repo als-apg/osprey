@@ -98,6 +98,18 @@ describe('the Types grouping', () => {
     const svg = /** @type {HTMLElement} */ (nodes[1]).querySelector('svg');
     expect(svg?.innerHTML).toBe(icon('chart-line').innerHTML);
   });
+
+  test('a group head is presentation, so the listbox owns only options', () => {
+    const nodes = rows.artifactRows([entry('p', 'plot_html', '2026-10-30T07:00:00Z')], {
+      ...READY,
+      view: 'types',
+      filter: '',
+    });
+    expect(nodes.map((node) => /** @type {HTMLElement} */ (node).getAttribute('role'))).toEqual([
+      'presentation',
+      'option',
+    ]);
+  });
 });
 
 describe('the Activity grouping', () => {
@@ -202,6 +214,13 @@ describe('the filter and the empty lines', () => {
     ).toEqual(['Artifacts are unavailable']);
     expect(texts(rows.runRows([], READY))).toEqual(['No script runs yet']);
     expect(rows.runRows([], { ...READY, loaded: false })).toEqual([]);
+  });
+
+  test('an empty line is presentation, not an unnamed child of the listbox', () => {
+    const [empty] = rows.artifactRows([], { ...READY, view: 'types', filter: '' });
+    expect(/** @type {HTMLElement} */ (empty).getAttribute('role')).toBe('presentation');
+    const [noRuns] = rows.runRows([], READY);
+    expect(/** @type {HTMLElement} */ (noRuns).getAttribute('role')).toBe('presentation');
   });
 });
 

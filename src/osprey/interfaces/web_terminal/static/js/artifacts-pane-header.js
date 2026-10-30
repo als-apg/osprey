@@ -9,12 +9,15 @@
  * With no artifact the header is the crumb's root alone and the two buttons,
  * disabled.
  *
- * Open full size and Save act here, on the hub's side of the proxy: a new tab
- * opened from inside the iframe in reply to a message would lack the click's
- * user activation, and the browser would block it. The URLs are the gallery's
+ * Open full size and Save act here, on the hub's side of the proxy, in the
+ * click's own task: the hub holds the entry, and the URLs are the gallery's
  * own (artifacts types.js `openUrl`, state.js `fileUrl`) under the proxy's
- * mount. The tile's ⋯ menu gets the artifact verbs the viewer runs (pin,
- * print, logbook, delete).
+ * mount, so the viewer has nothing to add. The tile's ⋯ menu gets the
+ * artifact verbs the viewer runs (pin, print, logbook, delete). Print opens
+ * its window from the viewer's message task, which a popup blocker lets
+ * through: the viewer is a first-party frame on the hub's origin with
+ * `allow-popups`, and the HTML standard gives a click's activation to the
+ * same-origin frames below it (Chromium does; Firefox is not verified).
  *
  * @module artifacts-pane-header
  */

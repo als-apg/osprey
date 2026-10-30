@@ -357,7 +357,7 @@ async def get_panels(request: Request):
 
     ``workspace_has_artifacts`` reports whether the agent workspace already
     holds any (non-hidden) file. The simple UX uses it to decide whether the
-    first paint is chat-only (empty workspace) or includes the WORKSPACE
+    first paint is chat-only (empty workspace) or includes the Artifacts
     panel; recomputed per request so a reload after the first artifact lands
     sees ``true``.
 
@@ -681,7 +681,7 @@ class PanelVisibilityRequest(BaseModel):
     """A rail-membership change.
 
     ``index`` places a panel being ADDED at that position of the rail's panel
-    entries (the SESSION entry is not counted), clamped to the list. It is how an
+    entries (the Agent entry is not counted), clamped to the list. It is how an
     operator's Undo puts a removed entry back where it was; without it an added
     panel goes to the end. It is ignored when hiding and when the panel is
     already a member, which keeps its place.
@@ -750,7 +750,7 @@ class RailOrderRequest(BaseModel):
     """Move a rail member so it sits directly above ``before``.
 
     ``before`` names another member; ``None`` moves the panel to the foot of
-    the rail. The SESSION entry is not a member, so it is never a target and
+    the rail. The Agent entry is not a member, so it is never a target and
     always stays at the head.
     """
 

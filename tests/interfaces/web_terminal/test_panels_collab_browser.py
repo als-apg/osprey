@@ -221,12 +221,13 @@ def _open_page(browser, base_url: str) -> Page:
 # ---------------------------------------------------------------------------
 
 # Every dockview group with its tab labels and pixel rectangle. The terminal
-# tile's tab carries no accessible name (it adopts the live .terminal-header),
-# so it is reported under the synthetic "Agent" handle, as in the sibling
-# suite.
+# tile's tab carries no accessible name (it adopts a live bar, which differs
+# between the views), so it is found by the .tile-tab-terminal class dock-tab.js
+# stamps in both and reported under the synthetic "Agent" handle, as in the
+# sibling suite.
 _GROUPS_JS = r"""() => [...document.querySelectorAll('.dv-groupview')].map(g => {
   const tabs = [...g.querySelectorAll('.dv-tab')].map(t =>
-    t.querySelector('.terminal-header')
+    t.querySelector('.tile-tab-terminal')
       ? 'Agent'
       : (t.querySelector('.tile-tab')?.getAttribute('aria-label') ?? ''));
   const r = g.getBoundingClientRect();

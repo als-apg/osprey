@@ -241,6 +241,24 @@ describe('the live edits', () => {
     list.remove('old');
     expect(list.total).toBe(3);
   });
+
+  test("an entry held on its own is in the server's total once its page arrives", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        reply({ artifacts: [entry('a', '2026-10-30T01:00:00Z')], total: 2, next_cursor: 'c1' })
+      )
+      .mockResolvedValueOnce(
+        reply({ artifacts: [entry('old', '2026-10-01T01:00:00Z')], total: 2, next_cursor: null })
+      );
+    const list = listing();
+    await list.loadFirst();
+    list.add(entry('old', '2026-10-01T01:00:00Z'), { counted: false });
+    await list.loadNext();
+    expect(list.total).toBe(2);
+    // The server's total counts it now, so its delete counts down.
+    list.remove('old');
+    expect(list.total).toBe(1);
+  });
 });
 
 describe('fetchArtifact', () => {
@@ -251,5 +269,27 @@ describe('fetchArtifact', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('/u/alice/panel/artifacts/api/artifacts/a%2Fb');
     fetchMock.mockResolvedValueOnce(reply({ detail: 'gone' }, 404));
     expect(await mod.fetchArtifact('x')).toBeNull();
+  });
+});
+
+describe('fetchFocusedId', () => {
+  test('reads the persisted focus through the proxy', async () => {
+    window.__OSPREY_PREFIX__ = '/u/alice';
+    fetchMock.mockResolvedValueOnce(
+      reply({ focused: true, artifact: entry('f1', '2026-10-30T01:00:00Z') })
+    );
+    expect(await mod.fetchFocusedId()).toBe('f1');
+    expect(fetchMock.mock.calls[0][0]).toBe('/u/alice/panel/artifacts/api/focus');
+  });
+
+  test("the panel's newest-artifact fallback is no focus, nor is a failure", async () => {
+    fetchMock.mockResolvedValueOnce(
+      reply({ focused: false, artifact: entry('n1', '2026-10-30T01:00:00Z') })
+    );
+    expect(await mod.fetchFocusedId()).toBeNull();
+    fetchMock.mockResolvedValueOnce(reply({ focused: false, artifact: null }));
+    expect(await mod.fetchFocusedId()).toBeNull();
+    fetchMock.mockResolvedValueOnce(reply({ detail: 'down' }, 502));
+    expect(await mod.fetchFocusedId()).toBeNull();
   });
 });

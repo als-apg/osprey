@@ -11,9 +11,14 @@
  * the Cmd+\ (macOS) / Ctrl+\ shortcut, and `set()` for callers. On every
  * change it stores the state under `scopedStorageKey(storageKey)` (see
  * storage-scope.js for why the key is per-user on a multi-user mount),
- * updates the toggle's `aria-pressed`, `aria-label` and `title`, and
- * dispatches `osprey-collapsible-change` with `{attribute, state}` on
- * `document`.
+ * updates the toggle and dispatches `osprey-collapsible-change` with
+ * `{attribute, state}` on `document`.
+ *
+ * The toggle is a disclosure: `aria-expanded` (true while the labels show)
+ * and `aria-controls` (the region's id, `controls`) carry the state, and its
+ * `aria-label` and `title` name the action a press takes. It is not also
+ * `aria-pressed`: beside a label that flips, a pressed state contradicts it
+ * ("Show sidebar labels, pressed" reads as labels already shown).
  *
  * A keydown that another handler already consumed (`defaultPrevented`, as
  * xterm does for the keys it sends to the shell) does not toggle. One
@@ -34,6 +39,8 @@ import { scopedStorageKey } from './storage-scope.js';
  * @property {string} storageKey the bare localStorage key, e.g. 'osprey-sidebar'
  * @property {HTMLElement | null} [toggle] the button that flips the state
  * @property {string} [shortcut] the key pressed with Cmd/Ctrl; default '\\'
+ * @property {string} [controls] the id of the region the toggle expands and
+ *   collapses; default 'sidebar'
  */
 
 /**
@@ -66,7 +73,13 @@ function onKeydown(event) {
  * @param {CollapsibleOptions} options
  * @returns {Collapsible}
  */
-export function initCollapsible({ attribute = 'data-sidebar', storageKey, toggle = null, shortcut = '\\' }) {
+export function initCollapsible({
+  attribute = 'data-sidebar',
+  storageKey,
+  toggle = null,
+  shortcut = '\\',
+  controls = 'sidebar',
+}) {
   if (!storageKey) throw new TypeError('initCollapsible: storageKey is required');
   const root = document.documentElement;
   const key = scopedStorageKey(storageKey);
@@ -77,7 +90,8 @@ export function initCollapsible({ attribute = 'data-sidebar', storageKey, toggle
   function syncToggle() {
     if (!toggle) return;
     const collapsed = isCollapsed();
-    toggle.setAttribute('aria-pressed', String(collapsed));
+    toggle.setAttribute('aria-expanded', String(!collapsed));
+    toggle.setAttribute('aria-controls', controls);
     toggle.setAttribute('aria-label', collapsed ? 'Show sidebar labels' : 'Hide sidebar labels');
     toggle.title = `${collapsed ? 'Show' : 'Hide'} labels (${chord})`;
   }
