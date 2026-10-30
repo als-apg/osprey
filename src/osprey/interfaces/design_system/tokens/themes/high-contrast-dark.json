@@ -35,6 +35,17 @@
     "default": { "$value": "rgba(255, 255, 255, 0.24)", "$type": "color", "$description": "Twice the alpha the chromatic themes use for their hairline — on pure black a 0.12 composite all but disappears, and a high-contrast theme must keep its structure legible." },
     "accent": { "$value": "rgba(255, 255, 255, 0.40)", "$type": "color" }
   },
+  "surface": {
+    "$description": "Layout F surfaces, monochrome. canvas = bg.primary step, card = mono.900. well is mono.950, not the bg.terminal step: here the terminal equals the canvas, and the well must sit between canvas and card. Washes are pure white composites (text.primary = accent.base); hairline keeps border.default's own alpha (0.24).",
+    "canvas": { "$value": "{color.mono.1000}", "$type": "color" },
+    "card": { "$value": "{color.mono.900}", "$type": "color" },
+    "well": { "$value": "{color.mono.950}", "$type": "color" },
+    "hairline": { "$value": "rgba(255, 255, 255, 0.24)", "$type": "color" },
+    "hover": { "$value": "rgba(255, 255, 255, 0.06)", "$type": "color" },
+    "press": { "$value": "rgba(255, 255, 255, 0.1)", "$type": "color" },
+    "selected": { "$value": "rgba(255, 255, 255, 0.12)", "$type": "color" },
+    "focus": { "$value": "rgba(255, 255, 255, 0.28)", "$type": "color" }
+  },
   "tint": {
     "$description": "Every tint family composites the same pure white, because monochrome means the accent/accent-secondary/error/success/neutral washes differ only in strength, never in hue.",
     "accent": {

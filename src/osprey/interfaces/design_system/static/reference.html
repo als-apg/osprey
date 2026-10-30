@@ -13,6 +13,7 @@
      /design-system/reference.html and proxied under /panel/{id}/design-system/. -->
 <link rel="stylesheet" href="css/tokens.css">
 <link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/primitives.css">
 
 <!-- Family-picker theme switcher: self-registering Custom Element -->
 <script type="module" src="js/components/osprey-theme-switcher.js"></script>
@@ -24,6 +25,31 @@
   // broadcast, which is correct for a page with no panels of its own.
   import { initTheme } from './js/theme-manager.js';
   initTheme({ role: 'follower' });
+</script>
+
+<script type="module">
+  // Shell primitives specimen: icons come from icons.js, the opener runs the
+  // real popover.js and the toggle the real collapsible.js state (stored under
+  // its own key, so it never touches a shell's sidebar preference).
+  import { icon } from './js/icons.js';
+  import { togglePopover } from './js/popover.js';
+  import { initCollapsible } from './js/collapsible.js';
+  import { initTooltips } from './js/tooltip.js';
+
+  for (const slot of document.querySelectorAll('[data-icon]')) {
+    const svg = icon(slot.dataset.icon);
+    if (slot.dataset.iconClass) svg.classList.add(...slot.dataset.iconClass.split(' '));
+    slot.replaceWith(svg);
+  }
+  const opener = document.getElementById('ref-pop-opener');
+  const pop = document.getElementById('ref-pop');
+  opener.addEventListener('click', () => togglePopover(opener, pop, { place: 'below-end' }));
+  const region = initCollapsible({
+    attribute: 'data-ref-sidebar',
+    storageKey: 'osprey-reference-sidebar',
+    toggle: document.getElementById('ref-sidebar-toggle'),
+  });
+  initTooltips(document.getElementById('ref-sidebar'), { when: () => region.isCollapsed() });
 </script>
 
 <style>
@@ -151,6 +177,32 @@
   .demo-status.ok { color: var(--color-success); background: var(--success-tint-08); }
   .demo-status.warn { color: var(--color-accent-secondary); background: var(--accent-secondary-tint-08); }
   .demo-status.err { color: var(--color-error); background: var(--error-tint-08); }
+
+  /* Shell primitives specimen: a sidebar column and one inset card on the
+     canvas, laid out with the web terminal's shell tokens. */
+  .ref-shell {
+    display: grid;
+    grid-template-columns: var(--wt-sidebar-width) minmax(0, 1fr);
+    gap: var(--wt-gutter);
+    padding: var(--wt-gutter);
+    padding-left: 0;
+    background: var(--surface-canvas);
+    border-radius: var(--radius-xl);
+    transition: grid-template-columns var(--duration-slow) var(--wt-ease-out);
+  }
+  html[data-ref-sidebar="collapsed"] .ref-shell { grid-template-columns: var(--wt-sidebar-collapsed-width) minmax(0, 1fr); }
+  html[data-ref-sidebar="collapsed"] .ref-shell .osprey-nav-label,
+  html[data-ref-sidebar="collapsed"] .ref-shell .osprey-nav-badge,
+  html[data-ref-sidebar="collapsed"] .ref-shell .osprey-section-label,
+  html[data-ref-sidebar="collapsed"] .ref-shell .ref-kids { display: none; }
+  html[data-ref-sidebar="collapsed"] .ref-shell .osprey-nav-row { justify-content: center; padding: 0; }
+  .ref-sidebar { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-1) var(--space-1) 0 var(--space-2); color: var(--text-secondary); min-width: 0; overflow: hidden; }
+  .ref-sidebar-head { display: flex; justify-content: flex-end; }
+  .ref-kids { padding: 2px 0 var(--space-1) var(--space-4); }
+  .ref-card { display: flex; flex-direction: column; min-height: 260px; }
+  .ref-well { flex: 1; display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-4); padding: var(--space-4); background: var(--surface-well); }
+  .ref-static-pop { position: static; }
+  .ref-dots { display: flex; align-items: center; gap: var(--space-3); color: var(--text-secondary); font-size: var(--text-md); }
 </style>
 </head>
 <body>
@@ -195,7 +247,85 @@
         </div>
       </div>
     </section>
+
+    <section>
+      <h2>Shell primitives</h2>
+      <div class="ref-shell">
+        <nav class="ref-sidebar" id="ref-sidebar" aria-label="Specimen sidebar">
+          <div class="ref-sidebar-head">
+            <button class="osprey-icon-btn" id="ref-sidebar-toggle" type="button"><span data-icon="panel-left"></span></button>
+          </div>
+          <label class="osprey-search">
+            <span data-icon="search"></span>
+            <input type="search" placeholder="Search" aria-label="Search">
+            <kbd class="osprey-kbd">⌘K</kbd>
+          </label>
+          <div class="osprey-section-label">Workspace</div>
+          <button class="osprey-nav-row" type="button" data-tip="Agent" aria-label="Agent">
+            <span data-icon="agent" data-icon-class="osprey-nav-icon"></span><span class="osprey-nav-label">Agent</span><span class="osprey-dot ok"></span>
+          </button>
+          <button class="osprey-nav-row parent" type="button" aria-current="page" aria-expanded="true" data-tip="Artifacts" aria-label="Artifacts">
+            <span data-icon="layers" data-icon-class="osprey-nav-icon"></span><span class="osprey-nav-label">Artifacts</span><span class="osprey-nav-badge">2</span><span data-icon="chevron-right" data-icon-class="osprey-nav-disc"></span>
+          </button>
+          <div class="ref-kids" role="listbox" aria-label="Artifacts">
+            <div class="osprey-list-head">Reports</div>
+            <button class="osprey-list-row" type="button" role="option" aria-selected="true"><span data-icon="file-text"></span><span class="osprey-list-title">SR lattice betatron tunes</span><time>02:48</time></button>
+            <div class="osprey-list-head">Plots</div>
+            <button class="osprey-list-row" type="button" role="option" aria-selected="false"><span data-icon="chart-line"></span><span class="osprey-list-title">Damped betatron oscillation</span><time>02:31</time></button>
+          </div>
+          <div class="osprey-section-label">Tools</div>
+          <button class="osprey-nav-row" type="button" data-tip="Jupyter" aria-label="Jupyter">
+            <span data-icon="notebook" data-icon-class="osprey-nav-icon"></span><span class="osprey-nav-label">Jupyter</span>
+          </button>
+          <button class="osprey-nav-row add" type="button" data-tip="Add panel" aria-label="Add panel">
+            <span data-icon="plus" data-icon-class="osprey-nav-icon"></span><span class="osprey-nav-label">Add panel</span>
+          </button>
+        </nav>
+        <section class="osprey-card ref-card" aria-label="Specimen pane">
+          <div class="osprey-pane-head">
+            <div class="osprey-crumb">
+              <span class="osprey-crumb-root">Artifacts</span>
+              <span class="osprey-crumb-sep"><span data-icon="chevron-right"></span></span>
+              <span class="osprey-crumb-leaf">SR lattice betatron tunes</span>
+            </div>
+            <button class="osprey-icon-btn" type="button" aria-label="Previous artifact" disabled><span data-icon="chevron-left"></span></button>
+            <span class="osprey-count">1</span>
+            <button class="osprey-icon-btn" type="button" aria-label="Next artifact"><span data-icon="chevron-right"></span></button>
+            <span class="osprey-head-sep"></span>
+            <button class="osprey-btn primary" type="button"><span data-icon="maximize"></span><span class="osprey-btn-label">Open full size</span></button>
+            <button class="osprey-btn" type="button"><span data-icon="save"></span><span class="osprey-btn-label">Save</span></button>
+            <button class="osprey-icon-btn" id="ref-pop-opener" type="button" aria-label="More" aria-haspopup="menu" aria-expanded="false"><span data-icon="more"></span></button>
+          </div>
+          <div class="ref-well">
+            <div class="osprey-popover ref-static-pop" role="menu" aria-label="Popover specimen">
+              <div class="osprey-popover-title">Control system</div>
+              <button class="osprey-popover-item" type="button" role="menuitemradio" aria-checked="true"><span class="osprey-dot ok"></span>Simulator<span data-icon="check" data-icon-class="osprey-popover-check"></span></button>
+              <button class="osprey-popover-item" type="button" role="menuitemradio" aria-checked="false"><span class="osprey-dot"></span>Live<span data-icon="check" data-icon-class="osprey-popover-check"></span></button>
+              <div class="osprey-popover-sep"></div>
+              <button class="osprey-popover-item" type="button" role="switch" aria-checked="true">writes on<span class="osprey-switch" aria-hidden="true"></span></button>
+              <button class="osprey-popover-item" type="button" role="menuitem"><span data-icon="sliders"></span>Settings<span class="osprey-popover-aside">⌘,</span></button>
+              <button class="osprey-popover-item danger" type="button" role="menuitem"><span data-icon="logout"></span>Sign out</button>
+            </div>
+            <div class="ref-dots">
+              <span class="osprey-dot ok"></span>ok
+              <span class="osprey-dot err"></span>error
+              <span class="osprey-dot hollow"></span>closed
+              <span class="osprey-dot"></span>idle
+              <span class="osprey-mini-seg" role="group" aria-label="Group by">
+                <button class="osprey-mini" type="button" aria-label="Types" aria-pressed="true"><span data-icon="types"></span></button>
+                <button class="osprey-mini" type="button" aria-label="Activity" aria-pressed="false"><span data-icon="history"></span></button>
+              </span>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
   </main>
+</div>
+
+<div class="osprey-popover" id="ref-pop" role="menu" aria-label="More" hidden>
+  <button class="osprey-popover-item" type="button" role="menuitem"><span data-icon="refresh"></span>Refresh</button>
+  <button class="osprey-popover-item" type="button" role="menuitemcheckbox" aria-checked="false"><span data-icon="history"></span>All sessions<span data-icon="check" data-icon-class="osprey-popover-check"></span></button>
 </div>
 
 <script>

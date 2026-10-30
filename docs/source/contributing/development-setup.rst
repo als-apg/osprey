@@ -295,6 +295,9 @@ the exemplars below have worked examples):
   ``/design-system/js/*`` specifier, mapped in both ``tsconfig.json`` and
   ``vitest.config.js``'s ``resolve.alias`` -- the same import path resolves
   under the type-checker, Vitest, and the real browser.
+- Shared visual parts (surface tokens, sidebar rows, popovers, the tooltip
+  layer, icons) come from the design system, not from a local copy.
+  :doc:`design-language` gives the rules and the list of primitives.
 
 **Exemplars** (concrete, complete, worth reading before writing your own):
 

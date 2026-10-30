@@ -35,6 +35,17 @@
     "default": { "$value": "{color.mono.300}", "$type": "color", "$description": "A solid ramp step rather than an alpha composite (matching the light themes' convention) — strong enough that panel edges survive on a near-white canvas." },
     "accent": { "$value": "rgba(0, 0, 0, 0.40)", "$type": "color" }
   },
+  "surface": {
+    "$description": "Layout F surfaces, monochrome. canvas = bg.secondary step, card = bg.terminal step, well = bg.primary step (between them). Washes are pure black composites (text.primary = accent.base); hairline is border.default (#b3b3b3) at 0.8.",
+    "canvas": { "$value": "{color.mono.100}", "$type": "color" },
+    "card": { "$value": "{color.mono.0}", "$type": "color" },
+    "well": { "$value": "{color.mono.50}", "$type": "color" },
+    "hairline": { "$value": "rgba(179, 179, 179, 0.8)", "$type": "color" },
+    "hover": { "$value": "rgba(0, 0, 0, 0.06)", "$type": "color" },
+    "press": { "$value": "rgba(0, 0, 0, 0.1)", "$type": "color" },
+    "selected": { "$value": "rgba(0, 0, 0, 0.12)", "$type": "color" },
+    "focus": { "$value": "rgba(0, 0, 0, 0.28)", "$type": "color" }
+  },
   "tint": {
     "$description": "Every tint family composites the same pure black, because monochrome means the accent/accent-secondary/error/success/neutral washes differ only in strength, never in hue.",
     "accent": {

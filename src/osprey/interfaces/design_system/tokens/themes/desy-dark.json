@@ -34,6 +34,17 @@
     "default": { "$value": "{color.petrol.750}", "$type": "color" },
     "accent": { "$value": "rgba(0, 159, 223, 0.15)", "$type": "color", "$description": "Alpha composite of the brand cyan (#009fdf)." }
   },
+  "surface": {
+    "$description": "Layout F surfaces. canvas = bg.primary step, card = bg.panel step, well = bg.terminal step (between them). Washes are alpha composites of text.primary (#deeaf2) and accent.base (#009fdf); hairline is border.default (#1e3848) at 0.8.",
+    "canvas": { "$value": "{color.petrol.950}", "$type": "color" },
+    "card": { "$value": "{color.petrol.850}", "$type": "color" },
+    "well": { "$value": "{color.petrol.900}", "$type": "color" },
+    "hairline": { "$value": "rgba(30, 56, 72, 0.8)", "$type": "color" },
+    "hover": { "$value": "rgba(222, 234, 242, 0.06)", "$type": "color" },
+    "press": { "$value": "rgba(222, 234, 242, 0.1)", "$type": "color" },
+    "selected": { "$value": "rgba(0, 159, 223, 0.12)", "$type": "color" },
+    "focus": { "$value": "rgba(0, 159, 223, 0.28)", "$type": "color" }
+  },
   "tint": {
     "accent": {
       "04": { "$value": "rgba(0, 159, 223, 0.04)", "$type": "color" },
