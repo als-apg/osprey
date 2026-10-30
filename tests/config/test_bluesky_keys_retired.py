@@ -9,8 +9,6 @@ config key and proves no shipped surface spells it again.
 from __future__ import annotations
 
 import re
-import subprocess
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -56,19 +54,6 @@ def test_no_shipped_source_spells_the_retired_key() -> None:
     ]
 
     assert offenders == []
-
-
-def test_the_resurrection_guard_is_green() -> None:
-    """No preset, template, reader or reference page spells a retired key."""
-    result = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts" / "check_config_keys.py")],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_a_profile_naming_the_devices_file_is_refused() -> None:

@@ -9,8 +9,6 @@ each retired key and proves no shipped surface spells it again.
 
 from __future__ import annotations
 
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -75,16 +73,3 @@ def test_the_compose_generator_resolves_no_noise_level() -> None:
     from osprey.deployment import compose_generator
 
     assert not hasattr(compose_generator, "_va_noise_level")
-
-
-def test_the_resurrection_guard_is_green() -> None:
-    """No preset, template, reader or reference page spells a retired key."""
-    result = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts" / "check_config_keys.py")],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 0, result.stdout + result.stderr

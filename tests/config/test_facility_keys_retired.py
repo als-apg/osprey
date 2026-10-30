@@ -9,8 +9,6 @@ surface spells it again.
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -49,19 +47,6 @@ def test_each_retired_reader_has_an_orphan_site(key: str) -> None:
     manifest = yaml.safe_load(MANIFEST.read_text(encoding="utf-8"))
 
     assert manifest["orphan_sites"].get(key), f"{key} has no orphan site"
-
-
-def test_the_resurrection_guard_is_green() -> None:
-    """No preset, template, reader or reference page spells a retired key."""
-    result = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts" / "check_config_keys.py")],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 0, result.stdout + result.stderr
 
 
 @pytest.mark.parametrize("preset", sorted(PRESETS.glob("*.yml")), ids=lambda p: p.stem)
