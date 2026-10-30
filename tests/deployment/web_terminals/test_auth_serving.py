@@ -759,59 +759,66 @@ def serving_stack(tmp_path: Path, *, oidc: bool = False) -> Iterator[Stack]:
 
     held = ExitStack()
     try:
-        # Docker binds each published port itself, so the ports are reserved
-        # and held until the containers are gone.
-        nginx_port = held.enter_context(reserved_port())
-        if oidc:
-            idp_port = held.enter_context(reserved_port())
-            idp_issuer = f"http://127.0.0.1:{idp_port}"
-        artifacts = render_web_terminals(
-            _config(nginx_port, oidc_issuer=idp_issuer),
-            terminal_secrets=terminal_secrets,
-            proxy_env_names=proxy_env_names,
-        )
-        # Lay the rendered artifacts out the way the real writer does —
-        # under the repo's build/ zone — while `project` below plays the
-        # pinned compose project directory the mount sources resolve
-        # against. The two must agree or nginx starts with no config.
-        project = tmp_path / "project"
-        for relative_path, content in artifacts.items():
-            target = web_artifacts_dir(project) / relative_path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content)
-        (project / "stub_upstream.py").write_text(_STUB_UPSTREAM)
-        (project / "mock_idp_server.py").write_text(_IDP_SERVER)
+        # Docker binds each published port itself, so each port is reserved and
+        # held until the containers are gone. A service outside the test suite
+        # can still hold a port in the reserved band, which the daemon reports
+        # as an opaque failure, so a failed start re-renders on fresh ports.
+        for attempt in range(3):
+            nginx_port = held.enter_context(reserved_port())
+            if oidc:
+                idp_port = held.enter_context(reserved_port())
+                idp_issuer = f"http://127.0.0.1:{idp_port}"
+            artifacts = render_web_terminals(
+                _config(nginx_port, oidc_issuer=idp_issuer),
+                terminal_secrets=terminal_secrets,
+                proxy_env_names=proxy_env_names,
+            )
+            # Lay the rendered artifacts out the way the real writer does —
+            # under the repo's build/ zone — while `project` below plays the
+            # pinned compose project directory the mount sources resolve
+            # against. The two must agree or nginx starts with no config.
+            project = tmp_path / f"project-{attempt}"
+            for relative_path, content in artifacts.items():
+                target = web_artifacts_dir(project) / relative_path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(content)
+            (project / "stub_upstream.py").write_text(_STUB_UPSTREAM)
+            (project / "mock_idp_server.py").write_text(_IDP_SERVER)
 
-        upstream_ports = _rendered_upstream_ports(artifacts["nginx/nginx.conf"])
-        assert set(upstream_ports) == set(_USERS), upstream_ports
+            upstream_ports = _rendered_upstream_ports(artifacts["nginx/nginx.conf"])
+            assert set(upstream_ports) == set(_USERS), upstream_ports
 
-        # The stub owns the namespace and the published ports; nginx, the
-        # sidecar and (under OIDC) the provider join it, which is what makes
-        # the rendered loopback `proxy_pass` targets resolve — and what
-        # makes the provider's issuer one string for inside and outside.
-        published = ["-p", f"127.0.0.1:{nginx_port}:{nginx_port}"]
-        if idp_port is not None:
-            published += ["-p", f"127.0.0.1:{idp_port}:{idp_port}"]
-        started = subprocess.run(
-            [
-                "docker",
-                "run",
-                "-d",
-                "--name",
-                stub_name,
-                *published,
-                "-v",
-                f"{project / 'stub_upstream.py'}:/stub_upstream.py:ro",
-                image,
-                "python",
-                "/stub_upstream.py",
-                *[str(upstream_ports[user]) for user in _USERS],
-            ],
-            capture_output=True,
-            text=True,
-            timeout=180,
-        )
-        assert started.returncode == 0, f"the stub upstream never started:\n{started.stderr}"
+            # The stub owns the namespace and the published ports; nginx, the
+            # sidecar and (under OIDC) the provider join it, which is what makes
+            # the rendered loopback `proxy_pass` targets resolve — and what
+            # makes the provider's issuer one string for inside and outside.
+            published = ["-p", f"127.0.0.1:{nginx_port}:{nginx_port}"]
+            if idp_port is not None:
+                published += ["-p", f"127.0.0.1:{idp_port}:{idp_port}"]
+            started = subprocess.run(
+                [
+                    "docker",
+                    "run",
+                    "-d",
+                    "--name",
+                    stub_name,
+                    *published,
+                    "-v",
+                    f"{project / 'stub_upstream.py'}:/stub_upstream.py:ro",
+                    image,
+                    "python",
+                    "/stub_upstream.py",
+                    *[str(upstream_ports[user]) for user in _USERS],
+                ],
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+            if started.returncode == 0:
+                break
+            subprocess.run(["docker", "rm", "-f", stub_name], capture_output=True, timeout=60)
+        else:
+            raise AssertionError(f"the stub upstream never started:\n{started.stderr}")
 
         if idp_port is not None:
             idp_started = subprocess.run(
@@ -971,10 +978,11 @@ def serving_stack(tmp_path: Path, *, oidc: bool = False) -> Iterator[Stack]:
         )
     finally:
         # Unconditionally, and by name: a `docker run` that fails to set up
-        # networking still leaves the container behind.
-        with held:
-            for name in names:
-                subprocess.run(["docker", "rm", "-f", name], capture_output=True, timeout=60)
+        # networking still leaves the container behind, and the next attempt
+        # would collide with its name.
+        for name in names:
+            subprocess.run(["docker", "rm", "-f", name], capture_output=True, timeout=60)
+        held.close()
 
 
 @pytest.fixture(scope="module")

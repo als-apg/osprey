@@ -11,9 +11,9 @@ Two things here look like a copy-paste of
 ``tests/va/e2e/test_target_switch.py``'s container helpers and are not:
 
 * ``tests/va/e2e/test_target_switch.py`` keeps its own
-  ``_free_port``/``_docker``/``_serving`` trio, predating this module and not
-  yet folded into it. This module exists precisely so the *bench* IOC's
-  version of that trio is spelled once and imported, so new callers get the
+  port, container and readiness helpers, predating this module and not yet
+  folded into it. This module exists precisely so the *bench* IOC's version of
+  those helpers is spelled once and imported, so new callers get the
   boot contract (reserved port, port-suffixed name, stale cleanup, readiness
   gate, ``rm -f`` in ``finally``) rather than re-deriving it.
 * The image precondition is different in kind. The virtual accelerator's

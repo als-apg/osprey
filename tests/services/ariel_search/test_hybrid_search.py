@@ -2551,6 +2551,10 @@ def lane_clock(monkeypatch):
     return clock
 
 
+def _closed_port_url(port: int) -> str:
+    return f"http://127.0.0.1:{port}"
+
+
 class TestPictureLaneAgainstAServer:
     """Owner ruling 17: no llama-server, or the wrong one, answers text-only."""
 
@@ -2559,7 +2563,7 @@ class TestPictureLaneAgainstAServer:
     ):
         # llama_stub empties LLAMA_CPP_HOST and the container fallbacks, so the
         # bound does not depend on the host's name resolution.
-        config = lane_config(f"http://127.0.0.1:{reserve_port()}")
+        config = lane_config(_closed_port_url(reserve_port()))
         hits = [make_hit("a", score=0.9), make_hit("b", score=0.5)]
 
         def repo() -> LaneRepository:

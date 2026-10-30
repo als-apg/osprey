@@ -32,6 +32,10 @@ def _embed(url: str, *, dimensions: int = 1024, timeout: float = 10.0) -> BaseEx
     return caught.value
 
 
+def _refused_url(port: int) -> str:
+    return f"http://127.0.0.1:{port}"
+
+
 class TestAgainstLlamaCpp:
     def test_401_is_unavailable_auth(self, llama_stub):
         stub = llama_stub()
@@ -62,7 +66,7 @@ class TestAgainstLlamaCpp:
         assert classify_vision_error(exc) == "transient"
 
     def test_connection_refused_is_unavailable_unreachable(self, reserve_port):
-        exc = _embed(f"http://127.0.0.1:{reserve_port()}")
+        exc = _embed(_refused_url(reserve_port()))
         assert classify_vision_error(exc) == "unavailable"
         assert availability.unavailable_reason(exc) == "unreachable"
 

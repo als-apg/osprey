@@ -4,8 +4,8 @@ Every OSPREY server binds its listening socket through :func:`listening_socket`
 before it reports a port, and serves on that socket: port 0 lets the system
 choose, and the port a server names is the one it holds.
 
-These utilities run any OSPREY interface ``create_app()`` on a free localhost
-port in a background thread — the shared surface used by the real-browser
+These utilities run any OSPREY interface ``create_app()`` on a localhost port
+the system chooses, in a background thread — the shared surface used by the real-browser
 Playwright suites under ``tests/interfaces/`` *and* by the documentation
 screenshot runner (``docs/screenshots/``). Both consumers import a real,
 supported API here instead of reaching into test internals.
@@ -53,13 +53,6 @@ _DRAIN_TIMEOUT = 5
 #: have finished, so a test that checked for leaked processes afterwards was
 #: racing the shutdown it was meant to observe.
 _SHUTDOWN_JOIN = 30.0
-
-
-def free_port() -> int:
-    """Return an unused TCP port on 127.0.0.1."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
 
 
 #: Pending-connection queue of a socket :func:`listening_socket` returns;

@@ -93,6 +93,11 @@ VOCABULARY = (
 # --- servers -----------------------------------------------------------------------
 
 
+def _closed_url(port: int) -> str:
+    """A local URL nothing listens on, at *port*, a reserved port."""
+    return f"http://127.0.0.1:{port}"
+
+
 class OllamaStub:
     """An Ollama stand-in on 127.0.0.1 that serves the text embedding model only.
 
@@ -397,11 +402,8 @@ def _isolated(reserve_port, monkeypatch, tmp_path):
     _local_server.reset_cache()
     monkeypatch.chdir(tmp_path)
 
-    closed = {
-        "ollama": f"http://127.0.0.1:{reserve_port()}",
-        "llama-cpp": f"http://127.0.0.1:{reserve_port()}",
-    }
-    fallbacks = [f"http://127.0.0.1:{reserve_port()}", f"http://127.0.0.1:{reserve_port()}"]
+    closed = {"ollama": _closed_url(reserve_port()), "llama-cpp": _closed_url(reserve_port())}
+    fallbacks = [_closed_url(reserve_port()), _closed_url(reserve_port())]
     # The api.providers entries point at closed ports: an env override names
     # the in-test server, and nothing ever reaches the host's own servers.
     monkeypatch.setattr(
@@ -411,8 +413,8 @@ def _isolated(reserve_port, monkeypatch, tmp_path):
     monkeypatch.setattr(
         _local_server, "container_fallback_urls", lambda base_url, default_port: list(fallbacks)
     )
-    monkeypatch.setenv("OLLAMA_HOST", f"http://127.0.0.1:{reserve_port()}")
-    monkeypatch.setenv("LLAMA_CPP_HOST", f"http://127.0.0.1:{reserve_port()}")
+    monkeypatch.setenv("OLLAMA_HOST", _closed_url(reserve_port()))
+    monkeypatch.setenv("LLAMA_CPP_HOST", _closed_url(reserve_port()))
     yield
     reset_ariel_context()
     reset_config_cache()

@@ -89,9 +89,7 @@ _LIST_MUTATORS = frozenset(
     {"insert", "append", "extend", "remove", "pop", "clear", "sort", "reverse"}
 )
 _SOCKET_OPENERS = frozenset({"socket", "create_connection", "create_server", "socketpair"})
-_PORT_HELPERS = frozenset(
-    {"bound_socket", "free_port", "_free_port", "hold_ports", "reserved_port", "reserved_ports"}
-)
+_PORT_HELPERS = frozenset({"bound_socket", "hold_ports", "reserved_port", "reserved_ports"})
 
 #: Identifiers at least one of which every write the checks below detect has to
 #: spell in the source: an ``os.environ`` write names ``environ`` (or
@@ -100,7 +98,7 @@ _PORT_HELPERS = frozenset(
 #: that spells none of them is skipped unparsed -- most of the tree, and
 #: parsing it is what the audit spends its time on.
 _ANY_KIND_TOKEN = re.compile(
-    r"\b(?:environ|putenv|unsetenv|socket|_?free_port|hold_ports|bound_socket|reserved_ports?)\b"
+    r"\b(?:environ|putenv|unsetenv|socket|hold_ports|bound_socket|reserved_ports?)\b"
 )
 _SYS_TOKEN = re.compile(r"\bsys\b")
 _SYS_ATTR_TOKEN = re.compile(r"\b(?:path|modules)\b")
@@ -288,8 +286,6 @@ _ONE_OF_EACH = {
     "sys.modules assignment": ('import sys\nsys.modules["m"] = None\n', "sys.modules"),
     "sys.modules mutator": ('import sys\nsys.modules.pop("m")\n', "sys.modules"),
     "socket opener": ("import socket\nsocket.socket()\n", "socket"),
-    "port helper": ("free_port()\n", "socket"),
-    "private port helper": ("_free_port()\n", "socket"),
     "port hold": ("hold_ports(1)\n", "socket"),
     "bound socket": ("bound_socket()\n", "socket"),
     "port reservation": ("reserved_port()\n", "socket"),

@@ -544,7 +544,7 @@ def _move_configured_port(config_path: Path, service: str, old: int, new: int) -
 
 
 @pytest.fixture
-def startable_repo(exemplar_copy: Path, reserve_port, stub_runtime: StubRuntime) -> Iterator[Path]:
+def startable_repo(exemplar_copy: Path, stub_runtime: StubRuntime, reserve_port) -> Iterator[Path]:
     """An ``exemplar_copy`` whose published ports are free on this host.
 
     The start verb's host-port preflight is a real socket probe and refuses the

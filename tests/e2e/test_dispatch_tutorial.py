@@ -43,8 +43,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tests.e2e._deploy_support import drain_output
-from tests.e2e._dispatch_harness import build_repo, running_dispatch_stack
+from tests.e2e._dispatch_harness import build_repo, log_tail, running_dispatch_stack
 from tests.e2e._worker_record import WorkerRecord, worker_record
 from tests.e2e.provider import E2E_MODEL, e2e_provider
 from tests.e2e.sdk_helpers import HAS_SDK
@@ -156,7 +155,9 @@ def _fire_webhook(dispatcher_url: str, trigger: str, payload: dict) -> str:
     return dispatch_id
 
 
-def _wait_for_run(dispatcher_url: str, dispatch_id: str, worker_proc: subprocess.Popen) -> dict:
+def _wait_for_run(
+    dispatcher_url: str, dispatch_id: str, worker_proc: subprocess.Popen, worker_log: Path
+) -> dict:
     """Poll the dispatcher run feed for the run with ``dispatch_id``; return it terminal.
 
     We correlate on the dispatch_id returned by firing rather than "any terminal
@@ -172,7 +173,7 @@ def _wait_for_run(dispatcher_url: str, dispatch_id: str, worker_proc: subprocess
     while time.monotonic() < deadline:
         if worker_proc.poll() is not None:
             raise AssertionError(
-                f"worker exited mid-run (rc={worker_proc.returncode}).\n{drain_output(worker_proc)}"
+                f"worker exited mid-run (rc={worker_proc.returncode}).\n{log_tail(worker_log)}"
             )
         runs = _http_get_json(
             f"{dispatcher_url}/dashboard/runs",
@@ -189,7 +190,7 @@ def _wait_for_run(dispatcher_url: str, dispatch_id: str, worker_proc: subprocess
         time.sleep(2.0)
     raise AssertionError(
         f"run for dispatch_id={dispatch_id} did not reach a terminal state within "
-        f"{RUN_TIMEOUT_SEC:.0f}s.\n{drain_output(worker_proc)}"
+        f"{RUN_TIMEOUT_SEC:.0f}s.\n{log_tail(worker_log)}"
     )
 
 
@@ -223,7 +224,10 @@ def test_tutorial_trigger_completes(dispatch_stack: dict, trigger: str, payload:
 
     dispatch_id = _fire_webhook(dispatch_stack["dispatcher_url"], trigger, payload)
     run = _wait_for_run(
-        dispatch_stack["dispatcher_url"], dispatch_id, dispatch_stack["worker_proc"]
+        dispatch_stack["dispatcher_url"],
+        dispatch_id,
+        dispatch_stack["worker_proc"],
+        dispatch_stack["worker_log"],
     )
 
     assert run["status"] == "completed", (

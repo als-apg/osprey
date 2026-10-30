@@ -73,6 +73,7 @@ dimension would make every one of those behaviors structurally untestable.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -924,7 +925,7 @@ def test_the_figure_path_leaves_a_waveform_column_out_rather_than_plotting_it(
 
 
 def test_a_configured_but_unreachable_catalog_is_a_503_not_a_500(
-    monkeypatch: pytest.MonkeyPatch, reserve_port
+    monkeypatch: pytest.MonkeyPatch, reserve_port: Callable[[], int]
 ) -> None:
     """The ordinary outage, driven against a real closed port.
 
@@ -941,6 +942,7 @@ def test_a_configured_but_unreachable_catalog_is_a_503_not_a_500(
     be reached, so an operator is not left deciding between "no Tiled here" and
     "Tiled is down" from a status code alone.
     """
+
     from fastapi.testclient import TestClient
     from tiled.client import utils as tiled_utils
 
@@ -951,7 +953,9 @@ def test_a_configured_but_unreachable_catalog_is_a_503_not_a_500(
     monkeypatch.setattr(tiled_utils, "TILED_RETRY_ATTEMPTS", 1)
     monkeypatch.setattr(tiled_utils, "TILED_RETRY_TIMEOUT", 1.0)
 
-    monkeypatch.setenv(_TILED_URI_ENV, f"http://127.0.0.1:{reserve_port()}")
+    closed_port = reserve_port()
+
+    monkeypatch.setenv(_TILED_URI_ENV, f"http://127.0.0.1:{closed_port}")
 
     response = TestClient(app_module.app).get("/runs/run-unreachable/data")
 

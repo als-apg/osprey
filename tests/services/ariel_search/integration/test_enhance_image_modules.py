@@ -147,6 +147,11 @@ def _captions(uri: str, entry_id: str) -> dict[str, Any]:
     return row[0] or {}
 
 
+def _closed_url(port: int) -> str:
+    """A local URL nothing listens on, at *port*, a reserved port."""
+    return f"http://127.0.0.1:{port}"
+
+
 @pytest.fixture(autouse=True)
 def _isolated(monkeypatch):
     """Fresh availability and offload state; a configured caption provider."""
@@ -281,7 +286,7 @@ class TestEnhanceImageEmbedding:
     async def test_a_closed_port_prints_the_skip_reason_and_writes_no_key(
         self, reserve_port, repo, scratch_database, module
     ):
-        cfg = _config_dict(scratch_database, embed_url=f"http://127.0.0.1:{reserve_port()}")
+        cfg = _config_dict(scratch_database, embed_url=_closed_url(reserve_port()))
         await _seed(repo, cfg, "closed-1", ["a.png"])
         lines: list[str] = []
 

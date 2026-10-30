@@ -65,6 +65,11 @@ def _isolated(monkeypatch):
     _local_server.reset_cache()
 
 
+def _nobody_listening(port: int) -> str:
+    """A 127.0.0.1 URL on *port*, a reserved port nothing listens on."""
+    return f"http://127.0.0.1:{port}"
+
+
 def _norm(vector: list[float]) -> float:
     return math.sqrt(sum(v * v for v in vector))
 
@@ -157,7 +162,7 @@ class TestNoServerListening:
         import osprey.services.ariel_search as ariel_pkg
 
         llama_stub
-        url = f"http://127.0.0.1:{reserve_port()}"
+        url = _nobody_listening(reserve_port())
         service = _StatusService(_status_repository())
 
         async def _create(_config: Any) -> _StatusService:
@@ -190,7 +195,7 @@ class TestNoServerListening:
 
     async def test_hybrid_search_answers_text_only(self, reserve_port, llama_stub, search_calls):
         llama_stub
-        config = lane_config(f"http://127.0.0.1:{reserve_port()}")
+        config = lane_config(_nobody_listening(reserve_port()))
         hits = [make_hit("a", score=0.9), make_hit("b", score=0.5)]
 
         def repo() -> LaneRepository:

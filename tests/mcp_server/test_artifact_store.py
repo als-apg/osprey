@@ -1344,10 +1344,9 @@ class TestServerLauncherRetry:
         def crash_app_factory(**kwargs):
             raise RuntimeError("app factory crash")
 
-        port = reserve_port()
         launcher = ServerLauncher(
             name="Test Server",
-            config_reader=lambda: ("127.0.0.1", port),
+            config_reader=lambda: ("127.0.0.1", reserve_port()),
             auto_launch_checker=lambda: True,
             app_factory=crash_app_factory,
             pass_workspace=False,
@@ -1364,7 +1363,7 @@ class TestServerLauncherRetry:
         # After crash, _launched should be reset to False
         assert launcher._launched is False
 
-    def test_server_launcher_health_check_warning(self, caplog, monkeypatch, reserve_port):
+    def test_server_launcher_health_check_warning(self, reserve_port, caplog, monkeypatch):
         """A server that never answers /health is warned about once the late-health window ends."""
         import logging
 
@@ -1378,10 +1377,9 @@ class TestServerLauncherRetry:
             # Return something but don't actually start a server
             return None
 
-        port = reserve_port()
         launcher = ServerLauncher(
             name="Test Server",
-            config_reader=lambda: ("127.0.0.1", port),
+            config_reader=lambda: ("127.0.0.1", reserve_port()),
             auto_launch_checker=lambda: True,
             app_factory=noop_app_factory,
             pass_workspace=False,

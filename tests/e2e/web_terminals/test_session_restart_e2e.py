@@ -21,8 +21,9 @@ anchored on the repo), what the store file is called (named for the settled
 also named for that port). A drift in any one of those three would leave the in-
 process test green and every real operator logged out on restart anyway.
 
-So this test drives the actual command. Against one deployment repo, on one
-port, it asserts:
+So this test drives the actual command. Against one deployment repo, on the
+port the first server binds (``--port 0``) and the restart asks for again, it
+asserts:
 
 1. **The cookie is persistent, not a window-lifetime one.** The ``?token=``
    login URL the detached launcher prints is exchanged (``GET`` → ``303`` +
@@ -64,13 +65,13 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.parse
 from http.cookies import Morsel, SimpleCookie
 from pathlib import Path
 
 import httpx
 import pytest
 
-from osprey.interfaces._serving import free_port
 from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
 from tests.e2e.web_terminals._minimal_repo import stop_host_record, write_minimal_repo
 from tests.e2e.web_terminals.test_terminal_auth_e2e import (
@@ -134,7 +135,7 @@ def _launcher_env() -> dict[str, str]:
         "OSPREY_TERMINAL_SECRET",
         "OSPREY_TERMINAL_BIND_HOST",
         # The bind host's companion declaration, and the one inherited variable
-        # that could redirect the launch away from the port this test reserved:
+        # that could redirect the launch away from the port this test asks for:
         # `resolve_web_port` treats it as AUTHORITATIVE over `--port`, so an
         # ambient value would start a detached server on a port a real
         # deployment may be using.
@@ -226,8 +227,11 @@ def _diagnostics(*logs: Path) -> str:
     return "\n".join(parts) or "(no logs)"
 
 
-def _launch_detached(repo: Path, port: int, log_path: Path) -> str:
-    """Start ``osprey web --detach`` on *port* and return its login URL.
+def _launch_detached(repo: Path, port: int, log_path: Path) -> tuple[str, int]:
+    """Start ``osprey web --detach`` on *port*; return its login URL and bound port.
+
+    *port* ``0`` lets the server bind a port the system chooses; the login URL
+    the launcher prints names the port the server bound.
 
     The launcher's stdout is captured to *log_path* because that — not the
     child's log file — is where the ``Open: …?token=…`` line is printed: the
@@ -270,12 +274,15 @@ def _launch_detached(repo: Path, port: int, log_path: Path) -> str:
         f"`osprey web --detach --port {port}` exited {returncode}.\n"
         f"{_diagnostics(log_path, repo / _CHILD_LOG_RELPATH)}"
     )
-    if not _wait_for_open_port(_HOST, port, _READY_TIMEOUT):
+    login_url = _read_login_url(log_path, proc, timeout=_LOGIN_URL_TIMEOUT)
+    bound = urllib.parse.urlsplit(login_url).port
+    assert bound, f"the login URL names no port: {login_url!r}"
+    if not _wait_for_open_port(_HOST, bound, _READY_TIMEOUT):
         pytest.fail(
-            f"the detached server never answered on {_HOST}:{port} within "
+            f"the detached server never answered on {_HOST}:{bound} within "
             f"{_READY_TIMEOUT}s.\n{_diagnostics(log_path, repo / _CHILD_LOG_RELPATH)}"
         )
-    return _read_login_url(log_path, proc, timeout=_LOGIN_URL_TIMEOUT)
+    return login_url, bound
 
 
 def _stop(repo: Path) -> subprocess.CompletedProcess[str]:
@@ -316,8 +323,6 @@ def test_browser_session_survives_a_server_restart(tmp_path: Path, record_port: 
     Asserts, across two launcher invocations against one repo and one port, the
     four properties enumerated in the module docstring.
     """
-    port = free_port()
-
     # `osprey web` serves a deployment repo's RENDER: it walks up to the nearest
     # `profile.yml` and refuses when the repo has no `build/config.yml` to serve,
     # so the run directory must be a real (if minimal) repo. It is also what
@@ -336,13 +341,6 @@ def test_browser_session_survives_a_server_restart(tmp_path: Path, record_port: 
         record_port,
     )
 
-    base_url = f"http://{_HOST}:{port}"
-    # `session_cookie_name()` names the cookie for the settled OSPREY_WEB_PORT,
-    # and `SessionStore` names its file for the same value. Both are spelled out
-    # here so a drift between them shows up as this test failing rather than as
-    # an operator being logged out.
-    cookie_name = f"osprey_terminal_session_{port}"
-    store_path = repo / _STORE_RELDIR / f"sessions-{port}.json"
     first_log = tmp_path / "launch-1.log"
     second_log = tmp_path / "launch-2.log"
 
@@ -357,7 +355,14 @@ def test_browser_session_survives_a_server_restart(tmp_path: Path, record_port: 
 
     try:
         # -- First server: exchange the login URL for a session cookie. ------
-        first_url = _launch_detached(repo, port, first_log)
+        first_url, port = _launch_detached(repo, 0, first_log)
+        base_url = f"http://{_HOST}:{port}"
+        # `session_cookie_name()` names the cookie for the settled OSPREY_WEB_PORT,
+        # and `SessionStore` names its file for the same value. Both are spelled out
+        # here so a drift between them shows up as this test failing rather than as
+        # an operator being logged out.
+        cookie_name = f"osprey_terminal_session_{port}"
+        store_path = repo / _STORE_RELDIR / f"sessions-{port}.json"
         first_pid = _read_pid(repo)
         assert first_pid is not None, (
             f"the detached launcher wrote no readable PID file at {repo / _PID_RELPATH}.\n"
@@ -438,7 +443,8 @@ def test_browser_session_survives_a_server_restart(tmp_path: Path, record_port: 
 
         # A genuinely new process, with a newly minted operator secret it never
         # shares with the old one. Only the store on disk connects the two.
-        second_url = _launch_detached(repo, port, second_log)
+        second_url, second_port = _launch_detached(repo, port, second_log)
+        assert second_port == port, f"the restart bound {second_port}, not {port}"
         second_pid = _read_pid(repo)
         if second_pid is not None:
             pids.append(second_pid)

@@ -93,7 +93,7 @@ REPO_PATHS = (str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-conne
 
 #: The virtual accelerator this module boots for its ``va`` target, and the
 #: simulation data it serves. Same image and same data directory as
-#: ``test_target_switch.py``; a container of its own, on an ephemeral port,
+#: ``test_target_switch.py``; a container of its own, on a reserved port,
 #: because writing setpoints into the directory's shared session container would
 #: move a lattice other modules read.
 VA_IMAGE = e2e_conftest.IMAGE
@@ -371,7 +371,7 @@ def raw_config(
     IOC. Every switch to ``live`` is therefore a switch *toward* the real
     machine, which is the only direction FR-8's live gate applies to.
 
-    Both blocks name an explicit gateway port: the containers bind ephemeral
+    Both blocks name an explicit gateway port: the containers bind reserved
     ports and nothing may guess them. Both gateway roles name the same endpoint
     because there is one server at each end; the write-capable role is the one
     the child selects, so a refused write is refused by the IOC rather than by a

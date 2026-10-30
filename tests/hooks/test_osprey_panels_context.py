@@ -489,7 +489,7 @@ def test_main_keeps_surface_line_when_web_terminal_down(monkeypatch, capsys):
 
 
 @pytest.mark.parametrize("stdin", ["", "{nope", "[]"], ids=["empty", "invalid-json", "wrong-shape"])
-def test_malformed_stdin_fails_open(hook_runner_raw, monkeypatch, reserve_port, stdin):
+def test_malformed_stdin_fails_open(reserve_port, hook_runner_raw, monkeypatch, stdin):
     """Stdin the hook cannot use still leaves the session start unblocked.
 
     SessionStart hands the hook a JSON payload it never reads. Run as a real

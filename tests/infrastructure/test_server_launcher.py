@@ -396,10 +396,9 @@ class TestEnsureRunningShortCircuits:
 
 class TestIsRunning:
     def test_free_port_is_not_running(self, reserve_port):
-        port = reserve_port()
         launcher = ServerLauncher(
             name="Probe",
-            config_reader=lambda: ("127.0.0.1", port),
+            config_reader=lambda: ("127.0.0.1", reserve_port()),
             auto_launch_checker=lambda: True,
             app_factory=lambda: object(),
         )
@@ -1115,7 +1114,7 @@ class TestPortIsBindableAgainstARealKernel:
     """One smoke row per family: the stand-in above must describe the real thing.
 
     Only the two unambiguous cases are asked of a real kernel — an exact-address
-    listener holds its own address, and a released port is free — because those
+    listener holds its own address, and a reserved port is free — because those
     are the rows macOS and Linux answer identically. The platform-divergent ones
     (a wildcard probe against a specific listener) stay mocked.
     """

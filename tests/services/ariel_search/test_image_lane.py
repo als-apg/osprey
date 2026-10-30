@@ -45,6 +45,10 @@ def test_query_timeout_is_twice_the_measured_p95_and_never_under_five():
 # ---------------------------------------------------------------------------
 
 
+def _refused_url(port: int) -> str:
+    return f"http://127.0.0.1:{port}"
+
+
 def _ariel_config(url: str = "http://127.0.0.1:1", **block: Any) -> ARIELConfig:
     image_embedding: dict[str, Any] = {
         "enabled": True,
@@ -660,7 +664,7 @@ class TestAgainstServer:
         self, reserve_port, llama_stub, monkeypatch, clock, search_calls
     ):
         stub = llama_stub()
-        configured = f"http://127.0.0.1:{reserve_port()}"
+        configured = _refused_url(reserve_port())
         real_probe = _local_server.probe
 
         def _probe(url, path, timeout):
