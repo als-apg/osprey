@@ -1,7 +1,7 @@
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 312" role="img" aria-labelledby="tier-render-title tier-render-desc">
   <title id="tier-render-title">A tier is a file under tiers/, rendered</title>
-  <desc id="tier-render-desc">profile.yml carries the floor every tier inherits; each tier file under tiers/ holds only its differences — readonly sets control_system.writes to never, readwrite sets it to allowed, admin sets it to allowed and lifts the floor. osprey build merges every delta over the base and renders one project per tier, and each becomes one operator's container: bob's readonly, alice's readwrite, carol's admin.</desc>
+  <desc id="tier-render-desc">profile.yml carries the floor every tier inherits; each tier file under tiers/ holds only its differences — readonly sets control_system.writes to never, readwrite sets it to asked (the switch goes no further than asked), admin sets it to allowed and lifts the floor. osprey build merges every delta over the base and renders one project per tier, and each becomes one operator's container: bob's readonly, alice's readwrite, carol's admin.</desc>
   <defs>
     <marker id="tier-render-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -32,6 +32,11 @@
   <text class="ts" x="132" y="62" text-anchor="middle">the floor every tier inherits</text>
   <text class="ts" x="132" y="78" text-anchor="middle">setup_patch denied · Config panel off</text>
   <text class="ts" x="132" y="92" text-anchor="middle">gallery read-only</text>
+  <!-- admin is drawn first in source order; its box sits at the bottom -->
+  <rect class="mask" x="24" y="244" width="216" height="44" rx="6"/>
+  <rect class="nb-in" x="24" y="244" width="216" height="44" rx="6"/>
+  <text class="tn" x="132" y="263" text-anchor="middle">tiers/admin.yml</text>
+  <text class="ts" x="132" y="279" text-anchor="middle">writes: allowed · lifts the floor</text>
   <rect class="mask" x="24" y="124" width="216" height="44" rx="6"/>
   <rect class="nb-in" x="24" y="124" width="216" height="44" rx="6"/>
   <text class="tn" x="132" y="143" text-anchor="middle">tiers/readonly.yml</text>
@@ -39,11 +44,7 @@
   <rect class="mask" x="24" y="184" width="216" height="44" rx="6"/>
   <rect class="nb-in" x="24" y="184" width="216" height="44" rx="6"/>
   <text class="tn" x="132" y="203" text-anchor="middle">tiers/readwrite.yml</text>
-  <text class="ts" x="132" y="219" text-anchor="middle">writes: allowed · switch per machine</text>
-  <rect class="mask" x="24" y="244" width="216" height="44" rx="6"/>
-  <rect class="nb-in" x="24" y="244" width="216" height="44" rx="6"/>
-  <text class="tn" x="132" y="263" text-anchor="middle">tiers/admin.yml</text>
-  <text class="ts" x="132" y="279" text-anchor="middle">writes: allowed · lifts the floor</text>
+  <text class="ts" x="132" y="219" text-anchor="middle">writes: asked · switch up to asked</text>
   <!-- the build -->
   <rect class="mask" x="392" y="136" width="184" height="56" rx="6"/>
   <rect class="nb-foc" x="392" y="136" width="184" height="56" rx="6"/>
