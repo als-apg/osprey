@@ -424,3 +424,35 @@ def test_unopenable_file_is_unavailable(tmp_path):
         EmbeddedBackend(bogus)
     assert not isinstance(info.value, RecordBackendLocked)
     assert str(bogus) in str(info.value)
+
+
+def test_unopenable_file_under_a_lock_named_directory_is_not_locked(tmp_path):
+    bogus = tmp_path / "takes-no-lock" / "lockfile.duckdb"
+    bogus.parent.mkdir()
+    bogus.write_text("this is not a duckdb file")
+    with pytest.raises(c.RecordBackendUnavailable) as info:
+        EmbeddedBackend(bogus)
+    assert not isinstance(info.value, RecordBackendLocked)
+    assert str(bogus) in str(info.value)
+
+
+def test_file_held_by_another_process_is_locked(tmp_path):
+    held = tmp_path / "held.duckdb"
+    holder = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            f"import duckdb, sys; con = duckdb.connect({str(held)!r}); print('HELD', flush=True); sys.stdin.read()",
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert holder.stdout is not None
+        assert holder.stdout.readline().strip() == "HELD"
+        with pytest.raises(RecordBackendLocked) as info:
+            EmbeddedBackend(held)
+        assert str(held) in str(info.value)
+    finally:
+        holder.communicate(timeout=60)
