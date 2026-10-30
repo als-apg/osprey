@@ -55,7 +55,7 @@ from osprey.cli.main import cli
 from osprey.cli.phase_reporter import PhaseReporter
 from osprey.cli.profile_conventions import unknown_root_entries
 from osprey.cli.styles import osprey_theme
-from osprey_connectors.workspace import APPS_DIRNAME, TIERS_DIRNAME
+from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
 from tests.cli._reporters import installed
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, exemplar_source_files
 

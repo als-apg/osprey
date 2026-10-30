@@ -46,9 +46,9 @@ import yaml
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
+from osprey.utils.workspace import IMAGE_DIR_NAME
 from osprey_connectors.workspace import (
     BUILD_DIR_NAME,
-    IMAGE_DIR_NAME,
     RENDERED_CONFIG_RELPATH,
     rendered_config_path,
     repo_root_for_config,

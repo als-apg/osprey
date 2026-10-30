@@ -313,12 +313,12 @@ def _operator_text(blocks: list[Any]) -> str:
     costs neither, and the marker alone never makes a bubble.
     """
     from osprey.mcp_server.workspace.transcript_reader import (
-        COMMAND_NAME_PREFIX,
+        COMMAND_ECHO_PREFIXES,
         INTERRUPT_MARKER,
         LOCAL_COMMAND_PREFIXES,
     )
 
-    markers = (INTERRUPT_MARKER, COMMAND_NAME_PREFIX, *LOCAL_COMMAND_PREFIXES)
+    markers = (INTERRUPT_MARKER, *COMMAND_ECHO_PREFIXES, *LOCAL_COMMAND_PREFIXES)
     return "\n".join(
         block["text"]
         for block in blocks
@@ -327,6 +327,202 @@ def _operator_text(blocks: list[Any]) -> str:
         and isinstance(block.get("text"), str)
         and not block["text"].lstrip().startswith(markers)
     ).strip()
+
+
+#: A slash command's echo, as the CLI writes it for a skill or a command file.
+_COMMAND_NAME_RE = re.compile(r"<command-name>/?([^<\s]+)</command-name>")
+_COMMAND_ARGS_RE = re.compile(r"<command-args>(.*?)</command-args>", re.DOTALL)
+
+#: How the CLI opens the instructions it injects when a skill is loaded.
+_SKILL_BODY_MARK = "Base directory for this skill"
+
+
+def _operator_command(blocks: list[Any]) -> tuple[str, str] | None:
+    """The command and arguments an operator ran, from the CLI's echo of it.
+
+    The CLI echoes a skill or a command file the operator ran as a user entry
+    opening with ``<command-message>``, naming the command in ``<command-name>``
+    and its arguments in ``<command-args>``. A built-in's echo opens with
+    ``<command-name>`` and is not read here: it stays bookkeeping.
+
+    Returns:
+        ``(name, args)``, or ``None`` for an entry that is no such echo. ``args``
+        is the echo's text as the CLI wrote it, whitespace and all, so the
+        attached-files block the composer appends still reads as one.
+    """
+    from osprey.mcp_server.workspace.transcript_reader import COMMAND_MESSAGE_PREFIX
+
+    for block in blocks:
+        text = block.get("text") if isinstance(block, dict) else None
+        if not isinstance(text, str) or not text.lstrip().startswith(COMMAND_MESSAGE_PREFIX):
+            continue
+        name = _COMMAND_NAME_RE.search(text)
+        if name is None:
+            return None
+        args = _COMMAND_ARGS_RE.search(text)
+        return name.group(1), (args.group(1) if args else "")
+    return None
+
+
+def _entry_text(blocks: list[Any]) -> str:
+    """The text of an entry's first text block, or ``""``."""
+    for block in blocks:
+        text = block.get("text") if isinstance(block, dict) else None
+        if isinstance(text, str):
+            return text
+    return ""
+
+
+#: The stop reasons of a message the agent goes on from: it waits on its tool calls,
+#: or the API paused a long turn for the CLI to resume. Any other stop ends the response.
+_CONTINUING_STOPS = frozenset({"tool_use", "pause_turn"})
+
+
+def _stopped_by_operator(blocks: list[Any]) -> bool:
+    """Whether a user entry carries the marker the CLI writes when the operator stops a turn."""
+    from osprey.mcp_server.workspace.transcript_reader import INTERRUPT_MARKER
+
+    return any(
+        isinstance(block, dict)
+        and block.get("type") == "text"
+        and isinstance(block.get("text"), str)
+        and block["text"].lstrip().startswith(INTERRUPT_MARKER)
+        for block in blocks
+    )
+
+
+def _api_error_event(entry: dict[str, Any]) -> dict[str, Any] | None:
+    """The ``error`` frame the live chat drew for an assistant entry the model API failed.
+
+    The CLI writes such an entry with ``isApiErrorMessage`` and the kind of
+    failure in ``error`` (``authentication_failed``, ``rate_limit``, …). The SDK
+    reads the same field, and the live stream draws it as this frame
+    (``operator_session._event_to_wire``); a test pins the two together.
+    Returns ``None`` for any other entry.
+    """
+    error = entry.get("error")
+    if not error:
+        return None
+    return {
+        "type": "error",
+        "message": f"API error: {error}",
+        "error_type": "AssistantMessageError",
+    }
+
+
+#: The tools that start a subagent; the chat draws each call as that agent's chip.
+_SUBAGENT_TOOLS = frozenset({"Agent", "Task"})
+
+
+def _block_events(
+    blocks: list[Any], *, assistant: bool, approved: set[str]
+) -> list[dict[str, Any]]:
+    """The chat frames one transcript entry's content blocks stand for.
+
+    Text counts only from the agent (``assistant``): a user entry's text is the
+    operator's, or the prompt a subagent was started with, and neither is the
+    agent speaking.
+    """
+    from osprey.interfaces.web_terminal.operator_session import format_tool_name
+    from osprey.interfaces.web_terminal.routes.chat import clip_input
+    from osprey.interfaces.web_terminal.tool_preview import (
+        tool_result_preview,
+        tool_result_refusal,
+        tool_result_text,
+    )
+
+    events: list[dict[str, Any]] = []
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        btype = block.get("type")
+        if btype == "text" and assistant and block.get("text", "").strip():
+            events.append({"type": "text", "content": block["text"]})
+        elif btype == "thinking":
+            events.append({"type": "thinking", "content": block.get("thinking", "")})
+        elif btype == "tool_use":
+            name = block.get("name", "")
+            events.append(
+                {
+                    "type": "tool_use",
+                    "tool_name": format_tool_name(name),
+                    "tool_name_raw": name,
+                    "tool_use_id": block.get("id", ""),
+                    "input": clip_input(block.get("input", {})),
+                }
+            )
+        elif btype == "tool_result":
+            result_text = tool_result_text(block.get("content"))
+            # Read before the preview cut, as the live stream does.
+            refusal, shown = tool_result_refusal(result_text, bool(block.get("is_error")))
+            preview, truncated = tool_result_preview(shown)
+            events.append(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": block.get("tool_use_id", ""),
+                    "is_error": bool(block.get("is_error")),
+                    "preview": preview,
+                    "truncated": truncated,
+                    "refusal": refusal,
+                    "decision": _replayed_decision(
+                        block.get("tool_use_id", ""),
+                        result_text,
+                        bool(block.get("is_error")),
+                        approved,
+                    ),
+                }
+            )
+    return events
+
+
+def _subagent_transcripts(path: Path) -> dict[str, Path]:
+    """Each subagent transcript of the session at ``path``, by the call that started it.
+
+    The CLI writes a subagent's work to ``<session>/subagents/agent-<id>.jsonl``,
+    beside a ``.meta.json`` naming the ``toolUseId`` of the Agent call that
+    launched it. A meta file that cannot be read, or whose transcript is
+    missing, names nothing.
+    """
+    found: dict[str, Path] = {}
+    for meta in (path.parent / path.stem / "subagents").glob("*.meta.json"):
+        try:
+            tool_use_id = json.loads(meta.read_text()).get("toolUseId")
+        except (OSError, ValueError, AttributeError):
+            continue
+        transcript = meta.with_name(meta.name.removesuffix(".meta.json") + ".jsonl")
+        if isinstance(tool_use_id, str) and tool_use_id and transcript.is_file():
+            found[tool_use_id] = transcript
+    return found
+
+
+def _subagent_events(path: Path, parent: str) -> list[dict[str, Any]]:
+    """A subagent's text, calls and results as the frames the live chat drew in its chip.
+
+    Each frame carries ``parent_tool_use_id``, the way the live stream marks a
+    subagent's own records, so the replay files it under that agent's chip. Its
+    reasoning is left out, as the chip never shows it.
+    """
+    try:
+        lines = path.read_text().splitlines()
+    except OSError:
+        return []
+    approved = _approved_call_ids(lines)
+    events: list[dict[str, Any]] = []
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        kind = entry.get("type")
+        if kind not in ("user", "assistant") or entry.get("isMeta"):
+            continue
+        blocks = entry.get("message", {}).get("content", [])
+        if not isinstance(blocks, list):
+            continue  # the prompt the agent was started with
+        for event in _block_events(blocks, assistant=kind == "assistant", approved=approved):
+            if event["type"] != "thinking":
+                events.append({**event, "parent_tool_use_id": parent})
+    return events
 
 
 def _chat_timeline(path: Path) -> list[dict[str, Any]]:
@@ -339,50 +535,135 @@ def _chat_timeline(path: Path) -> list[dict[str, Any]]:
     read off the transcript's timestamps. ``content`` holds the turn's joined
     text, so a client that ignores ``events`` still replays the words.
 
+    The transcript's last turn gets its ``result`` only when the transcript
+    shows that it ended: its last answer stopped (``end_turn``, or any stop
+    other than one for tool calls) with no background agent of the turn still
+    to report, or the operator stopped the turn. A turn that waits on a call,
+    reads a result, waits on a background agent or answers one's report is
+    still running, as a reload mid-turn finds it, so it is left open for the
+    live stream to continue. An answer that records no stop reason gives no
+    sign either way and is read as the end.
+
+    An answer the model API failed (CLI ``isApiErrorMessage``) replays as the
+    ``error`` frame the live stream drew for it, ahead of its text. A turn whose
+    last answer failed closes with ``is_error`` set.
+
+    A ``thinking`` event carries ``duration_ms``: the time from the entry before
+    it to the entry that holds the reasoning, which is how long the agent spent
+    on it. It is left out when either timestamp is missing or unreadable.
+
     A ``tool_result`` event carries its call's ``decision`` when the transcript
     shows one; see :func:`_replayed_decision`. It carries ``refusal`` exactly as
     the live stream does (:func:`~osprey.interfaces.web_terminal.tool_preview.tool_result_refusal`).
+
+    A subagent's work follows the call that started it, read from its own
+    transcript (see :func:`_subagent_events`), so its chip replays with the
+    activity it showed live. Those frames stay out of ``content``.
+
+    A skill or a command file the operator ran by its slash command replays as
+    the operator's turn, ``/name args`` as typed rather than the CLI's echo of
+    it. A skill then opens the agent's turn with the row the live stream drew
+    for it (:func:`~osprey.interfaces.web_terminal.slash_commands.operator_skill_frames`).
     """
-    from osprey.interfaces.web_terminal.operator_session import format_tool_name
-    from osprey.interfaces.web_terminal.routes.chat import clip_input
-    from osprey.interfaces.web_terminal.tool_preview import (
-        tool_result_preview,
-        tool_result_refusal,
-        tool_result_text,
-    )
+    from osprey.interfaces.web_terminal.operator_session import _ASYNC_LAUNCH_MARK
 
     turns: list[dict[str, Any]] = []
     agent: dict[str, Any] | None = None
     started: datetime | None = None
     last: datetime | None = None
+    #: The timestamp of the conversation entry before the one being read.
+    previous: datetime | None = None
 
-    def close_agent() -> None:
-        nonlocal agent
+    #: Whether the transcript shows the current agent turn over, as its latest entry reads.
+    ended = True
+    #: Whether the current agent turn's latest answer is one the model API failed.
+    failed = False
+    #: The current turn's subagent calls, and those the CLI sent to the
+    #: background that have not reported yet: the live turn stays open for them.
+    agent_calls: set[str] = set()
+    background: set[str] = set()
+
+    def close_agent(*, at_end: bool = False) -> None:
+        nonlocal agent, failed
         if agent is None:
             return
-        duration = (last - started).total_seconds() * 1000 if started and last else None
-        agent["events"].append({"type": "result", "is_error": False, "duration_ms": duration})
-        agent["content"] = "\n\n".join(e["content"] for e in agent["events"] if e["type"] == "text")
+        # A turn the operator's next prompt follows is over. The transcript's
+        # last turn is over only when its own entries say so.
+        if not at_end or (ended and not background):
+            duration = (last - started).total_seconds() * 1000 if started and last else None
+            agent["events"].append({"type": "result", "is_error": failed, "duration_ms": duration})
+        agent["content"] = "\n\n".join(
+            e["content"]
+            for e in agent["events"]
+            if e["type"] == "text" and not e.get("parent_tool_use_id")
+        )
         turns.append(agent)
         agent = None
+        failed = False
+        agent_calls.clear()
+        background.clear()
 
+    #: The skill an operator's slash command named, until the CLI's entry that
+    #: loads it shows it was a skill (a command file loads no such entry).
+    ran: tuple[str, str] | None = None
+    skills_run = 0
     lines = path.read_text().splitlines()
     approved = _approved_call_ids(lines)
+    subagents = _subagent_transcripts(path)
     for line in lines:
         try:
             entry = json.loads(line)
         except ValueError:
             continue
         kind = entry.get("type")
-        if kind not in ("user", "assistant") or entry.get("isSidechain") or entry.get("isMeta"):
+        if kind not in ("user", "assistant") or entry.get("isSidechain"):
             continue
         blocks = entry.get("message", {}).get("content", [])
         if isinstance(blocks, str):
             blocks = [{"type": "text", "text": blocks}]
+        if entry.get("isMeta"):
+            # The instructions a skill injects are not shown; the skill's row is.
+            if ran is not None and _entry_text(blocks).startswith(_SKILL_BODY_MARK):
+                from osprey.interfaces.web_terminal.slash_commands import operator_skill_frames
+
+                skills_run += 1
+                if agent is None:
+                    agent = {
+                        "role": "assistant",
+                        "content": "",
+                        "events": [],
+                        "timestamp": entry.get("timestamp", ""),
+                    }
+                agent["events"].extend(operator_skill_frames(*ran, f"operator-skill-{skills_run}"))
+                # The agent has the skill's instructions and answers them next.
+                ended = False
+            ran = None
+            continue
+        ran = None
         stamp = _ts(entry.get("timestamp", ""))
+        since, previous = previous, stamp if stamp is not None else previous
 
         text = ""
+        stopped = False
         if kind == "user":
+            command = _operator_command(blocks)
+            if command is not None:
+                from osprey.interfaces.web_terminal.slash_commands import strip_attachment_block
+
+                # What the operator typed, as the live chat showed it.
+                name, args = command
+                close_agent()
+                turns.append(
+                    {
+                        "role": "user",
+                        "content": f"/{name} {args.strip()}".rstrip(),
+                        "timestamp": entry.get("timestamp", ""),
+                    }
+                )
+                started = stamp
+                # A skill's row, as the live one, leaves out the files attached to it.
+                ran = (name, strip_attachment_block(args).strip())
+                continue
             text = _operator_text(blocks)
             # A background agent's report is injected as a user message; it
             # continues the agent's turn rather than starting an operator one.
@@ -393,6 +674,12 @@ def _chat_timeline(path: Path) -> list[dict[str, Any]]:
                 )
                 started = stamp
                 continue
+            # The operator stopped the turn, and its background agents with it:
+            # whatever came before the marker, the turn is over.
+            stopped = _stopped_by_operator(blocks)
+            if stopped:
+                ended = True
+                background.clear()
             if not text and not any(
                 isinstance(b, dict) and b.get("type") == "tool_result" for b in blocks
             ):
@@ -408,49 +695,38 @@ def _chat_timeline(path: Path) -> list[dict[str, Any]]:
         if stamp is not None:
             last = stamp
         if kind == "user" and text.startswith(_TASK_NOTIFICATION_MARK):
-            agent["events"].append(_agent_done_event(text))
+            # The agent answers the report next: the turn goes on.
+            ended = False
+            done = _agent_done_event(text)
+            background.discard(done["tool_use_id"])
+            agent["events"].append(done)
             continue
-        for block in blocks:
-            if not isinstance(block, dict):
-                continue
-            btype = block.get("type")
-            if btype == "text" and kind == "assistant" and block.get("text", "").strip():
-                agent["events"].append({"type": "text", "content": block["text"]})
-            elif btype == "thinking":
-                agent["events"].append({"type": "thinking", "content": block.get("thinking", "")})
-            elif btype == "tool_use":
-                name = block.get("name", "")
-                agent["events"].append(
-                    {
-                        "type": "tool_use",
-                        "tool_name": format_tool_name(name),
-                        "tool_name_raw": name,
-                        "tool_use_id": block.get("id", ""),
-                        "input": clip_input(block.get("input", {})),
-                    }
-                )
-            elif btype == "tool_result":
-                result_text = tool_result_text(block.get("content"))
-                # Read before the preview cut, as the live stream does.
-                refusal, shown = tool_result_refusal(result_text, bool(block.get("is_error")))
-                preview, truncated = tool_result_preview(shown)
-                agent["events"].append(
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": block.get("tool_use_id", ""),
-                        "is_error": bool(block.get("is_error")),
-                        "preview": preview,
-                        "truncated": truncated,
-                        "refusal": refusal,
-                        "decision": _replayed_decision(
-                            block.get("tool_use_id", ""),
-                            result_text,
-                            bool(block.get("is_error")),
-                            approved,
-                        ),
-                    }
-                )
-    close_agent()
+        if kind == "assistant":
+            ended = entry.get("message", {}).get("stop_reason") not in _CONTINUING_STOPS
+            error = _api_error_event(entry)
+            failed = error is not None
+            if error is not None:
+                agent["events"].append(error)
+        else:
+            # The agent reads its calls' results next, unless the operator stopped it.
+            ended = stopped
+        for event in _block_events(blocks, assistant=kind == "assistant", approved=approved):
+            if event["type"] == "thinking" and since is not None and stamp is not None:
+                event["duration_ms"] = max(0, round((stamp - since).total_seconds() * 1000))
+            agent["events"].append(event)
+            if event["type"] == "tool_use" and event["tool_name_raw"] in _SUBAGENT_TOOLS:
+                agent_calls.add(event["tool_use_id"])
+                transcript = subagents.get(event["tool_use_id"])
+                if transcript is not None:
+                    agent["events"].extend(_subagent_events(transcript, event["tool_use_id"]))
+            elif (
+                event["type"] == "tool_result"
+                and event["tool_use_id"] in agent_calls
+                and _ASYNC_LAUNCH_MARK in event["preview"]
+            ):
+                # The CLI sent the subagent to the background: the turn waits on its report.
+                background.add(event["tool_use_id"])
+    close_agent(at_end=True)
     return turns
 
 

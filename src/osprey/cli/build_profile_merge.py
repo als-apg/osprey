@@ -17,13 +17,13 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from osprey.utils.workspace import LAYER_DIR_KINDS, PROFILE_FILENAME, RETIRED_LAYER_DIRS
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import (
     configured_targets,
     resolve_target,
     tier_writes,
 )
-from osprey_connectors.workspace import LAYER_DIR_KINDS, PROFILE_FILENAME, RETIRED_LAYER_DIRS
 
 from . import build_profile_document as _document
 from .build_profile_document import RENDER_KEYS, _read_profile_document, retired_write_origin
@@ -1539,7 +1539,11 @@ class ResolvedProfileDocument:
 
 
 def resolve_profile_document(
-    raw: dict[str, Any], profile_path: Path, *, warn: bool = True
+    raw: dict[str, Any],
+    profile_path: Path,
+    *,
+    warn: bool = True,
+    root_overlays: Sequence[dict[str, Any]] = (),
 ) -> ResolvedProfileDocument:
     """Resolve a profile document, following the implicit render merge.
 
@@ -1564,6 +1568,13 @@ def resolve_profile_document(
             skip. The loader is the user-facing surface, so it keeps the
             warnings. The same flag gates the write-posture warnings of
             :func:`judge_retired_posture`.
+        root_overlays: Host-variant overlays, already read. They lay over the
+            DEPLOYMENT — the root ``profile.yml`` — before its ``extends`` is
+            resolved: over ``raw`` when it is the root, over the root beside
+            it when ``raw`` is a tier or app. A layer therefore sees the
+            variant only through the root it merges over, and the layer-file
+            refusals judge what the layer file itself spells, never what the
+            host's variant said.
 
     Returns:
         The resolved document and its anchor.
@@ -1605,6 +1616,8 @@ def resolve_profile_document(
         )
 
     if not is_layer:
+        for overlay in root_overlays:
+            normalized = _deep_merge(normalized, overlay)
         chain: list[Path] = []
         resolved = _resolve_extends(
             normalized,
@@ -1657,6 +1670,8 @@ def resolve_profile_document(
     root_raw = _read_profile_document(root_path)
     if not isinstance(root_raw, dict):
         raise BuildProfileError(f"Profile root must be a YAML mapping: {root_path}")
+    for overlay in root_overlays:
+        root_raw = _deep_merge(root_raw, overlay)
     host_chain: list[Path] = []
     root_resolved = _resolve_extends(
         dict(root_raw),
@@ -1710,7 +1725,7 @@ def _fold_source_tree(
     so the digest depends on content alone and not on filesystem walk order.
 
     ``skip_runtime_output`` is passed for the ``data:`` tree only: the
-    top-level :data:`~osprey_connectors.workspace.RUNTIME_DATA_DIR_NAME`
+    top-level :data:`~osprey.utils.workspace.RUNTIME_DATA_DIR_NAME`
     subtree is where ``osprey up`` mints its own material (per-lane CURVE
     certificates), and hashing it would make every successful start mark its
     own build OUT OF DATE (#716). The subtree is skipped statically — by its
@@ -1741,7 +1756,7 @@ def _fold_source_tree(
     """
     import hashlib
 
-    from osprey_connectors.workspace import RUNTIME_DATA_DIR_NAME
+    from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME
 
     if source.is_dir():
         entries = []
@@ -1817,7 +1832,7 @@ def _fold_profile_material(
       :meth:`~osprey.cli.build_profile_model.BuildProfile.resolved_data_root`
       so it resolves exactly where the build copies it from — minus the
       reserved ``data/.runtime/`` subtree
-      (:data:`~osprey_connectors.workspace.RUNTIME_DATA_DIR_NAME`), which is
+      (:data:`~osprey.utils.workspace.RUNTIME_DATA_DIR_NAME`), which is
       runtime-minted material (the Bluesky lanes' CURVE certificates) and
       never build input: fold it and every successful ``osprey up`` marks its
       own build OUT OF DATE, stranding a bare ``osprey up -d`` boot unit at
@@ -2034,8 +2049,9 @@ def compute_profile_hash(profile_path: Path) -> str | None:
     whose variant arrived as an argument would be a fingerprint two call sites
     could spell differently — the exact way a stale build goes unnoticed. Read
     off the directory, both sides of the comparison see the same selection, and
-    a directory with no ``.env.variant`` (a layer's, a preset's) folds
-    nothing.
+    a directory with no ``.env.variant`` (a preset's) folds nothing. A tier or
+    app reads it off its deployment root, because the variant reaches its
+    render through that root.
     """
     try:
         from .variant_selection import active_variant_overlay
@@ -2044,6 +2060,7 @@ def compute_profile_hash(profile_path: Path) -> str | None:
         raw = _read_profile_document(path)
         if not isinstance(raw, dict):
             return None
-        return _hash_resolved_profile(raw, path, overlay=active_variant_overlay(path.parent))
+        root_dir, _kind = resolve_profile_root(path)
+        return _hash_resolved_profile(raw, path, overlay=active_variant_overlay(root_dir))
     except Exception:
         return None

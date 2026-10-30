@@ -157,7 +157,7 @@ class ConnectorSettable(StandardReadable):
     in the worker's namespace twice. An aliased device reports one key: its
     readback IS its demand.
 
-    The device is Bluesky-``Locatable``, so ``bps.locate`` answers where it
+    The device is Bluesky-``Locatable``, so ``bps.loc`` answers where it
     was told to go and where it is, both read live through the connector.
 
     The OSPREY connector instance is stored as ``self._osprey_connector``,

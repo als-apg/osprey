@@ -12,6 +12,7 @@ Covers:
 
 import asyncio
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -182,6 +183,21 @@ class TestFocus:
         resp = app_client.post("/api/focus", json={"artifact_id": first.id, "fullscreen": True})
         assert resp.status_code == 200
         assert resp.json()["artifact_id"] == first.id
+
+    @pytest.mark.parametrize(
+        ("body", "flag"),
+        [({}, None), ({"automatic": True}, True)],
+        ids=["chosen", "automatic"],
+    )
+    def test_a_focus_event_says_whether_it_was_automatic(self, app_client, body, flag):
+        """The Simple layout keeps its selection through an automatic focus, so
+        the broadcast must carry the flag exactly when the sender set it."""
+        store = app_client.app.state.artifact_store
+        entry = _save_text_artifact(store, title="Review")
+        with patch.object(_SSEBroadcaster, "broadcast") as broadcast:
+            app_client.post("/api/focus", json={"artifact_id": entry.id, **body})
+        (event,), _ = broadcast.call_args
+        assert event.get("automatic") is flag
 
     def test_stale_focus_cleared_and_falls_back_to_latest(self, app_client, tmp_path):
         """A focused artifact deleted out from under the app contributes no
@@ -649,7 +665,7 @@ class TestIndexArtifactDirMeta:
         ids=["default", "two-segment", "single-segment", "absolute", "home", "mismatched"],
     )
     def test_agent_artifact_dir_spells_each_layout(self, root, base_dir, expected):
-        from osprey_connectors.workspace import repo_root_for_agent_data
+        from osprey.utils.workspace import repo_root_for_agent_data
 
         root_path = Path(root)
         repo_root = repo_root_for_agent_data(root_path, base_dir)

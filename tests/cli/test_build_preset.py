@@ -32,8 +32,8 @@ from click.testing import CliRunner, Result
 from osprey.cli.build_profile import list_presets, resolve_build_profile
 from osprey.cli.build_profile_presets import _presets_dir
 from osprey.cli.init_cmd import init
+from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.workspace import TIERS_DIRNAME
 from tests._builds import BuiltProject
 from tests._preset_data import copy_bundle_data
 from tests._retired_layout import RETIRED_LAYER_DIRNAME

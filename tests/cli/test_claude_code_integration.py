@@ -16,10 +16,10 @@ from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.init_cmd import init
 from osprey.cli.templates.manager import TemplateManager
 from osprey.facility.views.facts import zero_source_facts
+from osprey.utils.workspace import CHAT_UPLOADS_SUBDIR
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.posture_store import STATE_DIR_NAME
 from osprey_connectors.workspace import (
-    CHAT_UPLOADS_SUBDIR,
     RENDERED_CONFIG_RELPATH,
     agent_data_base_dir,
     resolve_shared_data_root,

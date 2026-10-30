@@ -25,7 +25,7 @@ from osprey.port_layout import (
     default_port,
 )
 from osprey.services.auth_sidecar.passwords import hash_password
-from osprey_connectors.workspace import APPS_DIRNAME, RETIRED_LAYER_DIRS, TIERS_DIRNAME
+from osprey.utils.workspace import APPS_DIRNAME, RETIRED_LAYER_DIRS, TIERS_DIRNAME
 from tests._renders import app_render, tier_render
 
 # A second, non-default base whose block the explicit per-family overrides

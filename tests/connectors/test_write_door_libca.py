@@ -77,6 +77,7 @@ async def main():
 
     in_flight = threading.Event()
     first = asyncio.Event()
+    landed = asyncio.Event()
     seen = []
 
     async def on_update(value):
@@ -90,10 +91,24 @@ async def main():
         entry["in_flight"] = in_flight.is_set()
         seen.append(entry)
         first.set()
+        if float(value) == 3.0:
+            landed.set()
 
     sub = aioca.camonitor(setpoint, on_update)
     await asyncio.wait_for(first.wait(), timeout=30)
     seen.clear()
+
+    # The update the put causes is dispatched to this loop by libca's thread,
+    # on no schedule tied to the write, and the confirming read can return
+    # before it does. Holding that read until the update's callback has run
+    # puts the callback inside the write every time.
+    confirming_read = connector._confirming_read
+
+    async def confirming_read_after_the_update(*args, **kwargs):
+        await asyncio.wait_for(landed.wait(), timeout=30)
+        return await confirming_read(*args, **kwargs)
+
+    connector._confirming_read = confirming_read_after_the_update
 
     in_flight.set()
     try:
@@ -184,10 +199,9 @@ def test_a_monitor_callbacks_put_is_refused_while_the_connectors_write_lands(
 
     assert seen["outcome"] == "confirmed", seen
     assert seen["error"] is None, seen
-    callbacks = seen["callbacks"]
-    assert callbacks, f"no monitor update arrived during the write: {seen}"
-    for entry in callbacks:
-        assert entry["name"] == "ChannelWriteBlockedError", seen
-        assert entry["reason"] == "RAW_CLIENT_WRITE", seen
-    assert any(entry["in_flight"] for entry in callbacks), seen
+    # The confirming read is held until the put's own update has been handled,
+    # so exactly that one callback runs, inside the write, and is refused.
+    assert seen["callbacks"] == [
+        {"name": "ChannelWriteBlockedError", "reason": "RAW_CLIENT_WRITE", "in_flight": True}
+    ], seen
     assert seen["final"] == pytest.approx(3.0), seen
