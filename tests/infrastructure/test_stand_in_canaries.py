@@ -38,6 +38,9 @@ CANARIES: dict[str, str] = {
         "tests/pyaml_cs_osprey/test_pyaml_pin.py::"
         "test_pyaml_still_round_trips_no_mixed_thin_thick_magnet"
     ),
+    "lume-pyat's solve_orbit hands find_m66 the orbit it searched for; this module goes with it.": (
+        "tests/simulation/test_lume_pin.py::test_lume_pyat_still_hands_find_m66_no_orbit"
+    ),
 }
 
 _MARKER = re.compile(r"^\s*# Stand-in until (?P<sentence>.*)$", re.MULTILINE)

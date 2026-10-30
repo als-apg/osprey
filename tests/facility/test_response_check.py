@@ -493,9 +493,10 @@ def test_a_corrector_whose_sweep_has_no_solve_leaves_its_column_out(
 ) -> None:
     """The first sweep's solve is refused; every other column is still judged."""
     from lume_pyat.exceptions import OrbitSolveError
-    from lume_pyat.simulator import PyATSimulator
 
-    original = PyATSimulator.solve
+    from osprey.simulation.engines.pyat_periodic import PeriodicSimulator
+
+    original = PeriodicSimulator.solve
     calls = {"count": 0}
 
     def solve(self: Any) -> Any:
@@ -504,7 +505,7 @@ def test_a_corrector_whose_sweep_has_no_solve_leaves_its_column_out(
             raise OrbitSolveError("closed orbit solve raised AtError: lost")
         return original(self)
 
-    monkeypatch.setattr(PyATSimulator, "solve", solve)
+    monkeypatch.setattr(PeriodicSimulator, "solve", solve)
     facility = _facility(spear3)
     document = build_facility(facility, project_name="scratch")
     model = next(model for model in document["models"] if model["name"] == "StorageRing")
@@ -565,7 +566,8 @@ def test_of_two_correctors_only_the_one_with_no_solve_is_left_out(
 ) -> None:
     """A refused step drops its own corrector; the other's response is a clean run's."""
     from lume_pyat.exceptions import OrbitSolveError
-    from lume_pyat.simulator import PyATSimulator
+
+    from osprey.simulation.engines.pyat_periodic import PeriodicSimulator
 
     facility = _facility(spear3)
     document = build_facility(facility, project_name="scratch")
@@ -586,7 +588,7 @@ def test_of_two_correctors_only_the_one_with_no_solve_is_left_out(
         )
 
     clean = responses()
-    original = PyATSimulator.solve
+    original = PeriodicSimulator.solve
     calls = {"count": 0}
 
     def solve(self: Any) -> Any:
@@ -595,7 +597,7 @@ def test_of_two_correctors_only_the_one_with_no_solve_is_left_out(
             raise OrbitSolveError("closed orbit solve raised AtError: lost")
         return original(self)
 
-    monkeypatch.setattr(PyATSimulator, "solve", solve)
+    monkeypatch.setattr(PeriodicSimulator, "solve", solve)
 
     failing = responses()
 
@@ -625,11 +627,11 @@ def test_a_solve_error_the_engine_does_not_declare_stays_loud(
 ) -> None:
     """The catch follows what the engine declares; it names no engine type."""
     from lume_pyat.exceptions import OrbitSolveError
-    from lume_pyat.simulator import PyATSimulator
 
     from osprey.simulation.engines import pyat
+    from osprey.simulation.engines.pyat_periodic import PeriodicSimulator
 
-    original = PyATSimulator.solve
+    original = PeriodicSimulator.solve
     calls = {"count": 0}
 
     def solve(self: Any) -> Any:
@@ -638,7 +640,7 @@ def test_a_solve_error_the_engine_does_not_declare_stays_loud(
             raise OrbitSolveError("closed orbit solve raised AtError: lost")
         return original(self)
 
-    monkeypatch.setattr(PyATSimulator, "solve", solve)
+    monkeypatch.setattr(PeriodicSimulator, "solve", solve)
     monkeypatch.setattr(pyat, "SOLVE_ERRORS", ())
     facility = _facility(spear3)
     document = build_facility(facility, project_name="scratch")

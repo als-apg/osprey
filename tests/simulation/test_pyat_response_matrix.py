@@ -95,6 +95,17 @@ class TestRows:
 
         assert np.max(np.abs(result.matrix[horizontal, 0])) > 0.0
 
+    def test_the_matrix_is_the_one_lume_pyats_simulator_solves(self, demo, monkeypatch):
+        from lume_pyat.simulator import PyATSimulator
+
+        from osprey.simulation.engines import pyat_periodic
+
+        served = _matrix(demo, [CORRECTOR_X, CORRECTOR_Y], 0.5)
+        monkeypatch.setattr(pyat_periodic, "PeriodicSimulator", PyATSimulator)
+        stock = _matrix(demo, [CORRECTOR_X, CORRECTOR_Y], 0.5)
+
+        np.testing.assert_array_equal(served.matrix, stock.matrix)
+
 
 class TestCalibration:
     def test_a_linear_calibration_scales_the_physics_matrix_by_the_two_gains(self, demo):
