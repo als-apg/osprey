@@ -227,9 +227,11 @@ async def repoint(prefix: str) -> dict[str, Any]:
     """
     import os
 
+    # The IOC reads get room for a slow host's first connect; the read at the
+    # port nothing serves carries its own 1s timeout, so the miss stays quick.
     def at(port: int | str) -> dict[str, Any]:
         return {
-            "timeout_s": 1,
+            "timeout_s": 5,
             "gateways": {"read_only": {"address": "127.0.0.1", "port": port}},
         }
 
