@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -192,3 +193,58 @@ def test_the_block_names_the_views_rf_plant_for_a_kind_that_steps_rf(tmp_path: P
     ]
     block = hook_measurement(_facts(render), render)
     assert block["SR"]["kinds"]["crm"] == {"rf": plant, "sext": "SR_S"}
+
+
+def _counting_view_names(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Count ``view_names`` calls by model, starting from an empty memo."""
+    from osprey.facility.views import facts, pyaml
+
+    monkeypatch.setattr(facts, "_MEASUREMENT_MEMO", OrderedDict(), raising=False)
+    calls: list[str] = []
+    real = pyaml.view_names
+
+    def counting(doc: Any, model: str) -> Any:
+        calls.append(model)
+        return real(doc, model)
+
+    monkeypatch.setattr(pyaml, "view_names", counting)
+    return calls
+
+
+def test_the_block_is_computed_once_per_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    render = _render(tmp_path, measured_tree(), {})
+    facts = _facts(render)
+    calls = _counting_view_names(monkeypatch)
+
+    first = hook_measurement(facts, render)
+    second = hook_measurement(facts, render)
+
+    assert sorted(calls) == sorted(facts["measurement_models"])
+    assert second == first
+    assert second is not first
+    computed = json.loads(json.dumps(first))
+    first["SR"]["groups"].clear()
+    first["LINE"]["kinds"]["orm"]["hcor"] = "edited"
+    assert hook_measurement(facts, render) == computed
+
+
+def test_a_rewritten_view_is_read_again(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    render = _render(tmp_path, measured_tree(), {})
+    facts = _facts(render)
+    calls = _counting_view_names(monkeypatch)
+    first = hook_measurement(facts, render)
+    computed = len(calls)
+
+    view = render / facts["measurement_models"]["SR"]["path"]
+    view.write_text(view.read_text("utf-8") + "# read again\n", encoding="utf-8")
+    facts["measurement_models"]["SR"]["sha256"] = _sha(view)
+    again = hook_measurement(facts, render)
+
+    assert len(calls) > computed
+    assert again["SR"]["view_sha256"] == _sha(view)
+    assert {**again, "SR": {**again["SR"], "view_sha256": None}} == {
+        **first,
+        "SR": {**first["SR"], "view_sha256": None},
+    }

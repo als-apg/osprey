@@ -4,7 +4,7 @@ Task 1.3: a validation error other than a limits violation must REFUSE the
 write (outcome=WriteOutcome.REFUSED, refusal_reason="VALIDATION_ERROR") and
 never issue a caput. A ChannelLimitsViolationError still propagates unchanged,
 and a put that fails for any other reason (a lost circuit) propagates as a
-ConnectionError — it is a genuine failure, not a refusal. The one caput error that
+ChannelUnreachableError — it is a genuine failure, not a refusal. The one caput error that
 IS a refusal is the control system's own denial; see
 test_control_system_refused.py.
 """
@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
-from osprey_connectors.errors import ChannelLimitsViolationError
+from osprey_connectors.errors import ChannelLimitsViolationError, ChannelUnreachableError
 from osprey_connectors_tests._epics_fakes import ECA_DISCONN
 from osprey_connectors_tests._write_fakes import arm_switch
 from osprey_connectors_tests._write_fakes import make_mock_epics_connector as _make_connector
@@ -88,8 +88,8 @@ class TestFailClosedValidation:
         assert connector._aioca.puts == []
 
     @pytest.mark.asyncio
-    async def test_caput_connection_error_propagates_not_refused(self):
-        """validate passes but the put loses its circuit → ConnectionError propagates.
+    async def test_caput_connection_failure_propagates_not_refused(self):
+        """validate passes but the put loses its circuit → ChannelUnreachableError propagates.
 
         Regression guard: a put failure must NOT be swallowed into a refusal
         ChannelWriteResult. It is a genuine write failure and must surface as
@@ -101,7 +101,7 @@ class TestFailClosedValidation:
             "osprey_connectors.config.get_config_value",
             side_effect=_writes_enabled_config,
         ):
-            with pytest.raises(ConnectionError):
+            with pytest.raises(ChannelUnreachableError):
                 await connector.write_channel("TEST:PV", 42.0, confirm=False)
 
         # validate passed and the caput was actually attempted.

@@ -231,6 +231,7 @@ def test_a_completed_orm_is_named_by_address_and_device(gated, monkeypatch):
             variables=["SCOR:H:SP"],
             data_file="/exec/pyaml_measure_orm.json",
             moved=[["SCOR:H:SP", 0.25]],
+            missing={},
         )
     )
 
@@ -241,6 +242,7 @@ def test_a_completed_orm_is_named_by_address_and_device(gated, monkeypatch):
     assert all(row["address"] for row in answer["rows"])
     assert answer["deltas"] == {"SCOR:H:SP": 1e-5}
     assert answer["moved"] == [{"address": "SCOR:H:SP", "device": "SR/COR1", "before": 0.25}]
+    assert answer["missing"] == {}
     assert saved == [answer]
 
 
@@ -260,6 +262,7 @@ def _completed_orm_line(data_file: str, observables: list[list[str]] | None = No
         variables=["SCOR:H:SP"],
         data_file=data_file,
         moved=[["SCOR:H:SP", 0.25]],
+        missing={},
     )
 
 
@@ -330,6 +333,7 @@ def test_a_run_notes_its_writes_on_the_call_record(gated, monkeypatch):
             variables=["SCOR:H:SP"],
             data_file="/exec/pyaml_measure_orm.json",
             moved=[["SCOR:H:SP", 0.25]],
+            missing={},
         ),
         written_channels=["SCOR:H:SP"],
     )
@@ -408,32 +412,33 @@ def _stopped_line(**changes: Any) -> str:
             "sha256": "ab" * 32,
             "completed": False,
             "deltas": {"SCOR:H:SP": 1e-5},
-            "remainder": "orm",
+            "missing": {"orm": None},
             "moved": [["SCOR:H:SP", 0.25]],
         }
         | changes
     )
 
 
-def test_a_stopped_run_answers_its_remainder_and_what_it_moved(gated):
+def test_a_stopped_run_answers_what_it_did_not_measure_and_what_it_moved(gated):
     gated.result = _result(_stopped_line())
 
     answer = _call(kind="orm")
 
     assert answer["completed"] is False
-    assert answer["remainder"] == "orm"
+    assert answer["missing"] == {"orm": None}
     assert answer["moved"] == [{"address": "SCOR:H:SP", "device": "SR/COR1", "before": 0.25}]
     assert "restore" not in answer
 
 
 def test_a_failed_run_that_printed_its_line_answers_it_as_a_stopped_result(gated):
-    line = _stopped_line(error="the tune readback went away")
+    line = _stopped_line(missing={"orm": "the tune readback went away"})
     gated.result = _result(line, "Traceback: RuntimeError", success=False)
 
     answer = _call(kind="orm")
 
     assert answer["completed"] is False
-    assert answer["error"] == "the tune readback went away"
+    assert answer["missing"] == {"orm": "the tune readback went away"}
+    assert "error" not in answer
     assert answer["moved"] == [{"address": "SCOR:H:SP", "device": "SR/COR1", "before": 0.25}]
 
 

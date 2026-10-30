@@ -555,6 +555,8 @@ def hook_runner(tmp_path, _throwaway_repo):
 
     Mirrors the real Claude Code hook execution: stdin receives JSON with
     tool_name and tool_input, stdout receives JSON output (or empty for allow).
+    The argv after the script is what the render puts there, e.g. the approval
+    hook's ``--budget``.
     """
 
     def run(

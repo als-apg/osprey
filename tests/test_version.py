@@ -1,5 +1,6 @@
 """Unit tests for the version resolution chain in osprey.version."""
 
+import os
 import re
 import subprocess
 import tomllib
@@ -235,7 +236,58 @@ class TestResolutionChain:
         monkeypatch.setattr(version_module.subprocess, "run", _recording_run)
 
         get_running_version()
-        assert deadlines == [30]
+        assert deadlines == [30, 30]
+
+    def test_no_lock_taking_flag_reaches_git(self, tmp_path, monkeypatch):
+        """Asking the version is a read: neither git call may write the index."""
+        repo = _make_repo(tmp_path / "osprey", "v2026.6.2", extra_commits=1)
+        monkeypatch.setattr(version_module, "_SOURCE_ROOT", repo)
+
+        real_run = subprocess.run
+        argvs = []
+
+        def _recording_run(argv, *args, **kwargs):
+            argvs.append(list(argv))
+            return real_run(argv, *args, **kwargs)
+
+        monkeypatch.setattr(version_module.subprocess, "run", _recording_run)
+
+        get_running_version()
+        assert len(argvs) == 2
+        assert not any("--dirty" in argv for argv in argvs)
+        (status,) = [argv for argv in argvs if "status" in argv]
+        assert "--no-optional-locks" in status
+        assert status.index("--no-optional-locks") < status.index("status")
+        assert "--untracked-files=no" in status
+
+    @pytest.mark.usefixtures("git_is_the_only_answer")
+    def test_dirty_stable_checkout_is_not_a_release(self, tmp_path, monkeypatch):
+        repo = _make_repo(tmp_path / "osprey", "v2026.6.2")
+        (repo / "pyproject.toml").write_text('[project]\nname = "osprey-framework"\n# dirty\n')
+        monkeypatch.setattr(version_module, "_SOURCE_ROOT", repo)
+        assert re.fullmatch(r"2026\.6\.2\.post0\+g[0-9a-f]{9}\.d\d{8}", get_running_version())
+        assert is_release() is False
+
+    @pytest.mark.usefixtures("git_is_the_only_answer")
+    def test_an_untracked_file_alone_leaves_the_tree_clean(self, tmp_path, monkeypatch):
+        repo = _make_repo(tmp_path / "osprey", "v2026.6.2")
+        (repo / "new.txt").write_text("untracked\n")
+        monkeypatch.setattr(version_module, "_SOURCE_ROOT", repo)
+        assert get_running_version() == "2026.6.2"
+
+    @pytest.mark.usefixtures("git_is_the_only_answer")
+    def test_resolving_the_version_does_not_write_the_index(self, tmp_path, monkeypatch):
+        """A touched but unchanged tracked file is what makes git refresh the index."""
+        repo = _make_repo(tmp_path / "osprey", "v2026.6.2")
+        tracked = repo / "pyproject.toml"
+        later = tracked.stat().st_mtime + 60
+        os.utime(tracked, (later, later))
+        index = repo / ".git" / "index"
+        before = index.stat().st_mtime_ns
+        monkeypatch.setattr(version_module, "_SOURCE_ROOT", repo)
+
+        assert get_running_version() == "2026.6.2"
+        assert index.stat().st_mtime_ns == before
 
     def test_shallow_clone_without_tags_falls_through(self, tmp_path, monkeypatch):
         repo = tmp_path / "osprey"

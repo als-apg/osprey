@@ -20,6 +20,7 @@ from osprey_connectors.control_system._base import (
     ChannelWriteResult,
     WriteOutcome,
 )
+from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._write_fakes import arm_switch
@@ -165,7 +166,7 @@ class TestConnect:
             from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
             conn = DOOCSConnector()
-            with pytest.raises(ConnectionError, match="ENS") as raised:
+            with pytest.raises(ConnectorUnavailableError, match="ENS") as raised:
                 await conn.connect({})
 
         assert isinstance(raised.value.__cause__, RuntimeError)
@@ -184,7 +185,7 @@ class TestConnect:
 
                 conn = DOOCSConnector()
                 start = time.monotonic()
-                with pytest.raises(ConnectionError, match=r"0\.2") as raised:
+                with pytest.raises(ConnectorUnavailableError, match=r"0\.2") as raised:
                     await conn.connect({"timeout_s": 0.2})
                 elapsed = time.monotonic() - start
         finally:
@@ -295,13 +296,14 @@ class TestReadChannel:
 
         mock_d4py.get.assert_called_once_with("FAC/DEV/LOC/PROP")
 
-    async def test_a_transport_failure_on_read_is_a_connection_error(self, connector):
+    async def test_a_failed_get_is_an_unreachable_channel(self, connector):
         conn, mock_d4py = connector
         mock_d4py.get.side_effect = RuntimeError("channel not found")
 
-        with pytest.raises(ConnectionError, match="channel not found") as raised:
+        with pytest.raises(ChannelUnreachableError, match="channel not found") as raised:
             await conn.read_channel("INVALID/ADDR")
 
+        assert raised.value.channel_address == "INVALID/ADDR"
         assert "INVALID/ADDR" in str(raised.value)
         assert isinstance(raised.value.__cause__, RuntimeError)
 

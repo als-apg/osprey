@@ -21,10 +21,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-# Bound at import, so a test that patches ``process_tree.snapshot`` with
+# Bound at import, so a test that patches ``process_table.snapshot`` with
 # :func:`readable_rows` never has it call itself.
-from osprey.interfaces.web_terminal.process_tree import ProcessRow, ProcessTableUnreadable
-from osprey.interfaces.web_terminal.process_tree import snapshot as _read_table
+from osprey.deployment.process_table import ProcessRow, ProcessTableUnreadable
+from osprey.deployment.process_table import snapshot as _read_table
 
 if TYPE_CHECKING:
     from osprey.interfaces.web_terminal.pty_manager import PtySession

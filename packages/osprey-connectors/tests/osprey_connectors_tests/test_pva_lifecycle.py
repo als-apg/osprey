@@ -7,8 +7,8 @@ is everything that happens around them:
   — a p4p ``Subscription`` belongs to the ``Context`` that opened it, so the
   monitors close first and the context second, with Channel Access last and
   unchanged. Closing the context at all is what keeps connector invalidation
-  (a production path: a ``ConnectionError`` invalidates and rebuilds the
-  connector) from leaking p4p worker threads on every retry.
+  (a production path: a lost connector is invalidated and rebuilt) from
+  leaking p4p worker threads on every retry.
 * ``get_metadata`` and ``validate_channel`` are the two entry points that want
   a channel's *description*, not its payload. Over PVA those are asked for with
   a field-limited pvRequest, so a camera channel costs a handful of fields
@@ -30,6 +30,7 @@ import pytest
 from osprey_connectors.control_system._epics_connector import (
     _ChannelSubscription,
 )
+from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors_tests._epics_fakes import (
     FakeAioca,
     FakeChannel,
@@ -284,26 +285,26 @@ class TestGetMetadataOverPva:
         assert metadata.precision == 2
 
     @pytest.mark.asyncio
-    async def test_without_a_context_it_is_a_connection_error(self):
+    async def test_without_a_context_the_connector_is_unavailable(self):
         connector = _pva_connector(context=None)
 
-        with pytest.raises(ConnectionError, match="no PVA client context"):
+        with pytest.raises(ConnectorUnavailableError, match="no PVA client context"):
             await connector.get_metadata(PVA_ADDRESS)
 
     @pytest.mark.asyncio
-    async def test_timeout_surfaces_as_timeout_error(self):
+    async def test_a_timeout_is_an_unreachable_channel(self):
         context = FakeContext(reply=TimeoutError())
         connector = _pva_connector(context=context)
 
-        with pytest.raises(TimeoutError, match=f"Failed to read PVA channel '{PVA_ADDRESS}'"):
+        with pytest.raises(ChannelUnreachableError, match=f"PVA channel '{PVA_ADDRESS}' timed out"):
             await connector.get_metadata(PVA_ADDRESS)
 
     @pytest.mark.asyncio
-    async def test_disconnected_surfaces_as_connection_error(self):
+    async def test_a_disconnect_is_an_unreachable_channel(self):
         context = FakeContext(reply=FakeDisconnected("channel gone"))
         connector = _pva_connector(context=context)
 
-        with pytest.raises(ConnectionError, match="Failed to connect to PVA channel"):
+        with pytest.raises(ChannelUnreachableError, match="Failed to connect to PVA channel"):
             await connector.get_metadata(PVA_ADDRESS)
 
 

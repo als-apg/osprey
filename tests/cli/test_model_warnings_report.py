@@ -136,9 +136,14 @@ def no_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         status_display,
         "get_ps_command",
-        lambda config, all_containers=False: ["docker", "ps", "-a", "--format", "json"],
+        lambda config, all_containers=False, runtime=None: [
+            runtime,
+            "ps",
+            "-a",
+            "--format",
+            "json",
+        ],
     )
-    monkeypatch.setattr(status_display, "get_runtime_command", lambda config=None: ["docker"])
 
     def _run(cmd, **kwargs):
         argv = list(cmd)
@@ -155,7 +160,10 @@ def no_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_status_says_it_once_and_the_log_handler_paints_nothing(
     openai_build, terminal_probe: TerminalProbe, monkeypatch: pytest.MonkeyPatch
 ):
+    from osprey.deployment.deployment_record import DeploymentRecord, write_deployment_record
+
     monkeypatch.setattr("osprey_connectors.config.load_project_dotenv", lambda *a, **k: None)
+    write_deployment_record(openai_build.repo, DeploymentRecord("docker", "model-warnings"))
     result = CliRunner().invoke(cli, ["status", "--agents", "--repo", str(openai_build.repo)])
     assert result.exit_code == 0, result.output
 

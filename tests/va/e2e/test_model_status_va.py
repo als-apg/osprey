@@ -5,7 +5,8 @@ status on its status channel, ``<code>:SIM:<model>:STATUS``, and ``sim status``
 reads it through the target's connector. This module boots two real
 ``osprey-va-full`` containers over one simulator view, the sandbox (the ``va``
 target) and the stand-in (the ``standin`` target), points a scratch deployment
-at them, and runs ``sim status --target`` for each: both print ``SR: ok``.
+at them, and runs ``sim status --target`` for each: both print the lane
+model's ``<model>: ok``.
 
 Every Channel Access operation happens in another process: the readiness probe
 and each ``sim status`` run are subprocesses, which leave through ``os._exit``
@@ -57,8 +58,8 @@ CONNECTOR_TIMEOUT_S = 120.0
 #: Bound on one ``sim status`` run.
 STATUS_TIMEOUT_S = 120.0
 
-#: The demo's physics model.
-DEMO_PHYSICS_MODEL = "SR"
+#: The lane model, whose status line each run must print as ``ok``.
+DEMO_PHYSICS_MODEL = e2e_conftest.LANE_MODEL
 
 #: Floor for this module's own test count -- a guard against a refactor that
 #: leaves the file importable but empty, which would otherwise pass silently.

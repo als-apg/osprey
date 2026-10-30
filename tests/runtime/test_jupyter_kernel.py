@@ -679,6 +679,13 @@ class TestTheAuditRecord:
         assert detail_tokens(audit_records[0]["detail"]) == {"ca_user": CA_USER}
         assert audit_records[0]["reason"] == "control_target_changed"
 
+    @pytest.mark.usefixtures("unstamped")
+    def test_a_subclass_of_a_refusal_files_under_its_class(self, shell, audit_records):
+        """A switch in flight is a moved target, so it files as one."""
+        fire(shell, SwitchInProgressError("switch_in_progress:4242"))
+
+        assert audit_records[0]["reason"] == "control_target_changed"
+
 
 class TestTheWriteRecord:
     """One record per channel a cell put on the wire, read back from the record."""
@@ -714,8 +721,16 @@ class TestTheWriteRecord:
 
     @pytest.mark.usefixtures("observed", "unstamped")
     def test_kernel_write_record_an_attempt_alone_files_nothing(self, recorded_entries):
-        """A refused write gets only ``attempt``, and its record is the refusal's."""
+        """``attempt`` precedes the send; the record comes with the outcome."""
         runtime._notify_write("SR:MAG:1", "attempt")
+
+        assert kernel_ledger(recorded_entries) == []
+
+    @pytest.mark.usefixtures("observed", "unstamped")
+    def test_a_refused_phase_files_no_record(self, recorded_entries):
+        """A refused write sent nothing; its record is the refusal's."""
+        runtime._notify_write("SR:MAG:1", "attempt")
+        runtime._notify_write("SR:MAG:1", "refused")
 
         assert kernel_ledger(recorded_entries) == []
 

@@ -1,0 +1,87 @@
+name: Main Full CI
+
+# A push to main runs only the always-on lanes of ci.yml; every other lane runs
+# on main through ci.yml's revalidation dispatch. This workflow spends nothing
+# itself. Once a day it dispatches that run against main, and only when main's
+# head differs from the last revalidation run's sha. A red revalidation run
+# opens or updates the one "Full CI red on main" issue; the next green closes
+# it. The reconcile at the start of every nightly files a red whose
+# `workflow_run` delivery was missed.
+#
+# Last green main sha, for the whole run or one lane:
+#   python3 scripts/ci/full_ci_on_main.py last-green [lane]
+
+on:
+  schedule:
+    - cron: '0 10 * * *'  # 03:00 Pacific
+  workflow_dispatch:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: main-full-ci
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    name: Dispatch the revalidation run when main moved
+    if: github.event_name != 'workflow_run'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      contents: read
+      issues: write
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        ref: main
+
+    - name: Reconcile the tracker issue
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: python3 scripts/ci/full_ci_on_main.py report
+
+    - name: Decide
+      id: decide
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: |
+        decision="$(python3 scripts/ci/full_ci_on_main.py should-dispatch)"
+        echo "$decision"
+        echo "decision=${decision%% *}" >> "$GITHUB_OUTPUT"
+
+    - name: Dispatch the revalidation run
+      if: steps.decide.outputs.decision == 'dispatch'
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+      run: gh workflow run ci.yml --ref main -f revalidate_secret_lanes=true
+
+  report:
+    name: File the revalidation verdict
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        ref: main
+
+    - name: Reconcile the tracker issue
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: python3 scripts/ci/full_ci_on_main.py report

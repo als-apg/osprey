@@ -166,7 +166,7 @@ def test_the_interrupt_notice_off_a_terminal_is_still_on_stderr(
     accident.
     """
 
-    def interrupt_during_teardown(_root: Path) -> None:
+    def interrupt_during_teardown(_root: Path, **_: object) -> None:
         raise KeyboardInterrupt
 
     monkeypatch.setattr(reset_mod, "down_deployment", interrupt_during_teardown)
@@ -255,7 +255,7 @@ def test_the_interrupt_notice_goes_through_the_console_while_a_region_is_up(
         styles, "err_console", Console(file=err_buffer, width=_WIDTH, theme=osprey_theme)
     )
 
-    def interrupt_during_teardown(_root: Path) -> None:
+    def interrupt_during_teardown(_root: Path, **_: object) -> None:
         raise KeyboardInterrupt
 
     monkeypatch.setattr(reset_mod, "down_deployment", interrupt_during_teardown)

@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from pydantic import BaseModel
 from tests._live import async_wait_until, wait_until
 from tests._processes import pid_alive
 
@@ -34,8 +35,9 @@ class RecordingBroadcaster:
     def __init__(self) -> None:
         self.events: list[dict] = []
 
-    def broadcast(self, data: dict) -> None:
-        self.events.append(data)
+    def broadcast(self, event: BaseModel) -> None:
+        assert isinstance(event, BaseModel), f"broadcast a bare {type(event).__name__}"
+        self.events.append(event.model_dump())
 
     def of(self, kind: str) -> list[dict]:
         return [e for e in self.events if e.get("type") == kind]
@@ -165,6 +167,19 @@ class TestApply:
         assert fig["status"] == "failed"
         assert fig["error"] == "Worker exited with code 1: boom traceback"
         assert len(broadcaster.of("figure_error")) == 1
+
+    @pytest.mark.parametrize("tail", ["", "  \n"])
+    async def test_failed_worker_with_no_stderr_names_only_its_code(
+        self, manager, fake_slots, tail
+    ):
+        mgr, _, broadcaster = manager
+        mgr.refresh_one("optics")
+        await _settle()
+        fake_slots.jobs[0].finish(ExitCause.FAILED, 1, tail)
+        await _settle()
+
+        assert _status(mgr, "optics")["error"] == "Worker exited with code 1"
+        assert broadcaster.of("figure_error")[0]["error"] == "Worker exited with code 1"
 
     async def test_missing_output_marks_error(self, manager, fake_slots):
         mgr, state, _ = manager

@@ -20,6 +20,10 @@ from pathlib import Path
 import pytest
 
 from osprey.deployment import container_lifecycle
+from osprey.deployment.deployment_record import DeploymentRecord, write_deployment_record
+
+#: What the start before each live ``down`` below recorded.
+_RECORDED = DeploymentRecord("docker", "myrepo")
 
 
 def _mock_down_config(monkeypatch, project_name="myproj", extra=None):
@@ -207,6 +211,10 @@ def test_the_web_stack_still_comes_down_before_the_services(monkeypatch, tmp_pat
 
 def _mock_live_down(monkeypatch, tmp_path):
     """Wire down_deployment's as-built reads to fixtures under *tmp_path*."""
+    write_deployment_record(tmp_path, _RECORDED)
+    monkeypatch.setattr(
+        container_lifecycle, "verify_runtime_is_running", lambda config, **_: (True, "")
+    )
     config_path = tmp_path / "build" / "config.yml"
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text("project_name: myrepo\n")
@@ -237,7 +245,7 @@ def test_the_live_down_captures_compose_under_the_pinned_project(monkeypatch, tm
     assert call["spool_name"] == "compose-down"
     assert Path(call["repo_root"]) == tmp_path
     assert call["check"] is False
-    assert call["env"]["COMPOSE_PROJECT_NAME"] == "myrepo"
+    assert call["env"]["COMPOSE_PROJECT_NAME"] == _RECORDED.compose_project
 
 
 def test_the_live_down_reports_its_step(monkeypatch, tmp_path):

@@ -177,7 +177,7 @@ def test_reads_writes_and_monitors_over_the_wire(ioc, prefix):
     assert reads["MBBO"]["enum_label"] == "On"
     assert reads["MBBO"]["enum_labels"] == ["Off", "On"]
     assert reads["STR"]["value"] == "hello"
-    assert reads["NOPE"] == "ConnectionError"
+    assert reads["NOPE"] == "ChannelUnreachableError"
 
     assert writes["confirmed"]["outcome"] == "CONFIRMED"
     assert writes["confirmed"]["observed"] == 2.25
@@ -250,7 +250,7 @@ def test_an_unreachable_name_server_does_not_hold_the_exit(ioc, prefix):
     started = time.monotonic()
     result = _drive("unreachable_name_server", prefix, ioc)
 
-    assert result == {"read": "ConnectionError"}
+    assert result == {"read": "ChannelUnreachableError"}
     assert time.monotonic() - started < 15
 
 
@@ -258,7 +258,7 @@ def test_a_connect_to_another_gateway_repoints_the_process(ioc, prefix):
     """A notebook kernel follows a target switch in-process: each connect moves CA."""
     result = _drive("repoint", prefix, ioc)
 
-    assert result["moved"] == "ConnectionError", result
+    assert result["moved"] == "ChannelUnreachableError", result
     assert result["write"] == "CONFIRMED", result
     assert result["after"] == 4.0, result
     # aioca closes every monitor with the context it drops; the connector

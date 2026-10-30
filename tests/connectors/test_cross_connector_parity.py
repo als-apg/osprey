@@ -28,11 +28,10 @@ limits validator is installed anywhere: limits are a different contract, and
 leaving them out keeps the subject of this file on confirmation alone.
 
 The read half is one claim rather than a table: a read that cannot reach its
-channel raises ``ConnectionError`` naming the channel. That word is what the
-control-system tools branch on — the connection branch of the shared error
-handler drops the connector so the next call rebuilds it, while an
-untranslated error reaches the unexpected-error branch and leaves a stale
-connector in place. Mock has no row: it accepts every channel name and
+channel raises ``ChannelUnreachableError`` naming the channel. That class is a
+channel failure, never a connection error: the connector that raised it stays
+in place, and only a lost connector (``ConnectorUnavailableError``) is
+replaced by its supervisor. Mock has no row: it accepts every channel name and
 serves a value for each, so it has no transport to fail.
 
 What a connector reads must also cross the connector host, whose frames carry
@@ -46,8 +45,8 @@ worker thread — DOOCS and TANGO — a read whose transport stalls raises
 ``unconfirmed``, because the thread cannot be stopped and the value may still
 arrive. EPICS (and the Virtual Accelerator, an EPICS subclass) has no row: it
 hands its bound to aioca's own connection and get timeouts, and a channel
-that never connects is the ``ConnectionError`` the unreachable-channel class
-already pins. Mock has no transport to stall.
+that never connects is the ``ChannelUnreachableError`` the unreachable-channel
+class already pins. Mock has no transport to stall.
 """
 
 import threading
@@ -60,6 +59,7 @@ import pytest
 
 from osprey_connectors.control_system._base import ChannelValue, WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
+from osprey_connectors.errors import ChannelUnreachableError
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors_tests._epics_fakes import FakeAioca, FakeChannel, ca_connector, ca_reading
 from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
@@ -488,24 +488,24 @@ _TRANSLATING = ["doocs", "tango"]
     "connector_name", list(_UNREACHABLE_DRIVERS), ids=list(_UNREACHABLE_DRIVERS)
 )
 class TestUnreachableChannelParity:
-    """A channel that cannot be reached is a connection error on every connector."""
+    """A channel that cannot be reached is an unreachable channel on every connector."""
 
-    async def test_a_read_that_cannot_reach_its_channel_is_a_connection_error(
+    async def test_a_read_that_cannot_reach_its_channel_is_an_unreachable_channel(
         self, connector_name, monkeypatch
     ):
         failure = await _UNREACHABLE_DRIVERS[connector_name](monkeypatch)
 
-        assert isinstance(failure.exception, ConnectionError)
-        # The contract's other failure word is a sibling of this one, and the
-        # two are answered differently: a timeout leaves the connector in
-        # place, a connection failure retires it. Neither may stand in for
-        # the other.
-        assert not isinstance(failure.exception, TimeoutError)
+        assert isinstance(failure.exception, ChannelUnreachableError)
+        # An unreachable channel leaves the connector in place; only a lost
+        # connector retires it. No builtin connection or timeout class may
+        # stand in for it, so no supervisor reads it as a lost connector.
+        assert not isinstance(failure.exception, (ConnectionError, TimeoutError))
 
-    async def test_the_connection_error_names_the_channel(self, connector_name, monkeypatch):
+    async def test_the_unreachable_channel_names_the_channel(self, connector_name, monkeypatch):
         """The operator is told which channel, not that something failed."""
         failure = await _UNREACHABLE_DRIVERS[connector_name](monkeypatch)
 
+        assert failure.exception.channel_address == failure.channel
         assert failure.channel in str(failure.exception)
 
 

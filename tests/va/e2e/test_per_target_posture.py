@@ -157,11 +157,11 @@ MIN_COLLECTED_TESTS = 28
 PROBE_CHANNEL = e2e_conftest.READINESS_ADDRESS
 
 #: The setpoint every write leg in this module attempts. Listed in the shipped
-#: limits database (``[-12, 12]``), which is what lets this module run the
-#: exclusive limits mode and still have a
-#: write that reaches the machine: an unlisted channel would be refused by the
+#: limits database with a band at both ends (``conftest.LANE.band``), which is
+#: what lets this module run the exclusive limits mode and still have a write
+#: that reaches the machine: an unlisted channel would be refused by the
 #: limits validator, which is a different gate from the one under test.
-CORRECTOR_SP = "SR:MAG:HCM:01:CURRENT:SP"
+CORRECTOR_SP = e2e_conftest.BOUNDED_SETPOINT
 
 #: The gateway port the facility's own machine is described on. Nothing serves
 #: it and nothing in this module dials it — see :func:`raw_config` for why the

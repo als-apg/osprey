@@ -606,6 +606,31 @@ class TestDockerfileContent:
         assert f"could not install {first} from the git spec" in output
         assert "resolving from PyPI" not in output
 
+    def test_the_by_hand_build_line_runs_from_the_repo_root(self, hello_project):
+        """The header's ``docker build`` line works as typed at the repo root.
+
+        It names the rendered container repo as its context and the recipe
+        inside it by path, so no header line changes directory, and the recipe
+        it builds is this very render.
+        """
+        repo = hello_project.parent
+        rendered = hello_project / "Dockerfile"
+        lines = rendered.read_text().splitlines()
+        header = lines[: next(i for i, line in enumerate(lines) if not line.startswith("#"))]
+        assert not [line for line in header if "cd " in line], header
+
+        build_lines = [line for line in header if line.startswith("#   docker build")]
+        assert len(build_lines) == 1, header
+        argv = shlex.split(build_lines[0].lstrip("#"))
+        assert argv[:2] == ["docker", "build"], argv
+
+        recipe = repo / argv[argv.index("-f") + 1]
+        context = repo / argv[-1]
+        assert recipe.is_file(), recipe
+        assert context.is_dir(), context
+        assert recipe.parent.parent == context, (recipe, context)
+        assert recipe.read_bytes() == rendered.read_bytes()
+
     def test_run_commands_are_valid_shell(self, hello_project, deps_project):
         """Every rendered RUN body must parse under ``/bin/sh -n``.
 

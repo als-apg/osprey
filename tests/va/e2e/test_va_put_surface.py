@@ -79,14 +79,14 @@ PVA_TIMEOUT_S = 30.0
 
 # -- the served names --------------------------------------------------------
 
-#: A BPM readback of the physics model.
-BPM_READBACK = "SR:DIAG:BPM:03:POSITION:X"
+#: A BPM readback of the lane model: its first horizontal monitor.
+BPM_READBACK = e2e_conftest.LANE.monitor_x
 
-#: The setpoint the demo's limits records lock with ``writable: false``.
-LOCKED_SETPOINT = "SR:VAC:ION-PUMP:01:VOLTAGE:SP"
+#: A setpoint the demo's limits records lock with ``writable: false``.
+LOCKED_SETPOINT = e2e_conftest.LANE.locked_setpoint
 
-#: The status address of the demo's physics model.
-MODEL_STATUS = "ca:SIM:SR:STATUS"
+#: The status address of the lane model.
+MODEL_STATUS = e2e_conftest.LANE.status_address
 
 #: The three names no put moves, with the value each put carries: far from
 #: anything the name reads, so a put that landed could not pass for one that
@@ -97,18 +97,18 @@ REFUSED_PUTS: dict[str, Any] = {
     MODEL_STATUS: "failed",
 }
 
-#: BPM03's horizontal offset fault, as the model RPC names it.
-FAULT_NAME = f"SR/{BPM_READBACK}/offset"
+#: That monitor's offset fault, as the model RPC names it.
+FAULT_NAME = f"{e2e_conftest.LANE_MODEL}/{BPM_READBACK}/offset"
 
 #: The name the runner's reset control PV would be served as. The served
 #: prefix is empty, so it is the base name alone.
 RESET_CONTROL_NAME = "reset"
 
-#: The corrector whose limits record bands it to [-12, 12] A, a put above the
-#: band, and the band's top.
-BANDED_SETPOINT = "SR:MAG:HCM:01:CURRENT:SP"
-OUT_OF_BAND_VALUE = 15.0
-BAND_HIGH = 12.0
+#: The corrector a limits record bands at both ends, the band's top, and a put
+#: above the band by an eighth of its width.
+BANDED_SETPOINT = e2e_conftest.BOUNDED_SETPOINT
+BAND_HIGH = e2e_conftest.LANE.band[1]
+OUT_OF_BAND_VALUE = BAND_HIGH + (BAND_HIGH - e2e_conftest.LANE.band[0]) / 8
 
 #: The value the refused model RPC ``set`` carries, in metres, and the token
 #: the client presents with it.

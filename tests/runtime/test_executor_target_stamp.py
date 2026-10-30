@@ -296,7 +296,7 @@ class TestDeploymentRecordLookup:
     def test_the_record_is_the_deployments_own(self, state_root):
         write_record(state_root, target="va", generation=3)
 
-        record = host_executor._deployment_record()
+        record = host_executor._control_context_record()
 
         assert record is not None
         assert record.target == "va"
@@ -304,13 +304,13 @@ class TestDeploymentRecordLookup:
 
     @pytest.mark.usefixtures("state_root")
     def test_no_record_is_not_an_error(self):
-        assert host_executor._deployment_record() is None
+        assert host_executor._control_context_record() is None
 
     def test_corrupt_record_is_ignored(self, state_root):
         control_context._record_path_under(state_root).write_text("{not json", encoding="utf-8")
         control_context.invalidate_cache()
 
-        assert host_executor._deployment_record() is None
+        assert host_executor._control_context_record() is None
 
     def test_a_record_without_a_generation_cannot_pin_a_run(self, state_root):
         """Generation is half the pin, so a record missing it describes nothing."""
@@ -319,7 +319,7 @@ class TestDeploymentRecordLookup:
         )
         control_context.invalidate_cache()
 
-        assert host_executor._deployment_record() is None
+        assert host_executor._control_context_record() is None
 
     def test_unknown_target_name_is_not_a_record(self, state_root):
         control_context._record_path_under(state_root).write_text(
@@ -327,13 +327,13 @@ class TestDeploymentRecordLookup:
         )
         control_context.invalidate_cache()
 
-        assert host_executor._deployment_record() is None
+        assert host_executor._control_context_record() is None
 
     def test_an_unresolvable_root_is_not_an_error(self, tmp_path, monkeypatch):
         monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path / "never-created"))
         control_context.invalidate_cache()
 
-        assert host_executor._deployment_record() is None
+        assert host_executor._control_context_record() is None
 
 
 class TestStampApplication:

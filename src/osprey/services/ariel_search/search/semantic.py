@@ -19,6 +19,7 @@ from osprey.services.ariel_search.models import (
 )
 from osprey.services.ariel_search.search._offload import (
     QUERY_EMBEDDING_TIMEOUT_S,
+    SearchCallPool,
     run_search_call,
 )
 from osprey.services.ariel_search.search.base import (
@@ -213,6 +214,7 @@ async def semantic_search(
     author: str | None = None,
     source_system: str | None = None,
     query_expansion: QueryExpansion | None = None,
+    search_calls: SearchCallPool,
     **kwargs: Any,
 ) -> list[tuple[EnhancedLogbookEntry, float]] | ModuleOutput:
     """Execute semantic similarity search.
@@ -241,6 +243,8 @@ async def semantic_search(
             the service only when one was actually resolved. When present, its
             `flattened_text` is embedded in place of `query` -- the whole query
             is the matching text for semantic search, and it is never truncated.
+        search_calls: The search service's pool for search-time provider
+            calls; the query is embedded on it, never on the event loop.
 
     Returns:
         Without `query_expansion`: the list of (entry, similarity_score) tuples
@@ -304,6 +308,7 @@ async def semantic_search(
     step_timeout_s = QUERY_EMBEDDING_TIMEOUT_S / 2 + QUERY_EMBEDDING_TIMEOUT_S + 1
     try:
         embeddings = await run_search_call(
+            search_calls,
             _embed_query,
             embedder,
             embed_text,
@@ -470,5 +475,6 @@ def get_tool_descriptor() -> SearchToolDescriptor:
         execute=semantic_search,
         format_result=format_semantic_result,
         needs_embedder=True,
+        needs_search_calls=True,
         accepts_expansion=True,
     )

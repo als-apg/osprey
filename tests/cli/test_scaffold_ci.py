@@ -579,10 +579,11 @@ def test_the_destinations_are_not_caller_choosable() -> None:
 
 # ── The allowlist: every command the emitted files name exists ───────────────
 
-#: An ``osprey`` invocation or prose mention, with the verb chain that follows
-#: it. Bounded to spaces and tabs so a mention does not run across a line, and
-#: to bare words so it stops at the first flag, quote or backtick — the chain is
-#: what has to resolve, and its arguments are ``test_template_cli_weld``'s
+#: An ``osprey`` invocation or prose mention, with the words that follow it.
+#: Bounded to spaces and tabs so a mention does not run across a line, and to
+#: bare words so it stops at the first flag, quote or backtick. The words are a
+#: candidate only: a chain ends at the leaf the CLI resolves, and what follows
+#: a leaf is an argument or prose, the arguments being ``test_template_cli_weld``'s
 #: subject.
 OSPREY_MENTION_RE = re.compile(r"\bosprey((?:[ \t]+[a-z][a-z0-9-]*)+)")
 
@@ -599,29 +600,43 @@ NAMED_COMMANDS = {
 }
 
 
-def named_commands(text: str) -> set[tuple[str, ...]]:
-    """Every ``osprey`` command chain *text* names."""
-    return {tuple(match.group(1).split()) for match in OSPREY_MENTION_RE.finditer(text)}
-
-
-def unresolvable(chain: tuple[str, ...]) -> str | None:
-    """Why *chain* does not resolve against the live CLI, or ``None``.
+def _walk(words: tuple[str, ...]) -> tuple[tuple[str, ...], str | None]:
+    """The command chain *words* name on the live CLI, and the name that is missing.
 
     Walks the real command tree the way an operator's shell would: each name is
-    looked up on the group above it, and the walk stops at the first leaf —
-    anything after a leaf command is an argument or, in prose, an ordinary
-    English word.
+    looked up on the group above it. The chain ends at the first leaf — the
+    words after a leaf are arguments or, in prose, ordinary English — or at the
+    first name that does not resolve, which is kept in the chain and returned
+    as the missing one.
     """
     context = click.Context(cli)
     command: click.Command = cli
-    for index, name in enumerate(chain):
+    for index, name in enumerate(words):
         if not isinstance(command, click.Group):
-            return None
+            return words[:index], None
         resolved = command.get_command(context, name)
         if resolved is None:
-            return f"osprey {' '.join(chain[: index + 1])} does not exist"
+            return words[: index + 1], name
         command = resolved
-    return None
+    return words, None
+
+
+def named_commands(text: str) -> set[tuple[str, ...]]:
+    """Every ``osprey`` command chain *text* names.
+
+    A chain ends at the leaf the CLI resolves; the words after a leaf are
+    arguments or prose. A name that does not resolve ends the chain too, and
+    stays in it so the allowlist below can report it.
+    """
+    return {_walk(tuple(match.group(1).split()))[0] for match in OSPREY_MENTION_RE.finditer(text)}
+
+
+def unresolvable(chain: tuple[str, ...]) -> str | None:
+    """Why *chain* does not resolve against the live CLI, or ``None``."""
+    walked, missing = _walk(chain)
+    if missing is None:
+        return None
+    return f"osprey {' '.join(walked)} does not exist"
 
 
 @pytest.fixture
@@ -678,6 +693,13 @@ def test_the_allowlist_can_fail() -> None:
     assert unresolvable(("nonesuch",)) == "osprey nonesuch does not exist"
     assert unresolvable(("scaffold", "nonesuch")) == "osprey scaffold nonesuch does not exist"
     assert unresolvable(("scaffold", "ci")) is None
+
+
+def test_a_chain_ends_at_the_leaf_the_cli_resolves() -> None:
+    """Words after a leaf are prose; a missing name ends the chain and is kept."""
+    assert named_commands("run osprey up to rewrite it") == {("up",)}
+    assert named_commands("osprey scaffold nonesuch now") == {("scaffold", "nonesuch")}
+    assert unresolvable(("scaffold", "nonesuch")) == "osprey scaffold nonesuch does not exist"
 
 
 # ── The ownership verbs, on the same repo ────────────────────────────────────

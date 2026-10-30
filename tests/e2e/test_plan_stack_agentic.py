@@ -3328,22 +3328,17 @@ def _describe_queue_deployment(repo: Path) -> None:
 
     limits = _orm_stack.channel_limits(repo)
     view = SimulatorView.open(SimulatorView.path_for_project(repo.parent / f"{repo.name}.limits"))
-    bounded = next(
-        (
-            address
-            for address in sorted(_facility_select.corrector_addresses(view))
-            if view.channel(address).value_range is not None
-        ),
-        None,
-    )
-    assert bounded is not None, "the facility's limits.yaml bounds no corrector"
-    (binding,) = (b for b in view.bindings(role="setpoint") if b.address == bounded)
+    found = _facility_select.bounded_corrector_of(view)
+    assert found is not None, "the facility's limits.yaml bounds no corrector"
+    bounded, _readback, model = found
+    binding = view.binding(bounded)
+    assert binding is not None, f"corrector {bounded} has no served binding"
     other_plane = sorted(
         b.address
-        for b in view.bindings(role="setpoint", model=binding.model)
+        for b in view.bindings(role="setpoint", model=model)
         if b.plane is not None and b.plane != binding.plane
     )
-    assert other_plane, f"model {binding.model} wires no corrector of a second plane"
+    assert other_plane, f"model {model} wires no corrector of a second plane"
 
     limits_file = repo / "data" / "facility" / "limits.yaml"
     document = yaml.safe_load(limits_file.read_text(encoding="utf-8"))

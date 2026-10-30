@@ -4,37 +4,74 @@ Stability: the exception class names and ``reason`` codes defined here are
 public API. Removing or renaming any of them is a major version bump; adding
 new ones is a minor version bump.
 
-``ChannelWriteFailedError``'s reason codes are the uppercased ``WriteOutcome``
-words for the outcomes that raise, so the reason a caller branches on and the
-outcome the result reports are one vocabulary.
+This module is the connector failure vocabulary.
+
+Three contract roots partition what a connector raises when a call fails, and
+no class lies under two of them: :class:`ChannelError`, a failure about one
+named channel that leaves the connector in place; every single-channel failure
+(a limits violation, a refused write, a failed write, an address that is not a
+channel, an unreachable channel) is one, and its ``channel_address`` names the
+channel. :class:`ConnectorUnavailableError`, the connector itself is gone and
+its supervisor replaces it. :class:`ConnectorInternalError`, a connector bug
+that nothing recovers from. :class:`ChannelReadFailedError` names several
+channels and lies under no root.
+
+:class:`RefusalReason` names why a write was refused, who refused it and what
+to do about it. ``ChannelWriteFailedError``'s reason codes are the uppercased
+``WriteOutcome`` words for the outcomes that raise, so the reason a caller
+branches on and the outcome the result reports are one vocabulary.
+
+The connector-host IPC registry is derived from this module: every class in
+``__all__`` under a contract root crosses the process boundary as itself,
+with its channel, so a public failure needs no registry entry of its own.
 """
 
-from types import MappingProxyType
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from osprey_connectors.control_system._base import WriteOutcome
+    from osprey_connectors.control_system import WriteOutcome
 
 
 __all__ = [
+    "NOT_A_CHANNEL",
+    "RAW_CLIENT_WRITE_MARKER",
     "BuildProfileError",
+    "ChannelError",
     "ChannelLimitsViolationError",
     "ChannelNotFoundError",
     "ChannelReadFailedError",
+    "ChannelUnreachableError",
     "ChannelWriteBlockedError",
     "ChannelWriteFailedError",
     "ClientLibraryRefusedError",
     "ConfigurationError",
-    "NOT_A_CHANNEL",
-    "RAW_CLIENT_WRITE_MARKER",
+    "ConnectorInternalError",
+    "ConnectorUnavailableError",
+    "RefusalReason",
     "RegistryError",
     "raw_client_write_message",
 ]
 
 
-class ChannelLimitsViolationError(Exception):
+class ChannelError(Exception):
+    """A failure about one named channel; the connector that raised it stays in place.
+
+    ``channel_address`` names the channel, in process and across the
+    connector-host boundary alike. No supervisor recovers from a channel
+    error: it is reported against its channel and nothing is restarted. It has
+    no builtin base that another root shares, so no ``except ConnectionError``
+    or ``except TimeoutError`` reads it as a lost connector.
+    """
+
+    def __init__(self, channel_address: str, message: str):
+        self.channel_address = channel_address
+        super().__init__(message)
+
+
+class ChannelLimitsViolationError(ChannelError):
     """Raised when a channel write violates configured safety limits.
 
     Covers min/max range violations, read-only channel writes,
@@ -61,9 +98,7 @@ class ChannelLimitsViolationError(Exception):
         self.max_step = max_step
         self.current_value = current_value
 
-        message = self._format_violation_message()
-
-        super().__init__(message)
+        super().__init__(channel_address, self._format_violation_message())
 
     def _format_violation_message(self) -> str:
         """Format a user-friendly violation message with all relevant details."""
@@ -97,48 +132,94 @@ class ChannelLimitsViolationError(Exception):
         return "\n".join(msg)
 
 
-class ChannelWriteBlockedError(Exception):
+_REFERENCE_MONITOR = "the reference monitor"
+_CONTROL_SYSTEM = "the control system"
+_NEVER_SENT = (
+    "This write was refused on policy grounds; it was never sent to the control system.",
+)
+
+
+class RefusalReason(StrEnum):
+    """Why a write was refused, with who refused it and what to do about it.
+
+    Each member's value is the reason word a result and an exception carry.
+    :attr:`refuser` names who refused a write for the reason, and is ``None``
+    for ``CHANNEL_NOT_FOUND``: nothing was denied, the address is not a
+    channel. :attr:`remedy` holds the reason's own suggestion sentences, in
+    the order a message lists them; it is empty for ``CHANNEL_NOT_FOUND``,
+    whose answer is rendered as "not a channel".
+
+    ``RAW_CLIENT_WRITE`` means user code called a control-system client
+    library's put directly instead of going through
+    ``osprey.runtime.write_channel``; nothing was sent.
+    ``CONTROL_SYSTEM_REFUSED`` is the one reason under which the write was
+    sent: the control system was asked and denied it.
+    """
+
+    refuser: str | None
+    remedy: tuple[str, ...]
+
+    def __new__(
+        cls, value: str, refuser: str | None = None, remedy: tuple[str, ...] = ()
+    ) -> "RefusalReason":
+        member = str.__new__(cls, value)
+        member._value_ = value
+        member.refuser = refuser
+        member.remedy = remedy
+        return member
+
+    WRITES_DISABLED = ("WRITES_DISABLED", _REFERENCE_MONITOR, _NEVER_SENT)
+    LIMITS = ("LIMITS", _REFERENCE_MONITOR, _NEVER_SENT)
+    VALIDATION_ERROR = ("VALIDATION_ERROR", _REFERENCE_MONITOR, _NEVER_SENT)
+    CONTROL_SYSTEM_REFUSED = (
+        "CONTROL_SYSTEM_REFUSED",
+        _CONTROL_SYSTEM,
+        (
+            "The control system itself denied this write (access security); no value was written.",
+            "Report it to the operator: write access for this channel is granted "
+            "by the control system, not by OSPREY.",
+        ),
+    )
+    RAW_CLIENT_WRITE = ("RAW_CLIENT_WRITE", _REFERENCE_MONITOR, _NEVER_SENT)
+    CHANNEL_NOT_FOUND = ("CHANNEL_NOT_FOUND", None, ())
+
+
+def _known_reason(reason: str | None) -> RefusalReason | None:
+    """Return the :class:`RefusalReason` member ``reason`` names, or None."""
+    if reason is None:
+        return None
+    try:
+        return RefusalReason(reason)
+    except ValueError:
+        return None
+
+
+class ChannelWriteBlockedError(ChannelError):
     """Raised when a channel write was refused and no value was written.
 
     Distinct from ChannelWriteFailedError, which means the write was attempted
-    and its outcome is a failure rather than a denial. :meth:`refuser` names
-    who refused for each reason.
+    and its outcome is a failure rather than a denial.
 
-    reason is one of: "WRITES_DISABLED", "LIMITS", "VALIDATION_ERROR",
-    "CONTROL_SYSTEM_REFUSED", "RAW_CLIENT_WRITE", "CHANNEL_NOT_FOUND".
-    "RAW_CLIENT_WRITE" means user code called a control-system client library's
-    put directly instead of going through ``osprey.runtime.write_channel``;
-    nothing was sent. "CHANNEL_NOT_FOUND" means the address is not a channel of
-    the facility; nothing was sent.
+    ``reason`` is a :class:`RefusalReason` member when the reason is a known
+    one, and then names its refuser and remedy. An unknown reason, or no reason
+    at all, is kept as given and names neither: no refuser is guessed.
     """
-
-    # Every reason maps to who refused a write for it; a message that names a
-    # refuser reads it from here and nowhere else. A reason missing from this
-    # table, or no reason at all, names no refuser rather than a guessed one.
-    # CHANNEL_NOT_FOUND names none because nothing was denied: the address is
-    # not a channel.
-    _REFUSERS: "Mapping[str, str | None]" = MappingProxyType(
-        {
-            "WRITES_DISABLED": "the reference monitor",
-            "LIMITS": "the reference monitor",
-            "VALIDATION_ERROR": "the reference monitor",
-            "CONTROL_SYSTEM_REFUSED": "the control system",
-            "RAW_CLIENT_WRITE": "the reference monitor",
-            "CHANNEL_NOT_FOUND": None,
-        }
-    )
-    _VALID_REASONS = tuple(_REFUSERS)
 
     @classmethod
     def refuser(cls, reason: str | None) -> str | None:
         """Return who refused a write for ``reason``, or None when no one is known."""
-        if reason is None:
-            return None
-        return cls._REFUSERS.get(reason)
+        known = _known_reason(reason)
+        return known.refuser if known is not None else None
+
+    @classmethod
+    def remedy(cls, reason: str | None) -> tuple[str, ...]:
+        """Return the suggestion sentences for ``reason``, or ``()`` when none is known."""
+        known = _known_reason(reason)
+        return known.remedy if known is not None else ()
 
     def __init__(self, channel_address: str, reason: str | None, message: str | None = None):
         self.channel_address = channel_address
-        self.reason = reason
+        self.reason: str | None = _known_reason(reason) or reason
         refuser = self.refuser(reason)
         if refuser is not None:
             fallback = f"Write to '{channel_address}' refused by {refuser} ({reason})"
@@ -148,7 +229,7 @@ class ChannelWriteBlockedError(Exception):
             fallback = f"Write to '{channel_address}' refused"
         else:
             fallback = f"Write to '{channel_address}' refused ({reason})"
-        super().__init__(message or fallback)
+        super().__init__(channel_address, message or fallback)
 
 
 #: Shared substring of every raw-client-write refusal message. Refusals raised
@@ -203,7 +284,7 @@ class ClientLibraryRefusedError(RuntimeError):
         )
 
 
-class ChannelWriteFailedError(Exception):
+class ChannelWriteFailedError(ChannelError):
     """Raised when a channel write was attempted but was not confirmed.
 
     The control system was asked to write but the write failed, the channel now
@@ -218,7 +299,9 @@ class ChannelWriteFailedError(Exception):
 
     ``outcome``, ``value_written`` and ``observed_value`` carry the detail the
     result held, so a caller that only sees the exception can still say what was
-    sent and what the channel holds.
+    sent and what the channel holds. ``outcome`` is a ``WriteOutcome`` member on
+    either side of the connector-host boundary: the plain string the wire
+    carries is coerced on construction, as ``ChannelWriteResult`` coerces its own.
     """
 
     _VALID_REASONS = ("FAILED", "MISMATCH", "UNCONFIRMED")
@@ -233,12 +316,17 @@ class ChannelWriteFailedError(Exception):
         value_written: Any = None,
         observed_value: Any = None,
     ):
+        if outcome is not None:
+            from osprey_connectors.control_system import WriteOutcome
+
+            if not isinstance(outcome, WriteOutcome):
+                outcome = WriteOutcome(outcome)
         self.channel_address = channel_address
         self.reason = reason
         self.outcome = outcome
         self.value_written = value_written
         self.observed_value = observed_value
-        super().__init__(message or self._default_message())
+        super().__init__(channel_address, message or self._default_message())
 
     def _default_message(self) -> str:
         """Name both values for a mismatch — the difference is the whole report.
@@ -298,22 +386,71 @@ class ChannelReadFailedError(Exception):
 NOT_A_CHANNEL = "not a channel of this facility"
 
 
-class ChannelNotFoundError(LookupError):
+class ChannelNotFoundError(ChannelError, LookupError):
     """Raised when an address is not a channel of the facility a connector serves.
 
     Only a connector that holds the facility's whole address set raises it. A
     connector that cannot tell an unknown name from an unreachable one (a
     Channel Access search that finds nothing times out) raises
-    ``ConnectionError`` instead. A write to such an address is not raised: it
-    comes back ``refused`` with ``refusal_reason`` :attr:`reason`.
+    :class:`ChannelUnreachableError` instead. A write to such an address is not
+    raised: it comes back ``refused`` with ``refusal_reason`` :attr:`reason`.
     """
 
     #: The refusal reason a write to an address outside the facility carries.
-    reason = "CHANNEL_NOT_FOUND"
+    reason = RefusalReason.CHANNEL_NOT_FOUND
 
     def __init__(self, channel_address: str):
-        self.channel_address = channel_address
-        super().__init__(f"{channel_address} is {NOT_A_CHANNEL}")
+        super().__init__(channel_address, f"{channel_address} is {NOT_A_CHANNEL}")
+
+
+class ChannelUnreachableError(ChannelError):
+    """One channel could not be reached: it was lost, or it did not answer in time.
+
+    The connector that raised it is healthy and keeps serving every other
+    channel, so nothing is replaced for it; the failure is that channel's
+    device, not the control system as a whole. Its text names the address.
+    """
+
+    def __init__(self, channel_address: str, message: str | None = None):
+        super().__init__(channel_address, message or f"{channel_address} did not answer")
+
+
+class ConnectorUnavailableError(ConnectionError):
+    """The connector itself is gone: its transport, context or process is lost.
+
+    Every channel it serves fails alike until it is replaced, and the
+    supervisor that owns the connector's lifetime replaces it at most once per
+    instance. ``recovery`` is what that supervisor did, one
+    ``{"action", "text"}`` record per step, set by the supervisor and by
+    nothing else; it is empty until a supervisor has acted.
+    """
+
+    def __init__(self, message: str, recovery: "Sequence[Mapping[str, str]]" = ()):
+        self.recovery: tuple[Mapping[str, str], ...] = tuple(recovery)
+        super().__init__(message)
+
+
+class ConnectorInternalError(RuntimeError):
+    """Raised in the parent for something the connector-host child sent outside the contract.
+
+    It has two sources, and both fail one call only. A connector bug: the
+    child raised an exception the IPC registry does not carry typed, and the
+    message carries the child's ``repr``. An unrebuildable reply: the child
+    answered with a value the parent cannot rebuild into its declared type.
+    Neither is a reachability answer, and nothing about the connector or the
+    child is implied, so no supervisor recovers from it.
+
+    It is a ``RuntimeError`` and never a ``ConnectionError`` or ``OSError``, so
+    that no ``except ConnectionError`` or ``except OSError`` reads a connector
+    bug as an unreachable control system.
+
+    ``class_tag`` names the class the child sent: the exception's class for a
+    connector bug, the value's class for an unrebuildable reply.
+    """
+
+    def __init__(self, message: str, class_tag: str | None = None):
+        self.class_tag = class_tag
+        super().__init__(message)
 
 
 class RegistryError(Exception):

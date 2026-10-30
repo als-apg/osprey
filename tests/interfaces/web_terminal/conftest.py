@@ -321,14 +321,14 @@ def readable_process_table(monkeypatch):
 
     A real table that is momentarily unreadable, or does not yet hold a
     just-spawned pid, makes the test wait, never decide: every
-    ``process_tree.snapshot`` call goes through
+    ``process_table.snapshot`` call goes through
     :func:`tests.interfaces.web_terminal._pty_child.readable_rows`. A test that
     injects an unknown table patches ``snapshot`` after it.
     """
-    from osprey.interfaces.web_terminal import process_tree
+    from osprey.deployment import process_table
     from tests.interfaces.web_terminal._pty_child import readable_rows
 
-    monkeypatch.setattr(process_tree, "snapshot", readable_rows)
+    monkeypatch.setattr(process_table, "snapshot", readable_rows)
 
 
 @pytest.fixture

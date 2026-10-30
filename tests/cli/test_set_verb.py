@@ -107,7 +107,7 @@ def test_project_name_is_renamed_in_place(runner, lifecycle_repo):
     result = _invoke(runner, lifecycle_repo, "project_name=als-renamed")
 
     assert result.exit_code == 0, result.output
-    assert "unknown" not in result.output.lower()
+    assert "Not a profile key" not in result.output
     after = _profile_text(lifecycle_repo)
     assert "\nproject_name: als-renamed\n" in after
     assert "\nproject_name: als-exemplar\n" not in after

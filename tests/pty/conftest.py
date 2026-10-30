@@ -562,7 +562,8 @@ def startable_repo(exemplar_copy: Path, stub_runtime: StubRuntime, reserve_port)
     the rendered config, so no run dials whatever service this host runs at the
     rendered default. What answers there is :class:`StackRecordStandIn`: the
     stack's agent-record as the stub runtime's ``compose up`` would have started
-    it, so the start's wait for it ends the way it does against a real stack.
+    it, binding the reserved port, so the start's wait for it ends the way it
+    does against a real stack.
 
     Rendered output only: nothing in ``profile.yml`` changes, so the build
     fingerprint still matches and the start is not a stale one.

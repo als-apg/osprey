@@ -88,9 +88,12 @@ from osprey.deployment.web_terminals.roster import (
 from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER
 from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, ROSTER_SECRET_ENV_PREFIX
 from osprey_connectors.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
-from tests._container_support import docker_cli_unavailable_reason_once
+from tests._container_support import (
+    RuntimeContainer,
+    docker_cli_unavailable_reason_once,
+    wait_until_ready,
+)
 from tests.cli.test_tier_app_presets import _build_render_stack
-from tests.deployment.web_terminals._sidecar_http import wait_for_http
 
 _DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 
@@ -376,6 +379,29 @@ def _entitlements(repo: Path, host_config: dict) -> dict[str, bool]:
     }
 
 
+def _wait_for_health(base_url: str, *, container_name: str, timeout: float = 90.0) -> None:
+    """Wait until the sidecar's unauthenticated ``/health`` answers ``200``.
+
+    Bounded rather than a fixed sleep: uvicorn takes a few seconds to import
+    the app from the bind-mounted source, less on a warm host, and a fixed
+    delay is either wasted or too short. *timeout* is the silence the sidecar
+    is allowed; one that exits ends the wait at once.
+    """
+
+    def probe() -> None:
+        response = httpx.get(f"{base_url}/health", timeout=5)
+        if response.status_code != 200:
+            raise AssertionError(f"/health answered HTTP {response.status_code}")
+
+    wait_until_ready(
+        probe,
+        "bluesky-web sidecar",
+        container=RuntimeContainer(container_name),
+        timeout=timeout,
+        interval=0.5,
+    )
+
+
 @pytest.fixture(scope="module")
 def sidecar(tmp_path_factory) -> Iterator[Sidecar]:
     """The sidecar of a real control-assistant build, up on an ephemeral port."""
@@ -438,15 +464,7 @@ def sidecar(tmp_path_factory) -> Iterator[Sidecar]:
         assert host and port.isdigit(), bound.stdout
         base_url = f"http://{host}:{port}"
 
-        # uvicorn imports the app from the bind-mounted source, which takes a
-        # few seconds; polling rather than a fixed sleep neither wastes nor
-        # undershoots that.
-        wait_for_http(
-            f"{base_url}/health",
-            containers=[container_name],
-            what="the bluesky-web sidecar",
-            timeout=90.0,
-        )
+        _wait_for_health(base_url, container_name=container_name)
         yield Sidecar(base_url=base_url, env=env)
     finally:
         _compose("down", "-v", "--remove-orphans", "--timeout", "5")

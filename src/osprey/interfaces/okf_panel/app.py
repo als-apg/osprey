@@ -127,6 +127,55 @@ def _load_bundle(bundle_path):
     return bundle
 
 
+def _load_facility_records():
+    """Read the render's facility file for resolving facility links, or nothing.
+
+    The panel's factory is handed only ``bundle_path``, so it reads the project
+    config itself for where the facility file sits.
+
+    Returns:
+        A :class:`~osprey.facility.records.FacilityRecords`, or ``None`` when
+        no facility file is there or it cannot be read. The reading pane then
+        marks every facility link unresolved rather than failing the page.
+    """
+    from osprey.channel_roster.sources import facility_file_path
+    from osprey.facility.records import FacilityRecords
+    from osprey_connectors.workspace import load_osprey_config
+
+    # Config load included: nothing here is worth more than the reading pane.
+    try:
+        return FacilityRecords.from_file(facility_file_path(load_osprey_config()))
+    except Exception:  # degrade to unresolved links, never kill the panel.
+        logger.warning(
+            "okf panel: the facility file cannot be read; facility links show unresolved.",
+            exc_info=True,
+        )
+        return None
+
+
+def _facility_references(body, records):
+    """The ``facility_references`` and ``unresolved`` fields of a concept response.
+
+    Args:
+        body: The concept's markdown body.
+        records: The facility records, or ``None`` when none loaded.
+
+    Returns:
+        ``{"facility_references": [span, ...], "unresolved": bool}``: one
+        ``{start, end, target, kinds, label, records}`` per facility link of
+        the body, in body order. ``records`` lists the records the target
+        resolves to (empty for a dangling link), or is ``None`` when no
+        facility file loaded, which ``unresolved`` then states.
+    """
+    from osprey.facility.references import find_facility_links, resolved_references
+
+    found = find_facility_links(body or "", records)
+    return {
+        "facility_references": resolved_references(found, records),
+        "unresolved": records is None,
+    }
+
+
 def create_app(bundle_path=None) -> FastAPI:
     """Create the OKF Knowledge Panel FastAPI application.
 
@@ -146,6 +195,7 @@ def create_app(bundle_path=None) -> FastAPI:
     )
 
     app.state.bundle = _load_bundle(bundle_path)
+    app.state.facility_records = _load_facility_records()
 
     def _bundle_or_error():
         """Return ``(bundle, None)`` when configured, else ``(None, JSONResponse)``."""
@@ -201,6 +251,8 @@ def create_app(bundle_path=None) -> FastAPI:
         ``id`` is a query param (not a path segment) because concept IDs contain
         slashes (e.g. ``control-system/channel-finding``). Missing files,
         malformed frontmatter, and path-traversal escapes all surface as a 404.
+        ``facility_references`` lists each facility link of the body with the
+        records it resolves to; ``unresolved`` says no facility file was read.
         """
         bundle, err = _bundle_or_error()
         if err:
@@ -212,7 +264,12 @@ def create_app(bundle_path=None) -> FastAPI:
             doc = bundle.read_concept(id)
         except (OKFBundleError, OKFDocumentError):
             return JSONResponse({"error": "not found", "id": id}, status_code=404)
-        return {"id": id, "frontmatter": doc.frontmatter, "body": doc.body}
+        return {
+            "id": id,
+            "frontmatter": doc.frontmatter,
+            "body": doc.body,
+            **_facility_references(doc.body, app.state.facility_records),
+        }
 
     # Deliberately `def`, not `async def` — the only handler here that is.
     # ``bundle.search`` is synchronous, and on the ranked path it makes blocking

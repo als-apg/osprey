@@ -40,14 +40,15 @@ Grading is the two layers ``tests/e2e/README.md`` asks for:
   call succeeded, and the prose (all of it, not just the closing message)
   invents no channel address that is not in the corpus; and
 * an **LLM judge** over the prose, against a rubric written from facts read
-  back out of this very corpus (see :data:`_VERIFIED` — every number in the
-  rubric was queried from the seeded store, not assumed from the generator).
+  out of the facility file this corpus was built from (see :func:`rubric`).
+  The probed device is chosen there too (:func:`probe_device_of`): the device
+  of the lane's model whose class has the fewest devices, first by position.
 
 The prompt is operator-style and names **no** tool, server, MCP prefix, Cypher
 keyword or JSON key. It names one PV, because that is the operator's own
 handle on the problem, and asks three things a flat channel list cannot answer
 on its own: which *device* that address belongs to, what else that device
-exposes, and where it sits along the ring. If a natural question like that
+exposes, and where it sits along its line. If a natural question like that
 fails to reach the graph, that is a wiring or tool-description finding to fix
 in the framework — never by steering the prompt toward the tool.
 
@@ -84,6 +85,14 @@ import yaml
 
 from osprey.agent_runner import expected_mcp_servers
 from tests._graphdb_container import GRAPHDB_TEST_PASSWORD, graphdb_store_published_port
+from tests.e2e._facility_select import (
+    ProbeDevice,
+    class_label_of,
+    graph_probe_device,
+    lane_model,
+    repo_facility,
+    repo_view,
+)
 from tests.e2e.judge import LLMJudge
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
@@ -117,115 +126,150 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Ground truth, read back out of the seeded demo corpus
+# Ground truth, read out of the facility file the build rendered
 # ---------------------------------------------------------------------------
 
-#: The address the operator prompt names. A real ``fullPv`` in the generated
-#: demo corpus, and the writable one of its device's six bindings.
-PROBE_PV = "SR:MAG:DIPOLE:01:CURRENT:SP"
 
-#: Every channel address the demo corpus binds to the device that owns
-#: :data:`PROBE_PV`. Read from the store, not derived from the grammar: the
-#: anti-hallucination floor below is only meaningful if this set is what the
-#: graph actually holds.
-PROBE_DEVICE_BINDINGS = (
-    "SR:MAG:DIPOLE:01:CURRENT:GOLDEN",
-    "SR:MAG:DIPOLE:01:CURRENT:RB",
-    "SR:MAG:DIPOLE:01:CURRENT:SP",
-    "SR:MAG:DIPOLE:01:STATUS:FAULT",
-    "SR:MAG:DIPOLE:01:STATUS:ON",
-    "SR:MAG:DIPOLE:01:STATUS:READY",
+def probe_device_of(repo: Path) -> ProbeDevice:
+    """The device the graph lanes ask about, chosen from ``repo``'s facility file.
+
+    Read from the facility file rather than queried from the store on purpose:
+    the facility file is upstream of the graph, and a rubric that asked the
+    graph what the answer is could be satisfied by a graph that is wrong.
+    """
+    return graph_probe_device(repo_facility(repo), model=lane_model(repo_view(repo)))
+
+
+#: The device the dry floor cases below were written for: a stand-in world of
+#: its own, its six bindings named once here.
+_RECORDED_DEVICE = ProbeDevice(
+    device_id="SR/DIPOLE01",
+    name="DIPOLE01",
+    label="DIPOLE 01",
+    klass="Dipole",
+    class_label="dipole",
+    model="SR",
+    place="SR/SECT1",
+    section="SECT1",
+    top_place="SR",
+    top_place_name="storage ring",
+    s=6.781,
+    ordinal_in_place=1,
+    ordinal_in_model=1,
+    bindings=(
+        "SR:MAG:DIPOLE:01:CURRENT:GOLDEN",
+        "SR:MAG:DIPOLE:01:CURRENT:RB",
+        "SR:MAG:DIPOLE:01:CURRENT:SP",
+        "SR:MAG:DIPOLE:01:STATUS:FAULT",
+        "SR:MAG:DIPOLE:01:STATUS:ON",
+        "SR:MAG:DIPOLE:01:STATUS:READY",
+    ),
+    setpoint="SR:MAG:DIPOLE:01:CURRENT:SP",
+    uri="https://narad.example.org/device/ca_device_SR_x2F_DIPOLE01",
+    previous=("QD01", 6.346, "Quadrupole"),
+    next=("SD01", 7.877, "Sextupole"),
+    class_count_in_model=36,
+    class_count_in_facility=53,
+    class_per_place=3,
+    class_span=(6.781, 179.276),
+    class_spacing=(2.775, 9.628),
 )
 
-#: Facts the judge rubric is built from. Every one was queried from the graph
-#: view the control-assistant build writes, the corpus this test seeds (24,486
-#: triples, 512 devices, 2,912 bindings). Restated here rather than re-queried
-#: at run time on purpose: a rubric that asked the graph what the answer is
-#: could be satisfied by a graph that is wrong.
-#:
-#: ``dipole_count_sr`` and ``dipole_count_machine`` are BOTH here, and the
-#: distinction is not pedantry: the ``Dipole`` class holds 44 devices across the
-#: whole corpus, but only 36 of them are in the storage ring — the other 8 are
-#: the booster's, which carry no position. A rubric carrying only the machine-wide figure
-#: marks a correct "36 dipoles in the ring" answer as fabricated, which is
-#: exactly the wrong-answer-key failure a hand-written rubric invites. Both
-#: numbers are named so the judge can recognise either as right.
-_VERIFIED = {
-    "device_name": "DIPOLE01",
-    "device_uri": "https://narad.example.org/device/ca_device_SR_x2F_DIPOLE01",
-    "section": "SECT1",
-    "place": "SR/SECT1",
-    "s_position_m": 6.781,
-    "ordinal_in_place": 1,
-    "dipole_count_sr": 36,
-    "dipole_count_machine": 44,
-    "sr_dipole_span_m": (6.781, 179.276),
-    "sr_dipoles_per_sector": 3,
-    "sr_dipole_spacing_m": (2.775, 9.628),
-    "next_device": ("SD01", 7.877),
-    "previous_device": ("QD01", 6.346),
-}
+#: The characters one token of an address is made of, as the floor reads it.
+_TOKEN = r"[A-Za-z0-9_]+"
 
-#: Any ``SR:MAG:DIPOLE:01:…`` address the corpus does *not* hold is a fabricated
-#: one. Matching on that device's own prefix keeps the check narrow enough that
-#: it can only fire on an invention, never on a legitimate mention of some other
-#: device's channel.
-#:
-#: The **whole** six-token grammar is required — ``RING:SYSTEM:FAMILY:DEVICE``
-#: plus ``FIELD:SUBFIELD`` — rather than "the prefix and one or more segments".
-#: A greedy prefix match reads a *truncated* mention as an address in its own
-#: right, and then reports it as fabricated because the corpus holds no such
-#: channel. That is not hypothetical: an otherwise perfect answer that rendered
-#: the flagged channel as ``SR:MAG:DIPOLE:01:CURRENT:**SP**`` (markdown emphasis
-#: on the last token) failed this floor on ``SR:MAG:DIPOLE:01:CURRENT``. Hence
-#: also :data:`_MARKDOWN_EMPHASIS`: agents format addresses, and a fabrication
-#: detector that trips on bold text detects formatting, not fabrication.
-#:
-#: The trailing negative lookahead is the other half of that rule, in the other
-#: direction: without it a *longer* invention such as
-#: ``SR:MAG:DIPOLE:01:CURRENT:SP:LIMIT`` matches on its first six tokens, which
-#: ARE a real address, and the floor reports the whole thing as legitimate. With
-#: it, that string matches nothing at all — so this floor never launders a
-#: deeper-token invention as real, and the seven-token case is left to the judge
-#: (criterion 4), which reads the answer rather than a prefix of it. Both edges
-#: are deliberately biased toward the false negative: a hard gate that fails a
-#: correct answer costs more than one that lets an exotic invention through to a
-#: second grader.
-_PROBE_DEVICE_PV_RE = re.compile(r"\bSR:MAG:DIPOLE:01:[A-Za-z0-9_]+:[A-Za-z0-9_]+(?![:A-Za-z0-9_])")
+
+def _device_address_pattern(device: ProbeDevice) -> re.Pattern[str]:
+    """Every complete address on ``device``'s own prefix, and nothing longer.
+
+    The prefix is the longest run of leading ``:``-delimited tokens every one of
+    the device's bindings shares, and the address length is the token count
+    they share. Matching on that prefix keeps the check narrow enough that it
+    can only fire on an invention, never on a legitimate mention of some other
+    device's channel.
+
+    The **whole** address length is required, rather than "the prefix and one
+    or more tokens". A greedy prefix match reads a *truncated* mention as an
+    address in its own right, and then reports it as fabricated because the
+    corpus holds no such channel: a real setpoint rendered with markdown
+    emphasis on its last token would read as an invention. Hence also :data:`_MARKDOWN_EMPHASIS`: agents format
+    addresses, and a fabrication detector that trips on bold text detects
+    formatting, not fabrication.
+
+    The trailing negative lookahead is the other half of that rule, in the
+    other direction: without it a *longer* invention matches on its leading
+    tokens, which ARE a real address, and the floor reports the whole thing as
+    legitimate. With it, that string matches nothing at all, so the deeper-token
+    case is left to the judge (criterion 4), which reads the answer rather than
+    a prefix of it. Both edges are deliberately biased toward the false
+    negative: a hard gate that fails a correct answer costs more than one that
+    lets an exotic invention through to a second grader.
+    """
+    split = [address.split(":") for address in device.bindings]
+    lengths = {len(tokens) for tokens in split}
+    assert len(lengths) == 1, (
+        f"{device.device_id}'s bindings do not share one token count: {device.bindings}"
+    )
+    (length,) = lengths
+    prefix: list[str] = []
+    for column in zip(*split, strict=True):
+        if len(set(column)) != 1:
+            break
+        prefix.append(column[0])
+    assert prefix and len(prefix) < length, (
+        f"{device.device_id}'s bindings share no prefix to scope the floor on: {device.bindings}"
+    )
+    tail = "".join(f":{_TOKEN}" for _ in range(length - len(prefix)))
+    return re.compile(rf"\b{re.escape(':'.join(prefix))}{tail}(?![:A-Za-z0-9_])")
+
 
 #: Emphasis and code markers stripped before the scan above, so that bold,
 #: italic and inline-code renderings of an address all normalise to the address.
-#: Stripping ``_`` is safe *here* precisely because the scan is scoped to ONE
-#: device: none of that device's six real addresses
-#: (:data:`PROBE_DEVICE_BINDINGS`) contains an underscore, so no string this
-#: regex can legitimately match is corrupted by removing them — while
-#: ``…CURRENT:_SP_`` (underscore italics) is caught rather than mistaken for a
-#: fabricated ``…CURRENT:_SP_`` token.
 _MARKDOWN_EMPHASIS = re.compile(r"[*`_]")
 
+#: The same markers without ``_``, for a device one of whose real addresses
+#: holds an underscore: stripping it there would corrupt a real address.
+_MARKDOWN_EMPHASIS_KEEP_UNDERSCORE = re.compile(r"[*`]")
 
-def fabricated_addresses(text: str) -> list[str]:
-    """Channel addresses *text* attributes to the probe device that do not exist.
+
+def strip_emphasis(text: str, device: ProbeDevice) -> str:
+    """``text`` with the markdown markers removed that cannot occur in ``device``'s addresses.
+
+    Stripping ``_`` is safe only while the scan is scoped to ONE device none of
+    whose real addresses contains an underscore, so no string the floor can
+    legitimately match is corrupted by removing them -- while an
+    underscore-italic rendering of a token is caught rather than mistaken for
+    a fabricated token.
+    """
+    if any("_" in address for address in device.bindings):
+        return _MARKDOWN_EMPHASIS_KEEP_UNDERSCORE.sub("", text)
+    return _MARKDOWN_EMPHASIS.sub("", text)
+
+
+def fabricated_addresses(text: str, device: ProbeDevice) -> list[str]:
+    """Channel addresses *text* attributes to ``device`` that do not exist.
 
     The anti-hallucination floor, factored out so the live test and the offline
     ``-k floor`` tests grade the *same* code — a dry-verification that exercised
     a re-spelled copy of the rule would prove nothing about the rule the gate
     uses.
 
-    Markdown emphasis is stripped first, then every complete six-token address
-    on this one device's prefix is collected and the six real ones subtracted.
-    Anything left is a channel the answer claims the device has and the corpus
-    says it does not.
+    Markdown emphasis is stripped first, then every complete address on this
+    one device's prefix is collected and the device's real bindings
+    subtracted. Anything left is a channel the answer claims the device has
+    and the corpus says it does not.
 
     Args:
         text: The agent's prose, as written (markdown and all).
+        device: The device whose bindings are the answer key.
 
     Returns:
         The fabricated addresses, sorted and deduplicated; empty when the answer
         invents nothing.
     """
-    plain = _MARKDOWN_EMPHASIS.sub("", text)
-    return sorted(set(_PROBE_DEVICE_PV_RE.findall(plain)) - set(PROBE_DEVICE_BINDINGS))
+    plain = strip_emphasis(text, device)
+    found = set(_device_address_pattern(device).findall(plain))
+    return sorted(found - set(device.bindings))
 
 
 # ---------------------------------------------------------------------------
@@ -399,25 +443,81 @@ def graph_project(
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+@pytest.fixture(scope="module")
+def probe_device(graph_project: Path) -> ProbeDevice:
+    """The device the operator asks about, chosen from the deployment's facility file."""
+    return probe_device_of(graph_project)
+
+
 # ---------------------------------------------------------------------------
 # The prompt and the rubric
 # ---------------------------------------------------------------------------
 
-#: Operator-style, and deliberately naming nothing the agent could pattern-match
-#: onto a tool: no server, no ``mcp__`` prefix, no Cypher keyword, no JSON key,
-#: no mention of a graph. The one identifier it carries is a PV, because that is
-#: what an operator would have in front of them. The three asks are structural —
-#: which *device* owns an address, what else that device exposes, and where it
-#: sits along the ring — and the last of those is not in any channel list.
-OPERATOR_PROMPT = (
-    "A handover note flags SR:MAG:DIPOLE:01:CURRENT:SP for follow-up, but it "
-    "doesn't say why. Before I chase it: which piece of hardware does that "
-    "address actually belong to, what else can I read or set on that same piece "
-    "of hardware, and whereabouts does it sit in the storage ring relative to "
-    "the other dipoles?"
-)
 
-_RUBRIC = f"""\
+def operator_prompt(device: ProbeDevice) -> str:
+    """The operator's question about ``device``.
+
+    Operator-style, and deliberately naming nothing the agent could
+    pattern-match onto a tool: no server, no ``mcp__`` prefix, no Cypher
+    keyword, no JSON key, no mention of a graph. The one identifier it carries
+    is a PV, because that is what an operator would have in front of them. The
+    three asks are structural — which *device* owns an address, what else that
+    device exposes, and where it sits along its line — and the last of those is
+    not in any channel list.
+    """
+    return (
+        f"A handover note flags {device.setpoint} for follow-up, but it "
+        "doesn't say why. Before I chase it: which piece of hardware does that "
+        "address actually belong to, what else can I read or set on that same piece "
+        f"of hardware, and whereabouts does it sit in the {device.top_place_name} "
+        f"relative to the other {device.class_label}s?"
+    )
+
+
+def _neighbour(device: tuple[str, float, str] | None, side: str) -> str:
+    if device is None:
+        return f"No device of the same model lies {side} of it."
+    name, s, klass = device
+    return f"The device immediately {side} is {name} (a {class_label_of(klass)}) at s = {s:.3f} m."
+
+
+def rubric(device: ProbeDevice) -> str:
+    """The judge's answer key for :func:`operator_prompt` about ``device``.
+
+    Every figure is a field of ``device``, read from the facility file. The
+    machine-wide class count appears only where it differs from the count in
+    the device's own model, and then BOTH are named so the judge can recognise
+    either as right: a rubric carrying only the machine-wide figure marks a
+    correct per-model answer as fabricated, which is exactly the
+    wrong-answer-key failure a hand-written rubric invites.
+    """
+    label = device.class_label
+    top = device.top_place_name
+    others = len(device.bindings) - 1
+    first = device.s == device.class_span[0]
+    order = f" It is the FIRST {label} along the {top}." if first else ""
+    census = (
+        f"the {top} holds {device.class_count_in_model} {label}s, "
+        f"{device.class_per_place} in most of its sections, "
+        f"{device.class_spacing[0]:.3f} m to {device.class_spacing[1]:.3f} m apart, "
+        f"from s = {device.class_span[0]:.3f} m to s = {device.class_span[1]:.3f} m"
+    )
+    if device.class_count_in_facility != device.class_count_in_model:
+        outside = device.class_count_in_facility - device.class_count_in_model
+        census = (
+            f"Census, and BOTH figures are correct depending on what is being counted: "
+            f"{census}, while the machine as a whole holds "
+            f"{device.class_count_in_facility} — the other {outside} are outside the "
+            f"{top}. An answer that attributes the machine-wide figure "
+            f"({device.class_count_in_facility}) to the {top}, or the {top} figure "
+            f"({device.class_count_in_model}) to the machine as a whole, IS wrong under "
+            "(4). Do not penalise an answer merely for choosing the scope the operator "
+            "did not ask about, as long as it names that scope."
+        )
+    else:
+        census = f"Census: {census}."
+    identity = f"the first one / {device.name}" if first else device.name
+    return f"""\
 Evaluation of an accelerator operator's question about one device in the
 facility. The agent had read-only access to a knowledge graph describing the
 machine, and the deterministic half of this test has ALREADY verified, from the
@@ -425,70 +525,50 @@ tool trace, that the agent queried that graph successfully and that it invented
 no channel addresses. Do NOT re-grade either of those; grade only the answer's
 substance against the ground truth below.
 
-GROUND TRUTH (read directly out of the corpus the agent was querying):
-  * The address {PROBE_PV} belongs to a single device, a storage-ring dipole
-    magnet named {_VERIFIED["device_name"]} (URI {_VERIFIED["device_uri"]}).
-    Equivalent renderings of that identity — "DIPOLE 01", "dipole 1", "the
-    first storage-ring dipole", the bare URI — are all correct.
-  * That device carries exactly six channel bindings:
-    {", ".join(PROBE_DEVICE_BINDINGS)}.
-    Only {PROBE_PV} is writable; the other five are read-only.
-  * The device sits in section {_VERIFIED["section"]} (place
-    {_VERIFIED["place"]}) at longitudinal position
-    s = {_VERIFIED["s_position_m"]} m, ordinal {_VERIFIED["ordinal_in_place"]}
-    within its place. It is the FIRST dipole along the storage ring. The
-    device immediately downstream is {_VERIFIED["next_device"][0]} (a
-    sextupole) at s = {_VERIFIED["next_device"][1]} m; the one immediately
-    upstream is {_VERIFIED["previous_device"][0]} (a quadrupole) at
-    s = {_VERIFIED["previous_device"][1]} m.
-  * Dipole census, and BOTH figures are correct depending on what is being
-    counted: the storage ring holds {_VERIFIED["dipole_count_sr"]} dipoles
-    (DIPOLE01-DIPOLE{_VERIFIED["dipole_count_sr"]}),
-    {_VERIFIED["sr_dipoles_per_sector"]} per sector,
-    {_VERIFIED["sr_dipole_spacing_m"][0]} m apart within a sector and
-    {_VERIFIED["sr_dipole_spacing_m"][1]} m apart across a sector boundary,
-    from s = {_VERIFIED["sr_dipole_span_m"][0]} m to
-    s = {_VERIFIED["sr_dipole_span_m"][1]} m, while the machine as a whole holds
-    {_VERIFIED["dipole_count_machine"]} — the other
-    {_VERIFIED["dipole_count_machine"] - _VERIFIED["dipole_count_sr"]} are the
-    booster's. An answer that attributes the machine-wide figure
-    ({_VERIFIED["dipole_count_machine"]}) to the storage ring, or the ring
-    figure ({_VERIFIED["dipole_count_sr"]}) to the machine as a whole, IS wrong
-    under (4). Do not penalise an answer merely for choosing the scope the
-    operator did not ask about, as long as it names that scope.
+GROUND TRUTH (read directly out of the facility file the corpus was built from):
+  * The address {device.setpoint} belongs to a single device, a {top} {label}
+    named {device.name} (URI {device.uri}).
+    Equivalent renderings of that identity — "{device.label}", the device's
+    position in words, the bare URI — are all correct.
+  * That device carries exactly {len(device.bindings)} channel bindings:
+    {", ".join(device.bindings)}.
+    Only {device.setpoint} is writable; the other {others} are read-only.
+  * The device sits in section {device.section} (place {device.place}) at
+    longitudinal position s = {device.s:.3f} m, ordinal {device.ordinal_in_place}
+    within its place.{order} {_neighbour(device.next, "downstream")}
+    {_neighbour(device.previous, "upstream")}
+  * {census}
 
 PASS only if ALL of the following hold:
 
-  (1) The answer identifies the owning device correctly — a storage-ring
-      dipole, the first one / number 01. Naming it by any of the equivalent
-      renderings above is fine. Getting the device wrong (a different dipole, a
-      quadrupole, "a magnet power supply" with no device identity) is a FAIL.
+  (1) The answer identifies the owning device correctly — a {top} {label},
+      {identity}. Naming it by any of the equivalent renderings above is fine.
+      Getting the device wrong (a different {label}, a device of another
+      class, a power supply with no device identity) is a FAIL.
 
   (2) The answer says what else that device exposes, and what it says is
-      consistent with the six bindings above. It need NOT list all six, and it
-      may describe them in words ("a current setpoint, a readback, a golden
-      reference and three status flags") rather than as literal addresses.
-      Naming channels that are not among the six, or claiming the device
-      exposes something the corpus does not carry, is a FAIL.
+      consistent with the bindings above. It need NOT list all of them, and it
+      may describe them in words rather than as literal addresses. Naming
+      channels that are not among them, or claiming the device exposes
+      something the corpus does not carry, is a FAIL.
 
-  (3) The answer places the device along the ring in a way consistent with the
-      ground truth — its s-position, its ordinal, or its being the first dipole
-      with the others following. A vague "it's in the storage ring" with no
-      ordering or position at all does NOT satisfy this; an explicit,
-      well-grounded statement that the position information could not be
-      retrieved is also a FAIL, because it IS in the corpus the agent queried.
+  (3) The answer places the device along the {top} in a way consistent with
+      the ground truth — its s-position, its ordinal, or its order among the
+      other {label}s. A vague "it's in the {top}" with no ordering or position
+      at all does NOT satisfy this; an explicit, well-grounded statement that
+      the position information could not be retrieved is also a FAIL, because
+      it IS in the corpus the agent queried.
 
   (4) The answer does not fabricate. Every concrete claim it makes about THIS
-      device, the storage-ring dipole line, or this device's immediate
-      neighbours must be consistent with the ground truth above. Hedged or
-      partial answers are acceptable; confidently wrong ones are not.
+      device, the {label}s of the {top}, or this device's immediate neighbours
+      must be consistent with the ground truth above. Hedged or partial answers
+      are acceptable; confidently wrong ones are not.
 
 Scope limits on (4), so it grades fabrication rather than incompleteness:
 
-  * The ground truth above is the ONLY answer key. It describes DIPOLE01, its
-    bindings, its neighbours and the dipole census. The corpus also holds ~512
-    devices this rubric says nothing about (correctors, quadrupoles,
-    sextupoles, BPMs, vacuum and RF equipment). A claim about one of those is
+  * The ground truth above is the ONLY answer key. It describes {device.name},
+    its bindings, its neighbours and the {label} census. The corpus also holds
+    many devices this rubric says nothing about. A claim about one of those is
     NOT a fabrication merely because this rubric does not list it — mark it
     wrong only if it contradicts something stated above.
   * Omitting anything the operator did not ask for is not a failure.
@@ -516,9 +596,9 @@ def _all_assistant_text(result: Any) -> str:
     return "\n".join(result.text_blocks).strip()
 
 
-def _print_run(result: Any, prose: str) -> None:
+def _print_run(result: Any, prose: str, prompt: str) -> None:
     print("\n--- Graph MCP smoke ---")
-    print(f"  prompt: {OPERATOR_PROMPT}")
+    print(f"  prompt: {prompt}")
     print(f"  mcp servers: {[(s.get('name'), s.get('status')) for s in result.mcp_servers]}")
     print(f"  tools called: {result.tool_names}")
     print(f"  num_turns: {result.num_turns}")
@@ -536,16 +616,18 @@ def _print_run(result: Any, prose: str) -> None:
 @pytest.mark.skipif(not is_claude_code_available(), reason="claude CLI not available")
 @pytest.mark.flaky(reruns=2)  # multi-step agentic + LLM judge; absorb stochastic misses
 @pytest.mark.asyncio
-async def test_graph_answers_a_facility_structure_question(graph_project: Path) -> None:
+async def test_graph_answers_a_facility_structure_question(
+    graph_project: Path, probe_device: ProbeDevice
+) -> None:
     """Operator asks what a PV belongs to; the agent reaches the graph and answers.
 
     The deterministic floor: the readiness barrier saw ``graph`` come up, the
     question reached a ``mcp__graph__*`` tool unprompted — and through the
     ``facility-knowledge-graph`` subagent, never the main agent directly — at
-    least one such call succeeded, and the prose names no
-    ``SR:MAG:DIPOLE:01:…`` address the corpus does not hold. The judge then
-    grades the substance against :data:`_RUBRIC`, which is built from figures
-    read out of this corpus.
+    least one such call succeeded, and the prose names no address on the probe
+    device's prefix that the corpus does not hold. The judge then grades the
+    substance against :func:`rubric`, which is built from figures read out of
+    the facility file this corpus was built from.
     """
     render = render_dir(graph_project)
     assert "graph" in expected_mcp_servers(render), (
@@ -553,9 +635,10 @@ async def test_graph_answers_a_facility_structure_question(graph_project: Path) 
         f"declares {sorted(expected_mcp_servers(render))}"
     )
 
-    result = await run_sdk_query(graph_project, OPERATOR_PROMPT, max_turns=14, max_budget_usd=1.5)
+    prompt = operator_prompt(probe_device)
+    result = await run_sdk_query(graph_project, prompt, max_turns=14, max_budget_usd=1.5)
     prose = _all_assistant_text(result)
-    _print_run(result, prose)
+    _print_run(result, prose, prompt)
 
     # --- The barrier's verdict -------------------------------------------
     # ``run_sdk_query`` polls ``get_mcp_status()`` against
@@ -602,16 +685,16 @@ async def test_graph_answers_a_facility_structure_question(graph_project: Path) 
     # complete address on THIS device's prefix that the corpus does not hold
     # trips it. Scoped over the agent's WHOLE prose, so an invented address in
     # an interim remark counts too. Dry-verified by the ``-k floor`` tests.
-    fabricated = fabricated_addresses(prose)
+    fabricated = fabricated_addresses(prose, probe_device)
     assert not fabricated, (
         f"the agent's prose names channel addresses this device does not have: "
-        f"{fabricated}. The corpus binds exactly {list(PROBE_DEVICE_BINDINGS)} to it."
+        f"{fabricated}. The corpus binds exactly {list(probe_device.bindings)} to it."
     )
 
     # --- Judge: the substance --------------------------------------------
     judge = LLMJudge(provider="als-apg")
     evaluation = await judge.evaluate(
-        _to_workflow_result(OPERATOR_PROMPT, result), expectations=_RUBRIC
+        _to_workflow_result(prompt, result), expectations=rubric(probe_device)
     )
     print("  --- judge ---")
     print(f"    passed: {evaluation.passed}  confidence: {evaluation.confidence:.2f}")
@@ -639,7 +722,8 @@ async def test_graph_answers_a_facility_structure_question(graph_project: Path) 
 _FLOOR_CASES: list[tuple[str, str, list[str]]] = [
     (
         "plain_address",
-        f"The setpoint is {PROBE_PV} and the readback is SR:MAG:DIPOLE:01:CURRENT:RB.",
+        f"The setpoint is {_RECORDED_DEVICE.setpoint} and the readback is "
+        "SR:MAG:DIPOLE:01:CURRENT:RB.",
         [],
     ),
     (
@@ -685,7 +769,7 @@ _FLOOR_CASES: list[tuple[str, str, list[str]]] = [
     (
         # Seven tokens: NOT a real address, but the floor must not launder it as
         # one by matching its six-token prefix. Reporting nothing here is the
-        # designed outcome — see _PROBE_DEVICE_PV_RE on why this edge is biased
+        # designed outcome — see _device_address_pattern on why this edge is biased
         # toward the false negative, with the judge as the second grader.
         "deeper_token_invention",
         "and the limit lives at SR:MAG:DIPOLE:01:CURRENT:SP:LIMIT",
@@ -701,7 +785,7 @@ _FLOOR_CASES: list[tuple[str, str, list[str]]] = [
 )
 def test_floor_reports_only_addresses_the_corpus_lacks(prose: str, expected: list[str]) -> None:
     """The fabrication floor flags inventions and nothing else."""
-    assert fabricated_addresses(prose) == expected
+    assert fabricated_addresses(prose, _RECORDED_DEVICE) == expected
 
 
 @pytest.mark.harness_benchmark
@@ -713,9 +797,11 @@ def test_floor_is_not_vacuous_on_the_real_binding_set() -> None:
     expects ``[]``, which is most of them. Feeding it the six real addresses and
     then a corrupted copy of each proves it is looking.
     """
-    assert fabricated_addresses(" ".join(PROBE_DEVICE_BINDINGS)) == []
+    assert fabricated_addresses(" ".join(_RECORDED_DEVICE.bindings), _RECORDED_DEVICE) == []
 
-    for real in PROBE_DEVICE_BINDINGS:
+    for real in _RECORDED_DEVICE.bindings:
         mutated = real.replace(":CURRENT:", ":CURENT:").replace(":STATUS:", ":STATE:")
         assert mutated != real, f"mutation produced no change for {real}"
-        assert fabricated_addresses(f"the channel {mutated} reports it") == [mutated]
+        assert fabricated_addresses(f"the channel {mutated} reports it", _RECORDED_DEVICE) == [
+            mutated
+        ]

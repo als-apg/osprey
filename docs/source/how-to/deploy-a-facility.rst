@@ -692,6 +692,9 @@ before you trust it:
    ./scripts/verify.sh containers   # one group
    ./scripts/verify.sh --strict     # exit 1 if anything is flagged
 
+It checks the deployment ``osprey up`` recorded in ``var/deployment.json``;
+before the first ``osprey up`` it says nothing has been deployed.
+
 It exits 0 unless run with ``--strict``. A container that is not running or not
 healthy, and a probe that gets no answer, is flagged and tells you where to
 look. ``osprey up`` never passes ``--strict``, so a flag is never the reason a

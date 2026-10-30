@@ -31,6 +31,11 @@ from osprey_connectors.control_system._limits_validator import (
     c_numeral,
     step_read_timeout_seconds,
 )
+from osprey_connectors.errors import (
+    ChannelUnreachableError,
+    ConnectorUnavailableError,
+    RefusalReason,
+)
 from osprey_connectors.logger import get_logger
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.types import WRITES_KEY, machine_kind
@@ -256,10 +261,20 @@ def _char_text(value: Any) -> Any:
 
 
 def _ca_failure(channel_address: str, failure: Any, action: str) -> Exception:
-    """The exception a failed aioca call is raised as: a timeout, or a lost channel."""
+    """The exception a failed aioca call is raised as: the channel did not answer.
+
+    A Channel Access failure is about the one channel: the CA context belongs
+    to the process and keeps serving every other channel. A channel that timed
+    out and one that was lost are both :class:`ChannelUnreachableError`, and the
+    text says which.
+    """
     if getattr(failure, "errorcode", None) == _ECA_TIMEOUT:
-        return TimeoutError(f"{action} '{channel_address}' timed out: {failure}")
-    return ConnectionError(f"{action} '{channel_address}' failed: {failure}")
+        return ChannelUnreachableError(
+            channel_address, f"{action} '{channel_address}' timed out: {failure}"
+        )
+    return ChannelUnreachableError(
+        channel_address, f"{action} '{channel_address}' failed: {failure}"
+    )
 
 
 def _enum_label_fields(labels: Any, index: Any) -> tuple[list[str] | None, str | None]:
@@ -766,7 +781,12 @@ class EPICSConnector(ControlSystemConnector):
             # Create the PVA client context EAGERLY, here, rather than on first
             # read: concurrent reads (read_multiple_channels gathers several
             # asyncio.to_thread calls) would otherwise race to build it.
-            self._pva_context = self._p4p.client.thread.Context("pva")
+            try:
+                self._pva_context = self._p4p.client.thread.Context("pva")
+            except (RuntimeError, OSError) as exc:
+                raise ConnectorUnavailableError(
+                    f"PVA client context could not be built: {exc}"
+                ) from exc
             logger.debug(f"PVA routing enabled for {len(self._pva_channel_globs)} glob pattern(s)")
 
         # Initialize limits validator for automatic validation and confirm policy
@@ -804,9 +824,13 @@ class EPICSConnector(ControlSystemConnector):
         torn down underneath them.
 
         Closing the context is not optional bookkeeping: it owns worker
-        threads, and a ``ConnectionError`` invalidates and rebuilds the
+        threads, and connector unavailability invalidates and rebuilds the
         connector in production — a context left open on every invalidation
-        leaks those threads for the life of the process. The close is
+        leaks those threads for the life of the process. The Channel Access
+        context is not this connector's: it is one per process, on the CA loop,
+        so dropping and rebuilding a connector in process gives it no fresh CA
+        transport; for Channel Access the recovery is a fresh connector-host
+        child. The close is
         idempotent (a connector that never built a context, or that is
         disconnected twice, does nothing) and best effort, like the CA teardown
         below.
@@ -850,8 +874,9 @@ class EPICSConnector(ControlSystemConnector):
             ChannelValue with current value, timestamp, and metadata
 
         Raises:
-            ConnectionError: If channel cannot be connected
-            TimeoutError: If operation times out
+            ChannelUnreachableError: The channel did not connect or did not
+                answer in time
+            ConnectorUnavailableError: The PVA client context is gone
             ValueError: If a PVA channel serves a compressed NTNDArray
         """
         timeout = timeout or self._timeout
@@ -877,8 +902,9 @@ class EPICSConnector(ControlSystemConnector):
         aioca = self._aioca
         connected = await aioca.connect(channel_address, timeout=timeout, throw=False)
         if not connected:
-            raise ConnectionError(
-                f"Failed to connect to PV '{channel_address}' (timeout after {timeout}s)"
+            raise ChannelUnreachableError(
+                channel_address,
+                f"Failed to connect to PV '{channel_address}' (timeout after {timeout}s)",
             )
         reading = await aioca.caget(
             channel_address, format=aioca.FORMAT_TIME, timeout=timeout, throw=False
@@ -998,7 +1024,9 @@ class EPICSConnector(ControlSystemConnector):
             return "cs_refused", done
         if code == _ECA_PUTFAIL:
             return "put_failed", done
-        raise ConnectionError(f"Write to '{channel_address}' failed: {done}")
+        raise ChannelUnreachableError(
+            channel_address, f"Write to '{channel_address}' failed: {done}"
+        )
 
     # ------------------------------------------------------------------
     # PVAccess read path
@@ -1010,7 +1038,8 @@ class EPICSConnector(ControlSystemConnector):
         Looked up through ``self._p4p`` (never a module-scope import) and
         filtered to real exception classes, so a p4p release that drops or
         renames one of them degrades to "not caught here" instead of crashing
-        the read with a TypeError inside the except clause.
+        the read with a TypeError inside the except clause. Read only by
+        :meth:`_pva_failure`.
         """
         thread_module = getattr(getattr(self._p4p, "client", None), "thread", None)
         found: list[type[BaseException]] = []
@@ -1020,14 +1049,46 @@ class EPICSConnector(ControlSystemConnector):
                 found.append(candidate)
         return tuple(found)
 
+    def _pva_failure(self, channel_address: str, failure: Exception, action: str) -> Exception:
+        """The exception a failed p4p call is raised as, the PVA twin of :func:`_ca_failure`.
+
+        A get that timed out and a channel p4p reports disconnected, remote-failed
+        or cancelled are both :class:`ChannelUnreachableError`, naming the
+        channel: the PVA client context keeps serving every other channel.
+        Anything else is returned unchanged, for the caller to re-raise as it is.
+        """
+        if isinstance(failure, TimeoutError):
+            return ChannelUnreachableError(
+                channel_address, f"{action} PVA channel '{channel_address}' timed out: {failure}"
+            )
+        if isinstance(failure, self._pva_connection_error_types()):
+            return ChannelUnreachableError(
+                channel_address, f"Failed to connect to PVA channel '{channel_address}': {failure}"
+            )
+        return failure
+
+    def _require_pva_context(self, channel_address: str, action: str) -> Any:
+        """The PVA client context, or the connector's own unavailability.
+
+        Raises:
+            ConnectorUnavailableError: No PVA client context is open, so no PVA
+                channel can be served until the connector is rebuilt.
+        """
+        context = self._pva_context
+        if context is None:
+            raise ConnectorUnavailableError(
+                f"Cannot {action} PVA channel '{channel_address}': no PVA client context. "
+                "connect() builds it from control_system.connector.epics.pva_channels."
+            )
+        return context
+
     def _pva_get(self, channel_address: str, timeout: float, request: str | None = None) -> Any:
         """Blocking p4p get, returning the raw p4p Value (runs in a thread pool).
 
-        Failures are re-raised as stdlib ``ConnectionError`` / ``TimeoutError``
-        so the MCP error envelope and the connector-invalidation logic treat a
-        PVA outage exactly like a CA one. p4p's own ``TimeoutError`` already IS
-        the builtin; ``Disconnected`` (a RuntimeError) is not, and would
-        otherwise escape as an unclassified error.
+        Failures are raised through :meth:`_pva_failure`, the one funnel that
+        classifies a p4p failure, so a PVA channel that does not answer is the
+        same :class:`ChannelUnreachableError` a CA one is; a missing client
+        context is the connector's own :class:`ConnectorUnavailableError`.
 
         A default p4p Context unwraps normative types into augmented python
         objects (ntfloat, ntenum, ntndarray) that keep the underlying Value on
@@ -1041,26 +1102,18 @@ class EPICSConnector(ControlSystemConnector):
             request: Optional pvRequest string (e.g. :data:`_PVA_METADATA_REQUEST`).
                 When omitted, the server's whole structure is fetched.
         """
-        context = self._pva_context
-        if context is None:
-            raise ConnectionError(
-                f"Cannot read PVA channel '{channel_address}': no PVA client context. "
-                "connect() builds it from control_system.connector.epics.pva_channels."
-            )
+        context = self._require_pva_context(channel_address, "read")
 
         try:
             if request is None:
                 result = context.get(channel_address, timeout=timeout)
             else:
                 result = context.get(channel_address, request=request, timeout=timeout)
-        except TimeoutError:
-            raise TimeoutError(
-                f"Failed to read PVA channel '{channel_address}' (timeout after {timeout}s)"
-            ) from None
-        except self._pva_connection_error_types() as exc:
-            raise ConnectionError(
-                f"Failed to connect to PVA channel '{channel_address}': {exc}"
-            ) from exc
+        except Exception as exc:
+            failure = self._pva_failure(channel_address, exc, f"Read (timeout {timeout}s) of")
+            if failure is exc:
+                raise
+            raise failure from exc
 
         return getattr(result, "raw", result)
 
@@ -1317,8 +1370,8 @@ class EPICSConnector(ControlSystemConnector):
             write was confirmed — what the channel was seen to hold
 
         Raises:
-            ConnectionError: If channel cannot be connected
-            TimeoutError: If operation times out
+            ChannelUnreachableError: If the put fails in a way that leaves its
+                outcome unknown
             ChannelLimitsViolationError: If limits validation fails (when enabled)
         """
         # Step 0: PVA-routed addresses are read-only. This check MUST stay ahead
@@ -1332,7 +1385,7 @@ class EPICSConnector(ControlSystemConnector):
                 channel_address=channel_address,
                 value_written=value,
                 outcome=WriteOutcome.REFUSED,
-                refusal_reason="VALIDATION_ERROR",
+                refusal_reason=RefusalReason.VALIDATION_ERROR,
                 error_message=(
                     f"Write to '{channel_address}' refused: PVAccess writes are not supported. "
                     "This address matches a configured 'pva_channels' pattern, so it is routed "
@@ -1397,7 +1450,7 @@ class EPICSConnector(ControlSystemConnector):
                 channel_address=channel_address,
                 value_written=value,
                 outcome=WriteOutcome.REFUSED,
-                refusal_reason="CONTROL_SYSTEM_REFUSED",
+                refusal_reason=RefusalReason.CONTROL_SYSTEM_REFUSED,
                 error_message=(
                     f"Write to '{channel_address}' refused by the control system "
                     f"(access security); no value was written: {payload}"
@@ -1425,7 +1478,7 @@ class EPICSConnector(ControlSystemConnector):
                 channel_address=channel_address,
                 value_written=value,
                 outcome=WriteOutcome.REFUSED,
-                refusal_reason="VALIDATION_ERROR",
+                refusal_reason=RefusalReason.VALIDATION_ERROR,
                 error_message=(
                     f"Write to '{channel_address}' refused: {payload}. No value was sent."
                 ),
@@ -1649,12 +1702,7 @@ class EPICSConnector(ControlSystemConnector):
         propagate into p4p's dispatcher, which responds by closing the
         subscription outright — one bad frame would silently end the monitor.
         """
-        context = self._pva_context
-        if context is None:
-            raise ConnectionError(
-                f"Cannot subscribe to PVA channel '{channel_address}': no PVA client context. "
-                "connect() builds it from control_system.connector.epics.pva_channels."
-            )
+        context = self._require_pva_context(channel_address, "subscribe to")
 
         def pva_callback(update: Any) -> None:
             """Wrapper to convert a p4p monitor update to our format."""

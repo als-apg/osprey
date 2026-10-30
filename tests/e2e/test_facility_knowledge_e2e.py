@@ -186,9 +186,9 @@ async def test_facility_knowledge_delegation(tmp_path: Path) -> None:
     repo = init_project(tmp_path, "fk_del", template="control_assistant", provider="als-apg")
     judge = LLMJudge(provider="als-apg")
     prompt = (
-        "What quality flag states are defined for the beam position monitors at "
-        "this facility, and which state indicates the position data is reliable "
-        "enough to use for orbit correction?"
+        "What status flags does a beam position monitor carry at this facility, "
+        "and which of them must be true before its position data is used for "
+        "orbit correction?"
     )
 
     result = await run_sdk_query(
@@ -233,11 +233,11 @@ async def test_facility_knowledge_delegation(tmp_path: Path) -> None:
     result_eval = await judge.evaluate(
         _to_workflow_result(prompt, result),
         expectations=(
-            "The agent retrieves BPM quality flag information from the facility "
-            "knowledge bundle and reports the three defined states: "
-            "OK (valid position data, safe for orbit correction), "
-            "NOBEAM (no beam signal detected, position unreliable), and "
-            "FAULT (electronics fault, data not usable). "
+            "The agent retrieves BPM status flag information from the facility "
+            "knowledge bundle and reports the two status flags a BPM carries: "
+            "valid (the monitor reports a valid position reading) and "
+            "connected (the monitor electronics are responding), and that both "
+            "must be true before the position data is used for orbit correction. "
             "The response should be grounded in retrieved bundle content, "
             "not fabricated from general knowledge, "
             "and should not contain unhandled errors."

@@ -1,0 +1,297 @@
+[
+ {
+  "name": "Tier 0 — Static (preset YAML + builds, skill ↔ MCP-tool consistency, podman-compose parse)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Plugin marketplace smoke (install the osprey plugin)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Test Python 3.11 on ubuntu-latest (rest)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Google Chat Bridge E2E (Pub/Sub emulator + dispatch stack)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Test Python 3.12 on ubuntu-latest (cli)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Test Python 3.11 on ubuntu-latest (cli)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Lint and Code Quality + Tier 0 config-key guard",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Test Python 3.12 on ubuntu-latest (rest)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Tier 1 — Build + MCP boot (control-assistant)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Test Python 3.12 on macos-latest (cli)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Tier 3 — Agentic flow (hello-world)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Dispatch Deploy E2E (full Docker stack + real agent runs + multi-user web tier)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Dispatch Overlay E2E (overlay skill/data/trigger visibility, full Docker stack)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "E2E Tests",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Microsoft Teams Bridge E2E (loopback fakes, no container)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Test Python 3.11 on macos-latest (rest)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Nextcloud Talk Bridge E2E (real Talk server + dispatch stack)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Control-Target Switch Agentic E2E (a real agent moving between the virtual accelerator and the be...",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Tier 3 — Agentic flow (control-assistant)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Deploy E2E Test (build + deploy pipeline)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Frontend JS (typecheck + lint + vitest)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Test Python 3.12 on macos-latest (rest)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Scan Stack Agentic E2E (agent-driven ORM + grid scans on the deployed queue stack)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Test Python 3.11 on macos-latest (cli)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Single-User Narrowing E2E (full Docker stack + owner-narrowed dispatch run)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Host Record E2E (host sessions record without a container; the stack takes the record over)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Tier 1 — Build + MCP boot (hello-world)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Package Build (framework + lean connectors wheel)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Archiver suite at the declared dependency floor",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Behavioral + Visual Theming (Playwright, design system)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Documentation Build (Check Only)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
+  "name": "Privilege Split E2E (built images, stat-level ownership proof)",
+  "status": "completed",
+  "conclusion": "skipped"
+ },
+ {
+  "name": "Tiled Roundtrip E2E (bluesky bridge + Tiled persistence, full Docker stack)",
+  "status": "completed",
+  "conclusion": "skipped"
+ },
+ {
+  "name": "Bluesky Queue E2E (queueserver + Redis + Tiled + VA, full Docker stack)",
+  "status": "completed",
+  "conclusion": "skipped"
+ },
+ {
+  "name": "Terminal Auth Multi-User E2E (auth.method token + none, real render image)",
+  "status": "completed",
+  "conclusion": "skipped"
+ },
+ {
+  "name": "Bluesky Deploy E2E (bluesky bridge, full Docker stack)",
+  "status": "completed",
+  "conclusion": "skipped"
+ },
+ {
+  "name": "Bluesky Catalog E2E (layered plan catalog, full Docker stack)",
+  "status": "completed",
+  "conclusion": "skipped"
+ },
+ {
+  "name": "Auth Perimeter E2E (real sidecar image + nginx auth_request)",
+  "status": "completed",
+  "conclusion": "skipped"
+ },
+ {
+  "name": "Two-Shape Boot E2E (bridge + host network axis, podman-compose)",
+  "status": "completed",
+  "conclusion": "skipped"
+ },
+ {
+  "name": "Model-Free E2E (the tests/e2e files that reach no gateway)",
+  "status": "completed",
+  "conclusion": "skipped"
+ },
+ {
+  "name": "Notebook Panel E2E (deployed render + a kernel that follows the terminal)",
+  "status": "completed",
+  "conclusion": "skipped"
+ },
+ {
+  "name": "Deploy Write-Back E2E (profile-owned secrets across a rebuild)",
+  "status": "completed",
+  "conclusion": "skipped"
+ },
+ {
+  "name": "qmd Sidecar E2E (image build + live daemon over a fixture corpus)",
+  "status": "completed",
+  "conclusion": "skipped"
+ },
+ {
+  "name": "ORM + Grid Scan Roundtrip E2E (VA + bluesky bridge + Tiled, full Docker stack)",
+  "status": "completed",
+  "conclusion": "skipped"
+ },
+ {
+  "name": "Multi-User Deploy Lifecycle E2E (podman runtime)",
+  "status": "completed",
+  "conclusion": "skipped"
+ },
+ {
+  "name": "VA Substrate Equivalence E2E (virtual accelerator + bluesky bridge, full Docker stack)",
+  "status": "completed",
+  "conclusion": "skipped"
+ },
+ {
+  "name": "Full-Chain Auth E2E (real sidecar + role-resolved tier render + audit ledgers)",
+  "status": "completed",
+  "conclusion": "skipped"
+ },
+ {
+  "name": "Graph Reseed Stamp E2E (render + real Neo4j store, no model)",
+  "status": "completed",
+  "conclusion": "skipped"
+ },
+ {
+  "name": "Multi-User Deploy Lifecycle E2E (real container runtime)",
+  "status": "completed",
+  "conclusion": "skipped"
+ },
+ {
+  "name": "Virtual Accelerator Plan Deploy E2E (two plan lanes, one per control target, full Docker stack)",
+  "status": "completed",
+  "conclusion": "skipped"
+ },
+ {
+  "name": "Bluesky Web Deploy E2E (VA + bluesky bridge + bluesky-web sidecar, full Docker stack)",
+  "status": "completed",
+  "conclusion": "skipped"
+ },
+ {
+  "name": "Control-Target Switch E2E (virtual accelerator + bench IOC, two live CA servers)",
+  "status": "completed",
+  "conclusion": "skipped"
+ },
+ {
+  "name": "Execution Environment Parity E2E (host venv vs generated image)",
+  "status": "completed",
+  "conclusion": "skipped"
+ },
+ {
+  "name": "Dockerfile E2E (generated container image)",
+  "status": "completed",
+  "conclusion": "skipped"
+ },
+ {
+  "name": "Archiver World E2E (VA + mongodb store + recorder, full Docker stack)",
+  "status": "completed",
+  "conclusion": "skipped"
+ },
+ {
+  "name": "Live Virtual Accelerator E2E (one container, every suite the switch lane does not run)",
+  "status": "completed",
+  "conclusion": "skipped"
+ },
+ {
+  "name": "Channel-Finder MCP Benchmarks (on demand)",
+  "status": "completed",
+  "conclusion": "skipped"
+ },
+ {
+  "name": "Bluesky Sandbox Escape E2E (session-plan authoring gates, full Docker stack)",
+  "status": "completed",
+  "conclusion": "skipped"
+ },
+ {
+  "name": "All CI Checks Passed",
+  "status": "completed",
+  "conclusion": "success"
+ }
+]

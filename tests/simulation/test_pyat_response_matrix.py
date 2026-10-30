@@ -195,11 +195,11 @@ class TestSolveErrors:
         assert engine.start_values(demo["deck"], setpoints, demo["settings"]) == before
 
     def test_a_corrector_that_is_not_a_wired_setpoint_is_refused(self, demo):
-        with pytest.raises(ValueError, match="SR:NOT:A:SETPOINT"):
+        with pytest.raises(engine.RequestRefused, match="SR:NOT:A:SETPOINT"):
             _matrix(demo, ["SR:NOT:A:SETPOINT"], 0.5)
 
     def test_a_corrector_without_a_step_is_refused(self, demo):
-        with pytest.raises(ValueError, match=CORRECTOR_Y):
+        with pytest.raises(engine.RequestRefused, match=CORRECTOR_Y):
             engine.response_matrix(
                 demo["deck"], demo["wiring"], demo["settings"], [CORRECTOR_Y], {}
             )

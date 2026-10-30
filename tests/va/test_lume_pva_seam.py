@@ -872,6 +872,56 @@ def _pva_alarm(value: Any) -> tuple[int, int]:
     return (int(value["alarm.severity"]), int(value["alarm.status"]))
 
 
+def _pva_stamp(value: Any) -> float:
+    """A PVAccess value's time stamp, in epoch seconds."""
+    return float(value["timeStamp.secondsPastEpoch"]) + 1e-9 * float(value["timeStamp.nanoseconds"])
+
+
+class _Events:
+    """How many monitor events one channel delivered on each wire."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._counts = {"pva": 0, "ca": 0}
+
+    def arrived(self, wire: str) -> None:
+        with self._lock:
+            self._counts[wire] += 1
+
+    def counts(self) -> dict[str, int]:
+        with self._lock:
+            return dict(self._counts)
+
+
+@contextmanager
+def _monitored(server: _Server, address: str) -> Iterator[_Events]:
+    """Monitor ``address`` on both wires; yields once each has delivered its connect event."""
+    import aioca
+
+    events = _Events()
+
+    def on_pva(value: Any) -> None:
+        if not isinstance(value, Exception):
+            events.arrived("pva")
+
+    async def subscribe() -> Any:
+        # On the CA loop: aioca binds a monitor to the loop it is opened on.
+        return aioca.camonitor(address, lambda _: events.arrived("ca"), format=aioca.FORMAT_TIME)
+
+    async def unsubscribe() -> None:
+        ca_monitor.close()
+
+    pva_monitor = server.pva.monitor(address, on_pva, notify_disconnect=False)
+    ca_monitor = _on_ca_loop(subscribe())
+    try:
+        connected = _wait_until(lambda: all(events.counts().values()), timeout=CA_TIMEOUT_S)
+        assert connected, f"{address}: a monitor never delivered its connect event"
+        yield events
+    finally:
+        pva_monitor.close()
+        _on_ca_loop(unsubscribe())
+
+
 def _assert_safety_config(
     config: Mapping[str, Any],
     view: Mapping[str, Any],
@@ -1078,6 +1128,58 @@ class TestDemoComposite:
             assert _wait_until(partial(published_since_tick, address)), address
         after_tick = demo_server.ask("counts")
         assert after_tick["chromatic_solves"] - after_put["chromatic_solves"] == 1
+
+    def test_a_corrector_put_posts_nothing_on_an_unrelated_setpoint(
+        self, demo_server: _Server
+    ) -> None:
+        corrector = demo_server.channels[CORRECTOR]
+        unrelated = sorted(
+            address
+            for address, channel in demo_server.channels.items()
+            if channel.get("role") == "setpoint"
+            and channel.get("writable")
+            and channel.get("value_type") == "float"
+            and channel.get("owner") == corrector["owner"]
+            and address != CORRECTOR
+        )[0]
+        readback = str(corrector["pair"])
+        readback_before = _ca(readback)["value"]
+        held = _ca(CORRECTOR)["value"]
+        target = 0.75 if abs(held - 0.75) > 0.1 else -0.75
+
+        with _monitored(demo_server, unrelated) as events:
+            connected = events.counts()
+            put_at = time.time()
+            assert _caput(CORRECTOR, target)
+            assert _wait_until(lambda: _ca(readback)["value"] != readback_before), readback
+            time.sleep(2.0)
+            after_put = events.counts()
+            stamps_after_put = (_pva_stamp(demo_server.pva_get(unrelated)), _ca(unrelated))
+
+            tick_at = time.time()
+            _tick_and_wait(demo_server)
+            heartbeat = _wait_until(lambda: events.counts()["pva"] > connected["pva"])
+
+        assert after_put == connected
+        assert stamps_after_put[0] < put_at
+        assert stamps_after_put[1]["timestamp"] < put_at
+        # Channel Access sends no event for a scalar that kept its value, so the
+        # periodic pass shows there as the restamp alone.
+        assert heartbeat, f"{unrelated}: the periodic pass posted nothing on PVAccess"
+        assert _ca(unrelated)["timestamp"] >= tick_at
+
+    def test_a_put_of_the_held_value_still_publishes_the_setpoint(
+        self, demo_server: _Server
+    ) -> None:
+        held = demo_server.pva_get(CORRECTOR)
+        stamp_before = _pva_stamp(held)
+
+        assert _caput(CORRECTOR, float(held["value"]))
+
+        after = demo_server.pva_get(CORRECTOR)
+        assert float(after["value"]) == float(held["value"])
+        assert _pva_stamp(after) > stamp_before
+        assert _ca(CORRECTOR)["timestamp"] > stamp_before
 
     def test_an_rpc_offset_fault_moves_the_ca_reading_before_the_reply(
         self, demo_server: _Server

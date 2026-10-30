@@ -133,14 +133,16 @@ def _paths_checked(text: str) -> list[tuple[int, list[str]]]:
 
 
 def _declared_command_lines(source: str) -> str:
-    """Every tuple of string literals in Python *source*, in order, each joined into a line."""
+    """Every tuple of string literals in Python *source*, in order, each joined into a line;
+    a starred prefix (``*UV_RUN``) is the command's launcher and is left out."""
     tuples = [
         node for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Tuple) and node.elts
     ]
     lines = []
     for node in sorted(tuples, key=lambda node: (node.lineno, node.col_offset)):
-        words = [e.value for e in node.elts if isinstance(e, ast.Constant)]
-        if len(words) == len(node.elts) and all(isinstance(w, str) for w in words):
+        elts = [e for e in node.elts if not isinstance(e, ast.Starred)]
+        words = [e.value for e in elts if isinstance(e, ast.Constant)]
+        if words and len(words) == len(elts) and all(isinstance(w, str) for w in words):
             lines.append(" ".join(words))
     return "\n".join(lines)
 

@@ -14,6 +14,7 @@ finder it registers.
 """
 
 import ctypes
+import re
 import sys
 from types import ModuleType
 
@@ -23,6 +24,7 @@ from osprey.runtime import raw_put_block
 from tests.runtime._patch_restore import patch_restore
 
 _REFUSAL = "refused by the handle test"
+_LOAD_REFUSAL = "load of {library} refused by the handle test"
 
 _LOADER_ROWS = (
     ("ctypes", ("_dlopen",)),
@@ -54,7 +56,11 @@ def _install_fake_pyepics_loader(monkeypatch):
 
 def _install_readonly():
     raw_put_block.install(
-        "readonly", eager_targets=_LOADER_ROWS, deferred_targets=(), refusal=_REFUSAL
+        "readonly",
+        eager_targets=_LOADER_ROWS,
+        deferred_targets=(),
+        refusal=_REFUSAL,
+        load_refusal=_LOAD_REFUSAL,
     )
 
 
@@ -82,7 +88,7 @@ def test_readonly_refuses_each_put_symbol_on_a_handle_loaded_before_it(symbol):
 def test_readonly_refuses_every_load(load):
     _install_readonly()
 
-    with pytest.raises(RuntimeError, match=_REFUSAL):
+    with pytest.raises(RuntimeError, match=re.escape(_LOAD_REFUSAL.format(library="<process>"))):
         load()
 
 
@@ -92,7 +98,7 @@ def test_readonly_refuses_the_load_a_user_installed_pyepics_makes(monkeypatch):
     ca = _install_fake_pyepics_loader(monkeypatch)
     _install_readonly()
 
-    with pytest.raises(RuntimeError, match=_REFUSAL):
+    with pytest.raises(RuntimeError, match=re.escape(_LOAD_REFUSAL.format(library="<process>"))):
         ca.initialize_libca()
 
 

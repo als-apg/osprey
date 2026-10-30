@@ -120,9 +120,9 @@ BUILD_TIMEOUT_SEC = _orm_stack.BUILD_TIMEOUT_SEC
 DEPLOY_UP_TIMEOUT_SEC = 1200  # first-time native VA source build is slow (minutes)
 HEALTH_TIMEOUT_SEC = 300.0
 
-# Within the corrector channel_limits band (+-12A) and the response model's
-# documented linear regime (ORMParams' own docstring); NUM_POINTS >= 3 per
-# the schema's `ge=3`.
+# Within the band of the corrector a limits record bounds (+-12A in the example
+# facility) and the response model's documented linear regime (ORMParams' own
+# docstring); NUM_POINTS >= 3 per the schema's `ge=3`.
 SPAN_A = 5.0
 
 #: 6 correctors x 21 points = 126 rows, sized deliberately past the 100-row

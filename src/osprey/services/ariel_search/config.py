@@ -1416,6 +1416,28 @@ class ARIELConfig:
                     "when text_embedding enhancement is enabled"
                 )
 
+        # A deployment that embeds new entries with its listed models must
+        # search with one of them. One that does not embed at all searches a
+        # store another deployment ingests, so its search model is not checked.
+        search_model = self.get_search_model()
+        text_emb_config = self.enhancement_modules.get("text_embedding")
+        if (
+            search_model
+            and self.is_enhancement_module_enabled("text_embedding")
+            and text_emb_config is not None
+            and text_emb_config.models
+        ):
+            embedded = [m.name for m in text_emb_config.models]
+            if search_model not in embedded:
+                errors.append(
+                    f"search_modules.semantic.model '{search_model}' is not among "
+                    f"enhancement_modules.text_embedding.models ({', '.join(embedded)}): "
+                    "this deployment would embed new entries with the listed models and "
+                    "search with another, so semantic search would stop finding new "
+                    "entries. List the model under text_embedding.models, or search "
+                    "with one of them."
+                )
+
         # Vocabulary. Enabling expansion without naming a file is a deployment
         # that believes it has expansion and does not; it is refused rather than
         # treated as "disabled".

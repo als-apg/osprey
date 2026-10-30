@@ -29,8 +29,16 @@ import yaml
 
 import osprey_connectors
 from osprey_connectors import control_context
+from osprey_connectors import recovery as recovery_module
 from osprey_connectors.control_system._base import WriteOutcome
-from osprey_connectors.errors import ChannelNotFoundError
+from osprey_connectors.errors import (
+    ChannelNotFoundError,
+    ChannelReadFailedError,
+    ChannelUnreachableError,
+    ClientLibraryRefusedError,
+    ConnectorInternalError,
+    ConnectorUnavailableError,
+)
 from osprey_connectors.ipc import _pool as pool_module
 from osprey_connectors.ipc._host import START_PHASES
 from osprey_connectors.ipc._pool import (
@@ -42,6 +50,8 @@ from osprey_connectors.ipc._pool import (
     ConnectorHostWriteTimeoutError,
     PooledConnector,
 )
+from osprey_connectors.ipc._proxy import ChildUnresponsiveError, raised_by_child
+from osprey_connectors.recovery import RecoveryAction, Timing
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
 from osprey_connectors_tests._write_fakes import arm_switch
@@ -85,9 +95,12 @@ CHILD_START_TIMEOUT_S = 120.0
 
 
 #: Every address a child here reads or writes, each a writable setpoint. The
-#: ``SLOW:``, ``GONE:`` and ``WEDGE:`` ones misbehave before the mock serves them.
+#: ``SLOW:``, ``GONE:``, ``LOST:``, ``BUG:`` and ``WEDGE:`` ones misbehave before the mock
+#: serves them.
 SERVED = (
+    "BUG:X",
     "GONE:X",
+    "LOST:X",
     "SLOW:RB",
     "SLOW:SP",
     "SLOW:SP2",
@@ -549,6 +562,7 @@ async def test_a_wedged_child_is_killed_and_replaced(pools):
     assert isinstance(caught.value, ConnectorHostLostError)
     assert caught.value.cause == "unresponsive"
     assert "nor a ping" in str(caught.value)
+    assert [record["action"] for record in caught.value.recovery] == ["child_replaced"]
     with pytest.raises(ConnectorHostUnresponsiveError) as also:
         await asyncio.wait_for(bystander, 10.0)
     assert also.value.cause == "unresponsive"
@@ -571,6 +585,7 @@ async def test_a_slow_but_alive_child_times_out_the_call_and_keeps_running(pools
 
     assert not isinstance(caught.value, ConnectorHostLostError)
     assert "still answers a ping" in str(caught.value)
+    assert [record["action"] for record in caught.value.recovery] == ["child_kept"]
     assert live.pid == pid and pid_alive(pid)
     assert (await live.read_channel("SR:DCCT", timeout=OK_TIMEOUT_S)).value is not None
     assert len(log.read_text().splitlines()) == 1
@@ -650,17 +665,220 @@ async def test_a_stale_failure_never_drops_the_replacement_child(pools):
     assert pid_alive(replacement)
 
 
-async def test_a_connection_error_from_a_healthy_child_leaves_it_in_place(pools):
+async def test_an_unreachable_channel_in_a_healthy_child_leaves_it_in_place(pools):
     pool = pools(_section(SLOW))
     live = await pool.connector("live")
     pid = live.pid
 
-    with pytest.raises(ConnectionError, match="GONE:X is unreachable") as caught:
+    with pytest.raises(ChannelUnreachableError, match="GONE:X is unreachable") as caught:
         await live.read_channel("GONE:X")
 
-    assert not isinstance(caught.value, ConnectorHostLostError)
+    assert caught.value.channel_address == "GONE:X"
+    assert not isinstance(caught.value, ConnectionError)
     assert live.pid == pid
     assert (await live.read_channel("SR:DCCT")).value is not None
+
+
+async def test_a_child_whose_connector_is_unavailable_is_replaced_once(pools):
+    pool = pools(_section(SLOW))
+    live = await pool.connector("live")
+    pid = live.pid
+
+    with pytest.raises(ConnectorHostLostError) as caught:
+        await live.read_channel("LOST:X")
+
+    lost = caught.value
+    assert isinstance(lost, ConnectorUnavailableError)
+    assert lost.cause == "unavailable"
+    assert "transport is gone" in str(lost)
+    assert [record["action"] for record in lost.recovery] == ["child_replaced"]
+    assert pool.pids() == {}
+    assert not pid_alive(pid)
+    # The next call starts one fresh child and is served by it.
+    assert (await live.read_channel("SR:DCCT", timeout=OK_TIMEOUT_S)).value is not None
+    assert live.pid not in (None, pid)
+
+
+async def test_a_connector_bug_in_a_healthy_child_crosses_as_the_contract_fault_and_leaves_it_in_place(
+    pools,
+):
+    pool = pools(_section(SLOW))
+    live = await pool.connector("live")
+    pid = live.pid
+
+    with pytest.raises(ConnectorInternalError) as caught:
+        await live.read_channel("BUG:X")
+
+    assert raised_by_child(caught.value)
+    assert "KeyError" in str(caught.value)
+    assert live.pid == pid
+    assert (await live.read_channel("SR:DCCT")).value is not None
+
+
+class _ParityProcess:
+    pid = 4242
+    returncode = None
+
+
+class _ParityReader:
+    def retire(self, reason):
+        self.reason = reason
+
+
+class _ParityProxy:
+    """A child's proxy whose every call fails with the one error a parity case names."""
+
+    dead_reason = None
+
+    def __init__(self, exc, *, answers_ping):
+        self.exc = exc
+        self.answers_ping = answers_ping
+
+    async def _fail(self, *args, **kwargs):
+        raise self.exc
+
+    read_channel = write_channel = _fail
+
+    async def supervisor_request(self, *_request):
+        if not self.answers_ping:
+            raise TimeoutError("no pong")
+
+
+def _parity_cases():
+    """One real instance per row of the policy's table, raised the way the pool meets it."""
+
+    def child(exc):
+        setattr(exc, recovery_module._RAISED_BY_CHILD, True)
+        return exc
+
+    return [
+        ("read_channel", child(ConnectorInternalError("KeyError('x')", "KeyError")), False),
+        ("read_channel", child(ChannelUnreachableError("SR:A")), False),
+        ("read_channel", child(ChannelReadFailedError(["SR:A"])), False),
+        ("read_channel", child(ClientLibraryRefusedError(package="epics")), False),
+        ("write_channel", ChildUnresponsiveError("deadline"), True),
+        ("read_channel", ChildUnresponsiveError("deadline"), True),
+        ("read_channel", child(ConnectorUnavailableError("transport is gone")), False),
+        ("read_channel", ConnectionError("the child's pipe ended"), False),
+        ("read_channel", child(ValueError("anything else")), False),
+    ]
+
+
+@pytest.mark.parametrize("answers_ping", [True, False])
+@pytest.mark.parametrize(("method", "exc", "kill_on_write_timeout"), _parity_cases())
+async def test_the_pool_and_the_policy_table_agree(
+    monkeypatch, method, exc, kill_on_write_timeout, answers_ping
+):
+    pool = ConnectorHostPool(_section(SLOW), kill_on_write_timeout=kill_on_write_timeout)
+    child = pool_module._PoolChild(
+        key=("live", None),
+        process=_ParityProcess(),
+        proxy=_ParityProxy(exc, answers_ping=answers_ping),
+        reader=_ParityReader(),
+        report={},
+    )
+
+    async def ensure(_key):
+        return child
+
+    async def kill(_child):
+        return None
+
+    monkeypatch.setattr(pool, "_ensure", ensure)
+    monkeypatch.setattr(pool, "_kill", kill)
+    target = pool_module._PoolTarget(pool, child, method, exc)
+    step = pool._policy._step(exc, target, write=method in pool_module._WRITE_METHODS)
+    kept = step is recovery_module._Step.PROBE and answers_ping
+    failure = (
+        recovery_module._Failure.UNRESPONSIVE
+        if step is recovery_module._Step.PROBE
+        else recovery_module._Failure.UNAVAILABLE
+    )
+
+    with pytest.raises(BaseException) as caught:
+        await pool._invoke(("live", None), method, "SR:A")
+
+    raised = caught.value
+    if step is recovery_module._Step.NONE:
+        assert raised is exc
+        assert child.retired is None
+        return
+    action = RecoveryAction.CHILD_KEPT if kept else RecoveryAction.CHILD_REPLACED
+    expected = {
+        "action": action,
+        "text": recovery_module._SENTENCES[(action, Timing.LAZY, failure)],
+    }
+    assert list(raised.recovery) == [expected]
+    if kept:
+        assert type(raised) is TimeoutError
+        assert child.retired is None
+    else:
+        assert isinstance(raised, ConnectorHostLostError)
+        assert child.retired == raised.cause
+
+
+def _parity_child(pool, monkeypatch, proxy):
+    child = pool_module._PoolChild(
+        key=("live", None),
+        process=_ParityProcess(),
+        proxy=proxy,
+        reader=_ParityReader(),
+        report={},
+    )
+
+    async def ensure(_key):
+        return child
+
+    async def kill(_child):
+        return None
+
+    monkeypatch.setattr(pool, "_ensure", ensure)
+    monkeypatch.setattr(pool, "_kill", kill)
+    return child
+
+
+@pytest.mark.parametrize(
+    "first",
+    [
+        ChildUnresponsiveError("deadline"),
+        ConnectorUnavailableError("transport is gone"),
+    ],
+)
+async def test_a_call_whose_deadline_passes_after_its_child_was_replaced_carries_that_record(
+    monkeypatch, first
+):
+    if isinstance(first, ConnectorUnavailableError):
+        setattr(first, recovery_module._RAISED_BY_CHILD, True)
+    pool = ConnectorHostPool(_section(SLOW))
+    proxy = _ParityProxy(first, answers_ping=False)
+    child = _parity_child(pool, monkeypatch, proxy)
+
+    with pytest.raises(ConnectorHostLostError) as replaced:
+        await pool._invoke(("live", None), "read_channel", "SR:A")
+    proxy.exc = ChildUnresponsiveError("deadline")
+    with pytest.raises(ConnectorHostLostError) as bystander:
+        await pool._invoke(("live", None), "read_channel", "SR:B")
+
+    assert bystander.value.cause == child.retired == replaced.value.cause
+    assert "was retired" in str(bystander.value)
+    assert list(bystander.value.recovery) == list(replaced.value.recovery)
+    assert [record["action"] for record in bystander.value.recovery] == ["child_replaced"]
+
+
+async def test_a_call_whose_deadline_passes_after_the_pool_stopped_its_child_carries_no_record(
+    monkeypatch,
+):
+    pool = ConnectorHostPool(_section(SLOW))
+    child = _parity_child(
+        pool, monkeypatch, _ParityProxy(ChildUnresponsiveError("deadline"), answers_ping=False)
+    )
+    child.retired = pool_module.CAUSE_STOPPED
+
+    with pytest.raises(ConnectorHostLostError) as caught:
+        await pool._invoke(("live", None), "read_channel", "SR:A")
+
+    assert caught.value.cause == "stopped"
+    assert caught.value.recovery == ()
 
 
 # ------------------------------------------------------------ start failures

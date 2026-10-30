@@ -586,7 +586,7 @@ def switch_in_progress_message(pids: tuple[int, ...]) -> str:
     )
 
 
-def _deployment_record() -> "ControlContext | None":
+def _control_context_record() -> "ControlContext | None":
     """The deployment's control context, or ``None`` when there is none to read.
 
     One record per deployment instance, written by its owner and read by every
@@ -758,7 +758,7 @@ def _apply_target_stamp(sandbox_env: dict[str, str]) -> str:
     for name in _STAMP_ENV_NAMES:
         sandbox_env.pop(name, None)
 
-    record = _deployment_record()
+    record = _control_context_record()
     if record is not None and (blocking := _blocking_pids(record)):
         raise _SwitchInProgress(blocking)
 

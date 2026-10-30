@@ -106,6 +106,7 @@ from osprey_connectors.control_context import (
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.types import TARGET_LIVE, TARGET_VA
 from osprey_connectors_tests._harness._ports import reserved_port
+from tests.e2e._facility_select import repo_view
 from tests.e2e.judge import LLMJudge
 from tests.e2e.profile_edits import set_pairs
 from tests.e2e.sdk_helpers import (
@@ -130,6 +131,9 @@ from tests.fixtures.bench_ioc import (
 )
 from tests.fixtures.bench_ioc import (
     PROBE_CHANNEL as BENCH_PROBE_CHANNEL,
+)
+from tests.fixtures.bench_ioc import (
+    WRITABLE_SP as BENCH_WRITABLE_SP,
 )
 from tests.fixtures.bench_ioc import (
     BenchIOC,
@@ -181,14 +185,14 @@ VA_CONTAINER_PREFIX = "osprey-target-switch-agentic-va"
 #: entire reason two containers are worth their boot time.
 VA_PROBE_CHANNEL = BENCH_PROBE_CHANNEL
 
-#: The one setpoint this module writes. Listed in the render's shipped
-#: ``data/channel_limits.json`` with a ±12 A band — which matters, because the
-#: overlay's deployment-wide ``mode: exclusive`` answers every target (no
-#: per-type block): the limits hook sits AHEAD of the approval hook in the
-#: PreToolUse chain, so a write to an unlisted channel is denied before
-#: approval ever runs, and this module would then observe no hook event at
-#: all. Every channel this lane writes is listed.
-CORRECTOR_SP = "SR:MAG:HCM:01:CURRENT:SP"
+#: The one setpoint this module writes: the bench's writable setpoint, a name
+#: both machines answer. The fixture asserts the render's limits give it a band
+#: that holds :data:`SMOKE_WRITE_VALUE` -- which matters, because the overlay's
+#: deployment-wide ``mode: exclusive`` answers every target (no per-type
+#: block): the limits hook sits AHEAD of the approval hook in the PreToolUse
+#: chain, so a write to an unlisted channel is denied before approval ever
+#: runs, and this module would then observe no hook event at all.
+CORRECTOR_SP = BENCH_WRITABLE_SP
 SMOKE_WRITE_VALUE = 0.5
 
 # -- bounds -----------------------------------------------------------------
@@ -636,6 +640,19 @@ class SwitchDeployment:
         return yaml.safe_load((self.render / "config.yml").read_text(encoding="utf-8"))
 
 
+def _assert_the_render_bounds_the_corrector(repo: Path) -> None:
+    """The built view serves :data:`CORRECTOR_SP` writable, with a band holding the smoke write."""
+    channel = repo_view(repo).channel(CORRECTOR_SP)
+    assert channel.writable and channel.value_range is not None, (
+        f"the build serves {CORRECTOR_SP} without a writable band, so the limits hook "
+        "would deny every write this lane makes before approval runs"
+    )
+    low, high = channel.value_range
+    assert low <= SMOKE_WRITE_VALUE <= high, (
+        f"{SMOKE_WRITE_VALUE} lies outside {CORRECTOR_SP}'s band {channel.value_range}"
+    )
+
+
 @pytest.fixture(scope="module")
 def switch_deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[SwitchDeployment]:
     """Two machines and one deployment pointed at both, for the life of the module.
@@ -663,6 +680,7 @@ def switch_deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Swit
     ):
         corrector_start = caget(bench.port, CORRECTOR_SP)
         repo = _init_and_build(workspace, bench_port=bench.port, va_port=va_port)
+        _assert_the_render_bounds_the_corrector(repo)
         with _virtual_accelerator(va_port, repo) as va_name:
             yield SwitchDeployment(
                 repo=repo,

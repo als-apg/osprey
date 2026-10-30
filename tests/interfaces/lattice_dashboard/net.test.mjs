@@ -116,30 +116,16 @@ describe('handleSSEEvent dispatch table', () => {
     expect(handlers.onFigureError).toHaveBeenCalledWith('lma', 'solver diverged');
   });
 
-  test("'figure_error' with no error message passes null", () => {
-    const handlers = makeHandlers();
-    handleSSEEvent({ type: 'figure_error', name: 'lma' }, handlers);
-    expect(handlers.onFigureError).toHaveBeenCalledWith('lma', null);
-  });
-
-  test("'settings_updated' routes to onSettingsUpdated only when settings is present", () => {
+  test("'settings_updated' routes to onSettingsUpdated with (settings)", () => {
     const handlers = makeHandlers();
     handleSSEEvent({ type: 'settings_updated', settings: { da: { nturns: 512 } } }, handlers);
     expect(handlers.onSettingsUpdated).toHaveBeenCalledWith({ da: { nturns: 512 } });
-
-    handlers.onSettingsUpdated.mockClear();
-    handleSSEEvent({ type: 'settings_updated' }, handlers);
-    expect(handlers.onSettingsUpdated).not.toHaveBeenCalled();
   });
 
-  test("'baseline_set' routes to onBaselineSet only when summary is present", () => {
+  test("'baseline_set' routes to onBaselineSet with (summary)", () => {
     const handlers = makeHandlers();
     handleSSEEvent({ type: 'baseline_set', summary: { energy_gev: 2.0 } }, handlers);
     expect(handlers.onBaselineSet).toHaveBeenCalledWith({ energy_gev: 2.0 });
-
-    handlers.onBaselineSet.mockClear();
-    handleSSEEvent({ type: 'baseline_set' }, handlers);
-    expect(handlers.onBaselineSet).not.toHaveBeenCalled();
   });
 
   test("'baseline_cleared' routes to the optional onBaselineCleared handler", () => {
@@ -156,7 +142,7 @@ describe('handleSSEEvent dispatch table', () => {
 
   test('an unrecognized event type dispatches to nothing', () => {
     const handlers = makeHandlers();
-    handleSSEEvent({ type: 'something_new' }, handlers);
+    handleSSEEvent(/** @type {any} */ ({ type: 'something_new' }), handlers);
     for (const fn of Object.values(handlers)) {
       expect(fn).not.toHaveBeenCalled();
     }

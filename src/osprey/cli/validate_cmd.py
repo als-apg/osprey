@@ -312,7 +312,7 @@ def validate(target: Path | None, drift: str, repo: Path | None) -> None:
     \b
       $ osprey validate
       $ osprey validate apps/logbook.yml
-      $ osprey validate --repo ~/als-assistant
+      $ osprey validate --repo ~/my-assistant
     """
     if target is not None and repo is not None:
         raise click.UsageError(

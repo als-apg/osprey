@@ -205,16 +205,19 @@ class ConnectorSettable(StandardReadable):
                 itself failed). All three abort the
                 plan: an unconfirmed or mismatched write is a false premise
                 for every step that follows it.
-            ConnectionError: Propagated unchanged from the connector's
-                Channel Access layer on the write.
+            ChannelUnreachableError: Propagated unchanged from the
+                connector's write, for a channel that could not be reached.
+            ConnectorUnavailableError: Propagated unchanged: the connector
+                itself was lost, on the write or on the readback.
             TimeoutError: Either propagated unchanged from the connector's
                 write, or a ``SettleTimeoutError`` when ``readback`` does not
                 settle within its bound of ``value`` within
                 :func:`settle_timeout_s` seconds.
-            SettleReadError: A ``ChannelReadFailedError``: the readback could
-                not be read while settling, or answered no value; names the
-                readback. A readback that answers no value aborts the plan at
-                once rather than after the settle timeout.
+            SettleReadError: A ``ChannelReadFailedError``: the readback cannot
+                be reached, is not a channel, or times out while settling, or
+                it answered no value; names the readback. A readback that
+                answers no value aborts the plan at once rather than after the
+                settle timeout.
 
             Every one of these propagates uncaught through the
             ``AsyncStatus`` this method is wrapped in, aborting the

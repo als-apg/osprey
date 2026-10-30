@@ -85,6 +85,7 @@ from osprey.mcp_server.control_system.tools import control_target
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system._base import ChannelValue
+from osprey_connectors.errors import ConnectorUnavailableError
 from osprey_connectors.workspace import reset_config_cache
 from osprey_connectors_tests._harness import write_control_context
 from osprey_connectors_tests._harness._ports import reserved_port
@@ -151,8 +152,9 @@ SEEDED_ACTIVE_SCENARIOS = "\n".join(
 
 #: The one setpoint this module ever writes -- in the executor scenario, and
 #: restored to zero by that test before it returns. Listed in the shipped
-#: ``channel_limits.json`` with a +-12 A band, so the values below pass limits.
-CORRECTOR_SP = "SR:MAG:HCM:01:CURRENT:SP"
+#: ``channel_limits.json`` with a band at both ends (``conftest.LANE.band``),
+#: and the values below lie inside it, so they pass limits.
+CORRECTOR_SP = e2e_conftest.BOUNDED_SETPOINT
 PINNED_WRITE_VALUE = 1.0
 REFUSED_WRITE_VALUE = 2.0
 
@@ -760,12 +762,13 @@ class TestAFailedSwitchLeavesThePreviousTargetActive:
 
 
 class TestFailClosedWhenTheChildIsKilledExternally:
-    """FR-1: a session whose connector host died refuses, and says why.
+    """FR-1: a session whose connector host died refuses the call that finds it, and says why.
 
     The child is killed with ``SIGKILL`` from outside — not through a switch,
     which by construction never produces this state. What the session owes its
-    operator then is a refusal naming the missing host, not a silent respawn
-    onto a target nobody re-selected and not a read answered from somewhere else.
+    operator then is a refusal naming the missing host and the fresh child the
+    supervisor started on the same target, not a silent respawn and not a read
+    answered from somewhere else; the next call is served.
 
     **The archiver.** FR-1 also says archiver reads keep serving while the
     control system refuses, because the archiver is never routed through the
@@ -784,8 +787,10 @@ class TestFailClosedWhenTheChildIsKilledExternally:
     ):
         manager = await started_on(make_manager, "va")
         context = context_for(manager)
-        proxy = await context.control_system()
-        assert isinstance(await proxy.read_channel(VA_PROBE, timeout=READ_TIMEOUT_S), ChannelValue)
+        connector = await context.control_system()
+        assert isinstance(
+            await connector.read_channel(VA_PROBE, timeout=READ_TIMEOUT_S), ChannelValue
+        )
 
         os.kill(manager.status()["child_pid"], signal.SIGKILL)
         await async_wait_until(
@@ -795,13 +800,14 @@ class TestFailClosedWhenTheChildIsKilledExternally:
         )
 
         with pytest.raises(NoConnectorHostError) as raised:
-            await context.control_system()
+            await connector.read_channel(VA_PROBE, timeout=READ_TIMEOUT_S)
 
         refusal = raised.value
-        assert isinstance(refusal, ConnectionError)  # the tools' handler knows this one
+        assert isinstance(refusal, ConnectorUnavailableError)
         assert refusal.as_dict()["reason"] == "no_connector_host"
         assert refusal.target == "va"
         assert refusal.generation == manager.active_generation()
+        assert [record["action"] for record in refusal.recovery] == ["child_replaced"]
 
     async def test_the_session_still_names_the_target_it_was_on(self, make_manager):
         """A dead child is not a switch, and claiming one would invent it."""
@@ -819,19 +825,19 @@ class TestFailClosedWhenTheChildIsKilledExternally:
         assert manager.active_generation() == generation
         assert manager.active_proxy() is None
         assert manager.status()["child_alive"] is False
-        # Nothing is quietly restarted on the way to a read.
+        # Nothing is quietly restarted while no call asks for the child.
         assert len(manager.spawned) == 1
 
-    async def test_invalidating_brings_a_child_back_on_the_same_target(self, make_manager):
-        """Fail-closed, not fail-permanent: the documented recovery really works.
+    async def test_the_refusal_restarts_a_child_on_the_same_target(self, make_manager):
+        """Fail-closed, not fail-permanent: the call that finds it restarts it once.
 
-        The refusal is a ``ConnectionError``, which is what the tools' shared
-        handler already turns into an invalidation — so this is the path a
-        deployment actually takes, driven here against real processes.
+        The refusal names the restart, and the next call is served by the
+        fresh child on the target the session was on, driven here against
+        real processes.
         """
         manager = await started_on(make_manager, "va")
         context = context_for(manager)
-        await context.control_system()
+        connector = await context.control_system()
         generation = manager.active_generation()
 
         os.kill(manager.status()["child_pid"], signal.SIGKILL)
@@ -841,10 +847,9 @@ class TestFailClosedWhenTheChildIsKilledExternally:
             what="the manager dropping its child",
         )
         with pytest.raises(NoConnectorHostError):
-            await context.control_system()
+            await connector.read_channel(VA_PROBE, timeout=READ_TIMEOUT_S)
 
-        await context.invalidate_connector("control_system")
-
+        assert len(manager.spawned) == 2
         assert manager.has_child() is True
         assert manager.active_target() == "va"
         assert manager.active_generation() == generation

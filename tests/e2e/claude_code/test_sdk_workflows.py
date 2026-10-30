@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import pytest
 
+from tests.e2e._facility_select import lane_monitors
 from tests.e2e.judge import LLMJudge
 from tests.e2e.sdk_helpers import (
     e2e_budget_scale,
@@ -127,11 +128,12 @@ class TestClaudeCodeSDKIntegration:
           3. Cost: under $1.00 budget.
         """
         repo = init_project(tmp_path, "sdk-archiver-plot", provider="als-apg")
+        first, second, third = lane_monitors(repo, 3)
 
         prompt = (
             "Use the archiver_read tool to retrieve data for channels "
-            "'SR:DIAG:BPM:01:POSITION:X', 'SR:DIAG:BPM:02:POSITION:X', "
-            "'SR:DIAG:BPM:03:POSITION:X' over the last 24 hours. "
+            f"'{first}', '{second}', "
+            f"'{third}' over the last 24 hours. "
             "Then create a timeseries plot of the data and save it as a "
             "PNG file."
         )
@@ -337,14 +339,15 @@ class TestClaudeCodeSDKIntegration:
         Cost budget: $2.00
         """
         repo = init_project(tmp_path, "sdk-3d-scatter", provider="als-apg")
+        first, second, third = lane_monitors(repo, 3)
 
         prompt = (
             "Use archiver_read to retrieve data for channels "
-            "'SR:DIAG:BPM:18:POSITION:X', 'SR:DIAG:BPM:19:POSITION:X', "
-            "'SR:DIAG:BPM:20:POSITION:X' over the last 24 hours with "
+            f"'{first}', '{second}', "
+            f"'{third}' over the last 24 hours with "
             "processing 'mean' and bin_size 60. "
-            "Then create a 3D scatter plot with BPM18 on X-axis, BPM19 on "
-            "Y-axis, BPM20 on Z-axis, colored by time. "
+            f"Then create a 3D scatter plot with {first} on X-axis, {second} on "
+            f"Y-axis, {third} on Z-axis, colored by time. "
             "Use the data-visualizer agent to create the plot."
         )
 

@@ -63,7 +63,10 @@ the merge gate from the checks every owner declares:
 ``uv run python scripts/check.py list`` prints what each tier runs. The scoped
 run also names the CI lanes your diff touches. ``--base BASE`` arms the checks
 that judge a range without scoping the tier, so ``full --base origin/main``
-judges the whole tree and the range in one verdict.
+judges the whole tree and the range in one verdict. Before any check runs, the
+command puts the tree's pins in place: the pinned Claude Code first on ``PATH``
+for the test sweep, and ``npm ci`` when ``node_modules`` differs from
+``package-lock.json``. When it cannot, it refuses and names what to install.
 
 A check is declared by the code that owns it, in a ``repo_checks.py`` module
 beside that code: ``scripts/repo_checks.py`` holds the framework's and the

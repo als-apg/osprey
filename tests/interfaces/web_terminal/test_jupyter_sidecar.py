@@ -8,7 +8,6 @@ survives ``stop()`` or a dead parent.
 
 from __future__ import annotations
 
-import contextlib
 import http.server
 import json
 import logging
@@ -27,6 +26,7 @@ from pathlib import Path
 import nbformat
 import pytest
 
+from osprey.deployment import subprocess_capture
 from osprey.interfaces.web_terminal import jupyter_sidecar
 from osprey.interfaces.web_terminal.jupyter_sidecar import (
     KERNELSPEC_NAME,
@@ -37,7 +37,7 @@ from osprey.interfaces.web_terminal.jupyter_sidecar import (
 )
 from osprey.mcp_server.python_executor.executor import resolve_agent_interpreter
 from tests._live import wait_until
-from tests._processes import kill_quietly, pid_alive, pid_gone
+from tests._processes import kill_group, kill_quietly, pid_alive, pid_gone
 
 READY_TIMEOUT = 90.0
 
@@ -330,8 +330,7 @@ def test_the_sidecar_exits_when_its_parent_is_killed(shared_root: Path, tmp_path
             parent.kill()
             parent.wait(10)
         if sidecar_pid is not None:
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(sidecar_pid, signal.SIGKILL)
+            kill_group(sidecar_pid)
 
 
 # ---------------------------------------------------------------------------
@@ -713,6 +712,135 @@ def test_stop_returns_while_an_orphan_still_holds_the_stderr_pipe(
             orphan = int(pid_file.read_text())
         if orphan is not None:
             kill_quietly([orphan])
+        sidecar.stop()
+
+
+#: A stand-in sidecar that ignores SIGTERM and starts a member of its own group
+#: that ignores it too. Its pid is published with a rename once the member has
+#: set that disposition, so a signal sent afterwards meets it.
+_STUBBORN_GROUP_SCRIPT = (
+    "import os, pathlib, signal, subprocess, sys, time\n"
+    "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+    "member = subprocess.Popen(\n"
+    "    [sys.executable, '-c', 'import signal, time\\n'\n"
+    "     'signal.signal(signal.SIGTERM, signal.SIG_IGN)\\n'\n"
+    "     'print(1, flush=True)\\n'\n"
+    "     'time.sleep(3600)\\n'],\n"
+    "    stdout=subprocess.PIPE,\n"
+    ")\n"
+    "member.stdout.readline()\n"
+    "pathlib.Path(sys.argv[1] + '.tmp').write_text(str(os.getpid()))\n"
+    "os.replace(sys.argv[1] + '.tmp', sys.argv[1])\n"
+    "time.sleep(3600)\n"
+)
+
+
+def _spawn_stand_in(
+    shared_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source: str
+) -> tuple[JupyterSidecar, int]:
+    """Spawn *source* as the sidecar and return it with its pid once it is ready."""
+    pid_file = tmp_path / "stand-in.pid"
+    script = tmp_path / "stand_in.py"
+    script.write_text(source, encoding="utf-8")
+    fake = tmp_path / "python"
+    fake.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script}" "{pid_file}"\n')
+    fake.chmod(0o755)
+    monkeypatch.setattr(jupyter_sidecar.sys, "executable", str(fake))
+    sidecar = JupyterSidecar(shared_root, "", None)
+    sidecar.spawn()
+    pid = sidecar.pid
+    assert pid is not None
+    wait_until(pid_file.exists, timeout=10.0, what="the stand-in to report ready")
+    return sidecar, pid
+
+
+@pytest.mark.usefixtures("config_env")
+@spawns
+def test_stop_ends_a_member_of_the_sidecars_group_that_ignores_sigterm(
+    shared_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(jupyter_sidecar, "_STOP_GRACE", 0.5)
+    sidecar, pid = _spawn_stand_in(shared_root, tmp_path, monkeypatch, _STUBBORN_GROUP_SCRIPT)
+    try:
+        sidecar.stop()
+        assert subprocess_capture.group_is_gone(pid), (
+            f"a member of the sidecar's group {pid} is still running"
+        )
+    finally:
+        kill_group(pid)
+        sidecar.stop()
+
+
+@pytest.mark.usefixtures("config_env")
+@spawns
+@pytest.mark.parametrize(
+    ("unproven", "said"),
+    [("survivors", "still running after SIGKILL: pid 4242"), ("unknown", "group 4242")],
+    ids=["survivors", "unreadable"],
+)
+def test_stop_names_what_its_group_stop_could_not_prove_gone(
+    shared_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    unproven: str,
+    said: str,
+) -> None:
+    real_stop = subprocess_capture.stop_child
+
+    def stop_answering(
+        process: subprocess.Popen[bytes], **kwargs: float
+    ) -> subprocess_capture.StopOutcome[int]:
+        real_stop(process, **kwargs)
+        return subprocess_capture.StopOutcome(ended=(process.pid,), **{unproven: (4242,)})
+
+    monkeypatch.setattr(subprocess_capture, "stop_child", stop_answering)
+    source = (
+        "import os, pathlib, sys, time\n"
+        "pathlib.Path(sys.argv[1] + '.tmp').write_text(str(os.getpid()))\n"
+        "os.replace(sys.argv[1] + '.tmp', sys.argv[1])\n"
+        "time.sleep(3600)\n"
+    )
+    sidecar, pid = _spawn_stand_in(shared_root, tmp_path, monkeypatch, source)
+    try:
+        with caplog.at_level("WARNING", logger=jupyter_sidecar.__name__):
+            sidecar.stop()
+        warnings = [
+            record.getMessage()
+            for record in caplog.records
+            if record.name == jupyter_sidecar.__name__ and record.levelno == logging.WARNING
+        ]
+        assert any(said in warning for warning in warnings), warnings
+    finally:
+        kill_group(pid)
+        sidecar.stop()
+
+
+@pytest.mark.usefixtures("config_env")
+@spawns
+def test_the_exit_watcher_reports_without_reaping(
+    shared_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = (
+        "import os, pathlib, sys, time\n"
+        "pathlib.Path(sys.argv[1] + '.tmp').write_text(str(os.getpid()))\n"
+        "os.replace(sys.argv[1] + '.tmp', sys.argv[1])\n"
+        "time.sleep(0.2)\n"
+        "sys.exit(3)\n"
+    )
+    sidecar, pid = _spawn_stand_in(shared_root, tmp_path, monkeypatch, source)
+    fired = threading.Event()
+    sidecar.on_exit = fired.set
+    look = os.WEXITED | os.WNOHANG | os.WNOWAIT
+    try:
+        assert fired.wait(10.0), "on_exit did not fire"
+        assert sidecar.exit_status == 3
+        assert subprocess_capture._waitid(pid, look) is not None, "the watcher reaped the sidecar"
+        sidecar.stop()
+        with pytest.raises(ChildProcessError):
+            subprocess_capture._waitid(pid, look)
+    finally:
+        kill_group(pid)
         sidecar.stop()
 
 

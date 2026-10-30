@@ -13,10 +13,20 @@ import contextlib
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import TypeAdapter
 from tests.interfaces.lattice_dashboard._render import settle, write_render
 
+from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER
+from osprey.interfaces.lattice_dashboard import app as app_mod
 from osprey.interfaces.lattice_dashboard.app import _SSEBroadcaster, create_app
 from osprey.interfaces.lattice_dashboard.compute import ComputeManager
+from osprey.interfaces.lattice_dashboard.schema import (
+    BaselineClearedEvent,
+    DashboardEvent,
+    FigureErrorEvent,
+    FigureReadyEvent,
+    StateUpdatedEvent,
+)
 from osprey.interfaces.lattice_dashboard.workers._base import save_data
 from osprey_connectors.process import ExitCause
 
@@ -280,10 +290,11 @@ class TestSSEBroadcaster:
     def test_subscribe_broadcast_unsubscribe(self):
         b = _SSEBroadcaster()
         q = b.subscribe()
-        b.broadcast({"type": "ping"})
-        assert q.get_nowait() == {"type": "ping"}
+        event = FigureReadyEvent(type="figure_ready", name="optics")
+        b.broadcast(event)
+        assert q.get_nowait() == event
         b.unsubscribe(q)
-        b.broadcast({"type": "after"})
+        b.broadcast(StateUpdatedEvent(type="state_updated"))
         assert q.empty()
 
     def test_double_unsubscribe_is_safe(self):
@@ -298,6 +309,82 @@ class TestSSEBroadcaster:
         # Fill the queue to capacity; the extra broadcast must be dropped, not raise
         with contextlib.suppress(asyncio.QueueFull):
             while True:
-                q.put_nowait({"x": 1})
-        b.broadcast({"type": "overflow"})
+                q.put_nowait(StateUpdatedEvent(type="state_updated"))
+        b.broadcast(BaselineClearedEvent(type="baseline_cleared"))
         assert q.full()
+
+
+class TestEventStream:
+    """``/api/events`` serves each broadcast event as one ``data:`` frame."""
+
+    async def test_a_broadcast_event_arrives_as_one_frame(self, tmp_path, monkeypatch):
+        brokers: list[_SSEBroadcaster] = []
+        subscribed = asyncio.Event()
+        unsubscribed = asyncio.Event()
+
+        class Recording(_SSEBroadcaster):
+            def __init__(self) -> None:
+                super().__init__()
+                brokers.append(self)
+
+            def subscribe(self):
+                q = super().subscribe()
+                subscribed.set()
+                return q
+
+            def unsubscribe(self, q) -> None:
+                super().unsubscribe(q)
+                unsubscribed.set()
+
+        monkeypatch.setattr(app_mod, "_SSEBroadcaster", Recording)
+        app = create_app(workspace_root=tmp_path, render_root=tmp_path / "render")
+        secret = app.state.web_credentials.operator_secret
+
+        sent: list[dict] = []
+        framed = asyncio.Event()
+        gone = asyncio.Event()
+
+        async def receive() -> dict:
+            await gone.wait()
+            return {"type": "http.disconnect"}
+
+        async def send(message: dict) -> None:
+            sent.append(message)
+            if message["type"] == "http.response.body" and message.get("body"):
+                framed.set()
+
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.3"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": "/api/events",
+            "raw_path": b"/api/events",
+            "root_path": "",
+            "query_string": b"",
+            "headers": [
+                (b"host", b"testserver"),
+                (b"accept", b"text/event-stream"),
+                (OPERATOR_SECRET_HEADER.lower().encode(), secret.encode()),
+            ],
+            "client": ("testclient", 50000),
+            "server": ("testserver", 80),
+        }
+        served = asyncio.create_task(app(scope, receive, send))
+        await asyncio.wait_for(subscribed.wait(), 10)
+
+        event = FigureErrorEvent(type="figure_error", name="lma", error="solver diverged")
+        brokers[0].broadcast(event)
+        await asyncio.wait_for(framed.wait(), 10)
+        gone.set()
+        await asyncio.wait_for(served, 10)
+
+        headers = dict(sent[0]["headers"])
+        assert headers[b"content-type"].startswith(b"text/event-stream")
+        assert headers[b"connection"] == b"keep-alive"
+        body = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+        assert body.startswith(b"data: ")
+        assert body.endswith(b"\n\n")
+        assert TypeAdapter(DashboardEvent).validate_json(body[len(b"data: ") : -2]) == event
+        assert unsubscribed.is_set()

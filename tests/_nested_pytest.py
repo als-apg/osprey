@@ -7,21 +7,24 @@ run is waited on for as long as its stdout or stderr keeps growing, and stopped
 only after ``STALL_SECONDS`` in which neither grew. The streams go to files
 rather than pipes so their growth can be observed while the run is alive.
 
-A nested run's temporary directories live under a root inside the helper's
-scratch, named to it by ``PYTEST_DEBUG_TEMPROOT``. pytest prunes the older
-numbered ``pytest-N`` directories of its root when it exits, and the shared
-``pytest-of-<user>`` root holds what every other run on the host left behind,
-often a whole suite's ``tmp_path`` tree. Pruning there would make the nested
-run spend minutes deleting another run's files after its summary, writing
-nothing. In its own root it prunes only itself.
+A nested run gets a temporary root of its own, named to it by
+``PYTEST_DEBUG_TEMPROOT``, unless the caller shares one on purpose
+(``temproot=``). A nested run that does not load ``tests/conftest.py`` numbers
+its directories under ``pytest-of-<user>`` in that root and prunes the older
+``pytest-N`` ones when it exits; the shared ``pytest-of-<user>`` of the host
+temp dir holds what every other such run left behind, so pruning there would
+make the nested run spend minutes deleting another run's files after its
+summary, writing nothing. In its own root it prunes only itself.
 
 A stopped run is reported with the Python stack of every thread of every
 process it started: the run gets its own process group and ``faulthandler``,
-and the stop is ``stop_group`` from ``scripts/run_bounded.py``, the sequence
-every bounded gate run is stopped with: a ``SIGABRT`` to that group, which
-makes each process write its stacks to the same stderr before it dies, then
-SIGTERM and SIGKILL. Whatever the run left in its group is killed when it
-ends, so no worker it started outlives the calling test.
+and the stop is the product's ``osprey.deployment.subprocess_capture.stop_child``,
+the sequence every bounded gate run is stopped with: a ``SIGABRT`` to that
+group, which makes each process write its stacks to the same stderr before it
+dies, then SIGTERM and SIGKILL. Whatever the run left in its group is stopped
+the same way when it ends, and that stop reaps the run's leader, so no worker
+it started outlives the calling test; one that survives SIGKILL fails the test
+by pid, and a leftover the stop could not look for fails it saying so.
 
 A finished run reports how long it sat silent before it exited
 (``NestedRun.quiet_before_exit``): the time between the last growth of its
@@ -34,10 +37,7 @@ The leading underscore keeps the module out of pytest collection.
 
 from __future__ import annotations
 
-import contextlib
-import importlib.util
 import os
-import signal
 import subprocess
 import tempfile
 import time
@@ -46,6 +46,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey.deployment.subprocess_capture import StopOutcome, observe_exit, stop_child
 from osprey_connectors_tests._paths import TESTS_ROOT as HARNESS_ROOT
 
 #: How long a nested run may write nothing before it counts as hung. It spans
@@ -62,21 +63,6 @@ _DUMP_SECONDS = 5.0
 
 #: How long a stopped run gets after SIGTERM before the group is killed.
 _GRACE_SECONDS = 5.0
-
-_RUN_BOUNDED = Path(__file__).resolve().parents[1] / "scripts" / "run_bounded.py"
-
-
-def _load_stop_group():
-    """Load ``stop_group`` from the gate scripts' bounded runner by path."""
-    spec = importlib.util.spec_from_file_location("_run_bounded", _RUN_BOUNDED)
-    assert spec is not None and spec.loader is not None, _RUN_BOUNDED
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.stop_group
-
-
-_stop_group = _load_stop_group()
-
 
 #: Prefixes of the keys an outer pytest run sets for itself that must not reach
 #: a nested one: its worker id, its options and its diagnostics directory.
@@ -130,6 +116,7 @@ def run_nested_pytest(
     cwd: Path | None,
     env: Mapping[str, str] | None,
     stall_seconds: float = STALL_SECONDS,
+    temproot: Path | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> NestedRun:
     """Run ``argv`` to its exit, failing the calling test if it stalls.
@@ -139,8 +126,11 @@ def run_nested_pytest(
         cwd: The directory it runs in.
         env: Its environment; ``None`` inherits this process's. Output is made
             unbuffered, so what the child writes is visible at once, and the
-            run's temporary root is a directory of its own, either way.
+            run's temporary root is ``temproot``, either way.
         stall_seconds: How long it may write nothing before it is stopped.
+        temproot: The run's ``PYTEST_DEBUG_TEMPROOT``; ``None`` gives it a root
+            of its own inside the helper's scratch, which goes with the
+            helper's return. A path is used as is, so several runs can share it.
         clock: What the stall window and the silence before exit are measured
             on; it is read after each check of the streams.
 
@@ -152,8 +142,9 @@ def run_nested_pytest(
     child_env["PYTHONUNBUFFERED"] = "1"
     child_env["PYTHONFAULTHANDLER"] = "1"
     with tempfile.TemporaryDirectory(prefix="nested-pytest-") as scratch:
-        temproot = Path(scratch) / "temproot"
-        temproot.mkdir()
+        if temproot is None:
+            temproot = Path(scratch) / "temproot"
+            temproot.mkdir()
         child_env["PYTEST_DEBUG_TEMPROOT"] = str(temproot)
         out_path = Path(scratch) / "stdout"
         err_path = Path(scratch) / "stderr"
@@ -167,24 +158,21 @@ def run_nested_pytest(
                 stderr=err,
                 start_new_session=True,
             )
+            leftover: StopOutcome[int] = StopOutcome()
             try:
                 written = -1
                 last_progress = clock()
-                while proc.poll() is None:
+                while not _exited(proc):
                     size = out_path.stat().st_size + err_path.stat().st_size
                     now = clock()
                     if size != written:
                         written, last_progress = size, now
                     elif now - last_progress > stall_seconds:
-                        _stop_group(
-                            proc.pid,
-                            dump=_DUMP_SECONDS,
-                            grace=_GRACE_SECONDS,
-                            wait=proc.wait,
-                        )
+                        outcome = stop_child(proc, dump=_DUMP_SECONDS, grace=_GRACE_SECONDS)
                         pytest.fail(
                             f"nested run wrote no new output for {stall_seconds} s and was "
-                            f"stopped\n--- stdout ---\n{out_path.read_text()}"
+                            f"stopped{_note(outcome)}"
+                            f"\n--- stdout ---\n{out_path.read_text()}"
                             f"\n--- stderr ---\n{err_path.read_text()}"
                         )
                     time.sleep(_POLL_SECONDS)
@@ -192,8 +180,16 @@ def run_nested_pytest(
                 if out_path.stat().st_size + err_path.stat().st_size != written:
                     last_progress = exited
             finally:
-                _signal_group(proc.pid, signal.SIGKILL)
-                proc.wait()
+                # A stalled run was stopped, and reaped, where it stalled.
+                if proc.returncode is None:
+                    leftover = stop_child(proc, grace=_GRACE_SECONDS)
+            if leftover.unknown:
+                pytest.fail(
+                    "could not tell whether the nested run left processes behind: "
+                    + leftover.describe()
+                )
+            elif leftover.survivors:
+                pytest.fail("nested run left processes behind" + _note(leftover))
         return NestedRun(
             argv,
             proc.returncode,
@@ -203,7 +199,15 @@ def run_nested_pytest(
         )
 
 
-def _signal_group(pgid: int, signum: signal.Signals) -> None:
-    """Send ``signum`` to every process left in the run's group, if any."""
-    with contextlib.suppress(ProcessLookupError, PermissionError):
-        os.killpg(pgid, signum)
+def _exited(proc: subprocess.Popen[bytes]) -> bool:
+    """Whether ``proc`` has exited, observed without reaping it.
+
+    The leader stays unreaped until the group stop has run, so its id cannot be
+    taken by another process while the stop signals and reads the group.
+    """
+    return observe_exit(proc) is not None
+
+
+def _note(outcome: StopOutcome[int]) -> str:
+    """The clause giving a stop's own account, or nothing when its group is gone."""
+    return "" if outcome.gone else "; " + outcome.describe()

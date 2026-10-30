@@ -76,7 +76,18 @@ COMPUTED_SLOTS: dict[str, frozenset[str]] = {
     "channel": frozenset({"provenance"}),
     "group": frozenset({"provenance"}),
     "model": frozenset({"provenance"}),
-    "wiring": frozenset({"direction", "unit", "default", "value_range", "provenance"}),
+    "wiring": frozenset(
+        {
+            "direction",
+            "unit",
+            "default",
+            "value_range",
+            "role",
+            "plane",
+            "refresh",
+            "provenance",
+        }
+    ),
 }
 
 #: The multivalued slots that are sets: compared and written sorted by string form.
