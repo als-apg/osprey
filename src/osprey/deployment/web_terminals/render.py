@@ -1912,9 +1912,11 @@ def history_carriers(config: Any) -> list[str]:
         lines.append(f"{ROSTER_HISTORY_VAR_PREFIX}{env_var_suffix(name)}={value}")
 
     roles = as_dict(as_dict(web_terminals.get("authorization")).get("roles"))
-    for role in sorted(roles):
-        if isinstance(role, str) and as_dict(roles[role]).get("history") == HISTORY_ALL:
-            lines.append(f"{ROLE_HISTORY_VAR_PREFIX}{env_var_suffix(role)}={HISTORY_ALL}")
+    lines.extend(
+        f"{ROLE_HISTORY_VAR_PREFIX}{env_var_suffix(role)}={HISTORY_ALL}"
+        for role in sorted(roles)
+        if isinstance(role, str) and as_dict(roles[role]).get("history") == HISTORY_ALL
+    )
 
     readers = reader_entries(config)
     lines.append(f"{READERS_VAR}={','.join(entry['name'] for entry in readers)}")

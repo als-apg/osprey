@@ -798,9 +798,7 @@ def is_terminal_event(event: dict[str, Any]) -> bool:
     etype = event.get("type")
     if etype == "result":
         return True
-    if etype == "error" and event.get("error_type") != "AssistantMessageError":
-        return True
-    return False
+    return etype == "error" and event.get("error_type") != "AssistantMessageError"
 
 
 @dataclass(frozen=True)

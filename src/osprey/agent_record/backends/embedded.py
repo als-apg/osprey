@@ -400,7 +400,7 @@ class EmbeddedBackend:
                 ).fetchone()
         except (RecordBackendError, duckdb.Error) as exc:
             return BackendHealth(ok=False, backend=BACKEND_NAME, detail=f"{detail}: {exc}")
-        count, oldest, newest = row if row else (0, None, None)
+        count, oldest, newest = row or (0, None, None)
         return BackendHealth(
             ok=True,
             backend=BACKEND_NAME,

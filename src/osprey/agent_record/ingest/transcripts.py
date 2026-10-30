@@ -84,7 +84,7 @@ class TranscriptPath:
 
 
 def _stem(name: str) -> str:
-    return name[: -len(TRANSCRIPT_SUFFIX)] if name.endswith(TRANSCRIPT_SUFFIX) else name
+    return name.removesuffix(TRANSCRIPT_SUFFIX)
 
 
 def split_relpath(relpath: str) -> TranscriptPath:
@@ -97,7 +97,7 @@ def split_relpath(relpath: str) -> TranscriptPath:
     parts = relpath.split("/")
     if len(parts) >= 3 and parts[-2] == SUBAGENTS_DIR:
         stem = _stem(parts[-1])
-        agent_id = stem[len(_AGENT_STEM_PREFIX) :] if stem.startswith(_AGENT_STEM_PREFIX) else stem
+        agent_id = stem.removeprefix(_AGENT_STEM_PREFIX)
         return TranscriptPath(relpath, "/".join(parts[:-3]), parts[-3], agent_id)
     return TranscriptPath(relpath, "/".join(parts[:-1]), _stem(basename(relpath)), "")
 

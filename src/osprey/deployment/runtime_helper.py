@@ -340,13 +340,12 @@ def get_runtime_command(config: Mapping[str, Any] | None = None) -> list[str]:
         if podman_installed:
             error_parts.append("\n" + _get_podman_not_running_message())
         raise RuntimeError("".join(error_parts))
-    else:
-        # No runtime installed at all
-        raise RuntimeError(
-            "No container runtime found. Install Docker Desktop 4.0+ or Podman 4.0+\n"
-            "Docker: https://docs.docker.com/get-docker/\n"
-            "Podman: https://podman.io/getting-started/installation"
-        )
+    # No runtime installed at all
+    raise RuntimeError(
+        "No container runtime found. Install Docker Desktop 4.0+ or Podman 4.0+\n"
+        "Docker: https://docs.docker.com/get-docker/\n"
+        "Podman: https://podman.io/getting-started/installation"
+    )
 
 
 def no_container_runtime_installed() -> bool:
@@ -878,7 +877,7 @@ def _get_docker_not_running_message() -> str:
             "If Docker Desktop is not installed:\n"
             "https://docs.docker.com/desktop/install/mac-install/"
         )
-    elif system == "Windows":
+    if system == "Windows":
         return (
             "Docker Desktop is not running.\n\n"
             "To fix this:\n"
@@ -888,17 +887,17 @@ def _get_docker_not_running_message() -> str:
             "If Docker Desktop is not installed:\n"
             "https://docs.docker.com/desktop/install/windows-install/"
         )
-    else:  # Linux
-        return (
-            "Docker daemon is not running.\n\n"
-            "To fix this:\n"
-            "1. Start Docker: sudo systemctl start docker\n"
-            "2. Enable on boot: sudo systemctl enable docker\n"
-            "3. Check status: sudo systemctl status docker\n\n"
-            "If permission issues, add user to docker group:\n"
-            "sudo usermod -aG docker $USER\n"
-            "(then log out and back in)"
-        )
+    # Linux
+    return (
+        "Docker daemon is not running.\n\n"
+        "To fix this:\n"
+        "1. Start Docker: sudo systemctl start docker\n"
+        "2. Enable on boot: sudo systemctl enable docker\n"
+        "3. Check status: sudo systemctl status docker\n\n"
+        "If permission issues, add user to docker group:\n"
+        "sudo usermod -aG docker $USER\n"
+        "(then log out and back in)"
+    )
 
 
 def _get_podman_not_running_message() -> str:
@@ -917,15 +916,15 @@ def _get_podman_not_running_message() -> str:
             "1. Initialize: podman machine init\n"
             "2. Start: podman machine start"
         )
-    else:  # Linux
-        return (
-            "Podman service is not responding.\n\n"
-            "To fix this:\n"
-            "1. Check status: systemctl --user status podman.socket\n"
-            "2. Start if needed: systemctl --user start podman.socket\n\n"
-            "For rootful Podman:\n"
-            "sudo systemctl start podman.socket"
-        )
+    # Linux
+    return (
+        "Podman service is not responding.\n\n"
+        "To fix this:\n"
+        "1. Check status: systemctl --user status podman.socket\n"
+        "2. Start if needed: systemctl --user start podman.socket\n\n"
+        "For rootful Podman:\n"
+        "sudo systemctl start podman.socket"
+    )
 
 
 def get_ps_command(

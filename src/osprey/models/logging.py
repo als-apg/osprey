@@ -309,7 +309,7 @@ def _sanitize_result_for_logging(result: Any) -> str:
     """
     if isinstance(result, str):
         return result
-    elif hasattr(result, "model_dump"):
+    if hasattr(result, "model_dump"):
         # Pydantic BaseModel or Pydantic-like objects (LiteLLM responses)
         # Suppress warnings for non-standard Pydantic objects like LiteLLM's Message/Choices
         try:

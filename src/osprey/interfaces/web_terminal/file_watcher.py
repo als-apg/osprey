@@ -48,9 +48,8 @@ class FileEventBroadcaster:
         return q
 
     def unsubscribe(self, q: asyncio.Queue[dict]) -> None:
-        with self._lock:
-            with contextlib.suppress(ValueError):
-                self._queues.remove(q)
+        with self._lock, contextlib.suppress(ValueError):
+            self._queues.remove(q)
 
     def broadcast(self, data: dict) -> None:
         """Push data to all connected SSE clients (called from sync context)."""

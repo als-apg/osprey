@@ -174,7 +174,7 @@ def _submitted_moment(record: _Record) -> dt.datetime | None:
     for raw in (record.header.get("created_at"), record.item.get("ts")):
         if isinstance(raw, str) and raw.strip():
             with suppress(ValueError):
-                stamped = dt.datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
+                stamped = dt.datetime.fromisoformat(raw.strip())
                 return stamped if stamped.tzinfo is not None else stamped.replace(tzinfo=dt.UTC)
     return None
 
@@ -491,7 +491,9 @@ def export(repo: Path | None, output: Path | None) -> None:
     # No banner when stdout is the document, and machine mode with it, so a
     # line printed from anywhere in the stack lands on standard error rather
     # than in the middle of the JSON.
-    with _feedback_session(repo, announce=output_path is not None) as deployment:
-        with machine_mode() if output_path is None else nullcontext():
-            with _record_client(deployment) as client:
-                _export_records(client, output_path)
+    with (
+        _feedback_session(repo, announce=output_path is not None) as deployment,
+        machine_mode() if output_path is None else nullcontext(),
+        _record_client(deployment) as client,
+    ):
+        _export_records(client, output_path)

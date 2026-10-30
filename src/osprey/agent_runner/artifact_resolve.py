@@ -495,12 +495,9 @@ async def _resolve_one(
             convertible=False,
         )
 
-    if result_path == file_path:
-        # Passthrough (image, PDF, table) — served as-is with its original MIME type.
-        mime_type = entry.mime_type
-    else:
-        # Rendered to PNG by the converter registry.
-        mime_type = "image/png"
+    # A passthrough (image, PDF, table) is served as-is with its original MIME
+    # type; anything else was rendered to PNG by the converter registry.
+    mime_type = entry.mime_type if result_path == file_path else "image/png"
 
     return ArtifactRef(
         artifact_id=artifact_id,

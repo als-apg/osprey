@@ -351,14 +351,16 @@ async def proxy_worker_stream(url: str, token: str, run_id: str) -> AsyncIterato
     stream_url = url.rstrip("/") + f"/dispatch/{run_id}/stream"
     headers = {"Authorization": f"Bearer {token}"}
     try:
-        async with httpx.AsyncClient(timeout=None) as client:
-            async with client.stream("GET", stream_url, headers=headers) as response:
-                if response.status_code == 401:
-                    raise WorkerAuthRejectedError(f"Unauthorized (401) from {stream_url}")
-                if response.status_code != 200:
-                    raise WorkerUnavailableError(f"HTTP {response.status_code} from {stream_url}")
-                async for chunk in response.aiter_bytes():
-                    yield chunk
+        async with (
+            httpx.AsyncClient(timeout=None) as client,
+            client.stream("GET", stream_url, headers=headers) as response,
+        ):
+            if response.status_code == 401:
+                raise WorkerAuthRejectedError(f"Unauthorized (401) from {stream_url}")
+            if response.status_code != 200:
+                raise WorkerUnavailableError(f"HTTP {response.status_code} from {stream_url}")
+            async for chunk in response.aiter_bytes():
+                yield chunk
     except httpx.ConnectError as exc:
         raise WorkerUnreachableError(
             f"Connection error streaming from {stream_url}: {exc}"

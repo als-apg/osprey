@@ -1017,9 +1017,11 @@ def _permission_lists(config: dict[str, Any]) -> list[tuple[str, Any]]:
     for permissions, spelling in sources:
         if not isinstance(permissions, dict):
             continue
-        for key in _PERMISSION_LIST_KEYS:
-            if key in permissions:
-                found.append((f"{_PERMISSIONS_CONFIG_PATH}.{key} ({spelling})", permissions[key]))
+        found.extend(
+            (f"{_PERMISSIONS_CONFIG_PATH}.{key} ({spelling})", permissions[key])
+            for key in _PERMISSION_LIST_KEYS
+            if key in permissions
+        )
     return found
 
 

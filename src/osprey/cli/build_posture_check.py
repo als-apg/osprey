@@ -167,9 +167,7 @@ def _stated(rendered: Mapping[str, Any], dotted: str) -> bool:
         node = node[segment]
     if node is None:
         return False
-    if isinstance(node, str) and not node.strip():
-        return False
-    return True
+    return not (isinstance(node, str) and not node.strip())
 
 
 def _enabled_servers(rendered: Mapping[str, Any]) -> frozenset[str]:

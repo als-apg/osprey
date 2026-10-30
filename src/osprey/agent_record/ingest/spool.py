@@ -712,9 +712,8 @@ class SpoolConsumer:
                 break
             if raw.endswith(b"\n") or sealed:
                 count += 1
-            if not raw.endswith(b"\n"):
-                if len(raw) <= MAX_LINE_BYTES:
-                    break
+            if not raw.endswith(b"\n") and len(raw) <= MAX_LINE_BYTES:
+                break
         return count
 
     def _delete(

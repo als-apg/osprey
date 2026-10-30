@@ -921,10 +921,7 @@ def _extract_visual(
 
 def _set_pre_comment(cm: CommentedMap, key: Any, lines: list[str], indent: int) -> None:
     """Attach comment ``lines`` above ``key``, indented to the key's depth."""
-    tokens = [
-        CommentToken((line.strip() if line.strip() else "") + "\n", CommentMark(indent), None)
-        for line in lines
-    ]
+    tokens = [CommentToken(line.strip() + "\n", CommentMark(indent), None) for line in lines]
     entry = cm.ca.items.setdefault(key, [None, None, None, None])
     entry[1] = (entry[1] or []) + tokens
 
@@ -1067,7 +1064,7 @@ def _sync_to_resolved(doc: CommentedMap, resolved: dict[str, Any]) -> None:
     old last key held, which introduces whatever follows the map, so the new
     key renders inside its own section.
     """
-    for key in [k for k in doc.keys() if k not in resolved]:
+    for key in [k for k in doc if k not in resolved]:
         # The block a key holds introduces the key AFTER it (a collapsed
         # `config` entry is typically the last one in its section, holding the
         # next section's header), so it survives on the preceding key rather

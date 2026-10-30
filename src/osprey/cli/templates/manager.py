@@ -148,8 +148,7 @@ class TemplateManager:
         """
         # Convert snake_case to PascalCase
         words = package_name.split("_")
-        class_name = "".join(word.capitalize() for word in words)
-        return class_name
+        return "".join(word.capitalize() for word in words)
 
     def create_project(
         self,

@@ -98,7 +98,7 @@ def dotenv_line_var(line: str) -> str | None:
     stripped = line.strip()
     if not stripped or stripped.startswith("#") or "=" not in stripped:
         return None
-    candidate = stripped[7:] if stripped.startswith("export ") else stripped
+    candidate = stripped.removeprefix("export ")
     return candidate.partition("=")[0].strip() or None
 
 

@@ -246,7 +246,7 @@ async def session_summary(request: Request):
         store = ArtifactStore(request.app.state.workspace_dir)
         session_id = request.query_params.get("session_id")
         entries = store.list_entries(
-            session_filter=session_id if session_id else None,
+            session_filter=session_id or None,
             # Session material, not a shipped example.
             exclude_examples=True,
         )

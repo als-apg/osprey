@@ -828,9 +828,12 @@ def _control_system_value_errors(config: Mapping[str, Any]) -> list[str]:
     retired_blocks: dict[str, str] = {}
     for written, rendered, _value in _rendered_leaf_paths(config):
         below = rendered[len(_CONNECTOR_SEGMENTS) :]
-        if tuple(rendered[: len(_CONNECTOR_SEGMENTS)]) == _CONNECTOR_SEGMENTS and below:
-            if below[0] in RETIRED_CONTROL_SYSTEM_TYPES:
-                retired_blocks.setdefault(below[0], written)
+        if (
+            tuple(rendered[: len(_CONNECTOR_SEGMENTS)]) == _CONNECTOR_SEGMENTS
+            and below
+            and below[0] in RETIRED_CONTROL_SYSTEM_TYPES
+        ):
+            retired_blocks.setdefault(below[0], written)
     for spelling, value in spelled_values(config, _CONNECTOR_PREFIX):
         if isinstance(value, dict):
             for key in value:
@@ -1002,14 +1005,14 @@ def _reject_relocated_keys(block: dict[str, Any], problems: list[str]) -> None:
                 f"Remove it from the deploy block."
             )
 
-    for key in _ENV_CHANNEL_KEYS:
-        if key in block:
-            problems.append(
-                f"'{key}' is not a deploy key — a profile declares every variable "
-                f"through `env.required` / `env.defaults`, including deploy-scoped "
-                f"ones. The deploy block names variables (`registry.token_env_var`) "
-                f"but never declares them."
-            )
+    problems.extend(
+        f"'{key}' is not a deploy key — a profile declares every variable "
+        f"through `env.required` / `env.defaults`, including deploy-scoped "
+        f"ones. The deploy block names variables (`registry.token_env_var`) "
+        f"but never declares them."
+        for key in _ENV_CHANNEL_KEYS
+        if key in block
+    )
 
     if "gitlab" in block:
         problems.append(

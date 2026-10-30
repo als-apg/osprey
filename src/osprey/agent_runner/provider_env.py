@@ -801,14 +801,17 @@ def _served_models(
     carry reads its own :data:`CLAUDE_CODE_PROVIDERS` row.
     """
     entry = api_providers.get(provider_name) or {}
-    if "models" not in entry and "default_model" not in entry:
-        if provider_name in CLAUDE_CODE_PROVIDERS:
-            from osprey.profiles.providers import load_provider_catalog
+    if (
+        "models" not in entry
+        and "default_model" not in entry
+        and provider_name in CLAUDE_CODE_PROVIDERS
+    ):
+        from osprey.profiles.providers import load_provider_catalog
 
-            entry = (
-                load_provider_catalog(None).entries.get(provider_name)
-                or (CLAUDE_CODE_PROVIDERS[provider_name])
-            )
+        entry = (
+            load_provider_catalog(None).entries.get(provider_name)
+            or (CLAUDE_CODE_PROVIDERS[provider_name])
+        )
     models = entry.get("models") or []
     if not isinstance(models, list):
         raise ValueError(

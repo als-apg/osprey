@@ -657,18 +657,20 @@ class ResetPlan:
         ]
 
         lines.append(f"  containers ({len(self.containers)})")
-        for resource in self.containers:
-            lines.append(f"    {resource.name}")
+        lines.extend(f"    {resource.name}" for resource in self.containers)
         lines.append(f"  volumes ({len(self.volumes)}) — the data in them is not recoverable")
-        for resource in self.volumes:
-            lines.append(f"    {resource.name}")
+        lines.extend(f"    {resource.name}" for resource in self.volumes)
         lines.append(f"  images ({len(self.images)}) — rebuilt by the next `osprey up`")
-        for resource in self.images:
-            lines.append(f"    {resource.name}  ({OSPREY_PROJECT_LABEL}={self.project} verified)")
+        lines.extend(
+            f"    {resource.name}  ({OSPREY_PROJECT_LABEL}={self.project} verified)"
+            for resource in self.images
+        )
 
         lines.append("  files")
-        for path in self.paths:
-            lines.append(f"    {_relative_to(path, self.repo_root)}{self._path_note(path)}")
+        lines.extend(
+            f"    {_relative_to(path, self.repo_root)}{self._path_note(path)}"
+            for path in self.paths
+        )
         if self.archive_record_days:
             first, last = self.archive_record_days[0], self.archive_record_days[-1]
             span = first if first == last else f"{first} to {last}"
@@ -733,8 +735,10 @@ class ResetPlan:
                     f"    {SPOOL_DIR_RELPATH}/  entries the sources appended that the record has "
                     "not ingested yet."
                 )
-            for resource in self.kept_volumes:
-                kept.append(f"    volume {resource.name}  the agent record's ClickHouse store.")
+            kept.extend(
+                f"    volume {resource.name}  the agent record's ClickHouse store."
+                for resource in self.kept_volumes
+            )
             kept.append("      `osprey reset --purge-audit` destroys these too, under this gate.")
         env_note = f"{len(self.env_kept_keys)} entr{'y' if len(self.env_kept_keys) == 1 else 'ies'}"
         kept.append(
@@ -878,8 +882,9 @@ class ResetPlan:
                 "it is left entirely alone."
             )
 
-        for path in outside:
-            lines.append(f"    {path}  the agent-data root, which is OUTSIDE this repo")
+        lines.extend(
+            f"    {path}  the agent-data root, which is OUTSIDE this repo" for path in outside
+        )
         if outside:
             lines.append(
                 "      agent_data.base_dir puts it there. Reset removes directories outright, "
@@ -896,12 +901,11 @@ class ResetPlan:
         return lines
 
     def _unidentified_lines(self) -> list[str]:
-        lines = []
-        for resource in self.unidentified:
-            lines.append(
-                f"    {resource.kind} {resource.name}  carries no {REPO_ID_LABEL} label, so it "
-                "cannot be proved to be this repo's"
-            )
+        lines = [
+            f"    {resource.kind} {resource.name}  carries no {REPO_ID_LABEL} label, so it "
+            "cannot be proved to be this repo's"
+            for resource in self.unidentified
+        ]
         if self.unidentified:
             lines.append(
                 "      Containers are labelled when they are CREATED, so one started before "
@@ -1001,8 +1005,10 @@ def running_host_record_refusal(repo_root: Path) -> HostRecordRunningError | Non
     holders: list[RecordHolder] = []
     process_pid: int | None = None
     for state_dir in state_dirs:
-        for lease in host.live_leases(state_dir / host.LEASE_DIR_NAME):
-            holders.append(RecordHolder(lease.pid, _command_of(lease.pid)))
+        holders.extend(
+            RecordHolder(lease.pid, _command_of(lease.pid))
+            for lease in host.live_leases(state_dir / host.LEASE_DIR_NAME)
+        )
         running = host.running_record_pid(state_dir)
         if running is not None and process_pid is None:
             process_pid = running

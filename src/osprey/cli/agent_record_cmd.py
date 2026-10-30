@@ -290,8 +290,7 @@ def _spool_lines(spool: Mapping[str, Any], problems: list[str]) -> list[str]:
             problems.append(f"spool source {who}: {writer_errors} writer errors")
         if abandoned:
             problems.append(f"spool source {who}: {abandoned} abandoned writers")
-    for problem in spool.get("problems") or ():
-        problems.append(f"spool: {problem}")
+    problems.extend(f"spool: {problem}" for problem in spool.get("problems") or ())
     quarantined = _count(spool.get("quarantined"))
     if quarantined:
         problems.append(f"spool: {quarantined} segments quarantined")

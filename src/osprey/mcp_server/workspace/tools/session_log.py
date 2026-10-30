@@ -54,9 +54,8 @@ def _event_in_windows(event: dict, windows: list[tuple[str, str, str]]) -> bool:
     if not ts:
         return False
     for _aid, start_ts, stop_ts in windows:
-        if start_ts and ts >= start_ts:
-            if not stop_ts or ts <= stop_ts:
-                return True
+        if start_ts and ts >= start_ts and (not stop_ts or ts <= stop_ts):
+            return True
     return False
 
 
@@ -130,10 +129,9 @@ def _build_agent_summary(events: list[dict]) -> list[dict]:
             ts = ev.get("timestamp", "")
             if ts:
                 for aid, (start_ts, stop_ts) in agent_windows.items():
-                    if start_ts and ts >= start_ts:
-                        if not stop_ts or ts <= stop_ts:
-                            matched_aid = aid
-                            break
+                    if start_ts and ts >= start_ts and (not stop_ts or ts <= stop_ts):
+                        matched_aid = aid
+                        break
 
         if matched_aid and matched_aid in agents:
             agents[matched_aid]["tool_count"] += 1

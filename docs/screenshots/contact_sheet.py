@@ -972,12 +972,14 @@ def _accent_override_css(theme: str, accent: str) -> str:
         f"  --color-on-accent: {spec['on']};",
         f"  --border-accent: rgba({r}, {g}, {b}, {_THEME_BORDER_ALPHA[theme]});",
     ]
-    for suffix in _ACCENT_TINT_SUFFIXES:
-        lines.append(f"  --accent-tint-{suffix}: rgba({r}, {g}, {b}, {int(suffix) / 100:.2f});")
-    for suffix in _ACCENT_SYSTEM_TINT_SUFFIXES:
-        lines.append(
-            f"  --wt-accent-system-tint-{suffix}: rgba({r}, {g}, {b}, {int(suffix) / 100:.2f});"
-        )
+    lines.extend(
+        f"  --accent-tint-{suffix}: rgba({r}, {g}, {b}, {int(suffix) / 100:.2f});"
+        for suffix in _ACCENT_TINT_SUFFIXES
+    )
+    lines.extend(
+        f"  --wt-accent-system-tint-{suffix}: rgba({r}, {g}, {b}, {int(suffix) / 100:.2f});"
+        for suffix in _ACCENT_SYSTEM_TINT_SUFFIXES
+    )
     body = "\n".join(lines)
     return f':root[data-theme="{theme}"] {{\n{body}\n}}'
 

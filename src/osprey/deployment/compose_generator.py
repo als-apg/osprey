@@ -840,17 +840,17 @@ def claude_projects_volumes(config):
                 "containers": [web_container_name(project, user)],
             }
         )
-    for worker in sources["workers"]:
-        entries.append(
-            {
-                "kind": "dispatch",
-                "name": worker["name"],
-                "volume": worker["projects_volume"],
-                "parent": worker["volume"],
-                "parent_dir": f"{DISPATCH_CLAUDE_CONFIG_DIRNAME}/projects",
-                "containers": [f"{project}-{service}" for service in worker["services"]],
-            }
-        )
+    entries.extend(
+        {
+            "kind": "dispatch",
+            "name": worker["name"],
+            "volume": worker["projects_volume"],
+            "parent": worker["volume"],
+            "parent_dir": f"{DISPATCH_CLAUDE_CONFIG_DIRNAME}/projects",
+            "containers": [f"{project}-{service}" for service in worker["services"]],
+        }
+        for worker in sources["workers"]
+    )
     return entries
 
 
@@ -1188,8 +1188,10 @@ def _resolve_qmd_corpora(config, repo_root):
     if mirror_path is not None:
         corpora.append(corpus(QMD_ARIEL_COLLECTION, mirror_path))
 
-    for declared in resolved.corpora:
-        corpora.append(corpus(declared.name, declared.source, declared.index, declared.index_dir))
+    corpora.extend(
+        corpus(declared.name, declared.source, declared.index, declared.index_dir)
+        for declared in resolved.corpora
+    )
 
     return corpora
 
