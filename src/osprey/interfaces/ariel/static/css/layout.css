@@ -91,7 +91,7 @@
    active surface everywhere else. */
 .nav-link:hover {
   color: var(--text-primary);
-  background: var(--surface-hover);
+  background: var(--ariel-surface-hover);
   text-decoration: none;
 }
 
@@ -268,7 +268,7 @@ body.embedded .header { display: none; }
 }
 
 .entry-detail-content {
-  background: var(--surface-card);
+  background: var(--ariel-surface-card);
   border: 1px solid var(--neutral-tint-10);
   border-radius: var(--radius-md);
   padding: var(--space-4);
@@ -300,7 +300,7 @@ body.embedded .header { display: none; }
 }
 
 .metadata-card {
-  background: var(--surface-card);
+  background: var(--ariel-surface-card);
   border: 1px solid var(--neutral-tint-10);
   border-radius: var(--radius-md);
   padding: var(--space-4);
@@ -354,7 +354,7 @@ body.embedded .header { display: none; }
 }
 
 .stat-card {
-  background: var(--surface-card);
+  background: var(--ariel-surface-card);
   border: 1px solid var(--neutral-tint-10);
   border-radius: var(--radius-md);
   padding: var(--space-4);
@@ -395,7 +395,7 @@ body.embedded .header { display: none; }
 }
 
 .create-entry-form {
-  background: var(--surface-card);
+  background: var(--ariel-surface-card);
   border: 1px solid var(--neutral-tint-10);
   border-radius: var(--radius-md);
   padding: var(--space-5);
@@ -443,7 +443,7 @@ body.embedded .header { display: none; }
 
 /* === Activity Log === */
 .activity-log {
-  background: var(--surface-card);
+  background: var(--ariel-surface-card);
   border: 1px solid var(--neutral-tint-10);
   border-radius: var(--radius-md);
   overflow: hidden;
@@ -556,7 +556,7 @@ html[data-ui-mode="simple"] .nav-simple-link {
 
 html[data-ui-mode="simple"] .nav-simple-link:hover {
   color: var(--color-accent);
-  background: var(--surface-hover);
+  background: var(--ariel-surface-hover);
   text-decoration: none;
 }
 
@@ -588,7 +588,7 @@ html[data-ui-mode="simple"] .entry-card .entry-card-footer {
 
 /* ---- Simple result cards (plain: title · date · author · summary) ---- */
 .entry-card-simple {
-  background: var(--surface-card);
+  background: var(--ariel-surface-card);
   border: 1px solid var(--neutral-tint-10);
   border-radius: var(--radius-md);
   padding: var(--space-3) var(--space-4);
@@ -599,7 +599,7 @@ html[data-ui-mode="simple"] .entry-card .entry-card-footer {
 
 .entry-card-simple:hover {
   border-color: var(--border-accent);
-  background: var(--surface-hover);
+  background: var(--ariel-surface-hover);
 }
 
 .entry-card-simple-title {

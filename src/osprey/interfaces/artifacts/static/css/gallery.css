@@ -36,9 +36,9 @@
      Translucent card/modal/hover tints, composited from canonical bg
      tokens so they keep theming correctly without a local per-theme
      override block. */
-  --surface-card: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
-  --surface-modal: color-mix(in srgb, var(--bg-primary) 96%, transparent);
-  --surface-hover: color-mix(in srgb, var(--bg-elevated) 60%, transparent);
+  --art-surface-card: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
+  --art-surface-modal: color-mix(in srgb, var(--bg-primary) 96%, transparent);
+  --art-surface-hover: color-mix(in srgb, var(--bg-elevated) 60%, transparent);
 
   /* === Local-only shadow ===
      No canonical shadow scale step matches this card-hover glow's exact
@@ -430,7 +430,7 @@ code {
 .sidebar-menu-btn:hover,
 .sidebar-menu-btn[aria-expanded="true"] {
   color: var(--text-secondary);
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
 }
 
 .sidebar-menu {
@@ -474,7 +474,7 @@ code {
 
 .sidebar-menu-item:hover {
   color: var(--text-primary);
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
 }
 
 .sidebar-menu-item svg {
@@ -743,7 +743,7 @@ html[data-browse-orient="column"] #resize-handle-y {
 
 .mode-btn:hover {
   color: var(--text-secondary);
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
 }
 
 .mode-btn.active {
@@ -793,7 +793,7 @@ html[data-browse-orient="column"] #resize-handle-y {
 
 .layout-btn:hover {
   color: var(--text-secondary);
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
 }
 
 .layout-btn.active {
@@ -888,7 +888,7 @@ html[data-browse-orient="column"] .sidebar-body {
 
 .tree-section-header:hover {
   color: var(--text-secondary);
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
 }
 
 .tree-chevron {
@@ -938,7 +938,7 @@ html[data-browse-orient="column"] .sidebar-body {
 }
 
 .tree-item:hover {
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
 }
 
 .tree-item.selected {
@@ -1082,7 +1082,7 @@ html[data-browse-orient="column"] .sidebar-body {
 }
 
 .timeline-item:hover {
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
 }
 
 .timeline-item.selected {
@@ -1147,7 +1147,7 @@ html[data-browse-orient="column"] .sidebar-body {
   display: flex;
   flex-direction: column;
   margin: 0 var(--art-space-2);
-  background: var(--surface-card);
+  background: var(--art-surface-card);
   border: 1px solid var(--neutral-tint-10);
   border-radius: var(--art-radius-md);
   overflow: hidden;
@@ -1316,7 +1316,7 @@ html[data-browse-orient="column"] .sidebar-body {
 
 .gallery-section-header:hover {
   color: var(--text-secondary);
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
 }
 
 .gallery-section-header .tree-section-count {
@@ -1727,7 +1727,7 @@ html[data-browse-orient="column"] .sidebar-body {
 }
 
 .simple-list-item:hover {
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
 }
 
 .simple-list-item.selected {
@@ -1877,7 +1877,7 @@ html[data-browse-orient="column"] .sidebar-body {
 }
 
 .btn-ghost:hover:not(:disabled) {
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
   color: var(--text-secondary);
 }
 
@@ -2141,7 +2141,7 @@ body.fullscreen-mode .preview-header {
 
 .fullscreen-back-btn:hover {
   color: var(--text-secondary);
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
   border-color: var(--neutral-tint-35);
 }
 
@@ -2334,7 +2334,7 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
 }
 
 .ts-data-table tbody tr:hover {
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
 }
 
 .ts-data-table td.ts-index-cell {
@@ -2462,7 +2462,7 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
 }
 
 .ts-ch-toggle:hover {
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
   border-color: var(--neutral-tint-35);
 }
 
@@ -2511,7 +2511,7 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
 
 .ts-action-btn:hover {
   color: var(--text-secondary);
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
   border-color: var(--neutral-tint-35);
 }
 
@@ -2543,7 +2543,7 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
 }
 
 .logbook-modal {
-  background: var(--surface-modal);
+  background: var(--art-surface-modal);
   border: 1px solid var(--border-default);
   border-radius: var(--art-radius-lg);
   box-shadow: var(--shadow-lg);
@@ -2591,7 +2591,7 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
 
 .logbook-modal-close:hover {
   color: var(--text-primary);
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
 }
 
 .logbook-modal-body {
@@ -2695,7 +2695,7 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
 
 .logbook-btn-cancel:hover {
   color: var(--text-primary);
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
 }
 
 .logbook-btn-submit {
@@ -2835,7 +2835,7 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
 }
 
 .logbook-detail-btn:hover {
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
   color: var(--text-primary);
 }
 
@@ -2927,7 +2927,7 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
 }
 
 .logbook-artifact-pick-item:hover {
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
 }
 
 .logbook-artifact-pick-title {
@@ -3004,7 +3004,7 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
 
 .logbook-btn-secondary:hover {
   color: var(--text-primary);
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
 }
 
 .logbook-btn-primary {

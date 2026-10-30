@@ -25,6 +25,11 @@
     "wt-status-bar-height": { "$value": "26px", "$type": "dimension", "$description": "Status footer height (frame 2a). Renamed from --status-bar-height (used by terminal.css, files.css)." },
     "wt-transition-fast": { "$value": "120ms ease", "$type": "string", "$description": "Renamed from --transition-fast; full transition shorthand (duration + easing), not a bare duration, so kept as a literal string rather than aliasing core.json's duration.instant primitive. Used 50+ times across drawer.css/terminal.css/files.css/settings.css/operator.css/md-rendered.css/scaffold.css/sessions.css/session.html." },
     "wt-transition-normal": { "$value": "200ms ease", "$type": "string", "$description": "Renamed from --transition-normal; same shorthand rationale as wt-transition-fast. Used by terminal.css, files.css, scaffold.css, session.html." },
+    "wt-sidebar-width": { "$value": "232px", "$type": "dimension", "$description": "Labelled sidebar width (layout F). Theme-independent: identical in all 8 groups." },
+    "wt-sidebar-collapsed-width": { "$value": "56px", "$type": "dimension", "$description": "Icon-only sidebar width (layout F, html[data-sidebar=collapsed])." },
+    "wt-pane-head-height": { "$value": "40px", "$type": "dimension", "$description": "The one header row of every pane (dock tile bar, layout F)." },
+    "wt-gutter": { "$value": "8px", "$type": "dimension", "$description": "Gap between the canvas edge and the inset pane cards (layout F)." },
+    "wt-ease-out": { "$value": "cubic-bezier(0.2, 0.7, 0.2, 1)", "$type": "string", "$description": "Ease-out curve for the sidebar width and disclosure motion; pair it with a --duration-* token." },
     "wt-accent-system-tint-04": { "$value": "rgba(110, 159, 255, 0.04)", "$type": "color", "$description": "A one-off accent.base-derived tint distinct from the tint.accent.* scale; used by operator.css. Re-based onto this theme's own accent (azure.300 #6e9fff) — it had been left on the pre-redesign teal accent when the palette was remapped, which made the operator console's system rows the one teal-tinted surface in an otherwise blue-accented theme." }
   },
   "light": {
@@ -50,6 +55,11 @@
     "wt-status-bar-height": { "$value": "26px", "$type": "dimension", "$description": "Status footer height (frame 2a) — theme-independent, identical to dark's value." },
     "wt-transition-fast": { "$value": "120ms ease", "$type": "string", "$description": "Theme-independent motion constant — identical to dark's value." },
     "wt-transition-normal": { "$value": "200ms ease", "$type": "string", "$description": "Theme-independent motion constant — identical to dark's value." },
+    "wt-sidebar-width": { "$value": "232px", "$type": "dimension" },
+    "wt-sidebar-collapsed-width": { "$value": "56px", "$type": "dimension" },
+    "wt-pane-head-height": { "$value": "40px", "$type": "dimension" },
+    "wt-gutter": { "$value": "8px", "$type": "dimension" },
+    "wt-ease-out": { "$value": "cubic-bezier(0.2, 0.7, 0.2, 1)", "$type": "string" },
     "wt-accent-system-tint-04": { "$value": "rgba(31, 98, 196, 0.04)", "$type": "color", "$description": "This theme's own accent.base (azure.500 #1f62c4) at the same 4% alpha as dark's — re-based off the pre-redesign teal for the same reason given in the dark group." }
   },
   "desy-dark": {
@@ -76,6 +86,11 @@
     "wt-status-bar-height": { "$value": "26px", "$type": "dimension" },
     "wt-transition-fast": { "$value": "120ms ease", "$type": "string" },
     "wt-transition-normal": { "$value": "200ms ease", "$type": "string" },
+    "wt-sidebar-width": { "$value": "232px", "$type": "dimension" },
+    "wt-sidebar-collapsed-width": { "$value": "56px", "$type": "dimension" },
+    "wt-pane-head-height": { "$value": "40px", "$type": "dimension" },
+    "wt-gutter": { "$value": "8px", "$type": "dimension" },
+    "wt-ease-out": { "$value": "cubic-bezier(0.2, 0.7, 0.2, 1)", "$type": "string" },
     "wt-accent-system-tint-04": { "$value": "rgba(0, 159, 223, 0.04)", "$type": "color", "$description": "This theme's own accent.base (cyan.300 #009fdf, the DESY brand cyan) at the same 4% alpha the other groups use." }
   },
   "desy-light": {
@@ -102,6 +117,11 @@
     "wt-status-bar-height": { "$value": "26px", "$type": "dimension" },
     "wt-transition-fast": { "$value": "120ms ease", "$type": "string" },
     "wt-transition-normal": { "$value": "200ms ease", "$type": "string" },
+    "wt-sidebar-width": { "$value": "232px", "$type": "dimension" },
+    "wt-sidebar-collapsed-width": { "$value": "56px", "$type": "dimension" },
+    "wt-pane-head-height": { "$value": "40px", "$type": "dimension" },
+    "wt-gutter": { "$value": "8px", "$type": "dimension" },
+    "wt-ease-out": { "$value": "cubic-bezier(0.2, 0.7, 0.2, 1)", "$type": "string" },
     "wt-accent-system-tint-04": { "$value": "rgba(0, 123, 200, 0.04)", "$type": "color", "$description": "This theme's own accent.base (cyan.400 #007bc8, the official DESY accessibility cyan) at the same 4% alpha the other groups use." }
   },
   "retro-dark": {
@@ -127,6 +147,11 @@
     "wt-status-bar-height": { "$value": "24px", "$type": "dimension", "$description": "Pre-redesign status footer height, preserved with the retro family." },
     "wt-transition-fast": { "$value": "120ms ease", "$type": "string" },
     "wt-transition-normal": { "$value": "200ms ease", "$type": "string" },
+    "wt-sidebar-width": { "$value": "232px", "$type": "dimension" },
+    "wt-sidebar-collapsed-width": { "$value": "56px", "$type": "dimension" },
+    "wt-pane-head-height": { "$value": "40px", "$type": "dimension" },
+    "wt-gutter": { "$value": "8px", "$type": "dimension" },
+    "wt-ease-out": { "$value": "cubic-bezier(0.2, 0.7, 0.2, 1)", "$type": "string" },
     "wt-accent-system-tint-04": { "$value": "rgba(49, 151, 149, 0.04)", "$type": "color" }
   },
   "retro-light": {
@@ -152,6 +177,11 @@
     "wt-status-bar-height": { "$value": "24px", "$type": "dimension", "$description": "Pre-redesign status footer height, preserved with the retro family." },
     "wt-transition-fast": { "$value": "120ms ease", "$type": "string" },
     "wt-transition-normal": { "$value": "200ms ease", "$type": "string" },
+    "wt-sidebar-width": { "$value": "232px", "$type": "dimension" },
+    "wt-sidebar-collapsed-width": { "$value": "56px", "$type": "dimension" },
+    "wt-pane-head-height": { "$value": "40px", "$type": "dimension" },
+    "wt-gutter": { "$value": "8px", "$type": "dimension" },
+    "wt-ease-out": { "$value": "cubic-bezier(0.2, 0.7, 0.2, 1)", "$type": "string" },
     "wt-accent-system-tint-04": { "$value": "rgba(10, 143, 140, 0.04)", "$type": "color" }
   },
   "high-contrast-dark": {
@@ -178,6 +208,11 @@
     "wt-status-bar-height": { "$value": "26px", "$type": "dimension" },
     "wt-transition-fast": { "$value": "120ms ease", "$type": "string" },
     "wt-transition-normal": { "$value": "200ms ease", "$type": "string" },
+    "wt-sidebar-width": { "$value": "232px", "$type": "dimension" },
+    "wt-sidebar-collapsed-width": { "$value": "56px", "$type": "dimension" },
+    "wt-pane-head-height": { "$value": "40px", "$type": "dimension" },
+    "wt-gutter": { "$value": "8px", "$type": "dimension" },
+    "wt-ease-out": { "$value": "cubic-bezier(0.2, 0.7, 0.2, 1)", "$type": "string" },
     "wt-accent-system-tint-04": { "$value": "rgba(255, 255, 255, 0.04)", "$type": "color" }
   },
   "high-contrast-light": {
@@ -203,6 +238,11 @@
     "wt-status-bar-height": { "$value": "26px", "$type": "dimension" },
     "wt-transition-fast": { "$value": "120ms ease", "$type": "string" },
     "wt-transition-normal": { "$value": "200ms ease", "$type": "string" },
+    "wt-sidebar-width": { "$value": "232px", "$type": "dimension" },
+    "wt-sidebar-collapsed-width": { "$value": "56px", "$type": "dimension" },
+    "wt-pane-head-height": { "$value": "40px", "$type": "dimension" },
+    "wt-gutter": { "$value": "8px", "$type": "dimension" },
+    "wt-ease-out": { "$value": "cubic-bezier(0.2, 0.7, 0.2, 1)", "$type": "string" },
     "wt-accent-system-tint-04": { "$value": "rgba(0, 0, 0, 0.04)", "$type": "color" }
   }
 }

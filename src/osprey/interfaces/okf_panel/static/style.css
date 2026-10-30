@@ -27,8 +27,8 @@
   /* === Local-only surfaces ===
      Translucent card/hover tints composited from canonical bg tokens so they
      track the active theme without a per-theme override block. */
-  --surface-card: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
-  --surface-hover: color-mix(in srgb, var(--bg-elevated) 60%, transparent);
+  --okf-surface-card: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
+  --okf-surface-hover: color-mix(in srgb, var(--bg-elevated) 60%, transparent);
 
   /* === Typography (panel-local scale) === */
   --okf-text-xs: 0.7rem;
@@ -151,13 +151,13 @@ body {
   text-decoration: none;
   border: 1px solid var(--border-default);
   border-radius: var(--okf-radius-md);
-  background: var(--surface-card);
+  background: var(--okf-surface-card);
   transition: background var(--transition-fast),
     border-color var(--transition-fast), color var(--transition-fast);
 }
 
 .structure-link:hover {
-  background: var(--surface-hover);
+  background: var(--okf-surface-hover);
   color: var(--color-accent-light);
   border-color: var(--border-accent);
 }
@@ -222,7 +222,7 @@ body {
 }
 
 .concept-link:hover {
-  background: var(--surface-hover);
+  background: var(--okf-surface-hover);
   color: var(--color-accent-light);
 }
 
@@ -243,7 +243,7 @@ body {
 .result-item {
   margin: var(--okf-space-2) var(--okf-space-2);
   padding: var(--okf-space-2) var(--okf-space-3);
-  background: var(--surface-card);
+  background: var(--okf-surface-card);
   border: 1px solid var(--border-default);
   border-radius: var(--okf-radius-md);
 }
@@ -583,7 +583,7 @@ body {
   font-size: var(--okf-text-sm);
   font-weight: 600;
   color: var(--text-secondary);
-  background: var(--surface-card);
+  background: var(--okf-surface-card);
   border: 1px solid var(--border-default);
   border-radius: var(--okf-radius-md);
   cursor: pointer;
@@ -592,7 +592,7 @@ body {
 }
 
 .browse-all-btn:hover {
-  background: var(--surface-hover);
+  background: var(--okf-surface-hover);
   border-color: var(--border-accent);
   color: var(--color-accent-light);
 }

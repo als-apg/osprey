@@ -1,0 +1,717 @@
+/* OSPREY Design System — Primitives
+   Hand-maintained. The shared chrome vocabulary of the sidebar shell: icons,
+   buttons, sidebar rows, list rows, popovers, the tooltip layer, status dots,
+   keyboard hints, inset cards and the pane header. Load it after base.css.
+   Like base.css, this file must never grow a selector scoped to one app, and
+   it contains zero color literals: surfaces and washes come from the
+   --surface-* tokens, sizes from the --text-*, --weight-*, --radius-*,
+   --space-* and --duration-* scales. The behaviour that goes with these
+   classes is in js/icons.js, js/popover.js, js/tooltip.js and
+   js/collapsible.js. */
+
+/* Icon: a 16 px Lucide stroke glyph built by icons.js. It takes the text
+   color of its parent. */
+.osprey-ic {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Shared button reset for every clickable primitive below. */
+.osprey-icon-btn,
+.osprey-btn,
+.osprey-mini,
+.osprey-nav-row,
+.osprey-list-row,
+.osprey-popover-item {
+  margin: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+/* The search look on a <button> (the command palette opener) keeps its own
+   border and fill; it only needs the font and the pointer. */
+button.osprey-search {
+  font: inherit;
+  cursor: pointer;
+}
+
+.osprey-icon-btn:focus-visible,
+.osprey-btn:focus-visible,
+.osprey-mini:focus-visible,
+.osprey-nav-row:focus-visible,
+.osprey-list-row:focus-visible,
+.osprey-search:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* Icon button: 28 × 28, used in the sidebar head and the pane header. */
+.osprey-icon-btn {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--radius-lg);
+  color: var(--text-secondary);
+  transition: background var(--duration-fast), color var(--duration-fast);
+}
+
+.osprey-icon-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.osprey-icon-btn:active,
+.osprey-icon-btn[aria-expanded="true"] {
+  background: var(--surface-press);
+  color: var(--text-primary);
+}
+
+.osprey-icon-btn:disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+/* Text button: 28 px, display font. `.primary` fills with the accent. Put
+   the text in `.osprey-btn-label` so a narrow container can hide it and keep
+   the icon. */
+.osprey-btn {
+  height: 28px;
+  padding: 0 var(--space-3);
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: 1px solid var(--surface-hairline);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+  white-space: nowrap;
+  transition: background var(--duration-fast), border-color var(--duration-fast),
+              filter var(--duration-fast);
+}
+
+.osprey-btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-default);
+}
+
+.osprey-btn.primary {
+  background: var(--color-accent);
+  border-color: transparent;
+  color: var(--color-on-accent);
+}
+
+.osprey-btn.primary:hover {
+  filter: brightness(1.08);
+}
+
+.osprey-btn:disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.osprey-btn-label {
+  white-space: nowrap;
+}
+
+/* Mini button: 20 × 20 row action with a 14 px icon. `.osprey-mini-seg`
+   groups minis into a segmented control with a 1 px gap. */
+.osprey-mini {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  transition: background var(--duration-fast), color var(--duration-fast);
+}
+
+.osprey-mini:hover {
+  background: var(--surface-press);
+  color: var(--text-primary);
+}
+
+.osprey-mini .osprey-ic {
+  width: 14px;
+  height: 14px;
+}
+
+.osprey-mini[aria-pressed="true"] {
+  color: var(--color-accent);
+  background: var(--surface-card);
+  box-shadow: 0 0 0 1px var(--surface-hairline);
+}
+
+.osprey-mini[aria-expanded="true"] {
+  background: var(--surface-press);
+  color: var(--text-primary);
+}
+
+.osprey-mini-seg {
+  display: inline-flex;
+  gap: 1px;
+  padding: 1px;
+  margin-right: 2px;
+  border-radius: var(--radius-md);
+  background: var(--surface-hover);
+}
+
+/* Sidebar row: 28 px. Children: .osprey-nav-icon (an .osprey-ic),
+   .osprey-nav-label, .osprey-nav-badge, .osprey-nav-disc (the disclosure
+   chevron), .osprey-nav-trail. `[aria-current="page"]` marks the active
+   panel with the selected wash and a 3 px accent bar, so the state has a
+   shape as well as a hue. */
+.osprey-nav-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  height: 28px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-lg);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  text-align: left;
+  transition: background var(--duration-fast), color var(--duration-fast);
+}
+
+.osprey-nav-row:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.osprey-nav-row:active {
+  background: var(--surface-press);
+}
+
+.osprey-nav-row[aria-current="page"] {
+  background: var(--surface-selected);
+  color: var(--text-primary);
+}
+
+.osprey-nav-row[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--color-accent);
+}
+
+.osprey-nav-row[aria-current="page"] .osprey-nav-icon {
+  color: var(--color-accent);
+}
+
+.osprey-nav-row[aria-expanded="true"] {
+  background: var(--surface-press);
+  color: var(--text-primary);
+}
+
+.osprey-nav-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.osprey-nav-trail {
+  display: inline-flex;
+  color: var(--text-muted);
+}
+
+.osprey-nav-row.add {
+  margin-top: var(--space-1);
+  color: var(--text-muted);
+}
+
+.osprey-nav-row.add:hover {
+  color: var(--text-primary);
+}
+
+.osprey-nav-badge {
+  min-width: 18px;
+  height: 16px;
+  padding: 0 var(--space-1);
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--radius-full);
+  background: var(--surface-hover);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.osprey-nav-badge[hidden] {
+  display: none;
+}
+
+.osprey-nav-row[aria-current="page"] .osprey-nav-badge {
+  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  color: var(--text-primary);
+}
+
+.osprey-nav-disc {
+  color: var(--text-muted);
+  transition: transform var(--duration-fast) var(--wt-ease-out);
+}
+
+.osprey-nav-row[aria-expanded="true"] .osprey-nav-disc {
+  transform: rotate(90deg);
+}
+
+/* A parent row discloses a list: open is shown by the chevron, not a wash. */
+.osprey-nav-row.parent[aria-expanded="true"] {
+  background: none;
+}
+
+.osprey-nav-row.parent[aria-current="page"] {
+  background: var(--surface-selected);
+}
+
+.osprey-nav-row.parent:hover {
+  background: var(--surface-hover);
+}
+
+/* Section heading: 24 px group caption. */
+.osprey-section-label {
+  height: 24px;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-2);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* List row: 26 px child row of a sidebar list. The `time` child fades in
+   over the end of the title on hover and on the selected row; the title
+   fades out under it through a mask, so no background has to match the
+   row's wash. */
+.osprey-list-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 26px;
+  padding: 0 6px 0 var(--space-2);
+  border-radius: var(--radius-md);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  text-align: left;
+  transition: background var(--duration-fast), color var(--duration-fast);
+}
+
+.osprey-list-row .osprey-ic {
+  width: 14px;
+  height: 14px;
+  color: var(--text-muted);
+}
+
+.osprey-list-title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.osprey-list-row time {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-fast);
+}
+
+.osprey-list-row:hover time,
+.osprey-list-row:focus-visible time,
+.osprey-list-row[aria-selected="true"] time {
+  opacity: 1;
+}
+
+.osprey-list-row:hover .osprey-list-title,
+.osprey-list-row:focus-visible .osprey-list-title,
+.osprey-list-row[aria-selected="true"] .osprey-list-title {
+  mask-image: linear-gradient(to right, currentColor calc(100% - 68px), transparent calc(100% - 50px));
+}
+
+.osprey-list-row:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.osprey-list-row[aria-selected="true"] {
+  background: var(--surface-selected);
+  color: var(--text-primary);
+}
+
+.osprey-list-row[aria-selected="true"] .osprey-ic {
+  color: var(--color-accent);
+}
+
+.osprey-list-row[aria-selected="true"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 5px;
+  bottom: 5px;
+  width: 2px;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--color-accent);
+}
+
+.osprey-list-head {
+  height: 20px;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text-muted);
+}
+
+.osprey-list-head:first-child {
+  height: 16px;
+}
+
+.osprey-list-empty {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-md);
+  color: var(--text-muted);
+}
+
+/* Popover: a body-level, fixed menu or flyout placed by popover.js, so a
+   scrolled container never cuts it. Hidden with the `hidden` attribute. */
+.osprey-popover {
+  position: fixed;
+  z-index: var(--z-dropdown);
+  min-width: 220px;
+  padding: var(--space-1);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-dropdown);
+}
+
+.osprey-popover[hidden] {
+  display: none;
+}
+
+.osprey-popover-title {
+  padding: var(--space-2) var(--space-2) var(--space-1);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  color: var(--text-muted);
+}
+
+.osprey-popover-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  height: 30px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.osprey-popover-item:hover,
+.osprey-popover-item:focus-visible {
+  background: var(--surface-hover);
+  outline: none;
+}
+
+.osprey-popover-item .osprey-ic {
+  color: var(--text-secondary);
+}
+
+.osprey-popover-aside {
+  margin-left: auto;
+  font-size: var(--text-md);
+  color: var(--text-muted);
+}
+
+/* Check mark of a menuitemcheckbox / menuitemradio: an icon('check') with
+   this class, shown only while the item is checked. */
+.osprey-popover-item .osprey-popover-check {
+  margin-left: auto;
+  color: var(--color-accent);
+  visibility: hidden;
+}
+
+.osprey-popover-item[aria-checked="true"] .osprey-popover-check {
+  visibility: visible;
+}
+
+.osprey-popover-item[aria-checked="true"] {
+  font-weight: var(--weight-medium);
+}
+
+.osprey-popover-item.danger,
+.osprey-popover-item.danger .osprey-ic {
+  color: var(--color-error);
+}
+
+.osprey-popover-sep {
+  height: 1px;
+  margin: var(--space-1);
+  background: var(--surface-hairline);
+}
+
+/* Switch: the 28 × 16 track inside a [role=switch] item; the item's
+   aria-checked moves the knob, so the state is a position, not only a hue. */
+.osprey-switch {
+  position: relative;
+  width: 28px;
+  height: 16px;
+  margin-left: auto;
+  flex: none;
+  border-radius: var(--radius-full);
+  background: var(--surface-press);
+  transition: background var(--duration-fast);
+}
+
+.osprey-switch::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: var(--radius-full);
+  background: var(--surface-card);
+  box-shadow: 0 0 0 1px var(--surface-hairline);
+  transition: transform var(--duration-fast) var(--wt-ease-out);
+}
+
+[aria-checked="true"] > .osprey-switch {
+  background: var(--color-success);
+}
+
+[aria-checked="true"] > .osprey-switch::after {
+  transform: translateX(12px);
+}
+
+/* Tooltip: the one fixed tooltip layer that tooltip.js appends to body. */
+.osprey-tooltip {
+  position: fixed;
+  z-index: var(--z-toast);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-md);
+  white-space: nowrap;
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-dropdown);
+  pointer-events: none;
+}
+
+.osprey-tooltip[hidden] {
+  display: none;
+}
+
+/* Keyboard hint, for example ⌘K. */
+.osprey-kbd {
+  padding: 1px var(--space-1);
+  border: 1px solid var(--surface-hairline);
+  border-radius: var(--radius-md);
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+/* Status dot: 8 px. `.ok` adds a halo and `.hollow` is an unfilled outline
+   (closed), so the high-contrast themes still show the state by shape. */
+.osprey-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: var(--radius-full);
+  background: var(--text-muted);
+}
+
+.osprey-dot.ok {
+  background: var(--color-success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-success) 18%, transparent);
+}
+
+.osprey-dot.err {
+  background: var(--color-error);
+}
+
+.osprey-dot.hollow {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--text-muted);
+}
+
+/* Inset card: a pane on the deeper canvas. */
+.osprey-card {
+  min-width: 0;
+  min-height: 0;
+  background: var(--surface-card);
+  border: 1px solid var(--surface-hairline);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+}
+
+/* Pane header: the one header row of a pane, with an optional breadcrumb
+   (root › leaf) and vertical separators between control groups. */
+.osprey-pane-head {
+  height: var(--wt-pane-head-height);
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2) 0 var(--space-4);
+  border-bottom: 1px solid var(--surface-hairline);
+}
+
+.osprey-crumb {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-lg);
+}
+
+.osprey-crumb-root {
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.osprey-crumb-root:hover {
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.osprey-crumb-sep {
+  display: inline-flex;
+  color: var(--text-muted);
+}
+
+.osprey-crumb-sep .osprey-ic {
+  width: 14px;
+  height: 14px;
+}
+
+.osprey-crumb-leaf {
+  min-width: 0;
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.osprey-head-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 var(--space-1);
+  flex: none;
+  background: var(--surface-hairline);
+}
+
+/* Search field look: 32 px. Holds an icon, an input or a label, and an
+   .osprey-kbd hint. */
+.osprey-search {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-1) 0 var(--space-2);
+  border: 1px solid var(--surface-hairline);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--surface-card) 60%, transparent);
+  color: var(--text-muted);
+  text-align: left;
+  transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
+}
+
+.osprey-search:hover {
+  border-color: var(--border-default);
+}
+
+.osprey-search:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--surface-focus);
+}
+
+.osprey-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  outline: none;
+  font: inherit;
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+}
+
+.osprey-search input::placeholder {
+  color: var(--text-muted);
+}
+
+.osprey-search .osprey-kbd {
+  margin-left: auto;
+}
+
+/* Count pill: 16 px, for a count beside a heading. */
+.osprey-count {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 var(--space-1);
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--radius-full);
+  background: var(--surface-hover);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .osprey-icon-btn,
+  .osprey-btn,
+  .osprey-mini,
+  .osprey-nav-row,
+  .osprey-nav-disc,
+  .osprey-list-row,
+  .osprey-list-row time,
+  .osprey-switch,
+  .osprey-switch::after,
+  .osprey-search {
+    transition: none;
+  }
+}
