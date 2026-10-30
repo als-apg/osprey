@@ -306,7 +306,7 @@ class HealthServerContext:
             self._wedge_sig = sig
             return True
         # A changed disk signature is the escape: allow exactly one refresh attempt.
-        return sig == self._wedge_sig
+        return bool(sig == self._wedge_sig)
 
     def _evaluate_wedge(self, sig: Any) -> None:
         """Re-anchor or clear the wedge signature after a refresh.

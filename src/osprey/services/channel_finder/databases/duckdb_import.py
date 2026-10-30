@@ -112,7 +112,7 @@ def _import_systems(con: duckdb.DuckDBPyConnection, db: MiddleLayerDatabase) -> 
 
 def _import_families(con: duckdb.DuckDBPyConnection, db: MiddleLayerDatabase) -> int:
     """Import family-level data. Returns row count."""
-    rows = []
+    rows: list[tuple[str, str, str]] = []
     for system_info in db.list_systems():
         system = system_info["name"]
         rows.extend((system, fam["name"], fam["description"]) for fam in db.list_families(system))

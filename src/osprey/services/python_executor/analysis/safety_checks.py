@@ -80,7 +80,7 @@ def check_security(code: str) -> list[str]:
 
 def check_imports(code: str) -> list[str]:
     """Check for prohibited imports via AST. Returns list of issues."""
-    issues = []
+    issues: list[str] = []
     try:
         tree = ast.parse(code)
         for node in ast.walk(tree):
