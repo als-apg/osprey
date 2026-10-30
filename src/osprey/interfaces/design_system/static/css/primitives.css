@@ -173,9 +173,8 @@ button.osprey-search {
 
 /* Sidebar row: 28 px. Children: .osprey-nav-icon (an .osprey-ic),
    .osprey-nav-label, .osprey-nav-badge, .osprey-nav-disc (the disclosure
-   chevron), .osprey-nav-trail. `[aria-current="page"]` marks the active
-   panel with the selected wash and a 3 px accent bar, so the state has a
-   shape as well as a hue. */
+   chevron). `[aria-current="page"]` marks the active panel with the selected
+   wash and a 3 px accent bar, so the state has a shape as well as a hue. */
 .osprey-nav-row {
   position: relative;
   display: flex;
@@ -233,11 +232,6 @@ button.osprey-search {
   text-overflow: ellipsis;
 }
 
-.osprey-nav-trail {
-  display: inline-flex;
-  color: var(--text-muted);
-}
-
 .osprey-nav-row.add {
   margin-top: var(--space-1);
   color: var(--text-muted);
@@ -260,10 +254,6 @@ button.osprey-search {
   font-weight: var(--weight-medium);
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
-}
-
-.osprey-nav-badge[hidden] {
-  display: none;
 }
 
 .osprey-nav-row[aria-current="page"] .osprey-nav-badge {
@@ -409,20 +399,20 @@ button.osprey-search {
 }
 
 /* Popover: a body-level, fixed menu or flyout placed by popover.js, so a
-   scrolled container never cuts it. Hidden with the `hidden` attribute. */
+   scrolled container never cuts it. Hidden with the `hidden` attribute. A
+   popover taller than the window scrolls inside the same margin popover.js
+   keeps from the window's edges. */
 .osprey-popover {
   position: fixed;
   z-index: var(--z-dropdown);
   min-width: 220px;
+  max-height: calc(100vh - 2 * var(--space-2));
+  overflow-y: auto;
   padding: var(--space-1);
   background: var(--surface-card);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-dropdown);
-}
-
-.osprey-popover[hidden] {
-  display: none;
 }
 
 .osprey-popover-title {
@@ -449,6 +439,12 @@ button.osprey-search {
 .osprey-popover-item:focus-visible {
   background: var(--surface-hover);
   outline: none;
+}
+
+/* The wash alone is too faint to find in the high-contrast themes; the
+   inset edge marks the keyboard's row by shape. */
+.osprey-popover-item:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--surface-focus);
 }
 
 .osprey-popover-item .osprey-ic {
@@ -537,10 +533,6 @@ button.osprey-search {
   pointer-events: none;
 }
 
-.osprey-tooltip[hidden] {
-  display: none;
-}
-
 /* Keyboard hint, for example ⌘K. */
 .osprey-kbd {
   padding: 1px var(--space-1);
@@ -609,11 +601,6 @@ button.osprey-search {
 .osprey-crumb-root {
   color: var(--text-secondary);
   white-space: nowrap;
-}
-
-.osprey-crumb-root:hover {
-  color: var(--text-primary);
-  cursor: pointer;
 }
 
 .osprey-crumb-sep {
@@ -699,6 +686,28 @@ button.osprey-search {
   font-size: var(--text-sm);
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+}
+
+/* `hidden` must win over the display each primitive sets, so an interface
+   hides one with the attribute alone and needs no `[hidden]` rule of its own. */
+.osprey-icon-btn[hidden],
+.osprey-btn[hidden],
+.osprey-mini[hidden],
+.osprey-mini-seg[hidden],
+.osprey-nav-row[hidden],
+.osprey-nav-badge[hidden],
+.osprey-section-label[hidden],
+.osprey-list-row[hidden],
+.osprey-list-head[hidden],
+.osprey-popover[hidden],
+.osprey-popover-item[hidden],
+.osprey-tooltip[hidden],
+.osprey-pane-head[hidden],
+.osprey-crumb[hidden],
+.osprey-crumb-sep[hidden],
+.osprey-search[hidden],
+.osprey-count[hidden] {
+  display: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

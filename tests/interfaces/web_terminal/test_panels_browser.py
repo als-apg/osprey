@@ -243,19 +243,21 @@ def _live_server(
 # into the bar's aria-label and kept current through onDidTitleChange — the
 # aria-label is the stable handle these tests address tabs by.
 # The terminal tab is the one exception: it renders no aria-label — it adopts
-# the live .terminal-header, which names it — so it is identified by that
-# adoption and given the synthetic "Agent" label below, the stable handle for
-# it in these tests.
+# a live bar that names it (the .terminal-header in Expert, the chat console's
+# .op-session-bar in Simple) — so it is identified by the .tile-tab-terminal
+# class dock-tab.js stamps on it in both views, and given the synthetic "Agent"
+# label below, the stable handle for it in these tests.
 
 # Extract every dockview group with its tab labels and pixel rectangle. Used by
 # the geometry assertions (split / restack / persistence ordering).
 _GROUPS_JS = r"""() => [...document.querySelectorAll('.dv-groupview')].map(g => {
-  // The terminal tile's tab is identified by its adopted .terminal-header
-  // (it carries no accessible name of its own); its label is synthesized here
-  // as "Agent" — the same handle dock-workspace.js's TERMINAL_TITLE stamps on
-  // the underlying dockview panel title.
+  // The terminal tile's tab is identified by .tile-tab-terminal, not by the
+  // bar it adopted: that bar differs between the views. It carries no
+  // accessible name of its own; its label is synthesized here as "Agent" —
+  // the same handle dock-workspace.js's TERMINAL_TITLE stamps on the
+  // underlying dockview panel title.
   const tabs = [...g.querySelectorAll('.dv-tab')].map(t =>
-    t.querySelector('.terminal-header')
+    t.querySelector('.tile-tab-terminal')
       ? 'Agent'
       : (t.querySelector('.tile-tab')?.getAttribute('aria-label') ?? ''));
   const r = g.getBoundingClientRect();
@@ -321,8 +323,8 @@ def _focus_service_tab(page: Page, label: str) -> None:
 
 
 def _terminal_tab(page: Page):
-    """The terminal tile's header bar — the tab that adopted .terminal-header."""
-    return page.locator(".dv-tab").filter(has=page.locator(".terminal-header"))
+    """The terminal tile's header bar, in either view — the .tile-tab-terminal tab."""
+    return page.locator(".dv-tab").filter(has=page.locator(".tile-tab-terminal"))
 
 
 _STRIP_HEIGHT_JS = r"""(terminal) => {
@@ -607,7 +609,6 @@ def test_visibility_hide_and_show_toggles_rail_entry(tmp_path, chromium_browser)
         )
         assert r.status_code == 200
         expect(data_viz_tab).to_be_visible(timeout=5_000)
-        expect(page.locator(".panel-rail-closed")).to_have_count(0)
 
         page.close()
 
@@ -694,7 +695,8 @@ def test_reopen_after_empty_state_redocks_panel(tmp_path, chromium_browser):
         # other test in this file asserts the same precondition first.
         expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
 
-        # Close the only panel via its rail "×" → terminal is the sole group.
+        # Close the only panel via its rail menu's "Remove from rail" → terminal
+        # is the sole group.
         #
         # The click removes NOTHING by itself. `panel-commands.setPanelVisibility`
         # is fire-and-forget: it POSTs /api/panel-visibility, returns immediately,
@@ -711,8 +713,8 @@ def test_reopen_after_empty_state_redocks_panel(tmp_path, chromium_browser):
         # the echo arrived and was applied; the tile assertion after it is then
         # about the handler's work, not about the network. Both at the 10s budget
         # this file already uses for round trips that must survive suite load.
-        artifacts_rail.hover()
-        page.locator('button[data-panel-id="artifacts"] .panel-rail-close').click()
+        _open_rail_menu(page, "artifacts")
+        _menu_row(page, "Remove from rail").click()
         expect(artifacts_rail).to_have_count(0, timeout=10_000)
         expect(_service_tab(page, "Artifacts")).to_have_count(0, timeout=10_000)
         page.wait_for_function(
@@ -2114,10 +2116,10 @@ def test_tile_notice_follows_backend_outage(tmp_path, chromium_browser):
 def test_terminal_rail_entry_close_and_reopen(tmp_path, chromium_browser):
     """The terminal is the rail's permanent anchor: tile closes, entry never changes.
 
-    The rail's FIRST entry is the terminal ('Agent') and it renders no "×"
-    (the anchor is not removable — its tile closes via the dock tab or the
-    Delete key on the focused entry). Closing the tile leaves the entry in
-    place at full brightness; clicking it re-docks the same live terminal card.
+    The rail's FIRST entry is the terminal ('Agent'); the anchor is not
+    removable — its tile closes via the dock tab or the Delete key on the
+    focused entry. Closing the tile leaves the entry in place at full
+    brightness; clicking it re-docks the same live terminal card.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -2134,10 +2136,6 @@ def test_terminal_rail_entry_close_and_reopen(tmp_path, chromium_browser):
         # The terminal entry leads the rail (the session tile is the anchor).
         first_id = page.locator(".panel-rail-button").first.get_attribute("data-panel-id")
         assert first_id == "terminal", first_id
-
-        # The anchor offers no close affordance, even on hover.
-        term_rail.hover()
-        expect(term_rail.locator(".panel-rail-close")).to_be_hidden()
 
         # Close via the keyboard shortcut on the focused entry: the dock tile
         # goes away, the entry itself is untouched.
@@ -3045,14 +3043,15 @@ def test_rail_context_menu_popout_row_inert_until_url_resolves(tmp_path, chromiu
 
 
 def test_disabled_rail_entry_has_no_context_menu(tmp_path, chromium_browser):
-    """An offline panel's entry offers no menu — not by its "×", not by keyboard.
+    """An offline panel's entry offers no menu — not by a press, not by keyboard.
 
     The gate is in the handler rather than the rail's CSS on purpose: the
-    disabled entry's "×" keeps `pointer-events: auto` so a dead panel can always
-    be dismissed, and a keyboard menu request never consults CSS at all. Both
-    routes are driven here; neither may reach a menu whose verbs act on a panel
-    that has never answered. Declining leaves the event untouched, so what an
-    operator gets on those presses is the browser's own menu.
+    disabled entry's `pointer-events: none` stops a real mouse press from
+    reaching it, but a keyboard menu request never consults CSS at all, and
+    the CSS is not what this guarantee should rest on. Both routes are driven
+    here; neither may reach a menu whose verbs act on a panel that has never
+    answered. Declining leaves the event untouched, so what an operator gets on
+    those presses is the browser's own menu.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -3066,8 +3065,11 @@ def test_disabled_rail_entry_has_no_context_menu(tmp_path, chromium_browser):
         entry = _rail_entry(page, "artifacts")
         expect(entry).to_have_class(re.compile(r"\bdisabled\b"), timeout=10_000)
 
-        # The still-live corner: a right-click on it lands on the entry.
-        entry.locator(".panel-rail-close").click(button="right")
+        # The press, delivered to the entry itself: `pointer-events: none`
+        # would make a real right-click land on whatever lies beneath (and
+        # Playwright's click would wait for a hit forever), so the event is
+        # dispatched straight at the handler the gate lives in.
+        entry.dispatch_event("contextmenu")
         page.wait_for_timeout(500)
         expect(_context_menu(page)).to_have_count(0)
 
@@ -3115,7 +3117,7 @@ def test_simple_mode_keeps_new_tile_row_and_trims_terminal_menu_to_close(
         expect(_context_menu(page)).to_have_count(0, timeout=5_000)
 
         _open_rail_menu(page, "terminal")
-        assert _menu_labels(page) == ["Reset layout", "Close terminal tile"], _menu_labels(page)
+        assert _menu_labels(page) == ["Reset layout", "Close Agent pane"], _menu_labels(page)
 
         page.close()
 
@@ -3144,7 +3146,7 @@ def test_terminal_context_menu_survives_streaming_output(tmp_path, chromium_brow
             "Restart terminal",
             "New session",
             "Reset layout",
-            "Close terminal tile",
+            "Close Agent pane",
         ], _menu_labels(page)
 
         # The event xterm emits from its viewport on every streamed line. It

@@ -443,6 +443,12 @@ on an icon to see its name. In this state, a click on **Artifacts** opens the
 artifact list next to the sidebar. To show the labels again, click the toggle
 or press the same keys.
 
+.. note::
+
+   When the Expert terminal has the focus, Ctrl+\\ goes to the terminal, not
+   to the sidebar. In the terminal, Ctrl+\\ sends SIGQUIT to the running
+   program. To hide or show the labels in this state, click the toggle.
+
 The More menu
 ~~~~~~~~~~~~~
 

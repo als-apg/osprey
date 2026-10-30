@@ -85,6 +85,7 @@
 import { flashElement } from '/design-system/js/highlight.js';
 import { icon } from '/design-system/js/icons.js';
 import { formatFacilityTime, viewerSharesFacilityClock } from '/design-system/js/facility-time.js';
+import { readTitle, writeTitle } from '/design-system/js/tooltip.js';
 
 // ---- Types ----
 
@@ -299,7 +300,7 @@ function applyIdentity(btn, panel) {
   btn.dataset.tip = panel.label;
   const title = panel.hint ? `${panel.label} · ${panel.hint}` : panel.label;
   if (btn.hasAttribute(TITLE_BASE_ATTR)) btn.setAttribute(TITLE_BASE_ATTR, title);
-  else btn.title = title;
+  else writeTitle(btn, title);
 }
 
 /**
@@ -725,25 +726,27 @@ export function clockTime(ms) {
  * A status message stands in for the own text, so a badge time is appended to
  * it. An unreachable notice outranks both: "not answering" is the fact an
  * operator needs before clicking. With no notice the stash is restored and
- * removed, which makes a clear on an untouched row a true no-op.
+ * removed, which makes a clear on an untouched row a true no-op. The title
+ * goes through tooltip.js's readTitle/writeTitle: while the collapsed
+ * sidebar's tip shows, the native `title` is parked there.
  * @param {HTMLElement} entry
  */
 function renderTitle(entry) {
-  const base = entry.getAttribute(TITLE_BASE_ATTR) ?? entry.title;
+  const base = entry.getAttribute(TITLE_BASE_ATTR) ?? readTitle(entry);
   const touched = entry.getAttribute(TOUCHED_ATTR);
   const unreachable = entry.getAttribute(UNREACHABLE_ATTR);
   const status = entry.getAttribute(STATUS_ATTR);
   if (touched === null && unreachable === null && status === null) {
     if (entry.hasAttribute(TITLE_BASE_ATTR)) {
-      entry.title = base;
+      writeTitle(entry, base);
       entry.removeAttribute(TITLE_BASE_ATTR);
     }
     return;
   }
   entry.setAttribute(TITLE_BASE_ATTR, base);
   const own = status ?? base;
-  if (unreachable !== null) entry.title = `not answering since ${unreachable}`;
-  else entry.title = touched !== null ? `${own}${TOUCHED_SEPARATOR}${touched}` : own;
+  if (unreachable !== null) writeTitle(entry, `not answering since ${unreachable}`);
+  else writeTitle(entry, touched !== null ? `${own}${TOUCHED_SEPARATOR}${touched}` : own);
 }
 
 /**

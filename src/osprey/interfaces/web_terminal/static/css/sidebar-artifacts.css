@@ -9,12 +9,6 @@
  * file holds only the states the list module sets on top of those.
  */
 
-/* A count of zero, or one not fetched yet, is hidden; the count pill sets a
- * display of its own, which beats the user agent's [hidden] rule. */
-.osprey-count[data-art-count][hidden] {
-  display: none;
-}
-
 /* All sessions is the non-default scope, and its checkbox lives in the ⋯
  * menu. While it is on, ⋯ carries a dot, so the wider scope shows with the
  * menu closed: a shape, not a colour alone. */

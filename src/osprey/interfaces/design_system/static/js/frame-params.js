@@ -119,7 +119,7 @@ export function expertViewOffered() {
  * same-origin listener ({@link onModeChange}, every `<osprey-display-menu>`
  * included) to apply. The display menu's View row calls this; so does the
  * web terminal's command palette, which must flip the mode with no display
- * menu on the page, since that menu is a bar item the operator may remove.
+ * menu on the page, since that menu is optional chrome the operator may remove.
  *
  * A pick of the mode already stamped on `<html>` persists and strips but does
  * not broadcast: the listeners treat every broadcast as a flip (the web

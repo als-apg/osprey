@@ -53,6 +53,13 @@ describe('Agent bar', () => {
     expect(bar.textContent).toBe('Agent');
     expect(bar.querySelector('.new-session-btn, .terminal-label-simple')).toBeNull();
   });
+
+  test('the dot is decoration: hidden from assistive tech, no state claim', () => {
+    const { bar } = buildConsole();
+    const led = /** @type {HTMLElement} */ (bar.querySelector('.op-session-led'));
+    expect(led.getAttribute('aria-hidden')).toBe('true');
+    expect(led.hasAttribute('title')).toBe(false);
+  });
 });
 
 describe('composer', () => {

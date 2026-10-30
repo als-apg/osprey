@@ -287,8 +287,9 @@ class TileTab {
     // The registry's labels are the panel ids' shouting form (ARIEL, EVENTS);
     // the chrome shows them in title case, as the sidebar rows do.
     const applyName = (title) => {
-      if (this._titleEl) this._titleEl.textContent = titleCase(title);
-      this._element.setAttribute('aria-label', title);
+      const name = titleCase(title);
+      if (this._titleEl) this._titleEl.textContent = name;
+      this._element.setAttribute('aria-label', name);
     };
     applyName(params.title ?? '');
     const sub = params.api?.onDidTitleChange?.((/** @type {any} */ e) => applyName(e?.title ?? ''));

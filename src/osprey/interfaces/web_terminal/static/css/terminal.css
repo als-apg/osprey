@@ -166,11 +166,6 @@ html:not([data-sidebar="collapsed"]) #sidebar-workspace .sidebar-row > .sidebar-
   border-top: 1px solid var(--surface-hairline);
 }
 
-/* `.osprey-nav-row` sets a display, which beats the user agent's [hidden]. */
-.sidebar .osprey-nav-row[hidden] {
-  display: none;
-}
-
 /* ---- Panel rows: health and drag states (panel-rail.js) ---- */
 
 .sidebar .panel-rail-button.disabled,
@@ -551,10 +546,13 @@ html:not([data-control-target="off"]) .sidebar-target {
 }
 
 /* The popover opens fixed beside the sidebar (control-target-popover.js
-   writes left/top), not under the chip. */
+   writes left/top), not under the chip, and on the surface and layer every
+   other sidebar popover uses. */
 .sidebar .ctc-popover {
   position: fixed;
   right: auto;
+  background: var(--surface-card);
+  z-index: var(--z-dropdown);
 }
 
 /* ---- Collapsed sidebar: icons only, labels as tooltips ---- */
@@ -577,7 +575,6 @@ html[data-sidebar="collapsed"] #sidebar-toggle .osprey-ic {
 html[data-sidebar="collapsed"] :is(
   .sidebar-brand-word,
   .sidebar .osprey-nav-label,
-  .sidebar .osprey-nav-trail,
   .sidebar .osprey-nav-disc,
   .sidebar-search-label,
   .sidebar .osprey-search .osprey-kbd,
@@ -846,14 +843,13 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   border-radius: var(--radius-md);
   cursor: pointer;
   white-space: nowrap;
-  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
-    background var(--wt-transition-fast);
+  transition: color var(--duration-fast) ease, border-color var(--duration-fast) ease,
+    background var(--duration-fast) ease;
 }
 
 /* `display: inline-flex` above outranks the user-agent [hidden] rule, so the
    hidden state (no session yet, or a deployment with nothing to say) needs
-   saying explicitly — the same trap `.status-item[hidden]` in files.css
-   documents. */
+   saying explicitly. */
 .control-target-chip[hidden] {
   display: none;
 }
@@ -1044,11 +1040,12 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 
 /* ---- The popover ----
 
-   Right-anchored, unlike the identity menu, which anchors left. Same
-   --z-sticky reasoning as that menu — header chrome outranks a
-   body-level callout — and the confirm overlay sits a full layer above it
-   (--z-modal, at the bottom of this file), so a confirm never hides the rows
-   it is about and the popover can stay open beneath it. */
+   These base rules are JupyterLab's control-target bar
+   (control-target-lab-bar.js loads this file there): right-anchored under the
+   chip. The sidebar places it beside itself and sets its surface and layer
+   (`.sidebar .ctc-popover`, above). The confirm overlay sits a full layer
+   above either (--z-modal, at the bottom of this file), so a confirm never
+   hides the rows it is about and the popover can stay open beneath it. */
 .ctc-popover {
   display: none;
   position: absolute;
@@ -1070,7 +1067,7 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 
 .ctc-popover.open {
   display: flex;
-  animation: ctc-menu-in var(--wt-transition-fast);
+  animation: ctc-menu-in var(--duration-fast) ease;
 }
 
 /* The one abnormal banner across the top. Absent in the plain case — absence
@@ -1341,8 +1338,8 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: color var(--wt-transition-fast), background var(--wt-transition-fast),
-    border-color var(--wt-transition-fast);
+  transition: color var(--duration-fast) ease, background var(--duration-fast) ease,
+    border-color var(--duration-fast) ease;
 }
 
 .ctc-position:hover:not(:disabled):not([aria-checked="true"]) {
@@ -1436,8 +1433,8 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
-    background var(--wt-transition-fast);
+  transition: color var(--duration-fast) ease, border-color var(--duration-fast) ease,
+    background var(--duration-fast) ease;
 }
 
 .ctc-switch:hover:not(:disabled) {
@@ -1543,7 +1540,7 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   border: none;
   border-radius: var(--radius-lg);
   cursor: pointer;
-  transition: color var(--wt-transition-fast), background var(--wt-transition-fast);
+  transition: color var(--duration-fast) ease, background var(--duration-fast) ease;
 }
 
 .rail-context-item:hover,
@@ -1851,8 +1848,8 @@ html[data-sidebar="collapsed"] .shell-body {
   border-radius: var(--radius-xs);
   padding: 3px 9px;
   cursor: pointer;
-  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
-    background var(--wt-transition-fast);
+  transition: color var(--duration-fast) ease, border-color var(--duration-fast) ease,
+    background var(--duration-fast) ease;
   margin-left: auto;
 }
 
@@ -2094,7 +2091,7 @@ html[data-ui-mode="simple"] #terminal-container {
   border-radius: var(--radius-sm);
   padding: 6px 14px;
   cursor: pointer;
-  transition: all var(--wt-transition-fast);
+  transition: all var(--duration-fast) ease;
 }
 
 .posture-modal-cancel {
@@ -2216,7 +2213,7 @@ html[data-ui-mode="simple"] .terminal-handoff {
   border-radius: var(--radius-sm);
   padding: 6px 14px;
   cursor: pointer;
-  transition: all var(--wt-transition-fast);
+  transition: all var(--duration-fast) ease;
 }
 
 .terminal-handoff-action:hover:not(:disabled) {

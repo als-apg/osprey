@@ -27,7 +27,9 @@
  * of View, Appearance or Theme leaves it open, so the operator can compare
  * and go straight back; a row that moves the operator elsewhere closes it.
  * Keyboard shortcuts and About open beside the menu, which stays open
- * beneath them. ArrowUp / ArrowDown move between the rows.
+ * beneath them. popover.js also moves ArrowUp / ArrowDown / Home / End
+ * between the rows and returns focus to ☰ More whenever the menu closes
+ * with focus inside it.
  */
 
 import { onModeChange, pickUiMode } from '/design-system/js/frame-params.js';
@@ -53,7 +55,7 @@ const BUTTON_ID = 'more-btn';
 const SHORTCUTS_ID = 'shortcuts-popover';
 const ABOUT_ID = 'about-popover';
 
-/** The rows a keyboard user steps through. */
+/** The rows a click acts on. */
 const ITEM_SELECTOR = '[role="menuitem"], [role="menuitemradio"]';
 
 /** @returns {'simple'|'expert'} the view stamped on <html> */
@@ -155,13 +157,10 @@ export function initMoreMenu({ getSessionId }) {
   const families = menu.querySelector('[data-theme-families]');
   if (families) families.replaceChildren(...themeFamilies().map(familyRadio));
 
-  // A row that moves the operator elsewhere closes the menu and parks focus on
-  // ☰ More, so whatever opens next (the drawer, the tour) returns focus to a
-  // control that is on screen rather than into the hidden menu.
-  const close = () => {
-    closePopover(menu);
-    button.focus({ preventScroll: true });
-  };
+  // A row that moves the operator elsewhere closes the menu; popover.js parks
+  // focus on ☰ More, so whatever opens next (the drawer, the tour) returns
+  // focus to a control that is on screen rather than into the hidden menu.
+  const close = () => closePopover(menu);
 
   button.addEventListener('click', () => {
     if (menu.hidden) syncMenu(menu);
@@ -196,7 +195,9 @@ export function initMoreMenu({ getSessionId }) {
       setFamily(themeFamily);
     } else if (row.id === 'more-settings') {
       // settings-warning-gate.js opens the drawer from this same click.
-      close();
+      // Cmd/Ctrl+, clicks this row with the menu shut (app.js); closing then
+      // would move focus to ☰ More, away from where the operator was typing.
+      if (!menu.hidden) close();
     } else if (more === 'shortcuts') {
       openBeside(row, SHORTCUTS_ID);
     } else if (more === 'about') {
@@ -211,23 +212,6 @@ export function initMoreMenu({ getSessionId }) {
     }
     // Sign out (#logout-btn) stays open: its handler navigates away and keeps
     // the row busy while the logout is in flight.
-  });
-
-  menu.addEventListener('keydown', (event) => {
-    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
-    const rows = /** @type {HTMLElement[]} */ (
-      Array.from(menu.querySelectorAll(ITEM_SELECTOR)).filter(
-        (el) => !(/** @type {HTMLElement} */ (el).closest('[hidden]'))
-      )
-    );
-    if (!rows.length) return;
-    event.preventDefault();
-    const at = rows.indexOf(/** @type {HTMLElement} */ (document.activeElement));
-    let next = 0;
-    if (event.key === 'End') next = rows.length - 1;
-    else if (event.key === 'ArrowDown') next = (at + 1) % rows.length;
-    else if (event.key === 'ArrowUp') next = (at - 1 + rows.length) % rows.length;
-    rows[next].focus();
   });
 
   subscribeTheme(() => syncMenu(menu));

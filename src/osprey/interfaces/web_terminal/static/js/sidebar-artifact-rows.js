@@ -197,10 +197,16 @@ function rowTime(timestamp) {
   return formatFacilityTime(timestamp, { month: 'short', day: 'numeric' });
 }
 
+/*
+ * The lists are listboxes, which own only options: a group label or the empty
+ * note takes role="presentation" so it is not an unnamed child of the listbox.
+ */
+
 /** @param {string} label */
 function listHead(label) {
   const head = document.createElement('div');
   head.className = 'osprey-list-head';
+  head.setAttribute('role', 'presentation');
   head.textContent = label;
   return head;
 }
@@ -209,6 +215,7 @@ function listHead(label) {
 function listEmpty(text) {
   const empty = document.createElement('div');
   empty.className = 'osprey-list-empty';
+  empty.setAttribute('role', 'presentation');
   empty.textContent = text;
   return empty;
 }

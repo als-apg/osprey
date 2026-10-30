@@ -47,8 +47,10 @@ export function barButton(className, iconName, label) {
  */
 export function buildConsole() {
   const bar = elem('div', 'op-session-bar');
+  // Nothing updates this dot, so it claims no state: decoration only. The
+  // label beside it names the pane.
   const led = elem('span', 'osprey-dot ok op-session-led');
-  led.title = 'Connected';
+  led.setAttribute('aria-hidden', 'true');
   const label = elem('span', 'op-session-label', 'Agent');
   const newBtn = barButton('op-session-new', 'pen', 'New conversation');
   bar.append(led, label, newBtn);

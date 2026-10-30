@@ -183,6 +183,7 @@ beforeEach(() => {
   document.body.innerHTML = '';
   document.body.className = '';
   document.documentElement.removeAttribute('data-ui-mode');
+  document.documentElement.removeAttribute('data-control-target');
   vi.clearAllMocks();
   // first-contact.js holds this deployment's facts as module state, and these
   // tests share one instance of it: reset both of its inputs, or one test's
@@ -343,9 +344,19 @@ describe('steps', () => {
 
   test('a hidden ancestor withdraws the anchor too', () => {
     mountFullShell();
-    find('#sidebar-target').hidden = true;
+    find('.sidebar-foot').hidden = true;
 
-    expect(walk().map((c) => c.title)).not.toContain('Your control target');
+    expect(walk().map((c) => c.title)).not.toContain('Something wrong? Tell us');
+  });
+
+  // The block stays on screen for the clock, so only the flag withdraws it.
+  test('the control-target step drops out when the deployment has none', () => {
+    mountFullShell();
+    document.documentElement.dataset.controlTarget = 'off';
+
+    const titles = walk().map((c) => c.title);
+    expect(titles).not.toContain('Your control target');
+    expect(titles).toContain('The sidebar');
   });
 
   test('the last card says where the tour is retaken from', () => {

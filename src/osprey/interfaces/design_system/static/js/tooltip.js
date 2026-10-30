@@ -21,12 +21,57 @@
  * element must carry its own `aria-label` (or text), so the layer sets no
  * `aria-describedby`.
  *
+ * A row may also carry a native `title` (a longer hint for the expanded
+ * sidebar). While the layer shows that row's tip, the `title` is parked in
+ * `data-tip-title` and cleared, so the browser does not draw a second tooltip
+ * on top; hiding puts it back. Code that retitles a row must go through
+ * {@link readTitle} / {@link writeTitle}, so a title written while the row is
+ * hovered lands in the parked copy instead of being lost or shown twice.
+ *
  * @module tooltip
  */
 
 /** @type {HTMLDivElement | null} */
 let layer = null;
 let escapeBound = false;
+
+/** Where an element's native `title` waits while the layer shows its tip. */
+const PARKED_TITLE_ATTR = 'data-tip-title';
+
+/** @type {HTMLElement | null} the element whose tip the layer shows now */
+let current = null;
+
+/**
+ * An element's own `title`, also while the layer has parked it.
+ * @param {HTMLElement} el
+ * @returns {string}
+ */
+export function readTitle(el) {
+  return el.getAttribute(PARKED_TITLE_ATTR) ?? el.title;
+}
+
+/**
+ * Set an element's own `title`; while the layer has parked it, update the
+ * parked copy so the native tooltip stays off until the tip hides.
+ * @param {HTMLElement} el
+ * @param {string} text
+ */
+export function writeTitle(el, text) {
+  if (el.hasAttribute(PARKED_TITLE_ATTR)) el.setAttribute(PARKED_TITLE_ATTR, text);
+  else el.title = text;
+}
+
+/** Put the shown element's parked `title` back and forget it. */
+function releaseCurrent() {
+  if (!current) return;
+  const parked = current.getAttribute(PARKED_TITLE_ATTR);
+  if (parked !== null) {
+    current.removeAttribute(PARKED_TITLE_ATTR);
+    // A caller that set `title` directly while the tip showed wins.
+    if (!current.title) current.title = parked;
+  }
+  current = null;
+}
 
 /** @returns {HTMLDivElement} the shared layer, created on first use */
 function tooltipLayer() {
@@ -42,6 +87,7 @@ function tooltipLayer() {
 /** Hide the shared tooltip. Safe to call when nothing shows. */
 export function hideTooltip() {
   if (layer) layer.hidden = true;
+  releaseCurrent();
 }
 
 /**
@@ -67,6 +113,16 @@ function showTooltip(el) {
     return;
   }
   const tip = tooltipLayer();
+  if (current !== el) {
+    releaseCurrent();
+    current = el;
+  }
+  // Parked on every show, so a `title` set directly mid-hover replaces the
+  // parked copy rather than showing beside the tip.
+  if (el.hasAttribute('title')) {
+    el.setAttribute(PARKED_TITLE_ATTR, el.title);
+    el.removeAttribute('title');
+  }
   tip.textContent = text;
   tip.hidden = false;
   const rect = el.getBoundingClientRect();

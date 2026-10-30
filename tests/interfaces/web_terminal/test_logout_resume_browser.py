@@ -129,14 +129,14 @@ def test_logout_and_return_starts_fresh_session(tmp_path, monkeypatch, chromium_
         page.on("request", _record)
 
         # --- Logout: clears the stored pointer, THEN navigates to landing ---
-        # Logout lives behind the header identity chip — the name in the corner
-        # is what an operator reaches for to leave. Open it first.
-        page.click("#header-identity-trigger")
+        # Sign out lives in the sidebar's ☰ More menu, under the signed-in
+        # operator's name. Open it first.
+        page.click("#more-btn")
         # The menu names the operator, so they can confirm WHICH terminal they
         # are leaving before they leave it.
-        expect(page.locator("#header-identity-menu .header-identity-who-name")).to_have_text(user)
-        expect(page.locator("#logout-btn")).to_be_visible()
-        page.click("#logout-btn")
+        expect(page.locator("#more-menu .more-menu-user")).to_have_text(user)
+        expect(page.locator("#more-menu #logout-btn")).to_be_visible()
+        page.click("#more-menu #logout-btn")
         page.wait_for_url(lambda u: u.startswith(landing_url))
         assert page.url.startswith(landing_url)
         expect(page.locator("#landing-marker")).to_be_visible()

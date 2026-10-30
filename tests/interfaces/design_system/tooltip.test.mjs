@@ -9,13 +9,14 @@
 
 import { test, expect, describe, beforeEach } from 'vitest';
 
-import { hideTooltip, initTooltips } from '/design-system/js/tooltip.js';
+import { hideTooltip, initTooltips, readTitle, writeTitle } from '/design-system/js/tooltip.js';
 
 /** @param {string} id @returns {HTMLElement} */
 const $ = (id) => /** @type {HTMLElement} */ (document.getElementById(id));
 
 /** @returns {HTMLElement[]} */
-const layers = () => /** @type {HTMLElement[]} */ (Array.from(document.querySelectorAll('.osprey-tooltip')));
+const layers = () =>
+  /** @type {HTMLElement[]} */ (Array.from(document.querySelectorAll('.osprey-tooltip')));
 
 /** @param {EventTarget} target @param {string} type */
 function fire(target, type) {
@@ -28,7 +29,7 @@ beforeEach(() => {
   hideTooltip();
   document.body.innerHTML = `
     <nav id="sidebar">
-      <button id="row" type="button" data-tip="Agent" aria-label="Agent"><span id="row-icon"></span></button>
+      <button id="row" type="button" data-tip="Agent" aria-label="Agent" title="Agent · right-click for actions"><span id="row-icon"></span></button>
       <button id="opener" type="button" data-tip="Artifacts" aria-controls="flyout" aria-label="Artifacts"></button>
       <button id="plain" type="button">No tip</button>
     </nav>
@@ -36,7 +37,17 @@ beforeEach(() => {
     <div id="flyout" class="osprey-popover" hidden></div>
   `;
   $('row').getBoundingClientRect = () =>
-    /** @type {DOMRect} */ ({ top: 100, bottom: 128, left: 8, right: 48, width: 40, height: 28, x: 8, y: 100, toJSON() {} });
+    /** @type {DOMRect} */ ({
+      top: 100,
+      bottom: 128,
+      left: 8,
+      right: 48,
+      width: 40,
+      height: 28,
+      x: 8,
+      y: 100,
+      toJSON() {},
+    });
   collapsed = true;
   initTooltips($('sidebar'), { when: () => collapsed });
 });
@@ -109,5 +120,40 @@ describe('initTooltips', () => {
     fire($('elsewhere'), 'pointerover');
 
     expect(layers().every((tip) => tip.hidden)).toBe(true);
+  });
+
+  test('parks the native title while the tip shows and restores it on hide', () => {
+    fire($('row-icon'), 'pointerover');
+    expect($('row').hasAttribute('title')).toBe(false);
+    expect(readTitle($('row'))).toBe('Agent · right-click for actions');
+
+    $('sidebar').dispatchEvent(new Event('pointerleave'));
+    expect($('row').title).toBe('Agent · right-click for actions');
+    expect($('row').hasAttribute('data-tip-title')).toBe(false);
+  });
+
+  test("moving to another row restores the first row's title", () => {
+    fire($('row'), 'pointerover');
+    fire($('opener'), 'pointerover');
+
+    expect($('row').title).toBe('Agent · right-click for actions');
+  });
+
+  test('a title written while the tip shows lands after hide, not beside the tip', () => {
+    fire($('row'), 'pointerover');
+    writeTitle($('row'), 'Agent · agent touched 9:12');
+    expect($('row').hasAttribute('title')).toBe(false);
+
+    hideTooltip();
+    expect($('row').title).toBe('Agent · agent touched 9:12');
+  });
+
+  test('the expanded sidebar leaves the native title alone', () => {
+    collapsed = false;
+    fire($('row'), 'pointerover');
+
+    expect($('row').title).toBe('Agent · right-click for actions');
+    writeTitle($('row'), 'Agent');
+    expect($('row').title).toBe('Agent');
   });
 });

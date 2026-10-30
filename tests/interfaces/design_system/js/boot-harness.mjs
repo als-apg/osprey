@@ -1,5 +1,5 @@
 /**
- * Shared harness for the pre-paint boot scripts (mode-boot.js, rail-boot.js,
+ * Shared harness for the pre-paint boot scripts (mode-boot.js, sidebar-boot.js,
  * theme-boot.js).
  *
  * Those files are non-module, dependency-free IIFEs — they export nothing and

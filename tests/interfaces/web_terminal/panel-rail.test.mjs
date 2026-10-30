@@ -46,6 +46,7 @@ import {
   setEntryReachable,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/panel-rail.js';
 import { icon } from '/design-system/js/icons.js';
+import { hideTooltip, initTooltips } from '/design-system/js/tooltip.js';
 import { FACILITY_ZONE, VIEWER_ZONE, stampFacilityZone } from '../_support/facility-zone.mjs';
 
 const STATIC_DIR = join(import.meta.dirname, '../../../src/osprey/interfaces/web_terminal/static');
@@ -1270,6 +1271,23 @@ describe('setEntryAttention tooltip time', () => {
 
     setEntryAttention(rail, 'ariel', false);
     expect(row(rail, 'ariel').title).toBe('Ariel · right-click for actions');
+  });
+
+  test('a badge composed while the collapsed tip shows keeps the base title', () => {
+    // The tooltip layer parks the native title while it shows the row's tip;
+    // reading the empty `title` then would lose "Ariel" from the composition.
+    initTooltips(rail);
+    const entry = row(rail, 'ariel');
+    entry.dispatchEvent(new Event('pointerover', { bubbles: true }));
+    expect(entry.hasAttribute('title')).toBe(false);
+
+    setEntryAttention(rail, 'ariel', true, TS);
+    expect(entry.hasAttribute('title')).toBe(false);
+
+    hideTooltip();
+    expect(entry.title).toBe(`Ariel · agent touched ${expectedTime(TS)}`);
+    setEntryAttention(rail, 'ariel', false);
+    expect(entry.title).toBe('Ariel');
   });
 
   test('the suffix never reaches the accessible name', () => {
