@@ -151,17 +151,11 @@ function setupNav() {
  * graph finder's search box and ⋯ menu). The view's items come first: they
  * exist only in one view, and the header contract puts conditional items
  * before the persistent switcher so the switcher never slides. Sent whole on
- * every change — the hub renders only the latest contribution. No-op
- * standalone, where `.header-nav` carries the same tabs; Simple mode hides
- * those tabs there and collapses the tile bar, so it contributes nothing
- * here either and the view keeps its in-body controls (a mode flip
- * re-mounts, so this re-runs).
+ * every change — the hub renders only the latest contribution. The hub draws
+ * the tile bar in both Expert and Simple, so both modes contribute the same
+ * items. No-op standalone, where `.header-nav` carries the same tabs.
  */
 function contributeViewNav() {
-  if (document.documentElement.getAttribute('data-ui-mode') === 'simple') {
-    contributeHeader([]);
-    return;
-  }
   contributeHeader([
     ...(state.viewHeader?.items ?? []),
     {

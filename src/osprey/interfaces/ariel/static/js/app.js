@@ -84,7 +84,10 @@ function defaultView() {
 /**
  * Views the tile bar's nav offers when embedded. Status remains standalone
  * because the terminal owns service health; Search is there only when the
- * deployment turns it on.
+ * deployment turns it on. The nav goes up in Expert and Simple alike: the hub
+ * keeps the tile bar in Simple, and the standalone Simple header's "Browse
+ * all entries" link sits in the header that embedded hides, so this nav's
+ * Browse entry is how embedded Simple reaches Browse.
  * @returns {{ id: string, label: string }[]}
  */
 function headerViews() {

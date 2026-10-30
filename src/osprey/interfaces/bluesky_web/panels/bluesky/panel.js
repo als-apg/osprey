@@ -9,16 +9,15 @@
  * of the hub's Expert/Simple flips. Each view is a factory that takes the panel
  * root and its callbacks; nothing here reaches into a view's internals.
  *
- * TWO tab strips, deliberately, and both are load-bearing:
+ * ONE view switcher on screen at a time:
  *
- * - The panel describes the three views to the web-terminal hub as a `nav`
- *   contribution, so an embedded panel gets ONE header (the tile bar) rather
- *   than a bar under a bar.
- * - The panel ALSO renders its own strip in the body. `contributeHeader` is a
- *   strict no-op standalone, and the hub collapses a service tile's bar to
- *   zero height in Simple mode — in both cases the contributed strip does not
- *   exist, and the panel would be unnavigable without its own. The in-body
- *   strip is therefore hidden by CSS in exactly one case: embedded AND Expert.
+ * - Embedded, the panel describes the three views to the web-terminal hub as
+ *   a `nav` contribution in EVERY UI mode, so the tile gets ONE header (the
+ *   tile bar) rather than a bar under a bar. The hub draws that bar in Simple
+ *   as well as Expert; the in-body strip is hidden by CSS whenever the panel
+ *   is embedded.
+ * - Standalone, `contributeHeader` is a strict no-op, so the panel renders its
+ *   own strip in the body; without it the panel would be unnavigable there.
  *
  * - No `innerHTML`, anywhere. Plan names, parameter values, and refusal
  *   sentences all originate off-panel (an agent's draft, the bridge, another
@@ -33,9 +32,9 @@
  *   flip command for a deployment serving the simulator in process).
  *
  * The persistent control strip (queue state badge, "Stop", "Abort") is NEVER
- * contributed, for the same reason read in reverse:
- * anything safety-bearing has to survive Simple mode, and the tile bar does
- * not. It renders in the body on every tab — see index.html.
+ * contributed: anything safety-bearing has to be on screen wherever the panel
+ * runs, and the tile bar does not exist standalone. It renders in the body on
+ * every tab — see index.html.
  *
  * @module panel
  */
@@ -316,12 +315,12 @@ function publishContribution() {
   //
   // The filter is the conditional item here — it belongs to the Plans view, so
   // it is contributed only while that view is showing, and never in Simple
-  // mode, where the hub collapses the tile bar and Simple deliberately
-  // ENLARGES a search box rather than hiding it (in both excluded cases the
-  // in-body box is the one on screen). The view switcher is the item an
-  // operator aims at over and over. So the filter goes FIRST and the switcher
-  // LAST: the switcher stays pinned to the close button and the filter appears
-  // and disappears to its left, in the slack.
+  // mode, which keeps a search box in the body rather than moving it into the
+  // bar (header-contrib.js; in both excluded cases the in-body box is the one
+  // on screen). The view switcher is the item an operator aims at over and
+  // over, and it is contributed in every mode. So the filter goes FIRST and
+  // the switcher LAST: the switcher stays pinned to the close button and the
+  // filter appears and disappears to its left, in the slack.
   //
   // The other order would put the tab strip on the moving side of its own
   // effect — clicking away from Plans drops the filter, and the strip you just
@@ -443,7 +442,7 @@ async function loadChannelCatalog() {
  * In the persistent status strip, deliberately: which machine this panel is
  * pointed at is safety-bearing context for the queue badge and the two halts
  * beside it, must be visible from every tab and in every UI mode, and the
- * tile bar survives neither Simple mode nor standalone serving.
+ * tile bar does not exist standalone.
  *
  * @param {import('./lane-client.js').LaneEntry[]} roster
  */

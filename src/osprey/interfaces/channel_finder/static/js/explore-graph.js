@@ -34,11 +34,11 @@
  * the panel it was asked for is still mounted, so a slow answer to an abandoned
  * query can never overwrite a faster answer to the current one.
  *
- * Embedded in the web terminal (outside Simple mode) the toolbar's search box
- * and ⋯ menu move into the hub's tile bar (graph-finder-verbs.js
- * contributeHeader → state.setViewHeader → app.js), so the panel body starts
- * at the filters like every other tile. Simple mode hides the hub's tile bar,
- * so there the in-body toolbar stays.
+ * Embedded in the web terminal the toolbar's search box and ⋯ menu move into
+ * the hub's tile bar (graph-finder-verbs.js contributeHeader →
+ * state.setViewHeader → app.js), so the panel body starts at the filters like
+ * every other tile. The hub draws the tile bar in Expert and Simple alike, so
+ * this holds in both modes; only standalone keeps the in-body toolbar.
  */
 
 import { state } from './state.js';

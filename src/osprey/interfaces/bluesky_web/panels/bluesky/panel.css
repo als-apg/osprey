@@ -1,7 +1,8 @@
 /*
  * BLUESKY panel — token-only styling (mirrors design_system/panels/reference).
- * Every color/spacing value below resolves through a var(--…) design token
- * from tokens.css; no raw hex literals anywhere in this file.
+ * Every color, type size, weight, line height and radius below resolves
+ * through a var(--…) design token from tokens.css; no raw hex or scale
+ * literals anywhere in this file.
  *
  * Aesthetic: control-room instrument. Dense name-first sidebar (status is a
  * single dot), a dominant detail pane, mono identifiers/values, hairline
@@ -30,7 +31,7 @@ body {
   font-family: var(--font-display);
   background: var(--bg-primary);
   color: var(--text-primary);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
 }
 
 /* `height`, NOT `min-height`.
@@ -68,31 +69,31 @@ body.embedded .panel-chrome { display: none; }
 
 .panel-chrome h1 {
   margin: 0;
-  font-size: 16px;
-  font-weight: 600;
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-semibold);
   color: var(--text-primary);
 }
 .panel-chrome .panel-kicker {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-sm);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-muted);
 }
 
 .muted {
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--text-muted);
 }
 
 /* ---- View switcher (Plans | Queue | Results) ----
  *
  * The panel describes these three to the web-terminal hub as a `nav`
- * contribution, so an embedded panel gets ONE header. This in-body strip is
- * NOT a redundant copy: `contributeHeader` is a no-op standalone, and the hub
- * collapses a service tile's bar to zero height in Simple mode — in both cases
- * the contributed strip does not exist and this is the only way to navigate.
- * It is therefore hidden in exactly one case: embedded AND Expert.
+ * contribution in every UI mode, so an embedded panel gets ONE header: the
+ * hub's tile bar, which it draws in Simple as well as Expert. This in-body
+ * strip exists for standalone serving, where `contributeHeader` is a no-op
+ * and it is the only way to navigate. It is therefore hidden whenever the
+ * panel is embedded.
  *
  * Deliberately `.panel-tabs`/`.panel-tab`, not the `.tabs`/`.tab` the Plans
  * detail pane already uses for Parameters/Source — those are a different strip
@@ -103,12 +104,12 @@ body.embedded .panel-chrome { display: none; }
   margin-bottom: 10px;
   border-bottom: 1px solid var(--border-default);
 }
-html:not([data-ui-mode="simple"]) body.embedded .panel-tabs { display: none; }
+body.embedded .panel-tabs { display: none; }
 
 .panel-tab {
   font-family: var(--font-display);
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
   color: var(--text-muted);
   background: transparent;
   border: none;
@@ -130,9 +131,9 @@ html:not([data-ui-mode="simple"]) body.embedded .panel-tabs { display: none; }
 /* ---- Queue control strip ----
  *
  * Queue state plus Start · Stop · Abort, on screen for EVERY view and in every
- * UI mode. Nothing here is ever contributed to the tile bar: the hub collapses
- * that bar in Simple mode, and a halt that disappears with the chrome is not a
- * halt. Which buttons SHOW is decided per tab in queue-view.js
+ * UI mode. Nothing here is ever contributed to the tile bar: the tile bar
+ * does not exist standalone, and a halt that disappears with the chrome is
+ * not a halt. Which buttons SHOW is decided per tab in queue-view.js
  * (stripControls): the Queue tab is the control panel and shows them all; the
  * other tabs show a dormant queue as its badge alone. */
 .status-strip {
@@ -147,7 +148,7 @@ html:not([data-ui-mode="simple"]) body.embedded .panel-tabs { display: none; }
 .status-strip-spacer { flex: 1 1 auto; }
 .strip-kicker {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-sm);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-muted);
@@ -158,7 +159,7 @@ html:not([data-ui-mode="simple"]) body.embedded .panel-tabs { display: none; }
 #panel-root[data-view="queue"] .status-strip {
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
-  border-radius: 8px;
+  border-radius: var(--radius-xl);
   padding: 10px 14px;
   box-shadow: var(--shadow-panel);
   /* The same reading measure as the Queue view's cards (.view-scroll), so the
@@ -214,13 +215,13 @@ html:not([data-ui-mode="simple"]) body.embedded .panel-tabs { display: none; }
 .lane-strip {
   display: inline-flex;
   border: 1px solid var(--border-default);
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 .lane-tab {
   font-family: var(--font-display);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
   color: var(--text-muted);
   background: transparent;
   border: none;
@@ -306,8 +307,8 @@ body.embedded .status-strip {
 
 /* ---- Banners ---- */
 .banner {
-  font-size: 12.5px;
-  border-radius: 6px;
+  font-size: var(--text-md);
+  border-radius: var(--radius-lg);
   padding: 8px 11px;
   margin: 0 0 10px;
   border: 1px solid transparent;
@@ -337,12 +338,12 @@ body.embedded .status-strip {
 .btn {
   flex: none;
   font-family: var(--font-display);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
   color: var(--color-on-accent);
   background: var(--color-accent-light);
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   padding: 7px 14px;
   cursor: pointer;
 }
@@ -402,28 +403,27 @@ body.embedded .status-strip {
   min-height: 0;
   background: var(--bg-panel);
   border: 1px solid var(--border-default);
-  border-radius: 8px;
+  border-radius: var(--radius-xl);
 }
 .sidebar-head {
   padding: 8px;
   border-bottom: 1px solid var(--border-default);
 }
 /* The plan filter is contributed to the tile bar as a `search` item, but only
-   while the Plans view is showing AND the shell is in Expert — Simple collapses
-   that bar and deliberately ENLARGES a search box. So the in-body one hides
-   under exactly the same condition as the view switcher above: embedded AND
-   Expert, and nowhere else. */
+   while the Plans view is showing AND the shell is in Expert — Simple keeps a
+   search box in the body rather than in the bar (header-contrib.js). So the
+   in-body one hides only when embedded AND Expert. */
 html:not([data-ui-mode="simple"]) body.embedded .sidebar-head { display: none; }
 
 .search {
   width: 100%;
   box-sizing: border-box;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--text-primary);
   background: var(--bg-primary);
   border: 1px solid var(--border-default);
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   padding: 5px 8px;
 }
 .search:focus-visible {
@@ -452,9 +452,9 @@ html:not([data-ui-mode="simple"]) body.embedded .sidebar-head { display: none; }
   list-style: none;
   cursor: pointer;
   padding: 4px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-sm);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-muted);
@@ -464,12 +464,12 @@ html:not([data-ui-mode="simple"]) body.embedded .sidebar-head { display: none; }
 .folder-summary:hover { color: var(--text-secondary); }
 .folder-summary::before {
   content: '▸';
-  font-size: 9px;
-  transition: transform 0.12s ease;
+  font-size: var(--text-xs);
+  transition: transform var(--duration-instant) ease;
 }
 .folder[open] > .folder-summary::before { transform: rotate(90deg); }
 .folder-name { flex: 1; }
-.folder-count { font-size: 10px; }
+.folder-count { font-size: var(--text-sm); }
 
 .folder-items {
   display: flex;
@@ -487,7 +487,7 @@ html:not([data-ui-mode="simple"]) body.embedded .sidebar-head { display: none; }
   background: transparent;
   border: none;
   border-left: 2px solid transparent;
-  border-radius: 0 4px 4px 0;
+  border-radius: var(--radius-none) var(--radius-md) var(--radius-md) var(--radius-none);
   padding: 5px 8px 5px 10px;
   color: inherit;
   font: inherit;
@@ -504,20 +504,20 @@ html:not([data-ui-mode="simple"]) body.embedded .sidebar-head { display: none; }
 }
 .plan-row-name {
   font-family: var(--font-mono);
-  font-size: 12.5px;
+  font-size: var(--text-md);
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.plan-row.selected .plan-row-name { font-weight: 600; }
+.plan-row.selected .plan-row-name { font-weight: var(--weight-semibold); }
 
 /* Status dots (shared by sidebar rows and the detail status line) */
 .dot {
   flex: none;
   width: 7px;
   height: 7px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
 }
 .dot.ok   { background: var(--color-success); }
 .dot.warn { background: var(--color-accent-secondary); }
@@ -533,7 +533,7 @@ html:not([data-ui-mode="simple"]) body.embedded .sidebar-head { display: none; }
   min-height: 0;
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
-  border-radius: 8px;
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-panel);
 }
 .detail-empty {
@@ -563,8 +563,8 @@ html:not([data-ui-mode="simple"]) body.embedded .sidebar-head { display: none; }
 .detail-title {
   margin: 0;
   font-family: var(--font-mono);
-  font-size: 16px;
-  font-weight: 600;
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-semibold);
   color: var(--text-primary);
 }
 .status-line {
@@ -572,12 +572,12 @@ html:not([data-ui-mode="simple"]) body.embedded .sidebar-head { display: none; }
   align-items: center;
   gap: 6px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--text-muted);
 }
 .detail-desc {
   margin: 4px 0 0;
-  font-size: 12.5px;
+  font-size: var(--text-md);
   color: var(--text-secondary);
 }
 #session-note { margin: 4px 0 0; }
@@ -596,21 +596,21 @@ html:not([data-ui-mode="simple"]) body.embedded .sidebar-head { display: none; }
   align-items: center;
   gap: 6px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--color-success);
   background: var(--success-tint-08);
   border: 1px solid var(--color-success);
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   padding: 3px 8px;
 }
 .draft-discard-btn {
   font-family: var(--font-display);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
   color: var(--text-muted);
   background: transparent;
   border: 1px solid var(--border-default);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   padding: 1px 7px;
   cursor: pointer;
 }
@@ -629,12 +629,12 @@ html:not([data-ui-mode="simple"]) body.embedded .sidebar-head { display: none; }
 }
 .draft-affordance {
   font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
   color: var(--color-accent-light);
   background: var(--accent-tint-10);
   border: 1px solid var(--border-accent);
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   padding: 3px 9px;
   cursor: pointer;
 }
@@ -645,7 +645,7 @@ html:not([data-ui-mode="simple"]) body.embedded .sidebar-head { display: none; }
 }
 .draft-agent-note {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--color-accent-secondary-light);
 }
 /* Agent-draft banner: "agent drafted <plan> — View draft". Replaces the
@@ -659,22 +659,22 @@ html:not([data-ui-mode="simple"]) body.embedded .sidebar-head { display: none; }
   align-items: center;
   gap: 8px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--color-accent-light);
   background: var(--accent-tint-12);
   border: 1px solid var(--border-accent);
   border-left: 3px solid var(--color-accent);
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   padding: 3px 9px;
 }
 .agent-draft-banner-view {
   font-family: var(--font-display);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
   color: var(--color-on-accent);
   background: var(--color-accent);
   border: 1px solid var(--color-accent);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   padding: 1px 8px;
   cursor: pointer;
 }
@@ -697,8 +697,8 @@ html:not([data-ui-mode="simple"]) body.embedded .sidebar-head { display: none; }
 }
 .tab {
   font-family: var(--font-display);
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
   color: var(--text-muted);
   background: transparent;
   border: none;
@@ -731,11 +731,11 @@ html:not([data-ui-mode="simple"]) body.embedded .sidebar-head { display: none; }
    one grey. */
 .source {
   font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: var(--text-md);
+  line-height: var(--leading-relaxed);
   background: var(--bg-panel);
   border: 1px solid var(--border-default);
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   padding: 12px;
   margin: 0;
   overflow: auto;
@@ -760,7 +760,7 @@ html:not([data-ui-mode="simple"]) body.embedded .sidebar-head { display: none; }
   gap: 18px;
 }
 .param-empty {
-  font-size: 12.5px;
+  font-size: var(--text-md);
   color: var(--text-muted);
 }
 .form-row {
@@ -783,25 +783,25 @@ html:not([data-ui-mode="simple"]) body.embedded .sidebar-head { display: none; }
 }
 .field-name {
   font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
   color: var(--text-primary);
 }
 .field-required { color: var(--color-error); }
 .field-help {
   margin: 0;
-  font-size: 11.5px;
+  font-size: var(--text-base);
   color: var(--text-muted);
 }
 .field-control { min-width: 0; }
 
 .field-input {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--text-lg);
   color: var(--text-primary);
   background: var(--bg-panel);
   border: 1px solid var(--border-default);
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   padding: 6px 8px;
   width: 100%;
   box-sizing: border-box;
@@ -830,19 +830,19 @@ select.field-input { cursor: pointer; }
   align-items: center;
   width: 32px;
   height: 18px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--neutral-tint-08);
   border: 1px solid var(--border-default);
   padding: 1px;
   box-sizing: border-box;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background var(--duration-fast) ease, border-color var(--duration-fast) ease;
 }
 .switch-thumb {
   width: 12px;
   height: 12px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   background: var(--text-muted);
-  transition: transform 0.15s ease, background 0.15s ease;
+  transition: transform var(--duration-fast) ease, background var(--duration-fast) ease;
 }
 .switch-input:checked + .switch-track {
   background: var(--accent-tint-10);
@@ -866,7 +866,7 @@ select.field-input { cursor: pointer; }
   padding: 4px 6px;
   background: var(--bg-panel);
   border: 1px solid var(--border-default);
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   cursor: text;
 }
 .chips:focus-within { border-color: var(--color-accent-light); }
@@ -875,11 +875,11 @@ select.field-input { cursor: pointer; }
   align-items: center;
   gap: 4px;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--text-primary);
   background: var(--accent-tint-06);
   border: 1px solid var(--border-accent);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   padding: 2px 4px 2px 7px;
 }
 .chip-x {
@@ -888,12 +888,12 @@ select.field-input { cursor: pointer; }
   justify-content: center;
   width: 14px;
   height: 14px;
-  font-size: 12px;
-  line-height: 1;
+  font-size: var(--text-md);
+  line-height: var(--leading-none);
   color: var(--text-muted);
   background: transparent;
   border: none;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   padding: 0;
   cursor: pointer;
 }
@@ -902,7 +902,7 @@ select.field-input { cursor: pointer; }
   flex: 1;
   min-width: 110px;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--text-primary);
   background: transparent;
   border: none;
@@ -919,7 +919,7 @@ select.field-input { cursor: pointer; }
   flex-direction: column;
   background: var(--bg-panel);
   border: 1px solid var(--border-default);
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   overflow: hidden;
 }
 .channel-list:focus-within { border-color: var(--color-accent-light); }
@@ -932,7 +932,7 @@ select.field-input { cursor: pointer; }
 }
 .channel-count {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-sm);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-muted);
@@ -957,7 +957,7 @@ select.field-input { cursor: pointer; }
   flex: 1;
   min-width: 0;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -970,19 +970,19 @@ select.field-input { cursor: pointer; }
   justify-content: center;
   width: 18px;
   height: 18px;
-  font-size: 13px;
-  line-height: 1;
+  font-size: var(--text-lg);
+  line-height: var(--leading-none);
   color: var(--text-muted);
   background: transparent;
   border: none;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   padding: 0;
   cursor: pointer;
 }
 .chan-x:hover { color: var(--color-error); background: var(--error-tint-08); }
 .channel-add {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--text-primary);
   background: transparent;
   border: none;
@@ -1002,18 +1002,18 @@ select.field-input { cursor: pointer; }
   gap: 2px;
   background: var(--bg-panel);
   border: 1px solid var(--border-default);
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
 }
 .segmented-option {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--text-secondary);
   background: transparent;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   padding: 5px 12px;
   cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background var(--duration-instant) ease, color var(--duration-instant) ease;
 }
 .segmented-option:hover:not(.active) { color: var(--text-primary); }
 .segmented-option.active {
@@ -1037,15 +1037,15 @@ select.field-input { cursor: pointer; }
   border-collapse: collapse;
   background: var(--bg-panel);
   border: 1px solid var(--border-default);
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   /* border-radius on tables needs separate handling; keep it simple with
      overflow on a wrapper-less table via clip. */
   overflow: clip;
 }
 .obj-table th {
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   text-align: left;
@@ -1127,12 +1127,12 @@ select.field-input { cursor: pointer; }
   justify-content: center;
   width: 20px;
   height: 20px;
-  font-size: 13px;
-  line-height: 1;
+  font-size: var(--text-lg);
+  line-height: var(--leading-none);
   color: var(--text-muted);
   background: transparent;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   padding: 0;
   cursor: pointer;
 }
@@ -1140,12 +1140,12 @@ select.field-input { cursor: pointer; }
 
 .table-add {
   font-family: var(--font-mono);
-  font-size: 11.5px;
-  font-weight: 600;
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
   color: var(--color-accent-light);
   background: transparent;
   border: 1px dashed var(--border-accent);
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   padding: 4px 10px;
   cursor: pointer;
 }
@@ -1174,7 +1174,7 @@ select.field-input { cursor: pointer; }
   min-width: 0;
   background: var(--bg-panel);
   border: 1px solid var(--border-default);
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   padding: 10px 12px;
 }
 
@@ -1204,11 +1204,11 @@ select.field-input { cursor: pointer; }
 }
 .readout {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--color-accent-light);
 }
 .footnote {
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--text-muted);
 }
 #unvalidated-note { font-family: var(--font-mono); }
@@ -1239,12 +1239,12 @@ select.field-input { cursor: pointer; }
 .launch-banner-text { margin-right: 8px; }
 .launch-run-link {
   font-family: var(--font-display);
-  font-size: 11.5px;
-  font-weight: 600;
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
   color: var(--color-success);
   background: transparent;
   border: 1px solid var(--color-success);
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   padding: 2px 8px;
   cursor: pointer;
 }
@@ -1259,9 +1259,9 @@ select.field-input { cursor: pointer; }
 
 code {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
   background: var(--neutral-tint-08);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   padding: 1px 5px;
 }
 
@@ -1272,15 +1272,15 @@ code {
 .card {
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
-  border-radius: 8px;
+  border-radius: var(--radius-xl);
   padding: 16px 18px;
   margin-bottom: 16px;
   box-shadow: var(--shadow-panel);
 }
 .card h2 {
   margin: 0;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
   color: var(--text-primary);
 }
 .card > h2:first-child {
@@ -1302,10 +1302,10 @@ code {
   display: inline-flex;
   align-items: center;
   font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
   padding: 3px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   border: 1px solid transparent;
   text-transform: uppercase;
   letter-spacing: 0.02em;
@@ -1340,12 +1340,12 @@ code {
 
 .icon-btn {
   font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1;
+  font-size: var(--text-md);
+  line-height: var(--leading-none);
   color: var(--text-secondary);
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   padding: 4px 7px;
   cursor: pointer;
 }
@@ -1368,7 +1368,7 @@ code {
 .queue-note,
 .run-note {
   margin: 0 0 10px;
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--text-secondary);
 }
 /* The armed withdrawal's consequence sentence — the caution family, matching
@@ -1381,7 +1381,7 @@ code {
 
 .running {
   border: 1px solid var(--border-accent);
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   padding: 10px 12px;
   margin-bottom: 12px;
   background: var(--accent-tint-06);
@@ -1397,7 +1397,7 @@ code {
 }
 .running-kicker {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-sm);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--color-accent-light);
@@ -1406,21 +1406,21 @@ code {
 .progress {
   height: 6px;
   margin-top: 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--neutral-tint-08);
   overflow: hidden;
 }
 .progress-fill {
   height: 100%;
   width: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--color-accent-light);
 }
 /* Unknown denominator: the bar sweeps instead of sitting at a number it does
    not know. Never rendered as 0% — a plan with no predicted point count is
    running normally, and a zeroed bar reads as a stalled plan. */
 .progress.indeterminate .progress-fill {
-  animation: progress-sweep 1.4s ease-in-out infinite;
+  animation: progress-sweep 1.4s ease-in-out infinite; /* hygiene-allow-scale: a loop period, not a transition; no --duration-* step is a sweep */
   transform-origin: left center;
 }
 @keyframes progress-sweep {
@@ -1438,7 +1438,7 @@ code {
 .progress-label {
   margin: 6px 0 0;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--text-muted);
 }
 
@@ -1468,7 +1468,7 @@ code {
   flex: none;
   min-width: 20px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--text-muted);
   text-align: right;
 }
@@ -1478,7 +1478,7 @@ code {
    open — so it is muted whole, which is what tells the two apart at a glance
    before anyone reads either. */
 .queue-row.removal .queue-name {
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--text-muted);
 }
 /* Floored at the widest form the column holds ("MM-DD HH:MM"), in mono
@@ -1488,7 +1488,7 @@ code {
   flex: none;
   min-width: 11ch;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--text-muted);
 }
 
@@ -1515,15 +1515,15 @@ button.queue-label:disabled { cursor: default; }
 button.queue-label:focus-visible {
   outline: 2px solid var(--border-accent);
   outline-offset: 2px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
 }
 .queue-name {
-  font-size: 13px;
+  font-size: var(--text-lg);
   color: var(--text-primary);
 }
 .queue-params {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1538,7 +1538,7 @@ button.queue-label:focus-visible {
 
 .queue-empty {
   margin: 8px 0 0;
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--text-muted);
 }
 
@@ -1547,12 +1547,12 @@ button.queue-label:focus-visible {
 .run-meta {
   margin: 0 0 10px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--text-muted);
 }
 .run-meta strong {
   color: var(--text-secondary);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 .meta-part + .meta-part::before {
   content: " · ";
@@ -1561,11 +1561,11 @@ button.queue-label:focus-visible {
 
 .empty-state {
   border: 1px dashed var(--border-default);
-  border-radius: 8px;
+  border-radius: var(--radius-xl);
   padding: 24px;
   text-align: center;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--text-lg);
 }
 .empty-state.error {
   color: var(--color-error);
@@ -1624,7 +1624,7 @@ button.queue-label:focus-visible {
   border-top: 4px solid transparent;
   border-bottom: 4px solid transparent;
   border-left: 6px solid var(--text-muted);
-  transition: transform 120ms ease;
+  transition: transform var(--duration-instant) ease;
 }
 .table-details[open] > .table-summary::before {
   transform: rotate(90deg);
@@ -1635,13 +1635,13 @@ button.queue-label:focus-visible {
 
 .table-summary-label {
   font-family: var(--font-display);
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
   color: var(--text-secondary);
 }
 .table-summary-count {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--text-muted);
 }
 
@@ -1650,7 +1650,7 @@ button.queue-label:focus-visible {
 .export-note {
   margin: 8px 0 0;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--text-muted);
 }
 .export-note.error {
@@ -1663,7 +1663,7 @@ button.queue-label:focus-visible {
 .table-note {
   margin: 8px 0 0;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--text-muted);
 }
 
@@ -1676,7 +1676,7 @@ button.queue-label:focus-visible {
   max-height: 42vh;
   margin-top: 4px;
   border: 1px solid var(--border-default);
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
 }
 
 #results-table {
@@ -1684,7 +1684,7 @@ button.queue-label:focus-visible {
   width: 100%;
   min-width: 480px;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 #results-table th,
 #results-table td {
@@ -1701,7 +1701,7 @@ button.queue-label:focus-visible {
 #results-table thead th {
   background: var(--bg-secondary);
   color: var(--text-secondary);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   position: sticky;
   top: 0;
 }
@@ -1736,7 +1736,7 @@ button.queue-label:focus-visible {
 .figure-note {
   margin: 0 0 10px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--text-muted);
 }
 
@@ -1755,14 +1755,14 @@ button.queue-label:focus-visible {
   overflow-x: auto;
   padding: 10px 12px 12px;
   border: 1px solid var(--border-default);
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   background: var(--chart-plot-bg);
 }
 
 .figure-panel-title {
   margin: 0 0 8px;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
   color: var(--text-secondary);
 }
 
@@ -1794,7 +1794,7 @@ button.queue-label:focus-visible {
   margin: 10px 0 0;
   padding: 0;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--text-secondary);
 }
 .figure-legend li {
@@ -1806,7 +1806,7 @@ button.queue-label:focus-visible {
   display: inline-block;
   width: 10px;
   height: 10px;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
 }
 
 /* What the plot could not show: decimation and gap counts. Quiet, but never
@@ -1815,7 +1815,7 @@ button.queue-label:focus-visible {
   list-style: none;
   margin: 8px 0 0;
   padding: 0;
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--text-muted);
 }
 .figure-annotations li + li {
@@ -1834,7 +1834,7 @@ button.queue-label:focus-visible {
   gap: 2px;
   margin-top: 10px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--text-secondary);
 }
 .figure-colorbar-label {
@@ -1849,7 +1849,7 @@ button.queue-label:focus-visible {
 .figure-colorbar-strip {
   width: 180px;
   height: 10px;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   border: 1px solid var(--border-default);
 }
 .figure-colorbar-zero {
@@ -1874,7 +1874,7 @@ button.queue-label:focus-visible {
   align-items: baseline;
   gap: 8px;
   font-family: var(--font-display);
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--text-secondary);
 }
 .figure-section-summary:hover {
@@ -1882,7 +1882,7 @@ button.queue-label:focus-visible {
 }
 .figure-section-count {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--text-muted);
 }
 
@@ -1898,7 +1898,7 @@ button.queue-label:focus-visible {
 }
 .figure-picker-label,
 .figure-picker-note {
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--text-muted);
 }
 .figure-picker-note {
@@ -1911,10 +1911,10 @@ button.queue-label:focus-visible {
 }
 .figure-chip {
   font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 1;
+  font-size: var(--text-base);
+  line-height: var(--leading-none);
   padding: 4px 8px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-default);
   background: transparent;
   color: var(--text-muted);
@@ -1938,7 +1938,7 @@ button.queue-label:focus-visible {
   margin: 0;
   padding: 20px 0;
   text-align: center;
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--text-muted);
 }
 
@@ -1979,9 +1979,9 @@ button.queue-label:focus-visible {
  * parameter readout is kept as friendly guidance. Add-to-queue is promoted to
  * a single full-width primary affordance. Token-only, both themes.
  *
- * The view switcher and the status strip are NOT touched here: Simple is
- * exactly the mode in which the hub's tile bar is collapsed, so the in-body
- * strip is the only navigation, and the halts must survive every mode.
+ * The status strip is NOT touched here: the halts must survive every mode.
+ * The view switcher is not either: embedded, the tile bar carries it in both
+ * modes, and standalone the in-body strip is the only navigation.
  */
 
 /* Flatten the sidebar to a plain plan list: no trust dots, no provenance
@@ -2023,6 +2023,6 @@ html[data-ui-mode="simple"] .foot-actions {
 }
 html[data-ui-mode="simple"] #queue-add-btn {
   width: 100%;
-  font-size: 15px;
+  font-size: var(--text-xl);
   padding: 12px 18px;
 }

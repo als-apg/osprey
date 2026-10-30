@@ -108,10 +108,18 @@
 
 /* Embedded in web terminal: the host tile header bar IS this panel's header —
  * it carries the panel name, the hub's theming, and (via app.js) the Search /
- * Browse / New Entry nav contributed into it. The panel's own header would be a second
- * bar, so it goes away wholesale. The display menu needs no rule here: the
- * component injects its own body.embedded hide rule. */
+ * Browse / New Entry nav contributed into it, in Expert and Simple alike. The
+ * panel's own header would be a second bar, so it goes away wholesale. The
+ * display menu needs no rule here: the component injects its own
+ * body.embedded hide rule. */
 body.embedded .header { display: none; }
+
+/* Embedded, each view's title row goes too: the tile bar already names the
+ * panel and its nav marks the active view, so "Search the Logbook",
+ * "Browse Entries" and "New Entry" would be a second title inside the body.
+ * Standalone keeps them as the page's view headings. */
+body.embedded .search-hero,
+body.embedded .dashboard-header { display: none; }
 
 /* === Main Content === */
 .main {

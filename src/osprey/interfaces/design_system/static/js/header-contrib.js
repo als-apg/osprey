@@ -69,12 +69,11 @@
  * Both helpers are strict no-ops outside an embedded frame, so panels call
  * them unconditionally.
  *
- * SIMPLE MODE: the hub collapses a service tile's whole bar to zero height in
- * Simple mode, so anything contributed is invisible there. That suits chrome
- * Simple already drops (view switchers), but NOT a search box, which Simple
- * deliberately enlarges — nor anything safety-bearing. Gate those on
- * {@link isSimpleMode} and keep the in-body control for Simple; re-contribute
- * from the panel's existing `osprey-mode-change` handler.
+ * SIMPLE MODE: the tile bar is live in both views, so a contribution shows in
+ * Simple exactly as in Expert. {@link isSimpleMode} is for the controls Simple
+ * deliberately keeps in the body (a search box Simple enlarges, anything
+ * safety-bearing): a panel may withhold those from the bar in Simple and
+ * re-contribute from its existing `osprey-mode-change` handler.
  *
  * @module header-contrib
  */
@@ -118,12 +117,11 @@ function isEmbedded() {
 }
 
 /**
- * True when the shell is in Simple mode. Panels use this to decide whether a
- * control belongs in the bar at all: the hub collapses a service tile's bar
- * in Simple, so a search box (or anything safety-bearing) must stay in the
- * body there. Reads the same `data-ui-mode` attribute mode-boot.js stamps
- * pre-paint and the hub's `osprey-mode-change` handler keeps current, so it
- * is correct from first paint onward.
+ * True when the shell is in Simple mode. The tile bar is live in both views;
+ * panels use this only to keep a control Simple enlarges in the body (a
+ * search box) or to vary a label. Reads the same `data-ui-mode` attribute
+ * mode-boot.js stamps pre-paint and the hub's `osprey-mode-change` handler
+ * keeps current, so it is correct from first paint onward.
  * @returns {boolean}
  */
 export function isSimpleMode() {
