@@ -11,12 +11,12 @@
  *   --accent-tint-N and --neutral-tint-N ramps. (Never write the token
  *   families glob-style here: an asterisk followed by a slash terminates
  *   this comment mid-file and the parser then eats the :root block below —
- *   every --okf-* token silently vanishes.)
- * Only panel-local scale/layout tokens with no fleet-wide equivalent
- * (typography steps, spacing, radius, transitions, translucent surfaces) stay
- * in the reduced :root below, mirroring the artifact gallery's post-migration
- * layout. The .osprey-md-rendered markdown block is unchanged in behaviour —
- * it just references the shared tokens now.
+ *   every local token silently vanishes.)
+ * Type, weight, leading, spacing, radius and duration all read the fleet
+ * scales (--text-N, --weight-N, --leading-N, --space-N, --radius-N,
+ * --duration-N). Only the translucent surfaces and the letter-spacing steps,
+ * which have no fleet-wide equivalent, stay in the reduced :root below. The
+ * .osprey-md-rendered markdown block mirrors the web terminal's md-rendered.css.
  */
 
 /* ================================================================
@@ -30,33 +30,9 @@
   --okf-surface-card: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
   --okf-surface-hover: color-mix(in srgb, var(--bg-elevated) 60%, transparent);
 
-  /* === Typography (panel-local scale) === */
-  --okf-text-xs: 0.7rem;
-  --okf-text-sm: 0.8125rem;
-  --okf-text-base: 0.9375rem;
-  --okf-text-2xl: 1.5rem;
-
-  --okf-leading-tight: 1.25;
-  --okf-leading-normal: 1.5;
-
+  /* === Letter spacing (no fleet tracking scale) === */
   --tracking-wide: 0.05em;
   --tracking-wider: 0.1em;
-
-  /* === Spacing === */
-  --okf-space-1: 0.25rem;
-  --okf-space-2: 0.5rem;
-  --okf-space-3: 0.75rem;
-  --okf-space-4: 1rem;
-  --okf-space-6: 1.5rem;
-  --okf-space-8: 2rem;
-  --okf-space-12: 3rem;
-
-  /* === Border radius === */
-  --okf-radius-md: 5px;
-  --okf-radius-full: 9999px;
-
-  /* === Transitions === */
-  --transition-fast: 120ms ease;
 }
 
 * {
@@ -71,8 +47,8 @@ body {
 
 body {
   font-family: var(--font-display);
-  font-size: var(--okf-text-base);
-  line-height: var(--okf-leading-normal);
+  font-size: var(--text-lg);
+  line-height: var(--leading-normal);
   color: var(--text-primary);
   background: var(--bg-primary);
 }
@@ -105,7 +81,7 @@ body {
 
 #search-box {
   flex: 0 0 auto;
-  padding: var(--okf-space-3);
+  padding: var(--space-3);
   border-bottom: 1px solid var(--border-default);
 }
 
@@ -115,16 +91,16 @@ body {
 
 #search-input {
   width: 100%;
-  padding: var(--okf-space-2) var(--okf-space-3);
+  padding: var(--space-2) var(--space-3);
   font-family: var(--font-display);
-  font-size: var(--okf-text-sm);
+  font-size: var(--text-base);
   color: var(--text-primary);
   background: var(--bg-primary);
   border: 1px solid var(--border-default);
-  border-radius: var(--okf-radius-md);
+  border-radius: var(--radius-md);
   outline: none;
-  transition: border-color var(--transition-fast),
-    box-shadow var(--transition-fast);
+  transition: border-color var(--duration-instant) ease,
+    box-shadow var(--duration-instant) ease;
 }
 
 #search-input::placeholder {
@@ -139,21 +115,21 @@ body {
 /* Home / structure-overview entry, pinned at the top of the sidebar. */
 #structure-nav {
   flex: 0 0 auto;
-  padding: var(--okf-space-2) var(--okf-space-2) 0;
+  padding: var(--space-2) var(--space-2) 0;
 }
 
 .structure-link {
   display: block;
-  padding: var(--okf-space-2) var(--okf-space-3);
-  font-size: var(--okf-text-sm);
-  font-weight: 600;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
   color: var(--text-primary);
   text-decoration: none;
   border: 1px solid var(--border-default);
-  border-radius: var(--okf-radius-md);
+  border-radius: var(--radius-md);
   background: var(--okf-surface-card);
-  transition: background var(--transition-fast),
-    border-color var(--transition-fast), color var(--transition-fast);
+  transition: background var(--duration-instant) ease,
+    border-color var(--duration-instant) ease, color var(--duration-instant) ease;
 }
 
 .structure-link:hover {
@@ -170,8 +146,8 @@ body {
 .structure-link .structure-sub {
   display: block;
   margin-top: 2px;
-  font-size: var(--okf-text-xs);
-  font-weight: 400;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-regular);
   letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
   color: var(--text-muted);
@@ -181,7 +157,7 @@ body {
 #search-results {
   flex: 1 1 auto;
   overflow-y: auto;
-  padding: var(--okf-space-2) var(--okf-space-2) var(--okf-space-6);
+  padding: var(--space-2) var(--space-2) var(--space-5);
 }
 
 #search-results {
@@ -189,13 +165,13 @@ body {
 }
 
 .group {
-  margin-bottom: var(--okf-space-3);
+  margin-bottom: var(--space-3);
 }
 
 .group-label {
-  margin: var(--okf-space-3) var(--okf-space-2) var(--okf-space-1);
-  font-size: var(--okf-text-xs);
-  font-weight: 700;
+  margin: var(--space-3) var(--space-2) var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
   letter-spacing: var(--tracking-wider);
   text-transform: uppercase;
   color: var(--text-secondary);
@@ -210,15 +186,15 @@ body {
 
 .concept-link {
   display: block;
-  padding: var(--okf-space-1) var(--okf-space-3);
-  font-size: var(--okf-text-sm);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-base);
   color: var(--text-primary);
   text-decoration: none;
-  border-radius: var(--okf-radius-md);
+  border-radius: var(--radius-md);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition: background var(--duration-instant) ease, color var(--duration-instant) ease;
 }
 
 .concept-link:hover {
@@ -229,29 +205,29 @@ body {
 .concept-link.active {
   background: var(--accent-tint-08);
   color: var(--color-accent-light);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   box-shadow: inset 2px 0 0 var(--color-accent);
 }
 
 .empty-group {
-  padding: 2px var(--okf-space-3) var(--okf-space-2);
+  padding: 2px var(--space-3) var(--space-2);
   font-style: italic;
 }
 
 /* -- Search results ------------------------------------------------------- */
 
 .result-item {
-  margin: var(--okf-space-2) var(--okf-space-2);
-  padding: var(--okf-space-2) var(--okf-space-3);
+  margin: var(--space-2) var(--space-2);
+  padding: var(--space-2) var(--space-3);
   background: var(--okf-surface-card);
   border: 1px solid var(--border-default);
-  border-radius: var(--okf-radius-md);
+  border-radius: var(--radius-md);
 }
 
 .result-link {
   display: block;
-  font-size: var(--okf-text-sm);
-  font-weight: 600;
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
   color: var(--color-accent-light);
   text-decoration: none;
 }
@@ -261,10 +237,10 @@ body {
 }
 
 .result-snippet {
-  margin: var(--okf-space-1) 0 0;
-  font-size: var(--okf-text-xs);
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
-  line-height: var(--okf-leading-normal);
+  line-height: var(--leading-normal);
 }
 
 /* Ranked results — the qmd sidecar answered, so position carries meaning.
@@ -273,8 +249,8 @@ body {
    a sidecar neither element is rendered and the list above is unchanged. */
 
 .result-mode {
-  margin: var(--okf-space-2) var(--okf-space-2) 0;
-  font-size: var(--okf-text-xs);
+  margin: var(--space-2) var(--space-2) 0;
+  font-size: var(--text-sm);
   letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
 }
@@ -282,12 +258,12 @@ body {
 .result-list-ranked .result-item {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  column-gap: var(--okf-space-2);
+  column-gap: var(--space-2);
   align-items: baseline;
 }
 
 .result-rank {
-  font-size: var(--okf-text-xs);
+  font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
   color: var(--text-muted);
 }
@@ -308,39 +284,39 @@ body {
 #reader-content {
   max-width: 860px;
   margin: 0 auto;
-  padding: var(--okf-space-4) var(--okf-space-8) var(--okf-space-12);
+  padding: var(--space-4) var(--space-6) var(--space-7);
 }
 
 .concept-title {
-  margin: 0 0 var(--okf-space-2);
+  margin: 0 0 var(--space-2);
   font-family: var(--font-display);
-  font-size: var(--okf-text-2xl);
-  line-height: var(--okf-leading-tight);
+  font-size: var(--text-3xl);
+  line-height: var(--leading-tight);
   color: var(--color-accent-light);
   word-break: break-word;
 }
 
 .concept-description {
-  margin: 0 0 var(--okf-space-4);
-  font-size: var(--okf-text-base);
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-lg);
   color: var(--text-secondary);
 }
 
 .concept-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--okf-space-2);
-  margin: 0 0 var(--okf-space-6);
+  gap: var(--space-2);
+  margin: 0 0 var(--space-5);
 }
 
 .tag {
-  padding: 2px var(--okf-space-2);
+  padding: 2px var(--space-2);
   font-family: var(--font-mono);
-  font-size: var(--okf-text-xs);
+  font-size: var(--text-sm);
   color: var(--color-accent-light);
   background: var(--accent-tint-10);
   border: 1px solid var(--border-default);
-  border-radius: var(--okf-radius-full);
+  border-radius: var(--radius-full);
 }
 
 .muted {
@@ -359,7 +335,7 @@ body {
 #search-results::-webkit-scrollbar-thumb,
 #reader::-webkit-scrollbar-thumb {
   background: var(--neutral-tint-35);
-  border-radius: var(--okf-radius-full);
+  border-radius: var(--radius-full);
 }
 
 #tree::-webkit-scrollbar-track,
@@ -369,12 +345,12 @@ body {
 }
 
 /* ================================================================
-   Markdown body (ported verbatim from gallery.css .osprey-md-rendered)
+   Markdown body (same steps as web_terminal's md-rendered.css)
    ================================================================ */
 
 .osprey-md-rendered {
   color: var(--text-primary);
-  line-height: 1.7;
+  line-height: var(--leading-loose);
   white-space: normal;
   max-width: 800px;
 }
@@ -388,20 +364,20 @@ body {
   font-family: var(--font-display);
   color: var(--color-accent-light);
   margin: 1.2em 0 0.4em;
-  line-height: 1.3;
+  line-height: var(--leading-tight);
 }
 
-.osprey-md-rendered h1 { font-size: 18px; font-weight: 700; border-bottom: 1px solid var(--border-accent); padding-bottom: 6px; }
-.osprey-md-rendered h2 { font-size: 15px; font-weight: 600; border-bottom: 1px solid var(--border-default); padding-bottom: 4px; }
-.osprey-md-rendered h3 { font-size: 13px; font-weight: 600; }
+.osprey-md-rendered h1 { font-size: var(--text-3xl); font-weight: var(--weight-bold); border-bottom: 1px solid var(--border-accent); padding-bottom: 6px; }
+.osprey-md-rendered h2 { font-size: var(--text-2xl); font-weight: var(--weight-semibold); border-bottom: 1px solid var(--border-default); padding-bottom: var(--space-1); }
+.osprey-md-rendered h3 { font-size: var(--text-lg); font-weight: var(--weight-semibold); }
 .osprey-md-rendered h4,
 .osprey-md-rendered h5,
-.osprey-md-rendered h6 { font-size: 12px; font-weight: 500; color: var(--text-secondary); }
+.osprey-md-rendered h6 { font-size: var(--text-md); font-weight: var(--weight-medium); color: var(--text-secondary); }
 
-.osprey-md-rendered p { margin: 0.6em 0; font-size: 12px; }
+.osprey-md-rendered p { margin: 0.6em 0; font-size: var(--text-md); }
 
 .osprey-md-rendered ul,
-.osprey-md-rendered ol { margin: 0.5em 0; padding-left: 1.6em; font-size: 12px; }
+.osprey-md-rendered ol { margin: 0.5em 0; padding-left: 1.6em; font-size: var(--text-md); }
 .osprey-md-rendered li { margin: 0.2em 0; }
 .osprey-md-rendered li::marker { color: var(--text-muted); }
 
@@ -415,10 +391,10 @@ body {
 
 .osprey-md-rendered code {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   padding: 1px 4px;
   color: var(--color-accent-secondary-light);
 }
@@ -428,10 +404,10 @@ body {
   padding: 10px 12px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
-  border-radius: var(--okf-radius-md);
+  border-radius: var(--radius-md);
   overflow-x: auto;
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
 }
 
 .osprey-md-rendered pre code {
@@ -448,19 +424,19 @@ body {
   border-left: 3px solid var(--color-accent);
   background: var(--accent-tint-04);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 
 .osprey-md-rendered hr { border: none; border-top: 1px solid var(--border-default); margin: 1em 0; }
 
-.osprey-md-rendered table { width: 100%; border-collapse: collapse; margin: 0.8em 0; font-size: 11px; }
+.osprey-md-rendered table { width: 100%; border-collapse: collapse; margin: 0.8em 0; font-size: var(--text-base); }
 .osprey-md-rendered th,
 .osprey-md-rendered td { border: 1px solid var(--border-default); padding: 4px 8px; text-align: left; }
-.osprey-md-rendered th { background: var(--bg-secondary); color: var(--color-accent-light); font-weight: 500; }
+.osprey-md-rendered th { background: var(--bg-secondary); color: var(--color-accent-light); font-weight: var(--weight-medium); }
 
-.osprey-md-rendered strong { color: var(--text-primary); font-weight: 600; }
+.osprey-md-rendered strong { color: var(--text-primary); font-weight: var(--weight-semibold); }
 .osprey-md-rendered em { color: var(--text-secondary); font-style: italic; }
-.osprey-md-rendered img { max-width: 100%; border-radius: var(--okf-radius-md); margin: 0.5em 0; }
+.osprey-md-rendered img { max-width: 100%; border-radius: var(--radius-md); margin: 0.5em 0; }
 
 /* -- Responsive ----------------------------------------------------------- */
 
@@ -486,7 +462,7 @@ body {
     flex: 1 1 auto;
   }
   #reader-content {
-    padding: var(--okf-space-4) var(--okf-space-4) var(--okf-space-8);
+    padding: var(--space-4) var(--space-4) var(--space-6);
   }
 }
 
@@ -499,12 +475,12 @@ body {
 .bundle-health {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--space-2);
   margin-top: auto;
-  padding: 0.6rem 0.85rem;
+  padding: var(--space-2) var(--space-3);
   border-top: 1px solid var(--neutral-tint-10);
-  font-size: 0.75rem;
-  line-height: 1.3;
+  font-size: var(--text-sm);
+  line-height: var(--leading-tight);
   color: var(--text-secondary);
 }
 
@@ -512,7 +488,7 @@ body {
   flex: 0 0 auto;
   width: 8px;
   height: 8px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   background: var(--text-muted);
 }
 
@@ -531,16 +507,30 @@ body {
 }
 
 /* ================================================================
+   Embedded in the web-terminal hub
+   ----------------------------------------------------------------
+   The tile bar is the panel's one header in both UI modes: app.js
+   (publishHeaderContribution) contributes the search box and the Browse
+   view to it, so the in-body search box goes. The standalone-only
+   "Browse all pages" bar is removed from the DOM by app.js when embedded.
+   ================================================================ */
+
+body.embedded #search-box {
+  display: none;
+}
+
+/* ================================================================
    Simple Mode — reading-focused (html[data-ui-mode="simple"])
    ----------------------------------------------------------------
    Expert is the default and stays pixel-identical: every rule below is
    gated on the data-ui-mode attribute, so nothing here touches the panel
    until the hub flips it to "simple". The reading-focused mode drops the
-   expert navigation/diagnostic chrome (tree, search, group labels,
-   bundle-health, mono tag chips) and puts the rendered document front and
-   centre with a generous reading measure — reached via a persistent
-   "Browse all pages" affordance that loads the structure overview (the
-   plain doc list). Mirrors the artifacts panel's Expert/Simple recipe.
+   expert navigation/diagnostic chrome (tree, group labels, bundle-health,
+   mono tag chips) and puts the rendered document front and centre with a
+   generous reading measure. The structure overview (the plain doc list) is
+   reached from the tile bar's Browse entry when embedded, and from the
+   "Browse all pages" bar standalone. Mirrors the artifacts panel's
+   Expert/Simple recipe.
    ================================================================ */
 
 /* Drop the whole expert navigation column (tree, search, group labels,
@@ -551,44 +541,60 @@ body {
   display: none;
 }
 
+/* A search from the tile bar renders into #search-results, which lives in the
+   sidebar: while results are showing, Simple brings the column back with the
+   results as its only content. Clearing the search hides it again. */
+:root[data-ui-mode="simple"] #sidebar:has(#search-results:not([hidden])) {
+  display: flex;
+}
+
+:root[data-ui-mode="simple"] #sidebar > :not(#search-results) {
+  display: none;
+}
+
+:root[data-ui-mode="simple"] #search-results {
+  border-top: none;
+}
+
 /* Expert-only concept metadata: the mono tag chips read as reference chrome. */
 :root[data-ui-mode="simple"] .concept-tags {
   display: none;
 }
 
-/* Persistent top affordance — hidden in Expert (default), a sticky
-   "Browse all pages" bar in Simple. */
+/* Standalone top affordance — hidden in Expert (default), a sticky
+   "Browse all pages" bar in Simple. index.html ships it [hidden]; app.js
+   reveals it standalone and removes it when embedded. */
 .reader-topbar {
   display: none;
 }
 
-:root[data-ui-mode="simple"] .reader-topbar {
+:root[data-ui-mode="simple"] .reader-topbar:not([hidden]) {
   display: flex;
   position: sticky;
   top: 0;
   z-index: 1;
   justify-content: center;
-  padding: var(--okf-space-4) var(--okf-space-6) var(--okf-space-2);
+  padding: var(--space-4) var(--space-5) var(--space-2);
   background: var(--bg-primary);
 }
 
 .browse-all-btn {
   display: inline-flex;
   align-items: center;
-  gap: var(--okf-space-2);
+  gap: var(--space-2);
   width: 100%;
   max-width: 760px;
-  padding: var(--okf-space-2) var(--okf-space-3);
+  padding: var(--space-2) var(--space-3);
   font-family: var(--font-display);
-  font-size: var(--okf-text-sm);
-  font-weight: 600;
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
   color: var(--text-secondary);
   background: var(--okf-surface-card);
   border: 1px solid var(--border-default);
-  border-radius: var(--okf-radius-md);
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: background var(--transition-fast),
-    border-color var(--transition-fast), color var(--transition-fast);
+  transition: background var(--duration-instant) ease,
+    border-color var(--duration-instant) ease, color var(--duration-instant) ease;
 }
 
 .browse-all-btn:hover {
@@ -613,50 +619,44 @@ body {
 }
 
 /* Generous reading measure: a narrower, larger-type column so the document
-   reads as prose rather than reference chrome. */
+   reads as prose rather than reference chrome. The page title is the same
+   --text-4xl whether it is a concept's title or the overview's markdown h1. */
 :root[data-ui-mode="simple"] #reader-content {
   max-width: 760px;
-  padding: var(--okf-space-4) var(--okf-space-6) var(--okf-space-12);
-  font-size: var(--okf-text-base);
+  padding: var(--space-4) var(--space-5) var(--space-7);
+  font-size: var(--text-lg);
 }
 
 :root[data-ui-mode="simple"] .concept-title {
-  font-size: 1.9rem;
+  font-size: var(--text-4xl);
 }
 
 :root[data-ui-mode="simple"] .concept-description {
-  font-size: 1.0625rem;
-  line-height: var(--okf-leading-normal);
+  font-size: var(--text-xl);
+  line-height: var(--leading-normal);
 }
 
 :root[data-ui-mode="simple"] .osprey-md-rendered {
   max-width: none;
-  line-height: 1.8;
-  font-size: var(--okf-text-base);
+  line-height: var(--leading-loose);
+  font-size: var(--text-lg);
 }
 
 :root[data-ui-mode="simple"] .osprey-md-rendered p,
 :root[data-ui-mode="simple"] .osprey-md-rendered ul,
 :root[data-ui-mode="simple"] .osprey-md-rendered ol,
 :root[data-ui-mode="simple"] .osprey-md-rendered li {
-  font-size: 1rem;
+  font-size: var(--text-xl);
 }
 
 :root[data-ui-mode="simple"] .osprey-md-rendered h1 {
-  font-size: 22px;
+  font-size: var(--text-4xl);
 }
 
 :root[data-ui-mode="simple"] .osprey-md-rendered h2 {
-  font-size: 18px;
+  font-size: var(--text-3xl);
 }
 
 :root[data-ui-mode="simple"] .osprey-md-rendered h3 {
-  font-size: 15px;
+  font-size: var(--text-2xl);
 }
-
-/* Embedded in Expert: the sidebar's search box is contributed to the host tile
- * bar instead (app.js publishHeaderContribution), so the in-body one goes.
- * Simple is excluded because the hub collapses the tile bar there — no bar, so
- * no reason to take the body control away (Simple drops the whole sidebar on
- * its own terms above). */
-:root:not([data-ui-mode="simple"]) body.embedded #search-box { display: none; }

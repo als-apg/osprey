@@ -264,14 +264,23 @@ keyword.
 How the tab is themed
 ---------------------
 
-JupyterLab starts in the deployment's pinned theme. A ``web.theme`` that names
-a dark or a light look (:doc:`theming`) starts the tab in JupyterLab's matching
-built-in theme; a family name on its own pins nothing.
+The JUPYTER tab follows the light or dark side of the terminal's theme. A dark
+theme shows *JupyterLab Dark*, and a light theme shows *JupyterLab Light*.
+When you change the terminal theme (:doc:`theming`), the tab changes too. In
+the tab, the terminal theme replaces a theme that you pick from
+*Settings → Theme*.
 
-Unlike the other panels, this one does not follow the terminal's Appearance
-toggle. Switching the terminal between light and dark leaves JupyterLab as it
-is. Pick a theme inside the tab from *Settings → Theme* instead. That pick is
-stored on the durable volume, so it comes back after a sidecar restart.
+The tab changes its theme after JupyterLab starts. Until then, JupyterLab
+shows the theme that it stored last. If it has no stored theme, it shows the
+pinned theme of the deployment. A ``web.theme`` that names a dark or a light
+look pins the JupyterLab theme for that look. A family name on its own pins
+nothing.
+
+JupyterLab stores each theme change on the durable volume, so the theme comes
+back after a sidecar restart. A JupyterLab page that you open at its own
+address does not follow the terminal. It starts in the theme that the tab used
+last. A theme that you pick there from *Settings → Theme* stays until the tab
+follows the terminal again.
 
 When the tab fails to start
 ---------------------------
@@ -305,8 +314,6 @@ Not in this release
 - No real-time collaborative editing. Two people in one notebook fall back to
   the save-time dialog above.
 - No health probe of the sidecar; the row reports what the terminal recorded.
-- No live theme following. The tab starts in the pinned theme and stays there
-  until you pick another one inside it.
 
 .. seealso::
 

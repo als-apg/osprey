@@ -18,7 +18,14 @@
  * no stylesheets, no stream. The proxy injects the tag either way, because
  * only the page can tell which it is ({@link isEmbedded}).
  *
- * It owns three things and nothing else:
+ * **The framed page's own job.** Framed, the page needs something else, and
+ * this entry starts that too: `lab-theme-follow.js` puts the hub's light/dark
+ * on JupyterLab, which themes itself and would otherwise stay in the theme the
+ * sidecar pinned at start. Each half guards itself — the bar on a top-level
+ * window, the follower on the `embedded=true` the hub frames the page with —
+ * and each boots inside its own `try`.
+ *
+ * The bar owns three things and nothing else:
  *
  * - **a stable host.** One fixed-position element on `document.body`, created
  *   once and never re-rendered. JupyterLab owns `#main`'s layout and reflows
@@ -72,6 +79,7 @@ import {
   initControlTargetPopover,
   teardownControlTargetPopover,
 } from './control-target-popover.js';
+import { initLabThemeFollow } from './lab-theme-follow.js';
 
 /** The bar itself. Also the chip's host, and the CSS hook below. */
 const BAR_ID = 'osprey-control-target-bar';
@@ -298,11 +306,12 @@ function watchTheme() {
 
 /**
  * This module is an entry point — the page that loads it has no app shell to
- * call `init` from — so it starts itself.
+ * call `init` from — so it starts itself: the bar, then the theme follower.
  *
- * Inside a `try`, because the one thing worse than a missing chip is a broken
- * notebook: nothing this module can throw is worth taking JupyterLab down
- * with, and the console message is what says which it was.
+ * Each inside its own `try`, because the one thing worse than a missing chip
+ * or a light tile in a dark hub is a broken notebook: nothing this module can
+ * throw is worth taking JupyterLab down with, and the console message is what
+ * says which part it was. One failing does not keep the other from starting.
  *
  * A module script runs after the document is parsed, so `document.body` is
  * there; the listener is for the case where something loads this module
@@ -313,6 +322,11 @@ function boot() {
     initControlTargetLabBar();
   } catch (err) {
     console.error('OSPREY control-target bar failed to start:', err);
+  }
+  try {
+    initLabThemeFollow();
+  } catch (err) {
+    console.error('OSPREY Jupyter theme follower failed to start:', err);
   }
 }
 

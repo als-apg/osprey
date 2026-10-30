@@ -47,6 +47,8 @@ import { FakeEventSource, stubEventSource } from '../_support/event-source.mjs';
 const JS_DIR = join(import.meta.dirname, '../../../src/osprey/interfaces/web_terminal/static/js');
 const ENTRY = 'control-target-lab-bar.js';
 const MODULE = `../../../src/osprey/interfaces/web_terminal/static/js/${ENTRY}`;
+/** The theme follower the entry starts on a page the hub framed. */
+const FOLLOWER = '../../../src/osprey/interfaces/web_terminal/static/js/lab-theme-follow.js';
 
 /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/control-target-lab-bar.js')} */
 let barModule;
@@ -283,7 +285,7 @@ afterEach(() => {
 /* ---- the import closure ------------------------------------------------- */
 
 describe('import closure', () => {
-  test('is exactly the chip, the popover and what those two pull in', () => {
+  test('is exactly the chip, the popover, the theme follower and what they pull in', () => {
     // Every name here is fetched through the panel-scoped static route by a
     // test in test_proxy_jupyter_integration.py, which walks this same graph
     // from the Python side. Adding one means adding it there too — that is
@@ -301,6 +303,7 @@ describe('import closure', () => {
       'control-target-popover-chrome.js',
       'control-target-popover-switch.js',
       'control-target-popover.js',
+      'lab-theme-follow.js',
       'modal-overlay.js',
       'posture-confirm.js',
     ]);
@@ -406,6 +409,32 @@ describe('framed inside the hub', () => {
     // The sidebar chip on the hub page is the one reader and the one socket.
     expect(getCount()).toBe(0);
     expect(FakeEventSource.opened).toHaveLength(0);
+  });
+
+  test('the self-boot starts the theme follower on a page framed with embedded=true', async () => {
+    // The address the hub's buildEmbedSrc gives the JUPYTER tile.
+    window.history.replaceState({}, '', '/panel/jupyter/lab?embedded=true&theme=dark');
+    const execute = vi.fn(async () => {});
+    Reflect.set(window, 'jupyterapp', {
+      started: Promise.resolve(),
+      commands: { hasCommand: () => true, isToggled: () => false, execute },
+    });
+    try {
+      await bootFramed();
+      // Lab has loaded its own theme: the follower's ready signal.
+      document.body.setAttribute('data-jp-theme-name', 'JupyterLab Light');
+
+      await vi.waitFor(() =>
+        expect(execute).toHaveBeenCalledWith('apputils:change-theme', { theme: 'JupyterLab Dark' })
+      );
+      // Framed, the bar itself still stays off.
+      expect(barEl()).toBeNull();
+    } finally {
+      (await import(FOLLOWER)).teardownLabThemeFollow();
+      Reflect.deleteProperty(window, 'jupyterapp');
+      document.body.removeAttribute('data-jp-theme-name');
+      window.history.replaceState({}, '', '/');
+    }
   });
 });
 

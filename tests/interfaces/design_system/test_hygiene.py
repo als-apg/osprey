@@ -554,7 +554,15 @@ def test_scale_literal_scanner() -> None:
 #: the migration in place and prevent new scale literals. Interfaces not yet
 #: listed are subject to the color-hygiene check (a) only.
 SCALE_ENFORCED_INTERFACES: frozenset[str] = frozenset(
-    {"web_terminal", "design_system", "ariel", "channel_finder"}
+    {
+        "web_terminal",
+        "design_system",
+        "ariel",
+        "channel_finder",
+        "health",
+        "okf_panel",
+        "lattice_dashboard",
+    }
 )
 
 
