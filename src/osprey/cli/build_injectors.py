@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS
+from osprey.cli.build_profile_merge import bundled_service_template
 from osprey.cli.build_profile_schema import ServiceDef, osprey_declares_binding
 from osprey.deployment.graphdb_service import (
     DEFAULT_TTL_PATH,
@@ -502,9 +503,9 @@ def _inject_profile_services(
         # own bundled template (same form _copy_service_templates accepts, and the
         # form BuildProfile.validate deliberately leaves unresolved); anything else
         # is a directory shipped inside the profile.
-        parts = svc_def.template.split(".")
-        if parts[0] == "osprey" and len(parts) == 2:
-            src_dir = _locate_pkg_services() / parts[1]
+        bundled = bundled_service_template(svc_def.template)
+        if bundled is not None:
+            src_dir = _locate_pkg_services() / bundled
         else:
             src_dir = profile_dir / svc_def.template
 
