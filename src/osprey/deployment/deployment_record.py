@@ -30,7 +30,6 @@ __all__ = [
     "deployed_project",
     "deployed_runtime",
     "read_deployment_record",
-    "remove_deployment_record",
     "write_deployment_record",
 ]
 
@@ -108,17 +107,11 @@ def read_deployment_record(repo_root: Path) -> DeploymentRecord | None:
         raise DeploymentRecordError(f"{path}: {exc}") from exc
 
 
-def remove_deployment_record(repo_root: Path) -> None:
-    """Delete the repo's record; no record is not an error."""
-    (Path(repo_root) / DEPLOYMENT_RECORD_RELPATH).unlink(missing_ok=True)
-
-
 def deployed_project(repo_root: Path) -> str | None:
     """The compose project the last start recorded, or ``None`` with no record.
 
-    Observers (down, status, logs, the health probes) act on what the last
-    start drove and read it here; every start decides the project through the
-    setting and records it.
+    Every start decides the project through the setting and records it; a
+    reader that needs only the project reads it here.
 
     Raises:
         DeploymentRecordError: The record is there but unreadable.
@@ -130,8 +123,8 @@ def deployed_project(repo_root: Path) -> str | None:
 def deployed_runtime(repo_root: Path) -> str | None:
     """The container runtime the last start recorded, or ``None`` with no record.
 
-    Observers act on the runtime the last start drove and read it here; every
-    start decides the runtime through the setting and records it.
+    Every start decides the runtime through the setting and records it; a
+    reader that needs only the runtime reads it here.
 
     Raises:
         DeploymentRecordError: The record is there but unreadable.

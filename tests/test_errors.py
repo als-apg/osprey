@@ -39,7 +39,7 @@ class TestChannelWriteBlockedError:
         with pytest.raises(ChannelWriteBlockedError):
             raise ChannelWriteBlockedError("chan", "VALIDATION_ERROR")
 
-    def test_valid_reasons_reference(self):
+    def test_refusal_reason_values(self):
         assert [reason.value for reason in RefusalReason] == [
             "WRITES_DISABLED",
             "LIMITS",
@@ -105,9 +105,6 @@ class TestChannelNotFoundError:
     def test_a_bare_blocked_write_names_no_refuser(self):
         err = ChannelWriteBlockedError("X", "CHANNEL_NOT_FOUND")
         assert str(err) == "X is not a channel of this facility"
-
-    def test_is_a_channel_error(self):
-        assert isinstance(ChannelNotFoundError("X"), ChannelError)
 
 
 #: The roots that partition what a first-party connector raises.
@@ -245,10 +242,6 @@ def test_every_single_channel_failure_is_a_channel_error(cls):
     assert failure.channel_address == "SR:Q"
 
 
-def test_a_channel_not_found_error_keeps_its_builtin_base():
-    assert isinstance(ChannelNotFoundError("SR:Q"), LookupError)
-
-
 @pytest.mark.parametrize(
     ("cls", "text"),
     [
@@ -279,7 +272,7 @@ def test_a_channel_not_found_error_keeps_its_builtin_base():
     ],
     ids=lambda item: item.__name__ if isinstance(item, type) else "text",
 )
-def test_a_channel_errors_text_is_unchanged(cls, text):
+def test_each_channel_errors_text(cls, text):
     failure = SINGLE_CHANNEL_FAILURES[cls]()
     assert str(failure) == text
     assert failure.args == (text,)

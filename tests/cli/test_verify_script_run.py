@@ -83,9 +83,9 @@ def script_text(tmp_path_factory: pytest.TempPathFactory) -> str:
     return render(VERIFY_TEMPLATE, build_verify_context(profile, "@OSPREY_VERSION@"))
 
 
-def _install(tmp_path: Path, script_text: str, repo_name: str = "als-exemplar") -> Path:
-    """Write the script into a repo directory named ``repo_name``; return the script."""
-    script = tmp_path / repo_name / VERIFY_PATH
+def _install(tmp_path: Path, script_text: str) -> Path:
+    """Write the script into an ``als-exemplar`` repo directory; return the script."""
+    script = tmp_path / "als-exemplar" / VERIFY_PATH
     script.parent.mkdir(parents=True)
     script.write_text(script_text, encoding="utf-8")
     return script

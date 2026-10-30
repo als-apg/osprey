@@ -1544,9 +1544,9 @@ class TestResetFlag:
         """
         from osprey.deployment import reset as reset_mod
         from osprey.deployment.deployment_record import (
+            DEPLOYMENT_RECORD_RELPATH,
             DeploymentRecord,
             read_deployment_record,
-            remove_deployment_record,
             write_deployment_record,
         )
 
@@ -1556,7 +1556,7 @@ class TestResetFlag:
         monkeypatch.setattr(
             "osprey.deployment.reset.reset_for_reinit",
             lambda repo_root, **kw: (
-                remove_deployment_record(repo_root),
+                (repo_root / DEPLOYMENT_RECORD_RELPATH).unlink(missing_ok=True),
                 _completed_reset(repo_root),
             )[1],
         )

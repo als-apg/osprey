@@ -17,7 +17,6 @@ from osprey.deployment.deployment_record import (
     deployed_project,
     deployed_runtime,
     read_deployment_record,
-    remove_deployment_record,
     write_deployment_record,
 )
 from osprey.deployment.errors import DeploymentRecordError
@@ -66,15 +65,6 @@ def test_a_rewrite_replaces_the_previous_record(tmp_path: Path) -> None:
     write_deployment_record(tmp_path, DeploymentRecord("podman", _project()))
 
     assert read_deployment_record(tmp_path) == DeploymentRecord("podman", _project())
-
-
-def test_remove_deletes_the_record_and_tolerates_its_absence(tmp_path: Path) -> None:
-    write_deployment_record(tmp_path, DeploymentRecord("docker", _project()))
-
-    remove_deployment_record(tmp_path)
-    remove_deployment_record(tmp_path)
-
-    assert read_deployment_record(tmp_path) is None
 
 
 def _raw(tmp_path: Path, text: str) -> None:

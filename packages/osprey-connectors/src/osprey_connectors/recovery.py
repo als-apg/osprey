@@ -284,10 +284,6 @@ class RecoveryPolicy:
         self._issued = 0
         self._memo: weakref.WeakKeyDictionary[object, _Episode] = weakref.WeakKeyDictionary()
 
-    @property
-    def timing(self) -> Timing:
-        return self._timing
-
     def begin(self) -> int:
         """A ticket for a call that is starting; later calls get larger tickets."""
         self._issued += 1
