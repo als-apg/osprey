@@ -76,6 +76,7 @@ from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system import ChannelValue, WriteOutcome, raise_for_write_result
 from osprey_connectors.errors import (
     ChannelLimitsViolationError,
+    ChannelUnreachableError,
     ChannelWriteBlockedError,
     RefusalReason,
 )
@@ -891,7 +892,7 @@ class TestTheTwoMachinesServeDifferentNamespaces:
 
         await manager.switch("va")
 
-        with pytest.raises(ConnectionError) as raised:
+        with pytest.raises(ChannelUnreachableError) as raised:
             await reading(manager, BENCH_ONLY_AMPLITUDE, timeout=ABSENT_TIMEOUT_S)
         assert BENCH_ONLY_AMPLITUDE in str(raised.value)
 
@@ -903,7 +904,7 @@ class TestTheTwoMachinesServeDifferentNamespaces:
 
         await manager.switch("live")
 
-        with pytest.raises(ConnectionError) as raised:
+        with pytest.raises(ChannelUnreachableError) as raised:
             await reading(manager, VA_ONLY_CHANNEL, timeout=ABSENT_TIMEOUT_S)
         assert VA_ONLY_CHANNEL in str(raised.value)
 
