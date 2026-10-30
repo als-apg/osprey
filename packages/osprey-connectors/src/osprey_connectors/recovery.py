@@ -1,10 +1,11 @@
-"""What a supervisor does about a connector call that failed: one policy for every surface.
+"""What a supervisor does about a connector call that failed: one policy, one table.
 
 A supervisor owns a connector's lifetime: the connector-host pool owns its
-children, a server owns its connectors. When a call fails, the supervisor hands
-the error and the supervised connector to :meth:`RecoveryPolicy.recover`, and
-the policy answers with what it did, as a :class:`Recovery` record, or ``None``
-when the failure restarts nothing.
+children, a server owns its connectors. A supervisor that calls the policy —
+the connector-host pool does — hands the error and the supervised connector to
+:meth:`RecoveryPolicy.recover` when a call fails, and the policy answers with
+what it did, as a :class:`Recovery` record, or ``None`` when the failure
+restarts nothing.
 
 The decision is one table, failure class and origin in, one step out:
 
