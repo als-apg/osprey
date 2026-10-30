@@ -32,16 +32,12 @@ from typing import Any, NamedTuple
 import click
 
 from osprey.cli.output import fail, machine_mode, note, report, warn
-from osprey.cli.repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
+from osprey.cli.record_access import find_build
+from osprey.cli.repo_resolver import PROFILE_FILENAME, repo_option
 from osprey.cli.styles import Styles
 from osprey_connectors.logger import get_logger
 
 logger = get_logger("users")
-
-#: The rendered config every verb here acts through, relative to the repo root.
-#: ``build/`` is the rendered project, so this is the file the running stack was
-#: started from — see :data:`osprey.deployment.staleness.BUILD_DIRNAME`.
-_RENDERED_CONFIG = "config.yml"
 
 _archive_option = click.option(
     "--archive",
@@ -467,13 +463,6 @@ def _purge_orphan_terminal_secrets(session: _Repo) -> None:
         )
 
 
-def _rendered_config_path(repo_root: Path) -> Path:
-    """Where the running stack's config lives in a deployment repo."""
-    from osprey.deployment.staleness import BUILD_DIRNAME
-
-    return repo_root / BUILD_DIRNAME / _RENDERED_CONFIG
-
-
 @contextmanager
 def _users_session(repo: Path | None, *, announce: bool = True) -> Iterator[_Repo]:
     """Resolve the deployment repo, then run one roster verb inside it.
@@ -520,17 +509,12 @@ def _users_session(repo: Path | None, *, announce: bool = True) -> Iterator[_Rep
         click.Abort: If the repo has no build, or the verb failed.
     """
     action = click.get_current_context().info_name or "users"
-    repo_root = find_repo_root(repo)
-    config_path = _rendered_config_path(repo_root)
-
-    if not config_path.is_file():
-        fail(
-            f"No build found in {repo_root}",
-            f"{config_path} does not exist. Web-terminal users are managed through "
-            "the rendered config the stack runs from.",
-            "run `osprey build` first",
-        )
+    build = find_build(
+        repo, "Web-terminal users are managed through the rendered config the stack runs from."
+    )
+    if build is None:
         raise click.Abort()
+    repo_root, config_path = build
 
     if announce:
         report(f"Web-terminal roster: {action} in {repo_root}")

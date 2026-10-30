@@ -93,7 +93,7 @@ def _c_integer(text: str) -> int | None:
     sign = -1 if text[0] == "-" else 1
     digits = text.lstrip("+-")
     if digits[:2] in ("0x", "0X"):
-        return sign * int(digits[2:], 16)
+        return sign * int(digits, 0)
     if len(digits) > 1 and digits[0] == "0":
         return sign * int(digits, 8)
     return sign * int(digits)
@@ -1041,24 +1041,23 @@ class LimitsValidator:
             # record.
             if self.policy.get("mode") == LIMITS_MODE_OPTIONAL:
                 return None, None  # Written with no limits
-            else:
-                # FAILSAFE: refuse a channel with no record. Name the key that
-                # actually answered — a deployment may set this per connector
-                # type, and quoting the deployment-wide key there would send an
-                # operator to flip a line the per-type block overrides. A
-                # validator built from a bare policy dict carries no key; the
-                # deployment-wide one is the honest answer for it.
-                answering_key = self.policy.get("mode_key", "control_system.limits_checking.mode")
-                logger.warning(f"Blocked write to unlisted channel: {channel_address}={value}")
-                raise ChannelLimitsViolationError(
-                    channel_address=channel_address,
-                    value=value,
-                    violation_type="UNLISTED_CHANNEL",
-                    violation_reason=(
-                        f"Channel '{channel_address}' not in limits database "
-                        f"('{answering_key}' is not '{LIMITS_MODE_OPTIONAL}')"
-                    ),
-                )
+            # FAILSAFE: refuse a channel with no record. Name the key that
+            # actually answered — a deployment may set this per connector
+            # type, and quoting the deployment-wide key there would send an
+            # operator to flip a line the per-type block overrides. A
+            # validator built from a bare policy dict carries no key; the
+            # deployment-wide one is the honest answer for it.
+            answering_key = self.policy.get("mode_key", "control_system.limits_checking.mode")
+            logger.warning(f"Blocked write to unlisted channel: {channel_address}={value}")
+            raise ChannelLimitsViolationError(
+                channel_address=channel_address,
+                value=value,
+                violation_type="UNLISTED_CHANNEL",
+                violation_reason=(
+                    f"Channel '{channel_address}' not in limits database "
+                    f"('{answering_key}' is not '{LIMITS_MODE_OPTIONAL}')"
+                ),
+            )
 
         # Check 2: Channel is writable?
         if not channel_config.writable:

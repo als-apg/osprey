@@ -7,6 +7,7 @@ import json
 import subprocess
 import sys
 import textwrap
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import click
@@ -14,6 +15,11 @@ import pytest
 
 from osprey.cli.audit_cmd import _detect_target_type, _extract_json, _list_files
 from osprey.cli.audit_prompts import AuditFinding, AuditReport
+from tests.cli._unrecorded import (
+    a_host_local_record_is_up,
+    act_as_a_recording_child,
+    files_under,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -54,6 +60,37 @@ def tmp_project(tmp_path):
     subdir.mkdir()
     (subdir / "pre_write.sh").write_text("#!/bin/bash\n")
     return tmp_path
+
+
+#: What the runner's routing hands a launch on a project with telemetry on.
+_ROUTED_ENV = {
+    "ANTHROPIC_BASE_URL": "https://gateway.example",
+    "ANTHROPIC_AUTH_TOKEN": "tok",
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "OTEL_LOGS_EXPORTER": "otlp",
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector",
+    "OSPREY_SPOOL_DIR": "/spool/alice",
+}
+
+
+@pytest.fixture
+def routed_launch(monkeypatch) -> list[dict]:
+    """Stand in for the runner's routing of the reviewer's launch.
+
+    The fixture projects name no provider, so the real routing refuses them;
+    the tests that fake ``stream_query`` need only the env it would route with.
+    Returns the keyword arguments of each routing call.
+    """
+    from types import SimpleNamespace
+
+    calls: list[dict] = []
+
+    def _route(project_dir, **kwargs):
+        calls.append({"project_dir": project_dir, **kwargs})
+        return SimpleNamespace(env=dict(_ROUTED_ENV), model=kwargs.get("model"))
+
+    monkeypatch.setattr("osprey.cli.audit_cmd.build_agent_options", _route, raising=True)
+    return calls
 
 
 @pytest.fixture
@@ -311,11 +348,12 @@ class TestReviewerProvider:
         return audit
 
     def test_the_reviewer_runs_through_the_runner_on_the_projects_provider(
-        self, tmp_project, monkeypatch
+        self, tmp_project, monkeypatch, routed_launch
     ):
-        """The reviewer runs through the shared runner, which routes it on the
-        audited project's own provider: no env, provider or server set is
-        handed in, so nothing overrides the project's endpoint, auth and models.
+        """The reviewer runs through the shared runner on the audited project's
+        own provider: its launch env is the one the runner routes the project
+        with, so nothing overrides the project's endpoint, auth and models —
+        less only what would carry the run into a record.
         """
         from osprey.cli import audit_cmd
 
@@ -333,6 +371,13 @@ class TestReviewerProvider:
             audit_cmd._run_audit(tmp_project, "p", model="some-model", budget=5.0, verbose=False)
         )
 
+        [route] = routed_launch
+        assert route["project_dir"] == tmp_project
+        assert route["model"] == "some-model"
+        assert route["setting_sources"] == []
+        for key in ("env", "provider"):
+            assert key not in route
+
         kwargs = captured["kwargs"]
         assert captured["args"][0] == tmp_project
         assert kwargs["model"] == "some-model"
@@ -343,8 +388,15 @@ class TestReviewerProvider:
         # The reviewer reads the target; it must not run as it.
         assert kwargs["setting_sources"] == []
         assert kwargs["await_mcp_servers"] == ()
-        for key in ("env", "provider", "mcp_servers"):
+        for key in ("provider", "mcp_servers"):
             assert key not in kwargs
+        env = kwargs["env"]
+        assert env["ANTHROPIC_BASE_URL"] == "https://gateway.example"
+        assert env["ANTHROPIC_AUTH_TOKEN"] == "tok"
+        assert env["OSPREY_AGENT_RECORD_OFF"] == "1"
+        assert not [k for k in env if k.startswith("OTEL_")]
+        assert "CLAUDE_CODE_ENABLE_TELEMETRY" not in env
+        assert "OSPREY_SPOOL_DIR" not in env
 
     @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
     def test_a_project_that_names_no_provider_is_refused(self, runner, tmp_project):
@@ -579,6 +631,83 @@ class TestReviewerRun:
         assert expected.called is False
         assert result == ("report", 0.01, 1)
 
+    def test_a_project_with_telemetry_on_launches_a_reviewer_that_exports_nothing(
+        self, tmp_path, monkeypatch
+    ):
+        """The project's telemetry block does not ride the SDK overlay into the child.
+
+        The real options are built for a project whose provider env carries
+        Claude Code's OTLP exporter block; only that resolution and the SDK
+        client are replaced. The env the
+        reviewer's process receives carries no OTLP exporter, no spool and the
+        record off switch.
+        """
+        pytest.importorskip("claude_agent_sdk")
+        from claude_agent_sdk import ResultMessage
+
+        from osprey.cli import audit_cmd
+
+        (tmp_path / "config.yml").write_text(
+            "claude_code:\n  provider: anthropic\n", encoding="utf-8"
+        )
+        monkeypatch.setenv("OSPREY_SPOOL_DIR", str(tmp_path / "spool"))
+        # The provider env a project with telemetry on resolves to: routing
+        # plus the OTLP exporter block.
+        monkeypatch.setattr(
+            "osprey.agent_runner.primitives.provider_env_for_project",
+            lambda *_a, **_k: {
+                "ANTHROPIC_MODEL": "claude-main",
+                "ANTHROPIC_BASE_URL": "https://gateway.example",
+                "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+                "OTEL_LOGS_EXPORTER": "otlp",
+                "OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector",
+            },
+        )
+        monkeypatch.setattr(
+            "osprey.agent_runner.primitives._resolve_project_spec", lambda *a, **k: None
+        )
+
+        async def _response():
+            yield ResultMessage(
+                subtype="success",
+                duration_ms=1,
+                duration_api_ms=1,
+                is_error=False,
+                num_turns=1,
+                session_id="s",
+                total_cost_usd=0.01,
+            )
+
+        client = MagicMock()
+        client.query = AsyncMock(return_value=None)
+        client.receive_response = MagicMock(return_value=_response())
+        async_cm = MagicMock()
+        async_cm.__aenter__ = AsyncMock(return_value=client)
+        async_cm.__aexit__ = AsyncMock(return_value=False)
+        captured: dict = {}
+
+        def _client(*, options):
+            captured["options"] = options
+            captured["config_dir"] = Path(options.env["CLAUDE_CONFIG_DIR"])
+            captured["config_dir_existed"] = captured["config_dir"].is_dir()
+            return async_cm
+
+        monkeypatch.setattr("osprey.agent_runner.runner.ClaudeSDKClient", _client)
+
+        asyncio.run(audit_cmd._run_audit(tmp_path, "p", model="m", budget=5.0, verbose=False))
+
+        env = captured["options"].env
+        assert [k for k in env if k.startswith("OTEL_")] == []
+        assert "CLAUDE_CODE_ENABLE_TELEMETRY" not in env
+        assert "OSPREY_SPOOL_DIR" not in env
+        assert env["OSPREY_AGENT_RECORD_OFF"] == "1"
+        # The run's own Claude Code config dir, gone once the review is over.
+        assert captured["config_dir_existed"]
+        assert not captured["config_dir"].exists()
+        # Still routed on the project's provider.
+        assert env["ANTHROPIC_BASE_URL"] == "https://gateway.example"
+
+    @pytest.mark.usefixtures("routed_launch")
     def test_verbose_echoes_each_text_block_as_it_arrives(self, tmp_project, monkeypatch):
         from osprey.agent_runner import TextEvent
         from osprey.cli import audit_cmd
@@ -602,6 +731,7 @@ class TestReviewerRun:
 
         assert log == ["note:" + "a" * 200 + "...", "pulled second", "note:b..."]
 
+    @pytest.mark.usefixtures("routed_launch")
     def test_a_quiet_run_echoes_nothing_and_returns_text_cost_and_turns(
         self, tmp_project, monkeypatch
     ):
@@ -630,6 +760,7 @@ class TestReviewerRun:
         note.assert_not_called()
         assert result == ("onetwo", 0.02, 3)
 
+    @pytest.mark.usefixtures("routed_launch")
     def test_a_run_without_a_result_leaves_cost_and_turns_unknown(self, tmp_project, monkeypatch):
         from osprey.agent_runner import TextEvent
         from osprey.cli import audit_cmd
@@ -725,3 +856,116 @@ class TestDisplay:
             cost=0.05,
             turns=10,
         )
+
+
+# ---------------------------------------------------------------------------
+# A run that leaves nothing in the agent record
+# ---------------------------------------------------------------------------
+
+
+class TestUnrecordedRun:
+    """``unrecorded_run`` holds a run whose children record nothing."""
+
+    def test_sets_the_off_switch_and_drops_spool_and_telemetry_env(self):
+        from osprey.cli.audit_cmd import unrecorded_run
+
+        env = {
+            "OSPREY_SPOOL_DIR": "/spool/alice",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector",
+            "OTEL_LOGS_EXPORTER": "otlp",
+            "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+            "CLAUDE_CONFIG_DIR": "/home/alice/.claude",
+            "PATH": "/bin",
+        }
+
+        with unrecorded_run(env) as config_dir:
+            assert env == {
+                "OSPREY_AGENT_RECORD_OFF": "1",
+                "CLAUDE_CONFIG_DIR": str(config_dir),
+                "PATH": "/bin",
+            }
+            assert config_dir.is_dir()
+            assert config_dir != Path("/home/alice/.claude")
+
+    def test_puts_every_value_back_and_removes_its_config_dir(self):
+        from osprey.cli.audit_cmd import unrecorded_run
+
+        env = {
+            "OSPREY_SPOOL_DIR": "/spool/alice",
+            "OTEL_LOGS_EXPORTER": "otlp",
+            "CLAUDE_CONFIG_DIR": "/home/alice/.claude",
+        }
+        before = dict(env)
+
+        with unrecorded_run(env) as config_dir:
+            pass
+
+        assert env == before
+        assert not config_dir.exists()
+
+    def test_unsets_what_was_unset_before(self):
+        from osprey.cli.audit_cmd import unrecorded_run
+
+        env: dict[str, str] = {}
+
+        with unrecorded_run(env):
+            assert env["OSPREY_AGENT_RECORD_OFF"] == "1"
+
+        assert env == {}
+
+    def test_restores_when_the_run_raises(self):
+        from osprey.cli.audit_cmd import unrecorded_run
+
+        env = {"OSPREY_SPOOL_DIR": "/spool/alice", "OSPREY_AGENT_RECORD_OFF": "0"}
+
+        with pytest.raises(RuntimeError), unrecorded_run(env) as config_dir:
+            raise RuntimeError("the run failed")
+
+        assert env == {"OSPREY_SPOOL_DIR": "/spool/alice", "OSPREY_AGENT_RECORD_OFF": "0"}
+        assert not config_dir.exists()
+
+    def test_each_run_gets_a_fresh_config_dir(self):
+        from osprey.cli.audit_cmd import unrecorded_run
+
+        with unrecorded_run({}) as first:
+            pass
+        with unrecorded_run({}) as second:
+            pass
+
+        assert first != second
+
+
+class TestTheAuditLeavesNothingInTheRecord:
+    """The reviewer's run reaches no spool, transcript root or OTLP collector."""
+
+    @pytest.mark.usefixtures("routed_launch")
+    def test_an_audit_with_a_host_local_record_up_leaves_nothing(
+        self, tmp_project, tmp_path, monkeypatch, spool_zone
+    ):
+        import os
+
+        from osprey.cli import audit_cmd
+
+        transcript_root = a_host_local_record_is_up(monkeypatch, tmp_path)
+        seen: list[dict] = []
+
+        async def child_run(*_args, **_kwargs):
+            seen.append(act_as_a_recording_child(spool_zone.root))
+            yield _result_event()
+
+        monkeypatch.setattr("osprey.cli.audit_cmd.stream_query", child_run)
+
+        asyncio.run(audit_cmd._run_audit(tmp_project, "p", model="m", budget=5.0, verbose=False))
+
+        [child] = seen
+        assert child["entry_id"] is None
+        assert child["otel"] == []
+        assert child["spool_dir"] is None
+        assert Path(child["config_dir"]) != transcript_root
+        assert files_under(spool_zone.root) == []
+        assert files_under(transcript_root) == []
+        assert spool_zone.recorded_entries() == []
+        # The launch's own environment is back once the review is over.
+        assert os.environ["CLAUDE_CONFIG_DIR"] == str(transcript_root)
+        assert os.environ["OTEL_LOGS_EXPORTER"] == "otlp"
+        assert "OSPREY_AGENT_RECORD_OFF" not in os.environ

@@ -1,6 +1,6 @@
 """Put a test process in a state where the write verdict allows its writes.
 
-The ledger's ``posture`` is the write verdict for the recorded control target
+An audit entry's ``posture`` is the write verdict for the recorded control target
 (:func:`osprey.audit.posture.posture`), so a test that means "the writes
 posture" has to arrange a verdict that allows: a clean verdict environment, a
 tier that allows writes, and a record whose switch is on for the target.

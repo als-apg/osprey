@@ -5009,6 +5009,18 @@ wheels = [
 ]
 
 [[package]]
+name = "opentelemetry-proto"
+version = "1.44.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/64/01/40ac4ae9a149263cc52c2cee200ddd80cb6d8db1a4610abf8eabce0fe771/opentelemetry_proto-1.44.0.tar.gz", hash = "sha256:c547a79c2f8c0c515d31509154682e5921c7cfd5ca67b70e1f9266e2c3e103f3", size = 46488, upload-time = "2026-07-16T15:25:45.34Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d1/7c/8be563d68e93bbefa5c8affb82ddcff91b3ad858ce49957ba7b16fd3e0ab/opentelemetry_proto-1.44.0-py3-none-any.whl", hash = "sha256:898b155a0e1557afd867478fb6158e8122a46329ca0bb8dc53cc55e98f017f56", size = 72483, upload-time = "2026-07-16T15:25:28.429Z" },
+]
+
+[[package]]
 name = "opentelemetry-sdk"
 version = "1.44.0"
 source = { registry = "https://pypi.org/simple" }
@@ -5240,6 +5252,7 @@ dependencies = [
     { name = "numpy" },
     { name = "ollama" },
     { name = "openai" },
+    { name = "opentelemetry-proto" },
     { name = "ophyd-async", extra = ["ca"] },
     { name = "osprey-connectors" },
     { name = "pandas" },
@@ -5466,6 +5479,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.2.6" },
     { name = "ollama", specifier = ">=0.6.2" },
     { name = "openai", specifier = ">=2.53.0,<3" },
+    { name = "opentelemetry-proto", specifier = ">=1.44.0,<2" },
     { name = "ophyd-async", extras = ["ca"], specifier = ">=0.16,<1.0" },
     { name = "osprey-connectors", editable = "packages/osprey-connectors" },
     { name = "pandas", specifier = ">=2.2.3" },

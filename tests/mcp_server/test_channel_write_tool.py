@@ -1353,19 +1353,10 @@ async def test_unlisted_write_is_refused_on_a_target_the_deployment_block_govern
 
 
 # ---------------------------------------------------------------------------
-# The full tool-call record: the limits verdict and the old values
+# The tool_call record: the limits verdict and the old values
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def full_record(monkeypatch):
-    """Turn the opt-in full ``tool_call`` record on for this server."""
-    from osprey.audit import tool_call
-
-    monkeypatch.setattr(tool_call, "settings", lambda: (True, tool_call.DEFAULT_MAX_INLINE_BYTES))
-
-
-@pytest.mark.usefixtures("full_record")
 async def test_the_limits_verdict_is_noted(tmp_path, monkeypatch):
     from osprey.audit.call import call_scope
     from osprey_connectors.control_system._limits_validator import LimitsValidator
@@ -1398,7 +1389,6 @@ async def test_the_limits_verdict_is_noted(tmp_path, monkeypatch):
     assert call.facts["limits"]["violations"][0]["channel"] == "TEST:PV"
 
 
-@pytest.mark.usefixtures("full_record")
 async def test_old_values_are_read_before_the_window_check(tmp_path, monkeypatch):
     from datetime import UTC, datetime
 
@@ -1433,7 +1423,6 @@ async def test_old_values_are_read_before_the_window_check(tmp_path, monkeypatch
     assert call.facts["old_values"] == {"TEST:PV": {"value": 3.5, "timestamp": stamp.isoformat()}}
 
 
-@pytest.mark.usefixtures("full_record")
 async def test_an_unreadable_old_value_never_blocks_the_write(tmp_path, monkeypatch):
     from osprey.audit.call import call_scope
 
@@ -1450,34 +1439,24 @@ async def test_an_unreadable_old_value_never_blocks_the_write(tmp_path, monkeypa
     assert call.facts["old_values"] == {"TEST:PV": {"error": "ConnectionError"}}
 
 
-async def test_nothing_extra_is_read_with_the_surface_off(tmp_path, monkeypatch):
+async def test_the_verdict_and_old_values_need_no_setting(tmp_path, monkeypatch):
+    """With no ``audit.tool_call`` key anywhere, a write still notes both facts."""
     from osprey.audit import tool_call
     from osprey.audit.call import call_scope
 
-    monkeypatch.setattr(tool_call, "settings", lambda: (False, tool_call.DEFAULT_MAX_INLINE_BYTES))
+    assert not hasattr(tool_call, "settings")
     _prepare(tmp_path, monkeypatch)
-    with call_scope("toolu_off", None) as call:
+    with call_scope("toolu_nokey", None) as call:
         _data, connector = await _run_single(_make_write_result(channel="TEST:PV", value=1.0))
 
-    connector.read_multiple_channels.assert_not_called()
-    assert "old_values" not in call.facts
-    assert "limits" not in call.facts
+    connector.read_multiple_channels.assert_awaited_once()
+    assert "TEST:PV" in call.facts["old_values"]
+    assert call.facts["limits"]["verdict"] in {"passed", "not_checked"}
 
 
 # ---------------------------------------------------------------------------
 # Attribution stamps: who the write went out as, on both record surfaces
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture(params=[True, False], ids=["tool_call_on", "tool_call_off"])
-def record_surface(request, monkeypatch):
-    """Run the test with the full ``tool_call`` record both on and off."""
-    from osprey.audit import tool_call
-
-    monkeypatch.setattr(
-        tool_call, "settings", lambda: (request.param, tool_call.DEFAULT_MAX_INLINE_BYTES)
-    )
-    return request.param
 
 
 async def _stamped_facts(tmp_path, monkeypatch, owner: str | None = None) -> dict:
@@ -1498,7 +1477,6 @@ async def _stamped_facts(tmp_path, monkeypatch, owner: str | None = None) -> dic
     return call.facts
 
 
-@pytest.mark.usefixtures("record_surface")
 async def test_the_record_carries_the_writing_process_account_and_host(tmp_path, monkeypatch):
     import os
     import pwd
@@ -1510,7 +1488,6 @@ async def test_the_record_carries_the_writing_process_account_and_host(tmp_path,
     assert facts["ca_host"] == socket.gethostname()
 
 
-@pytest.mark.usefixtures("record_surface")
 async def test_the_dispatch_owner_is_noted_from_the_env_var(tmp_path, monkeypatch):
     # The owner is the login the switch was armed under: any other is refused
     # by the write verdict as foreign before anything is noted.
@@ -1519,7 +1496,6 @@ async def test_the_dispatch_owner_is_noted_from_the_env_var(tmp_path, monkeypatc
     assert facts["owner"] == FIXTURE_IDENTITY
 
 
-@pytest.mark.usefixtures("record_surface")
 @pytest.mark.parametrize("value", [None, "", "   "], ids=["unset", "empty", "blank"])
 async def test_no_owner_is_noted_without_the_env_var(tmp_path, monkeypatch, value):
     facts = await _stamped_facts(tmp_path, monkeypatch, owner=value)
@@ -1557,7 +1533,6 @@ async def test_an_unreadable_account_costs_the_stamp_not_the_write(tmp_path, mon
     assert facts["ca_host"]
 
 
-@pytest.mark.usefixtures("record_surface")
 async def test_the_stamps_reach_the_default_record_detail(tmp_path, monkeypatch):
     """The middleware's value-free detail carries the stamps as ``key=value`` tokens."""
     from osprey.audit.call import call_scope

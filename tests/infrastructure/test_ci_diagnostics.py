@@ -644,7 +644,19 @@ def test_snapshot_is_taken_before_the_module_fixture_tears_down(fake_engine, tmp
         FAKE_STACK_FLAG=str(flag),
     )
     done = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "test_stack.py"],
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            "-c",
+            os.devnull,
+            "--rootdir",
+            str(run_dir),
+            "test_stack.py",
+        ],
         cwd=run_dir,
         env=env,
         capture_output=True,

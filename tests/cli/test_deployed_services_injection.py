@@ -505,7 +505,7 @@ def test_a_render_override_of_deployed_services_reaches_nothing_else() -> None:
     """
     root = {
         "config": {
-            "deployed_services": ["postgresql", "telemetry_store", "qmd", "graphdb"],
+            "deployed_services": ["postgresql", "mongodb", "qmd", "graphdb"],
             "services.graphdb.image": "graphdb:11",
             "services.postgresql.username": "osprey",
             "approval.enabled": True,
@@ -514,12 +514,12 @@ def test_a_render_override_of_deployed_services_reaches_nothing_else() -> None:
     before = copy.deepcopy(root)
 
     merged = merge_layer_delta(
-        root, {"config": {"deployed_services": ["postgresql", "telemetry_store", "qmd"]}}
+        root, {"config": {"deployed_services": ["postgresql", "mongodb", "qmd"]}}
     )
 
     assert merged["config"]["deployed_services"] == [
         "postgresql",
-        "telemetry_store",
+        "mongodb",
         "qmd",
         "graphdb",
     ]

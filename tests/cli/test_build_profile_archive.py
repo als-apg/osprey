@@ -46,4 +46,5 @@ def test_declared_service_renders_its_compose_and_registers(tmp_path: Path) -> N
     assert "archive" in config["deployed_services"]
     archive_root = repo / "var" / "archive"
     assert archive_root.is_dir()
-    assert stat.S_IMODE(archive_root.stat().st_mode) == 0o700
+    # Group-shared with the record: setgid, group rwx, no world access.
+    assert stat.S_IMODE(archive_root.stat().st_mode) == 0o2770

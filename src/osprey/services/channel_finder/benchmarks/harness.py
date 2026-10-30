@@ -32,7 +32,7 @@ import litellm
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
 
-from osprey.services.channel_finder.benchmarks.sdk import ToolTrace
+from osprey.services.channel_finder.benchmarks.sdk import ToolTrace, unrecorded_env
 from osprey.services.channel_finder.rate_limiter import (
     get_rate_limiter,
 )
@@ -58,7 +58,7 @@ def _litellm_call_kwargs(model: str) -> dict[str, str]:
     ``ollama_chat`` translation which silently drops ``tool_calls`` on
     certain multi-turn responses (BerriAI/litellm #11104, #5245, #24091).
     """
-    if model.startswith("ollama/") or model.startswith("ollama_chat/"):
+    if model.startswith(("ollama/", "ollama_chat/")):
         name = model.split("/", 1)[1]
         return {
             "model": f"openai/{name}",
@@ -129,12 +129,18 @@ async def mcp_client_session(
     (``backends.create_backend`` refuses ReAct for it). Naming it here would
     advertise a benchmark path that is neither run nor claimed.
 
+    The server's environment is the stdio transport's whole environment, not
+    an overlay on this process's, so it is passed through
+    :func:`~osprey.services.channel_finder.benchmarks.sdk.unrecorded_env`
+    outright: a benchmark's server records nothing in the agent record.
+
     Args:
         env: Extra environment variables merged on top of the default
             ``{"OSPREY_CONFIG": ...}`` dict. Caller-supplied keys win on
-            collision.
+            collision, except that no spool or telemetry variable survives
+            and the record off switch is always set.
     """
-    merged_env = {"OSPREY_CONFIG": str(project_dir / "config.yml")} | (env or {})
+    merged_env = unrecorded_env({"OSPREY_CONFIG": str(project_dir / "config.yml")} | (env or {}))
     transport = StdioTransport(
         command=sys.executable,
         args=["-m", f"osprey.mcp_server.channel_finder_{paradigm}"],
@@ -208,7 +214,7 @@ async def run_react_query(
                 litellm.acompletion(
                     **call_kwargs,
                     messages=messages,
-                    tools=openai_tools if openai_tools else None,
+                    tools=openai_tools or None,
                     tool_choice="auto" if openai_tools else None,
                     # Let LiteLLM handle stragglers if the throttle still misses.
                     num_retries=3,
@@ -350,7 +356,5 @@ def combined_text_from_react(result: ReactWorkflowResult) -> str:
     Mirrors :func:`sdk.combined_text` for result format compatibility.
     """
     parts = list(result.text_blocks)
-    for trace in result.tool_traces:
-        if trace.result:
-            parts.append(trace.result)
+    parts.extend(trace.result for trace in result.tool_traces if trace.result)
     return " ".join(parts).lower()

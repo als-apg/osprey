@@ -21,6 +21,8 @@ import click
 from . import output
 
 if TYPE_CHECKING:
+    import socket
+
     from fastapi import FastAPI
 
 #: Page the browser is pointed at, relative to the server root. Served by the
@@ -109,11 +111,8 @@ def theme_lab(port: int | None, no_browser: bool) -> None:
         osprey theme-lab --port 9000       # Serve on a specific port
         osprey theme-lab --no-browser      # Print the URL only
     """
-    import uvicorn
-
-    from osprey.interfaces._serving import free_port
-    from osprey.interfaces.common_middleware import WEB_PORT_ENV
-    from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, mint_and_announce
+    from osprey.interfaces._serving import listening_socket
+    from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV
 
     # Capture whether an operator secret was already supplied BEFORE create_app
     # runs. This must precede construction: create_app -> configure_interface_app
@@ -124,7 +123,26 @@ def theme_lab(port: int | None, no_browser: bool) -> None:
     # as absent and is announced.
     announce = not (os.environ.get(OPERATOR_SECRET_ENV) or "").strip()
 
-    serve_port = port if port is not None else free_port()
+    # The server's own socket, bound before anything names its port.
+    try:
+        sock = listening_socket("127.0.0.1", port or 0)
+    except OSError as exc:
+        output.fail(f"Cannot serve on port {port}", str(exc))
+        sys.exit(1)
+    try:
+        _serve(sock, announce=announce, no_browser=no_browser)
+    finally:
+        sock.close()
+
+
+def _serve(sock: socket.socket, *, announce: bool, no_browser: bool) -> None:
+    """Build the Theme Lab, announce it, and serve it on *sock*."""
+    import uvicorn
+
+    from osprey.interfaces.common_middleware import WEB_PORT_ENV
+    from osprey.interfaces.web_auth import mint_and_announce
+
+    serve_port = sock.getsockname()[1]
 
     # Publish the settled port before anything builds the app. Cookies ignore
     # ports, so two OSPREY servers on this host share an origin as far as the
@@ -170,7 +188,9 @@ def theme_lab(port: int | None, no_browser: bool) -> None:
     output.report("")
 
     try:
-        uvicorn.run(app, host="127.0.0.1", port=serve_port, log_level="warning")
+        uvicorn.Server(
+            uvicorn.Config(app, host="127.0.0.1", port=serve_port, log_level="warning")
+        ).run(sockets=[sock])
     except KeyboardInterrupt:
         output.report("")
         output.report("Shutting down...")

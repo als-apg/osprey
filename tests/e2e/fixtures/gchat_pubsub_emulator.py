@@ -63,7 +63,7 @@ from typing import Any
 import httpx
 import pytest
 
-from osprey.interfaces._serving import free_port
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests.e2e._deploy_support import RUNTIME
 
 __all__ = [
@@ -254,23 +254,24 @@ class PubSubEmulator:
         died without teardown does not block this one.
         """
         _remove_container(PUBSUB_CONTAINER)
-        port = free_port()
-        _runtime(
-            "run",
-            "-d",
-            "--name",
-            PUBSUB_CONTAINER,
-            "-p",
-            f"127.0.0.1:{port}:{EMULATOR_CONTAINER_PORT}",
-            IMAGE,
-            "gcloud",
-            "beta",
-            "emulators",
-            "pubsub",
-            "start",
-            f"--host-port=0.0.0.0:{EMULATOR_CONTAINER_PORT}",
-            f"--project={project}",
-        )
+        # The published port is held as a reservation until the runtime binds it.
+        with reserved_port() as port:
+            _runtime(
+                "run",
+                "-d",
+                "--name",
+                PUBSUB_CONTAINER,
+                "-p",
+                f"127.0.0.1:{port}:{EMULATOR_CONTAINER_PORT}",
+                IMAGE,
+                "gcloud",
+                "beta",
+                "emulators",
+                "pubsub",
+                "start",
+                f"--host-port=0.0.0.0:{EMULATOR_CONTAINER_PORT}",
+                f"--project={project}",
+            )
         emulator = cls(port=port, project=project)
         try:
             emulator._wait_until_ready()

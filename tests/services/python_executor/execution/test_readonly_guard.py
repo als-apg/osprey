@@ -743,6 +743,22 @@ def test_readonly_prewarms_platform_processor(monkeypatch):
     assert isinstance(platform.processor(), str)
 
 
+def test_readonly_prewarms_ctypes_util(monkeypatch):
+    """Importing ``ctypes.util`` must survive the loader refusal.
+
+    On some platforms ``ctypes.util`` loads the C library while it is imported,
+    and threadpoolctl imports it on the way into scipy — so a script importing
+    a simulation library would die on the refusal of a load that is not a
+    control-system client. The guard imports it before refusing loads; with
+    the module forced out of the import cache here, a guard without that
+    pre-import raises the refusal out of this import.
+    """
+    monkeypatch.delitem(sys.modules, "ctypes.util", raising=False)
+    _run_guard("readonly")
+    util = importlib.import_module("ctypes.util")
+    assert callable(util.find_library)
+
+
 def test_readonly_leaves_fork_alone():
     """Forking cannot run a new program; the exec half of fork+exec is refused."""
     import os

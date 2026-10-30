@@ -138,10 +138,13 @@ def test_scaffold_render_consistency_across_all_generated_artifacts(tmp_path: Pa
     nginx_conf = artifacts["nginx/nginx.conf"]
     landing_html = artifacts["nginx/landing.html"]
 
-    # One compose service + one volume pair per user (+ nginx).
+    # One compose service per user (+ nginx), and three volumes per user: the
+    # CLI's config, the agent's data, and the transcripts the agent record tails.
     assert set(compose["services"]) == {"nginx", *(f"web-{u}" for u in users)}
     assert set(compose["volumes"]) == {
-        vol for u in users for vol in (f"{u}-claude-config", f"{u}-agent-data")
+        vol
+        for u in users
+        for vol in (f"{u}-claude-config", f"{u}-agent-data", f"{u}-claude-projects")
     }
 
     # One reverse-proxy route + one trailing-slash-redirect bookmark per user —

@@ -26,7 +26,6 @@ from pathlib import Path
 import pytest
 
 import osprey_connectors
-from osprey.interfaces._serving import free_port
 
 pytest.importorskip("aioca", reason="the EPICS connector's Channel Access client")
 pytest.importorskip("epicscorelibs.ioc", reason="serves the soft IOC")
@@ -99,9 +98,9 @@ def prefix() -> str:
 
 
 @pytest.fixture
-def ioc(tmp_path, prefix):
+def ioc(reserve_port, tmp_path, prefix):
     """A soft IOC with access security on a port of its own; yields its CA env."""
-    port = free_port()
+    port = reserve_port()
     database = tmp_path / "test.db"
     database.write_text(_database(prefix))
     acf = tmp_path / "test.acf"

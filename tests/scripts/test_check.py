@@ -751,6 +751,7 @@ MACOS_KEEPS = {
     "tests/agent_runner/test_unrendered_mcp_servers.py": "the native claude binary",
     "tests/scripts/test_run_bounded.py": "killpg and signal forwarding",
     "tests/cli/test_web_cmd.py": "real socket binds",
+    "tests/cli/test_build_swap.py": "os.replace directory swap, SIGKILL mid-render",
 }
 
 

@@ -150,14 +150,15 @@ def _match_channels(
         filtered = []
         for addr in addresses:
             cfg = validator.limits[addr]
-            if filter_by == "writable" and cfg.writable:
-                filtered.append(addr)
-            elif filter_by == "read_only" and not cfg.writable:
-                filtered.append(addr)
-            elif filter_by == "has_step_limit" and cfg.max_step is not None:
-                filtered.append(addr)
-            elif filter_by == "has_range" and (
-                cfg.min_value is not None or cfg.max_value is not None
+            if (
+                filter_by == "writable"
+                and cfg.writable
+                or filter_by == "read_only"
+                and not cfg.writable
+                or filter_by == "has_step_limit"
+                and cfg.max_step is not None
+                or filter_by == "has_range"
+                and (cfg.min_value is not None or cfg.max_value is not None)
             ):
                 filtered.append(addr)
         addresses = filtered

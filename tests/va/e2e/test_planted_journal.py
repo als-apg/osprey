@@ -42,13 +42,13 @@ from typing import Any
 
 import pytest
 
-from osprey.interfaces._serving import free_port
 from osprey_connectors.simulation.values import DEFAULT_BOOL_OPTIONS, LABELLED_TYPES
 from osprey_connectors.simulation.view import TEXTURE, VIEW_RELPATH, Channel, SimulatorView
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 
-#: Container-name prefix; ``_serving`` appends the run's own ephemeral port.
+#: Container-name prefix; ``_serving`` appends the run's own reserved port.
 CONTAINER_PREFIX = "osprey-va-e2e-journal"
 
 #: The instance each container serves as.
@@ -221,23 +221,23 @@ def _served(port: int) -> bool:
 @contextlib.contextmanager
 def _serving(project: e2e_conftest.VaProject, *, instance: str) -> Iterator[int]:
     """Boot one container as *instance* over the project's view and state; yield its port."""
-    port = free_port()
-    with e2e_conftest.serving_container(
-        f"{CONTAINER_PREFIX}-{port}",
-        port,
-        "-e",
-        f"VA_INSTANCE={instance}",
-        "-e",
-        f"VA_POLL_INTERVAL_S={TICK_S}",
-        "-e",
-        "VA_STATE_DIR=/state/simulation",
-        *e2e_conftest.data_root_run_args(project.data_dir),
-        "-v",
-        f"{project.state_dir}:/state/simulation:ro",
-        boot_timeout=BOOT_TIMEOUT_S,
-        served=_served,
-    ):
-        yield port
+    with reserved_port() as port:
+        with e2e_conftest.serving_container(
+            f"{CONTAINER_PREFIX}-{port}",
+            port,
+            "-e",
+            f"VA_INSTANCE={instance}",
+            "-e",
+            f"VA_POLL_INTERVAL_S={TICK_S}",
+            "-e",
+            "VA_STATE_DIR=/state/simulation",
+            *e2e_conftest.data_root_run_args(project.data_dir),
+            "-v",
+            f"{project.state_dir}:/state/simulation:ro",
+            boot_timeout=BOOT_TIMEOUT_S,
+            served=_served,
+        ):
+            yield port
 
 
 @pytest.fixture(scope="module")

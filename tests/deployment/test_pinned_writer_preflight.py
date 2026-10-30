@@ -161,7 +161,7 @@ def test_the_start_sequence_refuses_before_the_mint(tmp_path, monkeypatch):
     monkeypatch.setattr(
         container_lifecycle,
         "_build_project_image",
-        lambda config, dev, env, ctx=None: order.append("image"),
+        lambda config, dev, env, ctx=None, compose_files=None: order.append("image"),
     )
 
     def _fake_run(cmd, *args, **kwargs):

@@ -120,15 +120,13 @@ def detail_tokens(detail: str | None) -> dict[str, str]:
     return dict(token.split("=", 1) for token in (detail or "").split())
 
 
-def kernel_ledger(zone: Path) -> list[dict]:
-    """Every record filed under the kernel's surface in the audit *zone*."""
-    records = []
-    for path in sorted(zone.glob("**/*.jsonl")):
-        for line in path.read_text().splitlines():
-            entry = json.loads(line)
-            if entry.get("surface") == jupyter_kernel.SURFACE_NOTEBOOK_KERNEL:
-                records.append(entry)
-    return records
+def kernel_ledger(recorded_entries) -> list[dict]:
+    """Every audit entry recorded under the kernel's surface, oldest first."""
+    return [
+        dict(entry.body)
+        for entry in recorded_entries("audit")
+        if entry.body.get("surface") == jupyter_kernel.SURFACE_NOTEBOOK_KERNEL
+    ]
 
 
 def connection_argv(root: Path, name: str = f"kernel-{KERNEL_ID}.json") -> list[str]:
@@ -685,7 +683,7 @@ class TestTheAuditRecord:
 
 
 class TestTheWriteRecord:
-    """One record per channel a cell put on the wire, read back from the ledger."""
+    """One record per channel a cell put on the wire, read back from the record."""
 
     @pytest.fixture
     def observed(self, write_observers):
@@ -694,43 +692,41 @@ class TestTheWriteRecord:
         return write_observers
 
     @pytest.mark.usefixtures("observed", "unstamped")
-    def test_kernel_write_record_a_landed_write_files_one_allowed_record(self, _isolate_audit_zone):
+    def test_kernel_write_record_a_landed_write_files_one_allowed_record(self, recorded_entries):
         """A write a re-read verified is ``allowed`` with ``write_landed``."""
         runtime._notify_write("SR:MAG:1", "attempt")
         runtime._notify_write("SR:MAG:1", "landed")
 
-        records = kernel_ledger(_isolate_audit_zone)
+        records = kernel_ledger(recorded_entries)
         assert len(records) == 1, records
         assert records[0]["decision"] == DECISION_ALLOWED
         assert records[0]["reason"] == "write_landed"
         assert records[0]["subject"] == jupyter_kernel.REFUSAL_SUBJECT
 
     @pytest.mark.usefixtures("observed", "unstamped")
-    def test_kernel_write_record_a_sent_write_files_write_unconfirmed(self, _isolate_audit_zone):
+    def test_kernel_write_record_a_sent_write_files_write_unconfirmed(self, recorded_entries):
         """A write sent without verification is still ``allowed``, and says so."""
         runtime._notify_write("SR:MAG:1", "attempt")
         runtime._notify_write("SR:MAG:1", "sent")
 
-        records = kernel_ledger(_isolate_audit_zone)
+        records = kernel_ledger(recorded_entries)
         assert len(records) == 1, records
         assert records[0]["decision"] == DECISION_ALLOWED
         assert records[0]["reason"] == "write_unconfirmed"
 
     @pytest.mark.usefixtures("observed", "unstamped")
-    def test_kernel_write_record_an_attempt_alone_files_nothing(self, _isolate_audit_zone):
+    def test_kernel_write_record_an_attempt_alone_files_nothing(self, recorded_entries):
         """A refused write gets only ``attempt``, and its record is the refusal's."""
         runtime._notify_write("SR:MAG:1", "attempt")
 
-        assert kernel_ledger(_isolate_audit_zone) == []
+        assert kernel_ledger(recorded_entries) == []
 
     @pytest.mark.usefixtures("observed", "unstamped")
-    def test_kernel_write_record_the_detail_names_channel_account_and_host(
-        self, _isolate_audit_zone
-    ):
+    def test_kernel_write_record_the_detail_names_channel_account_and_host(self, recorded_entries):
         """The stamps travel as detail tokens, read in the writing process."""
         runtime._notify_write("SR:MAG:1", "landed")
 
-        (entry,) = kernel_ledger(_isolate_audit_zone)
+        (entry,) = kernel_ledger(recorded_entries)
         assert detail_tokens(entry["detail"]) == {
             "channel": "SR:MAG:1",
             "ca_user": CA_USER,
@@ -738,12 +734,15 @@ class TestTheWriteRecord:
         }
 
     @pytest.mark.usefixtures("observed", "unstamped")
-    def test_kernel_write_record_each_channel_files_its_own_record(self, _isolate_audit_zone):
+    def test_kernel_write_record_each_channel_files_its_own_record(self, recorded_entries):
         """A multi-channel write files one record per channel, each with its outcome."""
         runtime._notify_write("SR:MAG:1", "landed")
+        # Consumed in between, so the two entries are ordered by arrival even
+        # when they share a millisecond.
+        assert len(kernel_ledger(recorded_entries)) == 1
         runtime._notify_write("SR:MAG:2", "sent")
 
-        records = kernel_ledger(_isolate_audit_zone)
+        records = kernel_ledger(recorded_entries)
         assert [(detail_tokens(r["detail"])["channel"], r["reason"]) for r in records] == [
             ("SR:MAG:1", "write_landed"),
             ("SR:MAG:2", "write_unconfirmed"),
@@ -751,7 +750,7 @@ class TestTheWriteRecord:
 
     @pytest.mark.usefixtures("unstamped")
     def test_kernel_write_record_main_registers_the_observer(
-        self, monkeypatch, write_observers, _isolate_audit_zone
+        self, monkeypatch, write_observers, recorded_entries
     ):
         """After ``main()`` a write in this process files its record, once."""
 
@@ -779,14 +778,14 @@ class TestTheWriteRecord:
         runtime._notify_write("SR:MAG:1", "landed")
 
         assert write_observers == [jupyter_kernel._record_write]
-        (entry,) = kernel_ledger(_isolate_audit_zone)
+        (entry,) = kernel_ledger(recorded_entries)
         assert entry["reason"] == "write_landed"
 
     def test_an_audit_failure_does_not_reach_the_write(self, monkeypatch, caplog):
         """The trail degrades to a warning; the observer itself never raises."""
 
         def broken_record(**fields):
-            raise RuntimeError("no ledger here")
+            raise RuntimeError("no record here")
 
         monkeypatch.setattr("osprey.audit.writer.record", broken_record)
 

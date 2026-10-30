@@ -13,6 +13,9 @@ import yaml
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from osprey.agent_record.client import RecordClient
+from osprey.agent_record.contract import KIND_DEBUG
+from osprey.agent_record.reader import SOURCE_FIELD
 from osprey.cli.profile_conventions import (
     RESERVED_PATH_CHANNELS,
     is_protected_key,
@@ -35,7 +38,7 @@ router = APIRouter()
 _CONFIG_FILE = "config.yml"
 
 #: Machine-ish reason recorded for a refused protected key. The same string
-#: ``setup_patch`` records, so one query across the protected-set ledgers finds
+#: ``setup_patch`` records, so one query across the protected-set surfaces finds
 #: every protected-key refusal regardless of which surface produced it.
 _PROTECTED_KEY_REASON = "protected_key"
 
@@ -282,7 +285,7 @@ def _refuse_protected_keys(request: Request, keys: list[str]) -> HTTPException:
     keys its body aimed at, PUT names the protected keys its replacement
     document would have changed. One refusal path, so the two cannot drift into
     telling an operator different stories about the same rule, and one query
-    across ``var/audit/*/http_config.jsonl`` still finds every refusal either
+    of the record's ``http_config`` surface still finds every refusal either
     produced, per identity.
 
     The machine-readable parts stay ``setup_patch``'s to the letter -- the same
@@ -658,36 +661,71 @@ async def get_hook_debug_status(request: Request):
         return {"enabled": False}
 
 
+#: Bounds of the hook-activity feed's ``limit``: out-of-range values clamp.
+_HOOK_DEBUG_MIN_LIMIT = 1
+_HOOK_DEBUG_MAX_LIMIT = 500
+
+#: The record's ``source`` for hook debug lines. The transcript also produces
+#: ``debug`` entries; only the ones the hooks wrote belong in this feed.
+HOOK_DEBUG_SOURCE = "hook"
+
+#: The ``record`` field of the feed: the record answered whole, answered only
+#: part, or did not answer at all.
+_RECORD_COMPLETE = "complete"
+_RECORD_INCOMPLETE = "incomplete"
+_RECORD_UNAVAILABLE = "unavailable"
+
+
+def record_client() -> RecordClient:
+    """The record client this process reads with, configured from its environment.
+
+    Resolved per request and reached through the module, so a test replaces it
+    with ``monkeypatch.setattr(config, "record_client", ...)``. Never raises: an
+    unconfigured client answers every read unavailable.
+    """
+    return RecordClient.from_env(os.environ)
+
+
 @router.get("/api/hooks/debug-log")
-async def get_hook_debug_log(request: Request, limit: int = 50):
-    """Return recent hook debug log entries from hook_debug.jsonl."""
-    import json
+def get_hook_debug_log(limit: int = 50) -> dict[str, Any]:
+    """Serve the newest hook debug lines from the agent record, newest first.
 
-    project_cwd = getattr(request.app.state, "project_cwd", None)
-    if not project_cwd:
-        return {"entries": []}
+    Reads ``debug`` entries whose body names ``source: "hook"`` — the lines
+    ``osprey_hook_log.log_hook`` writes — so the transcript's own ``debug``
+    entries never reach the feed. Each served entry is the body as the hook
+    wrote it, with the entry's ``ts`` when the body lacks one.
 
-    log_path = Path(project_cwd) / ".claude" / "hooks" / "hook_debug.jsonl"
-    if not log_path.exists():
-        return {"entries": []}
+    Returns:
+        ``{"entries", "record"}`` and, when the record's answer was not whole,
+        a ``reason``. ``record`` is ``complete``, ``incomplete`` or
+        ``unavailable``; an unavailable record serves no entries.
+    """
+    effective = max(_HOOK_DEBUG_MIN_LIMIT, min(_HOOK_DEBUG_MAX_LIMIT, limit))
+    answer = record_client().entries(KIND_DEBUG, limit=effective, source=HOOK_DEBUG_SOURCE)
+    if not answer.available or not isinstance(answer.data, list):
+        reason = answer.unavailable or "the record answered no list"
+        logger.warning("Could not read hook debug lines from the record: %s", reason)
+        return {"entries": [], "record": _RECORD_UNAVAILABLE, "reason": reason}
 
-    try:
-        lines = log_path.read_text(encoding="utf-8").strip().splitlines()
-        # Take the last N entries (most recent)
-        recent = lines[-limit:] if len(lines) > limit else lines
-        entries = []
-        for line in reversed(recent):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                entries.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-        return {"entries": entries}
-    except Exception:
-        logger.warning("Failed to read hook debug log", exc_info=True)
-        return {"entries": []}
+    entries: list[dict[str, Any]] = []
+    for item in answer.data:
+        if not isinstance(item, dict):
+            continue
+        body = item.get("body")
+        if not isinstance(body, dict) or body.get(SOURCE_FIELD) != HOOK_DEBUG_SOURCE:
+            continue
+        entry = dict(body)
+        if "ts" not in entry and item.get("ts"):
+            entry["ts"] = item["ts"]
+        entries.append(entry)
+    entries = entries[:effective]
+    if not answer.complete:
+        return {
+            "entries": entries,
+            "record": _RECORD_INCOMPLETE,
+            "reason": answer.reason or "the record answered an incomplete page",
+        }
+    return {"entries": entries, "record": _RECORD_COMPLETE}
 
 
 # ---- Claude Setup Endpoints ---- #

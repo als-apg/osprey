@@ -39,11 +39,16 @@ deploy that otherwise succeeded.
 from __future__ import annotations
 
 import contextlib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
-from urllib.parse import quote
+from typing import TYPE_CHECKING, Any
 
+from osprey.agent_record.config import (
+    HISTORY_SERVICE,
+    history_origin_port,
+    history_page_deployed,
+)
 from osprey.cli import output
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.graphdb_service import (
@@ -58,19 +63,6 @@ from osprey.deployment.host_ports import (
     parse_host_port_bindings,
 )
 from osprey.deployment.qmd_service import dial_address
-from osprey.deployment.telemetry_config import (
-    GATEWAY_METRICS_CONTAINER_PORT,
-    GATEWAY_OTLP_CONTAINER_PORT,
-    GATEWAY_SERVICE,
-    HISTORY_SERVICE,
-    STORE_SERVICE,
-    reader_names,
-    reader_play_url,
-    reader_port,
-    store_deployed,
-    store_port,
-    store_url,
-)
 from osprey.deployment.web_terminals.ports import resolve_nginx_port
 from osprey.port_layout import (
     LAYOUT,
@@ -92,7 +84,6 @@ logger = get_logger("deployment.summary")
 # shown as a bare address. Keyed on compose service names, mirroring
 # host_ports._SERVICE_REMEDY_KEYS.
 _HTTP_SERVICES = {
-    STORE_SERVICE,
     HISTORY_SERVICE,
     "event-dispatcher",
     "bluesky-bridge",
@@ -120,12 +111,6 @@ _MULTI_PORT_ROLES: dict[str, dict[int, tuple[str, bool]]] = {
         CONTAINER_BOLT_PORT: ("bolt", False),
         CONTAINER_HTTP_PORT: ("browser", True),
     },
-    # The telemetry gateway binds the port senders post to and, on loopback,
-    # its own counters. Only the second is a page; the first answers POSTs.
-    GATEWAY_SERVICE: {
-        GATEWAY_OTLP_CONTAINER_PORT: ("otlp", False),
-        GATEWAY_METRICS_CONTAINER_PORT: ("metrics", True),
-    },
 }
 
 # Which layout slot each compose service publishes, so a row's display tier and
@@ -147,8 +132,6 @@ _SERVICE_SLOTS = {
     "auth": "auth",
     "event-dispatcher": "dispatcher",
     _WORKER_SERVICE_PREFIX: "worker",
-    GATEWAY_SERVICE: "telemetry_gateway",
-    STORE_SERVICE: "telemetry_store",
     HISTORY_SERVICE: "history",
     "qmd": "qmd",
     "tiled": "tiled",
@@ -848,86 +831,67 @@ def endpoint_entries(
     return [(tier, service, address) for _key, tier, service, address in sorted(rows)]
 
 
-def _serves_reader_origin(config: dict) -> bool:
-    """Whether readers reach the store through the web tier's own server."""
-    web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
-    return store_deployed(config) and bool(web_terminals.get("enabled"))
-
-
 def reader_page_url(config: dict, reader: str) -> str | None:
-    """Where ``reader`` opens the telemetry store's query page.
+    """Where the named reader ``reader`` opens the history page from another machine.
 
-    The one spelling of that link: the endpoint list prints it per reader, and
-    the line a deploy prints when it mints a reader's key hands out the same
-    one. It names the reader and never the key — the person types that into
-    the page.
+    The one spelling of that link, which the endpoint list prints per reader.
+    On the deploy host a reader reads the agent record's read API with the key
+    ``osprey up`` minted for them; this is the route from anywhere else.
 
-    With web terminals the page is on the readers' origin, already pointed at
-    that origin's query endpoint. Without them there is no readers' origin: the
-    store answers on the deploy host's loopback only, and the link is the
-    store's own page there (:func:`reader_tunnel_command` reaches it from
-    another machine).
+    A reader reaches the page by signing in: as the roster person of that name,
+    or, under OIDC sign-on, as the IdP identity its ``oidc_subject`` names.
 
     Args:
         config: Loaded (rendered) configuration dictionary.
         reader: A reader's name.
 
     Returns:
-        The URL, or ``None`` for a deployment that runs no store.
+        ``<history page's origin>/history/``, or ``None`` when the deployment serves
+        no history page, ``reader`` is not an ``agent_record.readers`` entry,
+        or nothing signs that reader in.
 
     Raises:
-        ValueError: If the readers' origin cannot be derived from this config
-            (see :func:`~osprey.deployment.web_terminals.render.reader_origin`),
-            or the store's port is not a port.
+        ValueError: If the history page's origin cannot be derived from this
+            config (see :func:`~osprey.deployment.web_terminals.render.history_origin`).
     """
-    if not store_deployed(config):
+    if not history_page_deployed(config):
         return None
-    if _serves_reader_origin(config):
-        from osprey.deployment.web_terminals.render import reader_origin
+    from osprey.agent_record.identities import reader_entries
 
-        return reader_play_url(reader_origin(config).origin, reader)
-    return f"{store_url(config, bridge=False)}/play?user={quote(reader, safe='')}"
-
-
-def reader_tunnel_command(config: dict) -> str | None:
-    """The SSH tunnel that brings the store's loopback page to another machine.
-
-    Args:
-        config: Loaded (rendered) configuration dictionary.
-
-    Returns:
-        ``ssh -N -L <port>:127.0.0.1:<port> <deploy host>``, the same port on
-        both ends so a printed reader link opens unchanged through it; ``None``
-        when the deployment runs no store, or serves its readers on their own
-        origin and needs no tunnel. A config that names no ``deploy.host``
-        leaves a placeholder for the operator to fill in.
-
-    Raises:
-        ValueError: If the store's port is not a port.
-    """
-    if not store_deployed(config) or _serves_reader_origin(config):
+    entry = next((e for e in reader_entries(config) if e["name"] == reader), None)
+    if entry is None or not _reader_signs_in(config, entry):
         return None
-    port = store_port(config)
-    host = str((config.get("deploy") or {}).get("host") or "").strip() or "<deploy host>"
-    return f"ssh -N -L {port}:127.0.0.1:{port} {host}"
+    from osprey.deployment.web_terminals.render import history_origin
+
+    return f"{history_origin(config).origin}/history/"
 
 
-#: The row label of the tunnel recipe, and what it says beside the command.
-_READER_TUNNEL_LABEL = "reader tunnel"
-_READER_TUNNEL_NOTE = "  (from another machine, then open a reader link there)"
+def _reader_signs_in(config: dict, entry: Mapping[str, Any]) -> bool:
+    """Whether anything signs the reader ``entry`` in to the history page."""
+    from osprey.deployment.web_terminals.roster import authored_people
+
+    web_terminals = ((config.get("modules") or {}).get("web_terminals")) or {}
+    roster = {
+        user if isinstance(user, str) else user.get("name")
+        for user in authored_people(web_terminals)
+        if isinstance(user, (str, dict))
+    }
+    if entry["name"] in roster:
+        return True
+    subject = entry.get("oidc_subject")
+    method = (web_terminals.get("auth") or {}).get("method")
+    return method == "oidc" and isinstance(subject, str) and bool(subject.strip())
 
 
 def _reader_entries(config: dict) -> list[tuple[tuple[int, int, int, str], str, str, str]]:
-    """One row per configured reader: the link that reader opens.
+    """One row per named reader who can sign in: the history page they open.
 
-    Placed where the thing that answers the link sits in the block — beside the
-    gateway's other servers when the web tier serves the readers' origin, and
-    right under the store when the store's own loopback page is all there is,
-    followed there by the tunnel that reaches it from elsewhere. A deployment
-    with no reader has no row: nobody holds a key to open the page with.
+    Placed beside the gateway's other servers, under the history page's origin
+    that answers the link. A reader nothing signs in has no row: they read on the
+    deploy host, through the read API, with the key ``osprey up`` minted.
 
-    Advisory, like every row of the summary: a config whose readers' origin
-    cannot be derived prints none here, and the render says why in its own
+    Advisory, like every row of the summary: a config whose history page's
+    origin cannot be derived prints none here, and the render says why in its own
     words.
 
     Args:
@@ -936,24 +900,21 @@ def _reader_entries(config: dict) -> list[tuple[tuple[int, int, int, str], str, 
     Returns:
         Rows in :func:`endpoint_entries`' sortable form, in config order.
     """
+    from osprey.agent_record.identities import reader_entries
+
     try:
-        names = reader_names(config)
-        if not names or not store_deployed(config):
+        if not history_page_deployed(config):
             return []
-        links = [(name, reader_page_url(config, name)) for name in names]
-        tunnel = reader_tunnel_command(config)
-        if _serves_reader_origin(config):
-            slot, port = SLOTS_BY_NAME["reader"], reader_port(config)
-        else:
-            slot, port = SLOTS_BY_NAME[_SERVICE_SLOTS[STORE_SERVICE]], store_port(config)
+        links = [(e["name"], reader_page_url(config, e["name"])) for e in reader_entries(config)]
+        slot, port = SLOTS_BY_NAME["history_origin"], history_origin_port(config)
     except Exception as exc:
         logger.debug(f"Reader links skipped: {exc}")
         return []
     tier = _TIER_ORDER.index(slot.tier)
     # Sorted behind the row of the service that answers them, in config order.
-    rows = [
+    return [
         (
-            (tier, slot.offset, port, f"{STORE_SERVICE} {index:04d}"),
+            (tier, slot.offset, port, f"reader {index:04d}"),
             slot.tier,
             f"reader {name}",
             link,
@@ -961,16 +922,6 @@ def _reader_entries(config: dict) -> list[tuple[tuple[int, int, int, str], str, 
         for index, (name, link) in enumerate(links)
         if link
     ]
-    if tunnel:
-        rows.append(
-            (
-                (tier, slot.offset, port, f"{STORE_SERVICE} {len(links):04d}"),
-                slot.tier,
-                _READER_TUNNEL_LABEL,
-                f"{tunnel}{_READER_TUNNEL_NOTE}",
-            )
-        )
-    return rows
 
 
 def landing_page_url(config: dict) -> str | None:
