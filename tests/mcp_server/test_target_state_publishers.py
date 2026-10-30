@@ -90,6 +90,7 @@ def _dead_pid(monkeypatch, dead):
         return real(os.getpid(), 0)
 
     monkeypatch.setattr(target_state.os, "kill", fake_kill)
+    monkeypatch.setattr(control_context, "_PROC_ROOT", "/nonexistent/proc")
 
 
 def _reparsed(server_pid=None):
