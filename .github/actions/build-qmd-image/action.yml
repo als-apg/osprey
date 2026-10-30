@@ -1,0 +1,165 @@
+name: Build the qmd sidecar image
+description: >-
+  Build `osprey-qmd:ci` from src/osprey/templates/services/qmd into the calling
+  job's local image store, through a Buildx layer cache that holds the 2.1 GB
+  of GGUF models the build otherwise fetches from huggingface.co. Sets up the
+  Buildx builder it needs and, unless `keep-builder` is set, removes it and the
+  restored cache once the image is loaded.
+
+inputs:
+  warm:
+    description: >-
+      "true" in the cache warm-up job on pushes to main, and nowhere else: look
+      the key up without downloading it, and on a miss build the image and save
+      its layers in main's cache scope. Loads no image either way. Every other
+      caller leaves it "false": restore the cache, build and load the image,
+      save nothing.
+    required: false
+    default: "false"
+  keep-builder:
+    description: >-
+      "true" to leave the Buildx builder as the job's default and the restored
+      cache at /tmp/qmd-buildx-cache, for a caller that builds a second image
+      from the same layers. Left "false", both are removed after the load: the
+      lanes that deploy the preset build several multi-GB images after this
+      one, and the builder's copy of these layers plus the restored cache would
+      hold about 6 GB of the runner's disk for nothing.
+    required: false
+    default: "false"
+
+outputs:
+  cache-hit:
+    description: >-
+      "true" when the exact key was already cached. In warm mode that means
+      nothing was built.
+    value: ${{ steps.lookup.outputs.cache-hit || steps.restore.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Derive the qmd layer-cache key
+      id: key
+      shell: bash
+      # The three GGUFs are fetched INSIDE the image build, so what is cached
+      # is the buildx layer cache rather than the files themselves. Keying it
+      # on the SHA256 pins is what makes "fetch once per pin bump" true: bump a
+      # pin and the RUN text changes, its layer misses, and the new key starts
+      # a fresh entry instead of restoring one that could never hit.
+      #
+      # The base image's digest is in the key too. Every layer, the model
+      # fetches included, sits on top of it, so when the tag moves upstream the
+      # cached layers stop matching while the Dockerfile and its pins stay
+      # byte-identical. Without the digest the warm-up would find its key
+      # already saved and skip, and every PR would restore layers it can no
+      # longer use and download the models again until the next Dockerfile edit.
+      #
+      # `pipefail` is set explicitly. GitHub Actions' default shell does not
+      # set it, so a pipeline reports the LAST command's status: a `grep` that
+      # matched nothing would be masked by a succeeding `sha256sum` and key the
+      # cache on the digest of the empty string — one shared key for every set
+      # of pins, which is worse than having no cache at all. The `-eq 3` and
+      # `-eq 1` checks are the second half of that guard: they fail loudly if
+      # the label block is ever renamed or a second stage appears, rather than
+      # silently keying on a partial match.
+      run: |
+        set -euo pipefail
+        dockerfile=src/osprey/templates/services/qmd/Dockerfile
+        pins="$(grep -oE 'com\.osprey\.qmd\.[a-z]+_sha256="[0-9a-f]{64}"' "$dockerfile" | sort)"
+        printf '%s\n' "$pins"
+        test "$(printf '%s\n' "$pins" | wc -l)" -eq 3
+        bases="$(grep -E '^FROM ' "$dockerfile" | awk '{print $2}')"
+        test "$(printf '%s\n' "$bases" | wc -l)" -eq 1
+        base_digest="$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$bases")"
+        echo "$bases -> $base_digest"
+        test -n "$base_digest"
+        digest="$(printf '%s' "$pins" | sha256sum | cut -d' ' -f1)"
+        prefix="qmd-buildx-${RUNNER_OS}-${digest}-"
+        echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+        echo "key=${prefix}${{ hashFiles('src/osprey/templates/services/qmd/Dockerfile', 'src/osprey/templates/services/qmd/entrypoint.sh', 'src/osprey/templates/services/qmd/patches/**') }}-${base_digest#sha256:}" >> "$GITHUB_OUTPUT"
+
+    - name: Look the qmd layer cache up
+      id: lookup
+      if: inputs.warm == 'true'
+      # Metadata only: a hit downloads nothing, so a push that changes nothing
+      # the image is built from costs this job a few seconds.
+      uses: actions/cache/restore@v6
+      with:
+        path: /tmp/qmd-buildx-cache
+        key: ${{ steps.key.outputs.key }}
+        lookup-only: true
+
+    - name: Restore the qmd layer cache
+      id: restore
+      if: inputs.warm != 'true' || steps.lookup.outputs.cache-hit != 'true'
+      # Restore only. A PR can read caches saved on its own branch or on main,
+      # and saves to its own branch, where no other PR can read them. Saving a
+      # 2.5 GB entry per PR evicted the repo's smaller caches and never served a
+      # second PR, so only the warm-up saves.
+      #
+      # Pins unchanged but the Dockerfile, entrypoint or base image changed:
+      # restore the previous entry anyway. buildx revalidates every layer
+      # against the current instructions, so at worst the model layers miss and
+      # refetch — a stale model can never be served as a fresh one.
+      uses: actions/cache/restore@v6
+      with:
+        path: /tmp/qmd-buildx-cache
+        key: ${{ steps.key.outputs.key }}
+        restore-keys: |
+          ${{ steps.key.outputs.prefix }}
+
+    - name: Set up Docker Buildx
+      id: buildx
+      if: inputs.warm != 'true' || steps.lookup.outputs.cache-hit != 'true'
+      # `type=local` layer caching is what needs this: the plain docker
+      # builder cannot import or export one.
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build the qmd sidecar image
+      if: inputs.warm != 'true'
+      shell: bash
+      # The template directory IS the build context: Dockerfile and
+      # entrypoint.sh are siblings there and carry no Jinja, so what builds
+      # here is byte-identical to what a rendered deployment builds. A caller
+      # starts it through `OSPREY_QMD_IMAGE=osprey-qmd:ci`, which holds qmd
+      # out of the build `osprey up` would otherwise run.
+      run: |
+        set -euo pipefail
+        docker buildx build \
+          --tag osprey-qmd:ci \
+          --load \
+          --cache-from type=local,src=/tmp/qmd-buildx-cache \
+          src/osprey/templates/services/qmd
+
+    - name: Remove the builder and the restored cache
+      if: inputs.warm != 'true' && inputs.keep-builder != 'true'
+      shell: bash
+      # The image is in the job's image store now; neither of these is read
+      # again. Removing the current builder hands the job back the default one.
+      run: |
+        set -euo pipefail
+        docker buildx rm "${{ steps.buildx.outputs.name }}"
+        rm -rf /tmp/qmd-buildx-cache
+
+    - name: Build the qmd layer cache
+      if: inputs.warm == 'true' && steps.lookup.outputs.cache-hit != 'true'
+      shell: bash
+      # Nothing is loaded: the warm-up runs no container, and the 3.4 GB load
+      # would only slow it down. The export goes to a sibling directory because
+      # buildx cannot safely export to the directory it imported from in the
+      # same build, and the swap keeps the entry from growing by the previous
+      # one's stale layers.
+      run: |
+        set -euo pipefail
+        docker buildx build \
+          --cache-from type=local,src=/tmp/qmd-buildx-cache \
+          --cache-to type=local,dest=/tmp/qmd-buildx-cache-new,mode=max \
+          src/osprey/templates/services/qmd
+        rm -rf /tmp/qmd-buildx-cache
+        mv /tmp/qmd-buildx-cache-new /tmp/qmd-buildx-cache
+
+    - name: Save the qmd layer cache in main's scope
+      if: inputs.warm == 'true' && steps.lookup.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: /tmp/qmd-buildx-cache
+        key: ${{ steps.key.outputs.key }}
