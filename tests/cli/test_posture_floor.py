@@ -493,6 +493,7 @@ def _run_cli(
         capture_output=True,
         text=True,
         check=False,
+        timeout=120,
     )
 
 

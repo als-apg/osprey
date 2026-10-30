@@ -66,6 +66,7 @@ def test_the_resurrection_guard_is_green() -> None:
         capture_output=True,
         text=True,
         check=False,
+        timeout=120,
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
@@ -85,8 +86,7 @@ def test_the_bluesky_block_has_no_devices_file_field() -> None:
 @pytest.mark.slow
 def test_the_demo_render_names_no_devices_file(built_control_assistant: BuiltProject) -> None:
     """No service block of the demo's rendered config.yml names a device file."""
-    with open(built_control_assistant.build_dir / "config.yml") as fh:
-        services = YAML().load(fh)["services"]
+    services = YAML().load(built_control_assistant.build_dir / "config.yml")["services"]
 
     assert "bluesky" in services
     for name, block in services.items():

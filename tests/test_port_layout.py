@@ -17,12 +17,7 @@ Two properties are structural rather than numeric and are worth naming:
   already-populated ``sys.modules`` of the test session.
 """
 
-import json
-import os
-import subprocess
-import sys
 import warnings
-from pathlib import Path
 
 import pytest
 
@@ -43,6 +38,7 @@ from osprey.port_layout import (
     resolve_port_base,
 )
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS, framework_web_port_default
+from tests._fresh_import import non_stdlib_added_by_import
 
 #: Every slot's port at :data:`DEFAULT_PORT_BASE`, spelled out rather than
 #: derived: a test that recomputes the offsets it is checking would pass on a
@@ -90,9 +86,6 @@ EXPECTED_FAMILY_PORTS = {
     "system_health": 10700,
 }
 
-#: ``src`` on the test tree, for the child interpreter that checks import purity.
-_SRC = str(Path(__file__).resolve().parents[1] / "src")
-
 
 def _family_slots() -> tuple[PortSlot, ...]:
     """Return the per-user family slots, in layout order.
@@ -119,12 +112,15 @@ def _registry_port_families() -> set[str]:
     }
 
 
-def _child_env(*, without_git: bool) -> dict[str, str]:
-    """The environment for the child interpreter that measures the import."""
-    env = dict(os.environ, PYTHONPATH=_SRC)
-    if without_git:
-        env["PATH"] = ""
-    return env
+#: What a fresh import of ``port_layout`` may add besides the stdlib: the module
+#: itself and the parent package's own cost (see :func:`_fresh_import_modules`).
+_PORT_LAYOUT_ALLOWED = (
+    "osprey",
+    "osprey.version",
+    "osprey._version",
+    "osprey.port_layout",
+    "osprey.docs_links",
+)
 
 
 def _fresh_import_modules(*, without_git: bool = False) -> list[str]:
@@ -159,25 +155,9 @@ def _fresh_import_modules(*, without_git: bool = False) -> list[str]:
     Raises:
         AssertionError: If the child interpreter fails to import the module.
     """
-    code = (
-        "import json, sys;"
-        "before = set(sys.modules);"
-        "import osprey.port_layout;"
-        "allowed = {'osprey', 'osprey.version', 'osprey._version', "
-        "'osprey.port_layout', 'osprey.docs_links'};"
-        "delta = set(sys.modules) - before - allowed;"
-        "print(json.dumps(sorted("
-        "m for m in delta if m.split('.')[0] not in sys.stdlib_module_names)))"
+    return non_stdlib_added_by_import(
+        "osprey.port_layout", _PORT_LAYOUT_ALLOWED, env={"PATH": ""} if without_git else None
     )
-    result = subprocess.run(
-        [sys.executable, "-c", code],
-        capture_output=True,
-        text=True,
-        env=_child_env(without_git=without_git),
-        check=False,
-    )
-    assert result.returncode == 0, f"fresh import of osprey.port_layout failed:\n{result.stderr}"
-    return json.loads(result.stdout)
 
 
 class TestLayoutTable:

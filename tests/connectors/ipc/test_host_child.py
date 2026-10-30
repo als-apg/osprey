@@ -54,6 +54,8 @@ from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._harness import write_control_context
 from osprey_connectors_tests._write_fakes import arm_switch
 from tests._child_stubs import CHILD_STUBS
+from tests._live import wait_until
+from tests._processes import pid_alive
 from tests.facility.served_tree import in_process_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -565,10 +567,13 @@ def test_closing_stdin_before_the_init_frame_exits_the_child_cleanly(child):
     child.proc.stdin.close()
 
     assert child.proc.wait(timeout=REPLY_TIMEOUT_S) == host.EXIT_OK
-    deadline = time.monotonic() + REPLY_TIMEOUT_S
-    while "stdin closed before the init frame" not in child.stderr():
-        assert time.monotonic() < deadline, child.stderr()
-        time.sleep(0.05)
+    # Wait, then assert: the failure message carries the child's whole stderr.
+    with contextlib.suppress(AssertionError):
+        wait_until(
+            lambda: "stdin closed before the init frame" in child.stderr(),
+            timeout=REPLY_TIMEOUT_S,
+        )
+    assert "stdin closed before the init frame" in child.stderr(), child.stderr()
 
 
 def test_closing_stdin_lets_a_call_in_flight_reply_before_the_child_exits(child):
@@ -630,21 +635,26 @@ def test_the_watchdog_exits_a_child_whose_parent_died(tmp_path):
         )
         # The orphan has to start before its watchdog can notice anything.
         bound = CHILD_STARTUP_TIMEOUT_S + REPLY_TIMEOUT_S
-        deadline = time.monotonic() + bound
-        while not pid_file.exists() and time.monotonic() < deadline:
-            time.sleep(0.05)
-        orphan_pid = int(pid_file.read_text())
+        orphan_pid = int(
+            wait_until(
+                lambda: pid_file.exists() and pid_file.read_text(),
+                timeout=bound,
+                what="the orphan's pid file",
+            )
+        )
 
         # The write end is still open here, so the child sees no EOF; it is the
         # reparenting to init that has to end it.
-        while time.monotonic() < deadline:
-            try:
-                os.kill(orphan_pid, 0)
-            except ProcessLookupError:
-                return
-            time.sleep(0.1)
-        os.kill(orphan_pid, signal.SIGKILL)
-        pytest.fail(f"orphaned child {orphan_pid} was still alive after {bound}s")
+        try:
+            wait_until(
+                lambda: not pid_alive(orphan_pid),
+                timeout=bound,
+                interval=0.1,
+                what=f"orphaned child {orphan_pid} exiting",
+            )
+        except AssertionError:
+            os.kill(orphan_pid, signal.SIGKILL)
+            raise
     finally:
         os.close(read_fd)
         os.close(write_fd)

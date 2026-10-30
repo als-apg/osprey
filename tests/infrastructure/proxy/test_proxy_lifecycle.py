@@ -192,7 +192,7 @@ loaded = [m for m in sys.modules if m == "litellm" or m.startswith("osprey.model
 print(loaded)
 """
     result = subprocess.run(
-        [sys.executable, "-c", script], capture_output=True, text=True, check=True
+        [sys.executable, "-c", script], capture_output=True, text=True, check=True, timeout=120
     )
     assert result.stdout.strip() == "[]", result.stdout + result.stderr
 

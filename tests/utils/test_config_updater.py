@@ -87,8 +87,7 @@ models:
             create_backup=False,
         )
 
-        with open(config_file) as f:
-            updated_config = yaml.safe_load(f)
+        updated_config = yaml.safe_load(config_file.read_text())
 
         assert updated_config["control_system"]["connector"]["epics"]["port"] == 5064
 
@@ -269,8 +268,7 @@ models:
             create_backup=False,
         )
 
-        with open(config_file) as f:
-            updated_config = yaml.safe_load(f)
+        updated_config = yaml.safe_load(config_file.read_text())
 
         assert updated_config["simulation"]["ioc"]["name"] == "test_ioc"
         assert updated_config["simulation"]["ioc"]["port"] == 5064
@@ -294,8 +292,7 @@ models:
             create_backup=False,
         )
 
-        with open(config_file) as f:
-            updated_config = yaml.safe_load(f)
+        updated_config = yaml.safe_load(config_file.read_text())
 
         # Updated value
         assert updated_config["control_system"]["type"] == "epics"
@@ -352,6 +349,5 @@ simulation:
         # Section comment should NOT be added since simulation already existed
         # (comment is only for NEW keys)
         # The merge happens, new_key is added
-        with open(config_file) as f:
-            config = yaml.safe_load(f)
+        config = yaml.safe_load(config_file.read_text())
         assert config["simulation"]["new_key"] == "new_value"

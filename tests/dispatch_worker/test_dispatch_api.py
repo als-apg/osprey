@@ -25,6 +25,7 @@ from osprey.agent_record import contract as record_contract
 from osprey.agent_record.client import ClientAnswer
 from osprey.agent_runner.tool_names import DISPATCH_DENIED_TOOLS
 from osprey.mcp_server.dispatch_worker import dispatch_api
+from tests._live import wait_until
 from tests.agent_record.fakes import FakeRecordClient
 
 _TOKEN = "test-secret-token"
@@ -108,17 +109,17 @@ def _dispatch(client: TestClient, **fields: Any) -> str:
 
 
 def _wait_for_terminal(client: TestClient, run_id: str, timeout: float = 5.0) -> dict:
-    """Poll a run until it leaves the ``pending`` state (or time out)."""
-    deadline = time.time() + timeout
-    last: dict = {}
-    while time.time() < deadline:
+    """Poll a run until it leaves the ``pending`` state; fail the test on timeout."""
+
+    def _settled() -> dict | None:
         resp = client.get(f"/dispatch/{run_id}", headers=_auth())
         assert resp.status_code == 200
-        last = resp.json()
-        if last.get("status") != "pending":
-            return last
-        time.sleep(0.02)
-    return last
+        record = resp.json()
+        return record if record.get("status") != "pending" else None
+
+    return wait_until(
+        _settled, timeout=timeout, interval=0.02, what=f"run {run_id} leaving pending"
+    )
 
 
 # ---------------------------------------------------------------------------

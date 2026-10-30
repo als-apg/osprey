@@ -888,7 +888,9 @@ def test_module_stays_import_clean_of_the_bluesky_stack() -> None:
         f"leaked = sorted(set({sorted(_BRIDGE_ONLY_MODULES)!r}) & sys.modules.keys()); "
         "assert not leaked, leaked"
     )
-    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=120
+    )
     assert result.returncode == 0, result.stderr
 
 

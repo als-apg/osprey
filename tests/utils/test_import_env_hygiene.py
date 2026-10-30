@@ -167,25 +167,17 @@ def test_explicit_load_records_what_it_overrode(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "_dotenv_shell_overrides", {})
     monkeypatch.chdir(tmp_path)
 
-    import os
+    config.load_project_dotenv()
 
-    try:
-        config.load_project_dotenv()
+    assert config.dotenv_shell_overrides() == {"OSPREY_HYGIENE_DIFFERS": "from-the-shell"}
+    # The override itself still happened — .env stays the in-process winner.
+    assert os.environ["OSPREY_HYGIENE_DIFFERS"] == "from-the-file"
 
-        assert config.dotenv_shell_overrides() == {"OSPREY_HYGIENE_DIFFERS": "from-the-shell"}
-        # The override itself still happened — .env stays the in-process winner.
-        assert os.environ["OSPREY_HYGIENE_DIFFERS"] == "from-the-file"
-
-        # The load runs more than once per process; after the first, the
-        # environment already matches the file — the record of what the SHELL
-        # held must survive the repeat, not be erased by it.
-        config.load_project_dotenv()
-        assert config.dotenv_shell_overrides() == {"OSPREY_HYGIENE_DIFFERS": "from-the-shell"}
-    finally:
-        # load_dotenv wrote the file-only key straight into os.environ, outside
-        # monkeypatch's bookkeeping; the differing/agreeing keys are restored by
-        # the setenv registrations above.
-        os.environ.pop("OSPREY_HYGIENE_FILE_ONLY", None)
+    # The load runs more than once per process; after the first, the
+    # environment already matches the file — the record of what the SHELL
+    # held must survive the repeat, not be erased by it.
+    config.load_project_dotenv()
+    assert config.dotenv_shell_overrides() == {"OSPREY_HYGIENE_DIFFERS": "from-the-shell"}
 
 
 def test_explicit_load_reads_the_whole_chain_with_local_winning(tmp_path, monkeypatch):
@@ -208,18 +200,13 @@ def test_explicit_load_reads_the_whole_chain_with_local_winning(tmp_path, monkey
     monkeypatch.setattr(config, "_dotenv_shell_overrides", {})
     monkeypatch.chdir(tmp_path)
 
-    written = ("OSPREY_HYGIENE_BOTH", "OSPREY_HYGIENE_SHARED_ONLY", "OSPREY_HYGIENE_LOCAL_ONLY")
-    try:
-        config.load_project_dotenv()
+    config.load_project_dotenv()
 
-        assert os.environ["OSPREY_HYGIENE_BOTH"] == "from-local"
-        assert os.environ["OSPREY_HYGIENE_SHARED_ONLY"] == "shared-only"
-        assert os.environ["OSPREY_HYGIENE_LOCAL_ONLY"] == "local-only"
-        # Nothing was shadowed: the shell set none of these.
-        assert config.dotenv_shell_overrides() == {}
-    finally:
-        for name in written:
-            os.environ.pop(name, None)
+    assert os.environ["OSPREY_HYGIENE_BOTH"] == "from-local"
+    assert os.environ["OSPREY_HYGIENE_SHARED_ONLY"] == "shared-only"
+    assert os.environ["OSPREY_HYGIENE_LOCAL_ONLY"] == "local-only"
+    # Nothing was shadowed: the shell set none of these.
+    assert config.dotenv_shell_overrides() == {}
 
 
 def test_chain_records_the_shell_value_once_per_key(tmp_path, monkeypatch):

@@ -129,37 +129,31 @@ def _set_live_standin(repo: Path, port: int | None) -> None:
     rather than a no-op the day the preset starts shipping the key.
     """
     profile_path = repo / "profile.yml"
-    with profile_path.open("r", encoding="utf-8") as handle:
-        profile = _ruamel.load(handle)
+    profile = _ruamel.load(profile_path)
     block = profile["virtual_accelerator"]
     if port is None:
         block.pop("live_standin", None)
     else:
         block["live_standin"] = port
-    with profile_path.open("w", encoding="utf-8") as handle:
-        _ruamel.dump(profile, handle)
+    _ruamel.dump(profile, profile_path)
 
 
 def _set_config_entries(repo: Path, entries: dict[str, Any]) -> None:
     """Add dotted entries to the repo profile's own ``config:`` block."""
     profile_path = repo / "profile.yml"
-    with profile_path.open("r", encoding="utf-8") as handle:
-        profile = _ruamel.load(handle)
+    profile = _ruamel.load(profile_path)
     for key, value in entries.items():
         profile["config"][key] = value
-    with profile_path.open("w", encoding="utf-8") as handle:
-        _ruamel.dump(profile, handle)
+    _ruamel.dump(profile, profile_path)
 
 
 def _drop_profile_blocks(repo: Path, names: tuple[str, ...]) -> None:
     """Remove whole top-level blocks from the repo's profile."""
     profile_path = repo / "profile.yml"
-    with profile_path.open("r", encoding="utf-8") as handle:
-        profile = _ruamel.load(handle)
+    profile = _ruamel.load(profile_path)
     for name in names:
         profile.pop(name, None)
-    with profile_path.open("w", encoding="utf-8") as handle:
-        _ruamel.dump(profile, handle)
+    _ruamel.dump(profile, profile_path)
 
 
 def _build(repo: Path) -> Path:

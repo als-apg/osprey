@@ -22,6 +22,7 @@ from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionPool
 from osprey.interfaces.web_terminal.operator_session import OperatorRegistry, OperatorSession
 from osprey.interfaces.web_terminal.session_handoff import HandoffRefused
 from tests._live import async_wait_until
+from tests._processes import kill_quietly, pid_gone, wait_gone
 from tests.interfaces.web_terminal._chat_child import (
     ChildClient,
     child_factory,
@@ -39,12 +40,7 @@ from tests.interfaces.web_terminal._handoff_harness import (
     pty_spawner,
     registry,
 )
-from tests.interfaces.web_terminal._pty_child import (
-    CHILD_HANG_CEILING,
-    kill_quietly,
-    pid_gone,
-    wait_gone,
-)
+from tests.interfaces.web_terminal._pty_child import CHILD_HANG_CEILING
 
 pytestmark = [
     pytest.mark.skipif(sys.platform == "win32", reason="no process groups on Windows"),

@@ -17,8 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import chdir
 from pathlib import Path
 
 import pytest
@@ -180,16 +179,6 @@ def test_root_allowed_lifting_a_non_shell_is_not_pr12(tmp_path: Path, caplog) ->
 # --- tier render ------------------------------------------------------------
 
 
-@contextmanager
-def _cwd(path: Path) -> Iterator[None]:
-    previous = Path.cwd()
-    os.chdir(path)
-    try:
-        yield
-    finally:
-        os.chdir(previous)
-
-
 def _lift_in_tier(repo: Path, tier: str, tool: str) -> None:
     """Add ``claude_code.permissions.remove_deny: [tool]`` to a tier's config block."""
     path = repo / "tiers" / f"{tier}.yml"
@@ -227,7 +216,7 @@ def _build_with_lift(base: Path, tier: str, tool: str, *, untiered_dispatch: boo
             text = profile.read_text(encoding="utf-8")
             assert text.count(_DISPATCH_TIER_LINE) == 1
             profile.write_text(text.replace(_DISPATCH_TIER_LINE, "\n"), encoding="utf-8")
-        with _cwd(repo):
+        with chdir(repo):
             result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
     return result
 

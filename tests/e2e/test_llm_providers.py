@@ -417,8 +417,7 @@ def setup_llm_test_environment(test_config, monkeypatch):
                 "model_id": provider_config["default_model"],
             }
 
-    with open(test_config, "w") as f:
-        yaml.dump(config, f)
+    test_config.write_text(yaml.dump(config))
 
     monkeypatch.setenv("CONFIG_FILE", str(test_config))
 

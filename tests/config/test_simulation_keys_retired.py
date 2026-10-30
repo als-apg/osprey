@@ -85,6 +85,7 @@ def test_the_resurrection_guard_is_green() -> None:
         capture_output=True,
         text=True,
         check=False,
+        timeout=120,
     )
 
     assert result.returncode == 0, result.stdout + result.stderr

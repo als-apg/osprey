@@ -1159,24 +1159,22 @@ def test_config(tmp_path):
     Examples:
         Basic usage::
 
-            def test_something(test_config):
+            def test_something(test_config, monkeypatch):
                 # Config file exists at test_config
                 assert test_config.exists()
                 # Set environment to use it
-                os.environ['CONFIG_FILE'] = str(test_config)
+                monkeypatch.setenv("CONFIG_FILE", str(test_config))
 
         With custom modifications::
 
             def test_custom(test_config):
                 # Read existing config
                 import yaml
-                with open(test_config) as f:
-                    config = yaml.safe_load(f)
+                config = yaml.safe_load(test_config.read_text())
                 # Modify
-                config['execution']['execution_method'] = 'subprocess'
+                config["execution"]["execution_method"] = "subprocess"
                 # Write back
-                with open(test_config, 'w') as f:
-                    yaml.dump(config, f)
+                test_config.write_text(yaml.dump(config))
     """
     import yaml
 
@@ -1221,8 +1219,7 @@ class TestRegistryProvider(RegistryConfigProvider):
         },
     }
 
-    with open(config_file, "w") as f:
-        yaml.dump(config, f)
+    config_file.write_text(yaml.dump(config))
 
     # Do NOT initialize registry here - let each test handle registry initialization
     # to avoid state pollution between tests

@@ -41,6 +41,7 @@ from osprey.mcp_server.control_system.endpoint_prober import (
     STATUS_UNREACHABLE,
     EndpointProber,
 )
+from tests._live import async_wait_until
 
 LIVE = "live"
 VA = "va"
@@ -339,11 +340,12 @@ async def test_loop_keeps_sweeping_after_the_first(listener):
         first = prober.snapshot()[VA]["read_only"]["probed_at"]
         clock.advance(1.0)
 
-        async def _refreshed() -> None:
-            while prober.snapshot()[VA]["read_only"]["probed_at"] == first:
-                await asyncio.sleep(0.01)
-
-        await asyncio.wait_for(_refreshed(), timeout=5.0)
+        await async_wait_until(
+            lambda: prober.snapshot()[VA]["read_only"]["probed_at"] != first,
+            timeout=5.0,
+            interval=0.01,
+            what="a refreshed probe",
+        )
     finally:
         await prober.stop()
 
@@ -453,12 +455,9 @@ async def test_every_sweep_of_the_loop_publishes(listener, monkeypatch):
     prober = _prober(_va_config(listener), targets=(VA,), interval_s=0.01)
     await prober.start()
     try:
-
-        async def _three() -> None:
-            while len(published) < 3:
-                await asyncio.sleep(0.01)
-
-        await asyncio.wait_for(_three(), timeout=5.0)
+        await async_wait_until(
+            lambda: len(published) >= 3, timeout=5.0, interval=0.01, what="three sweeps"
+        )
     finally:
         await prober.stop()
 
@@ -550,12 +549,9 @@ async def test_a_failed_publish_does_not_stop_the_loop(listener, monkeypatch, ca
     with caplog.at_level("WARNING", logger=ep.logger.name):
         await prober.start()
         try:
-
-            async def _twice() -> None:
-                while len(calls) < 2:
-                    await asyncio.sleep(0.01)
-
-            await asyncio.wait_for(_twice(), timeout=5.0)
+            await async_wait_until(
+                lambda: len(calls) >= 2, timeout=5.0, interval=0.01, what="two probe calls"
+            )
             assert prober.running is True
             assert prober.snapshot()[VA]["read_only"]["endpoint_tcp"] == STATUS_OK
         finally:

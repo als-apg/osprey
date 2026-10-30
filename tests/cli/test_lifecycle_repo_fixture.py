@@ -214,6 +214,7 @@ def test_git_status_is_clean_from_birth(lifecycle_repo_factory, tmp_path: Path) 
         check=True,
         capture_output=True,
         text=True,
+        timeout=60,
     )
     assert status.stdout == "", f"unexpected git status:\n{status.stdout}"
 

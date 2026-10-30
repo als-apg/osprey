@@ -205,7 +205,9 @@ def deployed_bridge(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     # silently reuse a stale cached <project>-bluesky-bridge:local.
     # Exact-named image only. (The queueserver deliberately has no `build:`
     # block and runs this same image, so one rmi covers both services.)
-    subprocess.run(["docker", "rmi", "-f", BRIDGE_IMAGE], capture_output=True, text=True)
+    subprocess.run(
+        ["docker", "rmi", "-f", BRIDGE_IMAGE], capture_output=True, text=True, timeout=120
+    )
 
     try:
         up = run_command(

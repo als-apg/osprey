@@ -214,16 +214,20 @@ def test_tags_that_are_not_framework_releases_are_ignored() -> None:
 def test_a_shallow_checkout_is_refused(tmp_path: Path) -> None:
     source = tmp_path / "source"
     git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
-    subprocess.run([*git, "init", "-q", str(source)], check=True)
+    subprocess.run([*git, "init", "-q", str(source)], check=True, timeout=60)
     for message in ("one", "two"):
         subprocess.run(
-            [*git, "-C", str(source), "commit", "-q", "--allow-empty", "-m", message], check=True
+            [*git, "-C", str(source), "commit", "-q", "--allow-empty", "-m", message],
+            check=True,
+            timeout=60,
         )
-    subprocess.run([*git, "-C", str(source), "tag", "v2026.10.0"], check=True)
+    subprocess.run([*git, "-C", str(source), "tag", "v2026.10.0"], check=True, timeout=60)
     assert compat.reachable_tags(source) == ["v2026.10.0"]
     shallow = tmp_path / "shallow"
     subprocess.run(
-        ["git", "clone", "-q", "--depth", "1", f"file://{source}", str(shallow)], check=True
+        ["git", "clone", "-q", "--depth", "1", f"file://{source}", str(shallow)],
+        check=True,
+        timeout=60,
     )
     with pytest.raises(ValueError, match="shallow"):
         compat.reachable_tags(shallow)

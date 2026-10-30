@@ -838,6 +838,7 @@ def _run_owner_query(**env):
         capture_output=True,
         text=True,
         env={"PATH": os.environ.get("PATH", ""), **env},
+        timeout=60,
     )
     assert result.returncode == 0, result.stderr
     return result.stdout.strip()
@@ -855,14 +856,20 @@ def test_owner_query_prefers_the_images_declared_runtime_uid():
 
 def test_owner_query_completes_a_bare_uid_with_the_current_group():
     """A bare uid is accepted, the group coming from `id -g`."""
-    gid = subprocess.run(["id", "-g"], capture_output=True, text=True, check=True).stdout.strip()
+    gid = subprocess.run(
+        ["id", "-g"], capture_output=True, text=True, check=True, timeout=60
+    ).stdout.strip()
     assert _run_owner_query(OSPREY_RUNTIME_UID="4242") == f"4242:{gid}"
 
 
 def test_owner_query_falls_back_to_id_when_the_image_declares_nothing():
     """Images predating OSPREY_RUNTIME_UID keep working off `id -u`/`id -g`."""
-    uid = subprocess.run(["id", "-u"], capture_output=True, text=True, check=True).stdout.strip()
-    gid = subprocess.run(["id", "-g"], capture_output=True, text=True, check=True).stdout.strip()
+    uid = subprocess.run(
+        ["id", "-u"], capture_output=True, text=True, check=True, timeout=60
+    ).stdout.strip()
+    gid = subprocess.run(
+        ["id", "-g"], capture_output=True, text=True, check=True, timeout=60
+    ).stdout.strip()
     assert _run_owner_query() == f"{uid}:{gid}"
     # An image that exports it EMPTY must fall back too, not chown to ":gid".
     assert _run_owner_query(OSPREY_RUNTIME_UID="") == f"{uid}:{gid}"

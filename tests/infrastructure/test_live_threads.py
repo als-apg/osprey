@@ -32,6 +32,7 @@ from osprey_connectors_tests._harness._live_threads import (
     registered_exit_callbacks,
     report_live_threads,
 )
+from tests._live import wait_until
 from tests._nested_pytest import outer_run_free_env, run_nested_pytest, with_harness_path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -148,14 +149,15 @@ def test_a_thread_that_finishes_within_the_grace_is_not_reported():
 
 def _wait_until_idle(name: str) -> None:
     """Return once the executor worker *name* is parked on its empty queue."""
-    deadline = time.monotonic() + 30.0
-    while time.monotonic() < deadline:
+
+    def idle() -> bool:
         frames = sys._current_frames()
-        for thread in threading.enumerate():
-            if thread.name == name and _live_threads._idle_executor_worker(thread, frames):
-                return
-        time.sleep(0.01)
-    raise AssertionError(f"executor worker {name!r} never went idle")
+        return any(
+            thread.name == name and _live_threads._idle_executor_worker(thread, frames)
+            for thread in threading.enumerate()
+        )
+
+    wait_until(idle, timeout=30.0, interval=0.01, what=f"executor worker {name!r} going idle")
 
 
 def test_an_idle_executor_worker_is_not_counted():

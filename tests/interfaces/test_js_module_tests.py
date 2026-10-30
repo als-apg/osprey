@@ -155,6 +155,7 @@ def tracked_files() -> list[str]:
         capture_output=True,
         text=True,
         check=True,
+        timeout=60,
     ).stdout
     return sorted({path for path in out.split("\0") if path and (REPO_ROOT / path).is_file()})
 

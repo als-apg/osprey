@@ -118,7 +118,6 @@ from __future__ import annotations
 import contextlib
 import http.server
 import json
-import os
 import shutil
 import subprocess
 import threading
@@ -847,12 +846,8 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
 
     # Force fresh --dev builds so the deployed containers run CURRENT source
     # (`osprey up` does not pass --build to compose, so it would otherwise
-    # reuse a stale cached image). Exact-named images only.
-    # E2E_REUSE_IMAGES=1 skips this for fast local iteration on the test
-    # itself; never set it in CI, where a source change must always rebuild.
-    if not os.environ.get("E2E_REUSE_IMAGES"):
-        for image in (BRIDGE_IMAGE, VA_IMAGE, PANELS_IMAGE):
-            subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
+    # reuse a stale cached image).
+    _orm_stack.force_image_rebuild(BRIDGE_IMAGE, VA_IMAGE, PANELS_IMAGE)
 
     try:
         up = run_command(
