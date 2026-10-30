@@ -184,27 +184,47 @@ Who May Write
 Three facts decide a write. This section is the contract every other page
 points to.
 
-**The tier key** says whether a login may write at all:
+**The tier key** is the furthest position a login may put its switch at:
 
 .. code-block:: yaml
 
    control_system:
-     writes: allowed          # or never; silence is never
+     writes: asked            # never | asked | allowed; silence is never
 
 It is spelled in ``tiers/*.yml``, in the deployment root for the root or
-single-user render, and in ``apps/*.yml``, where it is always ``never``. A tier
-overrides the root. Only the string ``allowed`` arms; any other value, and no
-key at all, reads ``never``. The tier is a ceiling, not a selection: an
-``allowed`` tier may write to every machine the deployment configures, and the
-switch picks which. Connector blocks carry transport facts only. On a
-``never`` render the build denies the write tools outright, so they are
-refused before any per-call check.
+single-user render, and in ``apps/*.yml``, where only ``never`` builds. A tier
+file that omits it inherits the root's value. The strings ``asked`` and
+``allowed`` arm, matched exactly; any other value, and no key at all, reads
+``never``. The tier is a ceiling, not a selection: an armed tier may write to
+every machine the deployment configures, and the switch picks which and how.
+Connector blocks carry transport facts only. On a ``never`` render the build
+denies the write tools outright, so they are refused before any per-call check.
 
-**The switch** is one login's, per machine, and off until that login turns it
-on from :ref:`the control-target chip <web-terminal-session-posture>`. It is
-read on every write, so a flip reaches a session already running. Turning it
-off is never refused. A demoted login's "on" stays on disk and does nothing
-while its tier is ``never``.
+**The switch** is one login's, per machine, set from :ref:`the control-target
+chip <web-terminal-session-posture>` to one of three positions:
+
+- ``off`` --- the write is refused (``switch_off``).
+- ``asked`` --- every governed write prompts a person first.
+- ``allowed`` --- the same writes run without a prompt; each leaves an
+  approval record whose approver is the switch (``write_switch``), and the
+  audit line names the position.
+
+A machine with no position is ``off``; an unknown value reads ``off``; a
+stored ``on`` from an earlier release reads ``asked``. The switch is read on
+every write, so a move reaches a session already running. A narrowing is never
+refused. A position above the tier is inert: the write behaves as the ceiling
+(an ``allowed`` switch on an ``asked`` tier prompts), the chip refuses the move
+with ``tier_caps``, and the stored position arms again when the tier is
+restored.
+
+**The governed set** is the tools the position decides for: ``channel_write``,
+``execute`` and ``execute_file`` in write mode, ``pyaml_measure``,
+``queue_add``, ``queue_start``, and every declared facility write tool whose
+server carries both the writes check and the approval hook. For these,
+``approval.enabled`` and ``approval.default_policy`` have no say. Every other
+approval-gated tool keeps its ``approval.tools.<tool>`` policy in every
+position; a declared write tool missing either hook keeps the harness's own
+prompt. Python code that names the switch store prompts in every position.
 
 **The verdict** combines them. One total order of terms; the first that
 refuses names the reason:
@@ -236,19 +256,21 @@ refuses names the reason:
    * - 6
      - ``record_unavailable``
      - the owner's switch record cannot be read. An absent record is not
-       unavailable: it is every switch off.
+       unavailable: it is every switch at ``off``.
    * - 7
      - ``switch_off``
-     - the owner's switch is not on for this machine.
+     - the owner's switch is at ``off`` for this machine.
    * - 8
      - ``launch_pinned``
      - the run was started with writes held off for this machine.
 
 Two reasons come from outside the verdict: the EPICS connector refuses
 ``switching`` while its write gateway has not yet followed the switch, and the
-chip refuses a turn-on with ``stopped_since`` when a stop landed after it
+chip refuses a widening with ``stopped_since`` when a stop landed after it
 began. The package's verdict, the connector and the stdlib hook twin share the
-order above, so a write is refused for the same reason on every side.
+order above, so a write is refused for the same reason on every side. An
+allowed verdict carries the position the write runs at: the lower of the
+stored position and the ceiling.
 
 **Refusal reasons and their trailer.** Every refusal a write path returns
 ends with a trailer line naming the reason, so a reader recovers it without
@@ -288,10 +310,27 @@ Earlier releases armed writes per connector type, with
   refused from 2026.11.0.
 - **A render built before this release** is not reread with the old rule: at
   run time it has no tier key and reads ``never`` until it is rebuilt.
-- **Every switch starts off.** After the rebuild, nothing writes until a login
-  turns a machine on from the chip. A scheduled dispatch job or a queue item
-  with no owner no longer writes at all.
-- **A shell on a write tier is refused at build.** On an ``allowed`` render, a
+- **Stored positions upgrade to asked.** A machine a login had on reads
+  ``asked``, and every other reads ``off``, so a readwrite login sees exactly
+  the prompts it saw before. A scheduled dispatch job or a queue item with no
+  owner writes in no position.
+- **A tier spelling ``allowed`` now has the top ceiling.** Every login on it
+  may pick ``allowed`` and run governed writes unprompted. Spell ``asked``
+  where prompts must stay. The shipped ``readwrite`` tier spells ``asked``.
+- **Per-tool approval policies for governed tools retire.** A profile spelling
+  ``approval.tools.<tool>`` for a governed tool builds with one warning naming
+  the slider, ``osprey init --revalidate`` removes the line, and the spelling
+  is refused from 2026.12.0. A ``skip`` policy no longer runs the tool
+  unprompted: it prompts at ``asked``; the route back is an ``allowed`` tier
+  plus a chip move. An ``always`` policy no longer prompts at ``allowed``
+  (``execute: always`` also loses its prompt on read-only code).
+  ``approval.enabled: false`` no longer silences governed tools; it still
+  silences every other tool.
+- **Rebuild the containers.** A container on the previous connectors package
+  reads a login→tier map naming ``asked`` as unreadable and refuses every
+  login's lane writes; a project not rebuilt reads an ``asked`` tier as
+  ``never``.
+- **A shell on a write tier is refused at build.** On an ``asked`` or ``allowed`` render, a
   ``claude_code.permissions.remove_deny`` that lifts ``Bash`` or ``Monitor``
   fails the build: a shell reaches the switch and the connectors around every
   gate. On a ``never`` render it stays a warning.
@@ -304,7 +343,7 @@ Earlier releases armed writes per connector type, with
   ``mcp_servers.<server>.writes``.
 - **Shared containers read a login→tier map.** The Bluesky queue and dispatch
   workers carry every login's job, so the build renders
-  ``control_system.login_tiers`` (``{login: allowed | never}``) into their
+  ``control_system.login_tiers`` (``{login: never | asked | allowed}``) into their
   config from the roster. A write there needs the container's tier, the
   owner's mapped tier and the owner's switch; an owner the map does not name
   is refused ``owner_unknown``. Nothing at run time writes the map: rebuild

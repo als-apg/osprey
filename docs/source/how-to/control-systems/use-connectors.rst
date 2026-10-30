@@ -57,8 +57,8 @@ Everything below is configuration only — which machine sits behind that API.
 .. note::
 
    Writes are off until the login's tier allows them
-   (``control_system.writes: allowed``) and the person turns a machine on from
-   the chip. See :ref:`write-safety-config` in
+   (``control_system.writes: asked`` or ``allowed``) and the person moves a
+   machine's switch to asked or allowed from the chip. See :ref:`write-safety-config` in
    :doc:`/reference/contracts/connectors`.
 
 Pick a control system

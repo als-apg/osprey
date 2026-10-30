@@ -238,9 +238,11 @@ The job runs as you
 Approve, and the run is attributed to your account: the terminal's proxy stamps
 your name onto the call, and the worker starts the agent under it. Every
 control-system write that job makes then follows your tier and your
-:ref:`write switch <web-terminal-session-posture>` — turn the machine off and
-the job you fired refuses its next write, with the refusal you would have seen
-in the terminal. The worker reads your tier from the login→tier map the build
+:ref:`write switch <web-terminal-session-posture>`: at *off* the job you fired
+refuses its next write, with the refusal you would have seen in the terminal;
+at *asked* and at *allowed* its writes run on the fire's own approval, without
+a second prompt. ``manual_fire`` itself keeps its own approval policy in every
+position. The worker reads your tier from the login→tier map the build
 renders into its config (:ref:`write-safety-config`). The name comes from the session the call left, never from a tool
 argument or a header the agent can set, so there is no way to fire on someone
 else's behalf.

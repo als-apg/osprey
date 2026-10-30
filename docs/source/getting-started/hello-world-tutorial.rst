@@ -110,7 +110,7 @@ per line:
      control_system.connector.virtual_accelerator.serving: in_process
      # The FIRST guard in the write-safety chain: while `never`, every hardware
      # write is refused before the limits check or the approval prompt is even
-     # consulted. Set it `allowed`, rebuild, and the two hooks below take over.
+     # consulted. Set it `asked`, rebuild, and the two hooks below take over.
      control_system.writes: never
      # ...
      # The SECOND guard: every write is checked against the records in
@@ -118,9 +118,9 @@ per line:
      control_system.limits_checking.enabled: true
      # ...
      # The THIRD guard: a write that passed the master switch and the limits check
-     # still pauses for a yes/no prompt. Applied by the approval hook, so it
-     # reaches only hook-wired tools; everything else is gated by the rendered
-     # settings.json permissions.
+     # still pauses for a yes/no prompt, unless its slider stands at `allowed`.
+     # Applied by the approval hook, so it reaches only hook-wired tools;
+     # everything else is gated by the rendered settings.json permissions.
      approval.enabled: true
      # ...
 
@@ -235,13 +235,13 @@ This is the first of **three guards** that every write must pass:
 1. **Who may write** (``writes-check`` hook) — the tier key
    ``control_system.writes`` is ``never`` here, so all writes are refused
    outright. This is what just fired: the build bakes the tier into the agent's
-   denied permissions. Once the tier allows writes, the hook asks your login's
-   write switch for the machine on every call. See
+   denied permissions. Once the tier allows writes, the hook reads your login's
+   write switch for the machine on every call: *off*, *asked* or *allowed*. See
    :ref:`write-safety-config`.
 2. **Limits** (``limits`` hook) — the value is checked against per-channel
    bounds and writable flags in ``data/facility/limits.yaml``.
-3. **Approval** (``approval`` hook) — a write that passes both still pauses
-   for your explicit yes/no before anything is executed.
+3. **Approval** (``approval`` hook) — at *asked*, a write that passes both
+   still pauses for your explicit yes/no before anything is executed.
 
 Safety is not optional equipment here: the three hooks are declared in your
 ``profile.yml``. Remove any one of them and ``osprey build`` refuses the render
@@ -251,7 +251,7 @@ guarded. Only a read-only deployment may drop them.
 Step 7: Enable Writes — Tier, Rebuild, Chip
 --------------------------------------------
 
-Writes take two steps: the deployment allows them, then you turn them on.
+Writes take two steps: the deployment allows them, then you move your switch.
 
 Open ``profile.yml``, find the ``config:`` block from Step 2, and allow writes:
 
@@ -260,7 +260,7 @@ Open ``profile.yml``, find the ``config:`` block from Step 2, and allow writes:
    config:
      control_system.type: virtual_accelerator
      control_system.connector.virtual_accelerator.serving: in_process
-     control_system.writes: allowed   # ← was never
+     control_system.writes: asked   # ← was never
 
 Then re-render and relaunch:
 
@@ -272,10 +272,12 @@ Then re-render and relaunch:
 Do **not** edit ``build/config.yml`` instead — that file is generated output,
 and your edit would vanish on the next build.
 
-The deployment now *may* write, but your switch is still off. Click the
-control-target chip in the header (``● Simulator · writes off``) and turn the
-simulator's writes on (:ref:`web-terminal-session-posture`). A write asked for
-with the switch off is refused with a line telling you to do exactly that.
+The deployment now *may* write, but your switch is still at off. Click the
+control-target chip in the header (``● Simulator · writes off``) and move the
+simulator to *asked* (:ref:`web-terminal-session-posture`). A write asked for
+with the switch at off is refused with a line telling you to do exactly that.
+``asked`` is this tier's ceiling, so *allowed*, where writes run without a
+prompt, stays disabled on the chip.
 
 Step 8: Write with the Guards Watching
 ---------------------------------------
@@ -284,7 +286,7 @@ The limits file that ships with this preset, ``data/facility/limits.yaml``,
 holds three records: two writable quadrupole setpoints with bounds, and one
 read-only measurement. ``osprey build`` writes them into the render's limits
 database, ``build/data/channel_limits.json``, which is what the guards read.
-With the simulator's writes on, all three remaining behaviors are now observable.
+With the simulator at *asked*, all three remaining behaviors are now observable.
 
 **A write inside its limits** — pauses for your approval:
 
@@ -295,7 +297,7 @@ With the simulator's writes on, all three remaining behaviors are now observable
 150 sits inside the 0--300 range declared for this channel, so the limits
 check passes and the approval prompt appears in the terminal, naming the
 channel and value. Approve it, and the simulator accepts the write.
-Nothing is ever written without this step.
+At *asked*, nothing is ever written without this step.
 
 **A write outside its limits** — blocked:
 
@@ -370,8 +372,8 @@ put bounds on it. Add one record:
      min_value: -5.0
      max_value: 5.0
 
-Then ``osprey build`` to carry the change into the render, and try writes on
-either side of the new bounds. This edit-rebuild-observe loop — in ``data/``
+Then ``osprey build`` to carry the change into the render, and try writes
+on either side of the new bounds. This edit-rebuild-observe loop — in ``data/``
 or in ``profile.yml`` — is the same loop every real deployment is grown with.
 
 Step 10: First Containers — Deploy the Telemetry Store

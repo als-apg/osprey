@@ -586,7 +586,7 @@ tier and per app:
      data/
      tiers/
        readonly.yml       # a read-only terminal
-       readwrite.yml      # a write-capable terminal
+       readwrite.yml      # a write-capable terminal; every write asks
        admin.yml          # the one terminal that may edit the deployment
      apps/
        logbook.yml        # logbook research
@@ -594,8 +594,10 @@ tier and per app:
        channel-finder.yml # channel search
 
 A tier holds only its **differences** from ``profile.yml`` — for ``readonly``,
-chiefly ``control_system.writes: never``; for ``admin``, the
-privileges the profile deliberately withholds. The build lays it over the
+chiefly ``control_system.writes: never``; for ``readwrite``, ``asked``, the
+write ceiling at which every machine write prompts; for ``admin``, ``allowed``
+and the privileges the profile deliberately withholds. A tier file that omits
+the key inherits the root's value. The build lays it over the
 profile: lists are added by name, ``config:`` keys win. A tier never subtracts
 and never carries a deployment fact, so it has no ``extends:``, ``exclude:``,
 ``data:`` or ``services:``.

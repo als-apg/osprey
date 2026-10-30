@@ -95,8 +95,10 @@ with:
    os.environ["OSPREY_CONTROL_TARGET_GENERATION"]  # which switch it belongs to
    os.environ["OSPREY_LAUNCH_POSTURE"]             # what this cell may write
 
-**Nothing restarts.** Switch the control target from the chip, or turn writes
-on or off, and the next cell you run is routed by the new state.
+**Nothing restarts.** Switch the control target from the chip, or move the
+write switch, and the next cell you run is routed by the new state. A cell is
+the person's own code, so it never prompts: at *asked* and at *allowed* alike
+it writes, and at *off* it is refused.
 
 Inside the web terminal the header chip is the only place to do that; the
 JUPYTER tab carries no chip of its own. A notebook opened in its own window —
@@ -108,10 +110,11 @@ A cell already running is not re-routed --- but taking writes away still
 reaches it. The two directions are not symmetric, and the difference is worth
 knowing:
 
-- **Turning writes off lands at once.** The connector re-reads the write
-  posture on every write, so the running cell's very next write is refused.
-- **Turning writes on waits for the next cell.** A cell can never write more
-  than it was allowed when it started, so widening cannot reach it.
+- **Moving the switch to off lands at once.** The connector re-reads the
+  write posture on every write, so the running cell's very next write is
+  refused.
+- **Widening waits for the next cell.** A cell can never write more than it
+  was allowed when it started, so a move from off cannot reach it.
 - **Switching the machine waits for the next cell** as well, so a switch never
   lands halfway through your work.
 
@@ -176,7 +179,7 @@ nothing is loaded, and the cell prints one line above the traceback:
 
    Client libraries are not available in a notebook. Read and write through osprey.runtime.read_channel / write_channel instead.
 
-Turning writes on does not change that answer. Replace the import with the
+No switch position changes that answer. Replace the import with the
 runtime's calls, which take the same address and value:
 
 .. code-block:: python
@@ -239,7 +242,7 @@ What a notebook output cannot run
 Output an agent or a kernel writes can no longer run script inside the
 console's JupyterLab. The page's policy admits only the scripts the terminal
 served itself, because script in an output would run on the console's origin
-and could switch writes on.
+and could move the write switch.
 
 No longer run:
 

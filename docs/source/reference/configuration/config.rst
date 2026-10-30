@@ -943,7 +943,9 @@ naming one is an error, and the run does not start.
 ``audit.tool_call.enabled`` (default ``false``) turns on the full record: every
 osprey tool call, reads included, is written whole to
 ``var/audit/<identity>/tool_call.jsonl`` --- arguments, result, control
-target, approval answer. Where the telemetry store is deployed, its gateway
+target, approval answer --- a person's at the write switch's *asked*
+position, the switch's own (``write_switch``) for a governed write at
+*allowed*. Where the telemetry store is deployed, its gateway
 reads the file into ``telemetry.audit_ledger`` with every other ledger file.
 The control-assistant preset turns it on; delete the lines to opt out.
 
@@ -1379,8 +1381,10 @@ agent, whichever surface the write arrives through: the rendered
 safety hooks, rules and skills, the limits and plan-device tables — and, inside
 ``config.yml``,
 the key families that gate writes and approval (``control_system.*``,
-``approval.*``, ``hooks.*``, ``claude_code.*``, among others). These artifacts
-are owned by the build profile: edit them in the profile and run
+``approval.*``, ``hooks.*``, ``claude_code.*``, among others). The write
+switch's position (*off*, *asked*, *allowed*) is not among them: it is the
+login's, set from the control-target chip, and no config key holds it. These
+artifacts are owned by the build profile: edit them in the profile and run
 ``osprey build``. Every refused attempt names the owning channel and is
 recorded in :ref:`the audit trail <reference-audit-trail>`, under
 ``var/audit/<identity>/``, in a file named for the surface that refused it.

@@ -77,9 +77,10 @@ One queue, three ways to drive it
       - ``get_draft`` / ``set_draft`` — compose the shared draft you see in
         BLUESKY's Plans view.
       - ``queue_add`` — queues the pinned draft; on an armed queue that runs
-        it. ``queue_start`` — arms a stopped queue. Both ask for your
-        approval, and both are switched off entirely while the project's
-        control-system writes are disabled.
+        it. ``queue_start`` — arms a stopped queue. Your write switch for
+        the lane's machine decides both: at *asked* they ask for your
+        approval, at *allowed* they run without a prompt, at *off* they are
+        refused; both are denied entirely on a ``never`` tier.
       - ``queue_stop`` / ``stop_run`` — the two halts. Never switched off.
       - ``queue_list`` / ``queue_status`` / ``list_runs`` / ``get_run_data``
         — read what is queued, running, and measured.
@@ -176,9 +177,9 @@ quirks worth knowing:
    anything, even on an idle queue. Its halts and its read tools are never
    taken away.
 
-   On an ``allowed`` tier, each lane is bound at build time to one machine,
-   and the write verdict for that machine is asked on every call
-   (:ref:`write-safety-config`). With your switch for the lane's machine off,
+   On an ``asked`` or ``allowed`` tier, each lane is bound at build time to one
+   machine, and the write verdict for that machine is asked on every call
+   (:ref:`write-safety-config`). With your switch for the lane's machine at off,
    ``queue_start`` is refused with ``writes_disabled`` and the verdict's
    reason. ``queue_add`` still adds to an idle queue — the item is added
    unarmed, with ``writes_refused`` and the reason in its result — and is
@@ -186,15 +187,16 @@ quirks worth knowing:
 
    In a deployed control room the agent holds the launch token only where the
    deployment grants it, and it is granted **per lane**: to a tier whose
-   ``control_system.writes`` is ``allowed`` and that also runs the bluesky MCP
-   server. The token is a ceiling; your switch still decides each write.
-   Where it is granted, the agent's
+   ``control_system.writes`` is ``asked`` or ``allowed`` and that also runs the
+   bluesky MCP server. The token is a ceiling; your switch still decides each
+   write. Where it is granted, the agent's
    ``queue_start`` arms the queue itself, and your approval of that tool call
-   is the arming decision. Where it is not, ``queue_start`` is refused with
+   --- or, at *allowed*, your switch position --- is the arming decision. Where it is not, ``queue_start`` is refused with
    ``launch_token_invalid`` and the start stays with you, from the BLUESKY
    queue panel's own **Start** button.
 
-   What you approve when you approve a start is **the queue you were shown**.
+   At *asked*, what you approve when you approve a start is **the queue you
+   were shown**.
    The prompt lists it and records which queue it listed, for that session and
    that lane; the tool quotes it back, and the bridge refuses the start if an
    item was added, removed or re-ordered in between

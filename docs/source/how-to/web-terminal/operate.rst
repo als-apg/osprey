@@ -186,7 +186,7 @@ The header carries a chip that answers, at a glance, the question every write
 depends on: *if the agent writes now, which machine does it land on, and may
 it?* It reads like this::
 
-   ● Rehearsal · writes on ▾
+   ● Rehearsal · writes asked ▾
 
 The first part names the machine this deployment stands on, by what it **is**:
 
@@ -201,19 +201,29 @@ Facility storage ring* rather than *Real machine*); what the machine is stays
 behind the small ⓘ beside its name either way, and that tooltip also keeps the
 controls server's own technical label.
 
-The second part is **your login's** write switch for that machine, and what
-the next write would get:
+The second part is **your login's** write switch for that machine. It has
+three positions, and the word says what the next write gets:
 
-- **writes on** --- your switch is on, and the next write passes, under
-  whatever write gates the deployment configures.
-- **writes off** --- your switch is off. Reads are untouched: the agent keeps
+- **writes asked** --- every machine write asks you first, in the approval
+  card, as it always has.
+- **writes allowed** --- the same writes run without a prompt. Each still
+  leaves an approval record and an audit line naming your switch position.
+- **writes off** --- writes are refused. Reads are untouched: the agent keeps
   its full view of the control system and of the project, and can still run
-  analysis, plots and read-only Python. One click turns writes back on.
-- **writes locked** --- your switch is on, but something the chip cannot lift
-  refuses the write. The popover shows the phrase for it and who lifts it.
+  analysis, plots and read-only Python.
+- **writes locked** --- your switch is at asked or allowed, but something the
+  chip cannot lift refuses the write. The popover shows the phrase for it and
+  who lifts it.
+
+The position decides for the **governed** tools: ``channel_write``, ``execute``
+and ``execute_file`` in write mode, ``pyaml_measure``, ``queue_add``,
+``queue_start``, and every declared facility write tool whose server carries
+both the writes check and the approval hook. Every other approval-gated tool
+keeps its own policy in every position. Python code that names the switch
+store asks in every position.
 
 A switch is one login's. Two logins on the same machine each have their own,
-and one login's on or off never changes the other's writes.
+and one login's position never changes the other's writes.
 
 Click the chip and a popover opens on **every** control target the deployment
 configures, not only the one you are standing on.
@@ -227,10 +237,11 @@ the actions. What writing to a machine means (*Writes move hardware*, or one
 of the *nothing moves* lines) sits with its endpoint and the server's own
 label behind the small ⓘ beside each name, on hover or keyboard focus:
 
-- **The writes switch** --- per machine, for every session of this login. Its
-  position is the switch's state, and clicking it changes it. A switch that is
-  on always keeps its off control. A switch that is off and cannot be turned on
-  is disabled, with the reason on hover.
+- **The writes switch** --- per machine, for every session of this login:
+  three options, *off*, *asked* and *allowed*, the checked one the stored
+  position. *Off* is never disabled. A position your tier does not reach, or
+  that a lock holds, stays on screen disabled, with the reason on hover
+  (*your tier caps writes at asked*).
 - **Switch to** --- moves the deployment onto that machine. Where a switch is
   not available, the button's place is taken by a short phrase for the reason
   --- ``not set up``, ``needs gateway ack`` --- with the server's full
@@ -246,32 +257,38 @@ confirmation dialogs, where the decision is actually made.
 The foot has **Turn all writes off**: every switch of your login goes off in
 one click, a machine no longer configured included. It stops your login's
 writes only; other logins keep theirs. It is enabled while any of your
-switches is on.
+switches is at asked or allowed.
 
-Turn writes off, or on
-~~~~~~~~~~~~~~~~~~~~~~
+Move the switch
+~~~~~~~~~~~~~~~
 
-The switch is **per machine**. Turn the real machine off and work on the
+The switch is **per machine**. Set the real machine to off and work on the
 simulator carries on, which is the point: you put the machine you are worried
 about out of reach without giving up the one you are working on.
 
-**Off** applies as you click, and nothing refuses it --- no lock, no read-only
-run, no second terminal. If a stop cannot be recorded you are told plainly
-that it did not take effect and writes are still on; the chip never shows an
-off that was not recorded.
+**Narrowing applies as you click** (allowed to asked, anything to off), and
+nothing refuses it --- no lock, no read-only run, no second terminal. If a
+stop cannot be recorded you are told plainly that it did not take effect; the
+chip never shows an off that was not recorded.
 
-**On** asks first. The confirmation names the machine and the endpoint the
-agent would then be able to write to. Tick *Don't ask again for this machine*
-to skip it from then on (Shift-click brings it back). The real machine always
-asks. If a stop lands while you are confirming, the turn-on does not take
-effect: the chip re-reads and you click again.
+**Widening confirms first** (off to asked, off to allowed, asked to allowed).
+The confirmation names the machine and says whether writes will still prompt.
+*Don't ask again for this machine* is offered only for a move to asked on the
+rehearsal or the simulator (Shift-click brings the dialog back). A move to
+allowed, and any move on the real machine, confirms every time. If a stop
+lands while you are confirming, the move does not take effect: the chip
+re-reads and you click again.
+
+Every move leaves one audit line naming your login, the machine, the position
+before and after, and whether the confirm was waived; **Turn all writes off**
+leaves one.
 
 **Nothing is restarted.** Every gate reads the switch at the moment of the
-write. Off reaches every next write, runs already going included: the agent's
-next tool call, a running notebook cell's or Python run's next write. On
-reaches the agent's tool writes at their next call; a notebook cell or Python
-run already going keeps the state it started with, and the next one follows
-(:doc:`notebooks`). The confirmation says so.
+write. A narrowing reaches every next write, runs already going included: the
+agent's next tool call, a running notebook cell's or Python run's next write.
+A widening reaches the agent's tool writes at their next call; a notebook cell
+or Python run already going keeps the position it started with, and the next
+one follows (:doc:`notebooks`). The confirmation says so.
 
 **What the chip cannot lift.** A write is refused for one reason, the first
 that holds, and locks no click lifts come before the switch. The chip shows
@@ -300,18 +317,20 @@ machine.)*:
    * - *this run was started with writes held off*
      - Run it again without the pin.
    * - *Writes are off*, *a stop came after the turn-on began*
-     - You: turn it on from the chip.
+     - You: move the switch to asked or allowed.
 
-A login whose tier is lowered keeps its recorded on, inert, until the tier is
-restored.
+**The tier is a ceiling.** Your login's tier says how far the switch may go:
+``never``, ``asked`` or ``allowed`` (:doc:`multi-user/tiers`). A stored
+position past it is inert --- writes behave as the ceiling --- and comes back
+when the tier is restored, with no new click.
 
 Switch the deployment to another machine
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 **Switch to** on a row moves the whole deployment onto that machine, after a
 confirmation that says where every control read and write goes next and
-whether your switch is on or off there --- the switch is per machine, and it
-does not travel with you. This dialog too can be skipped with *Don't ask again
+your switch's position there --- the switch is per machine, and it does not
+travel with you. This dialog too can be skipped with *Don't ask again
 for this machine*. The page that holds the control context runs the same
 checks the agent's own switch runs --- that the move is allowed, and that
 nothing is mid-flight on the machine you are leaving --- and records the
@@ -348,8 +367,8 @@ one window applies in the other. That is the point --- a switch you can
 only see from the page you happen to be on is not a safety control.
 
 Both are recorded together on disk, written as soon as you click and read back
-when a server starts, so restarting the container never quietly turns writes
-back on or moves the deployment off the machine somebody put it on. Coming back
+when a server starts, so restarting the container never quietly widens a
+switch or moves the deployment off the machine somebody put it on. Coming back
 to the deployment baseline is a switch like any other.
 
 That record sits in a directory named for whoever the terminal is acting as:
@@ -389,9 +408,9 @@ best-effort rather than enforced:
        refuse.
 
 Every layer speaks the phrase from the table above, so a refusal never sends
-you to the wrong control. A switch you turned off sounds like *"Writes are
+you to the wrong control. A switch you set to off sounds like *"Writes are
 off; turn it on from the chip in the web terminal. (Concerns the real
-machine.)"* --- and the chip is where you turn it on. A read-only run says the
+machine.)"* --- and the chip is where you move it. A read-only run says the
 chip cannot lift it, and a refusal nobody set --- a switch that cannot be read
 --- says to retry, then ask the deployment admin.
 
@@ -406,8 +425,8 @@ chip cannot lift it, and a refusal nobody set --- a switch that cannot be read
    looking at.
 
    A notebook kernel is the one surface where *when* is worth knowing. Off
-   refuses the running cell's next write; on, or a move to another machine,
-   reaches the next cell you run. See :doc:`notebooks`.
+   refuses the running cell's next write; a widening, or a move to another
+   machine, reaches the next cell you run. See :doc:`notebooks`.
 
    .. _web-terminal-service-door:
 
