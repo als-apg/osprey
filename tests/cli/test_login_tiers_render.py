@@ -35,8 +35,12 @@ BUILD_ACCOUNT = "builder"
 #: The exemplar profile's dispatch tier line (the only two-space ``tier:``).
 _DISPATCH_TIER_LINE = "\n  tier: readonly\n"
 
+#: The readwrite tier's write line, spelled in ``tiers/readwrite.yml``; the root
+#: profile's, spelled the same way, is the render the shared containers run.
+_ASKED_LINE = "\n  control_system.writes: asked\n"
+
 #: The exemplar's roster, each person's own render's tier.
-_ROSTER_TIERS = {"alice": "allowed", "bob": "never", "carol": "allowed"}
+_ROSTER_TIERS = {"alice": "asked", "bob": "never", "carol": "allowed"}
 
 #: Where the two shared-container configs are staged, under ``build/``.
 _BLUESKY = Path("services/bluesky/config.yml")
@@ -63,8 +67,24 @@ def _cwd(path: Path) -> Iterator[None]:
         os.chdir(previous)
 
 
-def _build(base: Path, *, tiered: bool = True) -> Path:
-    """The exemplar repo after one real ``osprey build`` (no venv, no hooks)."""
+def _ask_in(path: Path) -> None:
+    """*path* authors ``asked``, the one write line it has.
+
+    The shipped stance (FR4) puts the control-assistant root and the readwrite
+    tier at ``asked``, so the exemplar already authors the word; this proves it
+    rather than writing it.
+    """
+    text = path.read_text(encoding="utf-8")
+    assert text.count(_ASKED_LINE) == 1, path
+    assert text.count("\n  control_system.writes:") == 1, path
+
+
+def _build(base: Path, *, tiered: bool = True, asked: bool = False) -> Path:
+    """The exemplar repo after one real ``osprey build`` (no venv, no hooks).
+
+    *asked* checks that the root and the readwrite tier author ``asked``; the
+    admin tier keeps ``allowed``, so such a build carries all three words.
+    """
     from click.testing import CliRunner
 
     from osprey.cli.build_cmd import build as build_command
@@ -77,6 +97,9 @@ def _build(base: Path, *, tiered: bool = True) -> Path:
             text = profile.read_text(encoding="utf-8")
             assert text.count(_DISPATCH_TIER_LINE) == 1
             profile.write_text(text.replace(_DISPATCH_TIER_LINE, "\n"), encoding="utf-8")
+        if asked:
+            _ask_in(repo / "profile.yml")
+            _ask_in(repo / "tiers" / "readwrite.yml")
         with _cwd(repo):
             result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
     assert result.exit_code == 0, result.output
@@ -106,7 +129,7 @@ def _without_map(document: dict[str, Any]) -> dict[str, Any]:
 
 def _expected_map() -> dict[str, str]:
     """From first principles: each roster card at its render's tier, the build account at root."""
-    return {**_ROSTER_TIERS, BUILD_ACCOUNT: "allowed"}
+    return {**_ROSTER_TIERS, BUILD_ACCOUNT: "asked"}
 
 
 @pytest.fixture(scope="module")
@@ -117,6 +140,33 @@ def tiered(tmp_path_factory) -> Path:
 @pytest.fixture(scope="module")
 def untiered(tmp_path_factory) -> Path:
     return _build(tmp_path_factory.mktemp("login-tiers-untiered"), tiered=False)
+
+
+@pytest.fixture(scope="module")
+def asked(tmp_path_factory) -> Path:
+    return _build(tmp_path_factory.mktemp("login-tiers-asked"), asked=True)
+
+
+# -- an authored `asked` -------------------------------------------------------
+
+
+def test_an_asked_render_stages_the_word_verbatim(asked: Path) -> None:
+    build = asked / "build"
+    expected = {"alice": "asked", "bob": "never", "carol": "allowed", BUILD_ACCOUNT: "asked"}
+
+    assert _load(build / _BLUESKY)["control_system"]["login_tiers"] == expected
+    assert _load(build / _WORKER)["control_system"]["login_tiers"] == expected
+
+
+def test_an_asked_render_holds_the_queue_token_and_a_never_render_does_not(asked: Path) -> None:
+    from osprey.deployment.web_terminals.roster import config_needs_launch_token
+
+    build = asked / "build"
+    project = f"{EXEMPLAR_DIRNAME}-"
+
+    assert config_needs_launch_token(_load(build / "config.yml"))
+    assert config_needs_launch_token(_load(build / f"{project}readwrite" / "config.yml"))
+    assert not config_needs_launch_token(_load(build / f"{project}readonly" / "config.yml"))
 
 
 # -- the tiered dispatch copy (BE-1) ------------------------------------------
@@ -132,7 +182,7 @@ def test_tiered_worker_copy_is_the_tier_render_plus_the_map(tiered: Path) -> Non
     assert _without_map(staged) == image
     assert staged["control_system"]["writes"] == "never"
     # A copy of the root would not pass: the control-assistant root arms writes.
-    assert root["control_system"]["writes"] == "allowed"
+    assert root["control_system"]["writes"] == "asked"
 
 
 def test_tiered_worker_compose_mounts_the_staged_copy(tiered: Path) -> None:
@@ -272,7 +322,7 @@ def test_sign_in_decided_card_is_absent_and_its_own_terminal_is_not_refused(
     _redeploy(repo, output_root=".")
 
     shared_map = _load(build / _BLUESKY)["control_system"]["login_tiers"]
-    assert shared_map["alice"] == "allowed"
+    assert shared_map["alice"] == "asked"
     assert "dave" not in shared_map
     assert "dave" not in _load(build / _WORKER)["control_system"]["login_tiers"]
 
@@ -281,7 +331,7 @@ def test_sign_in_decided_card_is_absent_and_its_own_terminal_is_not_refused(
     terminal = _load(build / f"{EXEMPLAR_DIRNAME}-readwrite" / "config.yml")["control_system"]
     with _pinned_env():
         assert owner_tier_term(terminal, "dave") == "skip"
-    assert tier_writes(terminal) == "allowed"
+    assert tier_writes(terminal) == "asked"
 
 
 def test_single_user_host_process_as_the_build_account_resolves(tiered: Path) -> None:
@@ -295,7 +345,7 @@ def test_single_user_host_process_as_the_build_account_resolves(tiered: Path) ->
         # The host process reads the root render: no map, no tree, its own tier.
         assert owner_tier_term(root, BUILD_ACCOUNT) == "skip"
         # A shared container carrying that account's job finds it at the root tier.
-        assert owner_tier_term(shared, BUILD_ACCOUNT) == tier_writes(root) == "allowed"
+        assert owner_tier_term(shared, BUILD_ACCOUNT) == tier_writes(root) == "asked"
 
 
 # -- a profile never spells the key --------------------------------------------------

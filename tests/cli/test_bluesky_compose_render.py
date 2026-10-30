@@ -1129,11 +1129,12 @@ readables:
 """
 
 
-def _lane_config(config_dir: Path, *, writes_enabled: bool) -> dict:
+def _lane_config(config_dir: Path, *, writes_enabled: bool, tier_word: str | None = None) -> dict:
     """The project config both entry points render from.
 
     One dict for both, because the ONLY thing the two entry points differ in is
     where the file holding it sits — which is the whole point of the pair.
+    *tier_word* spells ``control_system.writes`` outright, over *writes_enabled*.
     """
     return {
         "project_name": "lane-fixture",
@@ -1149,13 +1150,15 @@ def _lane_config(config_dir: Path, *, writes_enabled: bool) -> dict:
         },
         "control_system": {
             "type": "epics",
-            "writes": "allowed" if writes_enabled else "never",
+            "writes": tier_word or ("allowed" if writes_enabled else "never"),
             "limits_checking": {"enabled": True, "database_path": _LIMITS_RELPATH},
         },
     }
 
 
-def _bluesky_repo(root: Path, *, config_dir: Path, writes_enabled: bool) -> Path:
+def _bluesky_repo(
+    root: Path, *, config_dir: Path, writes_enabled: bool, tier_word: str | None = None
+) -> Path:
     """A deployment repo that renders the bluesky lane; returns its config path.
 
     *config_dir* is the entry point under test. The repo root is what ``osprey
@@ -1176,7 +1179,7 @@ def _bluesky_repo(root: Path, *, config_dir: Path, writes_enabled: bool) -> Path
     yaml_rt = YAML()
     root.mkdir(parents=True, exist_ok=True)
     with (root / "config.yml").open("w", encoding="utf-8") as handle:
-        yaml_rt.dump(_lane_config(root, writes_enabled=writes_enabled), handle)
+        yaml_rt.dump(_lane_config(root, writes_enabled=writes_enabled, tier_word=tier_word), handle)
 
     # Reads the repo-root config to decide which service template directories
     # the repo needs, so it runs after that file exists.
@@ -1186,7 +1189,10 @@ def _bluesky_repo(root: Path, *, config_dir: Path, writes_enabled: bool) -> Path
     config_path = config_dir / "config.yml"
     if config_dir != root:
         with config_path.open("w", encoding="utf-8") as handle:
-            yaml_rt.dump(_lane_config(config_dir, writes_enabled=writes_enabled), handle)
+            yaml_rt.dump(
+                _lane_config(config_dir, writes_enabled=writes_enabled, tier_word=tier_word),
+                handle,
+            )
 
     for relative, contents in ((_LIMITS_RELPATH, "{}"), (_DEVICES_RELPATH, _DEVICES_DOCUMENT)):
         staged = config_dir / relative
@@ -1246,6 +1252,38 @@ def test_a_build_zone_deployment_really_mounts_the_build_prefixed_limits_source(
         f"{BUILD_ZONE_LIMITS_MOUNT['source']}:{BUILD_ZONE_LIMITS_MOUNT['target']}:ro"
         in queueserver["volumes"]
     )
+
+
+@pytest.mark.parametrize(("word", "armed"), [("asked", True), ("allowed", True), ("never", False)])
+def test_the_real_generator_arms_the_lane_on_the_tier_word(
+    word: str, armed: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only the generator proves the word reaches the lane: it computes ``writes_enabled``."""
+    config_path = _bluesky_repo(tmp_path, config_dir=tmp_path, writes_enabled=armed, tier_word=word)
+
+    monkeypatch.chdir(tmp_path)
+    services = _rendered_lane(config_path)["services"]
+
+    mount = f"{REPO_ROOT_LIMITS_MOUNT['source']}:{REPO_ROOT_LIMITS_MOUNT['target']}:ro"
+    assert (mount in services["queueserver"]["volumes"]) is armed
+    assert (mount in services["bluesky-bridge"]["volumes"]) is armed
+
+
+def test_a_limits_refusal_names_the_word_the_render_carries(tmp_path: Path) -> None:
+    """An ``asked`` render refuses a missing database as itself, not as ``allowed``."""
+    from osprey.deployment.compose_generator import resolve_limits_mount
+    from osprey.deployment.errors import DeploymentPreconditionError
+
+    config = {
+        "control_system": {
+            "type": "epics",
+            "writes": "asked",
+            "limits_checking": {"enabled": True, "database_path": _LIMITS_RELPATH},
+        }
+    }
+
+    with pytest.raises(DeploymentPreconditionError, match="control_system.writes: asked"):
+        resolve_limits_mount(config, str(tmp_path), "")
 
 
 def test_the_real_render_context_always_carries_a_boolean_bluesky_devices(

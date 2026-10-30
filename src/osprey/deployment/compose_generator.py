@@ -844,11 +844,11 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
 
     Refusals are gated on
     :func:`~osprey_connectors.types.tier_limits_database_targets`: a target
-    needs this file only when the render's login tier allows writes
-    (``control_system.writes: allowed``) and that target's limits posture
-    :func:`~osprey_connectors.types.limits_database_required` — limits checking
-    on, and either a mode other than ``optional`` or a path configured — so
-    that pairing is what makes the file's absence a fault rather than a
+    needs this file only when the render's login tier arms writes
+    (``control_system.writes`` is ``asked`` or ``allowed``) and that target's
+    limits posture :func:`~osprey_connectors.types.limits_database_required` —
+    limits checking on, and either a mode other than ``optional`` or a path
+    configured — so that pairing is what makes the file's absence a fault rather than a
     posture. The tier is the same value every Bluesky lane's mount is rendered
     on (:func:`_bluesky_lane_write_posture`), so the refusal and the mount
     cannot disagree: a gate read any other way would let a config refuse
@@ -856,7 +856,7 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
     which the container runtime creates as an empty directory.
 
     A limits database is therefore optional, exactly as it is at runtime. A
-    ``never`` render never opens it; neither does an ``allowed`` one with
+    ``never`` render never opens it; neither does an armed one with
     limits checking off for every reachable target, where the connector
     builds no validator and consults no database; nor does one whose targets
     check limits in ``optional`` mode with no path configured, where the
@@ -888,12 +888,12 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
         limits — there is nothing to mount either way, and a bind source that
         is not there is worse than no bind at all
     :rtype: dict[str, str] or None
-    :raises DeploymentPreconditionError: The tier allows writes and some
+    :raises DeploymentPreconditionError: The tier arms writes and some
         reachable target requires a limits database, and the key is unset or
         not a string (a mode other than ``optional``), or names a file that is
         not on this host
     """
-    from osprey_connectors.types import WRITES_KEY, tier_limits_database_targets
+    from osprey_connectors.types import WRITES_KEY, tier_limits_database_targets, tier_writes
 
     control_system = config.get("control_system") or {}
     limits_checking = control_system.get("limits_checking") or {}
@@ -908,7 +908,7 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
         if limits_required:
             raise DeploymentPreconditionError(
                 reason=(
-                    f"The login tier allows writes ({WRITES_KEY}: allowed) AND "
+                    f"The login tier arms writes ({WRITES_KEY}: {tier_writes(control_system)}) AND "
                     f"at least one control target has limits_checking.enabled "
                     f"on in a mode other than optional, so the "
                     f"channel-limits database is mounted into the services that "
@@ -958,7 +958,7 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
         if limits_required:
             raise DeploymentPreconditionError(
                 reason=(
-                    f"The login tier allows writes ({WRITES_KEY}: allowed) AND "
+                    f"The login tier arms writes ({WRITES_KEY}: {tier_writes(control_system)}) AND "
                     f"at least one control target has limits_checking.enabled "
                     f"on, so the "
                     f"channel-limits database is mounted into the services that "
@@ -1588,11 +1588,11 @@ def _bluesky_lane_write_posture(services, control_system):
 
     The render's login tier decides (:func:`~osprey_connectors.types.tier_allows`
     over ``control_system.writes``), not the lane's target: the tier is a
-    ceiling, not a selection, so an ``allowed`` render arms every lane — each
-    lane mounts the limits database and the control-context tree its writes are
-    judged against — and a ``never`` render arms none. Which machine a write
-    actually reaches is the session's switch to decide at runtime, never the
-    render's. The answer is computed here, once, and read off each lane's own
+    ceiling, not a selection, so an ``asked`` or ``allowed`` render arms every
+    lane — each lane mounts the limits database and the control-context tree
+    its writes are judged against — and a ``never`` render arms none. Which
+    machine a write actually reaches is the session's switch to decide at
+    runtime, never the render's. The answer is computed here, once, and read off each lane's own
     ``services.<lane>`` block, because the template makes no posture decision
     of its own.
 

@@ -493,9 +493,9 @@ def config_needs_launch_token_for(config: Any, lane: str) -> bool:
       undeclared second lane has no bridge to arm, so it entitles nothing.
     * **The render's tier allows writes**
       (:func:`~osprey_connectors.types.tier_allows` of its ``control_system``
-      section) — ``control_system.writes: allowed``, the literal string and
-      nothing else. ``never``, silence and every other value arm nothing, which
-      is the read-only tier's whole boundary.
+      section) — ``control_system.writes`` is ``asked`` or ``allowed``, the
+      literal strings and nothing else. ``never``, silence and every other value
+      arm nothing, which is the read-only tier's whole boundary.
     * **The bluesky server is left running** (:func:`bluesky_server_enabled`).
       A token for a server that never starts arms nothing while still handing
       the agent a live credential.
