@@ -195,10 +195,7 @@ def test_project_layout_and_ports_are_derived():
     assert config["project_root"] == "/repos/demo"
     assert config["build_dir"] == "./build"
     assert config["agent_data"]["base_dir"] == "var/agent_data"
-    assert config["file_paths"] == {
-        "api_calls_dir": "api_calls",
-        "registry_exports_dir": "registry_exports",
-    }
+    assert config["file_paths"] == {"registry_exports_dir": "registry_exports"}
     assert config["artifact_server"] == {"port": layout_ports(DEFAULT_PORT_BASE)["artifact"]}
 
 

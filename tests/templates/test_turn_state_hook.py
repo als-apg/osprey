@@ -84,6 +84,8 @@ _BASE_CTX: dict[str, Any] = {
     "agents": [],
     "facility_permissions": {},
     "deny_defaults": ["Bash"],
+    # Derived by the render funnel from agent_record.retention_days.
+    "cleanup_period_days": 30,
     "declared_hooks": {},
     "declared_extra_events": [],
     "framework_pre_hooks": [],

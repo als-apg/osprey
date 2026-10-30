@@ -6,7 +6,7 @@ of "where am I in this room", so it has to outlive the process — a restart tha
 forgot it would either replay the whole room's history or skip everything posted
 while the bridge was down. This store is that memory: a flat
 ``room token -> lastKnownMessageId`` map on the same bridge-owned ``/data`` volume
-as the core dedup/history stores (see
+as the core dedup store (see
 :attr:`~osprey.bridges.nextcloud_talk.config.NextcloudBridgeConfig.offsets_path`).
 
 Two properties, and deliberately nothing else:

@@ -47,7 +47,6 @@ from osprey.interfaces.web_terminal.bar_items_store import (
 from osprey.interfaces.web_terminal.control_context_owner import start_control_context_owner
 from osprey.interfaces.web_terminal.feedback_destination import (
     DEFAULT_DOCS_URL,
-    DEFAULT_FEEDBACK_MAX_STORE_BYTES,
     osprey_version,
     resolve_deployment_identity,
     resolve_feedback_destination,
@@ -2472,16 +2471,13 @@ def _create_lifespan(
             raw_email = get_config_value("web.feedback.email", None)
             raw_trackers = get_config_value("web.feedback.trackers", None)
             raw_owner = get_config_value("web.feedback.owner", None)
-            raw_max_store_bytes = get_config_value(
-                "web.feedback.max_store_bytes", DEFAULT_FEEDBACK_MAX_STORE_BYTES
-            )
         except Exception:  # never let config load block startup
             logger.warning(
                 "Could not read web.docs_url / web.feedback.* config keys; using defaults",
                 exc_info=True,
             )
             raw_docs_url = raw_github_repo = raw_email = raw_trackers = None
-            raw_owner = raw_max_store_bytes = None
+            raw_owner = None
         # One resolver, so this block and the `GET /api/panels` fallback cannot
         # disagree: `trackers` is derived from `github_repo` and the owner
         # block, and two copies of that derivation are two chances to drift.
@@ -2490,7 +2486,6 @@ def _create_lifespan(
             email=raw_email,
             github_repo=raw_github_repo,
             trackers=raw_trackers,
-            max_store_bytes=raw_max_store_bytes,
             owner=raw_owner,
         )
         app.state.docs_url = destination.docs_url
@@ -2498,7 +2493,6 @@ def _create_lifespan(
         app.state.feedback_trackers = destination.trackers
         app.state.feedback_email = destination.email
         app.state.feedback_owner_name = destination.owner_name
-        app.state.feedback_max_store_bytes = destination.max_store_bytes
 
         # ── Deployment identity + the escalation link ──
         # A user files to whoever owns this deployment, because a user cannot
@@ -2535,10 +2529,11 @@ def _create_lifespan(
         # and deliberately NOT on workspace_dir: with web_terminal.watch_dir
         # set, the watched tree is somewhere else entirely and anything written
         # there would land outside the {user}-agent-data volume, where
-        # `osprey feedback` on the host cannot reach it. Never
-        # resolve_agent_data_root() either — that appends sessions/<id>, and
-        # every store spans sessions. They are siblings under one root: feedback
-        # records, the per-user bar arrangement, and the sidecars' start records.
+        # the host cannot reach it. Never resolve_agent_data_root() either — that
+        # appends sessions/<id>, and every store spans sessions. They are
+        # siblings under one root: the per-user bar arrangement and the
+        # sidecars' start records. Feedback is not a store here: a submission is
+        # an entry in the agent record.
         try:
             from osprey_connectors.workspace import resolve_shared_data_root
 
@@ -2550,9 +2545,7 @@ def _create_lifespan(
                 shared_data_root,
                 exc_info=True,
             )
-        feedback_dir = shared_data_root / "feedback"
         bar_items_dir = shared_data_root / "bar_items"
-        app.state.feedback_dir = feedback_dir
         app.state.bar_items_dir = bar_items_dir
         # What the terminal recorded about each sidecar's start, read back by
         # `osprey health` from this same root.
@@ -2578,21 +2571,18 @@ def _create_lifespan(
         # the authority on a genuine failure here.
         with suppress(OSError):
             workspace_dir.mkdir(parents=True, exist_ok=True)
-        app.state.feedback_rel = resolve_store_rel(feedback_dir, workspace_dir)
         app.state.bar_items_rel = resolve_store_rel(bar_items_dir, workspace_dir)
         app.state.panel_status_rel = resolve_store_rel(app.state.panel_status_dir, workspace_dir)
-        # One collection of the three stores, in the order they are resolved
-        # above. Saving a bar arrangement or recording a sidecar's start must be
-        # as silent as filing feedback: each writes one file, and an unconcealed
-        # store would push an SSE change frame to every connected browser the
-        # moment anyone rearranged a bar or a sidecar changed state. This seam
-        # silences the watcher and only that; the file panel's listing and
-        # content reads hide all three stores through routes/files.py's own
-        # predicate.
+        # One collection of the stores, in the order they are resolved above.
+        # Saving a bar arrangement or recording a sidecar's start must be
+        # silent: each writes one file, and an unconcealed store would push an
+        # SSE change frame to every connected browser the moment anyone
+        # rearranged a bar or a sidecar changed state. This seam silences the
+        # watcher and only that; the file panel's listing and content reads
+        # hide the stores through routes/files.py's own predicate.
         app.state.concealed_store_rels = tuple(
             rel
             for rel in (
-                app.state.feedback_rel,
                 app.state.bar_items_rel,
                 app.state.panel_status_rel,
             )

@@ -21,6 +21,7 @@ command serves.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -70,15 +71,15 @@ DECLARED_SESSION_LIFETIME_ENV = "OSPREY_TERMINAL_SESSION_LIFETIME"
 #: name the serving process reads. ``test_web_session_lifetime.py`` pins the two
 #: spellings equal so this copy cannot drift.
 DECLARED_SESSION_STORE_DIR_ENV = "OSPREY_TERMINAL_SESSION_STORE_DIR"
-#: The carrier for THIS user's audit directory. The multi-user compose sets it
-#: on every per-user web container (``docker-compose.web.yml.j2``) alongside the
-#: ``var/audit/<identity>`` bind mount it names, so the value is a real,
+#: The carrier for THIS container's state directory. The multi-user compose sets
+#: it on every per-user web container (``docker-compose.web.yml.j2``) alongside
+#: the ``var/state/<identity>`` bind mount it names, so the value is a real,
 #: host-visible, group-writable directory inside the container. Spelled
 #: literally for the same reason the carriers above are — this module keeps its
 #: ``osprey`` imports function-local — and deliberately read, never written,
 #: here: ``osprey web`` is a consumer of the deployment's declaration.
-AUDIT_DIR_ENV = "OSPREY_AUDIT_DIR"
-#: File name of the pre-flight refusal marker inside :data:`AUDIT_DIR_ENV`.
+STATE_DIR_ENV = "OSPREY_STATE_DIR"
+#: File name of the pre-flight refusal marker inside :data:`STATE_DIR_ENV`.
 #: Exported so ``osprey status`` reads the same name this writes instead of
 #: duplicating the literal; the format is deliberately trivial (line 1 = an
 #: ISO-8601 UTC timestamp, the rest = the refusal findings verbatim) so the
@@ -95,13 +96,13 @@ _LOGGER = logging.getLogger(__name__)
 def _preflight_marker_path() -> Path | None:
     """Where this container's pre-flight refusal marker lives, or ``None``.
 
-    ``None`` means "nothing to record": no :data:`AUDIT_DIR_ENV` is declared,
+    ``None`` means "nothing to record": no :data:`STATE_DIR_ENV` is declared,
     which is the bare-laptop launch — no container, no supervisor restarting
     the process, and so nobody downstream to explain a refusal to. Under
     ``restart: unless-stopped`` the variable is always set, because the compose
     that supervises the container is the same file that declares it.
     """
-    declared = os.environ.get(AUDIT_DIR_ENV)
+    declared = os.environ.get(STATE_DIR_ENV)
     if not declared:
         return None
     return Path(declared) / PREFLIGHT_REFUSED_MARKER
@@ -124,14 +125,14 @@ def _write_preflight_marker(body: str) -> None:
     re-runs pre-flight, and the operator needs to know what is failing *now*,
     not the archaeology of every attempt since the deploy.
 
-    Strictly advisory. An audit directory that is absent, root-owned or on a
+    Strictly advisory. A state directory that is absent, root-owned or on a
     read-only mount must not turn one honest failure into a second, more
     confusing one, so every filesystem error here is logged and swallowed; the
     caller goes on to report the refusal and exit as it would have anyway.
     """
     marker = _preflight_marker_path()
     if marker is None:
-        _LOGGER.debug("no %s declared; skipping pre-flight refusal marker", AUDIT_DIR_ENV)
+        _LOGGER.debug("no %s declared; skipping pre-flight refusal marker", STATE_DIR_ENV)
         return
 
     from datetime import UTC, datetime
@@ -395,6 +396,102 @@ def _write_pid(repo_root: Path, pid: int) -> None:
     pid_path.write_text(str(pid))
 
 
+def _rendered_config(config_path: Path) -> dict[str, Any]:
+    """The render's ``config.yml`` as a mapping (empty when it is not one)."""
+    from osprey_connectors import yaml_loader
+
+    loaded = yaml_loader.safe_load(config_path.read_text(encoding="utf-8"))
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def _hold_host_record(stack: contextlib.ExitStack, repo_root: Path, config_path: Path) -> None:
+    """Hold the agent record for this terminal's lifetime, or refuse with the fix.
+
+    A terminal in a container already carries the record its render set, and
+    is left as it is; on the host this takes a lease on the host-local record
+    (starting it when none answers), runs its supervisor, and publishes the
+    record's URL, the host login and ``OSPREY_SPOOL_DIR`` for every child.
+    """
+    from osprey.agent_record.host import HostRecordRefused
+    from osprey.agent_runner.provider_env import host_record_launch
+
+    try:
+        stack.enter_context(
+            host_record_launch(repo_root, _rendered_config(config_path), config_path=config_path)
+        )
+    except HostRecordRefused as exc:
+        output.fail("No agent record for this terminal", str(exc))
+        raise SystemExit(1) from exc
+
+
+def _refuse_without_host_record(repo_root: Path, config_path: Path) -> None:
+    """Refuse here, where the operator reads it, what the detached server would refuse."""
+    from osprey.agent_record.client import URL_ENV
+    from osprey.agent_record.host import host_record_refusal
+
+    if os.environ.get(URL_ENV):
+        return
+    why = host_record_refusal(repo_root, _rendered_config(config_path))
+    if why is not None:
+        output.fail("No agent record for this terminal", why)
+        raise SystemExit(1)
+
+
+def _sigterm_ends_serving() -> Any:
+    """Make SIGTERM (``osprey web stop``) end the server through its ``finally``.
+
+    uvicorn shuts down gracefully on SIGTERM and then raises the signal again
+    under the handler it found. Under the default handler that kills this
+    process outright, before the agent-record lease is released; this handler
+    turns it into an ordinary exit instead. Returns the handler it replaced,
+    or ``None`` off the main thread, where no handler can be set.
+    """
+
+    def _exit(_signum: int, _frame: object) -> None:
+        raise SystemExit(0)
+
+    try:
+        return signal.signal(signal.SIGTERM, _exit)
+    except ValueError:
+        return None
+
+
+#: Seconds ``osprey web stop`` waits for the server to give back its record lease.
+_LEASE_RELEASE_WAIT_S = 60.0
+
+
+def _end_host_record_lease(repo_root: Path, pid: int) -> None:
+    """After the server *pid* was signalled: wait for its lease to go, then stop an unheld record.
+
+    The server releases its own lease as it shuts down, and the last release
+    stops the host-local record. This waits for that, and then stops the
+    record itself if no one holds it any more (the server died before it
+    could release), so a stopped terminal leaves no record behind it.
+    """
+    from osprey.agent_record import host as hr
+    from osprey_connectors.workspace import rendered_config_path
+
+    config_path = rendered_config_path(repo_root)
+    try:
+        config = _rendered_config(config_path)
+    except OSError:
+        return
+    try:
+        state_dir = hr.host_state_dir(repo_root, config)
+    except hr.HostRecordRefused:
+        return
+    lease_dir = state_dir / hr.LEASE_DIR_NAME
+    deadline = time.monotonic() + _LEASE_RELEASE_WAIT_S
+    while time.monotonic() < deadline:
+        if not any(lease.pid == pid for lease in hr.live_leases(lease_dir)):
+            break
+        time.sleep(0.2)
+    try:
+        hr.stop_unheld_record(state_dir)
+    except hr.HostRecordRefused as exc:
+        output.warn("The agent record may still be running", str(exc))
+
+
 def _resolve_render(repo: Path | None) -> tuple[Path, Path, Path]:
     """Find the deployment repo, and make its render authoritative.
 
@@ -444,10 +541,9 @@ def _resolve_render(repo: Path | None) -> tuple[Path, Path, Path]:
     from osprey.mcp_env import load_dotenv_from_project
 
     load_dotenv_from_project(include_sensitive=True)
-    # Who the sessions this terminal starts are, to the ledger and to the
-    # telemetry gateway alike: the one name the build recorded, with that
-    # name's login. A terminal in a container already carries both.
-    from osprey.deployment.telemetry_credentials import export_built_host_identity
+    # Who the sessions this terminal starts are, to the ledger: the one name
+    # the build recorded. A terminal in a container already carries it.
+    from osprey.agent_record.credentials import export_built_host_identity
 
     export_built_host_identity(os.environ, repo_root)
     return repo_root, build_dir, config_path
@@ -668,13 +764,8 @@ def _probe_auth_secret(build_dir: Path, repo_root: Path) -> tuple[list[str], lis
     (:class:`~osprey.agent_runner.provider_env.ProviderEndpointError`) is the
     other refusal this probe reports rather than skips, and it aborts: the
     server's own startup resolves the same spec and exits on it.
-
-    A telemetry credential the launch lacks
-    (:class:`~osprey.build.claude_code_telemetry.ObservabilityCredentialError`)
-    fails the same way, for the same reason.
     """
     from osprey.agent_runner.provider_env import ProviderEndpointError, load_provider_spec
-    from osprey.build.claude_code_telemetry import ObservabilityCredentialError
 
     try:
         # The provider is declared in the render and its ``${VAR}`` references
@@ -684,12 +775,6 @@ def _probe_auth_secret(build_dir: Path, repo_root: Path) -> tuple[list[str], lis
         # lives in ``.env`` resolves to a literal placeholder and the probe
         # reports on a provider the launch will not use.
         spec = load_provider_spec(build_dir, env_dir=repo_root)
-    except ObservabilityCredentialError as exc:
-        # Must come BEFORE the ValueError arm: this type subclasses
-        # TelemetryConfigError, which subclasses ValueError. A failure: the
-        # server resolves the same spec at startup and refuses there too. Only
-        # names reach the message, never a credential's value.
-        return [f"the telemetry credentials of this launch could not be resolved:\n  {exc}"], []
     except ProviderEndpointError as exc:
         # Also ahead of the broad arm, and a FAILURE rather than a warning: the
         # server resolves the same spec in its own startup and raises there too,
@@ -1112,6 +1197,9 @@ def web(
         )
 
     if detach:
+        # The detached server holds the record lease itself (it re-enters the
+        # foreground path below); a refusal it would hit is reported here.
+        _refuse_without_host_record(repo_root, project_config)
         _start_detached(host, port, user_shell_override, repo_root)
         return
 
@@ -1148,6 +1236,12 @@ def web(
     # --port differs — reporting success while the real terminal never hears
     # the event.
     os.environ["OSPREY_WEB_PORT"] = str(port)
+
+    # The agent record, held until the server returns: every session this
+    # terminal starts writes to it and reads from it.
+    record_stack = contextlib.ExitStack()
+    _hold_host_record(record_stack, repo_root, project_config)
+    previous_sigterm = _sigterm_ends_serving()
 
     # Mint the operator secret in THIS (parent) process, after the port has
     # settled so the announced URL names the socket that will actually listen.
@@ -1236,6 +1330,9 @@ def web(
         output.report("Shutting down...")
     finally:
         sock.close()
+        if previous_sigterm is not None:
+            signal.signal(signal.SIGTERM, previous_sigterm)
+        record_stack.close()
 
 
 def _start_detached(host: str, port: int, shell: str | None, repo_root: Path) -> None:
@@ -1311,14 +1408,14 @@ def _start_detached(host: str, port: int, shell: str | None, repo_root: Path) ->
 
     log_path = repo_root / LOG_FILE
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_fh = open(log_path, "w")
-    proc = subprocess.Popen(
-        cmd,
-        stdout=log_fh,
-        stderr=subprocess.STDOUT,
-        start_new_session=True,
-    )
-    log_fh.close()  # child retains its own fd copy
+    # Closed as soon as the child is spawned: it retains its own fd copy.
+    with open(log_path, "w") as log_fh:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=log_fh,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
 
     _write_pid(repo_root, proc.pid)
 
@@ -1414,6 +1511,10 @@ def web_stop(ctx: click.Context, repo: Path | None) -> None:
     except PermissionError:
         output.fail(f"Permission denied stopping the web terminal (PID {pid})")
         return
+
+    # The server's agent-record lease ends with it, and with the last lease
+    # the host-local record stops.
+    _end_host_record_lease(repo_root, pid)
 
     pid_path.unlink(missing_ok=True)
     log_path.unlink(missing_ok=True)

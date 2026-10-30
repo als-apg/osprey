@@ -16,7 +16,7 @@ import pytest
 
 from osprey.agent_runner import ToolResultEvent
 from osprey.interfaces.web_terminal.operator_session import _ASYNC_LAUNCH_MARK, _event_to_wire
-from osprey.interfaces.web_terminal.routes.session import _chat_timeline
+from osprey.interfaces.web_terminal.routes.session import _chat_turns, _transcript_nodes
 from osprey.interfaces.web_terminal.tool_preview import (
     MAX_DEPTH,
     MAX_ITEMS,
@@ -304,7 +304,7 @@ class TestReplayMatchesLive:
         transcript = tmp_path / "session.jsonl"
         _write_transcript(transcript, content)
 
-        turns = _chat_timeline(transcript)
+        turns = _chat_turns(_transcript_nodes(transcript))
         (replayed,) = [
             event
             for turn in turns
@@ -335,7 +335,7 @@ class TestReplayMatchesLive:
 
         (replayed,) = [
             event
-            for turn in _chat_timeline(transcript)
+            for turn in _chat_turns(_transcript_nodes(transcript))
             for event in turn.get("events", [])
             if event["type"] == "tool_result"
         ]

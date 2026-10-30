@@ -13,7 +13,6 @@ from osprey.interfaces.ariel.api import routes
 from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.database.repository import SchemaFacts
 from osprey.services.ariel_search.search.base import SearchToolDescriptor
-from tests._audit_ledger import ledger_records
 from tests.interfaces.ariel._attachments import PNG_URL, attachment_entry, attachment_row
 from tests.interfaces.ariel._routes_app import routes_app
 
@@ -1192,19 +1191,15 @@ _PROTECTED_DOC = (
 
 
 @pytest.fixture
-def audit_zone(tmp_path, monkeypatch):
-    """Redirect the audit zone. ``writer.audit_dir`` is the ledger's one seam."""
-    from osprey.audit import writer
-
-    zone = tmp_path / "audit-zone" / "var" / "audit"
-    monkeypatch.setattr(writer, "audit_dir", lambda: zone)
-    return zone
-
-
-def _audit_records(zone):
+def audit_records(recorded_entries):
+    """``audit_records() -> list[dict]``: the ``http_config`` audit bodies recorded so far."""
     from osprey.audit.protected import SURFACE_HTTP_CONFIG
 
-    return ledger_records(zone, SURFACE_HTTP_CONFIG)
+    def read() -> list[dict]:
+        entries = sorted(recorded_entries("audit"), key=lambda entry: entry.ts)
+        return [dict(e.body) for e in entries if e.body["surface"] == SURFACE_HTTP_CONFIG]
+
+    return read
 
 
 @pytest.fixture
@@ -1216,7 +1211,7 @@ def gated_config(client, tmp_path):
     return config_path
 
 
-def test_put_config_refuses_a_removed_protected_key(client, gated_config, audit_zone):
+def test_put_config_refuses_a_removed_protected_key(client, gated_config, audit_records):
     """Dropping ``agent_data`` on the way past is a protected-key change, not a save."""
     before = gated_config.read_bytes()
 
@@ -1236,7 +1231,7 @@ def test_put_config_refuses_a_removed_protected_key(client, gated_config, audit_
     assert gated_config.read_bytes() == before
     assert not (gated_config.parent / "state").exists()
 
-    records = _audit_records(audit_zone)
+    records = audit_records()
     assert len(records) == 1
     assert records[0]["surface"] == "http_config"
     assert "target=config.yml" in records[0]["detail"]
@@ -1244,7 +1239,7 @@ def test_put_config_refuses_a_removed_protected_key(client, gated_config, audit_
     assert records[0]["reason"] == "protected_key"
 
 
-def test_put_config_refuses_a_changed_protected_value(client, gated_config, audit_zone):
+def test_put_config_refuses_a_changed_protected_value(client, gated_config, audit_records):
     """Flipping the write gate through the YAML editor is the write that must not land."""
     before = gated_config.read_bytes()
     flipped = _PROTECTED_DOC.format(state=gated_config.parent / "state").replace(
@@ -1257,12 +1252,12 @@ def test_put_config_refuses_a_changed_protected_value(client, gated_config, audi
     assert "control_system.writes_enabled" in response.json()["detail"]
     assert gated_config.read_bytes() == before
 
-    records = _audit_records(audit_zone)
+    records = audit_records()
     assert [r["subject"] for r in records] == ["control_system.writes_enabled"]
 
 
 @pytest.mark.usefixtures("gated_config")
-def test_put_config_refusal_leaks_no_value(client, audit_zone):
+def test_put_config_refusal_leaks_no_value(client, audit_records):
     """Config values are secrets; a refusal reports the key, never the value."""
     import json as _j
 
@@ -1273,10 +1268,10 @@ def test_put_config_refusal_leaks_no_value(client, audit_zone):
 
     assert response.status_code == 403
     assert sentinel not in response.text
-    assert sentinel not in _j.dumps(_audit_records(audit_zone))
+    assert sentinel not in _j.dumps(audit_records())
 
 
-def test_put_config_allows_an_unprotected_edit(client, gated_config, audit_zone):
+def test_put_config_allows_an_unprotected_edit(client, gated_config, audit_records):
     """An edit that leaves every protected key alone still saves, and still backs up."""
     from osprey.utils.config_writer import config_backup_path
 
@@ -1288,7 +1283,7 @@ def test_put_config_allows_an_unprotected_edit(client, gated_config, audit_zone)
     assert response.status_code == 200
     assert gated_config.read_text() == updated
     assert config_backup_path(gated_config).read_text() == before
-    assert _audit_records(audit_zone) == []
+    assert audit_records() == []
 
 
 class TestConfigPanelTierGate:

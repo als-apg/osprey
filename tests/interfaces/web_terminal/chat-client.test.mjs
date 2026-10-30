@@ -681,6 +681,36 @@ describe('fetchHistory', () => {
     });
   });
 
+  test("hands each agent turn's thinking events to the renderer untouched", async () => {
+    // The Simple chat's thinking summary is drawn from these events, an
+    // omitted (empty) block included: the renderer, not the transport, decides
+    // that an empty block draws nothing.
+    const turns = [
+      { role: 'user', content: 'why?' },
+      {
+        role: 'assistant',
+        content: 'because',
+        events: [
+          { type: 'thinking', content: 'reasoning' },
+          { type: 'thinking', content: '' },
+          { type: 'text', content: 'because' },
+          { type: 'result', is_error: false, duration_ms: 900 },
+        ],
+      },
+    ];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ turns, count: turns.length }))
+    );
+
+    const got = await chat.fetchHistory('k');
+    expect(got).toEqual(turns);
+    expect(got[1].events?.filter((e) => e.type === 'thinking').map((e) => e.content)).toEqual([
+      'reasoning',
+      '',
+    ]);
+  });
+
   test('applies the multi-user prefix and encodes the key', async () => {
     window.__OSPREY_PREFIX__ = '/u/alice';
     const fetchMock = vi.fn(async () => jsonResponse({ turns: [], count: 0 }));

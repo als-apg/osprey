@@ -74,6 +74,7 @@ from websockets.sync.client import connect as ws_connect
 
 from osprey.cli.web_cmd import _STARTUP_LINE
 from tests.e2e._server_port import bound_port
+from tests.e2e.web_terminals._minimal_repo import stop_host_record, write_minimal_repo
 
 pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke, pytest.mark.model_free]
 
@@ -330,7 +331,7 @@ def _run_executor_sandbox(tmp_path: Path, base_url: str, operator_secret: str) -
     return json.loads(sandbox_line[len("SANDBOX_RESULT ") :])
 
 
-def test_escalation_chain_is_broken_end_to_end(tmp_path: Path) -> None:
+def test_escalation_chain_is_broken_end_to_end(tmp_path: Path, record_port: int) -> None:
     """Boot a real single-user ``osprey web`` and prove the chain is broken.
 
     Asserts, against one live process reached over real sockets, all five
@@ -341,19 +342,17 @@ def test_escalation_chain_is_broken_end_to_end(tmp_path: Path) -> None:
     # so the run directory must be a real (if minimal) repo — same as
     # test_loopback_chokepoint.py. The served config carries a patchable
     # safety field so the operator PATCH below has something real to write.
-    repo = tmp_path / "terminal-auth-e2e"
-    (repo / "build").mkdir(parents=True)
-    (repo / "profile.yml").write_text("name: terminal-auth-e2e\n", encoding="utf-8")
-    (repo / "build" / "config.yml").write_text(
-        "system:\n"
-        "  name: terminal-auth-e2e\n"
-        "control_system:\n"
-        "  type: virtual_accelerator\n"
-        "  connector:\n"
-        "    virtual_accelerator:\n"
-        "      serving: in_process\n"
-        "  writes: never\n",
-        encoding="utf-8",
+    repo = write_minimal_repo(
+        tmp_path / "terminal-auth-e2e",
+        {
+            "system": {"name": "terminal-auth-e2e"},
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                "writes": "never",
+            },
+        },
+        record_port,
     )
     log_path = tmp_path / "server.log"
 
@@ -496,3 +495,4 @@ def test_escalation_chain_is_broken_end_to_end(tmp_path: Path) -> None:
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait(timeout=_TEARDOWN_TIMEOUT)
+        stop_host_record(repo)

@@ -87,6 +87,12 @@ _STRIP_CASES = [
         {"type": "thinking", "content": "internal reasoning"},
     ),
     (
+        # An omitted block reaches the chat as written; the renderer draws nothing for it.
+        "omitted_thinking_passes_through_empty",
+        {"type": "thinking", "content": "", "parent_tool_use_id": None},
+        {"type": "thinking", "content": "", "parent_tool_use_id": None},
+    ),
+    (
         "tool_use_keeps_its_input",
         {
             "type": "tool_use",
@@ -1048,8 +1054,15 @@ class TestChatStatusMapIntegration:
             waiting = asyncio.ensure_future(
                 chat_module.chat(req, chat_module.ChatRequest(prompt="second", chat_id="c"))
             )
-            for _ in range(5):  # let the second request register its slot
-                await asyncio.sleep(0)
+            # The second request takes the key's pending slot once it reaches the
+            # hand-off's wait; the third must arrive only after that, whatever the
+            # second ran through on its way there.
+            pending = handoff_module.get_state(req.app).pending
+            for _ in range(500):
+                if pending or waiting.done():
+                    break
+                await asyncio.sleep(0.01)
+            assert pending, "the second prompt never took the key's pending slot"
             assert not waiting.done()
 
             with pytest.raises(HTTPException) as ei:

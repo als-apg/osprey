@@ -349,7 +349,6 @@ class TestManifestPresetStamp:
                         "control_system.connector.virtual_accelerator.serving": "in_process",
                         "archiver.type": "mock",
                         "approval.enabled": False,
-                        "claude_code.telemetry.enabled": False,
                         "hooks.debug": False,
                     },
                 }

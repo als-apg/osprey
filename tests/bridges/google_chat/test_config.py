@@ -94,7 +94,6 @@ def test_version_tag_comes_from_the_unprefixed_image_build_arg():
         ("GCHAT_DRAIN_INTERVAL", "drain_interval", 60.0),
         ("GCHAT_RETRY_MIN_AGE", "retry_min_age", 1200.0),
         ("GCHAT_DEDUP_PATH", "dedup_path", "/data/dedup.json"),
-        ("GCHAT_HISTORY_PATH", "history_path", "/data/history.json"),
         ("GCHAT_TRIGGER", "trigger", ""),
     ],
 )

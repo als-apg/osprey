@@ -317,13 +317,20 @@ class TestDegradationsAreReported:
         assert "ghcr.io/example/worker:1" in printed.flowed
         assert "Skipping the demo:local build." in printed.flowed
 
-    def test_an_empty_service_roster_says_nothing_was_started(
-        self, default_altitude, printed, tmp_path
+    def test_an_empty_service_roster_still_starts_the_agent_record(
+        self, printed, tmp_path, monkeypatch
     ):
-        container_lifecycle._start_stack({}, [], tmp_path)
+        """There is no empty stack: agent-record runs in every deployment, so
+        an empty roster goes on to the start instead of reporting a skip.
+        Under --dev, so the start reaches the build without asking this
+        checkout's version for a release pin."""
+        _stub_start_stack_preflights(monkeypatch)
 
-        assert_promoted(default_altitude, printed, "No services are configured for this project")
-        assert "Skipping osprey up." in printed.flowed
+        with pytest.raises(_StopBeforeTheBuild):
+            container_lifecycle._start_stack({}, [], tmp_path, dev_mode=True)
+
+        assert "No services are configured for this project" not in printed.flowed
+        assert "Skipping osprey up." not in printed.flowed
 
 
 class TestAutonomousHostChangesAreReported:

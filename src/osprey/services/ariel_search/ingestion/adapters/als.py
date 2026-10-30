@@ -553,12 +553,14 @@ class ALSLogbookAdapter(FacilityAdapter):
         connector = self._create_connector()
         timeout = aiohttp.ClientTimeout(total=self.request_timeout)
         try:
-            async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
-                async with session.get(
+            async with (
+                aiohttp.ClientSession(connector=connector, timeout=timeout) as session,
+                session.get(
                     write_url, params={"op": "logbooks"}, ssl=self._ssl_context()
-                ) as response:
-                    response.raise_for_status()
-                    listed = json.loads(await response.text())
+                ) as response,
+            ):
+                response.raise_for_status()
+                listed = json.loads(await response.text())
         except (aiohttp.ClientError, TimeoutError, json.JSONDecodeError) as e:
             logger.debug(f"Could not list olog logbooks, skipping the check: {e}")
             return
@@ -883,7 +885,7 @@ class ALSLogbookAdapter(FacilityAdapter):
             # and returns actual HTML for empty date ranges. Parse permissively.
             body = await response.text()
             body = body.strip()
-            if not body or body.startswith("<") or body.startswith("<!"):
+            if not body or body.startswith(("<", "<!")):
                 logger.debug(
                     f"Window {window_start.isoformat()}-{window_end.isoformat()}: "
                     f"HTML or empty response, treating as empty"

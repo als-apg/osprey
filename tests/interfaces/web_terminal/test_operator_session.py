@@ -2203,11 +2203,15 @@ class TestOperatorRegistryChatPool:
     @pytest.mark.asyncio
     async def test_an_unreadable_process_table_does_not_keep_a_chat_open_for_good(self):
         """Every sweep that cannot look leaves the idle clock alone, so the reap comes."""
-        clock = [time.monotonic()]
+        # Whole seconds, as test_chat_process_tree.py's clock reads: on a raw
+        # monotonic stamp ``last + 20.0`` can round to one step short of 20 s
+        # after ``last``, and the sweep landing exactly on the timeout misses.
+        last = 1000.0
+        clock = [last]
         pool = ChatSessionPool(factory=_session_factory(), idle_seconds=10.0, now=lambda: clock[0])
         a, _ = await pool.get_or_create("stale-chat", "/tmp")
         a.running_commands = None
-        last = a.last_activity
+        a.last_activity = last
 
         for moment in (10.0, 15.0, 10.0 * UNREAD_IDLE_FACTOR - 1.0):
             clock[0] = last + moment
@@ -2418,6 +2422,9 @@ class TestOperatorChatLaunchParity:
             cli_path=STUB_AGENT_CLI,
             include_partial_messages=True,
             can_use_tool=session._can_use_tool,
+            # The stub CLI takes --thinking-display, so the launch passes the
+            # default display.
+            extra_args={"thinking-display": "summarized"},
             **identity,
         )
         assert options.env["PATH"] == "/usr/bin"

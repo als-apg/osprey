@@ -45,6 +45,7 @@ from tests.deployment.web_terminals._nginx import (
     nginx_directives,
     nginx_location_body,
     nginx_server_blocks,
+    nginx_terminals_part,
     render_nginx,
 )
 
@@ -123,7 +124,7 @@ def test_seam_auth_method_set_gates_every_user_behind_its_own_internal_target() 
 
     # Act
     nginx_conf = render_nginx(config)
-    directives = nginx_directives(nginx_conf)
+    directives = nginx_directives(nginx_terminals_part(nginx_conf))
 
     # Assert — every proxied user location is gated, and by its OWN target
     gated_locations = directives.count("location /u/")
@@ -163,7 +164,7 @@ def test_seam_no_roster_key_opts_an_entry_out_of_the_wall() -> None:
 
     # Act
     nginx_conf = render_nginx(config)
-    directives = nginx_directives(nginx_conf)
+    directives = nginx_directives(nginx_terminals_part(nginx_conf))
 
     # Assert — one gate per entry, each with its own verify target
     assert directives.count("auth_request ") == 3
@@ -192,9 +193,10 @@ def test_seam_auth_target_asks_the_sidecar_about_a_render_time_username() -> Non
     config = _auth_config(["alice", "bob"])
     users = config["modules"]["web_terminals"]["users"]
 
-    # Act
+    # Act — the terminals' servers: the history page's origin asks the sidecar about
+    # its history page, from the signed-in session, at its own target.
     nginx_conf = render_nginx(config)
-    directives = nginx_directives(nginx_conf)
+    directives = nginx_directives(nginx_terminals_part(nginx_conf))
 
     # Assert
     for user in users:
@@ -421,7 +423,7 @@ def test_seam_tls_on_a_non_default_port_moves_the_whole_encrypted_seam() -> None
     users = config["modules"]["web_terminals"]["users"]
 
     # Act
-    redirect, content, catch_all = nginx_server_blocks(render_nginx(config))
+    redirect, content, catch_all, readers = nginx_server_blocks(render_nginx(config))
 
     # Assert — both listeners follow the configured port, and 443 is gone
     assert f"listen {_ALT_TLS_PORT} ssl;" in content
@@ -441,6 +443,9 @@ def test_seam_tls_on_a_non_default_port_moves_the_whole_encrypted_seam() -> None
     assert nginx_directives(content).count("auth_request ") == len(users)
     assert "ssl_certificate /etc/nginx/certs/dls.crt;" in content
     assert "ssl_certificate_key /etc/nginx/certs/dls.key;" in content
+    # The history page's origin is encrypted on its own port, never on the moved one.
+    assert re.search(r"^    listen \d+ ssl;$", readers, flags=re.MULTILINE)
+    assert f"listen {_ALT_TLS_PORT} " not in readers
 
 
 def test_seam_tls_content_server_speaks_http2_and_cleartext_servers_do_not() -> None:
@@ -563,7 +568,7 @@ def test_seam_auth_surface_exists_only_on_the_tls_content_server() -> None:
     users = config["modules"]["web_terminals"]["users"]
 
     # Act
-    redirect, content, catch_all = nginx_server_blocks(render_nginx(config))
+    redirect, content, catch_all, readers = nginx_server_blocks(render_nginx(config))
 
     # Assert — the redirect servers carry nothing but the 301
     assert "location" not in catch_all
@@ -579,3 +584,8 @@ def test_seam_auth_surface_exists_only_on_the_tls_content_server() -> None:
     assert content.count("location = /_osprey_auth/") == len(users)
     assert "location /auth/ {" in content
     assert "return 200;" not in content
+
+    # Assert — the history page's origin holds none of the per-user gates, and is
+    # itself served only behind TLS
+    assert "_osprey_auth" not in readers
+    assert re.search(r"^    listen \d+ ssl;$", readers, flags=re.MULTILINE)

@@ -17,6 +17,11 @@ import pytest
 
 from osprey.cli.channel_finder_cmd import _parse_query_indices, channel_finder
 from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
+from tests.cli._unrecorded import (
+    a_host_local_record_is_up,
+    act_as_a_recording_child,
+    files_under,
+)
 
 
 def _hierarchical_index(tmp_path: Path) -> Path:
@@ -176,7 +181,7 @@ class TestWebBindAddress:
 
         result = runner.invoke(channel_finder, ["--project", str(project), "web"])
 
-        assert result.exit_code == 0, result.output
+        assert result.exit_code == 0, (result.output, repr(result.exception))
         assert (bound["host"], bound["port"]) == (self.CONFIGURED_HOST, self.CONFIGURED_PORT)
         assert f"http://{self.CONFIGURED_HOST}:{self.CONFIGURED_PORT}" in result.output
 
@@ -190,7 +195,7 @@ class TestWebBindAddress:
             ["--project", str(project), "web", "--host", "127.0.0.1", "--port", "18999"],
         )
 
-        assert result.exit_code == 0, result.output
+        assert result.exit_code == 0, (result.output, repr(result.exception))
         assert (bound["host"], bound["port"]) == ("127.0.0.1", 18999)
 
     def test_no_configured_host_binds_loopback(self, runner, tmp_path, monkeypatch, bound):
@@ -201,7 +206,7 @@ class TestWebBindAddress:
 
         result = runner.invoke(channel_finder, ["--project", str(project), "web"])
 
-        assert result.exit_code == 0, result.output
+        assert result.exit_code == 0, (result.output, repr(result.exception))
         assert (bound["host"], bound["port"]) == (
             "127.0.0.1",
             framework_web_port_default("channel_finder"),
@@ -492,7 +497,7 @@ class TestInContextIndexRender:
                 )
 
         printed = " ".join(result.output.split())
-        assert result.exit_code == 0, result.output
+        assert result.exit_code == 0, (result.output, repr(result.exception))
         assert "VALID" in printed
         assert "Total Channels 569" in printed
 
@@ -505,7 +510,7 @@ class TestInContextIndexRender:
             with patch("osprey.cli.channel_finder_cmd._initialize_registry"):
                 result = runner.invoke(channel_finder, ["preview", "--database", str(index)])
 
-        assert result.exit_code == 0, result.output
+        assert result.exit_code == 0, (result.output, repr(result.exception))
         assert "In-Context Database Preview" in result.output
         assert first in result.output
 
@@ -702,3 +707,190 @@ class TestBenchmarkSubcommand:
 
         assert result.exit_code == 0
         assert "Benchmark complete" in result.output
+
+
+class TestTheBenchmarkLeavesNothingInTheRecord:
+    """A benchmark run reaches no spool, transcript root or OTLP collector."""
+
+    @staticmethod
+    def _project(tmp_path: Path) -> Path:
+        import yaml
+
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / "config.yml").write_text(
+            yaml.dump({"channel_finder": {"benchmark": {"dataset_path": "queries.json"}}})
+        )
+        return project
+
+    def test_a_benchmark_with_a_host_local_record_up_leaves_nothing(
+        self, runner, tmp_path, monkeypatch, spool_zone
+    ):
+        import os
+
+        from osprey.services.channel_finder.benchmarks.models import BenchmarkRun
+
+        project = self._project(tmp_path)
+        transcript_root = a_host_local_record_is_up(monkeypatch, tmp_path)
+        seen: list[dict] = []
+
+        async def child_run(**_kwargs):
+            seen.append(act_as_a_recording_child(spool_zone.root))
+            return BenchmarkRun(
+                paradigm="in_context",
+                model="test-model",
+                timestamp="2026-01-01T00:00:00",
+                query_results=[],
+                aggregate_f1=0.0,
+                aggregate_precision=0.0,
+                aggregate_recall=0.0,
+            )
+
+        with patch(
+            "osprey.services.channel_finder.benchmarks.runner.BenchmarkRunner"
+        ) as MockRunner:
+            mock_instance = MockRunner.return_value
+            mock_instance.load_queries.return_value = [{"user_query": "q", "targeted_pv": ["A"]}]
+            mock_instance.run_queries = child_run
+            mock_instance.provider = "anthropic"
+            mock_instance.model = "anthropic/claude-haiku-4-5-20251001"
+
+            result = runner.invoke(
+                channel_finder,
+                [
+                    "--project",
+                    str(project),
+                    "benchmark",
+                    "--model",
+                    "anthropic/claude-haiku-4-5-20251001",
+                    "--runs-per-query",
+                    "2",
+                    "--output-dir",
+                    str(tmp_path / "results"),
+                ],
+            )
+
+        assert result.exit_code == 0, (result.output, repr(result.exception))
+        assert len(seen) == 2
+        for child in seen:
+            assert child["entry_id"] is None
+            assert child["otel"] == []
+            assert child["spool_dir"] is None
+            assert Path(child["config_dir"]) != transcript_root
+        # Each run has a Claude Code config dir of its own.
+        assert seen[0]["config_dir"] != seen[1]["config_dir"]
+        assert files_under(spool_zone.root) == []
+        assert files_under(transcript_root) == []
+        assert spool_zone.recorded_entries() == []
+        assert os.environ["CLAUDE_CONFIG_DIR"] == str(transcript_root)
+        assert "OSPREY_AGENT_RECORD_OFF" not in os.environ
+
+    def test_the_benchmark_mcp_server_runs_with_the_record_off(self, tmp_path, monkeypatch):
+        """The stdio server's env is its whole env, so the off switch is set in it."""
+        import asyncio
+
+        from osprey.services.channel_finder.benchmarks import harness
+
+        captured: dict = {}
+
+        class FakeTransport:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+        class FakeClient:
+            def __init__(self, transport):
+                self.transport = transport
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+        monkeypatch.setattr(harness, "StdioTransport", FakeTransport)
+        monkeypatch.setattr(harness, "Client", FakeClient)
+
+        async def open_session():
+            async with harness.mcp_client_session(
+                tmp_path,
+                "in_context",
+                env={
+                    "OSPREY_AGENT_RECORD_OFF": "0",
+                    "EXTRA": "x",
+                    "OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector",
+                    "OTEL_LOGS_EXPORTER": "otlp",
+                    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+                    "OSPREY_SPOOL_DIR": "/spool/alice",
+                },
+            ):
+                pass
+
+        asyncio.run(open_session())
+
+        assert captured["env"]["OSPREY_AGENT_RECORD_OFF"] == "1"
+        assert captured["env"]["EXTRA"] == "x"
+        assert captured["env"]["OSPREY_CONFIG"] == str(tmp_path / "config.yml")
+        assert [k for k in captured["env"] if k.startswith("OTEL_")] == []
+        assert "CLAUDE_CODE_ENABLE_TELEMETRY" not in captured["env"]
+        assert "OSPREY_SPOOL_DIR" not in captured["env"]
+
+    def test_the_benchmark_sdk_agent_exports_nothing_on_a_project_with_telemetry_on(
+        self, tmp_path, monkeypatch
+    ):
+        """The SDK launcher's env is the project's routed env, telemetry block dropped.
+
+        The SDK overlays that env on the parent's, so the launcher — not only
+        the parent — must carry no OTLP exporter or spool, and the record off
+        switch. The options are built for real from what the launcher hands
+        the runner, for a project whose provider env carries the OTLP block.
+        """
+        import asyncio
+
+        pytest.importorskip("claude_agent_sdk")
+        from osprey.agent_runner import build_agent_options
+        from osprey.services.channel_finder.benchmarks import sdk
+
+        (tmp_path / "config.yml").write_text(
+            "claude_code:\n  provider: anthropic\n", encoding="utf-8"
+        )
+        monkeypatch.setenv("OSPREY_SPOOL_DIR", str(tmp_path / "spool"))
+        # The provider env a project with telemetry on resolves to: routing
+        # plus the OTLP exporter block.
+        monkeypatch.setattr(
+            "osprey.agent_runner.primitives.provider_env_for_project",
+            lambda *_a, **_k: {
+                "ANTHROPIC_MODEL": "claude-main",
+                "ANTHROPIC_BASE_URL": "https://gateway.example",
+                "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+                "OTEL_LOGS_EXPORTER": "otlp",
+                "OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector",
+            },
+        )
+        monkeypatch.setattr(
+            "osprey.agent_runner.primitives._resolve_project_spec", lambda *a, **k: None
+        )
+
+        captured: dict = {}
+
+        async def fake_run_query(*_args, **kwargs):
+            captured.update(kwargs)
+            return sdk.SDKWorkflowResult()
+
+        monkeypatch.setattr(sdk, "run_query", fake_run_query)
+
+        asyncio.run(sdk.run_sdk_query(tmp_path, "find the BPMs", model="claude-x"))
+
+        assert "provider" not in captured
+        assert captured["model"] == "claude-x"
+        options = build_agent_options(
+            tmp_path,
+            disallowed_tools=captured["disallowed_tools"],
+            model=captured["model"],
+            env=captured["env"],
+            setting_sources=captured["setting_sources"],
+        )
+        assert [k for k in options.env if k.startswith("OTEL_")] == []
+        assert "CLAUDE_CODE_ENABLE_TELEMETRY" not in options.env
+        assert "OSPREY_SPOOL_DIR" not in options.env
+        assert options.env["OSPREY_AGENT_RECORD_OFF"] == "1"
+        assert options.env["ANTHROPIC_BASE_URL"] == "https://gateway.example"

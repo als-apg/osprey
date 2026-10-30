@@ -806,6 +806,25 @@ def test_dashboard_runs_worker_down_returns_502(app, monkeypatch):
     assert "worker_error" in resp.json()
 
 
+def test_dashboard_runs_record_outage_returns_503_naming_it(app, monkeypatch):
+    """A worker that answers but cannot read the record is not called unreachable."""
+    from osprey.dispatch.worker_client import WorkerRecordUnavailableError
+
+    async def fetch_fails(_url, _token, _timeout=10.0):
+        raise WorkerRecordUnavailableError("record unavailable: connection refused")
+
+    monkeypatch.setattr(server, "fetch_worker_runs", fetch_fails)
+    with TestClient(app) as client:
+        resp = client.get("/dashboard/runs", headers={"Authorization": "Bearer secret"})
+        state = client.get("/dashboard/state", headers={"Authorization": "Bearer secret"})
+    assert resp.status_code == 503
+    assert resp.json()["detail"] == "record unavailable"
+    assert "connection refused" in resp.json()["worker_error"]
+    assert state.status_code == 200
+    assert "record unavailable" in state.json()["worker_error"]
+    assert state.json()["runs"] == []
+
+
 def test_retry_non_dict_payload_returns_400(app):
     with TestClient(app) as client:
         resp = client.post(
@@ -854,73 +873,12 @@ def test_dashboard_cancel_proxies_to_worker(app, monkeypatch):
     assert resp.json()["cancelled"] is True
 
 
-def test_dashboard_clear_history_requires_auth(app):
-    with TestClient(app) as client:
-        resp = client.post("/dashboard/clear-history", json={})
-    assert resp.status_code == 401
-
-
-def test_dashboard_clear_history_proxies_to_worker(app, monkeypatch):
-    """A bodyless clear proxies through with no age floor."""
-    seen = {}
-
-    async def fake_clear(_url, _token, older_than_days):
-        seen["older_than_days"] = older_than_days
-        return {"cleared": 4, "records_deleted": 4, "older_than_days": older_than_days}
-
-    monkeypatch.setattr(server, "clear_worker_history", fake_clear)
+def test_dashboard_has_no_clear_history_route(app):
+    """The run history is the agent record's; the dashboard deletes none of it."""
+    assert not hasattr(server, "clear_worker_history")
     with TestClient(app) as client:
         resp = client.post("/dashboard/clear-history", headers={"Authorization": "Bearer secret"})
-    assert resp.status_code == 200
-    assert resp.json()["cleared"] == 4
-    assert seen["older_than_days"] == 0
-
-
-def test_dashboard_clear_history_forwards_the_age_floor(app, monkeypatch):
-    seen = {}
-
-    async def fake_clear(_url, _token, older_than_days):
-        seen["older_than_days"] = older_than_days
-        return {"cleared": 1}
-
-    monkeypatch.setattr(server, "clear_worker_history", fake_clear)
-    with TestClient(app) as client:
-        resp = client.post(
-            "/dashboard/clear-history",
-            json={"older_than_days": 30},
-            headers={"Authorization": "Bearer secret"},
-        )
-    assert resp.status_code == 200
-    assert seen["older_than_days"] == 30
-
-
-@pytest.mark.parametrize("bad", [-1, "soon"])
-def test_dashboard_clear_history_rejects_a_bad_age_floor(app, monkeypatch, bad):
-    """A nonsense horizon is a 400, never a silent clear-everything."""
-
-    async def fake_clear(_url, _token, _older_than_days):  # pragma: no cover - must not run
-        raise AssertionError("worker should not be called")
-
-    monkeypatch.setattr(server, "clear_worker_history", fake_clear)
-    with TestClient(app) as client:
-        resp = client.post(
-            "/dashboard/clear-history",
-            json={"older_than_days": bad},
-            headers={"Authorization": "Bearer secret"},
-        )
-    assert resp.status_code == 400
-
-
-def test_dashboard_clear_history_worker_auth_failure_returns_502(app, monkeypatch):
-    from osprey.dispatch.worker_client import WorkerAuthRejectedError
-
-    async def fake_clear(_url, _token, _older_than_days):
-        raise WorkerAuthRejectedError("nope")
-
-    monkeypatch.setattr(server, "clear_worker_history", fake_clear)
-    with TestClient(app) as client:
-        resp = client.post("/dashboard/clear-history", headers={"Authorization": "Bearer secret"})
-    assert resp.status_code == 502
+    assert resp.status_code in (404, 405)
 
 
 def test_dashboard_cancel_worker_auth_failure_returns_502(app, monkeypatch):
@@ -976,20 +934,6 @@ def test_dashboard_cancel_without_an_owner_logs_no_owner(app, monkeypatch, caplo
         resp = client.post("/dashboard/cancel/run-1", headers={"Authorization": "Bearer secret"})
     assert resp.status_code == 200
     assert len(_owner_lines(caplog, "asked by no owner")) == 1
-
-
-def test_dashboard_clear_history_logs_the_owner_it_was_given(app, monkeypatch, caplog):
-    async def fake_clear(_url, _token, older_than_days):
-        return {"cleared": 4, "records_deleted": 4, "older_than_days": older_than_days}
-
-    monkeypatch.setattr(server, "clear_worker_history", fake_clear)
-    with caplog.at_level(logging.INFO, logger=_SERVER_LOGGER), TestClient(app) as client:
-        resp = client.post(
-            "/dashboard/clear-history",
-            headers={"Authorization": "Bearer secret", OWNER_HEADER: "alice"},
-        )
-    assert resp.status_code == 200
-    assert len(_owner_lines(caplog, "cleared by alice")) == 1
 
 
 def test_trigger_status_change_logs_the_owner_it_was_given(app, caplog):

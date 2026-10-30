@@ -124,8 +124,8 @@ def strip_claude_code_env(env: dict[str, str]) -> dict[str, str]:
     Strips every key beginning with ``CLAUDECODE`` or ``CLAUDE_CODE_`` (nesting
     detection, entrypoint tracking, beta flags) so a nested launch does not
     inherit the parent session's markers. The telemetry switches (every
-    ``CLAUDE_CODE_*`` member of ``TELEMETRY_ENV_VARS``: the master switch, the
-    tracing switch and the content limit) are preserved so telemetry survives on
+    ``CLAUDE_CODE_*`` member of ``TELEMETRY_ENV_VARS``: the master switch and
+    the tracing switch) are preserved so telemetry survives on
     both the operator and PTY paths. ``OTEL_*`` keys do not carry the stripped
     prefix and therefore pass through untouched.
 

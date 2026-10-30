@@ -14,7 +14,6 @@ from osprey.interfaces.web_terminal.claude_code_files import (
 )
 from osprey.interfaces.web_terminal.ownership import reserved_write_channel
 from osprey.interfaces.web_terminal.routes.config import router as config_router
-from tests._audit_ledger import ledger_records
 
 
 @pytest.fixture
@@ -56,9 +55,10 @@ def service(project_dir):
     return ClaudeCodeFileService(project_dir)
 
 
-def _audit_records(zone):
-    """Every ``claude_setup`` record written under *zone*, oldest first."""
-    return ledger_records(zone, SURFACE_CLAUDE_SETUP)
+def _audit_records(recorded_entries):
+    """Every ``claude_setup`` audit body the test recorded, oldest first."""
+    entries = sorted(recorded_entries("audit"), key=lambda entry: entry.ts)
+    return [dict(e.body) for e in entries if e.body["surface"] == SURFACE_CLAUDE_SETUP]
 
 
 class TestListFiles:
@@ -430,7 +430,7 @@ class TestSymlinkedReservedTargets:
         assert target.read_bytes() == before
 
     def test_write_file_refusal_through_a_link_is_audited(
-        self, service, project_dir, audit_zone_path
+        self, service, project_dir, recorded_entries
     ):
         link_rel = ".claude/agents/x.md"
         (project_dir / link_rel).symlink_to(project_dir / ".claude" / "rules" / "safety.md")
@@ -438,7 +438,7 @@ class TestSymlinkedReservedTargets:
         with pytest.raises(ProtectedWriteError):
             service.write_file(link_rel, "PWNED")
 
-        records = _audit_records(audit_zone_path)
+        records = _audit_records(recorded_entries)
         assert len(records) == 1
         record = records[0]
         assert record["surface"] == "claude_setup"
