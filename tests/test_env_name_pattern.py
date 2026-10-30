@@ -75,7 +75,14 @@ def test_the_connectors_package_holds_the_only_whole_name_pattern():
 
     hits = []
     for path in modules:
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        source = path.read_text(encoding="utf-8")
+        # A ``re.compile`` call spells the attribute name in the source (an
+        # identifier, unlike a string, has no escape sequence), so a module that
+        # never spells it holds no hit. Parsing is what the walk spends its time
+        # on, and most modules compile nothing.
+        if "compile" not in source:
+            continue
+        tree = ast.parse(source, filename=str(path))
         for node in ast.walk(tree):
             if (
                 isinstance(node, ast.Call)
