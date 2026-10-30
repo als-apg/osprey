@@ -7,7 +7,8 @@
  * Covers the receive pipeline (origin check, source→panel-id resolution
  * against live iframes, vocabulary sanitization), the per-panel contribution
  * cache vs. host-registration ordering, rendering (textContent only — no
- * markup injection), and the action round-trip back to the iframe.
+ * markup injection), the action round-trip back to the iframe, and the
+ * hub's own contributions (contributeLocal), whose actions stay in the hub.
  *
  * The module keeps page-lifetime state (wired listener, contribution cache),
  * matching production where it lives as long as the shell does — tests use
@@ -29,10 +30,12 @@ beforeAll(() => {
 });
 
 import {
+  contributeLocal,
   initHeaderContrib,
   registerContribHost,
   unregisterContribHost,
 } from '../../../../src/osprey/interfaces/web_terminal/static/js/tile-header-contrib.js';
+import { closeMenu } from '../../../../src/osprey/interfaces/web_terminal/static/js/tile-header-items.js';
 
 /** Monotonic id source so each test gets an isolated panel id. */
 let seq = 0;
@@ -78,8 +81,31 @@ initHeaderContrib();
 initHeaderContrib(); // idempotent — a second call must not double-listen
 
 afterEach(() => {
+  closeMenu();
   document.body.replaceChildren();
 });
+
+/**
+ * The Artifacts tile's header as the hub's sidebar sends it, with an
+ * artifact selected (contract C3, in its order).
+ */
+const ARTIFACT_HEADER = [
+  { kind: 'crumb', id: 'crumb', root: 'Artifacts', leaf: 'SR lattice betatron tunes' },
+  { kind: 'button', id: 'prev', icon: 'chevron-left', title: 'Previous artifact', priority: 9 },
+  { kind: 'text', id: 'pager', text: '3 of 12', priority: 9 },
+  { kind: 'button', id: 'next', icon: 'chevron-right', title: 'Next artifact', priority: 9 },
+  { kind: 'sep', id: 'sep' },
+  {
+    kind: 'button',
+    id: 'open',
+    icon: 'maximize',
+    label: 'Open full size',
+    title: 'Open full size',
+    tone: 'accent',
+    priority: 5,
+  },
+  { kind: 'button', id: 'save', icon: 'save', label: 'Save', title: 'Save', priority: 5 },
+];
 
 describe('receive pipeline', () => {
   test('renders a contribution from a matching iframe into a registered host', () => {
@@ -305,6 +331,112 @@ describe('action round-trip', () => {
   });
 });
 
+describe('local contribution (the hub owns the header)', () => {
+  test('renders into a registered host and replaces the earlier items', () => {
+    const panelId = freshPanelId();
+    addPanelIframe(panelId);
+    const host = document.createElement('div');
+    registerContribHost(panelId, host);
+
+    contributeLocal(
+      panelId,
+      [
+        { kind: 'button', id: 'a', label: 'A' },
+        { kind: 'button', id: 'b', label: 'B' },
+      ],
+      vi.fn()
+    );
+    expect([...host.querySelectorAll('.contrib-btn')].map((b) => b.textContent)).toEqual([
+      'A',
+      'B',
+    ]);
+
+    contributeLocal(panelId, [{ kind: 'text', id: 'name', text: 'only' }], vi.fn());
+    expect(host.children.length).toBe(1);
+    expect(host.querySelector('.contrib-text')?.textContent).toBe('only');
+  });
+
+  test('waits for a host that registers later', () => {
+    const panelId = freshPanelId();
+    contributeLocal(panelId, [{ kind: 'text', id: 'name', text: 'early' }], vi.fn());
+
+    const host = document.createElement('div');
+    registerContribHost(panelId, host);
+
+    expect(host.querySelector('.contrib-text')?.textContent).toBe('early');
+  });
+
+  test('runs the same sanitizer as the message path', () => {
+    const panelId = freshPanelId();
+    const host = document.createElement('div');
+    registerContribHost(panelId, host);
+
+    contributeLocal(
+      panelId,
+      [
+        { kind: 'chip', id: 'x', text: 'unknown kind' },
+        { kind: 'text', id: 't', text: '<img src=x onerror=alert(1)>' },
+      ],
+      vi.fn()
+    );
+
+    expect(host.children.length).toBe(1);
+    expect(host.querySelector('img')).toBeNull();
+  });
+
+  test('button, nav and menu actions reach the local dispatch, never an iframe', () => {
+    const panelId = freshPanelId();
+    const { contentWindow } = addPanelIframe(panelId);
+    const host = document.createElement('div');
+    document.body.appendChild(host); // the menu popover positions off a real button
+    registerContribHost(panelId, host);
+    const dispatch = vi.fn();
+
+    contributeLocal(
+      panelId,
+      [
+        { kind: 'nav', id: 'view', items: [{ id: 'browse', label: 'Browse' }] },
+        { kind: 'button', id: 'prev', icon: 'chevron-left', title: 'Previous artifact' },
+        { kind: 'menu', id: 'more', items: [{ id: 'print', label: 'Print' }] },
+      ],
+      dispatch
+    );
+
+    /** @type {HTMLButtonElement} */ (host.querySelector('.osprey-icon-btn')).click();
+    expect(dispatch).toHaveBeenLastCalledWith('prev');
+
+    /** @type {HTMLButtonElement} */ (host.querySelector('.contrib-nav-link')).click();
+    expect(dispatch).toHaveBeenLastCalledWith('view', 'browse');
+
+    const menuBtn = /** @type {HTMLElement} */ (host.querySelector('.contrib-menu-btn'));
+    menuBtn.dispatchEvent(new Event('click', { bubbles: true }));
+    const row = /** @type {HTMLElement} */ (document.querySelector('.contrib-menu-item'));
+    row.dispatchEvent(new Event('click', { bubbles: true }));
+    expect(dispatch).toHaveBeenLastCalledWith('more', 'print');
+
+    expect(dispatch).toHaveBeenCalledTimes(3);
+    expect(contentWindow.postMessage).not.toHaveBeenCalled();
+  });
+
+  test("ignores the panel's own messages while local; other panels are unaffected", () => {
+    const localPanel = freshPanelId();
+    const otherPanel = freshPanelId();
+    const { contentWindow: localWindow } = addPanelIframe(localPanel);
+    const { contentWindow: otherWindow } = addPanelIframe(otherPanel);
+    const localHost = document.createElement('div');
+    const otherHost = document.createElement('div');
+    registerContribHost(localPanel, localHost);
+    registerContribHost(otherPanel, otherHost);
+
+    contributeLocal(localPanel, [{ kind: 'text', id: 'name', text: 'from the hub' }], vi.fn());
+    deliverContribution([{ kind: 'text', id: 'name', text: 'from the panel' }], localWindow);
+    deliverContribution([{ kind: 'text', id: 'name', text: 'other panel' }], otherWindow);
+
+    expect(localHost.querySelector('.contrib-text')?.textContent).toBe('from the hub');
+    expect(otherHost.querySelector('.contrib-text')?.textContent).toBe('other panel');
+  });
+});
+
 describe('overflow ladder', () => {
   /**
    * happy-dom does no layout, so crowding is mocked: clientWidth is fixed and
@@ -326,6 +458,8 @@ describe('overflow ladder', () => {
           else if (el.classList.contains('contrib-search')) w += 92;
           else if (el.classList.contains('contrib-overflow-btn')) w += 24;
           else if (el.classList.contains('contrib-text')) w += 40;
+          else if (el.classList.contains('osprey-crumb')) w += 60;
+          else if (el.classList.contains('osprey-head-sep')) w += 10;
           else w += 80;
         }
         return w;
@@ -479,6 +613,63 @@ describe('overflow ladder', () => {
     input.blur();
     input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
     expect(wrap.classList.contains('contrib-search-collapsed')).toBe(true);
+  });
+
+  test('crumb, sep and text never fold; buttons fold lowest priority first', () => {
+    const panelId = freshPanelId();
+    addPanelIframe(panelId);
+    const host = document.createElement('div');
+    registerContribHost(panelId, host);
+    // crumb(60) + pager(40) + sep(10) + 4 buttons(320) = 430; with the ⋯(24),
+    // folding open and save (priority 5) leaves 294, which fits in 300.
+    mockCrowding(host, 300);
+
+    contributeLocal(panelId, ARTIFACT_HEADER, vi.fn());
+
+    const hiddenKeys = () =>
+      [...host.querySelectorAll('.contrib-hidden')].map(
+        (el) => /** @type {HTMLElement} */ (el).dataset.contribKey
+      );
+    expect(hiddenKeys()).toEqual(['button:open', 'button:save']);
+
+    // Narrower still, every button folds and the rest holds its ground.
+    mockCrowding(host, 50);
+    contributeLocal(panelId, ARTIFACT_HEADER, vi.fn());
+
+    expect(hiddenKeys()).toEqual(['button:prev', 'button:next', 'button:open', 'button:save']);
+    expect(host.querySelector('.osprey-crumb')?.classList.contains('contrib-hidden')).toBe(false);
+    expect(host.querySelector('.osprey-head-sep')?.classList.contains('contrib-hidden')).toBe(
+      false
+    );
+    expect(host.querySelector('.contrib-text')?.classList.contains('contrib-hidden')).toBe(false);
+  });
+
+  test('a folded hub-contributed button dispatches locally from the ⋯ menu', () => {
+    const panelId = freshPanelId();
+    const { contentWindow } = addPanelIframe(panelId);
+    const host = document.createElement('div');
+    document.body.appendChild(host); // popover positions off a real element
+    registerContribHost(panelId, host);
+    mockCrowding(host, 50);
+    const dispatch = vi.fn();
+
+    contributeLocal(panelId, ARTIFACT_HEADER, dispatch);
+
+    const more = /** @type {HTMLElement} */ (host.querySelector('.contrib-overflow-btn'));
+    more.dispatchEvent(new Event('click', { bubbles: true }));
+    const rows = [...document.querySelectorAll('.contrib-menu-item')];
+    // Rows in fold order; an icon-only button's row reads its title.
+    expect(rows.map((r) => r.textContent)).toEqual([
+      'Open full size',
+      'Save',
+      'Previous artifact',
+      'Next artifact',
+    ]);
+
+    rows[2].dispatchEvent(new Event('click', { bubbles: true }));
+    expect(dispatch).toHaveBeenCalledWith('prev');
+    expect(contentWindow.postMessage).not.toHaveBeenCalled();
+    expect(document.querySelector('.contrib-menu-popover')).toBeNull();
   });
 });
 

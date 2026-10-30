@@ -13,7 +13,7 @@ import logging
 import os
 import threading
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -50,7 +50,8 @@ class _IndexFileHandler(FileSystemEventHandler):
                 - ``id_attr``: Attribute name for the entry ID (e.g. ``"id"``)
                 - ``event_type``: SSE event type for new entries (e.g. ``"context"``)
                 - ``delete_type``: SSE event type for deleted entries
-                - ``to_dict``: Whether entries have a ``.to_dict()`` method
+                - ``payload``: Callable turning an entry into the dict of
+                  fields its SSE event carries after ``type``
             broadcaster: ``_SSEBroadcaster`` instance with ``.broadcast(data)``
         """
         self._index_configs = index_configs
@@ -236,7 +237,7 @@ class _IndexFileHandler(FileSystemEventHandler):
                 self._broadcaster.broadcast(
                     {
                         "type": event_type,
-                        **entry.to_dict(),
+                        **cfg["payload"](entry),
                     }
                 )
 
@@ -262,6 +263,7 @@ class StoreIndexWatcher:
         broadcaster: Any,
         artifact_store: Any,
         *,
+        payload: Callable[[Any], dict[str, Any]],
         observer_factory: ObserverFactory = Observer,
     ) -> None:
         """
@@ -271,6 +273,11 @@ class StoreIndexWatcher:
             artifact_store: Store whose index this watcher reloads.
             observer_factory: Builds the watchdog observer — see
                 :data:`ObserverFactory`.
+            payload: Turns an added entry into the fields its SSE frame carries
+                after ``type``. The gallery passes the same function its
+                same-process frames use, so an entry another process saved
+                reaches the browser with the same fields, ``run_record``
+                included, as one this process saved.
         """
         self._broadcaster = broadcaster
         self._observer_factory = observer_factory
@@ -284,6 +291,7 @@ class StoreIndexWatcher:
                 "id_attr": "id",
                 "event_type": "artifact",
                 "delete_type": "artifact_deleted",
+                "payload": payload,
             },
         }
 
