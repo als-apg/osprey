@@ -5,8 +5,10 @@
  *
  * A click on a panel link in an agent answer reaches `navigateAndActivatePanel`
  * with the panel id and the linked URL, fragment included; whether that panel
- * is hosted is read from `getPanelStandaloneUrl` at click time. The routing
- * itself is pinned in agent-links.test.mjs; this file pins the wiring.
+ * is hosted is read from `getPanelStandaloneUrl` at click time. A loopback link
+ * to a panel backend's port, as `/api/panels`' `loopback_ports` names it, opens
+ * that panel too. The routing itself is pinned in agent-links.test.mjs; this
+ * file pins the wiring.
  *
  * Seams as in app-paste-bridge.test.mjs: terminal.js is mocked whole and app.js
  * is imported once, statically, with `initAgentLinks` exported so it can be
@@ -25,6 +27,13 @@ vi.hoisted(() => {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (/** @type {string} */ url) => {
+      if (url === '/api/panels') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ loopback_ports: { artifacts: 10200 } }),
+        };
+      }
       if (url !== '/api/bar-items') throw new Error(`unstubbed fetch: ${url}`);
       return {
         ok: true,
@@ -77,7 +86,8 @@ vi.mock(
     return {
       ...actual,
       navigateAndActivatePanel: panels.navigate,
-      getPanelStandaloneUrl: (/** @type {string} */ id) => (id === 'okf' ? '/panel/okf' : null),
+      getPanelStandaloneUrl: (/** @type {string} */ id) =>
+        id === 'okf' || id === 'artifacts' ? `/panel/${id}` : null,
     };
   }
 );
@@ -97,5 +107,22 @@ describe('initAgentLinks', () => {
 
     expect(panels.navigate).toHaveBeenCalledTimes(1);
     expect(panels.navigate).toHaveBeenCalledWith('okf', '/panel/okf#devices/bpm');
+  });
+
+  test("the gallery's loopback link opens the artifacts panel, not a new tab", async () => {
+    document.body.innerHTML =
+      '<div id="operator-container"><div class="op-entry assistant">' +
+      '<div class="osprey-md-rendered"><a href="http://127.0.0.1:10200#focus">gallery</a></div>' +
+      '</div></div>';
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    panels.navigate.mockClear();
+    await initAgentLinks();
+
+    const a = /** @type {HTMLAnchorElement} */ (document.querySelector('a'));
+    a.click();
+
+    expect(panels.navigate).toHaveBeenCalledWith('artifacts', '');
+    expect(open).not.toHaveBeenCalled();
+    open.mockRestore();
   });
 });

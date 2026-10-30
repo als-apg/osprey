@@ -7,6 +7,7 @@ then submits as an ARIEL draft for human review in the ARIEL web form.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -88,6 +89,10 @@ class ComposedContext:
     artifacts_meta: list[dict[str, Any]]  # multi-artifact support
     audit_trail: list[dict[str, Any]]
     chat_history: list[dict[str, Any]]
+    #: How much of the session the agent record answered: ``complete``,
+    #: ``incomplete`` or ``unavailable``; ``""`` when the session was not read.
+    record: str = ""
+    record_reason: str = ""
 
 
 async def gather_context(
@@ -98,11 +103,12 @@ async def gather_context(
     artifact_ids: list[str] | None = None,
     include_session_log: bool = True,
 ) -> ComposedContext:
-    """Gather metadata from artifact store and the session transcript.
+    """Gather metadata from the artifact store and the session's agent record.
 
     If *artifact_ids* is provided, those artifacts are loaded (multi-artifact
     mode) and *artifact_id* is ignored.  If *include_session_log* is False
-    the audit trail is skipped.
+    the session is not read at all. The session is the one this process
+    serves, else the newest transcript of *project_dir*.
     """
     artifact_meta: dict[str, Any] | None = None
     artifacts_meta: list[dict[str, Any]] = []
@@ -123,25 +129,35 @@ async def gather_context(
         artifact_meta = entry.to_dict()
         artifacts_meta = [artifact_meta]
 
-    # Read audit trail and chat history from transcript
+    # Read the session's audit trail and conversation from the agent record
     audit_trail: list[dict[str, Any]] = []
     chat_history: list[dict[str, Any]] = []
+    record = ""
+    record_reason = ""
     if include_session_log:
         try:
-            from osprey.mcp_server.workspace.transcript_reader import TranscriptReader
+            from osprey.mcp_server import session as session_record
 
-            reader = TranscriptReader(project_dir)
-            events = reader.read_current_session()
-            audit_trail = events[-20:] if len(events) > 20 else events
-            chat_history = reader.read_current_chat_history()
-        except Exception:
-            logger.warning("Could not read session transcript", exc_info=True)
+            session_id = session_record.current_session_id(project_dir)
+            if session_id:
+                read = await asyncio.to_thread(session_record.read_timeline, session_id)
+                events = session_record.session_events(read.nodes, session_id)
+                audit_trail = events[-20:]
+                chat_history = session_record.chat_history(read.nodes)
+                record, record_reason = read.record, read.reason
+            else:
+                record = session_record.RECORD_COMPLETE
+        except Exception as exc:
+            logger.warning("Could not read the session from the agent record", exc_info=True)
+            record, record_reason = "unavailable", str(exc)
 
     return ComposedContext(
         artifact_meta=artifact_meta,
         artifacts_meta=artifacts_meta,
         audit_trail=audit_trail,
         chat_history=chat_history,
+        record=record,
+        record_reason=record_reason,
     )
 
 
@@ -285,6 +301,13 @@ def _build_user_prompt(ctx: ComposedContext) -> str:
     elif ctx.artifact_meta:
         sections.append(_format_artifact_section("Artifact", ctx.artifact_meta))
 
+    if ctx.record in ("incomplete", "unavailable"):
+        sections.append(
+            f"## Session record\nThe session record is {ctx.record}"
+            + (f" ({ctx.record_reason})" if ctx.record_reason else "")
+            + "; the conversation and tool calls below may be missing steps."
+        )
+
     if ctx.chat_history:
         chat_lines = []
         for turn in ctx.chat_history[-30:]:
@@ -319,8 +342,7 @@ def _clean_llm_json(text: str) -> str:
         text = text[7:]
     elif text.startswith("```"):
         text = text[3:]
-    if text.endswith("```"):
-        text = text[:-3]
+    text = text.removesuffix("```")
     text = text.strip()
 
     if not text.startswith("{") and not text.startswith("["):

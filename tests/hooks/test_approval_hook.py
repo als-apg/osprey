@@ -211,7 +211,6 @@ def test_a_non_bool_switch_deny_files_a_refused_record(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
     """The deny is a refusal on the audit trail — `refused`, reason `approval_config_invalid`."""
-    from pathlib import Path
 
     from osprey_connectors_tests._harness import pin_identity, state_dir_under
 
@@ -230,12 +229,9 @@ def test_a_non_bool_switch_deny_files_a_refused_record(
     )
 
     assert _deny_reason(result) == _switch_sentence("false")
-    records = [
-        json.loads(line)
-        for path in Path(tmp_path).rglob("hook_approval.jsonl")
-        for line in path.read_text().splitlines()
-        if line.strip()
-    ]
+    from tests.hooks.conftest import hook_audit_records
+
+    records = hook_audit_records(tmp_path, "hook_approval")
     assert len(records) == 1
     assert records[0]["decision"] == "refused"
     assert records[0]["reason"] == "approval_config_invalid"
@@ -1979,8 +1975,6 @@ def test_raw_client_write_deny_files_a_refused_record(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
     """The deny is a refusal on the audit trail — `refused`, reason `raw_client_write`."""
-    import json
-    from pathlib import Path
 
     from osprey_connectors_tests._harness import pin_identity, state_dir_under
 
@@ -1992,12 +1986,9 @@ def test_raw_client_write_deny_files_a_refused_record(
     result = _run_execute(hook_runner, make_config, tmp_path, "open_door()\n")
 
     assert _decision(result) == "deny"
-    records = [
-        json.loads(line)
-        for path in Path(tmp_path).rglob("hook_approval.jsonl")
-        for line in path.read_text().splitlines()
-        if line.strip()
-    ]
+    from tests.hooks.conftest import hook_audit_records
+
+    records = hook_audit_records(tmp_path, "hook_approval")
     assert len(records) == 1
     assert records[0]["decision"] == "refused"
     assert records[0]["reason"] == "raw_client_write"

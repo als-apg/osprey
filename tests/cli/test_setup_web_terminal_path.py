@@ -86,7 +86,7 @@ DEMO_LOGINS = ("alice", "bob", "carol")
 
 #: The facility's own roster, which replaces the demo logins.
 FACILITY_ROSTER = [
-    {"name": "operator", "index": 0, "tier": "readonly", "display_name": "Control Room"},
+    {"name": "controlroom", "index": 0, "tier": "readonly", "display_name": "Control Room"},
 ]
 
 #: Top-level panels the host must offer, once the recipe has pruned. It is

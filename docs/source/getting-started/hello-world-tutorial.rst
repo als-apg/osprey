@@ -374,46 +374,48 @@ Then ``osprey build`` to carry the change into the render, and try writes on
 either side of the new bounds. This edit-rebuild-observe loop — in ``data/``
 or in ``profile.yml`` — is the same loop every real deployment is grown with.
 
-Step 10: First Containers — Deploy the Telemetry Store
--------------------------------------------------------
+Step 10: Read What the Agent Recorded
+-------------------------------------
 
-Everything so far ran container-free. The preset declares exactly two
-containerized services, the telemetry store and the gateway that feeds it, and
-this is the deployment lesson:
+Every prompt, answer, tool call and approval decision of your session went into
+the **agent record**, which ``osprey web`` runs as a local process beside the
+agent. The preset keeps it on the embedded backend, with no container:
+
+.. code-block:: yaml
+
+   agent_record:
+     backend: embedded
+
+While ``osprey web`` runs, the record answers its read API on
+http://127.0.0.1:10053 (``deployment.port_base`` + 53). ``osprey build`` minted
+an operator login for it into ``.env.agent-record.login.operator`` (mode 0600).
+List your sessions, then the approval decisions the safety chain made:
 
 .. code-block:: bash
 
-   osprey up -d
+   LOGIN="$(sed -n 's/^OSPREY_AGENT_RECORD_LOGIN=//p' .env.agent-record.login.operator)"
+   curl -sS --user "$LOGIN" "http://127.0.0.1:10053/v1/read/list_sessions?limit=5"
+   curl -sS --user "$LOGIN" "http://127.0.0.1:10053/v1/read/entries?kind=decision&limit=10"
 
-This needs a container runtime (Docker or Podman). It starts the store, bound to
-localhost, and the gateway the agent sends its logs and metrics to; the gateway
-also reads the audit ledger under ``var/audit/`` into the store. The preset names
-one reader, ``operator``: ``osprey up`` writes its key to
-``.env.telemetry-reader.operator`` and prints that file's path and the store's
-query page, http://127.0.0.1:10804/play?user=operator
-(``deployment.port_base`` + 804), never the key itself.
-
-Run ``osprey web``, ask the agent something, then ask the store what it
-recorded. This query lists the newest events and ledger records of the last
-hour:
+The record keeps an entry for 14 days. Each UTC day that has closed is also
+exported, whole, as ``var/archive/<day>/agent_record/entries.parquet`` the next
+time the record runs: the lasting copy, which outlives that window. This query
+counts what each identity wrote, by kind, across every exported day:
 
 .. literalinclude:: hello-world-tutorial.sql
-   :language: postgresql
+   :language: sql
 
-Save it as ``hello-world-tutorial.sql`` in the repo root and send it as
-``operator``:
+Save it as ``hello-world-tutorial.sql`` in the repo root and run it with DuckDB,
+which OSPREY installs:
 
 .. code-block:: bash
 
-   KEY="$(sed -n 's/^password=//p' .env.telemetry-reader.operator)"
-   curl -sS --user "operator:$KEY" --data-binary @hello-world-tutorial.sql \
-     "http://127.0.0.1:10804/?http_wait_end_of_query=1"
+   python -c "import duckdb; duckdb.sql(open('hello-world-tutorial.sql').read()).show()"
 
-Each row names its ``source`` table, the time, the ``User`` it was recorded
-under and the session. Or paste the query into the query page with the key.
-See :doc:`/how-to/health-and-monitoring/monitor-agent` for what the store
-holds and :doc:`/how-to/health-and-monitoring/read-the-record` for readers.
-Stop the stack with ``osprey down``; the agent itself keeps working without it.
+On the first day the archive is still empty, and DuckDB reports that no file
+matches. See :doc:`/how-to/health-and-monitoring/agent-record` for what the
+record and its archive hold. The control-assistant preset adds a history page in the browser,
+described in :doc:`/how-to/health-and-monitoring/read-the-record`.
 
 The commands you now know are the complete lifecycle, and they are the same
 for a production facility deployment: ``osprey init`` once, then edit →

@@ -66,9 +66,6 @@ check. What this module deliberately does not assert, and why:
 * ``display_results`` all-passing/warnings/errors/verbose calls — rendering belongs
   to ``osprey.health.render`` (owned by the render tests); the CLI wires it and we
   assert the stdout/stderr split, not the glyph layout.
-* ``telemetry_store`` / ``telemetry_gateway`` probe and counter rules — owned by
-  the ``core/telemetry_store`` and ``core/telemetry_gateway`` tests; here we pin
-  only that ``--category`` accepts both names.
 * Exit-code mapping is a property of ``CheckReport``, so it is pinned here by
   injecting a report at the ``_run_suite`` boundary rather than by patching any
   checker object.
@@ -87,7 +84,6 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from osprey.cli.health_cmd import health
-from osprey.health.core import CORE_CATEGORY_NAMES
 from osprey.health.models import CheckReport, CheckResult, Status
 
 # --------------------------------------------------------------------------- #
@@ -310,26 +306,6 @@ class TestCategorySelection:
         )
         assert result.exit_code == 2
         assert "Unknown health categor" in result.output
-
-    def test_both_telemetry_categories_are_listed(self, runner, valid_project):
-        # A config that deploys neither: each name is accepted and contributes no rows.
-        with _no_container_runtime():
-            result = runner.invoke(
-                health,
-                [
-                    "--project",
-                    str(valid_project),
-                    "--json",
-                    "--category",
-                    "telemetry_store",
-                    "--category",
-                    "telemetry_gateway",
-                ],
-            )
-        assert "Unknown health categor" not in result.output
-        payload = json.loads(result.stdout)
-        assert [r for r in payload["results"] if r["category"].startswith("telemetry_")] == []
-        assert {"telemetry_store", "telemetry_gateway"} <= set(CORE_CATEGORY_NAMES)
 
     def test_unknown_category_with_missing_config_renders_no_usage_error(self, runner, tmp_path):
         # No config.yml: category names cannot be validated, so a non-core name

@@ -86,7 +86,7 @@ that is ``tests/deployment/``'s subject.
 
 Ports, names and 5064
 ---------------------
-Each container binds an ephemeral Channel Access port and an ephemeral
+Each container binds a reserved Channel Access port and a reserved
 pvAccess port and publishes both unchanged: a search reply carries the server's
 own port, so a remap would hand every client an address nothing answers on. That port also *names* the container, for
 the reason ``test_target_switch.py`` gives — a fixed name is mutually
@@ -124,7 +124,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.interfaces._serving import free_port
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.connector_host_manager import (
     ConnectorHostManager,
@@ -144,13 +143,14 @@ from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors.types import LIVE_STANDIN, TARGET_LIVE, TARGET_STANDIN, TARGET_VA
 from osprey_connectors.write_target import KIND_BANNERS
 from osprey_connectors_tests._harness import write_control_context
+from osprey_connectors_tests._harness._ports import reserved_ports
 from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 REPO_PATHS = (str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src"))
 
-#: Container-name prefixes; ``_serving`` appends the run's own ephemeral port.
+#: Container-name prefixes; ``_serving`` appends the run's own reserved port.
 #: Named for the *target* each instance backs, since that is what the deployment
 #: below calls them and what every assertion is phrased in.
 CONTAINER_SANDBOX = "osprey-va-e2e-standin-va"
@@ -274,25 +274,24 @@ def _serving(prefix: str, *, instance: str, log_dir: Path | None = None):
     *log_dir* given it is mounted at ``/var/simulator``, where the container
     appends its model logs.
     """
-    port = free_port()
-    pva_port = free_port()
-    logs = () if log_dir is None else ("-v", f"{log_dir}:/var/simulator")
-    # The port is this run's alone, so the name can be nothing a concurrent run
-    # is using -- which is the point of the suffix.
-    with e2e_conftest.serving_container(
-        f"{prefix}-{port}",
-        port,
-        "-e",
-        f"EPICS_PVAS_SERVER_PORT={pva_port}",
-        "-e",
-        f"VA_INSTANCE={instance}",
-        "-p",
-        f"127.0.0.1:{pva_port}:{pva_port}/tcp",
-        *e2e_conftest.demo_data_run_args(),
-        *logs,
-        boot_timeout=BOOT_TIMEOUT_S,
-    ):
-        yield Served(ca=port, pva=pva_port)
+    with reserved_ports(2) as (port, pva_port):
+        logs = () if log_dir is None else ("-v", f"{log_dir}:/var/simulator")
+        # The port is this run's alone, so the name can be nothing a concurrent run
+        # is using -- which is the point of the suffix.
+        with e2e_conftest.serving_container(
+            f"{prefix}-{port}",
+            port,
+            "-e",
+            f"EPICS_PVAS_SERVER_PORT={pva_port}",
+            "-e",
+            f"VA_INSTANCE={instance}",
+            "-p",
+            f"127.0.0.1:{pva_port}:{pva_port}/tcp",
+            *e2e_conftest.demo_data_run_args(),
+            *logs,
+            boot_timeout=BOOT_TIMEOUT_S,
+        ):
+            yield Served(ca=port, pva=pva_port)
 
 
 @dataclass(frozen=True)

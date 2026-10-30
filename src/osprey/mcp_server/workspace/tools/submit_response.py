@@ -126,7 +126,7 @@ async def submit_response(
         category = data_type
 
         store = get_artifact_store()
-        tool_name = agent if agent else "submit_response"
+        tool_name = agent or "submit_response"
         artifact = store.save_file(
             file_content=content.encode(),
             filename=f"{tool_name}.md",

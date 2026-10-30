@@ -121,10 +121,19 @@
   margin: 1em 0;
 }
 
-.osprey-md-rendered table {
-  width: 100%;
-  border-collapse: collapse;
+/* A table sits in a box that scrolls sideways: it keeps the width its cells
+   need, and only the box is held to the bubble. */
+.osprey-md-rendered .osprey-md-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
   margin: 0.8em 0;
+}
+
+.osprey-md-rendered table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  margin: 0;
   font-size: var(--text-base);
 }
 

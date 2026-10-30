@@ -7,7 +7,8 @@ readwrite run with that verdict's phrase. These tests stage each term the
 verdict can refuse on (a read-only run, a tier that allows nothing, an unknown
 target or owner, an unreadable record, a switch that is off) and pin that the
 refusal speaks the verdict's own words, names no config key, and lands in the
-ledger as ``reason=posture`` with ``reason=<r> target=<t>`` detail.
+agent record as an ``executor`` audit entry with ``reason=posture`` and
+``reason=<r> target=<t>`` detail.
 """
 
 from __future__ import annotations
@@ -29,26 +30,11 @@ from osprey_connectors_tests._harness import (
     reset_verdict_state,
     write_control_context,
 )
-from tests._audit_ledger import ledger_records
 
 #: A tier that allows writes, on a deployment whose live machine is real.
 ARMED = {"type": "epics", "writes": "allowed"}
 
 SESSION_KEY = "11111111-2222-3333-4444-555555555555"
-
-
-@pytest.fixture(autouse=True)
-def _audit_zone(tmp_path, monkeypatch):
-    """Redirect the audit zone into ``tmp_path`` for every test in this file.
-
-    The clamp *records* its refusal, and ``writer.audit_dir`` resolves against
-    the real project root — so without this a plain ``pytest`` run appends
-    refusals that never happened to the deployment's own ledger.
-    """
-    from osprey.audit import writer
-
-    monkeypatch.setattr(writer, "audit_dir", lambda: tmp_path / "var" / "audit")
-    return tmp_path / "var" / "audit"
 
 
 @pytest.fixture
@@ -89,30 +75,31 @@ def _refusal(tool: str = "execute") -> dict:
     return envelope
 
 
-def _executor_records(audit_root) -> list[dict]:
-    """Every record on the executor surface, for the identity in force."""
+def _executor_records(recorded_entries) -> list[dict]:
+    """Every ``executor`` audit entry in the record, oldest first."""
     from osprey.audit.envelope import SURFACE_EXECUTOR
 
-    return ledger_records(audit_root, SURFACE_EXECUTOR)
+    entries = sorted(recorded_entries("audit"), key=lambda e: e.ts)
+    return [dict(e.body) for e in entries if e.body["surface"] == SURFACE_EXECUTOR]
 
 
 # -- allowed ----------------------------------------------------------------
 
 
-def test_a_switched_on_target_runs_and_records_nothing(deployment, _audit_zone):
+def test_a_switched_on_target_runs_and_records_nothing(deployment, recorded_entries):
     deployment.on("live", switch={"live": "on"})
 
     assert enforce_posture_clamp("readwrite", tool="execute") is None
-    assert _executor_records(_audit_zone) == []
+    assert _executor_records(recorded_entries) == []
 
 
-def test_a_readonly_run_is_never_asked_about(deployment, _audit_zone, monkeypatch):
+def test_a_readonly_run_is_never_asked_about(deployment, recorded_entries, monkeypatch):
     """Reads are unaffected whatever the verdict would say."""
     monkeypatch.setenv(posture_module.POSTURE_ENV_VAR, "readonly")
     deployment.section = {"type": "epics"}
 
     assert enforce_posture_clamp("readonly", tool="execute") is None
-    assert _executor_records(_audit_zone) == []
+    assert _executor_records(recorded_entries) == []
 
 
 @pytest.mark.parametrize("value", ["readwrite", "READONLY", "", "sandbox", "true"])
@@ -245,17 +232,17 @@ def test_a_verdict_that_raises_still_refuses(deployment, monkeypatch):
     assert _refusal()["details"]["reason"] == "record_unavailable"
 
 
-# -- the ledger --------------------------------------------------------------
+# -- the record --------------------------------------------------------------
 
 
 def test_the_refusal_files_reason_posture_with_the_verdicts_reason_and_target(
-    deployment, _audit_zone
+    deployment, recorded_entries
 ):
     deployment.on("live", switch={})
 
     _refusal()
 
-    record = _executor_records(_audit_zone)[-1]
+    record = _executor_records(recorded_entries)[-1]
     assert record["reason"] == "posture"
     assert record["posture"] == "sandbox"
     assert record["decision"] == "refused"
@@ -264,10 +251,10 @@ def test_the_refusal_files_reason_posture_with_the_verdicts_reason_and_target(
 
 
 @pytest.mark.usefixtures("deployment")
-def test_a_refusal_with_no_target_files_no_target(_audit_zone, monkeypatch):
+def test_a_refusal_with_no_target_files_no_target(recorded_entries, monkeypatch):
     from osprey.mcp_server.python_executor.tools import _execution_gates as gates
 
     monkeypatch.setattr(gates, "_launch_target", lambda _section: None)
 
     assert _refusal()["details"] == {"reason": "target_unknown", "target": None}
-    assert _executor_records(_audit_zone)[-1]["detail"] == "reason=target_unknown"
+    assert _executor_records(recorded_entries)[-1]["detail"] == "reason=target_unknown"

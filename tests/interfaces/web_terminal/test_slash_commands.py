@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -17,6 +18,9 @@ from osprey.interfaces.web_terminal.slash_commands import (
     SlashCommand,
     list_chat_slash_commands,
     list_project_slash_commands,
+    operator_skill,
+    strip_attachment_block,
+    unavailable_command,
 )
 
 
@@ -58,6 +62,135 @@ def test_skill_not_user_invocable_is_hidden(tmp_path: Path) -> None:
     _write(skills / "hidden" / "SKILL.md", "---\nuser-invocable: false\n---\nx\n")
     _write(skills / "manual" / "SKILL.md", "---\ndisable-model-invocation: true\n---\nx\n")
     assert _names(tmp_path) == ["manual"]
+
+
+def test_only_a_skill_the_model_may_run_is_agent_invocable(tmp_path: Path) -> None:
+    """A skill is the agent's to run too unless it disables model invocation; a command never."""
+    claude = tmp_path / ".claude"
+    _write(claude / "skills" / "diagnose" / "SKILL.md", "Body\n")
+    _write(
+        claude / "skills" / "report" / "SKILL.md", "---\ndisable-model-invocation: true\n---\nx\n"
+    )
+    _write(claude / "commands" / "check.md", "Check a PV\n")
+    invocable = {c.name: c.agent_invocable for c in list_chat_slash_commands(tmp_path)}
+    assert invocable == {
+        "check": False,
+        "clear": False,
+        "compact": False,
+        "diagnose": True,
+        "report": False,
+    }
+
+
+class TestOperatorSkill:
+    """Which prompts run a project skill by its slash command."""
+
+    @pytest.fixture
+    def project(self, tmp_path: Path) -> Path:
+        _write(tmp_path / ".claude" / "skills" / "diagnose" / "SKILL.md", "Body\n")
+        _write(tmp_path / ".claude" / "commands" / "check.md", "Check a PV\n")
+        return tmp_path
+
+    @pytest.mark.parametrize(
+        ("prompt", "expected"),
+        [
+            pytest.param("/diagnose", ("diagnose", ""), id="bare"),
+            pytest.param(
+                " /diagnose  SR03 orbit\nsince noon ",
+                ("diagnose", "SR03 orbit\nsince noon"),
+                id="with-args",
+            ),
+            pytest.param("/check SR:DCCT", None, id="a-command-file"),
+            pytest.param("/clear", None, id="a-builtin"),
+            pytest.param("/unknown", None, id="no-such-skill"),
+            pytest.param("please /diagnose", None, id="not-at-the-start"),
+            pytest.param("/diagnose/x", None, id="a-path"),
+        ],
+    )
+    def test_a_prompt_runs_a_skill_only_when_it_opens_with_its_name(
+        self, project: Path, prompt: str, expected: tuple[str, str] | None
+    ) -> None:
+        assert operator_skill(prompt, project) == expected
+
+    @pytest.mark.parametrize(
+        "typed",
+        [pytest.param("/diagnose SR03", id="with-args"), pytest.param("/diagnose", id="bare")],
+    )
+    def test_the_attached_files_block_is_not_part_of_the_args(
+        self, project: Path, typed: str
+    ) -> None:
+        """The composer appends the files a message carries; they are not the skill's args."""
+        prompt = typed + _BLOCK + "- /data/uploads/c/0123456789abcdef-plot.png (image/png, 12 KB)"
+        name, args = operator_skill(prompt, project) or ("", "")
+        assert name == "diagnose"
+        assert args == typed.removeprefix("/diagnose").strip()
+
+
+#: The head of the block the composer (``chat-attach.js``) appends to a sent message.
+_BLOCK = "\n\nAttached files (read them with the Read tool):\n"
+
+
+class TestStripAttachmentBlock:
+    """The text the operator typed, without the attached-files block the composer added."""
+
+    @pytest.mark.parametrize(
+        ("text", "typed"),
+        [
+            pytest.param(
+                "look" + _BLOCK + "- /u/a.png (image/png, 1 KB)\n- /u/b.txt (text/plain, 3 B)",
+                "look",
+                id="two-files",
+            ),
+            pytest.param("look at this", "look at this", id="no-block"),
+            pytest.param(
+                "look" + _BLOCK + "not a file line",
+                "look" + _BLOCK + "not a file line",
+                id="a-block-that-is-not-one",
+            ),
+        ],
+    )
+    def test_only_a_well_formed_block_is_removed(self, text: str, typed: str) -> None:
+        assert strip_attachment_block(text) == typed
+
+
+class TestUnavailableCommand:
+    """A prompt that asks for a slash command the chat does not offer is named here.
+
+    The chat offers what ``list_chat_slash_commands`` lists. Any other ``/name``
+    the CLI would run itself (``/login``, ``/model``, ``/config``), so the route
+    refuses it. Text that only starts with a slash, such as a path, is a prompt.
+    """
+
+    @pytest.fixture
+    def project(self, tmp_path: Path) -> Path:
+        _write(tmp_path / ".claude" / "skills" / "diagnose" / "SKILL.md", "Body\n")
+        _write(tmp_path / ".claude" / "commands" / "ops" / "check.md", "Check a PV\n")
+        return tmp_path
+
+    @pytest.mark.parametrize(
+        ("prompt", "expected"),
+        [
+            pytest.param("/login", "login", id="login"),
+            pytest.param("/logout", "logout", id="logout"),
+            pytest.param("/model opus", "model", id="model-with-args"),
+            pytest.param(" /config ", "config", id="config-padded"),
+            pytest.param("/cost" + _BLOCK + "- /u/a.png (image/png, 1 KB)", "cost", id="files"),
+            pytest.param("/clear", None, id="builtin-clear"),
+            pytest.param("/compact keep the BPM notes", None, id="builtin-compact"),
+            pytest.param("/diagnose SR03", None, id="project-skill"),
+            pytest.param("/ops:check SR:DCCT", None, id="project-command"),
+            pytest.param("/home/x/y is full", None, id="a-path"),
+            pytest.param("/home/kiliev/x", None, id="a-bare-path"),
+            pytest.param("/ alone", None, id="a-lone-slash"),
+            pytest.param("/10 of the BPMs", None, id="not-a-name"),
+            pytest.param("why does /login fail?", None, id="not-at-the-start"),
+            pytest.param("hello", None, id="plain-text"),
+        ],
+    )
+    def test_only_an_unlisted_command_name_is_unavailable(
+        self, project: Path, prompt: str, expected: str | None
+    ) -> None:
+        assert unavailable_command(prompt, project) == expected
 
 
 def test_command_named_by_relative_path(tmp_path: Path) -> None:
@@ -161,12 +294,14 @@ class TestCommandsRoute:
             "description": "Check a PV",
             "argument_hint": "<pv>",
             "kind": "command",
+            "agent_invocable": False,
         }
         assert commands[3] == {
             "name": "diagnose",
             "description": "Investigate failures",
             "argument_hint": "",
             "kind": "skill",
+            "agent_invocable": True,
         }
         assert [c["kind"] for c in commands[1:3]] == ["builtin", "builtin"]
 

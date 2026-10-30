@@ -1,20 +1,22 @@
 """MCP tool: session_log.
 
-On-demand diagnostic tool that reads Claude Code native transcripts to show
-what tool calls subagents made, what errors occurred, and what
+On-demand diagnostic tool that reads the current session from the agent
+record to show what tool calls subagents made, what errors occurred, and what
 intermediate decisions were taken.
 """
 
+import asyncio
 import json
 import logging
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from fastmcp.exceptions import ToolError
 
 from osprey.agent_runner.artifact_resolve import deployed_render_dir
+from osprey.mcp_server import session as session_record
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.workspace.server import mcp
-from osprey.mcp_server.workspace.transcript_reader import TranscriptReader
 
 logger = logging.getLogger("osprey.mcp_server.tools.session_log")
 
@@ -52,16 +54,15 @@ def _event_in_windows(event: dict, windows: list[tuple[str, str, str]]) -> bool:
     if not ts:
         return False
     for _aid, start_ts, stop_ts in windows:
-        if start_ts and ts >= start_ts:
-            if not stop_ts or ts <= stop_ts:
-                return True
+        if start_ts and ts >= start_ts and (not stop_ts or ts <= stop_ts):
+            return True
     return False
 
 
 def _parse_iso_timestamp(value: str) -> datetime | None:
     """Parse an ISO 8601 timestamp into an aware datetime, or None.
 
-    A value without an offset is read as UTC, the zone the transcript is stamped in.
+    A value without an offset is read as UTC, the zone the session is stamped in.
     """
     try:
         parsed = datetime.fromisoformat(value)
@@ -107,7 +108,7 @@ def _build_agent_summary(events: list[dict]) -> list[dict]:
                 agents[aid]["stop_time"] = ev.get("timestamp")
                 agents[aid]["agent_transcript_path"] = ev.get("agent_transcript_path")
 
-    # Count tools per agent using agent_id set by TranscriptReader.
+    # Count tools per agent using the agent_id each tool_call event carries.
     # Fallback: time-window matching for older data without agent_id on tool events.
     agent_windows: dict[str, tuple[str, str]] = {}
     for aid, info in agents.items():
@@ -128,10 +129,9 @@ def _build_agent_summary(events: list[dict]) -> list[dict]:
             ts = ev.get("timestamp", "")
             if ts:
                 for aid, (start_ts, stop_ts) in agent_windows.items():
-                    if start_ts and ts >= start_ts:
-                        if not stop_ts or ts <= stop_ts:
-                            matched_aid = aid
-                            break
+                    if start_ts and ts >= start_ts and (not stop_ts or ts <= stop_ts):
+                        matched_aid = aid
+                        break
 
         if matched_aid and matched_aid in agents:
             agents[matched_aid]["tool_count"] += 1
@@ -145,6 +145,30 @@ def _build_agent_summary(events: list[dict]) -> list[dict]:
         a.pop("agent_transcript_path", None)
     result.sort(key=lambda a: a.get("start_time") or "")
     return result
+
+
+@dataclass(frozen=True)
+class SessionEvents:
+    """The current session's events and how much of it the record answered."""
+
+    events: list[dict] = field(default_factory=list)
+    record: str = session_record.RECORD_COMPLETE
+    reason: str = ""
+    session_id: str | None = None
+
+
+def read_session_events(project_dir) -> SessionEvents:
+    """The current session's events, read from the agent record.
+
+    The session is :func:`~osprey.mcp_server.session.current_session_id` of
+    *project_dir*; with no session known the log is empty and complete.
+    """
+    session_id = session_record.current_session_id(project_dir)
+    if not session_id:
+        return SessionEvents()
+    read = session_record.read_timeline(session_id)
+    events = session_record.session_events(read.nodes, session_id)
+    return SessionEvents(events, read.record, read.reason, session_id)
 
 
 @mcp.tool()
@@ -161,7 +185,8 @@ async def session_log(
 ) -> str:
     """Query the session log for tool calls and subagent lifecycle events.
 
-    Reads Claude Code native transcripts — no separate audit hook needed.
+    Reads the current session from the agent record, waiting until every step
+    the session has taken so far is in it.
     Use this to debug subagent behavior — see what tools were called,
     what errors occurred, and what decisions were made.
 
@@ -175,7 +200,7 @@ async def session_log(
         errors_only: Only return tool_call events with is_error=true.
         event_type: Filter by event type: "tool_call", "agent_start", or "agent_stop".
         since: ISO 8601 lower bound, inclusive. An offset (`-07:00`, `Z`) is honoured; a bound
-            without one is read as UTC, the zone the transcript is stamped in.
+            without one is read as UTC, the zone the session is stamped in.
         before: ISO 8601 upper bound, inclusive. Offsets are read as for `since`.
         list_agents: Return agent summary instead of events. Shows each agent with
             tool_count and error_count. Ignores tool/errors_only/event_type/last_n.
@@ -189,19 +214,11 @@ async def session_log(
     Returns:
         JSON with events list and metadata, or agent summary when list_agents=True.
     """
-    # Read events from Claude Code native transcripts. TranscriptReader encodes
-    # this directory into the `~/.claude/projects/<encoded>/` name, so it must be
-    # the directory the AGENT runs in — the RENDER, beside the `.claude/` tree
-    # and `.mcp.json` it discovers there. That is what `deployed_render_dir`
-    # answers, and the gallery resolves the same thing the same way.
-    #
-    # Emphatically NOT derived from the agent-data root: walking up from it is
-    # off by a zone (the render is not the repo root) AND unstable, because
-    # `resolve_agent_data_root` is the session-ISOLATED alias —
-    # with OSPREY_SESSION_ID set the root becomes
-    # `<repo>/var/agent_data/sessions/<id>`, so any walk-up moves with it. A
-    # wrong directory here is silent: find_transcript_dir returns None and the
-    # tool reports an empty session log rather than an error.
+    # The session is the one the agent runs under: the harness's conversation
+    # id, else the newest transcript of the RENDER — the directory the agent
+    # runs in, beside the `.claude/` tree and `.mcp.json` it discovers there.
+    # Never derived from the agent-data root, which moves per session
+    # (OSPREY_SESSION_ID isolates it under `sessions/<id>`).
     try:
         project_dir = deployed_render_dir()
     except ToolError:
@@ -212,8 +229,14 @@ async def session_log(
             f"Could not resolve the agent's project directory: {e}",
         )
 
-    reader = TranscriptReader(project_dir)
-    all_events = reader.read_current_session()  # already sorted by timestamp
+    read = await asyncio.to_thread(read_session_events, project_dir)
+    if read.record == session_record.RECORD_UNAVAILABLE:
+        return make_error(
+            "record_unavailable",
+            f"The agent record is unavailable, so the session log cannot be read: {read.reason}",
+            ["Retry once the agent-record service is running again."],
+        )
+    all_events = read.events
 
     # Validate since/before format
     since_at = _parse_iso_timestamp(since) if since else None
@@ -256,6 +279,7 @@ async def session_log(
                 "agents": agents,
                 "total_agents": len(agents),
                 "filters_applied": filters_applied,
+                **session_record.record_fields(read.record, read.reason),
             },
             indent=2,
         )
@@ -326,7 +350,7 @@ async def session_log(
                 matched = False
                 ev_aid = ev.get("agent_id")
                 if ev_aid:
-                    # Direct agent_id match (TranscriptReader sets this)
+                    # Direct agent_id match
                     if agent_id:
                         matched = ev_aid == agent_id
                     elif target_agent_ids:
@@ -367,6 +391,7 @@ async def session_log(
             "total_events": total,
             "showing": len(showing),
             "filters_applied": filters_applied,
+            **session_record.record_fields(read.record, read.reason),
         },
         indent=2,
     )

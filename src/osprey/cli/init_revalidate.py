@@ -1322,8 +1322,7 @@ def _comment_text(lines: list[str]) -> str | None:
         stripped = line.strip()
         if stripped.startswith("#"):
             stripped = stripped[1:]
-            if stripped.startswith(" "):
-                stripped = stripped[1:]
+            stripped = stripped.removeprefix(" ")
         text.append(stripped)
     while text and not text[-1]:
         text.pop()

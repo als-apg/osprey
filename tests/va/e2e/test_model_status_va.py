@@ -29,15 +29,15 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.interfaces._serving import free_port
 from osprey_connectors.types import TARGET_STANDIN, TARGET_VA
+from osprey_connectors_tests._harness._ports import reserved_ports
 from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 REPO_PATHS = (str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src"))
 
-#: Container-name prefixes; ``_serving`` appends the run's own ephemeral port.
+#: Container-name prefixes; ``_serving`` appends the run's own reserved port.
 CONTAINER_SANDBOX = "osprey-va-e2e-status-va"
 CONTAINER_STANDIN = "osprey-va-e2e-status-standin"
 
@@ -68,21 +68,20 @@ MIN_COLLECTED_TESTS = 2
 @contextlib.contextmanager
 def _serving(prefix: str, *, instance: str):
     """Boot one virtual accelerator container as *instance*; yield its CA port."""
-    port = free_port()
-    pva_port = free_port()
-    with e2e_conftest.serving_container(
-        f"{prefix}-{port}",
-        port,
-        "-e",
-        f"EPICS_PVAS_SERVER_PORT={pva_port}",
-        "-e",
-        f"VA_INSTANCE={instance}",
-        "-p",
-        f"127.0.0.1:{pva_port}:{pva_port}/tcp",
-        *e2e_conftest.demo_data_run_args(),
-        boot_timeout=BOOT_TIMEOUT_S,
-    ):
-        yield port
+    with reserved_ports(2) as (port, pva_port):
+        with e2e_conftest.serving_container(
+            f"{prefix}-{port}",
+            port,
+            "-e",
+            f"EPICS_PVAS_SERVER_PORT={pva_port}",
+            "-e",
+            f"VA_INSTANCE={instance}",
+            "-p",
+            f"127.0.0.1:{pva_port}:{pva_port}/tcp",
+            *e2e_conftest.demo_data_run_args(),
+            boot_timeout=BOOT_TIMEOUT_S,
+        ):
+            yield port
 
 
 @dataclass(frozen=True)

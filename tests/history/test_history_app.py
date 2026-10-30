@@ -1,45 +1,42 @@
-"""The history page in process: its gate, its store calls, and what it renders.
+"""The history page in process: its gate, its record reads, and what it renders.
 
-The store is an :class:`httpx.MockTransport` that records every call and
-answers from canned rows, so each test can say both what the page asked and
-what it showed. The gate tests build the app from the environment the compose
-file renders and run without the suite's auth seam, which would otherwise
-present the app's own secret on every request.
+The record is a :class:`~tests.agent_record.fakes.FakeRecordClient` that
+records every read and answers canned :class:`ClientAnswer` values, so each
+test can say both what the page asked the record and what it showed. The gate
+tests build the app from the environment the compose file renders and run
+without the suite's auth seam, which would otherwise present the app's own
+secret on every request.
 """
 
 from __future__ import annotations
 
-import asyncio
-import json
+import datetime
 import re
 from collections.abc import Callable
 from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey.deployment.telemetry_config import HISTORY_CONCURRENCY
-from osprey.history import queries, viewer
-from osprey.history.app import create_app
-from osprey.history.store import HistoryStore, StoreRefusal
+from osprey.agent_record.client import ClientAnswer, RecordClient
+from osprey.history import app as history_app
+from osprey.history import viewer
+from osprey.history.app import PREVIEW_CHARS, SESSION_WINDOW_DAYS, create_app
 from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER
 from osprey.interfaces.web_auth import reset_web_credentials
+from tests.agent_record.fakes import FakeRecordClient
 
 SESSION = "3f8a1c02-0000-4000-8000-abcdefabcdef"
 ENTRY = "alice"
-
-ALL_TABLES = "otel_logs,otel_traces,audit_ledger"
 
 
 def _headers(
     *,
     person: str = "alice",
     scope: str = "own",
-    view: str = "view_alice",
-    tables: str = ALL_TABLES,
+    view: str = "own:alice",
     entry: str = ENTRY,
     choices: str = "alice=alice,reader:carol=carol",
 ) -> dict[str, str]:
@@ -47,54 +44,44 @@ def _headers(
         viewer.PERSON_HEADER: person,
         viewer.SCOPE_HEADER: scope,
         viewer.VIEW_HEADER: view,
-        viewer.TABLES_HEADER: tables,
         viewer.ENTRY_HEADER: entry,
         viewer.CHOICES_HEADER: choices,
     }
 
 
-class Store:
-    """A canned store: rows per query name, every call recorded."""
+class Record:
+    """One fake client per record viewer the page asks for, all sharing answers."""
 
-    def __init__(self, rows: dict[str, list[dict[str, Any]]] | None = None) -> None:
-        self.rows = rows or {}
-        self.calls: list[httpx.Request] = []
-        self.fail: tuple[int, str, str] | None = None
+    def __init__(self) -> None:
+        self.answers: dict[str, Any] = {}
+        self.unavailable: str | None = None
+        self.clients: list[FakeRecordClient] = []
 
-    def name_of(self, request: httpx.Request) -> str:
-        body = request.content.decode()
-        for name in queries.PAGE_QUERIES:
-            if queries.load(name).strip().rstrip(";") in body:
-                return name
-        raise AssertionError(f"not a contract query: {body[:200]}")
+    def client_for(self, record_viewer: str) -> FakeRecordClient:
+        client = FakeRecordClient(
+            self.answers, unavailable=self.unavailable, login="history", viewer=record_viewer
+        )
+        self.clients.append(client)
+        return client
 
-    def handler(self, request: httpx.Request) -> httpx.Response:
-        self.calls.append(request)
-        if self.fail is not None:
-            status, code, text = self.fail
-            return httpx.Response(status, headers={"X-ClickHouse-Exception-Code": code}, text=text)
-        lines = [json.dumps(row) for row in self.rows.get(self.name_of(request), [])]
-        return httpx.Response(200, text="\n".join(lines))
+    @property
+    def calls(self) -> list[tuple[str, str, dict[str, Any]]]:
+        return [
+            (c.viewer or "", call.name, dict(call.kwargs)) for c in self.clients for call in c.calls
+        ]
 
     def names(self) -> list[str]:
-        return [self.name_of(call) for call in self.calls]
+        return [name for _, name, _ in self.calls]
 
 
 @pytest.fixture
-def store() -> Store:
-    return Store()
+def record() -> Record:
+    return Record()
 
 
 @pytest.fixture
-def client(store: Store) -> TestClient:
-    app = create_app(
-        store_url="http://store.test:8123",
-        store_password="history-pw",
-        queueservers=("queueserver",),
-        max_days=30,
-        transport=httpx.MockTransport(store.handler),
-    )
-    return TestClient(app)
+def client(record: Record) -> TestClient:
+    return TestClient(create_app(env={}, max_days=30, client_for=record.client_for))
 
 
 class _Links(HTMLParser):
@@ -130,13 +117,17 @@ def _assert_every_link_keeps_as(html: str) -> list[str]:
     return links.hrefs
 
 
+def _ok(data: Any, **fields: Any) -> ClientAnswer:
+    return ClientAnswer(data=data, complete=fields.pop("complete", True), **fields)
+
+
 # ---------------------------------------------------------------------------
 # The gate: nginx's secret passes, its absence does not
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture
-def gated_app(monkeypatch: pytest.MonkeyPatch, store: Store) -> Callable[[], TestClient]:
+def gated_app(monkeypatch: pytest.MonkeyPatch, record: Record) -> Callable[[], TestClient]:
     """The app built from exactly the environment its compose file renders."""
     for name in ("OSPREY_TERMINAL_SECRET", "OSPREY_TERMINAL_BIND_HOST"):
         monkeypatch.delenv(name, raising=False)
@@ -146,7 +137,7 @@ def gated_app(monkeypatch: pytest.MonkeyPatch, store: Store) -> Callable[[], Tes
     reset_web_credentials()
 
     def build() -> TestClient:
-        return TestClient(create_app(transport=httpx.MockTransport(store.handler)))
+        return TestClient(create_app(client_for=record.client_for))
 
     yield build
     reset_web_credentials()
@@ -162,7 +153,7 @@ def test_a_request_carrying_nginxs_gate_secret_passes(gated_app: Callable[[], Te
 
 @pytest.mark.no_auth_seam
 def test_a_request_without_the_gate_secret_is_refused(
-    gated_app: Callable[[], TestClient], store: Store
+    gated_app: Callable[[], TestClient], record: Record
 ) -> None:
     client = gated_app()
     assert client.get("/", headers=_headers()).status_code == 401
@@ -170,343 +161,386 @@ def test_a_request_without_the_gate_secret_is_refused(
         client.get("/", headers={OPERATOR_SECRET_HEADER: "a-guess", **_headers()}).status_code
         == 401
     )
-    assert store.calls == []
+    assert record.calls == []
 
 
 def test_a_request_without_the_sidecars_answer_has_no_scope(
-    client: TestClient, store: Store
+    client: TestClient, record: Record
 ) -> None:
     response = client.get("/")
     assert response.status_code == 403
-    assert store.calls == []
+    assert record.calls == []
 
 
-def test_a_view_user_that_is_not_a_store_name_is_refused(client: TestClient, store: Store) -> None:
-    response = client.get("/", headers=_headers(view="view_alice` SELECT 1 --"))
+@pytest.mark.parametrize(
+    ("scope", "view"),
+    [
+        ("own", "view_alice"),
+        ("own", "own:"),
+        ("own", "own:alice` x"),
+        ("all", "own:alice"),
+        ("own", "all"),
+        ("reader", "reader:"),
+        ("own", "someone:alice"),
+    ],
+)
+def test_a_viewer_the_record_does_not_read_is_refused(
+    client: TestClient, record: Record, scope: str, view: str
+) -> None:
+    response = client.get("/", headers=_headers(scope=scope, view=view))
     assert response.status_code == 403
-    assert store.calls == []
+    assert record.calls == []
 
 
 def test_the_header_names_are_the_sidecars() -> None:
     from osprey.services.auth_sidecar.routes import history as sidecar
 
-    for name in ("PERSON", "SCOPE", "VIEW", "ROLE", "TABLES", "ENTRY", "CHOICES"):
+    for name in ("PERSON", "SCOPE", "VIEW", "ROLE", "ENTRY", "CHOICES"):
         assert getattr(viewer, f"{name}_HEADER") == getattr(sidecar, f"{name}_HEADER")
     assert viewer.SELECTOR_PARAM == sidecar.SELECTOR_PARAM
+    assert not hasattr(viewer, "TABLES_HEADER")
+    assert not hasattr(sidecar, "TABLES_HEADER")
+
+
+def test_the_viewer_spellings_are_the_records() -> None:
+    from osprey.agent_record import service
+    from osprey.services.auth_sidecar.routes import history as sidecar
+
+    assert viewer.VIEWER_ALL == sidecar.VIEW_ALL == service.VIEWER_ALL
+    assert viewer.VIEWER_OWN_PREFIX == sidecar.VIEW_OWN_PREFIX == service.VIEWER_OWN_PREFIX
+    assert viewer.VIEWER_READER_PREFIX == sidecar.VIEW_READER_PREFIX == service.VIEWER_READER_PREFIX
+
+
+@pytest.mark.parametrize(
+    ("scope", "view", "person"),
+    [("own", "own:alice", "alice"), ("all", "all", "alice"), ("reader", "reader:carol", "carol")],
+)
+def test_every_read_names_the_sidecars_viewer(
+    client: TestClient, record: Record, scope: str, view: str, person: str
+) -> None:
+    client.get("/", headers=_headers(scope=scope, view=view, person=person))
+    assert record.calls
+    assert {who for who, _, _ in record.calls} == {view}
+
+
+def test_the_default_client_reads_with_the_history_login() -> None:
+    app = create_app(
+        env={
+            "OSPREY_AGENT_RECORD_URL": "http://agent-record:8000",
+            "OSPREY_AGENT_RECORD_LOGIN": "history:the-token",
+        }
+    )
+    built = app.state.client_for("own:alice")
+    assert isinstance(built, RecordClient)
+    assert (built.url, built.login, built.viewer) == (
+        "http://agent-record:8000",
+        "history",
+        "own:alice",
+    )
+
+
+def test_an_unconfigured_record_renders_record_unavailable() -> None:
+    client = TestClient(create_app(env={}))
+    response = client.get("/", headers=_headers())
+    assert response.status_code == 503
+    assert "record unavailable" in response.text
+    assert "OSPREY_AGENT_RECORD_URL" in response.text
 
 
 # ---------------------------------------------------------------------------
-# The query layer
+# The session list
 # ---------------------------------------------------------------------------
 
 
-def _session_rows() -> dict[str, list[dict[str, Any]]]:
+def _session_rows() -> list[dict[str, Any]]:
+    return [
+        {
+            "session_id": "s-web",
+            "persons": ["alice"],
+            "identities": ["alice"],
+            "first_ts": "2026-10-24T10:40:00+00:00",
+            "last_ts": "2026-10-24T10:42:00+00:00",
+            "entries": 12,
+            "prompt": "why did BPM 3 drift overnight?",
+            "run_ids": [],
+            "terminal_session": "term-1",
+        },
+        {
+            "session_id": "s-dispatch",
+            "persons": ["bob"],
+            "identities": ["dispatch-worker-1"],
+            "first_ts": "2026-10-24T10:15:00+00:00",
+            "last_ts": "2026-10-24T10:15:10+00:00",
+            "entries": 6,
+            "prompt": None,
+            "run_ids": ["run-1"],
+            "terminal_session": "",
+        },
+    ]
+
+
+def _users() -> list[dict[str, Any]]:
+    return [
+        {"person": "alice", "sessions": 1, "last_ts": "2026-10-24T10:42:00+00:00"},
+        {"person": "bob", "sessions": 1, "last_ts": "2026-10-24T10:15:10+00:00"},
+    ]
+
+
+def test_the_session_list_shows_every_session_newest_first(
+    client: TestClient, record: Record
+) -> None:
+    record.answers = {"list_sessions": _ok(_session_rows()), "session_users": _ok(_users())}
+    response = client.get("/", headers=_headers(scope="all", view="all"))
+    assert response.status_code == 200, response.text
+    text = response.text
+    assert "why did BPM 3 drift overnight?" in text
+    assert "(no prompt) s-dispatch" in text
+    assert "dispatch-worker-1" in text
+    assert text.index("s-web") < text.index("s-dispatch")
+    assert record.names() == ["list_sessions", "session_users"]
+
+
+def test_the_session_list_reads_the_window_and_older_widens_it(
+    client: TestClient, record: Record, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = datetime.datetime(2026, 10, 24, 12, 0, tzinfo=datetime.UTC)
+    monkeypatch.setattr(history_app, "_now", lambda: now)
+    client.get("/", headers=_headers())
+    client.get("/", params={"older": 2}, headers=_headers())
+    client.get("/", params={"older": 999}, headers=_headers())
+    sinces = [kwargs["since"] for _, name, kwargs in record.calls if name == "list_sessions"]
+    assert sinces == [
+        now - datetime.timedelta(days=SESSION_WINDOW_DAYS),
+        now - datetime.timedelta(days=SESSION_WINDOW_DAYS + 2),
+        now - datetime.timedelta(days=30),
+    ]
+
+
+def test_older_stops_at_the_retention(client: TestClient) -> None:
+    response = client.get("/", params={"older": 999}, headers=_headers())
+    assert 'class="older"' not in response.text
+    assert 'class="newer"' in response.text
+
+
+def test_the_person_filter_keeps_that_persons_sessions(client: TestClient, record: Record) -> None:
+    record.answers = {"list_sessions": _ok(_session_rows()), "session_users": _ok(_users())}
+    response = client.get("/", params={"person": "bob"}, headers=_headers(scope="all", view="all"))
+    assert "s-dispatch" in response.text
+    assert "why did BPM 3 drift overnight?" not in response.text
+
+
+def test_an_unavailable_record_renders_record_unavailable(
+    client: TestClient, record: Record
+) -> None:
+    record.unavailable = "agent-record is unreachable: ConnectError"
+    response = client.get("/", headers=_headers())
+    assert response.status_code == 503
+    assert "record unavailable" in response.text
+    assert "agent-record is unreachable" in response.text
+    assert "No sessions" not in response.text
+    _assert_every_link_keeps_as(response.text)
+
+
+def test_an_incomplete_list_says_so(client: TestClient, record: Record) -> None:
+    record.answers = {
+        "list_sessions": _ok(_session_rows(), complete=False),
+        "session_users": _ok(_users()),
+    }
+    response = client.get("/", headers=_headers())
+    assert response.status_code == 200
+    assert "incomplete" in response.text
+
+
+def test_an_empty_list_that_is_incomplete_is_never_shown_as_complete(
+    client: TestClient, record: Record
+) -> None:
+    record.answers = {"list_sessions": _ok([], complete=False), "session_users": _ok([])}
+    response = client.get("/", headers=_headers())
+    assert "incomplete" in response.text
+
+
+def test_every_link_on_the_session_list_keeps_as(client: TestClient, record: Record) -> None:
+    record.answers = {"list_sessions": _ok(_session_rows()), "session_users": _ok(_users())}
+    response = client.get("/", params={"older": 1}, headers=_headers(entry="reader:carol"))
+    hrefs = _assert_every_link_keeps_as(response.text)
+    selections = {parse_qs(urlsplit(h).query)["as"][0] for h in hrefs}
+    assert selections == {"reader:carol", "alice"}, "the switcher selects, every other link keeps"
+    assert any("older=2" in h for h in hrefs)
+    assert any(h.startswith("/history/session/s-web?") for h in hrefs)
+    assert any("person=bob" in h for h in hrefs)
+
+
+# ---------------------------------------------------------------------------
+# One session's timeline
+# ---------------------------------------------------------------------------
+
+
+def _node(kind: str, ts: str, body: dict[str, Any] | None, **extra: Any) -> dict[str, Any]:
     return {
-        "session_users": [
-            {
-                "User": "alice",
-                "terminal_session": "term-1",
-                "first_ts": "2026-10-11 10:00:00.000000000",
-                "last_ts": "2026-10-11 10:30:00.000000000",
-            }
-        ],
-        "conversation": [
-            {
-                "User": "alice",
-                "SessionId": SESSION,
-                "TerminalSession": "term-1",
-                "Timestamp": "2026-10-11 10:00:00.000000000",
-                "Event": "user_prompt",
-                "body_hash": "123",
-                "captured": 1,
-                "content": "<script>alert(1)</script>",
-                "content_length": queries.PREVIEW_CHARS + 10,
-            }
-        ],
-        "tool_log": [
-            {
-                "User": "alice",
-                "SessionId": SESSION,
-                "ToolUseId": "toolu_1",
-                "Surface": "tool_call",
-                "Timestamp": "2026-10-11 10:01:05.000000000",
-                "started_at": "2026-10-11 10:01:00.000000000",
-                "decision": "allowed",
-                "body_hash": "77",
-                "body": json.dumps({"subject": "mcp__bluesky__queue_add"}),
-                "body_length": queries.PREVIEW_CHARS + 1,
-                "arguments_ref": "",
-                "result_ref": "",
-            }
-        ],
-        "preflight": [
-            {
-                "User": "queueserver",
-                "OnBehalfOf": "alice",
-                "Surface": "preflight",
-                "Timestamp": "2026-10-11 10:01:30.000000000",
-                "decision": "allowed",
-                "body_hash": "1",
-                "body": "matched-preflight",
-                "body_length": 17,
-            },
-            {
-                "User": "queueserver",
-                "OnBehalfOf": "alice",
-                "Surface": "preflight",
-                "Timestamp": "2026-10-11 10:20:00.000000000",
-                "decision": "allowed",
-                "body_hash": "2",
-                "body": "forged-preflight",
-                "body_length": 16,
-            },
-        ],
+        "key": f"k-{kind}-{ts}",
+        "kind": kind,
+        "ts": ts,
+        "person": "alice",
+        "identity": "alice",
+        "session_id": SESSION,
+        "body": body,
+        "incomplete": False,
+        "decision": None,
+        "result": None,
+        "subagent": None,
+        **extra,
     }
 
 
-def test_every_store_call_is_a_post_that_waits_for_the_end_of_the_query(
-    client: TestClient, store: Store
-) -> None:
-    store.rows = _session_rows()
+def _timeline() -> list[dict[str, Any]]:
+    return [
+        _node("prompt", "2026-10-24T10:15:00+00:00", {"text": "<script>alert(1)</script>"}),
+        _node(
+            "tool_call",
+            "2026-10-24T10:15:04+00:00",
+            {"name": "read_channel", "input": {"channel": "SR:BPM3:X"}},
+            decision=_node("decision", "2026-10-24T10:15:04+00:00", {"decision": "allowed"}),
+            result=_node("tool_result", "2026-10-24T10:15:04+00:00", {"text": "0.41 mm"}),
+        ),
+        _node(
+            "tool_call",
+            "2026-10-24T10:15:05+00:00",
+            {"name": "Agent"},
+            subagent={
+                "agent_id": "a-1",
+                "timeline": [
+                    _node("tool_call", "2026-10-24T10:15:06+00:00", {"name": "nested_read"})
+                ],
+            },
+        ),
+        _node("answer", "2026-10-24T10:15:10+00:00", {"text": "x" * (PREVIEW_CHARS + 5)}),
+    ]
+
+
+def test_a_session_renders_its_timeline(client: TestClient, record: Record) -> None:
+    record.answers = {"timeline": _ok(_timeline())}
     response = client.get(f"/session/{SESSION}", headers=_headers())
     assert response.status_code == 200, response.text
-
-    assert set(store.names()) >= {"session_users", "conversation", "tool_log", "preflight"}
-    for call in store.calls:
-        assert call.method == "POST"
-        params = parse_qs(call.url.query.decode())
-        assert params["http_wait_end_of_query"] == ["1"]
-        assert params["log_comment"] == ["alice:view_alice"]
-        assert params["quota_key"] == ["alice"]
-        assert call.headers["X-ClickHouse-User"] == "history"
-        assert call.headers["X-ClickHouse-Key"] == "history-pw"
-        body = call.content.decode()
-        name = store.name_of(call)
-        assert body == (f"EXECUTE AS `view_alice` {queries.load(name).strip()}\nFORMAT JSONEachRow")
+    text = response.text
+    assert "read_channel" in text
+    assert '<span class="decision">allowed</span>' in text
+    assert "0.41 mm" in text
+    assert re.search(r'<ol class="entries subagent">\s*<li class="entry tool_call">', text)
+    assert "nested_read" in text
+    assert record.calls == [("own:alice", "timeline", {"session_id": SESSION, "after": None})]
 
 
-def test_values_travel_as_typed_parameters_never_in_the_query(
-    client: TestClient, store: Store
-) -> None:
-    store.rows = _session_rows()
-    hostile = "x'); DROP TABLE t; --"
-    client.get(f"/session/{SESSION}", params={"user": hostile}, headers=_headers())
-    (call,) = store.calls  # no user matches: nothing past the lookup
-    assert hostile not in call.content.decode()
-    assert parse_qs(call.url.query.decode())["param_session"] == [SESSION]
-
-
-def test_the_semaphore_bounds_concurrent_store_calls() -> None:
-    running = 0
-    peak = 0
-
-    async def handler(_request: httpx.Request) -> httpx.Response:
-        nonlocal running, peak
-        running += 1
-        peak = max(peak, running)
-        await asyncio.sleep(0.02)
-        running -= 1
-        return httpx.Response(200, text="")
-
-    async def main() -> None:
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            store = HistoryStore("http://store.test:8123", "pw", client=client)
-            who = viewer.viewer_from_headers(_headers())
-            await asyncio.gather(
-                *(store.rows(who, "session_users", {"session": "s"}) for _ in range(8))
-            )
-
-    asyncio.run(main())
-    assert peak == HISTORY_CONCURRENCY
-
-
-def test_a_store_error_is_shown_with_its_name(client: TestClient, store: Store) -> None:
-    store.fail = (
-        500,
-        "396",
-        "Code: 396. DB::Exception: Limit for result exceeded. (TOO_MANY_ROWS_OR_BYTES) "
-        "(version 26.8.18.2)",
-    )
-    response = client.get("/", headers=_headers())
-    assert response.status_code == 502
-    assert "TOO_MANY_ROWS_OR_BYTES (396)" in response.text
-
-
-def test_an_unreachable_store_is_a_refusal_not_a_crash() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        raise httpx.ConnectError("refused", request=request)
-
-    client = TestClient(create_app(transport=httpx.MockTransport(handler)))
-    response = client.get("/", headers=_headers())
-    assert response.status_code == 502
-    assert "STORE_UNREACHABLE" in response.text
-
-
-def test_a_store_refusal_names_the_error_from_the_body_when_no_header_does() -> None:
-    from osprey.history.store import _refusal
-
-    refusal = _refusal(
-        httpx.Response(
-            403,
-            text="Code: 497. DB::Exception: alice: Not enough privileges. "
-            "(ACCESS_DENIED) (version 26.8.18.2)",
-        )
-    )
-    assert isinstance(refusal, StoreRefusal)
-    assert (refusal.name, refusal.code) == ("ACCESS_DENIED", "497")
-
-
-# ---------------------------------------------------------------------------
-# Table-aware views
-# ---------------------------------------------------------------------------
-
-
-def test_a_view_whose_table_is_not_readable_is_never_queried(
-    client: TestClient, store: Store
-) -> None:
-    response = client.get("/", headers=_headers(tables="audit_ledger"))
-    assert response.status_code == 200
-    assert "not in your tables" in response.text
-    assert store.calls == []
-
-
-def test_a_transcript_skips_the_ledger_when_it_is_not_readable(
-    client: TestClient, store: Store
-) -> None:
-    store.rows = _session_rows()
-    response = client.get(f"/session/{SESSION}", headers=_headers(tables="otel_logs"))
-    assert response.status_code == 200
-    assert set(store.names()) == {"session_users", "conversation"}
-    assert "<code>audit_ledger</code> is not in your tables" in response.text
-
-
-# ---------------------------------------------------------------------------
-# Renderers, deep link and the preflight band
-# ---------------------------------------------------------------------------
-
-
-def test_content_is_escaped(client: TestClient, store: Store) -> None:
-    store.rows = _session_rows()
+def test_content_is_escaped(client: TestClient, record: Record) -> None:
+    record.answers = {"timeline": _ok(_timeline())}
     response = client.get(f"/session/{SESSION}", headers=_headers())
     assert "<script>alert(1)</script>" not in response.text
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in response.text
 
 
-def test_a_deep_link_with_no_match_is_404(client: TestClient, store: Store) -> None:
+def test_a_long_body_links_to_its_full_entry(client: TestClient, record: Record) -> None:
+    record.answers = {"timeline": _ok(_timeline())}
+    response = client.get(f"/session/{SESSION}", headers=_headers())
+    full = [h for h in _links(response.text).hrefs if "/history/full/entry?" in h]
+    assert len(full) == 1
+    query = parse_qs(urlsplit(full[0]).query)
+    assert query["key"] == ["k-answer-2026-10-24T10:15:10+00:00"]
+    assert query["session"] == [SESSION]
+
+
+def test_the_next_page_is_read_through_the_cursor(client: TestClient, record: Record) -> None:
+    record.answers = {"timeline": _ok(_timeline(), next="CURSOR-1", more=True)}
+    response = client.get(f"/session/{SESSION}", headers=_headers())
+    hrefs = _assert_every_link_keeps_as(response.text)
+    (nxt,) = [h for h in hrefs if "after=" in h]
+    assert parse_qs(urlsplit(nxt).query)["after"] == ["CURSOR-1"]
+    client.get(f"/session/{SESSION}", params={"after": "CURSOR-1"}, headers=_headers())
+    assert record.calls[-1][2] == {"session_id": SESSION, "after": "CURSOR-1"}
+
+
+def test_newer_entries_offer_a_reread_from_the_start(client: TestClient, record: Record) -> None:
+    record.answers = {"timeline": _ok(_timeline(), newer=True)}
+    response = client.get(f"/session/{SESSION}", params={"after": "C"}, headers=_headers())
+    assert "Read from the start" in response.text
+
+
+def test_an_incomplete_session_says_so(client: TestClient, record: Record) -> None:
+    record.answers = {"timeline": _ok(_timeline(), complete=False)}
+    response = client.get(f"/session/{SESSION}", headers=_headers())
+    assert "incomplete" in response.text
+
+
+def test_a_session_the_viewer_sees_nothing_of_is_404(client: TestClient, record: Record) -> None:
+    record.answers = {"timeline": _ok([])}
     response = client.get(f"/session/{SESSION}", headers=_headers())
     assert response.status_code == 404
     assert f"no session {SESSION} in what you may see" in response.text
-    assert store.names() == ["session_users"]
 
 
-def test_a_deep_link_shows_one_transcript_per_user(client: TestClient, store: Store) -> None:
-    rows = _session_rows()
-    rows["session_users"].append({**rows["session_users"][0], "User": "bob"})
-    store.rows = rows
-    response = client.get(f"/session/{SESSION}", headers=_headers(scope="all", view="view__all"))
-    assert response.text.count('<section class="transcript">') == 2
-    users = [
-        parse_qs(call.url.query.decode()).get("param_user")
-        for call in store.calls
-        if store.name_of(call) == "conversation"
-    ]
-    assert users == [["alice"], ["bob"]]
-
-
-def test_an_own_view_shows_only_preflight_rows_matched_to_a_submit(
-    client: TestClient, store: Store
-) -> None:
-    store.rows = _session_rows()
+def test_an_unavailable_timeline_is_never_a_404(client: TestClient, record: Record) -> None:
+    record.unavailable = "agent-record did not answer within 25 s"
     response = client.get(f"/session/{SESSION}", headers=_headers())
-    assert "matched-preflight" in response.text
-    assert "forged-preflight" not in response.text
+    assert response.status_code == 503
+    assert "record unavailable" in response.text
 
 
-def test_an_all_view_shows_every_preflight_row_and_labels_the_unmatched(
-    client: TestClient, store: Store
+def test_a_session_id_that_is_not_one_is_404_without_a_read(
+    client: TestClient, record: Record
 ) -> None:
-    store.rows = _session_rows()
-    response = client.get(f"/session/{SESSION}", headers=_headers(scope="all", view="view__all"))
-    assert "matched-preflight" in response.text
-    assert "forged-preflight" in response.text
-    assert response.text.count("no matching queue submit within 60 s") == 1
-
-
-def test_the_preflight_query_names_the_rendered_queueservers(
-    client: TestClient, store: Store
-) -> None:
-    store.rows = _session_rows()
-    client.get(f"/session/{SESSION}", headers=_headers())
-    (call,) = [c for c in store.calls if store.name_of(c) == "preflight"]
-    assert parse_qs(call.url.query.decode())["param_queueservers"] == ["['queueserver']"]
+    response = client.get("/session/x%20y", headers=_headers())
+    assert response.status_code == 404
+    assert record.calls == []
 
 
 # ---------------------------------------------------------------------------
-# The selection survives navigation
+# The full entry
 # ---------------------------------------------------------------------------
 
 
-def _session_list_rows(count: int) -> list[dict[str, Any]]:
-    return [
-        {
-            "User": "alice",
-            "SessionId": f"s-{i:04d}",
-            "terminal_session": f"term-{i // 2}",
-            "first_ts": f"2026-10-11 09:{i % 60:02d}:00.000000000",
-            "last_ts": f"2026-10-11 10:{i % 60:02d}:00.000000000",
-            "prompts": 1,
-        }
-        for i in range(count)
-    ]
-
-
-def test_every_link_on_the_session_list_keeps_as(client: TestClient, store: Store) -> None:
-    store.rows = {"session_list": _session_list_rows(queries.SESSION_LIST_LIMIT)}
-    response = client.get("/", params={"older": 1}, headers=_headers(entry="reader:carol"))
+def test_the_full_entry_shows_the_whole_body(client: TestClient, record: Record) -> None:
+    body = {"text": "y" * (PREVIEW_CHARS * 2)}
+    record.answers = {"full_entry": _ok(_node("answer", "2026-10-24T10:15:10+00:00", body))}
+    response = client.get(
+        "/full/entry", params={"key": "k-1", "session": SESSION}, headers=_headers()
+    )
+    assert response.status_code == 200
+    assert "y" * (PREVIEW_CHARS * 2) in response.text
+    assert record.calls == [("own:alice", "full_entry", {"key": "k-1"})]
     hrefs = _assert_every_link_keeps_as(response.text)
-
-    selections = {parse_qs(urlsplit(h).query)["as"][0] for h in hrefs}
-    assert selections == {"reader:carol", "alice"}, "the switcher selects, every other link keeps"
-    assert any("cursor_ts=" in h for h in hrefs), "the paging cursor is a link"
-    assert any("older=2" in h for h in hrefs)
-    assert any(h.startswith("/history/session/") for h in hrefs)
+    assert any(h.startswith(f"/history/session/{SESSION}?") for h in hrefs)
 
 
-def test_every_link_on_a_transcript_keeps_as(client: TestClient, store: Store) -> None:
-    rows = _session_rows()
-    rows["conversation"] = rows["conversation"] * queries.PAGE_LIMIT
-    store.rows = rows
-    response = client.get(f"/session/{SESSION}", headers=_headers())
-    hrefs = _assert_every_link_keeps_as(response.text)
-    assert any("/history/full/log?" in h for h in hrefs)
-    assert any("/history/full/ledger?" in h for h in hrefs)
-    assert any("after_hash=" in h for h in hrefs), "the next-page cursor is a link"
+def test_a_full_entry_the_viewer_cannot_see_is_404(client: TestClient, record: Record) -> None:
+    record.answers = {"full_entry": _ok(None)}
+    response = client.get("/full/entry", params={"key": "k-1"}, headers=_headers())
+    assert response.status_code == 404
+    _assert_every_link_keeps_as(response.text)
 
 
-@pytest.mark.parametrize(
-    "path", [f"/session/{SESSION}", "/full/log?user=a&session=s&ts=t&body_hash=1"]
-)
-def test_every_link_on_a_not_found_page_keeps_as(client: TestClient, path: str) -> None:
+def test_an_unavailable_full_entry_renders_record_unavailable(
+    client: TestClient, record: Record
+) -> None:
+    record.unavailable = "entry 'k-1' is incomplete: a chunk is missing"
+    response = client.get("/full/entry", params={"key": "k-1"}, headers=_headers())
+    assert response.status_code == 503
+    assert "record unavailable" in response.text
+
+
+# ---------------------------------------------------------------------------
+# Assets and the page shell
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("path", [f"/session/{SESSION}", "/full/entry?key=k"])
+def test_every_link_on_a_not_found_page_keeps_as(
+    client: TestClient, record: Record, path: str
+) -> None:
+    record.answers = {"timeline": _ok([]), "full_entry": _ok(None)}
     _assert_every_link_keeps_as(client.get(path, headers=_headers()).text)
-
-
-def test_every_link_on_a_refusal_keeps_as(client: TestClient, store: Store) -> None:
-    store.fail = (500, "159", "Code: 159. Timeout exceeded (TIMEOUT_EXCEEDED)")
-    _assert_every_link_keeps_as(client.get("/", headers=_headers()).text)
-
-
-def test_the_list_groups_a_resumed_session_under_its_first_terminal(
-    client: TestClient, store: Store
-) -> None:
-    store.rows = {"session_list": _session_list_rows(2)}
-    response = client.get("/", headers=_headers())
-    assert response.text.count('<tr class="transcript">') == 1
-    assert "continued as" in response.text
 
 
 def test_assets_are_served_under_the_prefix_the_page_writes(client: TestClient) -> None:
     """nginx strips ``/history``; every asset URL the page writes resolves once it is stripped."""
-    response = client.get("/", headers=_headers(tables=""))
+    response = client.get("/", headers=_headers())
     assets = _links(response.text).assets
     assert assets
     for url in assets:
@@ -519,7 +553,7 @@ def test_health_needs_no_credential(client: TestClient) -> None:
     assert client.get("/health").json() == {"status": "ok"}
 
 
-def test_no_rendered_page_carries_an_inline_script(client: TestClient, store: Store) -> None:
-    store.rows = _session_rows()
+def test_no_rendered_page_carries_an_inline_script(client: TestClient, record: Record) -> None:
+    record.answers = {"timeline": _ok(_timeline())}
     html = client.get(f"/session/{SESSION}", headers=_headers()).text
     assert not re.search(r"<script(?![^>]*\bsrc=)[^>]*>", html)

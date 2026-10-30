@@ -29,7 +29,8 @@
 #                 other by-name step keep working. After the join, so the
 #                 identity inherits the mount groups created on this boot.
 #   4. Hand back  Return the state zone to the `osprey` user, because steps 1
-#                 and 2 wrote into it as root.
+#                 and 2 wrote into it as root, and the transcripts mount's root
+#                 when a fresh volume left it root-owned.
 #   5. Drop       Hand the container's real command to the unprivileged
 #                 `osprey` user and get out of the way.
 #
@@ -113,17 +114,8 @@ die() {
 # gated by the same code; a private copy here would be a second gate to keep in
 # step, and the one that runs as root is the worst place to discover a drift.
 
-# OSPREY_AUDIT_WRITER is a PER-COMMAND prefix on the interpreter invocation,
-# never a shell `export`. It marks the records this root phase emits so they
-# land in the writer's `maintenance` file rather than the app's — one uid per
-# file, which is what makes an audit trail readable off disk. An `export` here
-# would set it for the whole shell, and this function runs in that same shell:
-# the marker would still be set at `exec gosu` below, gosu preserves the
-# environment across the drop, and every record the app wrote afterwards would
-# claim to come from this phase. The prefix scopes it to the one command that
-# should carry it; the `unset` before the drop is the belt to this brace.
 run_maintenance() {
-    OSPREY_AUDIT_WRITER=maintenance "$PYTHON" - "$RENDER_DIR" <<'PY'
+    "$PYTHON" - "$RENDER_DIR" <<'PY'
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -207,16 +199,17 @@ PY
 # normal way. The two mechanisms cover different processes; neither replaces
 # the other.
 #
-# What needs it: the audit subdir and the facility bundle are BIND MOUNTS owned
+# What needs it: the spool subdir and the facility bundle are BIND MOUNTS owned
 # by a host group (setgid 2770, the group inherited from the host and never
 # invented). The dropped process reaches them through MEMBERSHIP, not
 # ownership — which is the whole reason the ownership sweep below leaves the
-# audit mount alone. So the group has to exist in /etc/group and `osprey` has
+# spool mount alone. So the group has to exist in /etc/group and `osprey` has
 # to be in it before the drop, and this is the only place that can be true.
 #
 # Which directories: exactly the ones the render NAMED, never guessed. This
 # script is POSIX sh and reads no config; each service's compose
-# `environment:` carries OSPREY_AUDIT_DIR (its own audit subdir) and, where
+# `environment:` carries OSPREY_SPOOL_DIR and OSPREY_STATE_DIR (its own spool
+# and state subdirs) and, where
 # they are mounted, OSPREY_FACILITY_BUNDLE_DIR (the knowledge bundle),
 # OSPREY_ARIEL_MIRROR_DIR (the ARIEL qmd mirror this container's own exporter
 # writes), OSPREY_SIMULATOR_LOG_DIR (the simulator's model logs) and
@@ -230,7 +223,7 @@ PY
 # gid chosen at render time is the host's gid THEN, while the mount's is the
 # only one that is true at start — and there is no second place to keep in step.
 
-#: The gids joined so far this run. The audit subdir and the bundle commonly
+#: The gids joined so far this run. The spool subdir and the bundle commonly
 #: share a group, and joining it twice is noise at best.
 JOINED_GIDS=''
 
@@ -492,9 +485,6 @@ probe_mounted_dir() {
 join_mounted_groups() {
     JOINED_GIDS=''
 
-    join_mounted_group OSPREY_AUDIT_DIR "${OSPREY_AUDIT_DIR:-}"
-    probe_mounted_dir OSPREY_AUDIT_DIR "${OSPREY_AUDIT_DIR:-}" write
-
     join_mounted_group OSPREY_CONTROL_CONTEXT_DIR "${OSPREY_CONTROL_CONTEXT_DIR:-}"
     probe_mounted_dir OSPREY_CONTROL_CONTEXT_DIR "${OSPREY_CONTROL_CONTEXT_DIR:-}" write
 
@@ -512,19 +502,30 @@ join_mounted_groups() {
 
     join_mounted_group OSPREY_GUARDED_RUN_DIR "${OSPREY_GUARDED_RUN_DIR:-}"
     probe_mounted_dir OSPREY_GUARDED_RUN_DIR "${OSPREY_GUARDED_RUN_DIR:-}" write
+
+    join_mounted_group OSPREY_AGENT_RECORD_SPOOL_ROOT "${OSPREY_AGENT_RECORD_SPOOL_ROOT:-}"
+    probe_mounted_dir OSPREY_AGENT_RECORD_SPOOL_ROOT "${OSPREY_AGENT_RECORD_SPOOL_ROOT:-}" write
+
+    join_mounted_group OSPREY_AGENT_RECORD_DIR "${OSPREY_AGENT_RECORD_DIR:-}"
+    probe_mounted_dir OSPREY_AGENT_RECORD_DIR "${OSPREY_AGENT_RECORD_DIR:-}" write
+
+    join_mounted_group OSPREY_AGENT_RECORD_ARCHIVE_DIR "${OSPREY_AGENT_RECORD_ARCHIVE_DIR:-}"
+    probe_mounted_dir OSPREY_AGENT_RECORD_ARCHIVE_DIR "${OSPREY_AGENT_RECORD_ARCHIVE_DIR:-}" write
+
+    join_mounted_group OSPREY_SPOOL_DIR "${OSPREY_SPOOL_DIR:-}"
+    probe_mounted_dir OSPREY_SPOOL_DIR "${OSPREY_SPOOL_DIR:-}" write
+
+    join_mounted_group OSPREY_STATE_DIR "${OSPREY_STATE_DIR:-}"
+    probe_mounted_dir OSPREY_STATE_DIR "${OSPREY_STATE_DIR:-}" write
 }
 
 # ── state-zone hand-back ─────────────────────────────────────────────────────
 # Hand the state zone back before dropping. Both maintenance steps run as root
-# and both WRITE into `var/`: the scaffold restore's reserved-path refusals are
-# appended to the audit ledger — under `var/audit/<identity>/maintenance.jsonl`,
-# because the marker above routes everything this phase records there — and on a
-# fresh deployment root is the first writer, so the file is created root-owned
-# 0644. The server then runs as `osprey` and records its own refusals under the
-# surface that decided; the marker is what keeps the two out of one file, since
-# the app user could not append to a root-owned one and the refusal recorder
-# never raises, so every refusal after that would be dropped in silence. An
-# audit log only root can write is worse than none, because it looks like one.
+# and both may WRITE into `var/`, and on a fresh deployment root is the first
+# writer, so whatever it creates there is root-owned 0644. The server then runs
+# as `osprey`, which could not write into a root-owned file or directory, and
+# the steps that write there never raise — so every write after that would be
+# dropped in silence.
 #
 # Scoped to the whole zone rather than that one file: `var/` is the agent
 # user's tree by construction (the image chowns it wholesale), so root leaving
@@ -539,15 +540,13 @@ join_mounted_groups() {
 # matches ALL foreign ownership, so any other deliberately foreign-owned path
 # under var/ needs a prune of its own, exactly as the group-shared binds below
 # have one. Fails open like the maintenance steps —
-# a container that will not start is worse than one whose audit log needs a
+# a container that will not start is worse than one whose state needs a
 # manual chown.
 #
-# FIVE deliberate exceptions, pruned by name — every bind whose contents the
+# NINE deliberate exceptions, pruned by name — every bind whose contents the
 # dropped process reaches through GROUP MEMBERSHIP (the join above) and never
 # through ownership, so there is nothing to hand back:
 #
-#   * OSPREY_AUDIT_DIR            `var/audit/<identity>/`: the operator's host
-#                                 directory for this container's records.
 #   * OSPREY_CONTROL_CONTEXT_DIR  `var/agent_data/control_target/<owner>/`: the
 #                                 one owner directory this container writes.
 #   * OSPREY_CONTROL_CONTEXT_TREE the whole control-target tree, bound
@@ -563,15 +562,28 @@ join_mounted_groups() {
 #   * OSPREY_GUARDED_RUN_DIR      `var/guarded_run/`: the per-target locks
 #                                 every container running the agent takes,
 #                                 each under its own uid.
+#   * OSPREY_AGENT_RECORD_SPOOL_ROOT
+#                                 `var/spool/`: the spool every source appends
+#                                 to under its own uid, and agent-record
+#                                 ingests from and deletes.
+#   * OSPREY_AGENT_RECORD_DIR     `var/agent_record/`: the embedded record
+#                                 store agent-record writes.
+#   * OSPREY_AGENT_RECORD_ARCHIVE_DIR
+#                                 `var/archive/`: the lasting half of the audit
+#                                 trail, which agent-record exports into and
+#                                 the archive service copies into, each under
+#                                 its own uid; the host reads and deletes it.
+#   * OSPREY_SPOOL_DIR            `var/spool/<identity>/`: this container's own
+#                                 spool, which agent-record ingests from and
+#                                 deletes under its own uid.
+#   * OSPREY_STATE_DIR            `var/state/<identity>/`: this container's own
+#                                 state, which the host reads.
 #
 # Chowning any of them rewrites a host directory the operator owns and drops
 # the setgid group that the whole shared-group design rests on; the next
 # `osprey up` re-provisions the group, and the two trade the directory forever.
-# For the audit subdir it also breaks host-side `osprey reset --purge-audit`
-# and blurs the one property that makes the trail legible: root and `osprey`
-# never share ownership of a file in the audit zone, so the uid on a record is
-# evidence of who wrote it. Each prune covers its directory's contents too,
-# which is the point — root's `maintenance` records stay root's.
+# Each prune covers its directory's contents too, which is the point — a file
+# another uid wrote there stays that uid's.
 #
 # The facility bundle and the ARIEL mirror are group-shared in exactly the same
 # way and are deliberately absent: neither lives under var/, so a prune for
@@ -585,9 +597,11 @@ hand_back_state_zone() {
     # `probe_mounted_dir` has its own: nothing here may quietly depend on what
     # the join above left in a shared variable.
     set --
-    for _hb_dir in "${OSPREY_AUDIT_DIR:-}" "${OSPREY_CONTROL_CONTEXT_DIR:-}" \
+    for _hb_dir in "${OSPREY_CONTROL_CONTEXT_DIR:-}" \
         "${OSPREY_CONTROL_CONTEXT_TREE:-}" "${OSPREY_SIMULATOR_LOG_DIR:-}" \
-        "${OSPREY_GUARDED_RUN_DIR:-}"; do
+        "${OSPREY_GUARDED_RUN_DIR:-}" "${OSPREY_AGENT_RECORD_SPOOL_ROOT:-}" \
+        "${OSPREY_AGENT_RECORD_DIR:-}" "${OSPREY_AGENT_RECORD_ARCHIVE_DIR:-}" \
+        "${OSPREY_SPOOL_DIR:-}" "${OSPREY_STATE_DIR:-}"; do
         # Unset is an ordinary topology — a dispatch worker writes no owner
         # directory, a bare `docker run` mounts none of them. A name that
         # points at a path this container does not have is the misconfigured
@@ -601,6 +615,35 @@ hand_back_state_zone() {
 
     find "$STATE_DIR" "$@" ! -user osprey -exec chown osprey:osprey {} + 2> /dev/null \
         || log "WARNING: could not hand $STATE_DIR back to the osprey user; the app may be unable to write it"
+}
+
+# ── transcripts mount ────────────────────────────────────────────────────────
+# Claude Code's transcripts live on a named volume of their own, nested at
+# `<claude-config>/projects`: a terminal's over its claude-config volume, a
+# dispatch worker's inside its workspace. A fresh named volume's root, and a
+# mount-point directory the runtime had to create inside the parent, are
+# root-owned, and the dropped `osprey` process could then write no transcript
+# at all. Found by the mount table rather than by a variable, because only the
+# terminal names its claude-config directory in the environment.
+#
+# The same rule as the state-zone hand-back above: only a path whose owner is
+# wrong is touched, and only the mount root and its parent — never the
+# transcripts below, which are the user's. Fails open for the same reason.
+# The mount table is /proc/self/mountinfo unless one is passed as $1.
+hand_back_transcript_mounts() {
+    _tm_table="${1:-/proc/self/mountinfo}"
+    [ -r "$_tm_table" ] || return 0
+    # mountinfo's fifth field is the mount point.
+    while read -r _ _ _ _ _tm_dir _; do
+        case "$_tm_dir" in
+            */claude-config/projects) ;;
+            *) continue ;;
+        esac
+        for _tm_path in "$(dirname -- "$_tm_dir")" "$_tm_dir"; do
+            find "$_tm_path" -maxdepth 0 ! -user osprey -exec chown osprey:osprey {} + 2> /dev/null \
+                || log "WARNING: could not hand $_tm_path to the osprey user; no transcript can be written there"
+        done
+    done < "$_tm_table"
 }
 
 # ── control identity ─────────────────────────────────────────────────────────
@@ -707,12 +750,7 @@ main() {
     apply_control_identity
 
     hand_back_state_zone
-
-    # Belt to the per-command prefix on the maintenance invocation: nothing
-    # below this line may carry the writer marker across the drop, because the
-    # app's records must not claim to have come from the root phase. Harmless
-    # if it was never set — `unset` on an unset name succeeds even under -u.
-    unset OSPREY_AUDIT_WRITER
+    hand_back_transcript_mounts
 
     log "dropping privileges to the osprey user"
     exec gosu osprey "$@"

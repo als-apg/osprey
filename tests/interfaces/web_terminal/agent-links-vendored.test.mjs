@@ -116,6 +116,7 @@ describe('a citation rendered by the vendored marked and DOMPurify', () => {
     wireAgentLinks(root, {
       prefix: '',
       isHostedPanel: (id) => id === 'okf',
+      loopbackPorts: () => new Map(),
       openPanel,
       openWindow,
     });

@@ -164,9 +164,7 @@ def give_up_due(entry: dict[str, Any], now: float, gate_ever_open: bool, cfg: An
     age = ceiling_age(entry, now)
     if age >= cfg.retry_lifetime_cap:
         return True
-    if age >= cfg.retry_give_up and (_retried(entry) or gate_ever_open):
-        return True
-    return False
+    return bool(age >= cfg.retry_give_up and (_retried(entry) or gate_ever_open))
 
 
 def coalesce_key(entry: dict[str, Any]) -> tuple:

@@ -160,7 +160,6 @@ POSTURE_FLOOR_KEYS = frozenset(
         "archiver.type",
         "approval.enabled",
         "approval.default_policy",
-        "claude_code.telemetry.enabled",
         "hooks.debug",
     }
 )
@@ -366,11 +365,11 @@ class ConfigKeyGuard:
 
     @staticmethod
     def count_matches(pattern: str, text: str) -> int:
-        return len(re.findall(pattern, text, re.M))
+        return len(re.findall(pattern, text, re.MULTILINE))
 
     @staticmethod
     def has_match(pattern: str, text: str) -> bool:
-        return re.search(pattern, text, re.M) is not None
+        return re.search(pattern, text, re.MULTILINE) is not None
 
     def git(self, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(

@@ -172,10 +172,7 @@ class PendingReviewStore:
     def _locked(self):
         """Acquire exclusive file lock for writes."""
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        fd = open(self._lock_file, "w")
-        try:
+        with open(self._lock_file, "w") as fd:
             fcntl.flock(fd.fileno(), fcntl.LOCK_EX)
             self._load()  # Always reload under lock
             yield
-        finally:
-            fd.close()

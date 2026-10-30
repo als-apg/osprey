@@ -359,19 +359,13 @@ def _add_middle_layer_nodes(parent, data, level, max_depth, max_items) -> None:
     else:
         return
 
-    count = 0
-    for name, node_data in sorted(items.items()):
+    for count, (name, node_data) in enumerate(sorted(items.items())):
         if max_items and count >= max_items:
             remaining = len(items) - max_items
             parent.add(f"[dim]... {remaining} more {item_type}s[/dim]")
             break
 
-        count += 1
-
-        if isinstance(node_data, dict):
-            ch_count = node_data.get("_channels", 0)
-        else:
-            ch_count = node_data
+        ch_count = node_data.get("_channels", 0) if isinstance(node_data, dict) else node_data
 
         if level == 0:
             style = "cyan bold"
@@ -648,14 +642,13 @@ def _navigate_to_focus(tree, focus_parts):
 def _count_channels_matching_focus(database, path_parts, hierarchy_levels):
     """Count channels matching a focus path."""
     matching = []
-    for _ch_name, ch_data in database.channel_map.items():
+    for ch_data in database.channel_map.values():
         ch_path = ch_data.get("path", {})
         matches = True
         for idx, part in enumerate(path_parts):
-            if idx < len(hierarchy_levels):
-                if ch_path.get(hierarchy_levels[idx]) != part:
-                    matches = False
-                    break
+            if idx < len(hierarchy_levels) and ch_path.get(hierarchy_levels[idx]) != part:
+                matches = False
+                break
         if matches:
             matching.append(ch_data)
     return matching
@@ -695,8 +688,7 @@ def _calculate_breakdown(database, hierarchy_levels):
                 path_str = ":".join(parts)
                 path_counts[path_str] = path_counts.get(path_str, 0) + 1
 
-    sorted_breakdown = sorted(path_counts.items(), key=lambda x: (-x[1], x[0]))
-    return sorted_breakdown
+    return sorted(path_counts.items(), key=lambda x: (-x[1], x[0]))
 
 
 def _add_hierarchy_level_new(
@@ -720,13 +712,10 @@ def _add_hierarchy_level_new(
     if not children:
         return
 
-    branch_count = 0
-    for child_name, child_data in children.items():
+    for branch_count, (child_name, child_data) in enumerate(children.items()):
         if max_items and branch_count >= max_items:
             parent_branch.add(f"[dim]... {len(children) - max_items} more {current_level}s[/dim]")
             break
-
-        branch_count += 1
 
         child_path = (parent_path or []) + [child_name]
 
@@ -770,7 +759,7 @@ def _get_children_at_level(data):
             pattern = expansion.get("_pattern", "{}")
             start, end = expansion.get("_range", [1, 1])
             return {pattern.format(i): data for i in range(start, end + 1)}
-        elif exp_type == "list":
+        if exp_type == "list":
             instances = expansion.get("_instances", [])
             return dict.fromkeys(instances, data)
 
@@ -847,10 +836,7 @@ def preview_in_context(db_path: str, show_full: bool = False, console: Console |
     else:
         title = "[bold]LLM Presentation[/bold] [dim](first 20 channels)[/dim]"
 
-    if show_full:
-        sample_channels = all_channels
-    else:
-        sample_channels = all_channels[:20]
+    sample_channels = all_channels if show_full else all_channels[:20]
 
     formatted = database.format_chunk_for_prompt(sample_channels, include_addresses=False)
 
