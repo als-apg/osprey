@@ -72,6 +72,7 @@ from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_BUFFER_MAX
 from osprey.interfaces.web_terminal.routes.config import _changed_protected_keys
 from osprey.utils.config_writer import config_update_fields
+from tests._builds import copy_build
 from tests._preset_data import create_project_as_built
 
 #: An unprotected key the Config panel may still write. ``claude_code`` is an
@@ -87,20 +88,33 @@ COSMETIC_KEY = "claude_code.default_model"
 RENDER_SHAPING_KEY = ("channel_finder", "pipeline_mode")
 
 
-@pytest.fixture
-def built_project(tmp_path):
-    """A real OSPREY project on a ``never`` tier (channel_write baked into deny)."""
+@pytest.fixture(scope="module")
+def _rendered_project(tmp_path_factory):
+    """A real OSPREY project on a ``never`` tier (channel_write baked into deny).
+
+    Rendered once for the module; tests get a private copy via ``built_project``.
+    """
     manager = TemplateManager()
     project_dir = create_project_as_built(
         manager,
         project_name="route-regen",
-        output_dir=tmp_path,
+        output_dir=tmp_path_factory.mktemp("config-routes"),
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
     )
     config_update_fields(project_dir / "config.yml", {"control_system.writes": "never"})
     manager.regenerate_claude_code(project_dir)
     return project_dir
+
+
+@pytest.fixture
+def built_project(_rendered_project, tmp_path):
+    """A private copy of the module's render, re-anchored by :func:`copy_build`.
+
+    The render records its own absolute path, so a plain copy would resolve
+    back to the shared one; the copy is the test's to mutate.
+    """
+    return copy_build(_rendered_project, tmp_path)
 
 
 @pytest.fixture
