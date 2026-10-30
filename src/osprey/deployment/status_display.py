@@ -53,6 +53,7 @@ from osprey.deployment.staleness import BUILD_DIRNAME, staleness_reasons
 from osprey.deployment.web_terminals.naming import web_container_name
 from osprey_connectors.config import load_project_config
 from osprey_connectors.logger import get_logger
+from osprey_connectors.types import TIER_WORDS
 
 logger = get_logger("deployment.status")
 
@@ -1209,9 +1210,13 @@ TIER_NOT_IN_ROSTER = "not in the roster — cannot write"
 #: refuses every write it governs, so this is never shown as "off".
 RECORD_UNREADABLE = "record unreadable — writes refused"
 
-#: The suffix on a login's switched-on machines while its tier is ``never``:
-#: the "on" stays recorded and arms again only if the tier is lifted (O-3).
-INERT_UNDER_NEVER = "on — tier never, inert"
+#: The suffix on a login's armed machines while its tier is ``never``: the
+#: positions stay recorded and arm again only if the tier is lifted (O-3).
+INERT_UNDER_NEVER = "— tier never, inert"
+
+#: The mark on a machine stored at ``allowed`` under an ``asked`` ceiling: writes
+#: there still prompt, and the position is live again if the ceiling is lifted.
+CAPPED_AT_ASKED = "(capped: asked)"
 
 
 def _staged_login_tiers(repo_root):
@@ -1244,7 +1249,7 @@ def _staged_login_tiers(repo_root):
 
 
 def _mapped_tier(section, login):
-    """*login*'s entry in the staged map *section*: ``allowed``, ``never`` or ``unknown``.
+    """*login*'s entry in the staged map *section*: a tier word, or ``unknown``.
 
     Read as the write verdict reads it
     (:func:`~osprey_connectors.posture_store.owner_tier_term`), so a malformed
@@ -1256,7 +1261,7 @@ def _mapped_tier(section, login):
     if section is None:
         return "unknown"
     tier = owner_tier_term(section, login)
-    return tier if tier in ("allowed", "never") else "unknown"
+    return tier if tier in TIER_WORDS else "unknown"
 
 
 def _login_tiers(config, repo_root, section=None):
@@ -1316,8 +1321,15 @@ def _recorded_identities(tree):
         return []
 
 
+def _position_entry(target, position, tier):
+    """One armed machine as ``target:position``, marked when *tier* caps it at ``asked``."""
+    if tier == "asked" and position != tier:
+        return f"{target}:{position} {CAPPED_AT_ASKED}"
+    return f"{target}:{position}"
+
+
 def writes_rows(config, repo_root):
-    """The Writes section's rows: ``(login, tier, target, writes on)``, all strings.
+    """The Writes section's rows: ``(login, tier, target, writes)``, all strings.
 
     One row per person in the roster (in roster order), then one per identity
     that holds a record and is not in the roster (sorted): at its tier in the
@@ -1325,9 +1337,18 @@ def writes_rows(config, repo_root):
     web terminals lists every identity that holds a record, each at the
     deployment's own tier. Never raises on a malformed record: a record that
     exists and cannot be used reads :data:`RECORD_UNREADABLE`, never ``off``.
+
+    The writes cell lists the machines at ``asked`` or ``allowed`` as
+    ``target:position``, ``off`` when there are none. Under a ``never`` tier the
+    list carries :data:`INERT_UNDER_NEVER`; under ``asked``, a stored ``allowed``
+    carries :data:`CAPPED_AT_ASKED`.
     """
     from osprey.deployment.compose_generator import control_target_tree_dir
-    from osprey_connectors.control_context import RECORD_FILENAME, read_record_status
+    from osprey_connectors.control_context import (
+        RECORD_FILENAME,
+        read_record_status,
+        switch_position,
+    )
     from osprey_connectors.types import tier_writes
 
     try:
@@ -1362,13 +1383,18 @@ def writes_rows(config, repo_root):
         if record is None:
             rows.append((login, tier, "—", "off"))
             continue
-        on = sorted(target for target, state in record.switch.items() if state == "on")
-        if not on:
+        positions = {target: switch_position(record, target) for target in sorted(record.switch)}
+        armed = ", ".join(
+            _position_entry(target, position, tier)
+            for target, position in positions.items()
+            if position != "off"
+        )
+        if not armed:
             writes = "off"
         elif tier == "never":
-            writes = f"{', '.join(on)} {INERT_UNDER_NEVER}"
+            writes = f"{armed} {INERT_UNDER_NEVER}"
         else:
-            writes = ", ".join(on)
+            writes = armed
         rows.append((login, tier, record.target, writes))
     return rows
 
@@ -1473,7 +1499,7 @@ def _login_state_dir(config, repo_root, login):
 
 
 def _print_writes_section(config, repo_root):
-    """Print who may write, at which machine each login points, and what is on.
+    """Print who may write, at which machine each login points, and each switch position.
 
     Read straight off each identity's control-context record; nothing is
     written, and no record is created for a login that has none. The Target
@@ -1491,13 +1517,13 @@ def _print_writes_section(config, repo_root):
     table.add_column("Login", style=Styles.ACCENT, no_wrap=True)
     table.add_column("Tier", style=Styles.PRIMARY)
     table.add_column("Target", style=Styles.INFO)
-    table.add_column("Writes on", style=Styles.PRIMARY)
+    table.add_column("Writes (off, asked, allowed)", style=Styles.PRIMARY)
     for login, tier, target, writes in rows:
         if writes == RECORD_UNREADABLE:
             writes_cell = Text(writes, style=Styles.ERROR)
         elif writes == "off":
             writes_cell = Text(writes, style=Styles.DIM)
-        elif writes.endswith(INERT_UNDER_NEVER):
+        elif writes.endswith(INERT_UNDER_NEVER) or CAPPED_AT_ASKED in writes:
             writes_cell = Text(writes, style=Styles.WARNING)
         else:
             writes_cell = Text(writes, style=Styles.SUCCESS)
@@ -1530,9 +1556,10 @@ def show_repo_status(
       another checkout's.
     * **Endpoints** — where this deployment's services are declared to answer.
     * **Writes** — per login its tier, the target its record points at, and
-      which machines it has switched writes on for; an "on" its ``never`` tier
-      makes inert, an identity not in the roster, and a record that cannot be
-      read are each named as such.
+      each armed machine's position (``asked`` or ``allowed``, any other machine
+      is ``off``); a position its ``never`` tier makes inert, an ``allowed``
+      capped by an ``asked`` tier, an identity not in the roster, and a record
+      that cannot be read are each named as such.
     * **Agent** — the provider, whether its credential is findable, and whether
       the rendered agent artifacts still match the config.
 
