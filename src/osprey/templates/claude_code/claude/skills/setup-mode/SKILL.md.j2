@@ -131,12 +131,12 @@ Expected subdirectories in `{{ agent_data_root }}/`:
 
 | Change | Type | Effect |
 |--------|------|--------|
-| `control_system.writes` | Cold | The tier's write ceiling, `allowed` or `never`, for every machine this deployment has. Hooks re-read on each call, but the connector caches it at launch and `permissions.deny` is not regenerated — needs `osprey build` + restart |
+| `control_system.writes` | Cold | The tier's write ceiling, `never`, `asked` or `allowed`, for every machine this deployment has: the furthest switch position (off, asked or allowed) a login may pick. Hooks re-read on each call, but the connector caches it at launch and `permissions.deny` is not regenerated — needs `osprey build` + restart |
 | `control_system.limits_checking.enabled` | Hot | Hooks re-read on each call |
 | `control_system.limits_checking.mode` | Hot | Hooks re-read on each call |
 | `control_system.connector.<type>.limits_checking.*` | Hot | Per-connector-type limits-checking posture, which answers instead of the keys above for that type — hooks re-read on each call |
 | `approval.enabled` | Hot | Hooks re-read on each call; false allows every gated tool |
-| `approval.default_policy` / `approval.tools.<tool>` | Hot | Per-tool approval policy; hooks re-read on each call |
+| `approval.default_policy` / `approval.tools.<tool>` | Hot | Per-tool approval policy; hooks re-read on each call. Machine writes (`channel_write`, `execute` and `execute_file` in write mode, `pyaml_measure`, `queue_add`, `queue_start`, and declared facility write tools) do not read it: the login's switch position decides whether they ask |
 | `control_system.type` | Cold | Requires MCP server restart. To change target for this session, use `control_target_set` (run-time switch, asks for approval) — do not rebuild to switch target |
 | `control_system.target_switch.drain_timeout_s` | Cold | Read when a switch drains in-flight work, from the config the server cached at launch — requires MCP server restart |
 | `control_system.target_switch.probe_timeout_s` | Cold | Read when a switch probes the new connection, from the config the server cached at launch — requires MCP server restart |
@@ -161,12 +161,12 @@ Switching control target is not a config change: `control_system.type` only sets
 
 ### 2. Writes Blocked
 **Symptoms**: `channel_write` rejected.
-**Check**: `setup_inspect` → `config.control_system.writes`. While it is `never`, every write is refused. While it is `allowed`, the login's own write switch for the machine the session is on decides each write; the operator sets it from the web terminal's control-target chip.
-**Fix**: `control_system.*` is a protected key — `setup_patch` refuses it and records the refusal. The change belongs to the deployment repo: write `control_system.writes: allowed` in the profile or tier file that renders this agent (`osprey set` only lowers it to `never`). Then `osprey build` and restart the agent (cold change: the connector and the enforced `permissions.deny` list still refuse writes until then).
+**Check**: `setup_inspect` → `config.control_system.writes`, one of three tier values. While it is `never`, every write is refused. While it is `asked` or `allowed`, the login's own write switch for the machine the session is on decides each write: at off the write is refused, at asked a person approves it first, at allowed it runs without a prompt. The operator sets the position from the web terminal's control-target chip, and the tier is the furthest it goes — under an `asked` tier a switch set to allowed behaves as asked.
+**Fix**: `control_system.*` is a protected key — `setup_patch` refuses it and records the refusal. The change belongs to the deployment repo: write `control_system.writes: asked` or `control_system.writes: allowed` in the profile or tier file that renders this agent (`osprey set` only lowers it). Then `osprey build` and restart the agent (cold change: the connector and the enforced `permissions.deny` list still refuse writes until then).
 
 ### 3. Missing Safety Hooks
 **Symptoms**: Writes proceed without approval prompts.
-**Check**: `setup_inspect` → `hooks.PreToolUse`. Look for `osprey_approval.py` matcher.
+**Check**: First the switch: a machine at allowed runs its writes without a prompt by design — that is the position doing its job, not a missing hook; move it to asked from the chip to be asked again. Otherwise `setup_inspect` → `hooks.PreToolUse`. Look for `osprey_approval.py` matcher.
 **Fix**: Run `osprey build` to regenerate hooks from template.
 
 ### 4. Permission Denied on Tools

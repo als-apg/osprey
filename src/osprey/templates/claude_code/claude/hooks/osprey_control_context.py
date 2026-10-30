@@ -43,7 +43,8 @@ something the agent's own context does not already hold:
 ```
 --- osprey control-context ---
 target: va  gen: 2
-writes: live=off va=on
+writes: live=off va=asked
+positions: off="the next write is refused until the chip moves the switch" asked="a person approves the next write" allowed="the login's switch position approves the next write; limits still apply"
 machines: live="Real machine — writes move hardware" va="Simulator — nothing moves"
 ```
 
@@ -56,13 +57,14 @@ a machine's words moved since the last emission for this session, marked
 ```
 --- osprey control-context (changed) ---
 target: live  gen: 3  (was va)
-writes: live=on (was off) va=on
+writes: live=allowed (was off) va=asked
+positions: off="the next write is refused until the chip moves the switch" asked="a person approves the next write" allowed="the login's switch position approves the next write; limits still apply"
 machines: live="Real machine — writes move hardware" va="Simulator — nothing moves"
 ```
 
 An unchanged prompt injects nothing. Nothing in the block asks the agent to do
 anything: the point is that a switch made from the terminal's chip, or a
-turn-on or turn-off made there, reaches the agent as a fact before its next
+position moved there, reaches the agent as a fact before its next
 turn, so what it holds about the machine is never stale — and so it has no
 reason to re-derive from the record what the harness already told it.
 
@@ -72,14 +74,23 @@ reason to re-derive from the record what the harness already told it.
 (``osprey_target_state.session_types``) by its raw key, each with the twin's
 write verdict for this login (``osprey_target_state.write_verdict``):
 
-* ``on`` — a write proceeds: the verdict allows it.
 * ``off`` — this login's switch for the machine is off (``switch_off``); the
-  chip turns it on.
+  next write is refused until the chip moves the switch.
+* ``asked`` — the verdict allows the write at this position: a person approves
+  the next write.
+* ``allowed`` — the verdict allows the write at this position: the login's
+  switch position approves the next write, and limits still apply.
 * ``refused:<reason>`` — any other refusal, named by its verdict reason
   (``tier_never``, ``readonly_run``, ``launch_pinned``, ...). In particular
   ``refused:record_unavailable`` when the switch record cannot be read: the
   block then says writes are refused, never that a machine is off, because an
   unreadable switch is not a switch someone turned off.
+
+``asked`` and ``allowed`` are the verdict's own position, so a stored ``allowed``
+under a tier capped at ``asked`` reads ``asked``, and a stored legacy ``on`` reads
+``asked``. The ``positions`` line defines the three position words every time the
+block is emitted, so the block says what its words mean on its own; it is fixed
+text, not part of the remembered state, and never marks a change.
 
 A record file that exists but cannot be read at all still emits — with
 ``target: unknown  gen: unknown`` and every machine ``refused:record_unavailable``
@@ -153,11 +164,20 @@ _SESSION_START = "SessionStart"
 #: The event that emits on change only.
 _USER_PROMPT = "UserPromptSubmit"
 
-#: What ``writes`` says about one target: the verdict allows, the switch is
-#: off, or another verdict reason refuses (``refused:<reason>``).
-WRITES_ON = "on"
+#: What ``writes`` says about one target: the switch is off, the verdict allows
+#: at its position (``asked`` or ``allowed``), or another verdict reason refuses
+#: (``refused:<reason>``).
 WRITES_OFF = "off"
+WRITES_ASKED = "asked"
+WRITES_ALLOWED = "allowed"
 WRITES_REFUSED = "refused"
+
+#: What each position means for the next write, as the ``positions`` line says it.
+POSITION_MEANINGS = {
+    WRITES_OFF: "the next write is refused until the chip moves the switch",
+    WRITES_ASKED: "a person approves the next write",
+    WRITES_ALLOWED: "the login's switch position approves the next write; limits still apply",
+}
 
 #: The verdict reason that reads as ``off`` rather than as a refusal.
 _SWITCH_OFF_REASON = "switch_off"
@@ -211,9 +231,9 @@ def memo_path(session_id):
 
 
 def _writes_word(verdict):
-    """The ``writes`` word for one twin verdict."""
+    """The ``writes`` word for one twin verdict: its position when it allows."""
     if verdict.allowed:
-        return WRITES_ON
+        return verdict.position
     if verdict.reason == _SWITCH_OFF_REASON:
         return WRITES_OFF
     return f"{WRITES_REFUSED}:{verdict.reason}"
@@ -310,6 +330,8 @@ def render_block(state, previous=None):
             entry += f" (was {old_writes[target]})"
         words.append(entry)
     lines.append("writes: " + " ".join(words))
+    meanings = " ".join(f'{word}="{meaning}"' for word, meaning in POSITION_MEANINGS.items())
+    lines.append(f"positions: {meanings}")
     names = []
     old_machines = previous.get("machines", {}) if changed else {}
     for target, label in state["machines"].items():
