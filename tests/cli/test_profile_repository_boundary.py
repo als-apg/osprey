@@ -10,14 +10,18 @@ stamp folds.
 
 from __future__ import annotations
 
+import os
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, NoReturn
 
 import pytest
 from click.testing import CliRunner
 
+from osprey.cli.build_injectors import _locate_pkg_services
 from osprey.cli.build_profile_document import _read_profile_document
 from osprey.cli.build_profile_merge import (
+    bundled_service_template,
     inputs_outside_repository,
     profile_inputs,
     resolve_profile_document,
@@ -34,6 +38,9 @@ REPO = "demo"
 
 #: The sentence every refusal line ends with.
 REMEDY = "Move it into the repository."
+
+#: A file only the outside directory holds; a copy of that directory carries it.
+MARKER = "MARKER"
 
 
 @pytest.fixture
@@ -232,3 +239,52 @@ def test_an_in_repo_service_template_builds_and_is_imaged(repo: Path) -> None:
     assert result.exit_code == 0, result.output
     imaged = {(repo.resolve() / path) for path in _image_build_inputs(repo)}
     assert template.resolve() in imaged
+
+
+def _shipped_services() -> Path:
+    """The directory the framework's service templates ship in."""
+    return _locate_pkg_services().resolve()
+
+
+def _abs_path_spelling(outside: Path) -> str:
+    return f"osprey.{outside.as_posix()}"
+
+
+def _parent_escape_spelling(outside: Path) -> str:
+    return f"osprey.a/../../{os.path.relpath(outside, _shipped_services().parent)}"
+
+
+def _dotted_spelling(_outside_dir: Path) -> str:
+    return "osprey../x"
+
+
+@pytest.mark.parametrize("spell", [_abs_path_spelling, _parent_escape_spelling, _dotted_spelling])
+def test_a_template_that_is_not_a_plain_name_copies_nothing_from_outside(
+    repo: Path, tmp_path: Path, spell: Callable[[Path], str]
+) -> None:
+    outside = (tmp_path / "outside").resolve()
+    outside.mkdir()
+    (outside / MARKER).write_text("outside\n", encoding="utf-8")
+    (outside / "docker-compose.yml.j2").write_text("services: {}\n", encoding="utf-8")
+    spelling = spell(outside)
+    _set_template(repo, spelling)
+
+    assert bundled_service_template(spelling) is None
+
+    validated = CliRunner().invoke(cli, ["validate", "--repo", str(repo)])
+    built = run_build(repo)
+
+    assert validated.exit_code != 0, validated.output
+    assert built.exit_code != 0, built.output
+    assert list((repo / BUILD_DIR_NAME).rglob(MARKER)) == []
+
+
+def test_every_shipped_template_name_is_bundled() -> None:
+    names = sorted(
+        compose.parent.name for compose in _shipped_services().glob("*/docker-compose.yml.j2")
+    )
+
+    assert names
+    assert {name: bundled_service_template(f"osprey.{name}") for name in names} == {
+        name: name for name in names
+    }
