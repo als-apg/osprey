@@ -29,8 +29,11 @@ here with the dotted keys that do the job.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import click
+
+from osprey_connectors.types import TIER_WORDS
 
 from .output import note, report, warn
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
@@ -80,11 +83,14 @@ def _refuse_retired_shorthands(pairs: tuple[str, ...]) -> None:
 #: The write ceiling, as the rendered-config path ``config.``-prefixed keys address.
 _WRITES_PATH = "control_system.writes"
 
-#: The one value this command may write there: it only narrows the ceiling.
+#: The value this command may write from any ceiling.
 _WRITES_NARROW = "never"
 
-#: The words the ceiling takes, for the refusal of anything else.
-_WRITES_WORDS = ("allowed", "never")
+#: The value this command may write from the widest ceiling alone.
+_WRITES_ASKED = "asked"
+
+#: The section of the rendered config the ceiling is read from.
+_CONTROL_SYSTEM = "control_system"
 
 
 def _config_leaves(path: str, value: object) -> list[tuple[str, object]]:
@@ -102,18 +108,284 @@ def _config_leaves(path: str, value: object) -> list[tuple[str, object]]:
     return [(path, value)]
 
 
-def _refuse_write_posture(pairs: tuple[str, ...]) -> None:
+def _rendered_ceiling(repo_root: Path) -> str:
+    """The write ceiling the root renders, read through the render.
+
+    The root may be silent and inherit from what it extends, and a ``config:``
+    block holds dotted keys applied in order, so neither the file nor a plain key
+    lookup answers this.
+    """
+    from osprey_connectors.types import tier_writes
+
+    from .build_profile_merge import _rendered_control_system
+    from .build_profile_resolve import resolve_build_profile
+
+    profile, _ = resolve_build_profile(repo_root / PROFILE_FILENAME, None)
+    return tier_writes(_rendered_control_system(profile.config))
+
+
+def _read_ceiling(repo_root: Path) -> tuple[str | None, Exception | None]:
+    """The rendered ceiling, or ``None`` and why it could not be read.
+
+    Any failure counts: a ceiling that cannot be read is unknown, whatever raised.
+    """
+    try:
+        return _rendered_ceiling(repo_root), None
+    except Exception as e:  # every failure leaves the ceiling unknown
+        return None, e
+
+
+def _root_ceiling(repo_root: Path) -> str:
+    """The ceiling a move is judged against: unknown refuses it, nothing written yet."""
+    ceiling, error = _read_ceiling(repo_root)
+    if ceiling is None:
+        raise click.UsageError(str(error)) from error
+    return ceiling
+
+
+def _load_profile(data: bytes) -> object:
+    """*data* parsed by the parser the write uses; raises its error on a bad document."""
+    from ruamel.yaml import YAML
+
+    return YAML(typ="safe", pure=True).load(data)
+
+
+def _refuse_unparsable(profile_path: Path) -> bytes:
+    """The profile's bytes, refused before anything is written unless they are a YAML mapping.
+
+    An empty file is a mapping with nothing in it yet.
+    """
+    from ruamel.yaml.error import YAMLError
+
+    data = profile_path.read_bytes()
+    try:
+        document = _load_profile(data)
+    except YAMLError as e:
+        raise click.UsageError(
+            f"{profile_path.name} is not valid YAML, so nothing was written. Fix the file "
+            f"first; `osprey set` edits a document it can read.\n{e}"
+        ) from e
+    if document is not None and not isinstance(document, dict):
+        raise click.UsageError(
+            f"{profile_path.name} holds a {type(document).__name__}, not a mapping of profile "
+            "keys, so nothing was written. Fix the file first."
+        )
+    return data
+
+
+def _names_writes(value: object) -> bool:
+    """Whether a mapping in *value*, at any depth, has a key spelling ``writes``."""
+    if not isinstance(value, dict):
+        return False
+    return any(
+        not isinstance(k, str) or "writes" in k or _names_writes(v) for k, v in value.items()
+    )
+
+
+def _can_reach_ceiling(key: object, value: object) -> bool:
+    """Whether a ``config:`` entry can bear on the rendered ceiling.
+
+    The ceiling is the value at ``control_system.writes``, and an entry assigns the
+    value at its own path, so only a path that holds it or lies beneath it reaches
+    it. Anything that could be read otherwise is taken to reach it too: an odd
+    spelling, and a ``writes`` word anywhere in the path or the value (the retired
+    ``writes_enabled`` leaves among them).
+    """
+    if not isinstance(key, str):
+        return True
+    segments = [segment.strip() for segment in key.split(".")]
+    target = _WRITES_PATH.split(".")
+    shared = min(len(segments), len(target))
+    return (
+        not all(segments)
+        or segments[:shared] == target[:shared]
+        or any("writes" in segment for segment in segments)
+        or _names_writes(value)
+    )
+
+
+#: Stands in the entries for a ``config:`` that is not a mapping.
+_NOT_A_MAPPING = object()
+
+
+def _ceiling_inputs(
+    document: object, legal: frozenset[str]
+) -> tuple[object, list[tuple[object, object]]]:
+    """What in the root file the rendered ceiling is computed from.
+
+    The render reads the merged ``config:``, which the root's known keys shape
+    (what it inherits, and from where) and its entries write into, in order. A
+    key the schema does not know feeds nothing: the build refuses it. An entry
+    that cannot reach the ceiling (:func:`_can_reach_ceiling`) is left out.
+    """
+    if document is None:
+        document = {}
+    if not isinstance(document, dict):
+        return ("document", document), []
+    top = {k: v for k, v in document.items() if k != "config" and k in legal}
+    if "config" not in document:
+        return top, []
+    config = document["config"]
+    if not isinstance(config, dict):
+        # It holds no entry, but replacing it with one changes what the render
+        # reads, so its shape is itself an input. A bare `config:` (null) too:
+        # the render refuses it where an absent key renders.
+        return top, [(_NOT_A_MAPPING, config)]
+    return top, [(k, v) for k, v in config.items() if _can_reach_ceiling(k, v)]
+
+
+def _ceiling_change(before: bytes, after: bytes, profile_path: Path, word: str | None) -> str:
+    """How the write changed what the ceiling is computed from, judged on the file.
+
+    ``"none"`` when nothing that feeds the ceiling changed; ``"never"`` when the one
+    change is the root's dotted ceiling line, now ``never`` (*word*); else
+    ``"changed"``, which a line that cannot be judged also is.
+    """
+    try:
+        after_document = _load_profile(after)
+    except Exception:  # a document that cannot be read has changed
+        return "changed"
+    legal = _legal_keys(profile_path)
+    top_before, entries_before = _ceiling_inputs(_load_profile(before), legal)
+    top_after, entries_after = _ceiling_inputs(after_document, legal)
+    if top_before != top_after:
+        return "changed"
+    if entries_before == entries_after:
+        return "none"
+    if word == _WRITES_NARROW:
+        # A `config:` that was not a mapping becomes the mapping holding the line.
+        rest_before = [e for e in entries_before if e[0] not in (_WRITES_PATH, _NOT_A_MAPPING)]
+        rest_after = [e for e in entries_after if e[0] != _WRITES_PATH]
+        if (_WRITES_PATH, _WRITES_NARROW) in entries_after and rest_before == rest_after:
+            return _WRITES_NARROW
+    return "changed"
+
+
+def _broken_by_this_line(repo_root: Path, before: bytes, error: Exception) -> click.UsageError:
+    """Take back a write that broke a root that resolved, and the refusal saying why."""
+    from .build_profile_resolve import _atomic_write_bytes
+
+    _atomic_write_bytes(repo_root / PROFILE_FILENAME, before)
+    return click.UsageError(str(error))
+
+
+def _land_ceiling(repo_root: Path, word: str, before: bytes, resolved_before: bool) -> None:
+    """Make an accepted move true of the render, or take it back and refuse.
+
+    The render is the oracle: a dotted write can sit behind a ``control_system:``
+    mapping, because a merge keeps an inherited key at its inherited position and
+    the mapping is then assigned whole over it. So the word is also written into
+    that mapping, which stays where the merge put it. A move that still does not
+    land restores *before*: exit 0 on this key tells the operator writes are off.
+
+    A line that breaks a root which resolved (*resolved_before*) is taken back too.
+    A root that already did not resolve was judged on the file instead: the line
+    wrote ``never`` and nothing else the ceiling is computed from, so it is reported.
+    """
+    from .build_profile_resolve import _atomic_write_bytes, _write_profile_values
+
+    profile_path = repo_root / PROFILE_FILENAME
+    ceiling, error = _read_ceiling(repo_root)
+    if ceiling is not None and ceiling != word:
+        _write_profile_values(profile_path, [(["config", *_WRITES_PATH.split(".")], word)])
+        ceiling, error = _read_ceiling(repo_root)
+    if ceiling is None:
+        if resolved_before:
+            raise _broken_by_this_line(repo_root, before, cast(Exception, error)) from error
+        note(f"{profile_path.name} does not resolve; `{_WRITES_PATH}` not checked in the render.")
+        return
+    if ceiling != word:
+        _atomic_write_bytes(profile_path, before)
+        raise click.UsageError(
+            f"`{_WRITES_PATH}: {word}` does not reach the render, which stays `{ceiling}`. "
+            "Nothing was written; state it in the profile or tier file that sets the block."
+        )
+
+
+def _hold_ceiling(repo_root: Path, ceiling: str, before: bytes) -> None:
+    """Take back a line that raised the ceiling without naming it, and refuse.
+
+    Judged by the render, like an accepted move: *ceiling* is what the root rendered
+    before the write. A render that no longer reads cannot be judged, so the line is
+    taken back.
+    """
+    from .build_profile_resolve import _atomic_write_bytes
+
+    after, error = _read_ceiling(repo_root)
+    if after is None:
+        raise _broken_by_this_line(repo_root, before, cast(Exception, error)) from error
+    if TIER_WORDS.index(after) > TIER_WORDS.index(ceiling):
+        _atomic_write_bytes(repo_root / PROFILE_FILENAME, before)
+        raise click.UsageError(
+            f"This line would remove the word that holds `{_WRITES_PATH}` at `{ceiling}`, and "
+            f"the render would rise to `{after}`. Nothing was written. "
+            + _widening_refusal(after, f", which is `{ceiling}`")
+        )
+
+
+def _judge_line(
+    repo_root: Path,
+    before: bytes,
+    ceiling: str | None,
+    error: Exception | None,
+    narrowed_to: str | None,
+) -> None:
+    """Keep a written line only when it is known not to raise the ceiling.
+
+    Every line is judged, not only the keys expected to reach the ceiling. The
+    render decides when it read before the write (*ceiling*). When it did not, the
+    file decides: the line is kept only when it changed nothing the ceiling is
+    computed from, or wrote ``never`` and nothing else. Any other line on such a
+    root cannot be judged, so it is taken back and refused.
+    """
+    from .build_profile_resolve import _atomic_write_bytes
+
+    profile_path = repo_root / PROFILE_FILENAME
+    change = _ceiling_change(before, profile_path.read_bytes(), profile_path, narrowed_to)
+    if ceiling is None and change == "changed":
+        _atomic_write_bytes(profile_path, before)
+        raise click.UsageError(
+            f"{profile_path.name} does not resolve, so what this line does to "
+            f"`{_WRITES_PATH}` cannot be judged. Nothing was written. Fix the profile "
+            f"first; `osprey set config.{_WRITES_PATH}={_WRITES_NARROW}` stays writable.\n"
+            f"{error}"
+        ) from error
+    if narrowed_to:
+        _land_ceiling(repo_root, narrowed_to, before, resolved_before=ceiling is not None)
+    elif ceiling is not None and change != "none":
+        _hold_ceiling(repo_root, ceiling, before)
+
+
+def _widening_refusal(word: str, stands_at: str = "") -> str:
+    """The refusal of a move ``osprey set`` may not make, naming the edit a reviewer reads."""
+    return (
+        f"`osprey set` only lowers the write ceiling{stands_at}: `{_WRITES_PATH}: {word}` is "
+        "stated by editing the profile or tier file, where it is reviewed. No CLI path turns "
+        f"writes on; `config.{_WRITES_PATH}={_WRITES_NARROW}` lowers it from any ceiling, "
+        f"`={_WRITES_ASKED}` only from `{TIER_WORDS[-1]}`."
+    )
+
+
+def _refuse_write_posture(pairs: tuple[str, ...], repo_root: Path) -> str | None:
     """Refuse every pair that would raise or misstate the write ceiling.
 
-    No CLI path turns writes on. ``config.control_system.writes=never`` only
-    narrows and is accepted; ``=allowed`` is refused — raising the ceiling is an
+    No CLI path turns writes on. ``config.control_system.writes=never`` narrows
+    from any ceiling and is accepted; ``=asked`` narrows only from ``allowed``,
+    so it is judged against the ceiling the root renders today; ``=allowed`` and
+    ``=asked`` from ``never`` or ``asked`` are refused — raising the ceiling is an
     edit to the profile or tier file a reviewer reads, not a command — and any
-    other value is refused naming the two words. The retired ``writes_enabled``
-    leaves (global or per connector type) are refused pointing at the new key.
+    other value is refused naming the three words. The retired ``writes_enabled``
+    leaves (global or per connector type, at any depth of the path) are refused
+    pointing at the new key, and so is a ``config`` value that is not a mapping.
     Runs before anything is written, so one refused pair rejects the whole line.
+    A line that moves the ceiling without stating it is :func:`_judge_line`'s.
+
+    Returns:
+        The word the line narrows the ceiling to; ``None`` when it does not name it.
     """
     import yaml
 
+    narrowed_to: str | None = None
     for pair in pairs:
         key, separator, raw = pair.partition("=")
         key = key.strip()
@@ -123,29 +395,39 @@ def _refuse_write_posture(pairs: tuple[str, ...]) -> None:
             value = yaml.safe_load(raw)
         except yaml.YAMLError:
             value = raw
+        if key == "config" and not isinstance(value, dict):
+            raise click.UsageError(
+                f"`config` takes a mapping of rendered-config keys, not `{raw.strip()}`. "
+                "Nothing was written; to set one key, address it as `config.<path>=<value>`."
+            )
         for path, leaf in _config_leaves(key.removeprefix("config").lstrip("."), value):
-            if path.startswith("control_system.") and path.endswith(".writes_enabled"):
+            if path.startswith(f"{_CONTROL_SYSTEM}.") and "writes_enabled" in path.split("."):
                 raise click.UsageError(
                     f"`config.{path}` is retired. The write ceiling is "
-                    f"`{_WRITES_PATH}` (allowed | never). `osprey set` can only lower "
-                    f"it — `osprey set config.{_WRITES_PATH}={_WRITES_NARROW}`; to allow "
+                    f"`{_WRITES_PATH}` ({' | '.join(TIER_WORDS)}). `osprey set` can only "
+                    f"lower it — `osprey set config.{_WRITES_PATH}={_WRITES_NARROW}`; to allow "
                     "writes, edit the profile or tier file."
                 )
             if path == _WRITES_PATH or path.startswith(f"{_WRITES_PATH}."):
                 if path == _WRITES_PATH and leaf == _WRITES_NARROW:
+                    narrowed_to = cast(str, leaf)
                     continue
-                if path == _WRITES_PATH and leaf == "allowed":
+                if path == _WRITES_PATH and leaf == _WRITES_ASKED:
+                    ceiling = _root_ceiling(repo_root)
+                    if TIER_WORDS.index(leaf) < TIER_WORDS.index(ceiling):
+                        narrowed_to = cast(str, leaf)
+                        continue
                     raise click.UsageError(
-                        f"`osprey set` cannot raise the write ceiling: `{_WRITES_PATH}: "
-                        "allowed` is stated by editing the profile or tier file, where "
-                        "it is reviewed. No CLI path turns writes on; "
-                        f"`config.{_WRITES_PATH}={_WRITES_NARROW}` is the one value "
-                        "this command writes."
+                        _widening_refusal(cast(str, leaf), f", which is `{ceiling}`")
                     )
+                if path == _WRITES_PATH and leaf in TIER_WORDS:
+                    raise click.UsageError(_widening_refusal(cast(str, leaf)))
                 raise click.UsageError(
-                    f"`{_WRITES_PATH}` takes one of {' | '.join(_WRITES_WORDS)}; "
-                    f"`osprey set` writes only `{_WRITES_NARROW}`."
+                    f"`{_WRITES_PATH}` takes one of {' | '.join(TIER_WORDS)}; `osprey set` "
+                    f"writes only `{_WRITES_NARROW}`, or `{_WRITES_ASKED}` from "
+                    f"`{TIER_WORDS[-1]}`."
                 )
+    return narrowed_to
 
 
 def _unrecognized_top_level_keys(pairs: tuple[str, ...], profile_path: Path) -> list[str]:
@@ -342,8 +624,10 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
     config.control_system.type.
 
     The write ceiling only narrows here: `config.control_system.writes=never`
-    is accepted, `=allowed` is refused — allowing writes is an edit to the
-    profile or tier file.
+    is accepted from any ceiling, `=asked` only from `allowed`, and `=allowed`
+    is refused — allowing writes is an edit to the profile or tier file. Any line
+    that would raise the ceiling, or whose effect on it cannot be judged because
+    the profile does not resolve, is refused and nothing is written.
 
     Examples:
 
@@ -355,6 +639,8 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
       $ osprey set config.system.timezone=America/Los_Angeles
       $ osprey set --repo ~/my-assistant config.control_system.writes=never
     """
+    from ruamel.yaml.error import YAMLError
+
     from osprey.deployment.staleness import check_drift
     from osprey_connectors.errors import BuildProfileError
 
@@ -377,16 +663,21 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
     repo_root = find_repo_root(repo)
     profile_path = repo_root / PROFILE_FILENAME
 
+    before = _refuse_unparsable(profile_path)
     _refuse_retired_shorthands(pairs)
-    _refuse_write_posture(pairs)
+    narrowed_to = _refuse_write_posture(pairs, repo_root)
     model_check = _model_check(repo_root, pairs)
 
+    # The leaves judged above are the keys that name the ceiling; a line can still
+    # move it without naming it, so every line is judged after the write as well.
+    ceiling, unread = _read_ceiling(repo_root)
     try:
         # Every pair is merged into one layer before any of it is written, so a
         # command line with one bad pair in it changes nothing at all.
         written = write_back_cli_overrides(profile_path, set_pairs=pairs)
-    except BuildProfileError as e:
+    except (BuildProfileError, YAMLError) as e:
         raise click.UsageError(str(e)) from e
+    _judge_line(repo_root, before, ceiling, unread, narrowed_to)
 
     report(f"✓ Wrote {len(written)} setting(s) into {profile_path}", style=Styles.SUCCESS)
     for key in written:
