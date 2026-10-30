@@ -43,6 +43,7 @@ while the test file it runs is renamed.
 from __future__ import annotations
 
 import ast
+import functools
 import re
 from pathlib import Path
 
@@ -345,51 +346,79 @@ _WRITE_POSTURE_ANY = re.compile(
 )
 
 
-def _write_posture_offenders(
+def _legacy_offenders_in(path: Path, content: str) -> list[str]:
+    offenders: list[str] = []
+    for needle in LEGACY_SUBSTRINGS:
+        if needle in content:
+            # Capture a few line numbers for diagnosis
+            lines = [
+                f"{i}: {ln}" for i, ln in enumerate(content.splitlines(), start=1) if needle in ln
+            ][:3]
+            offenders.append(f"{path}: {needle!r}\n  " + "\n  ".join(lines))
+    return offenders
+
+
+def _write_posture_offenders_in(path: Path, content: str, allowed: frozenset[str]) -> list[str]:
+    # The alternation is the slow part of the sweep, and a whole identifier it
+    # finds is a substring first: a file that holds none of the names is passed
+    # over without it.
+    if not any(name in content for name in WRITE_POSTURE_IDENTIFIERS):
+        return []
+    offenders: list[str] = []
+    for name in sorted(set(_WRITE_POSTURE_ANY.findall(content)) - allowed):
+        pattern = _WRITE_POSTURE_PATTERNS[name]
+        lines = [
+            f"{i}: {ln}" for i, ln in enumerate(content.splitlines(), start=1) if pattern.search(ln)
+        ][:3]
+        offenders.append(f"{path}: {name!r}\n  " + "\n  ".join(lines))
+    return offenders
+
+
+def _sweep(
     repo_root: Path = _REPO_ROOT,
     roots: tuple[str, ...] = ROOTS,
     exemptions: dict[str, frozenset[str]] = WRITE_POSTURE_EXEMPTIONS,
-) -> list[str]:
-    offenders: list[str] = []
+) -> tuple[list[str], list[str]]:
+    """The legacy-substring and the write-posture offenders, from one read of each file."""
+    legacy: list[str] = []
+    posture: list[str] = []
     for path in _scan_roots(repo_root, roots):
         try:
             content = path.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
+        legacy += _legacy_offenders_in(path, _judged_text(path, content))
         allowed = exemptions.get(path.relative_to(repo_root).as_posix(), frozenset())
-        for name in sorted(set(_WRITE_POSTURE_ANY.findall(content)) - allowed):
-            pattern = _WRITE_POSTURE_PATTERNS[name]
-            lines = [
-                f"{i}: {ln}"
-                for i, ln in enumerate(content.splitlines(), start=1)
-                if pattern.search(ln)
-            ][:3]
-            offenders.append(f"{path}: {name!r}\n  " + "\n  ".join(lines))
-    return offenders
+        posture += _write_posture_offenders_in(path, content, allowed)
+    return legacy, posture
+
+
+@functools.cache
+def _repository_sweep() -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """:func:`_sweep` of the repository itself, read once for the two tests that assert it.
+
+    Reading the scanned tree is most of what either test costs, and the tree
+    does not change while the suite runs.
+    """
+    legacy, posture = _sweep()
+    return tuple(legacy), tuple(posture)
+
+
+def _write_posture_offenders(
+    repo_root: Path = _REPO_ROOT,
+    roots: tuple[str, ...] = ROOTS,
+    exemptions: dict[str, frozenset[str]] = WRITE_POSTURE_EXEMPTIONS,
+) -> list[str]:
+    return _sweep(repo_root, roots, exemptions)[1]
 
 
 def test_no_legacy_symbols() -> None:
-    offenders: list[str] = []
-    for path in _scan_roots():
-        try:
-            content = path.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
-            continue
-        content = _judged_text(path, content)
-        for needle in LEGACY_SUBSTRINGS:
-            if needle in content:
-                # Capture a few line numbers for diagnosis
-                lines = [
-                    f"{i}: {ln}"
-                    for i, ln in enumerate(content.splitlines(), start=1)
-                    if needle in ln
-                ][:3]
-                offenders.append(f"{path}: {needle!r}\n  " + "\n  ".join(lines))
+    offenders = _repository_sweep()[0]
     assert not offenders, "Legacy renamed symbols remain:\n" + "\n".join(offenders)
 
 
 def test_no_write_posture_identifiers() -> None:
-    offenders = _write_posture_offenders()
+    offenders = _repository_sweep()[1]
     assert not offenders, "Retired write-posture names remain:\n" + "\n".join(offenders)
 
 
