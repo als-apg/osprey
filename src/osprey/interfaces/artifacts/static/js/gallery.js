@@ -10,12 +10,14 @@
  * ONE artifact. The hub's sidebar owns the artifact list and the hub renders
  * the pane header, so this page wires no browser column (gallery.css hides
  * it), renders the preview without its header, and shows the artifact the hub
- * selects (viewer.js). An agent focus is only recorded there, because what the
- * viewer shows is the hub's choice.
+ * selects (viewer.js). It opens no event stream: every stream holds one of the
+ * browser's six connections to the hub's origin, and the hub already follows
+ * the panel's stream, so it forwards the shown artifact's updates and deletes
+ * (viewer.js) and acts on the agent's focus itself.
  *
- * Both modes keep the same data layer (the session-scoped artifact list, the
- * agent focus and the SSE feed), because the logbook composer's artifact
- * picker reads the held list.
+ * Both modes hold the session-scoped artifact list, because the logbook
+ * composer's artifact picker reads it. Standalone, the event stream keeps it
+ * current; embedded, it is fetched again before the composer opens.
  */
 import { getTheme, initTheme, subscribe } from '/design-system/js/theme-manager.js';
 import { applyEmbedded, isEmbedded } from '/design-system/js/frame-params.js';
@@ -328,30 +330,68 @@ function showInViewer(entry) {
   previewRenderer.renderPreview();
 }
 
-// ---- SSE (Server-Sent Events) ----
+// ---- Artifact changes (the stream standalone, the hub embedded) ----
+
+/**
+ * Take the server's new copy of an artifact: merge it into the held entry,
+ * and re-render the preview when it is the artifact shown.
+ * @param {any} fields
+ */
+function applyUpdated(fields) {
+  const held = getArtifacts();
+  const idx = held.findIndex((a) => a.id === fields.id);
+  if (idx >= 0) {
+    held[idx] = { ...held[idx], ...fields };
+    setArtifacts(held);
+  }
+  const selected = getSelectedArtifact();
+  if (selected?.id === fields.id) {
+    setSelectedArtifact(idx >= 0 ? held[idx] : { ...selected, ...fields });
+    previewRenderer.renderPreview();
+  }
+  if (idx >= 0) renderSidebar();
+}
+
+/**
+ * Forget a deleted artifact. Embedded, deleting the shown one empties the
+ * viewer; the hub then selects another.
+ * @param {string} id
+ */
+function applyDeleted(id) {
+  removeArtifact(id);
+  if (getFocusedArtifact()?.id === id) setFocusedArtifact(null);
+  if (getSelectedArtifact()?.id === id) {
+    setSelectedArtifact(null);
+    previewRenderer.renderPreview();
+  }
+  renderSidebar();
+}
+
+// ---- SSE (Server-Sent Events; standalone only) ----
 
 /** @type {any} */
 let sseSource = null;
 
 /**
- * Act on an agent focus. Standalone, the artifact becomes both the on-screen
- * selection and the agent-focus target, the pane re-renders, and it goes
- * fullscreen when the agent asked. Embedded, the focus is only recorded,
- * because the hub's sidebar chooses what the viewer shows. Shared by the SSE
- * "focus" handler's two branches (artifact already held vs. fetched) so the
- * sequence has one definition.
+ * Act on an agent focus: the artifact becomes both the on-screen selection
+ * and the agent-focus target, the pane re-renders, and it goes fullscreen
+ * when the agent asked. Shared by the SSE "focus" handler's two branches
+ * (artifact already held vs. fetched) so the sequence has one definition.
  * @param {any} artifact
  * @param {boolean} wantFullscreen
  */
 function applyFocus(artifact, wantFullscreen) {
   setFocusedArtifact(artifact);
-  if (viewerOnly) return;
   setSelectedArtifact(artifact);
   renderSidebar();
   previewRenderer.renderPreview();
   if (wantFullscreen) previewRenderer.enterFullscreen(artifact);
 }
 
+/**
+ * Follow the panel's event stream. Standalone only: embedded, the hub follows
+ * it and tells the viewer what it needs (see the module docstring).
+ */
 function connectSSE() {
   if (sseSource) {
     sseSource.close();
@@ -379,12 +419,10 @@ function connectSSE() {
       if (held) {
         applyFocus(held, wantFullscreen);
         // Scroll the selected item into view
-        if (!viewerOnly) {
-          requestAnimationFrame(() => {
-            const sel = sidebarBody.querySelector(`[data-id="${focusId}"]`);
-            if (sel) sel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-          });
-        }
+        requestAnimationFrame(() => {
+          const sel = sidebarBody.querySelector(`[data-id="${focusId}"]`);
+          if (sel) sel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        });
         return;
       }
       // Not in the loaded pages — fetch that one artifact. An entry outside
@@ -399,30 +437,14 @@ function connectSSE() {
     }
 
     if (eventType === 'artifact_deleted') {
-      removeArtifact(eventData.id);
-      if (getFocusedArtifact()?.id === eventData.id) setFocusedArtifact(null);
-      // Embedded, this empties the viewer; the hub then selects another.
-      if (getSelectedArtifact()?.id === eventData.id) {
-        setSelectedArtifact(null);
-        previewRenderer.renderPreview();
-      }
-      renderSidebar();
+      applyDeleted(eventData.id);
       return;
     }
 
     if (eventType === 'artifact_updated') {
-      // Update the artifact in-place
-      const idx = getArtifacts().findIndex((a) => a.id === eventData.id);
-      if (idx >= 0) {
-        const updated = getArtifacts();
-        updated[idx] = { ...updated[idx], ...eventData };
-        setArtifacts(updated);
-        if (getSelectedArtifact()?.id === eventData.id) {
-          setSelectedArtifact(updated[idx]);
-          previewRenderer.renderPreview();
-        }
-        renderSidebar();
-      }
+      const fields = { ...eventData };
+      delete fields.type;
+      applyUpdated(fields);
       return;
     }
 
@@ -550,17 +572,24 @@ window.addEventListener('message', (e) => {
 // ---- Init ----
 
 if (viewerOnly) {
-  // The hub says what to show and what to do with it (viewer.js). Each action
-  // runs the code path the standalone preview header's button runs.
+  // The hub says what to show, what to do with it and when it changed
+  // (viewer.js). Each action runs the code path the standalone preview
+  // header's button runs.
   createViewer({
     getHeld: getArtifacts,
     fetchEntry,
     show: showInViewer,
+    update: applyUpdated,
+    remove: applyDeleted,
     actions: {
       pin: (a) => previewRenderer.setPinned(a, true),
       unpin: (a) => previewRenderer.setPinned(a, false),
       print: printArtifact,
-      logbook: (a) => openComposeModal({ artifact_id: a.id }),
+      // No stream keeps the held list current here, and the composer's
+      // picker offers it, so it is fetched again first.
+      logbook: (a) => {
+        fetchArtifacts().finally(() => openComposeModal({ artifact_id: a.id }));
+      },
       delete: (a) => previewRenderer.deleteArtifact(a),
     },
   });
@@ -570,6 +599,8 @@ if (viewerOnly) {
 
 initTypeRegistry().then(() => {
   fetchArtifacts();
+  // Embedded, the hub acts on the focus and follows the stream (see above).
+  if (viewerOnly) return;
   fetchFocus();
   connectSSE();
 });

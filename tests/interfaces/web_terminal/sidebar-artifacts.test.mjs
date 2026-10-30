@@ -10,8 +10,9 @@
  * tests drive the module through the sidebar skeleton's ids, the panel's event
  * stream (api.js's real shared stream over a stubbed EventSource) and stubbed
  * fetches, and observe what it draws, what it fetches, what it tells the
- * viewer (`osprey-artifact-select`; the agent's `/api/focus` is only read,
- * never written) and what it contributes to the pane header.
+ * viewer (`osprey-artifact-select`, and `osprey-artifact-changed` for the
+ * shown artifact; the agent's `/api/focus` is only read, never written) and
+ * what it contributes to the pane header.
  *
  * Seams mocked: the session source (terminal.js), the header region
  * (tile-header-contrib.js), the iframe sends (panel-iframe-sync.js), the
@@ -34,6 +35,7 @@ const mocks = vi.hoisted(() => ({
   contributeLocal: vi.fn(),
   sendSelect: vi.fn(),
   sendAction: vi.fn(),
+  sendChanged: vi.fn(),
   activateTab: vi.fn(),
   hasDockedTile: vi.fn(() => true),
   setServiceMenuExtras: vi.fn(),
@@ -49,6 +51,7 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/tile-header-contr
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-iframe-sync.js', () => ({
   sendArtifactSelectToIframe: mocks.sendSelect,
   sendArtifactActionToIframe: mocks.sendAction,
+  sendArtifactChangedToIframe: mocks.sendChanged,
 }));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-manager.js', () => ({
   activateTab: mocks.activateTab,
@@ -245,6 +248,7 @@ beforeEach(async () => {
     mocks.contributeLocal,
     mocks.sendSelect,
     mocks.sendAction,
+    mocks.sendChanged,
     mocks.activateTab,
     mocks.setServiceMenuExtras,
   ]) {
@@ -621,6 +625,34 @@ describe('the event stream', () => {
     expect(ids('sidebar-artifacts-list')).toEqual(['a1', 'a2']);
     expect(document.querySelector('[data-art-count]')?.textContent).toBe('2');
     expect(shown()).toBe('a2');
+  });
+
+  test('the viewer is told when the shown artifact changes, and never about another', async () => {
+    await boot();
+    expect(shown()).toBe('a3');
+    events.emit({ type: 'artifact_updated', ...A2, title: 'Orbit plot v2' });
+    events.emit({ type: 'artifact_deleted', id: 'a1' });
+    expect(mocks.sendChanged).not.toHaveBeenCalled();
+
+    events.emit({ type: 'artifact_updated', ...A3, pinned: true });
+    events.emit({ type: 'artifact_deleted', id: 'a3' });
+    expect(mocks.sendChanged.mock.calls).toEqual([
+      [viewer(), 'a3', 'updated', { ...A3, pinned: true }],
+      [viewer(), 'a3', 'deleted', undefined],
+    ]);
+    // The delete reaches the viewer before the select of the next artifact.
+    expect(shown()).toBe('a2');
+    expect(mocks.sendChanged.mock.invocationCallOrder[1]).toBeLessThan(
+      /** @type {number} */ (mocks.sendSelect.mock.invocationCallOrder.at(-1))
+    );
+  });
+
+  test('with no viewer open, a change of the shown artifact is not sent', async () => {
+    await boot();
+    viewer().remove();
+    events.emit({ type: 'artifact_updated', ...A3, pinned: true });
+    events.emit({ type: 'artifact_deleted', id: 'a3' });
+    expect(mocks.sendChanged).not.toHaveBeenCalled();
   });
 });
 

@@ -1,17 +1,18 @@
 /**
  * Unit tests for the embedded viewer's channel to its host (viewer.js): the
- * hub's `osprey-artifact-select` / `osprey-artifact-action` messages and the
- * `osprey-artifact-ready` announcement.
+ * hub's `osprey-artifact-select` / `osprey-artifact-action` /
+ * `osprey-artifact-changed` messages and the `osprey-artifact-ready`
+ * announcement.
  *
  * Pure logic guard, happy-dom environment (configured globally):
  *   npx vitest run tests/interfaces/artifacts/viewer.test.mjs
  *
  * viewer.js takes every effect injected, so these tests hand it fakes: a held
- * list, a fetch that answers when the test says so, a `show` and one handler
- * per action. Most tests also give it a fake window whose `parent` is a
- * separate frame, because in this environment `window.parent === window`: the
- * real window can only show the unframed case, and the one test that uses it
- * checks exactly that case.
+ * list, a fetch that answers when the test says so, a `show`, an `update`, a
+ * `remove` and one handler per action. Most tests also give it a fake window
+ * whose `parent` is a separate frame, because in this environment
+ * `window.parent === window`: the real window can only show the unframed
+ * case, and the one test that uses it checks exactly that case.
  */
 
 import { test, expect, describe, vi } from 'vitest';
@@ -90,6 +91,8 @@ function setup({ held = [], fetchEntry = () => Promise.resolve(null), framed = t
     getHeld: vi.fn(() => held),
     fetchEntry: vi.fn(fetchEntry),
     show: vi.fn(),
+    update: vi.fn(),
+    remove: vi.fn(),
     actions: makeActions(),
   };
   createViewer({ ...deps, win: host.win });
@@ -107,6 +110,20 @@ function select(id) {
  */
 function action(id, name) {
   return { type: 'osprey-artifact-action', artifact_id: id, action: name };
+}
+
+/**
+ * @param {any} id
+ * @param {any} change
+ * @param {any} [artifact]
+ */
+function changed(id, change, artifact) {
+  return {
+    type: 'osprey-artifact-changed',
+    artifact_id: id,
+    change,
+    ...(artifact === undefined ? {} : { artifact }),
+  };
 }
 
 /** Let every pending promise callback run. */
@@ -141,6 +158,8 @@ describe('the ready announcement', () => {
       getHeld: () => [held],
       fetchEntry: () => Promise.resolve(null),
       show,
+      update: vi.fn(),
+      remove: vi.fn(),
       actions: handlers,
     });
     window.dispatchEvent(
@@ -353,5 +372,105 @@ describe('osprey-artifact-action', () => {
     await settle();
 
     expect(viewer.actions.delete).not.toHaveBeenCalled();
+  });
+});
+
+describe('osprey-artifact-changed', () => {
+  test('an update hands the copy it carries over, with no request', () => {
+    const copy = { ...makeArtifact('a1'), pinned: true };
+    const viewer = setup({ held: [makeArtifact('a1')] });
+
+    viewer.deliver(changed('a1', 'updated', copy));
+
+    expect(viewer.update).toHaveBeenCalledTimes(1);
+    expect(viewer.update).toHaveBeenCalledWith(copy);
+    expect(viewer.fetchEntry).not.toHaveBeenCalled();
+    expect(viewer.show).not.toHaveBeenCalled();
+    expect(viewer.remove).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['no copy', undefined],
+    ['a copy of another artifact', makeArtifact('b2')],
+    ['a copy that is not an object', 'a1'],
+  ])('an update with %s takes the server copy instead', async (_label, artifact) => {
+    const server = { ...makeArtifact('a1'), pinned: true };
+    const viewer = setup({ fetchEntry: async () => server });
+
+    viewer.deliver(changed('a1', 'updated', artifact));
+    await settle();
+
+    expect(viewer.fetchEntry).toHaveBeenCalledWith('a1');
+    expect(viewer.update.mock.calls).toEqual([[server]]);
+  });
+
+  test.each([
+    ['answers null', async () => null],
+    [
+      'fails',
+      async () => {
+        throw new TypeError('network down');
+      },
+    ],
+  ])('an update whose server fetch %s changes nothing', async (_label, fetchEntry) => {
+    const viewer = setup({ fetchEntry });
+
+    viewer.deliver(changed('a1', 'updated'));
+    await settle();
+
+    expect(viewer.update).not.toHaveBeenCalled();
+  });
+
+  test('a delete drops the artifact, with no request', () => {
+    const viewer = setup({ held: [makeArtifact('a1')] });
+
+    viewer.deliver(changed('a1', 'deleted'));
+
+    expect(viewer.remove.mock.calls).toEqual([['a1']]);
+    expect(viewer.update).not.toHaveBeenCalled();
+    expect(viewer.show).not.toHaveBeenCalled();
+    expect(viewer.fetchEntry).not.toHaveBeenCalled();
+  });
+
+  test('ignores a change from another origin', async () => {
+    const viewer = setup({ held: [makeArtifact('a1')] });
+
+    viewer.deliver(changed('a1', 'deleted'), 'https://evil.example');
+    viewer.deliver(changed('a1', 'updated', makeArtifact('a1')), 'null');
+    await settle();
+
+    expect(viewer.remove).not.toHaveBeenCalled();
+    expect(viewer.update).not.toHaveBeenCalled();
+    expect(viewer.fetchEntry).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['no artifact id', changed(null, 'deleted')],
+    ['an empty artifact id', changed('', 'deleted')],
+    ['a numeric artifact id', changed(42, 'deleted')],
+    ['an unknown change', changed('a1', 'renamed', makeArtifact('a1'))],
+    ['no change', { type: 'osprey-artifact-changed', artifact_id: 'a1' }],
+  ])('ignores a change with %s', async (_label, data) => {
+    const viewer = setup({ held: [makeArtifact('a1')] });
+
+    viewer.deliver(data);
+    await settle();
+
+    expect(viewer.remove).not.toHaveBeenCalled();
+    expect(viewer.update).not.toHaveBeenCalled();
+    expect(viewer.fetchEntry).not.toHaveBeenCalled();
+  });
+
+  test('never touches the selection: a pending select still lands', async () => {
+    const slow = deferred();
+    const viewer = setup({ fetchEntry: () => slow.promise });
+    const b2 = makeArtifact('b2');
+
+    viewer.deliver(select('b2'));
+    viewer.deliver(changed('a1', 'deleted'));
+    slow.resolve(b2);
+    await settle();
+
+    expect(viewer.show.mock.calls).toEqual([[b2]]);
   });
 });
