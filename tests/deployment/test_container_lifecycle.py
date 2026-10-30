@@ -2840,6 +2840,9 @@ def test_deploy_up_runs_web_terminal_preflight_before_image_build(monkeypatch, t
         lambda *a, **k: (web_config, ["docker-compose.yml"]),
     )
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"]
+    )
     monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda *a, **k: None)
     monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
     # The collect-all pass sits ahead of the preflight and probes the same
@@ -4798,7 +4801,11 @@ def test_a_repo_with_no_chain_files_is_silent(tmp_path):
 
 
 def _record_web_deploy(monkeypatch, tmp_path, order, web_terminals):
-    """Wire deploy_up for a web-terminal config, recording the two steps under test."""
+    """Wire deploy_up for a web-terminal config, recording the two steps under test.
+
+    The host is answered on both questions a start asks it: the runtime is up,
+    and it is the one the deployment record names.
+    """
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
         container_lifecycle,
@@ -4809,6 +4816,9 @@ def _record_web_deploy(monkeypatch, tmp_path, order, web_terminals):
         ),
     )
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"]
+    )
     monkeypatch.setattr(
         container_lifecycle, "_preflight_host_ports", lambda *a, **k: order.append("ports")
     )
@@ -4957,9 +4967,16 @@ def _ownership_probe_with(monkeypatch, containers=(), *, fails: bool = False):
 
 
 def _start_until_the_host(monkeypatch, tmp_path, *, web_terminals: bool = True):
-    """Drive ``_start_stack`` up to its first container-touching step, recording the steps."""
+    """Drive ``_start_stack`` up to its first container-touching step, recording the steps.
+
+    The host is answered on both questions a start asks it: the runtime is up,
+    and it is the one the deployment record names.
+    """
     touched: list[str] = []
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"]
+    )
     monkeypatch.setattr(
         container_lifecycle, "_preflight_bluesky_network_backend", lambda config: None
     )

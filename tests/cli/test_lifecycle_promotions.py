@@ -630,7 +630,8 @@ def _stub_start_stack_preflights(monkeypatch: pytest.MonkeyPatch) -> None:
 
     Every preflight between the roster check and the ``DEV_MODE`` line asks the
     host a question this test has no answer for; each is covered by its own
-    module's tests.
+    module's tests. The host is answered on both questions a start asks it: the
+    runtime is up, and it is the one the deployment record names.
     """
     for name in (
         "_check_shared_disk_preflight",
@@ -645,6 +646,9 @@ def _stub_start_stack_preflights(monkeypatch: pytest.MonkeyPatch) -> None:
     ):
         monkeypatch.setattr(container_lifecycle, name, lambda *a, **k: None)
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"]
+    )
     monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: set())
     monkeypatch.setattr(container_lifecycle, "_compose_provider", lambda config=None, **_: None)
 
