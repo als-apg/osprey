@@ -1,7 +1,7 @@
 /**
  * The chat's lifecycle as events, for modules that react to it without a hook
  * in the renderer or the controller (the attention signal, screen-reader
- * announcements, export, the context meter).
+ * announcements, export, the context meter, the sidebar's Agent row).
  *
  * One page holds one chat, so one bus serves it. A listener gets the detail
  * object. `replay` is true while history is redrawn, so a listener can tell a
@@ -28,6 +28,10 @@
  * @property {{ text: string }} notice - a line the console put in the log
  *   that is not part of the conversation (a transport failure, an export
  *   failure), for the screen-reader region
+ * @property {{ waiting: number }} attention - how many approval, plan and
+ *   question cards wait on the operator. Sent whenever that count changes,
+ *   and with `0` at every reset and turn end, so a listener must be
+ *   idempotent
  * @property {Record<string, never>} reset - the log was cleared
  */
 

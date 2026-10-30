@@ -1280,7 +1280,38 @@ describe('renderChatBootFailure', () => {
 
     renderChatBootFailure('operator-container');
 
-    expect(host.textContent).toContain('failed to start');
+    expect(host.textContent).toContain('The agent console failed to start');
     expect(host.textContent).not.toContain('stale');
+  });
+});
+
+describe('the Agent bar', () => {
+  test('reads dot, Agent, New conversation, bell, Export, then the ⋯', async () => {
+    await mountChat();
+    const bar = /** @type {HTMLElement} */ (one('.op-session-bar'));
+    const parts = [...bar.children].map(
+      (el) => el.getAttribute('aria-label') ?? el.textContent ?? ''
+    );
+    expect(parts).toEqual([
+      '',
+      'Agent',
+      'New conversation',
+      'Desktop notifications',
+      'Export',
+      'Earlier conversations',
+    ]);
+  });
+
+  test('the ⋯ opens the earlier conversations menu', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ sessions: [] }) }))
+    );
+    await mountChat();
+    /** @type {HTMLButtonElement} */ (one('.op-session-more')).click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const menu = /** @type {HTMLElement} */ (document.getElementById('agent-conversations-menu'));
+    expect(menu.hidden).toBe(false);
+    vi.unstubAllGlobals();
   });
 });

@@ -1,4 +1,10 @@
-/* OSPREY Web Terminal — Session Picker */
+/* OSPREY Web Terminal — Session Picker
+ *
+ * Two openers onto the same session list: the Expert view's picker in the
+ * `.terminal-header` (a dropdown under its chevron), and the Simple view's
+ * "Earlier conversations" menu behind the Agent bar's ⋯ (an `.osprey-popover`
+ * placed by popover.js). Both list what `/api/sessions` returns, switch
+ * through the same resume path, and are withheld while the chat is busy. */
 
 import { fetchJSON } from './api.js';
 import {
@@ -13,6 +19,8 @@ import {
 import { escapeHtml } from '/design-system/js/dom.js';
 import { onModeChange } from '/design-system/js/frame-params.js';
 import { formatFacilityTime } from '/design-system/js/facility-time.js';
+import { icon } from '/design-system/js/icons.js';
+import { closePopover, openPopover } from '/design-system/js/popover.js';
 import { onChat } from './chat-events.js';
 import { setPointer } from './session-pointer.js';
 
@@ -38,6 +46,13 @@ let openPicker = null;
 /** The picker button, once {@link initSessionSelector} has built it. @type {HTMLButtonElement | null} */
 let pickerBtn = null;
 
+/**
+ * The Agent bar's ⋯ and the menu it opens, once {@link attachConversationMenu}
+ * has wired them.
+ * @type {{ opener: HTMLButtonElement, menu: HTMLElement } | null}
+ */
+let conversationMenu = null;
+
 /** Whether the chat has a turn streaming or a hand-off in flight (its `busy` event). */
 let chatBusy = false;
 
@@ -46,16 +61,21 @@ const isSimpleView = () => document.documentElement.getAttribute('data-ui-mode')
 /**
  * In the Simple view the chat runs the session, so a pick while a turn streams
  * would cut the turn off and leave the agent working on a conversation nobody
- * is watching. The picker is withheld while the chat is busy, as the console's
- * New button is. The Expert view's terminal has its own session controls, and
- * a hidden console can stay busy there after a refused hand-off, so the mode
- * is part of the verdict and a flip re-evaluates it.
+ * is watching. Both openers are withheld while the chat is busy, as the
+ * console's New button is. The Expert view's terminal has its own session
+ * controls, and a hidden console can stay busy there after a refused
+ * hand-off, so the mode is part of the verdict and a flip re-evaluates it.
  */
 function syncPicker() {
-  if (!pickerBtn) return;
   const blocked = chatBusy && isSimpleView();
-  pickerBtn.disabled = blocked;
-  if (blocked) closeDropdown();
+  if (pickerBtn) {
+    pickerBtn.disabled = blocked;
+    if (blocked) closeDropdown();
+  }
+  if (conversationMenu) {
+    conversationMenu.opener.disabled = blocked;
+    if (blocked) closePopover(conversationMenu.menu);
+  }
 }
 
 onChat('busy', ({ busy }) => {
@@ -96,6 +116,83 @@ export function initSessionSelector(containerId) {
 
   pickerBtn = btn;
   syncPicker();
+}
+
+/**
+ * Give the Agent bar's ⋯ its "Earlier conversations" menu: a body-level
+ * `.osprey-popover` listing the sessions the picker lists, freshly fetched on
+ * every open, the current one checked. A pick switches through the picker's
+ * own resume path. Withheld while the chat is busy, exactly as the picker is
+ * (see syncPicker). Called once by chat.js after it builds the bar.
+ * @param {HTMLButtonElement} opener
+ */
+export function attachConversationMenu(opener) {
+  const menu = document.createElement('div');
+  menu.className = 'osprey-popover op-conversations';
+  menu.id = 'agent-conversations-menu';
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-label', 'Earlier conversations');
+  menu.hidden = true;
+  document.body.append(menu);
+
+  opener.addEventListener('click', async () => {
+    if (!menu.hidden) {
+      closePopover(menu);
+      return;
+    }
+    await fetchSessions();
+    // The chat may have turned busy while the list loaded.
+    if (opener.disabled) return;
+    renderConversationMenu(menu);
+    openPopover(menu, opener, { place: 'below-end' });
+  });
+
+  conversationMenu = { opener, menu };
+  syncPicker();
+}
+
+/**
+ * Fill the "Earlier conversations" menu from the fetched session list: one
+ * `menuitemradio` per session (its first message, and how long ago), the
+ * session the tab is on checked.
+ * @param {HTMLElement} menu
+ */
+function renderConversationMenu(menu) {
+  const title = document.createElement('div');
+  title.className = 'osprey-popover-title';
+  title.textContent = 'Earlier conversations';
+  if (sessionsData.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'osprey-list-empty';
+    empty.textContent = 'No earlier conversations';
+    menu.replaceChildren(title, empty);
+    return;
+  }
+  const currentId = getCurrentSessionId();
+  const items = sessionsData.map((s) => {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'osprey-popover-item';
+    item.setAttribute('role', 'menuitemradio');
+    item.setAttribute('aria-checked', String(s.session_id === currentId));
+    item.dataset.sessionId = s.session_id;
+    item.title = `${s.message_count} messages · ${s.session_id}`;
+    const label = document.createElement('span');
+    label.className = 'op-conversation-title';
+    label.textContent = s.first_message || '(no message)';
+    const aside = document.createElement('span');
+    aside.className = 'osprey-popover-aside';
+    aside.textContent = relativeTime(s.last_modified);
+    const check = icon('check');
+    check.classList.add('osprey-popover-check');
+    item.append(label, aside, check);
+    item.addEventListener('click', () => {
+      closePopover(menu);
+      resumeSession(s.session_id);
+    });
+    return item;
+  });
+  menu.replaceChildren(title, ...items);
 }
 
 /* ---- dropdown popover ----

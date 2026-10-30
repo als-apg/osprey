@@ -1,7 +1,7 @@
 /* OSPREY Web Terminal — Operator Mode (Simple-view chat)
 
-   Simple mode swaps the xterm PTY for this chat. It fills the terminal card's
-   body and inherits that flat card's chrome, so this file styles the chat
+   Simple mode swaps the xterm PTY for this chat. It fills the Agent card's
+   body, the card interior under the Agent bar, so this file styles the chat
    interior on the shared design tokens: one column of turns, the operator's own
    turns as soft bubbles, the agent's as plain reading text, and the agent's
    actions (thinking, tool calls, subagents) as one timeline of quiet rows,
@@ -46,7 +46,7 @@
   flex-direction: column;
   width: 100%;
   height: 100%;
-  background: var(--bg-terminal);
+  background: var(--surface-card);
   color: var(--text-primary);
   font-family: var(--chat-font);
   position: relative;
@@ -90,67 +90,50 @@ html[data-ui-mode="simple"] #operator-container {
   height: 16px;
 }
 
-/* ---- Session bar ---- */
+/* ---- Agent bar ---- */
 
+/* The Agent pane's one header row (chat-console.js): status dot, `Agent`, and
+   the icon buttons (`.osprey-icon-btn`, primitives.css) — New conversation,
+   the bell, Export, ⋯. It has the pane header's metrics: 40px tall, 16px in
+   from the card's left edge, 8px from its right, 8px between items. In the
+   dock the Agent tile adopts it as its tile bar (dock-tab.js); here it is the
+   look it keeps at the top of the card without a dock. */
 .op-session-bar {
+  flex: none;
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  background: var(--bg-panel);
-  border-bottom: 1px solid var(--border-default);
-  flex-shrink: 0;
-}
-
-.op-session-led {
-  width: 6px;
-  height: 6px;
-  border-radius: var(--radius-full);
-  background: var(--text-muted);
-  flex-shrink: 0;
-  transition: background var(--wt-transition-normal);
-}
-
-.op-session-led.active {
-  background: var(--color-success);
-}
-
-.op-session-label {
-  font-size: var(--text-md);
-  font-weight: var(--weight-medium);
-  color: var(--text-secondary);
-}
-
-/* The bar's text pills: New conversation (pinned to the bar's right edge) and
-   Export. Quiet at rest: the log below is where the operator's attention
-   belongs. */
-.op-session-new,
-.op-export {
-  font-family: var(--chat-font);
-  font-size: var(--text-md);
-  color: var(--text-secondary);
-  background: transparent;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-full);
-  padding: 3px 10px;
-  cursor: pointer;
-  transition: all var(--wt-transition-fast);
-}
-
-.op-session-new {
-  margin-left: auto;
-}
-
-.op-session-new:hover:not(:disabled),
-.op-export:hover:not(:disabled) {
+  height: var(--wt-pane-head-height);
+  padding: 0 var(--space-2) 0 var(--space-4);
+  background: var(--surface-card);
+  border-bottom: 1px solid var(--surface-hairline);
+  font-family: var(--font-display);
   color: var(--text-primary);
-  border-color: var(--border-accent);
 }
 
-.op-session-new:disabled,
-.op-export:disabled {
-  cursor: not-allowed;
-  opacity: 0.4;
+/* Adopted into the tile bar the bar IS the tile's bar: it fills it and leaves
+   the padding, the hairline and the surface to the tile bar
+   (dockview-overrides.css). Anchored on .tile-tab so the drag clone keeps it. */
+.tile-tab .op-session-bar {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  background: transparent;
+  border-bottom: 0;
+}
+
+/* `Agent`: the pane's name, set like every tile's name (.tile-tab-title). It
+   takes the free space, so the buttons sit at the bar's right edge. */
+.op-session-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
 }
 
 /* ---- Session hand-off overlay ---- */
@@ -781,7 +764,7 @@ html[data-ui-mode="simple"] #operator-container {
   height: 13px;
   padding: 1px;
   border-radius: var(--radius-xs);
-  background: var(--bg-terminal);
+  background: var(--surface-card);
 }
 
 .op-row-stack .op-icon:nth-child(1) {
@@ -2243,39 +2226,13 @@ html[data-ui-mode="simple"] #operator-container {
 
 /* ── Attention signal ── */
 
-/* The bell that opts the console into desktop notifications. It sits after New
-   conversation at the bar's right edge, quiet at rest and tinted while on. */
-.op-attention-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  color: var(--text-muted);
-  background: transparent;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-full);
-  cursor: pointer;
-  transition: all var(--wt-transition-fast);
-}
-
-.op-attention-toggle:hover:not(:disabled) {
-  color: var(--text-primary);
-  border-color: var(--border-accent);
-}
-
+/* The bell that opts the console into desktop notifications: an
+   `.osprey-icon-btn` in the Agent bar, tinted while on. */
 .op-attention-toggle[aria-pressed="true"] {
-  color: var(--color-accent-light);
-  border-color: var(--border-accent);
+  color: var(--color-accent);
 }
 
-.op-attention-toggle:disabled {
-  cursor: not-allowed;
-  opacity: 0.4;
-}
-
-/* ── Reply copy ── (the Export button shares .op-session-new's rules above) */
+/* ── Reply copy ── */
 
 /* A finished reply's copy control sits under the reply. It is quiet until the
    operator points at the reply or tabs onto the control, and it is always
@@ -2321,23 +2278,47 @@ html[data-ui-mode="simple"] #operator-container {
   }
 }
 
-/* ── Session picker in the Simple view ── */
+/* ── The Agent bar replaces the terminal header in the Simple view ── */
 
-/* terminal.css hides the session picker in the Simple view and shows the plain
-   "Connected" label instead. The Simple view still needs a way back to an
-   earlier conversation, so the picker's chevron shows beside that label. This
-   selector carries one more class than terminal.css's, so it wins whatever the
-   stylesheet order. */
-html[data-ui-mode="simple"] .terminal-header .session-selector {
-  display: inline-flex;
+/* The console's Agent bar is the Agent pane's one header row in Simple; the
+   card's .terminal-header (session label, picker, "+ New") is the Expert
+   view's. In the dock the Agent tile adopts whichever bar the view uses
+   (dock-tab.js) and the other stays behind, so this hides the header wherever
+   it is left in the card: always in fallback mode (no dock), and in the dock
+   until a flip to Expert adopts it. */
+html[data-ui-mode="simple"] .terminal-card > .terminal-header {
+  display: none;
+}
+
+/* ── Earlier conversations (the Agent bar's ⋯ menu, sessions.js) ── */
+
+/* Body-level `.osprey-popover`: the primitives draw the surface, the title and
+   the rows. A row is a conversation's first message, ellipsized, with how
+   long ago beside it and the check on the one the tab is on. */
+.op-conversations {
+  width: 320px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.op-conversation-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.op-conversations .osprey-popover-check {
+  margin-left: 0;
 }
 
 /* ── Accessibility ── */
 
-/* One focus outline for every control in the log, the session bar and the composer:
-   the buttons, the cards, and the Other row's text field. */
+/* One focus outline for every control in the log and the composer: the
+   buttons, the cards, and the Other row's text field. The Agent bar's icon
+   buttons take the primitives' own focus outline. */
 .op-messages button:focus-visible,
-.op-session-bar button:focus-visible,
 .op-input-area button:focus-visible,
 .op-handoff button:focus-visible,
 .op-card:focus-visible,

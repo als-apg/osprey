@@ -3,7 +3,12 @@
 import { fitTerminal } from './terminal.js';
 import { fetchJSON } from './api.js';
 import { reconcile, PLACEHOLDER_PREFIX } from './dock-reconcile.js';
-import { createTileTab, OSPREY_TAB_COMPONENT, setTerminalHeaderSource } from './dock-tab.js';
+import {
+  createTileTab,
+  OSPREY_TAB_COMPONENT,
+  setTerminalConsoleBarSource,
+  setTerminalHeaderSource,
+} from './dock-tab.js';
 import { registerContribHost, unregisterContribHost } from './tile-header-contrib.js';
 import { subscribe } from '/design-system/js/theme-manager.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
@@ -26,12 +31,20 @@ let dockApi = null;
 
 const PANEL_TERMINAL = 'terminal';
 
-/** Dock tab title for the terminal/chat card. A real title (rather than the
- *  earlier empty-string de-labeling) makes the terminal a first-class tile:
- *  alone in its tile the single-tab strip is collapsed anyway (see
- *  dockview-overrides.css), and stacked with service tabs it must be
- *  identifiable. The card's own `.terminal-header` remains the in-panel label. */
-const TERMINAL_TITLE = 'SESSION';
+/** Dock tab title for the Agent pane (the terminal/chat card). A real title
+ *  makes the pane a first-class tile; the bar it adopts (dock-tab.js) is the
+ *  visible label. Stored layouts carrying an older title (`SESSION`, or the
+ *  empty string from before the pane was titled) are healed on restore by
+ *  normalizeTerminalTitle. */
+const TERMINAL_TITLE = 'Agent';
+
+/** Attribute on <html> present exactly while the Agent pane is absent from
+ *  the dock (`data-agent="closed"`); the sidebar's Agent row reads it. */
+const AGENT_ATTRIBUTE = 'data-agent';
+
+/** Whether the Agent pane was open at the last {@link syncAgentPane}, or null
+ *  before the first sync. @type {boolean | null} */
+let agentPaneOpen = null;
 
 /** localStorage key prefix; the per-project key from GET /api/panels is appended
  *  so one browser origin persists a separate layout per project — and, through
@@ -71,8 +84,9 @@ function layoutKey(mode) {
  *  @type {ReturnType<typeof setTimeout>|null} */
 let persistHandle = null;
 
-/** Width of the left icon rail (see .panel-rail-region in terminal.css). */
-const RAIL_WIDTH = 74;
+/** Sidebar width used when `#sidebar` is not in the document (its expanded
+ *  width, `--wt-sidebar-width`). */
+const SIDEBAR_FALLBACK_WIDTH = 232;
 
 /** Fraction of the workspace the terminal takes by default — mirrors the old
  *  fixed split (terminal `flex: 0 1 40%`, workspace `flex: 1 1 60%`). */
@@ -83,14 +97,12 @@ const TERMINAL_WIDTH_FRACTION = 0.4;
  * terminal — the service side of the old fixed split (terminal 40% / services
  * 60%). Consumed by dock-iframe.js's ensurePlaceholder and Simple's default
  * arrangement below, so both views derive the same split from one definition.
+ * The sidebar's current width (expanded or collapsed) is not ours.
  * @returns {number}
  */
 export function defaultServiceWidth() {
-  // The rail consumes horizontal space only as a left column; in top
-  // position it's a strip above the workspace, so the full width is ours.
-  const rail =
-    document.documentElement.getAttribute('data-rail-position') === 'top' ? 0 : RAIL_WIDTH;
-  return Math.max(0, Math.round((window.innerWidth - rail) * (1 - TERMINAL_WIDTH_FRACTION)));
+  const sidebar = document.getElementById('sidebar')?.offsetWidth ?? SIDEBAR_FALLBACK_WIDTH;
+  return Math.max(0, Math.round((window.innerWidth - sidebar) * (1 - TERMINAL_WIDTH_FRACTION)));
 }
 
 /**
@@ -204,20 +216,24 @@ export function initDockWorkspace() {
   const terminalSource = document.querySelector('.terminal-panel');
   if (!root || !(terminalSource instanceof HTMLElement)) return;
 
-  // Grab the live .terminal-header reference NOW, while terminalSource is
-  // still attached to the document — createComponent's adoptSubtree (below)
-  // moves this whole subtree into a detached host div ahead of dockview's own
-  // insertion of that host. dockview always builds a panel's content
-  // component before its tab component, so a later `document.querySelector`
-  // in dock-tab.js is guaranteed to miss the header at that point, not merely
-  // liable to. See dock-tab.js's setTerminalHeaderSource for the consuming
-  // side.
+  // Grab the live Agent bars NOW, while terminalSource is still attached to
+  // the document — createComponent's adoptSubtree (below) moves this whole
+  // subtree into a detached host div ahead of dockview's own insertion of
+  // that host. dockview always builds a panel's content component before its
+  // tab component, so a later `document.querySelector` in dock-tab.js is
+  // guaranteed to miss the bars at that point, not merely liable to. See
+  // dock-tab.js's setTerminalHeaderSource for the consuming side. The
+  // console bar exists by now because app.js builds the chat (initChat)
+  // before the dock; a console that failed to build leaves the header as
+  // the Agent bar in both views.
   const terminalHeaderSource = terminalSource.querySelector('.terminal-header');
   if (terminalHeaderSource instanceof HTMLElement) {
     setTerminalHeaderSource(terminalHeaderSource);
   } else {
     console.error('.terminal-header not found; terminal tile will render without its header bar');
   }
+  const consoleBarSource = terminalSource.querySelector('#operator-container > .op-session-bar');
+  if (consoleBarSource instanceof HTMLElement) setTerminalConsoleBarSource(consoleBarSource);
 
   const dockview = /** @type {any} */ (window)['dockview-core'];
   if (!dockview || typeof dockview.createDockview !== 'function') {
@@ -264,7 +280,7 @@ export function initDockWorkspace() {
   // a correct light/dark default.
   wireDockTheme(root);
 
-  // One panel per tile: the rail is the workspace's tab system, so no drop may
+  // One panel per tile: the sidebar is the workspace's tab system, so no drop may
   // create a tab stack. Veto every drop geometry that would stack — onto a
   // tile's tab strip, its empty header space, or its center — leaving edge
   // drops (splits) as the only accepted targets. The veto MUST be subscribed
@@ -344,6 +360,7 @@ function arrangeDefaultLayout(api) {
     title: TERMINAL_TITLE,
   });
   redockServices?.();
+  syncAgentPane();
 }
 
 /**
@@ -456,16 +473,43 @@ function wireDockTheme(root) {
   subscribe(apply);
 }
 
-/* ---- Terminal tile presence (first-class open/close/reopen) ---- */
+/* ---- Agent pane presence (first-class open/close/reopen) ---- */
 
 /**
- * Surface the terminal tile: focus it when present, re-create it when closed
- * (the rail entry's activate path). Re-adding by the same component re-adopts
- * the live terminal subtree — createComponent still holds the source element,
- * so the running xterm/chat state survives close → reopen (the same mechanism
- * resetDockLayout relies on). A reopened tile docks at the grid's right edge,
- * the terminal's home side. The same in both views: in Simple the tile hosts
- * the operator console, and closing and reopening it is as ordinary there.
+ * Whether the Agent pane (the terminal/chat tile) is in the dock. Without a
+ * dock (fallback mode, or before init) the card is always on the page, so it
+ * counts as open.
+ * @returns {boolean}
+ */
+export function isTerminalPanelOpen() {
+  return dockApi ? Boolean(dockApi.getPanel(PANEL_TERMINAL)) : true;
+}
+
+/**
+ * Publish the Agent pane's presence: `html[data-agent="closed"]` is present
+ * exactly while the pane is absent from the dock, and `osprey-agent-pane`
+ * `{detail: {open}}` is dispatched on `document` whenever that changes (and
+ * once at boot). Called at the end of every path that adds or removes the
+ * pane — open, close, the default arrangements, and a stored-layout restore.
+ */
+function syncAgentPane() {
+  const open = isTerminalPanelOpen();
+  if (open === agentPaneOpen) return;
+  agentPaneOpen = open;
+  if (open) document.documentElement.removeAttribute(AGENT_ATTRIBUTE);
+  else document.documentElement.setAttribute(AGENT_ATTRIBUTE, 'closed');
+  document.dispatchEvent(new CustomEvent('osprey-agent-pane', { detail: { open } }));
+}
+
+/**
+ * Surface the Agent pane: focus it when present, re-create it when closed
+ * (the sidebar Agent row's activate path). Re-adding by the same component
+ * re-adopts the live terminal subtree — createComponent still holds the
+ * source element, so the running xterm/chat state survives close → reopen
+ * (the same mechanism resetDockLayout relies on). A reopened tile docks at
+ * the grid's right edge, the pane's home side. The same in both views: in
+ * Simple the tile hosts the chat console, and closing and reopening it is as
+ * ordinary there.
  */
 export function openTerminalPanel() {
   if (!dockApi) return;
@@ -484,14 +528,14 @@ export function openTerminalPanel() {
   } catch (err) {
     console.error('dock: terminal reopen failed', err);
   }
+  syncAgentPane();
 }
 
 /**
- * Close the terminal tile (the rail entry's Delete-key path). The dock tab's
- * own "×" goes through dockview directly; both end at the same removePanel.
- * The rail's SESSION entry is unaffected — it is the permanent reopen
- * affordance. Resolves whether a tile was closed, so a caller offering an Undo
- * offers one only for a close that happened.
+ * Close the Agent pane: the tile bar's × (dock-tab.js) and the sidebar row's
+ * Delete-key path. The sidebar's Agent row is unaffected — it is the
+ * permanent reopen affordance. Resolves whether a tile was closed, so a
+ * caller offering an Undo offers one only for a close that happened.
  * @returns {boolean}
  */
 export function closeTerminalPanel() {
@@ -504,6 +548,8 @@ export function closeTerminalPanel() {
   } catch (err) {
     console.error('dock: terminal close failed', err);
     return false;
+  } finally {
+    syncAgentPane();
   }
 }
 
@@ -585,6 +631,7 @@ function applyStoredLayout(api, mode) {
     // Let the adapter re-sync: ensure visible service placeholders exist and
     // prune any restored placeholder whose service no longer exists.
     redockServices?.();
+    syncAgentPane();
     return true;
   } catch (err) {
     console.error('dock: stored layout failed to apply; using the default', err);
@@ -702,7 +749,7 @@ function stashLayout(api, mode) {
  * lock: the operator rearranges it, opens more tiles and closes them exactly as
  * in Expert, and the result persists under Simple's own key. The tile carries
  * the service placeholder that was showing (preferring the focused one) — the
- * other panels stay one rail click away. The placeholder is re-created by its
+ * other panels stay one sidebar click away. The placeholder is re-created by its
  * own id, which is what lets the iframe adapter re-find and re-overlay it (it
  * resolves placeholders by id on every settle).
  * @param {any} api
@@ -727,6 +774,7 @@ function applySimpleDefault(api) {
       defaultServiceWidth()
     );
   }
+  syncAgentPane();
 }
 
 /**
@@ -753,10 +801,10 @@ function ensureTerminalPanel(api) {
 }
 
 /**
- * Stamp the terminal tab's current title onto a restored layout. Layouts
- * persisted before the terminal tab was titled carry the old empty-string
- * title, and fromJSON restores titles verbatim — without this, an upgraded
- * client would keep resurrecting an unlabeled terminal tab from storage.
+ * Stamp the Agent tab's current title onto a restored layout. fromJSON
+ * restores titles verbatim, so a layout persisted under an older title (the
+ * empty string from before the tab was titled, or `SESSION`) would keep
+ * resurrecting it from storage without this.
  * @param {any} api
  */
 function normalizeTerminalTitle(api) {
@@ -800,9 +848,12 @@ function addPanelFromDescriptor(api, descriptor, position, initialWidth) {
  * one panel at a time (#right-panel's `data-active-panel`), so it carries one
  * bar: the active panel's name and its contribution region, registered with
  * tile-header-contrib.js exactly as a docked TileTab registers its own. The
- * bar follows the active panel, and hides when none is active or in Simple
- * mode, where the hub collapses every service tile's bar and panels keep
- * their controls in the body.
+ * bar follows the active panel and hides only when none is active; it shows
+ * in both views, as a docked tile's bar does.
+ *
+ * The Agent card needs nothing here: without a dock it is never adopted, so
+ * its bar stays at the top of the card — the console bar in Simple (the card's
+ * `.terminal-header` is hidden there, operator.css), the header in Expert.
  *
  * The bar reuses the docked bar's `.tile-tab` markup so it renders with the
  * same styles; the inline layout only adapts that full-height tab to a row
@@ -819,8 +870,8 @@ export function initFallbackTileBar(host) {
   host.style.flexDirection = 'column';
   const bar = document.createElement('div');
   bar.className = 'tile-tab fallback-tile-bar';
-  bar.style.flex = '0 0 36px';
-  bar.style.height = '36px';
+  bar.style.flex = '0 0 var(--wt-pane-head-height)';
+  bar.style.height = 'var(--wt-pane-head-height)';
   bar.style.cursor = 'default';
   const title = document.createElement('span');
   title.className = 'tile-tab-title';
@@ -849,7 +900,7 @@ export function initFallbackTileBar(host) {
     title.textContent = panelId ? panelLabel(panelId) : '';
     // Inline display, not `hidden`: the .tile-tab rule's display:flex would
     // outrank the attribute's user-agent display:none.
-    bar.style.display = !panelId || currentUiMode() === 'simple' ? 'none' : '';
+    bar.style.display = panelId ? '' : 'none';
   };
 
   sync();
@@ -857,16 +908,12 @@ export function initFallbackTileBar(host) {
     attributes: true,
     attributeFilter: ['data-active-panel'],
   });
-  new MutationObserver(sync).observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: ['data-ui-mode'],
-  });
   return bar;
 }
 
 /**
- * A panel's display name, read from its rail entry (the one place the hub
- * renders it outside a tile); the id when the rail does not carry the panel.
+ * A panel's display name, read from its sidebar row (the one place the hub
+ * renders it outside a tile); the id when the sidebar does not carry the panel.
  * @param {string} panelId
  * @returns {string}
  */

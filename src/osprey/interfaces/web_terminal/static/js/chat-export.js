@@ -9,7 +9,7 @@
  * rebuilds it from the lifecycle bus (chat-events.js) as the frames arrive. The
  * rendered text is the fallback when no source was captured.
  *
- * The conversation. The export button in the session bar downloads the whole
+ * The conversation. The Export button in the Agent bar downloads the whole
  * transcript. It is read from the server with fetchHistory, not taken from the
  * log, so it is complete even when the page joined the conversation part-way.
  * Each tool call is one line with its decision and outcome, and no payloads.
@@ -22,6 +22,7 @@
 import { facilityDayKey } from '/design-system/js/facility-time.js';
 
 import { fetchHistory } from './chat-client.js';
+import { barButton } from './chat-console.js';
 import { endsTurn } from './chat-frames.js';
 import { emitChat, onChat } from './chat-events.js';
 import { button, elem } from './chat-dom.js';
@@ -268,8 +269,8 @@ export function initChatExport(ctx) {
 
   // ---- The conversation, as a file ---- //
 
-  const exportButton = button('op-export', 'Export');
-  exportButton.title = 'Download the conversation as Markdown';
+  const exportButton = barButton('op-export', 'share', 'Export');
+  exportButton.title = 'Export: download the conversation as Markdown';
   exportButton.addEventListener('click', () => void exportConversation());
   ctx.bar.append(exportButton);
 

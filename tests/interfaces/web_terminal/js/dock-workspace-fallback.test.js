@@ -10,8 +10,8 @@
  * reachable nowhere. These tests boot initDockWorkspace with no dockview
  * global and drive the REAL hub receive side (tile-header-contrib.js): a
  * contribution renders into the fallback bar, a click round-trips to the
- * iframe, the bar follows the active panel, and it steps aside in Simple mode
- * and when no panel is active.
+ * iframe, the bar follows the active panel, and it steps aside only when no
+ * panel is active — in both views, as a docked tile's bar does.
  */
 
 import { test, expect, describe, beforeAll, beforeEach, afterEach, vi } from 'vitest';
@@ -34,7 +34,10 @@ vi.mock('../../../../src/osprey/interfaces/web_terminal/static/js/api.js', () =>
   fetchJSON: async () => ({}),
 }));
 
-import { initDockWorkspace } from '../../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js';
+import {
+  initDockWorkspace,
+  isTerminalPanelOpen,
+} from '../../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js';
 import { initHeaderContrib } from '../../../../src/osprey/interfaces/web_terminal/static/js/tile-header-contrib.js';
 
 /** Let MutationObserver callbacks run. */
@@ -185,7 +188,7 @@ describe('hub with no dockview', () => {
     expect(artifacts.postMessage).not.toHaveBeenCalled();
   });
 
-  test('the bar hides with no active panel and in Simple mode', async () => {
+  test('the bar hides only with no active panel, and shows in both views', async () => {
     addIframe('tuning');
     initDockWorkspace();
     expect(bar().style.display).toBe('none');
@@ -197,14 +200,17 @@ describe('hub with no dockview', () => {
 
     document.documentElement.setAttribute('data-ui-mode', 'simple');
     await flush();
-    expect(bar().style.display).toBe('none');
-
-    document.documentElement.setAttribute('data-ui-mode', 'expert');
-    await flush();
     expect(bar().style.display).toBe('');
+    document.documentElement.setAttribute('data-ui-mode', 'expert');
 
     delete host.dataset.activePanel;
     await flush();
     expect(bar().style.display).toBe('none');
+  });
+
+  test('the Agent card is never in the dock: the pane counts as open and nothing is stamped', () => {
+    initDockWorkspace();
+    expect(isTerminalPanelOpen()).toBe(true);
+    expect(document.documentElement.hasAttribute('data-agent')).toBe(false);
   });
 });

@@ -48,6 +48,7 @@ import {
   renderEmptyStateContent,
 } from './first-contact.js';
 import { getPointer, setPointer, subscribe as subscribeToPointer } from './session-pointer.js';
+import { attachConversationMenu } from './sessions.js';
 import { attachSlashComplete } from './slash-complete.js';
 import { askAboutStartedCommands } from './started-commands.js';
 import { notifySessionChange } from './terminal.js';
@@ -103,7 +104,7 @@ export function initChat(containerId = 'operator-container') {
   const container = /** @type {HTMLElement} */ (found);
 
   const handles = buildConsole();
-  const { bar, led, newBtn, messages, overlay, overlayMessage, overlayAction } = handles;
+  const { bar, newBtn, moreBtn, messages, overlay, overlayMessage, overlayAction } = handles;
   const { inputArea, textarea, cmdBtn, sendBtn, stopBtn } = handles;
   container.append(bar, messages, overlay, inputArea);
   const slash = attachSlashComplete(textarea, { load: fetchCommands, mount: inputArea });
@@ -254,14 +255,13 @@ export function initChat(containerId = 'operator-container') {
 
   /**
    * Flip the whole console between streaming and idle: the azure top-edge
-   * affordance (via the `streaming` class), the session LED, input enablement,
-   * and Stop-button visibility.
+   * affordance (via the `streaming` class), input enablement, and Stop-button
+   * visibility.
    * @param {boolean} on
    */
   function setStreaming(on) {
     streaming = on;
     container.classList.toggle('streaming', on);
-    led.classList.toggle('active', on);
     applyControls();
     // Return focus to the input when a turn ends, but only while the console is
     // the visible view and reachable — focusing a hidden or disabled textarea
@@ -710,6 +710,9 @@ export function initChat(containerId = 'operator-container') {
     getKey: () => boundKey,
     onBeforeSend: (transform) => void sendTransforms.push(transform),
   });
+  // Last in the bar, after the bell and Export the features appended.
+  bar.append(moreBtn);
+  attachConversationMenu(moreBtn);
 
   // A page that opens in Simple mode never went through a flip: the terminal
   // does not connect here, so this console is the surface running the
@@ -742,6 +745,6 @@ export function renderChatBootFailure(containerId) {
   const notice = document.createElement('p');
   notice.className = 'chat-boot-failure';
   notice.textContent =
-    'The operator console failed to start. Reload the page, or switch to the Expert view.';
+    'The agent console failed to start. Reload the page, or switch to the Expert view.';
   container.replaceChildren(notice);
 }

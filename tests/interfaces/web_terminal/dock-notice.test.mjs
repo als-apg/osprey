@@ -171,6 +171,14 @@ describe('setPanelReachable — the tile body says its backend stopped answering
     }).toEqual(before);
   });
 
+  test("the notice is rounded at the card's bottom corners, like its iframe", async () => {
+    const { mod, frame } = await arielDown();
+    mod.setPanelReachable('ariel', false, SINCE);
+    const [el] = noticeEls();
+    expect(el.style.borderRadius).toContain('var(--radius-xl)');
+    expect(frame.style.borderRadius).toContain('var(--radius-xl)');
+  });
+
   test('the notice exists before it has anything to say', async () => {
     // A polite live region must be in the accessibility tree before its text
     // arrives, or the arrival is not announced.

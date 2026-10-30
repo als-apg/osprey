@@ -247,3 +247,94 @@ describe('the picker is withheld while the chat is busy', () => {
     expect(pickerButton().disabled).toBe(true);
   });
 });
+
+describe("Simple view: the Agent bar's Earlier conversations menu", () => {
+  /** @type {HTMLButtonElement} */
+  let opener;
+
+  beforeEach(() => {
+    setMode('simple');
+    opener = document.createElement('button');
+    opener.className = 'op-session-more';
+    document.body.append(opener);
+    sessions.attachConversationMenu(opener);
+  });
+
+  const menu = () =>
+    /** @type {HTMLElement} */ (document.getElementById('agent-conversations-menu'));
+  const rows = () => [...menu().querySelectorAll('[role="menuitemradio"]')];
+
+  async function openMenu() {
+    opener.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await flush();
+  }
+
+  test('the ⋯ opens a body-level popover listing the sessions, the current one checked', async () => {
+    terminal.getCurrentSessionId.mockReturnValue(SECOND);
+    stubSessions({ sessions: RECORDS });
+    expect(menu().hidden).toBe(true);
+
+    await openMenu();
+
+    expect(menu().hidden).toBe(false);
+    expect(menu().parentElement).toBe(document.body);
+    expect(menu().classList.contains('osprey-popover')).toBe(true);
+    expect(menu().querySelector('.osprey-popover-title')?.textContent).toBe(
+      'Earlier conversations'
+    );
+    expect(rows().map((r) => r.querySelector('.op-conversation-title')?.textContent)).toEqual([
+      'Vacuum pressure',
+      'Corrector limits',
+    ]);
+    expect(rows().map((r) => r.getAttribute('aria-checked'))).toEqual(['false', 'true']);
+    expect(opener.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  test('picking a conversation moves the pointer and closes the menu; no terminal starts', async () => {
+    stubSessions({ sessions: RECORDS });
+    await openMenu();
+
+    /** @type {HTMLElement} */ (rows()[1]).click();
+
+    expect(pointer.getPointer()).toBe(SECOND);
+    expect(menu().hidden).toBe(true);
+    expect(terminal.startTerminal).not.toHaveBeenCalled();
+  });
+
+  test('a second press on the ⋯ closes the open menu', async () => {
+    stubSessions({ sessions: RECORDS });
+    await openMenu();
+    await openMenu();
+    expect(menu().hidden).toBe(true);
+  });
+
+  test('with no sessions the menu says so', async () => {
+    stubSessions({ sessions: [] });
+    await openMenu();
+    expect(rows()).toHaveLength(0);
+    expect(menu().querySelector('.osprey-list-empty')?.textContent).toBe(
+      'No earlier conversations'
+    );
+  });
+
+  test('a busy chat withholds the ⋯ and closes its open menu, as it does the picker', async () => {
+    stubSessions({ sessions: RECORDS });
+    await openMenu();
+
+    bus.emitChat('busy', { busy: true });
+
+    expect(opener.disabled).toBe(true);
+    expect(menu().hidden).toBe(true);
+
+    bus.emitChat('busy', { busy: false });
+    expect(opener.disabled).toBe(false);
+  });
+
+  test('a turn that starts while the list loads keeps the menu shut', async () => {
+    stubSessions({ sessions: RECORDS });
+    opener.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    bus.emitChat('busy', { busy: true });
+    await flush();
+    expect(menu().hidden).toBe(true);
+  });
+});
