@@ -397,8 +397,8 @@ _FAKE_LOGS = 'echo "2026-01-01T00:00:00Z log line from $3"'
 #: A ``logs`` call that outlives any snapshot deadline the tests set.
 _SLOW_LOGS = "exec sleep 60"
 
-#: The snapshot deadline the in-process timeout tests set: well past what the
-#: fast listings cost on a loaded host, well short of the slow call.
+#: The snapshot deadline the in-process timeout tests prove fires, well short
+#: of the slow call.
 _CALL_BOUND = 5.0
 
 
@@ -441,6 +441,28 @@ def slow_engine(tmp_path, monkeypatch) -> Path:
 def _engine_calls(tmp_path: Path) -> list[str]:
     calls = tmp_path / "calls.log"
     return calls.read_text().splitlines() if calls.exists() else []
+
+
+def _record_started_calls(monkeypatch) -> list[list[str]]:
+    """Every engine call the capture starts, in order, recorded as it is started.
+
+    Recorded in process before the call runs, so a call the deadline cuts before
+    the stand-in gets the CPU is recorded all the same.
+    """
+    started: list[list[str]] = []
+    real_run = ci_diagnostics.subprocess.run
+
+    def _run(argv, *args, **kwargs):
+        started.append(list(argv))
+        return real_run(argv, *args, **kwargs)
+
+    monkeypatch.setattr(ci_diagnostics.subprocess, "run", _run)
+    return started
+
+
+def _named(argv: list[str]) -> str:
+    """A call as the capture names it: engine, first argument, last argument."""
+    return " ".join([argv[0], argv[1], *argv[2:][-1:]])
 
 
 def test_container_snapshots_are_off_when_unset():
@@ -691,28 +713,27 @@ def test_a_capture_that_times_out_is_marked_incomplete(slow_engine, tmp_path, mo
     """A wedged engine costs one bounded call, and the snapshot says it stopped short."""
     monkeypatch.setattr(ci_diagnostics, "SNAPSHOT_DEADLINE", _CALL_BOUND)
     snapshots = ContainerSnapshots(tmp_path / "diag", "gw0", slow_engine.name)
+    started = _record_started_calls(monkeypatch)
 
     written = snapshots.capture("tests/test_a.py::test_one", "call")
 
     assert written is not None
     state = (written / "state.txt").read_text().splitlines()
     assert state[-1].startswith("capture incomplete: ")
-    assert f"slow-engine logs c1 exceeded the {_CALL_BOUND:g} s snapshot deadline" in state[-1]
-    calls = _engine_calls(tmp_path)
-    assert calls[-1].startswith("logs "), calls
+    assert started, state
+    cut = _named(started[-1])
+    assert state[-1] == (
+        f"capture incomplete: {cut} exceeded the {_CALL_BOUND:g} s snapshot deadline"
+    ), (state, started)
 
 
 def test_a_capture_whose_first_call_times_out_is_marked_incomplete(tmp_path, monkeypatch):
     """An engine that never answers the container listing still leaves a marked snapshot."""
     monkeypatch.setattr(ci_diagnostics, "SNAPSHOT_DEADLINE", _CALL_BOUND)
-    calls = shlex.quote(str(tmp_path / "calls.log"))
-    script = _write_engine(
-        tmp_path / "bin",
-        "mute-engine",
-        f"#!/bin/sh\nprintf '%s\\n' \"$*\" >> {calls}\nexec sleep 60\n",
-    )
+    script = _write_engine(tmp_path / "bin", "mute-engine", "#!/bin/sh\nexec sleep 60\n")
     monkeypatch.setenv("PATH", f"{script.parent}{os.pathsep}{os.environ.get('PATH', '')}")
     snapshots = ContainerSnapshots(tmp_path / "diag", "gw0", script.name)
+    started = _record_started_calls(monkeypatch)
 
     written = snapshots.capture("tests/test_a.py::test_one", "call")
 
@@ -720,8 +741,7 @@ def test_a_capture_whose_first_call_times_out_is_marked_incomplete(tmp_path, mon
     state = (written / "state.txt").read_text().splitlines()
     assert state[-1].startswith("capture incomplete: mute-engine ps "), state
     assert state[-1].endswith(f"exceeded the {_CALL_BOUND:g} s snapshot deadline"), state
-    calls = _engine_calls(tmp_path)
-    assert len(calls) == 1 and calls[0].startswith("ps -aq --filter "), calls
+    assert len(started) == 1 and started[0][1:3] == ["ps", "-aq"], started
 
 
 #: A ``logs`` call that marks the moment it began, then outlives the nested
