@@ -52,6 +52,7 @@ _EXPECTED_KEYS = {
     "write_tools",
     "control_system_write_tools",
     "facility_write_tools",
+    "governed_tools",
     "mixed_read_write_tools",
     "lane_addressed_tools",
     "measurement",
