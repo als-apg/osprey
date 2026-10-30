@@ -226,6 +226,7 @@ beforeEach(async () => {
 afterEach(() => {
   vi.unstubAllGlobals();
   document.documentElement.removeAttribute('data-ui-mode');
+  document.documentElement.removeAttribute('data-expert-view');
   document.body.innerHTML = '';
 });
 
@@ -299,6 +300,24 @@ describe('View', () => {
     expect(checked('[data-view="simple"]')).toBe('true');
     expect(checked('[data-view="expert"]')).toBe('false');
     expect(menu().hidden).toBe(false);
+  });
+
+  test('with no Expert view offered, the group and its separator are gone', () => {
+    document.documentElement.setAttribute('data-expert-view', 'off');
+    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    boot();
+    expect(menu().querySelector('[data-view]')).toBeNull();
+    expect(menu().querySelector('#more-view-label')).toBeNull();
+    // The Appearance group now follows the sign-in block directly: one
+    // separator between them, not two.
+    const who = qs(menu(), '.more-menu-who');
+    expect(who.nextElementSibling?.getAttribute('role')).toBe('separator');
+    expect(who.nextElementSibling?.nextElementSibling?.getAttribute('aria-labelledby')).toBe(
+      'more-appearance-label'
+    );
+    // The remaining radios still work.
+    openMenu();
+    expect(document.activeElement).toBe(row('[data-appearance="auto"]'));
   });
 });
 

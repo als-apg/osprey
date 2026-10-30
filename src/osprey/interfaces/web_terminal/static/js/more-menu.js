@@ -6,7 +6,10 @@
  *
  *   - who is signed in (user, role, deployment), when the page knows;
  *   - View: Simple or Expert (frame-params.js's `pickUiMode()`, the same pick
- *     the command palette makes);
+ *     the command palette makes). On a page that offers no Expert view
+ *     (`expertViewOffered()`, false under `web.expert_view: false`) the group
+ *     and its separator are removed at boot: there is nothing to choose
+ *     between;
  *   - Appearance: follow the system, light or dark, and Theme family — the
  *     hub's theme preference through theme-manager.js, which owns it;
  *   - Settings (⌘, / Ctrl+,), Keyboard shortcuts, Take the tour, Activity log
@@ -32,7 +35,7 @@
  * with focus inside it.
  */
 
-import { onModeChange, pickUiMode } from '/design-system/js/frame-params.js';
+import { expertViewOffered, onModeChange, pickUiMode } from '/design-system/js/frame-params.js';
 import { closePopover, openPopover, togglePopover } from '/design-system/js/popover.js';
 import {
   getFamily,
@@ -156,6 +159,13 @@ export function initMoreMenu({ getSessionId }) {
 
   const families = menu.querySelector('[data-theme-families]');
   if (families) families.replaceChildren(...themeFamilies().map(familyRadio));
+
+  if (!expertViewOffered()) {
+    const viewGroup = menu.querySelector('[aria-labelledby="more-view-label"]');
+    const sep = viewGroup?.nextElementSibling;
+    if (sep?.getAttribute('role') === 'separator') sep.remove();
+    viewGroup?.remove();
+  }
 
   // A row that moves the operator elsewhere closes the menu; popover.js parks
   // focus on ☰ More, so whatever opens next (the drawer, the tour) returns

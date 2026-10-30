@@ -80,7 +80,7 @@ describe('the mode switch', () => {
 
 describe('the mode switch on a deployment with no Expert view', () => {
   test('is not offered at all (web.expert_view: false)', async () => {
-    ({ customize, sync } = await boot({ uiMode: 'simple' }));
+    document.documentElement.dataset.uiMode = 'simple';
     document.documentElement.dataset.expertView = 'off';
 
     await openPalette();

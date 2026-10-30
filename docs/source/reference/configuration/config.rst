@@ -662,10 +662,10 @@ Expert and Simple view
      expert_view: false   # offer no Expert view at all
 
 ``web.ui_mode`` picks the view a terminal opens in, ``expert`` (the default)
-or ``simple``; anyone can flip to the other one from the display menu or the
+or ``simple``; anyone can flip to the other one from **☰ More** or the
 command palette. ``web.expert_view: false`` takes the Expert view away
 altogether, on every login the render serves. The terminal opens in Simple
-whatever ``web.ui_mode`` says, the display menu has no View row, the command
+whatever ``web.ui_mode`` says, **☰ More** has no View group, the command
 palette offers no switch, and a ``?mode=expert`` link or a remembered pick is
 ignored. The server refuses the Expert view's terminal session too:
 ``/ws/terminal`` answers with an error and closes (code ``4403``) before any
