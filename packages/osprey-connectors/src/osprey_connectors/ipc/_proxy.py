@@ -39,10 +39,7 @@ the base class's own function, bound here unchanged: it only composes
 guard and the limits checks run — with
 :func:`~osprey_connectors.control_system.raise_for_write_result`, which
 reads the result the child already decided. Running that composition in the
-parent keeps every refusal decision in the child while letting a
-``ChannelWriteFailedError`` reach the caller typed; raised in the child, that
-class is outside the IPC exception registry and would cross as a
-``ConnectorInternalError``.
+parent keeps every refusal decision in the child.
 
 Concurrency
 -----------
@@ -127,11 +124,6 @@ def _expect(reply: object, kind: type[_T], method: str) -> _T:
     return reply
 
 
-#: Attribute set on an exception decoded from the child's own error frame. It is
-#: the recovery policy's mark, so the policy and this proxy read one origin.
-_FROM_CHILD = _RAISED_BY_CHILD
-
-
 def raised_by_child(exc: BaseException) -> bool:
     """Whether *exc* is an error the child sent, rather than one this proxy made.
 
@@ -143,7 +135,7 @@ def raised_by_child(exc: BaseException) -> bool:
     in when the caller happens to resume. A failure about one channel is no
     :class:`ConnectionError` at all.
     """
-    return bool(getattr(exc, _FROM_CHILD, False))
+    return bool(getattr(exc, _RAISED_BY_CHILD, False))
 
 
 def _consume_exception(future: asyncio.Future[Any]) -> None:
@@ -524,7 +516,7 @@ class ConnectorHostProxy:
             # standing in for a class this build does not know or a reply value
             # it could not rebuild.
             exception = frame.exception
-            setattr(exception, _FROM_CHILD, True)
+            setattr(exception, _RAISED_BY_CHILD, True)
             future.set_exception(exception)
         else:
             future.set_result(frame.value)

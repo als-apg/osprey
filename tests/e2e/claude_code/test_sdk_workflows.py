@@ -19,11 +19,9 @@ Tests use permission_mode="bypassPermissions" because:
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
-from tests.e2e._facility_select import lane_model, monitors_in_plane, repo_view
+from tests.e2e._facility_select import lane_monitors
 from tests.e2e.judge import LLMJudge
 from tests.e2e.sdk_helpers import (
     e2e_budget_scale,
@@ -33,12 +31,6 @@ from tests.e2e.sdk_helpers import (
     run_sdk_query,
 )
 from tests.e2e.test_preset_agentic import _to_workflow_result
-
-
-def _lane_monitors(repo: Path, count: int) -> tuple[str, ...]:
-    """The first ``count`` horizontal monitors of the lane's model, from the built view."""
-    view = repo_view(repo)
-    return monitors_in_plane(view, "x", count, model=lane_model(view))
 
 
 class TestClaudeCodeSDKIntegration:
@@ -136,7 +128,7 @@ class TestClaudeCodeSDKIntegration:
           3. Cost: under $1.00 budget.
         """
         repo = init_project(tmp_path, "sdk-archiver-plot", provider="als-apg")
-        first, second, third = _lane_monitors(repo, 3)
+        first, second, third = lane_monitors(repo, 3)
 
         prompt = (
             "Use the archiver_read tool to retrieve data for channels "
@@ -347,7 +339,7 @@ class TestClaudeCodeSDKIntegration:
         Cost budget: $2.00
         """
         repo = init_project(tmp_path, "sdk-3d-scatter", provider="als-apg")
-        first, second, third = _lane_monitors(repo, 3)
+        first, second, third = lane_monitors(repo, 3)
 
         prompt = (
             "Use archiver_read to retrieve data for channels "

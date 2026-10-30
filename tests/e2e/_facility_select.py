@@ -148,6 +148,12 @@ def lane_model(view: SimulatorView) -> str:
     return found[2]
 
 
+def lane_monitors(repo: Path, count: int) -> tuple[str, ...]:
+    """The first ``count`` horizontal monitors of the lane's model, from the built view."""
+    view = repo_view(repo)
+    return monitors_in_plane(view, "x", count, model=lane_model(view))
+
+
 @dataclass(frozen=True)
 class LaneSelection:
     """The channels of the lane model a lane reads and writes, as one selection.

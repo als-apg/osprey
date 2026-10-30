@@ -143,6 +143,7 @@ from osprey_connectors.ipc import (
 )
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.process import DEFAULT_TERMINATE_GRACE_S, reap_exit_code
+from osprey_connectors.recovery import RecoveryAction
 from osprey_connectors.types import (
     SIMULATED_TYPES,
     TARGET_LIVE,
@@ -211,12 +212,6 @@ REASON_VERIFICATION_FAILED = "verification_failed"
 REASON_PROBE_FAILED = "probe_failed"
 #: Not a switch stage: the state a session is in when its child has died.
 REASON_NO_CHILD = "no_connector_host"
-
-#: What the supervisor did about a lost child, as the ``recovery`` record a
-#: failure carries: ``{"action": <word>, "text": <sentence>}``.
-CHILD_REPLACED = "child_replaced"
-CHILD_KEPT = "child_kept"
-RESPAWN_REFUSED = "respawn_refused"
 
 #: The operator-facing name each display branch defaults to — one word per
 #: machine a target can reach, not per target name, because that is what the
@@ -1101,12 +1096,12 @@ class ConnectorHostManager:
             )
         except SwitchError as error:
             return {
-                "action": RESPAWN_REFUSED,
+                "action": RecoveryAction.RESPAWN_REFUSED,
                 "text": "Starting a fresh connector-host child on the same target failed "
                 f"({error.detail}); control-system calls are refused until one is running.",
             }
         return {
-            "action": CHILD_REPLACED,
+            "action": RecoveryAction.CHILD_REPLACED,
             "text": "The connector-host child had exited; a fresh one was started on the "
             "same target. This call was refused and not retried; the next call is served.",
         }

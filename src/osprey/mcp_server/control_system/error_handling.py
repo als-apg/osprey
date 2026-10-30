@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
 
 from fastmcp.exceptions import ToolError
 
@@ -30,6 +31,9 @@ from osprey_connectors.errors import (
     RefusalReason,
 )
 from osprey_connectors.ipc import ChildUnresponsiveError
+
+if TYPE_CHECKING:
+    from osprey.mcp_server.control_system.server_context import Recovery
 
 logger = logging.getLogger("osprey.mcp_server.control_system.error_handling")
 
@@ -154,18 +158,14 @@ def shared_typed_cause(errors: list[BaseException]) -> BaseException | None:
     return errors[0]
 
 
-#: One thing the supervisor did about a failure: ``{"action": <word>, "text": <sentence>}``.
-_Recovery = dict[str, str]
-
-
-def _recovery_of(exc: BaseException) -> list[_Recovery]:
+def _recovery_of(exc: BaseException) -> list[Recovery]:
     """The records the supervisor attached to *exc*, in the order it did them."""
     return [dict(record) for record in getattr(exc, "recovery", ()) or ()]
 
 
-def _merged_recovery(errors: Iterable[BaseException]) -> list[_Recovery]:
+def _merged_recovery(errors: Iterable[BaseException]) -> list[Recovery]:
     """Every record the failed items carry, one per action, in first-seen order."""
-    merged: dict[str, _Recovery] = {}
+    merged: dict[str, Recovery] = {}
     for error in errors:
         for record in _recovery_of(error):
             merged.setdefault(record["action"], record)
@@ -252,7 +252,7 @@ def _refusal_suggestions(reasons: Iterable[str | None]) -> list[str]:
     ]
 
 
-def _recovery_clause(records: list[_Recovery]) -> str:
+def _recovery_clause(records: list[Recovery]) -> str:
     """The sentences of what the supervisor did, to close a message with."""
     return "".join(f" {record['text']}" for record in records)
 

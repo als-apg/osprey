@@ -33,6 +33,7 @@ from osprey.deployment.subprocess_capture import (
     run_captured,
     stop_child,
 )
+from tests._processes import kill_group
 
 
 @pytest.fixture(autouse=True)
@@ -814,11 +815,6 @@ def _sleeping_group(ready: Path, *, ignore_term: bool = False) -> subprocess.Pop
     return group
 
 
-def _kill_group(pgid: int) -> None:
-    with contextlib.suppress(ProcessLookupError, PermissionError):
-        os.killpg(pgid, signal.SIGKILL)
-
-
 @pytest.mark.real_bounded_run
 class TestProcessGroupStop:
     def test_an_exited_unreaped_leader_counts_as_gone(self):
@@ -834,7 +830,7 @@ class TestProcessGroupStop:
         try:
             assert not group_is_gone(group.pid)
         finally:
-            _kill_group(group.pid)
+            kill_group(group.pid)
             group.wait()
 
     def test_a_group_this_user_may_not_signal_counts_as_present(self, tmp_path, monkeypatch):
@@ -851,7 +847,7 @@ class TestProcessGroupStop:
             assert not group_is_gone(group.pid)
         finally:
             monkeypatch.undo()
-            _kill_group(group.pid)
+            kill_group(group.pid)
             group.wait()
 
     def test_group_is_gone_without_a_deadline_answers_at_once(self, tmp_path, monkeypatch):
@@ -871,7 +867,7 @@ class TestProcessGroupStop:
             assert len(reads) == 1
         finally:
             monkeypatch.undo()
-            _kill_group(group.pid)
+            kill_group(group.pid)
             group.wait()
 
     def test_group_is_gone_waits_for_a_group_that_ends_inside_its_deadline(self):
@@ -879,7 +875,7 @@ class TestProcessGroupStop:
         try:
             assert group_is_gone(group.pid, within=5.0)
         finally:
-            _kill_group(group.pid)
+            kill_group(group.pid)
             group.wait()
 
     def test_group_is_gone_reads_a_retryable_failure_again_inside_its_deadline(self, monkeypatch):
@@ -912,7 +908,7 @@ class TestProcessGroupStop:
                 group_is_gone(group.pid)
         finally:
             monkeypatch.undo()
-            _kill_group(group.pid)
+            kill_group(group.pid)
             group.wait()
 
     def test_an_unreadable_table_still_waits_out_the_grace_before_sigkill(self, monkeypatch):
@@ -988,7 +984,7 @@ class TestProcessGroupStop:
             assert proc.returncode is None
         finally:
             monkeypatch.undo()
-            _kill_group(proc.pid)
+            kill_group(proc.pid)
             proc.wait()
 
     def test_stop_child_refuses_a_reaped_leader(self):
@@ -1016,7 +1012,7 @@ class TestProcessGroupStop:
             with pytest.raises(ChildProcessError):
                 subprocess_capture._waitid(proc.pid, os.WEXITED | os.WNOWAIT | os.WNOHANG)
         finally:
-            _kill_group(proc.pid)
+            kill_group(proc.pid)
 
     def test_stop_child_names_a_member_that_outlives_sigkill_and_leaves_the_leader_unwaited(
         self, tmp_path, monkeypatch

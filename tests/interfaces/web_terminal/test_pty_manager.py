@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import fcntl
 import logging
 import os
@@ -19,6 +18,7 @@ from osprey.deployment import process_table, subprocess_capture
 from osprey.deployment.subprocess_capture import group_is_gone
 from osprey.interfaces.web_terminal import process_tree
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry, PtySession
+from tests._processes import kill_group
 from tests.interfaces.web_terminal._pty_child import (
     CHILD_HANG_CEILING,
     SENTINEL,
@@ -66,11 +66,6 @@ def _stubborn_session(tmp_path) -> tuple[PtySession, list[int]]:
     session = PtySession([sys.executable, "-c", _stubborn_child_script(pid_file, grandchild)])
     session.start()
     return session, wait_for_pids(session, pid_file, 2)
-
-
-def _kill_group(pgid: int) -> None:
-    with contextlib.suppress(ProcessLookupError, PermissionError):
-        os.killpg(pgid, signal.SIGKILL)
 
 
 def _winsize(session: PtySession) -> tuple[int, int]:
@@ -392,7 +387,7 @@ class TestPtySession:
             )
             assert not session.is_alive
         finally:
-            _kill_group(child)
+            kill_group(child)
             session.terminate()
 
     def test_terminate_names_the_survivors_of_its_own_group(self, tmp_path, monkeypatch, caplog):
@@ -420,7 +415,7 @@ class TestPtySession:
             assert f"PTY child {child}" in named[0]
             assert child not in ended, "the child's group was stopped twice"
         finally:
-            _kill_group(child)
+            kill_group(child)
             session.terminate()
 
     def test_terminate_says_the_table_was_unreadable_not_a_pid(self, tmp_path, monkeypatch, caplog):
@@ -442,7 +437,7 @@ class TestPtySession:
             ), warnings
             assert not any("pids" in w for w in warnings), warnings
         finally:
-            _kill_group(child)
+            kill_group(child)
             session.terminate()
 
     def test_terminate_says_started_groups_are_unknown_when_the_table_fails_after_the_first_read(

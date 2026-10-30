@@ -8,7 +8,6 @@ survives ``stop()`` or a dead parent.
 
 from __future__ import annotations
 
-import contextlib
 import http.server
 import json
 import logging
@@ -38,7 +37,7 @@ from osprey.interfaces.web_terminal.jupyter_sidecar import (
 )
 from osprey.mcp_server.python_executor.executor import resolve_agent_interpreter
 from tests._live import wait_until
-from tests._processes import pid_alive
+from tests._processes import kill_group, pid_alive
 
 READY_TIMEOUT = 90.0
 
@@ -762,11 +761,6 @@ def _spawn_stand_in(
     return sidecar, pid
 
 
-def _kill_group(pgid: int) -> None:
-    with contextlib.suppress(ProcessLookupError, PermissionError):
-        os.killpg(pgid, signal.SIGKILL)
-
-
 @pytest.mark.usefixtures("config_env")
 @spawns
 def test_stop_ends_a_member_of_the_sidecars_group_that_ignores_sigterm(
@@ -780,7 +774,7 @@ def test_stop_ends_a_member_of_the_sidecars_group_that_ignores_sigterm(
             f"a member of the sidecar's group {pid} is still running"
         )
     finally:
-        _kill_group(pid)
+        kill_group(pid)
         sidecar.stop()
 
 
@@ -825,7 +819,7 @@ def test_stop_names_what_its_group_stop_could_not_prove_gone(
         ]
         assert any(said in warning for warning in warnings), warnings
     finally:
-        _kill_group(pid)
+        kill_group(pid)
         sidecar.stop()
 
 
@@ -853,7 +847,7 @@ def test_the_exit_watcher_reports_without_reaping(
         with pytest.raises(ChildProcessError):
             subprocess_capture._waitid(pid, look)
     finally:
-        _kill_group(pid)
+        kill_group(pid)
         sidecar.stop()
 
 

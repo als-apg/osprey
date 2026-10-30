@@ -60,7 +60,7 @@ SETPOINT = BOUNDED_SETPOINT
 #: Read-only readback in the safety limits fixture.
 READBACK = READ_ONLY_READBACK
 #: A channel the safety limits fixture does not list.
-CORRECTOR = SCRIPTED_UNLISTED_SETPOINT
+UNLISTED_SETPOINT = SCRIPTED_UNLISTED_SETPOINT
 
 LIMITS_REASON = "CHANNEL LIMITS VIOLATION"
 #: What every writes-check refusal opens with; the reason's trailer closes it.
@@ -306,7 +306,7 @@ async def test_channel_write_is_removed_when_writes_are_disarmed(
     is the deny's doing and not a controls server that failed to start.
     """
     model, result = await drive(
-        safety_project_writes_off, scripted_model, [[write(CORRECTOR, 5.0)]]
+        safety_project_writes_off, scripted_model, [[write(UNLISTED_SETPOINT, 5.0)]]
     )
     assert result.mcp_server_status.get("controls") == "connected"
     assert READ in model.offered_tools
@@ -326,13 +326,15 @@ async def test_python_write_is_refused_when_writes_are_disarmed(
     The Python route is the way around a removed ``channel_write``; the tool
     stays offered for read-only work, so the boundary is the hook.
     """
-    code = f"from osprey.runtime import write_channel\nwrite_channel({CORRECTOR!r}, 5.0)"
+    code = f"from osprey.runtime import write_channel\nwrite_channel({UNLISTED_SETPOINT!r}, 5.0)"
     script = ScriptedCall(
         EXECUTE,
         {"code": code, "description": "Write the corrector.", "execution_mode": "readwrite"},
     )
     model, result = await drive(
-        safety_project_writes_off, scripted_model, [[read(CORRECTOR)], [script], [read(CORRECTOR)]]
+        safety_project_writes_off,
+        scripted_model,
+        [[read(UNLISTED_SETPOINT)], [script], [read(UNLISTED_SETPOINT)]],
     )
     assert result.mcp_server_status.get("python") == "connected"
     assert EXECUTE in model.offered_tools
@@ -343,9 +345,9 @@ async def test_python_write_is_refused_when_writes_are_disarmed(
     assert_no_callback(result, EXECUTE)
     assert_untouched(
         served_view(safety_project_writes_off),
-        CORRECTOR,
-        reading(before, CORRECTOR),
-        reading(after, CORRECTOR),
+        UNLISTED_SETPOINT,
+        reading(before, UNLISTED_SETPOINT),
+        reading(after, UNLISTED_SETPOINT),
         5.0,
     )
 
@@ -385,7 +387,7 @@ async def test_channel_write_is_refused_on_live_when_only_va_is_armed(
     model, result = await drive(
         safety_project_mixed_render,
         scripted_model,
-        [[read(CORRECTOR)], [write(CORRECTOR, 5.0)], [read(CORRECTOR)]],
+        [[read(UNLISTED_SETPOINT)], [write(UNLISTED_SETPOINT, 5.0)], [read(UNLISTED_SETPOINT)]],
     )
     assert _record_target(safety_project_mixed_render) == "live", (
         "no control-context record names the live target; the refusal below "
@@ -403,9 +405,9 @@ async def test_channel_write_is_refused_on_live_when_only_va_is_armed(
     assert_no_callback(result, WRITE)
     assert_untouched(
         served_view(safety_project_mixed_render),
-        CORRECTOR,
-        reading(before, CORRECTOR),
-        reading(after, CORRECTOR),
+        UNLISTED_SETPOINT,
+        reading(before, UNLISTED_SETPOINT),
+        reading(after, UNLISTED_SETPOINT),
         5.0,
     )
 

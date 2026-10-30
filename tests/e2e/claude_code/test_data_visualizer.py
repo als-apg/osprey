@@ -13,11 +13,9 @@ Requires:
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
-from tests.e2e._facility_select import lane_model, monitors_in_plane, repo_view
+from tests.e2e._facility_select import lane_monitors
 from tests.e2e.sdk_helpers import (
     agent_data_dir,
     e2e_budget_scale,
@@ -26,13 +24,6 @@ from tests.e2e.sdk_helpers import (
     print_run_summary,
     run_sdk_query,
 )
-
-
-def _lane_monitors(repo: Path, count: int) -> tuple[str, ...]:
-    """The first ``count`` horizontal monitors of the lane's model, from the built view."""
-    view = repo_view(repo)
-    return monitors_in_plane(view, "x", count, model=lane_model(view))
-
 
 pytestmark = pytest.mark.agentic_benchmark
 
@@ -67,7 +58,7 @@ class TestDataVisualizerAgent:
         Pipeline: archiver_read → data-visualizer → create_interactive_plot
         """
         repo = init_project(tmp_path, "e2e-viz-data-source", provider="als-apg")
-        first, second, third = _lane_monitors(repo, 3)
+        first, second, third = lane_monitors(repo, 3)
 
         prompt = (
             "Use archiver_read to retrieve data for channels "
@@ -177,7 +168,7 @@ class TestDataVisualizerAgent:
         are pinned by unit tests in tests/mcp_server/data_visualizer/.
         """
         repo = init_project(tmp_path, "e2e-viz-archiver-to-plot", provider="als-apg")
-        first, second = _lane_monitors(repo, 2)
+        first, second = lane_monitors(repo, 2)
 
         prompt = (
             "Use archiver_read to retrieve data for channels "

@@ -81,9 +81,6 @@ from pathlib import Path
 from typing import Any, Literal, overload
 
 from osprey.mcp_server.control_system.connector_host_manager import (
-    CHILD_KEPT,
-    CHILD_REPLACED,
-    RESPAWN_REFUSED,
     ConnectorHostManager,
     NoConnectorHostError,
     SwitchError,
@@ -96,6 +93,7 @@ from osprey_connectors.config import mapping_or_empty
 from osprey_connectors.control_system import ControlSystemConnector
 from osprey_connectors.errors import ConfigurationError, ConnectorUnavailableError
 from osprey_connectors.ipc import DEFAULT_PING_TIMEOUT_S, ChildUnresponsiveError, ConnectorHostProxy
+from osprey_connectors.recovery import RecoveryAction
 from osprey_connectors.types import configured_targets, tier_allows
 
 __all__ = [
@@ -268,9 +266,6 @@ class MCPServerConfig:
 # ---------------------------------------------------------------------------
 # The supervised handle
 # ---------------------------------------------------------------------------
-
-#: An in-process connector the supervisor dropped, for the next call to rebuild.
-CONNECTOR_DROPPED = "connector_dropped"
 
 #: One thing the supervisor did about a failure: ``{"action": <word>, "text": <sentence>}``.
 Recovery = dict[str, str]
@@ -466,7 +461,7 @@ class ControlSystemContext:
         on, which is what makes a target switch reach the tools at all: the
         child holds the Channel Access context for the recorded control target,
         and a switch replaces the child. On every other deployment it reaches
-        the in-process connector, cached as before.
+        the in-process connector, built once and cached.
 
         The connector is resolved here too, so the first tool call brings the
         first child up, and a call that finds the child dead is refused here
@@ -565,7 +560,7 @@ class ControlSystemContext:
         held = self._recoveries.get(name)
         if held is not None and held[0] is incarnation:
             task = held[1]
-            if not task.done() or (task.result() or {}).get("action") != CHILD_KEPT:
+            if not task.done() or (task.result() or {}).get("action") != RecoveryAction.CHILD_KEPT:
                 return await asyncio.shield(task)
         task = asyncio.ensure_future(self._guarded(act, name, incarnation))
         self._recoveries[name] = (incarnation, task)
@@ -592,13 +587,13 @@ class ControlSystemContext:
         replaced = await self.invalidate_connector(name, incarnation=incarnation)
         if not self._served_from_a_child(name):
             return {
-                "action": CONNECTOR_DROPPED,
+                "action": RecoveryAction.CONNECTOR_DROPPED,
                 "text": f"The {name.replace('_', ' ')} connector was dropped; "
                 "the next call builds a new one.",
             }
         if replaced:
             return {
-                "action": CHILD_REPLACED,
+                "action": RecoveryAction.CHILD_REPLACED,
                 "text": "The connector-host child that served this call has been replaced; "
                 "the call was not retried.",
             }
@@ -617,12 +612,12 @@ class ControlSystemContext:
             if not await self.invalidate_connector(name, incarnation=proxy):
                 return self._respawn_refused()
             return {
-                "action": CHILD_REPLACED,
+                "action": RecoveryAction.CHILD_REPLACED,
                 "text": "The connector-host child did not answer a ping and has been replaced; "
                 "the call was not retried.",
             }
         return {
-            "action": CHILD_KEPT,
+            "action": RecoveryAction.CHILD_KEPT,
             "text": "The connector-host child still answers a ping, so it was kept; the call "
             "may yet complete in it and was not retried.",
         }
@@ -634,7 +629,7 @@ class ControlSystemContext:
         else:
             still = "no child is serving; control-system calls are refused until one is running."
         return {
-            "action": RESPAWN_REFUSED,
+            "action": RecoveryAction.RESPAWN_REFUSED,
             "text": f"Replacing the connector-host child was refused; {still}",
         }
 
