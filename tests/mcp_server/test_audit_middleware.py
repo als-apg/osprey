@@ -1071,11 +1071,17 @@ def ask_stamps(tmp_path, monkeypatch):
     state.mkdir(parents=True)
     monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
 
-    def stamp(tool_use_id: str, approver: str = "human", mode: str = "default") -> Path:
+    def stamp(
+        tool_use_id: str,
+        approver: str = "human",
+        mode: str = "default",
+        position: str | None = None,
+    ) -> Path:
         path = state / f"{am.APPROVAL_ASK_PREFIX}{tool_use_id}{am.APPROVAL_ASK_SUFFIX}"
-        path.write_text(
-            json.dumps({"tool_use_id": tool_use_id, "approver": approver, "permission_mode": mode})
-        )
+        payload = {"tool_use_id": tool_use_id, "approver": approver, "permission_mode": mode}
+        if position is not None:
+            payload["position"] = position
+        path.write_text(json.dumps(payload))
         return path
 
     return stamp
@@ -1865,6 +1871,80 @@ class TestToolCallRecord:
         assert record["result_ref"]["artifact_id"] == "art-1"
         assert record["result_ref"]["size"] > 4096
         assert tool_call_module.SURFACE_TOOL_CALL == "tool_call"
+
+
+class TestToolCallApproval:
+    """``tool_call.approval`` names who answered and the switch position it ran under."""
+
+    @pytest.mark.usefixtures("full_record")
+    async def test_a_switch_approved_call_names_write_switch_at_allowed(self, project, ask_stamps):
+        ask_stamps("toolu_01abc", approver="write_switch", position="allowed")
+        await _call(am.AuditMiddleware(), "channel_write", meta=_TOOL_USE_META)
+        (record,) = _full(project)
+        assert record["approval"] == {
+            "outcome": "approved",
+            "approver": "write_switch",
+            "permission_mode": "default",
+            "position": "allowed",
+        }
+        # The position never rides in the decision: the envelope keeps its words.
+        assert record["decision"] == DECISION_ALLOWED
+        assert _records(project, identity=_identity())[-1]["decision"] == DECISION_ALLOWED
+
+    @pytest.mark.usefixtures("full_record")
+    async def test_a_human_approved_call_carries_asked(self, project, ask_stamps):
+        ask_stamps("toolu_01abc", approver="human", mode="acceptEdits", position="asked")
+        await _call(am.AuditMiddleware(), "channel_write", meta=_TOOL_USE_META)
+        (record,) = _full(project)
+        assert record["approval"] == {
+            "outcome": "approved",
+            "approver": "human",
+            "permission_mode": "acceptEdits",
+            "position": "asked",
+        }
+        assert record["decision"] == DECISION_ALLOWED
+
+    @pytest.mark.usefixtures("full_record")
+    async def test_a_dispatch_run_stays_dispatch_policy_at_allowed(self, project, ask_stamps):
+        ask_stamps("toolu_01abc", approver="dispatch_policy", position="allowed")
+        await _call(am.AuditMiddleware(), "channel_write", meta=_TOOL_USE_META)
+        (record,) = _full(project)
+        assert record["approval"]["approver"] == "dispatch_policy"
+        assert record["approval"]["position"] == "allowed"
+        assert record["decision"] == DECISION_ALLOWED
+
+    @pytest.mark.usefixtures("full_record")
+    async def test_a_non_governed_ask_has_no_position(self, project, ask_stamps):
+        ask_stamps("toolu_01abc")
+        await _call(am.AuditMiddleware(), "channel_write", meta=_TOOL_USE_META)
+        (record,) = _full(project)
+        assert record["approval"]["position"] is None
+        assert record["approval"]["approver"] == "human"
+
+    @pytest.mark.usefixtures("full_record", "ask_stamps")
+    async def test_an_unstamped_call_has_no_approval(self, project):
+        await _call(am.AuditMiddleware(), "channel_write", meta=_TOOL_USE_META)
+        (record,) = _full(project)
+        assert record["approval"] is None
+
+    async def test_the_detail_names_the_switch_approver(self, project, ask_stamps):
+        ask_stamps("toolu_01abc", approver="write_switch", position="allowed")
+        await _call(am.AuditMiddleware(), "channel_write", meta=_TOOL_USE_META)
+        record = _records(project, identity=_identity())[-1]
+        assert record["detail"] == "approval=approved approver=write_switch"
+        assert record["decision"] == DECISION_ALLOWED
+
+    @pytest.mark.usefixtures("project")
+    def test_the_answer_reads_approver_mode_and_position(self, ask_stamps):
+        ask_stamps("toolu_01abc", approver="write_switch", position="allowed")
+        assert am._approval_answered("toolu_01abc") == ("write_switch", "default", "allowed")
+        assert am._approval_answered("toolu_absent") is None
+
+    @pytest.mark.usefixtures("project")
+    def test_a_malformed_position_is_absent(self, ask_stamps):
+        path = ask_stamps("toolu_01abc")
+        path.write_text(json.dumps({"approver": "human", "position": 3}))
+        assert am._approval_answered("toolu_01abc") == ("human", None, None)
 
 
 class TestToolCallImageSpill:
