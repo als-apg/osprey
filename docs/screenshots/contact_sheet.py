@@ -706,9 +706,7 @@ def _wait_for_resumed_session(page, mode: str | None, *, variant: str) -> None:
 #: The demo plot's row in the hub sidebar's artifact list. The shell owns the
 #: list in both views, and a row click shows that artifact in the artifacts
 #: tile (opening the tile when it is not on screen).
-_PLOT_ROW_SELECTOR = (
-    f'#sidebar-artifacts-list .osprey-list-row[data-id="{DEMO_PLOT_ARTIFACT_ID}"]'
-)
+_PLOT_ROW_SELECTOR = f'#sidebar-artifacts-list .osprey-list-row[data-id="{DEMO_PLOT_ARTIFACT_ID}"]'
 
 #: The preview iframe the embedded artifacts viewer renders the shown plot
 #: into. Embedded, the gallery is a viewer of one artifact in both views, and
