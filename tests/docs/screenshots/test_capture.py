@@ -278,17 +278,20 @@ def test_hermetic_hub_recipe_captures_each_theme_in_its_mode(tmp_path, monkeypat
     monkeypatch.setattr(contact_sheet, "capture_hub_view", _record)
     monkeypatch.setattr(capture, "output_dir", lambda: tmp_path)
 
-    (recipe,) = [s for s in recipes.REGISTRY if s.name == "customize_sheet"]
+    recipe = DocShot(
+        name="hub_probe",
+        environment="hermetic_hub",
+        kind="static",
+        hub_mode="expert",
+        stage="probe",
+        themes=("light", "dark"),
+    )
     paths = capture._capture_hermetic_hub(object(), recipe)
 
     by_theme = {theme: (mode, stage, dest) for theme, mode, stage, dest in calls}
     assert len(calls) == len(recipe.themes) == 2
-    assert by_theme["light"] == (
-        "expert",
-        "customize_sheet",
-        tmp_path / "customize_sheet_light.png",
-    )
-    assert by_theme["dark"] == ("expert", "customize_sheet", tmp_path / "customize_sheet_dark.png")
+    assert by_theme["light"] == ("expert", "probe", tmp_path / "hub_probe_light.png")
+    assert by_theme["dark"] == ("expert", "probe", tmp_path / "hub_probe_dark.png")
     assert sorted(paths) == sorted(dest for *_, dest in calls)
 
 

@@ -25,17 +25,14 @@
 import { withPrefix } from './api.js';
 import { copyContext, sendFeedback } from './feedback-client.js';
 import { FeedbackModal } from './feedback-modal.js';
-import { applyDocsLink, initRailUtility, onFeedbackClick } from './rail-utility.js';
+import { initRailUtility, onFeedbackClick } from './rail-utility.js';
 import { captureScrollback } from './scrollback-capture.js';
 
-/** Deployment config: rail/status docs target and the outbound channels. */
+/** Deployment config: the docs target and the outbound channels. */
 const PANELS_PATH = '/api/panels';
 
 /** Carries `osprey.__version__`, the one metadata fact the page cannot know. */
 const HEALTH_PATH = '/health';
-
-/** Id of the status bar's Docs link in index.html. */
-const STATUS_DOCS_LINK_ID = 'docs-link';
 
 /** Class of the dialog's one notice line. */
 const NOTICE_CLASS = 'feedback-notice';
@@ -122,7 +119,7 @@ const TRACKER_KINDS = Object.freeze({ github: 'GitHub', gitlab: 'GitLab' });
  * consulted at click time.
  *
  * Never throws for a configuration read: a failed or hung `/api/panels` costs
- * the docs links and the outbound channels, never the Local channel.
+ * the docs link and the outbound channels, never the Local channel.
  *
  * @param {FeedbackBootOptions} [options]
  * @returns {{modal: FeedbackModal, ready: Promise<void>}} the wired dialog, and
@@ -170,7 +167,6 @@ export function initFeedback(options = {}) {
     // the list, and the dialog may already be open when it lands.
     modal.setTrackers(config.trackers);
     initRailUtility(panels);
-    applyStatusDocsLink(panels);
   });
   const healthApplied = read(HEALTH_PATH).then((health) => {
     config.version = trimmedString(health == null ? undefined : health.version);
@@ -211,26 +207,6 @@ function timeoutSignal() {
   return typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
     ? AbortSignal.timeout(CONFIG_TIMEOUT_MS)
     : undefined;
-}
-
-/**
- * Point the status bar's Docs link at the same target as the rail's anchor.
- *
- * The two are one affordance in two places, so they follow one rule — and it
- * is literally one rule: both go through `rail-utility.js`'s `applyDocsLink`,
- * which is where that rule and the reasons for it are spelled out.
- *
- * `.status-item[hidden]` is declared in files.css beside `.status-item`
- * itself: that rule's `display: flex` would otherwise beat the user-agent's
- * `[hidden]`, and the link would stay painted after being "hidden".
- *
- * @param {any} panelsPayload - the `GET /api/panels` response, or null.
- * @returns {void}
- */
-function applyStatusDocsLink(panelsPayload) {
-  const link = document.getElementById(STATUS_DOCS_LINK_ID);
-  if (!(link instanceof HTMLAnchorElement)) return;
-  applyDocsLink(link, panelsPayload);
 }
 
 /**

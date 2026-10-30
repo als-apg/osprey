@@ -318,7 +318,7 @@ async def get_panels(request: Request):
             "open_tiles": [...]|None,   # last-reported service tiles, reading order
             "open_tiles_age_s": float|None,   # seconds since that report (None = never)
             "open_tiles_dock": bool|None,     # reporting client had a dock shell (None = never)
-            "docs_url": str,            # target of the rail's Documentation control
+            "docs_url": str,            # target of the sidebar's Documentation control
             "feedback_trackers": [...],  # [{"kind", "label", "repo"|"url"}], render order
             "feedback_email": str,      # recipient of the prefilled mailto: draft
             "feedback_deployment": {...},  # identity lines for a report's metadata
@@ -335,15 +335,6 @@ async def get_panels(request: Request):
     the client can read the resolved mode after boot. First paint must never
     depend on this field — the SSR attribute is the authoritative first-paint
     rung; this is the API-side echo for later client mode resolution.
-
-    ``rail_position`` mirrors the server-rendered ``<html data-rail-position>``
-    the same way, and travels with two companions: ``family_rail_defaults``
-    (``app.FAMILY_RAIL_DEFAULTS``, the theme-family -> rail-position coupling
-    that gives the retro family a top tab strip) and
-    ``rail_position_configured`` (whether ``web.rail_position`` was set
-    explicitly, which outranks that coupling). ``rail-position.js`` reads both
-    so a live theme-family switch can move the rail without the browser
-    carrying its own copy of the coupling.
 
     ``presets`` is the config-defined "Layouts" list (``web.presets``), resolved
     at startup against the live panel set and carried in config order. It is
@@ -395,7 +386,7 @@ async def get_panels(request: Request):
 
     ``docs_url``, ``feedback_trackers`` and ``feedback_email`` are the resolved
     ``web.docs_url`` / ``web.feedback.*`` values that address the two utility
-    controls at the far end of the rail: the Documentation link target, and
+    controls in the sidebar footer: the Documentation link target, and
     the outbound channels the feedback dialog offers (one prefilled new-issue
     link per configured tracker — ``web.feedback.trackers`` plus the
     ``web.feedback.github_repo`` sugar, already merged server-side — and a
@@ -449,17 +440,6 @@ async def get_panels(request: Request):
     # false is stamped as <html data-expert-view="off"> for first paint, and
     # echoed here the way ui_mode is.
     expert_view = bool(getattr(request.app.state, "web_expert_view", True))
-    # Echo the resolved rail position (server-rendered onto
-    # <html data-rail-position>). "left" default mirrors
-    # app.DEFAULT_RAIL_POSITION — a literal for the same import-cycle reason.
-    rail_position = getattr(request.app.state, "web_rail_position", "left")
-    # The theme-family -> rail-position coupling, plus whether config pinned a
-    # position of its own. The client needs both to decide whether a live theme
-    # switch may move the rail; app.FAMILY_RAIL_DEFAULTS stays the only
-    # definition of the coupling (imported lazily for the same cycle reason).
-    from osprey.interfaces.web_terminal.app import FAMILY_RAIL_DEFAULTS
-
-    rail_position_configured = getattr(request.app.state, "web_rail_position_configured", False)
     project_key = _project_key(getattr(request.app.state, "project_cwd", None))
     has_artifacts = _workspace_has_artifacts(getattr(request.app.state, "workspace_dir", None))
     # Tile occupancy as last reported by a browser, with its freshness. The
@@ -512,9 +492,6 @@ async def get_panels(request: Request):
         "presets": presets,
         "ui_mode": ui_mode,
         "expert_view": expert_view,
-        "rail_position": rail_position,
-        "rail_position_configured": rail_position_configured,
-        "family_rail_defaults": dict(FAMILY_RAIL_DEFAULTS),
         "project_key": project_key,
         "workspace_has_artifacts": has_artifacts,
         "open_tiles": open_tiles,

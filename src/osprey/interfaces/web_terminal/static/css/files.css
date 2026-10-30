@@ -299,53 +299,6 @@
   font-family: inherit;
 }
 
-/* ---- Status Bar ---- */
-
-/* The bar's own skin. Layout beyond this — the item gap, and packing from the
-   start so a flexible-space item is what pushes the trailing items right — is
-   bars.css's, which owns the status bar as a bar-item host. */
-.status-bar {
-  height: var(--wt-status-bar-height);
-  display: flex;
-  align-items: center;
-  padding: 0 12px;
-  background: var(--bg-primary);
-  border-top: 1px solid var(--border-default);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
-  flex-shrink: 0;
-}
-
-.status-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-
-/* Load-bearing: the rule above beats the user-agent's `[hidden]`, so a status
-   item hidden from JS would keep painting. The Docs link ships hidden and is
-   revealed only once a configured docs_url arrives (feedback-boot.js), which
-   is the same contract the rail's Documentation anchor follows. */
-.status-item[hidden] {
-  display: none;
-}
-
-/* External documentation link — the header book icon's home after frame 2a
-   stripped it from the hub chrome. Stays visible in both modes. */
-.status-link {
-  color: var(--text-secondary);
-  text-decoration: none;
-}
-
-.status-link:hover {
-  /* Was the bare `--accent` name, which nothing in the hub declared: it
-     resolved only inside the deleted safety.html, whose own :root aliased it to
-     this token. In the hub the hover simply never changed color. */
-  color: var(--color-accent-secondary-light);
-}
-
 /* ---- Responsive ---- */
 
 @media (max-width: 768px) {

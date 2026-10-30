@@ -293,7 +293,7 @@ class TestBuildPhases:
             # No extends: chain reached a bundled preset, so the build copies
             # the framework's default bundle.
             inherited_preset = None
-            # No panel selection: nothing for the bar-items warning to check.
+            # No panel selection: nothing for the panel projection to tell.
             web_panels: list[str] = []
             # The default record: every build renders agent-record from it.
             agent_record = AgentRecordConfig()

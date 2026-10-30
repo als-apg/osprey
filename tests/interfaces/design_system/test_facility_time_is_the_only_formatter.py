@@ -40,10 +40,6 @@ _INSTANT_FORMATTING = re.compile(
 #: Files allowed to format an instant themselves, with the reason.
 _EXEMPT = {
     "interfaces/design_system/static/js/facility-time.js": "the formatter itself",
-    "interfaces/web_terminal/static/js/bar-items.js": (
-        "the clock: its local and UTC faces read the viewer's and UTC's wall clock, "
-        "and its facility face reads fixed en-US fields"
-    ),
 }
 
 

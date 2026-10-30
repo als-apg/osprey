@@ -3419,15 +3419,8 @@ def _build_repo(
             dispatch_tier=dispatch_tier,
             agent_record=build_profile.agent_record,
         )
-        # An authored `web.bar_items` entry the served default will not carry:
-        # the server filters a panel-gated item whose panel this profile does
-        # not select, so the operator who wrote it is told here, not by an
-        # item that never appears.
-        from .build_profile_panels import bar_items_selection_warnings
-
         web_warnings = [
             *web_warnings,
-            *bar_items_selection_warnings(build_profile.config, build_profile.web_panels),
             # Advisory: UTC is a legal, reproducible choice, and `config.yml`
             # carries it whether chosen or defaulted, so the build reminds.
             *system_timezone_reminders(build_profile.config),

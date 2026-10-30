@@ -406,29 +406,25 @@ def test_the_halt_paths_manager_states_are_the_queue_backends():
     assert queue._MOVING_MANAGER_STATES == qb.QUEUE_ACTIVE_MANAGER_STATES
 
 
-def test_the_js_queue_clients_carry_the_same_manager_states():
-    """The two browser copies of the same set, pinned by regex.
+def test_the_js_queue_client_carries_the_same_manager_states():
+    """The browser copy of the same set, pinned by regex.
 
-    Neither can import the Python constant either, and a panel that thinks a
+    It cannot import the Python constant either, and a panel that thinks a
     lane is idle offers no stop button for a plan that is running.
     """
     import re
     from pathlib import Path
 
     repo_root = Path(__file__).resolve().parents[2]
-    sources = [
-        repo_root / "src/osprey/interfaces/bluesky_web/panels/bluesky/queue-client.js",
-        repo_root / "src/osprey/interfaces/web_terminal/static/js/bar-item-queue.js",
-    ]
+    source = repo_root / "src/osprey/interfaces/bluesky_web/panels/bluesky/queue-client.js"
     pattern = re.compile(
         r"QUEUE_ACTIVE_MANAGER_STATES\s*=\s*Object\.freeze\(\[(?P<body>[^\]]*)\]\)"
     )
 
-    for source in sources:
-        match = pattern.search(source.read_text())
-        assert match, f"{source.name} no longer declares QUEUE_ACTIVE_MANAGER_STATES"
-        states = set(re.findall(r"'([a-z_]+)'", match.group("body")))
-        assert states == set(qb.QUEUE_ACTIVE_MANAGER_STATES), source.name
+    match = pattern.search(source.read_text())
+    assert match, f"{source.name} no longer declares QUEUE_ACTIVE_MANAGER_STATES"
+    states = set(re.findall(r"'([a-z_]+)'", match.group("body")))
+    assert states == set(qb.QUEUE_ACTIVE_MANAGER_STATES)
 
 
 def test_the_reason_has_an_entry_in_the_shared_refusal_hint_table():

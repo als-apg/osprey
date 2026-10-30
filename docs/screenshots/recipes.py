@@ -222,7 +222,8 @@ REGISTRY: list[DocShot] = [
         wait_for="plot",
     ),
     # The control-target popover (opt-in ``--stack``): the panel behind the
-    # header chip, captured live from the tutorial deployment's web terminal.
+    # sidebar's control-system chip, captured live from the tutorial
+    # deployment's web terminal.
     # The tutorial baseline is the stand-in, so the shot shows the full shape —
     # the Rehearsal card with its writes switch, the real machine's not-set-up
     # row, and the simulator — real roster, real states, nothing staged. The
@@ -236,18 +237,6 @@ REGISTRY: list[DocShot] = [
         stack_app="web_terminal",
         capture_mode="element",
         element_selector=".ctc-popover.open",
-        themes=("light", "dark"),
-        viewport=(1280, 800),
-    ),
-    # The Customize sheet open over a populated Expert-mode web terminal, for
-    # operate.rst's "Rearranging the bars". The viewport is the full shell,
-    # because the text describes the tinted, labelled bars as well as the sheet.
-    DocShot(
-        name="customize_sheet",
-        environment="hermetic_hub",
-        kind="static",
-        hub_mode="expert",
-        stage="customize_sheet",
         themes=("light", "dark"),
         viewport=(1280, 800),
     ),

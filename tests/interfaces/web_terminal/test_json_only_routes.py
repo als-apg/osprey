@@ -7,8 +7,7 @@ origin and passes the Origin check. What a form cannot choose is its body type:
 ``application/x-www-form-urlencoded``, ``multipart/form-data`` or
 ``text/plain``. Each of those is refused on every mutating route this app
 answers itself, including the routes that read no body at all (a form posted to
-``/api/terminal/restart`` needs no body to do its damage) and the bar-items save
-route, which parses its body by hand.
+``/api/terminal/restart`` needs no body to do its damage).
 
 The routes are read off the booted app rather than listed, so a mutating route
 added later is covered without anyone remembering this file exists. Paths under
@@ -18,7 +17,6 @@ panel app runs the same gate on its own routes.
 
 from __future__ import annotations
 
-import json
 import re
 from collections.abc import Iterator
 
@@ -65,12 +63,11 @@ def _mutating_routes(app) -> list[tuple[str, str]]:
     return found
 
 
-def test_the_sweep_sees_the_routes_it_exists_for(bar_items_app):
+def test_the_sweep_sees_the_routes_it_exists_for(isolated_app):
     """A sweep that found nothing would pass vacuously; pin the ones that matter."""
-    with bar_items_app() as client:
+    with isolated_app() as client:
         routes = set(_mutating_routes(client.app))
     for expected in [
-        ("PUT", "/api/bar-items"),
         ("POST", "/api/terminal/posture"),
         ("POST", "/api/terminal/restart"),
         ("POST", "/api/terminal/logout"),
@@ -80,9 +77,9 @@ def test_the_sweep_sees_the_routes_it_exists_for(bar_items_app):
         assert expected in routes, f"{expected} is not a mutating route of the app"
 
 
-def test_the_sweep_agrees_with_the_schema(bar_items_app):
+def test_the_sweep_agrees_with_the_schema(isolated_app):
     """Every mutating operation the OpenAPI schema lists is one the sweep visits."""
-    with bar_items_app() as client:
+    with isolated_app() as client:
         swept = {
             (method, _PARAM.sub("probe", path)) for method, path in _mutating_routes(client.app)
         }
@@ -99,8 +96,8 @@ def test_the_sweep_agrees_with_the_schema(bar_items_app):
 
 
 @pytest.mark.parametrize("content_type", FORM_TYPES)
-def test_every_mutating_route_refuses_a_form_body(bar_items_app, content_type):
-    with bar_items_app() as client:
+def test_every_mutating_route_refuses_a_form_body(isolated_app, content_type):
+    with isolated_app() as client:
         routes = _mutating_routes(client.app)
         answered = {
             (method, path): client.request(
@@ -117,12 +114,12 @@ def test_every_mutating_route_refuses_a_form_body(bar_items_app, content_type):
 
 
 @pytest.mark.no_auth_seam
-def test_a_same_origin_cookie_form_post_is_refused(bar_items_app):
+def test_a_same_origin_cookie_form_post_is_refused(isolated_app):
     """The vector itself: a form on the console's own origin, the cookie attached.
 
     Out of the auth seam, so the cookie is the only credential the request carries.
     """
-    with bar_items_app() as client:
+    with isolated_app() as client:
         session = client.app.state.web_credentials.create_session()
         client.cookies.set(session_cookie_name(), session)
         response = client.post(
@@ -135,27 +132,3 @@ def test_a_same_origin_cookie_form_post_is_refused(bar_items_app):
         )
     assert response.status_code == 415
     assert response.json() == REFUSAL
-
-
-def test_the_bar_items_save_refuses_text_plain_and_stores_nothing(bar_items_app):
-    """The route that parses any body by hand: a JSON text sent as text/plain."""
-    with bar_items_app() as client:
-        before = client.get("/api/bar-items").json()
-        document = {**before, "header_visible": not before["header_visible"]}
-        refused = client.put(
-            "/api/bar-items",
-            content=json.dumps(document).encode(),
-            headers={"content-type": "text/plain"},
-        )
-        after = client.get("/api/bar-items").json()
-    assert refused.status_code == 415
-    assert after == before
-
-
-def test_the_bar_items_save_still_takes_json(bar_items_app):
-    with bar_items_app() as client:
-        before = client.get("/api/bar-items").json()
-        document = {**before, "header_visible": not before["header_visible"]}
-        saved = client.put("/api/bar-items", json=document)
-    assert saved.status_code == 200, saved.text
-    assert saved.json()["header_visible"] is document["header_visible"]

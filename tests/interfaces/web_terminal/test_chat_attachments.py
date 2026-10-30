@@ -613,7 +613,7 @@ def test_an_upload_sweeps_first_when_the_last_sweep_is_old(agent_root, monkeypat
         assert chat_attachments._ledger(client.app).swept_at is not None
 
 
-def test_the_full_app_sweeps_at_startup(agent_root, bar_items_app):
+def test_the_full_app_sweeps_at_startup(agent_root, isolated_app):
     """A restart deletes the leftovers nobody sent before any upload, and keeps the sent.
 
     Booted through the shared whole-app builder, which launches no panel server: a
@@ -629,7 +629,7 @@ def test_the_full_app_sweeps_at_startup(agent_root, bar_items_app):
     _age(kept, DAY + 60)
     (chat_dir / chat_attachments.SENT_MANIFEST).write_text(json.dumps({"sent": [kept.name]}))
 
-    with bar_items_app():
+    with isolated_app():
         pass
 
     assert not leftover.exists()
