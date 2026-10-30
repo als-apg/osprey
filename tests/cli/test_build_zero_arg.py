@@ -21,14 +21,16 @@ from click.testing import CliRunner
 from osprey.cli import build_cmd
 from osprey.cli.build_cmd import build
 from osprey.deployment import staleness
-from tests.cli._lifecycle_build import CI_FLAGS, rendered_config
+from tests.cli._lifecycle_build import rendered_config
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
 
-def _build(runner: CliRunner, cwd: Path, *args: str, flags: list[str] | None = None):
+def _build(runner: CliRunner, cwd: Path, *args: str):
     """Run ``osprey build`` from *cwd*, as an operator standing there would."""
+    # The flags spelled out rather than as `*CI_FLAGS`: tests/test_offline_build_env.py
+    # reads build argv from source and credits only a literal `--skip-deps`.
     with contextlib.chdir(cwd):
-        return runner.invoke(build, [*(CI_FLAGS if flags is None else flags), *args])
+        return runner.invoke(build, ["--skip-deps", "--skip-lifecycle", *args])
 
 
 @pytest.fixture(scope="module")
