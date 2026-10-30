@@ -1639,7 +1639,8 @@ redirects to the clean address. The cookie it sets lasts
 disk, so restarting the server on the same port leaves them signed in. The
 URL is printed once, but its token is the server’s own secret and stays
 valid for the life of the process — treat it like a password.</p>
-<p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--port</span> <span class="pre">INTEGER</span></code> — Port (default: from config, else the port layout’s <code class="docutils literal notranslate"><span class="pre">10100</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--port</span> <span class="pre">INTEGER</span></code> — Port (default: from config, else the port layout’s <code class="docutils literal notranslate"><span class="pre">10100</span></code>).
+0 lets the system choose; the startup line names the port; not with <code class="docutils literal notranslate"><span class="pre">--reload</span></code>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--host</span> <span class="pre">TEXT</span></code> — Host to bind to (default: <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>).</p>
 <p><code class="docutils literal notranslate"><span class="pre">--shell</span> <span class="pre">TEXT</span></code> — Shell command to run (default: <code class="docutils literal notranslate"><span class="pre">claude</span></code>).</p>
 <p><code class="docutils literal notranslate"><span class="pre">--repo</span> <span class="pre">DIRECTORY</span></code> — Deployment repo to act on (default: nearest <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> at or above cwd).</p>
