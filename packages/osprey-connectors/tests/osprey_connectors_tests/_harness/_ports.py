@@ -36,6 +36,18 @@ from pathlib import Path
 #: ports fixed services listen on.
 PORT_FLOOR = 20000
 
+#: Half-open ranges a reservation never hands out: the deployment blocks
+#: (``deployment.port_base`` plus 1000) that tests pin. A pinned stack binds its
+#: ports without taking a lock, so a reservation inside one could be handed a
+#: port the stack publishes later. ``tests/infrastructure/test_ports.py`` fails
+#: when a test pins a block these ranges do not cover.
+PINNED_BLOCKS: tuple[tuple[int, int], ...] = (
+    (20000, 26700),
+    (29000, 32000),
+    (40000, 41000),
+    (42000, 43000),
+)
+
 #: The one directory every test process on the host locks ports in, shared by
 #: every user of the host.
 LOCK_DIR = Path("/tmp/osprey-test-ports")
@@ -77,9 +89,13 @@ def lock_path(port: int) -> Path:
 
 
 def _candidates(first: int) -> list[int]:
-    """Every port in ``[PORT_FLOOR, first)``, from a random start so concurrent
-    processes do not all try the same port first."""
-    ports = list(range(PORT_FLOOR, first))
+    """Every port in ``[PORT_FLOOR, first)`` outside :data:`PINNED_BLOCKS`, from a
+    random start so concurrent processes do not all try the same port first."""
+    ports = [
+        port
+        for port in range(PORT_FLOOR, first)
+        if not any(low <= port < high for low, high in PINNED_BLOCKS)
+    ]
     if not ports:
         return ports
     start = random.randrange(len(ports))

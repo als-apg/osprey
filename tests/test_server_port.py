@@ -48,6 +48,12 @@ def test_the_port_of_the_url_after_the_prefix(line, prefix, port):
     assert port_in(f"booting\n{line}\nINFO: GET /health 200\n", prefix) == port
 
 
+def test_a_line_still_being_written_names_no_port():
+    text = f"INFO:     {UVICORN_STARTUP} http://127.0.0.1:4312"
+    assert port_in(text, UVICORN_STARTUP) is None
+    assert port_in(text + "7 (Press CTRL+C)\n", UVICORN_STARTUP) == 43127
+
+
 def test_a_line_without_the_prefix_names_no_port():
     text = "Starting MCP server 'dispatcher' on http://127.0.0.1:0/mcp\n"
     assert port_in(text, UVICORN_STARTUP) is None
