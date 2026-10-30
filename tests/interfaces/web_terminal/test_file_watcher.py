@@ -494,9 +494,8 @@ class TestLifespanConcealsItsStores:
     def test_every_store_path_reaches_the_watcher(self, tmp_path):
         workspace_dir, constructed, state = self._boot(tmp_path)
 
-        stores = (PurePath("feedback"), PurePath("bar_items"), PurePath("panel_status"))
+        stores = (PurePath("bar_items"), PurePath("panel_status"))
         assert constructed == [(workspace_dir, stores)]
-        assert state.feedback_rel == PurePath("feedback")
         assert state.bar_items_rel == PurePath("bar_items")
         assert state.panel_status_rel == PurePath("panel_status")
 
@@ -958,7 +957,7 @@ class TestFirstEverStartup:
                 return_value=store_root,
             ),
         ) as client:
-            assert client.app.state.feedback_rel == PurePath("feedback")
+            assert client.app.state.bar_items_rel == PurePath("bar_items")
 
 
 class TestStoreRelDerivation:

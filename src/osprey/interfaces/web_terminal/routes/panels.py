@@ -398,9 +398,7 @@ async def get_panels(request: Request):
     the outbound channels the feedback dialog offers (one prefilled new-issue
     link per configured tracker — ``web.feedback.trackers`` plus the
     ``web.feedback.github_repo`` sugar, already merged server-side — and a
-    prefilled ``mailto:`` draft). The store ceiling
-    (``web.feedback.max_store_bytes``) is deliberately not echoed — it governs
-    server-side pruning and nothing in the browser acts on it.
+    prefilled ``mailto:`` draft).
 
     ``loopback_ports`` maps a panel id to its backend's port, for each panel
     whose backend is a loopback literal served at its root (see

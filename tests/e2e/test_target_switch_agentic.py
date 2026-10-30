@@ -866,8 +866,8 @@ def approval_prompts(result: HookObservedResult, render: Path) -> list[ApprovalP
     (``_internal/query.py:447``). The Claude Code CLI does not put it on the
     wire for a FILESYSTEM hook: verified 2026-08-24 against CLI 2.1.241, where a
     ``channel_write`` whose approval hook demonstrably returned
-    ``permissionDecision: "ask"`` (the render's own ``hook_debug.jsonl`` records
-    ``status=ask`` against that exact ``tool_use_id``) reached ``can_use_tool``
+    ``permissionDecision: "ask"`` (the hook's own debug line on the agent record
+    reads ``status=ask`` against that exact ``tool_use_id``) reached ``can_use_tool``
     with ``decision_reason=None``. Asserting on prompt wording through that
     field today is asserting against ``None`` — which is precisely the vacuous
     green this module's FR-7 smoke was placed first to catch.

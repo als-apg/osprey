@@ -14,7 +14,7 @@ from osprey_connectors_tests._harness._guards import (  # noqa: F401 - fixtures 
     control_context_root,
     ioc_prefix,
     no_agent_data_in_the_repo,
-    no_audit_ledger_in_the_repo,
+    no_spool_in_the_repo,
     pytest_collection_finish,
     pytest_configure,
     pytest_runtest_setup,

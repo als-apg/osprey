@@ -32,7 +32,7 @@ import litellm
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
 
-from osprey.services.channel_finder.benchmarks.sdk import ToolTrace
+from osprey.services.channel_finder.benchmarks.sdk import ToolTrace, unrecorded_env
 from osprey.services.channel_finder.rate_limiter import (
     get_rate_limiter,
 )
@@ -129,12 +129,18 @@ async def mcp_client_session(
     (``backends.create_backend`` refuses ReAct for it). Naming it here would
     advertise a benchmark path that is neither run nor claimed.
 
+    The server's environment is the stdio transport's whole environment, not
+    an overlay on this process's, so it is passed through
+    :func:`~osprey.services.channel_finder.benchmarks.sdk.unrecorded_env`
+    outright: a benchmark's server records nothing in the agent record.
+
     Args:
         env: Extra environment variables merged on top of the default
             ``{"OSPREY_CONFIG": ...}`` dict. Caller-supplied keys win on
-            collision.
+            collision, except that no spool or telemetry variable survives
+            and the record off switch is always set.
     """
-    merged_env = {"OSPREY_CONFIG": str(project_dir / "config.yml")} | (env or {})
+    merged_env = unrecorded_env({"OSPREY_CONFIG": str(project_dir / "config.yml")} | (env or {}))
     transport = StdioTransport(
         command=sys.executable,
         args=["-m", f"osprey.mcp_server.channel_finder_{paradigm}"],

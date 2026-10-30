@@ -68,6 +68,8 @@ def _deploy_fixture(stub_deploy_up, monkeypatch, services):
     if "graphdb" in services:
         config["services"] = {"graphdb": {"port_host": 7687, "http_port_host": 7474}}
 
+    # Every start builds the project image agent-record runs on; no build here.
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
     monkeypatch.setattr(container_lifecycle, "_stage_graphdb_store", lambda *a, **k: None)
     return stub_deploy_up(config, seam="subprocess.run")
 

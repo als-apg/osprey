@@ -19,7 +19,6 @@ from osprey.mcp_server.workspace.transcript_reader import (
     LOCAL_COMMAND_STDERR_PREFIX,
     LOCAL_COMMAND_STDOUT_PREFIX,
     MAX_CHAT_MESSAGE_LENGTH,
-    TranscriptReader,
     is_bookkeeping_entry,
     tail_state,
 )
@@ -154,8 +153,15 @@ class TestIsBookkeepingEntry:
 
 
 # ---------------------------------------------------------------------------
-# read_chat_history replay
+# chat history replay, from the nodes the record makes of a transcript
 # ---------------------------------------------------------------------------
+
+
+def _history(path: Path, **kwargs) -> list[dict]:
+    from osprey.interfaces.web_terminal.routes.session import _transcript_nodes
+    from osprey.mcp_server.session import chat_history
+
+    return chat_history(_transcript_nodes(path), **kwargs)
 
 
 class TestChatHistoryReplay:
@@ -173,7 +179,7 @@ class TestChatHistoryReplay:
             ],
         )
 
-        history = TranscriptReader(tmp_path).read_chat_history(transcript)
+        history = _history(transcript)
 
         assert [(t["role"], t["content"]) for t in history] == [
             ("user", "Read the current."),
@@ -191,7 +197,7 @@ class TestChatHistoryReplay:
             ],
         )
 
-        history = TranscriptReader(tmp_path).read_chat_history(transcript)
+        history = _history(transcript)
 
         assert len(history) == 1
         assert history[0]["content"] == "Hello."
@@ -201,7 +207,7 @@ class TestChatHistoryReplay:
         long_text = "x" * (MAX_CHAT_MESSAGE_LENGTH + 500)
         transcript = _write(tmp_path / "session.jsonl", [_user(_ts(0), long_text)])
 
-        history = TranscriptReader(tmp_path).read_chat_history(transcript)
+        history = _history(transcript)
 
         assert len(history[0]["content"]) == MAX_CHAT_MESSAGE_LENGTH + 3
         assert history[0]["content"].endswith("...")
@@ -211,7 +217,7 @@ class TestChatHistoryReplay:
         long_text = "x" * (MAX_CHAT_MESSAGE_LENGTH + 500)
         transcript = _write(tmp_path / "session.jsonl", [_user(_ts(0), long_text)])
 
-        history = TranscriptReader(tmp_path).read_chat_history(transcript, max_chars=None)
+        history = _history(transcript, max_chars=None)
 
         assert history[0]["content"] == long_text
 
@@ -219,22 +225,9 @@ class TestChatHistoryReplay:
         """A caller-supplied cap replaces the module default."""
         transcript = _write(tmp_path / "session.jsonl", [_user(_ts(0), "abcdefghij")])
 
-        history = TranscriptReader(tmp_path).read_chat_history(transcript, max_chars=4)
+        history = _history(transcript, max_chars=4)
 
         assert history[0]["content"] == "abcd..."
-
-    def test_by_id_passes_cap_through(self, tmp_path, monkeypatch):
-        """read_chat_history_by_id forwards max_chars to the file reader."""
-        long_text = "y" * (MAX_CHAT_MESSAGE_LENGTH + 10)
-        transcript = _write(tmp_path / "abc-123.jsonl", [_user(_ts(0), long_text)])
-        reader = TranscriptReader(tmp_path)
-        monkeypatch.setattr(reader, "find_transcript_by_id", lambda _sid: transcript)
-
-        capped = reader.read_chat_history_by_id("abc-123")
-        whole = reader.read_chat_history_by_id("abc-123", max_chars=None)
-
-        assert len(capped[0]["content"]) == MAX_CHAT_MESSAGE_LENGTH + 3
-        assert whole[0]["content"] == long_text
 
 
 # ---------------------------------------------------------------------------

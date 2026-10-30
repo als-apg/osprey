@@ -1,16 +1,14 @@
-"""Tests for the opt-in dispatch retention sweep.
+"""Tests for the opt-in dispatch artifact retention sweep.
 
-Hermetic: ``tmp_path`` for the run-record log dir and the ArtifactStore, an
-injected ``now`` for all age math (no real clock), and the periodic loop driven
-one iteration via a monkeypatched ``asyncio.sleep`` (no real sleeps).
+Hermetic: ``tmp_path`` for the ArtifactStore, an injected ``now`` for all age
+math (no real clock), and the periodic loop driven one iteration via a
+monkeypatched ``asyncio.sleep`` (no real sleeps).
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 from datetime import UTC, datetime
-from pathlib import Path
 
 import pytest
 
@@ -24,26 +22,6 @@ _NOW = 1_000_000_000.0  # fixed reference epoch for every age computation
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
-
-
-def _write_run(
-    log_dir: Path,
-    run_id: str,
-    *,
-    status: str = "completed",
-    completed_at: float | None = None,
-    created_at: float | None = None,
-) -> Path:
-    """Write a persisted run record shaped like dispatch_api._persist_run."""
-    log_dir.mkdir(parents=True, exist_ok=True)
-    record: dict = {"run_id": run_id, "status": status}
-    if completed_at is not None:
-        record["completed_at"] = completed_at
-    if created_at is not None:
-        record["created_at"] = created_at
-    path = log_dir / f"{run_id}.json"
-    path.write_text(json.dumps(record))
-    return path
 
 
 def _save_artifact(store: ArtifactStore, title: str, *, run_id: str = "") -> str:
@@ -108,82 +86,6 @@ def test_retention_days_from_env(raw, expected):
 def test_retention_days_reads_os_environ(monkeypatch):
     monkeypatch.setenv("RETENTION_DAYS", "14")
     assert retention.retention_days_from_env() == 14
-
-
-# ---------------------------------------------------------------------------
-# sweep_dispatch_runs — age boundary + in-flight protection
-# ---------------------------------------------------------------------------
-
-
-def test_run_age_boundary_unit_pinned(tmp_path):
-    """N-1 days survives, exactly N survives, N+1 days is deleted."""
-    log_dir = tmp_path / "dispatch"
-    _write_run(log_dir, "younger", completed_at=_NOW - 4 * _DAY)  # N-1
-    _write_run(log_dir, "boundary", completed_at=_NOW - 5 * _DAY)  # exactly N
-    _write_run(log_dir, "older", completed_at=_NOW - 6 * _DAY)  # N+1
-
-    deleted = retention.sweep_dispatch_runs(log_dir, retention_days=5, now=_NOW)
-
-    assert deleted == 1
-    assert (log_dir / "younger.json").exists()
-    assert (log_dir / "boundary.json").exists()
-    assert not (log_dir / "older.json").exists()
-
-
-def test_run_sweep_uses_created_at_when_no_completed_at(tmp_path):
-    log_dir = tmp_path / "dispatch"
-    _write_run(log_dir, "old", status="error", created_at=_NOW - 10 * _DAY)
-
-    deleted = retention.sweep_dispatch_runs(log_dir, retention_days=5, now=_NOW)
-
-    assert deleted == 1
-    assert not (log_dir / "old.json").exists()
-
-
-def test_nonterminal_run_never_swept_regardless_of_age(tmp_path):
-    log_dir = tmp_path / "dispatch"
-    _write_run(log_dir, "pending", status="pending", created_at=_NOW - 100 * _DAY)
-
-    deleted = retention.sweep_dispatch_runs(log_dir, retention_days=5, now=_NOW)
-
-    assert deleted == 0
-    assert (log_dir / "pending.json").exists()
-
-
-def test_in_flight_id_never_swept(tmp_path):
-    """A terminal-looking record whose id is in-flight is still protected."""
-    log_dir = tmp_path / "dispatch"
-    _write_run(log_dir, "live", status="completed", completed_at=_NOW - 100 * _DAY)
-
-    deleted = retention.sweep_dispatch_runs(
-        log_dir, retention_days=5, now=_NOW, in_flight_run_ids={"live"}
-    )
-
-    assert deleted == 0
-    assert (log_dir / "live.json").exists()
-
-
-def test_unreadable_run_file_skipped(tmp_path):
-    log_dir = tmp_path / "dispatch"
-    log_dir.mkdir(parents=True)
-    (log_dir / "broken.json").write_text("{not json")
-    _write_run(log_dir, "old", completed_at=_NOW - 10 * _DAY)
-
-    deleted = retention.sweep_dispatch_runs(log_dir, retention_days=5, now=_NOW)
-
-    assert deleted == 1
-    assert (log_dir / "broken.json").exists()
-    assert not (log_dir / "old.json").exists()
-
-
-def test_run_sweep_disabled_and_missing_dir(tmp_path):
-    log_dir = tmp_path / "dispatch"
-    _write_run(log_dir, "old", completed_at=_NOW - 10 * _DAY)
-    # Disabled → no-op
-    assert retention.sweep_dispatch_runs(log_dir, retention_days=0, now=_NOW) == 0
-    assert (log_dir / "old.json").exists()
-    # Missing dir → no-op
-    assert retention.sweep_dispatch_runs(tmp_path / "nope", retention_days=5, now=_NOW) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -255,255 +157,91 @@ def test_artifact_sweep_disabled(tmp_path):
     assert store.get_entry(art) is not None
 
 
-# ---------------------------------------------------------------------------
-# Tests of run_sweep, combined
-# ---------------------------------------------------------------------------
-
-
-def test_run_sweep_combined_counts(tmp_path):
-    log_dir = tmp_path / "dispatch"
-    _write_run(log_dir, "old", completed_at=_NOW - 10 * _DAY)
-    _write_run(log_dir, "recent", completed_at=_NOW - 1 * _DAY)
-
-    store = ArtifactStore(workspace_root=tmp_path)
-    old_art = _save_artifact(store, "old")
-    _set_artifact_age_days(store, old_art, 10)
-    young_art = _save_artifact(store, "young")
-    _set_artifact_age_days(store, young_art, 1)
-
-    counts = retention.run_sweep(log_dir, store, retention_days=5, now=_NOW)
-
-    assert counts == {"runs": 1, "artifacts": 1}
-    assert not (log_dir / "old.json").exists()
-    assert (log_dir / "recent.json").exists()
-    assert store.get_entry(old_art) is None
-    assert store.get_entry(young_art) is not None
-
-
-def test_run_sweep_disabled_is_noop(tmp_path):
-    log_dir = tmp_path / "dispatch"
-    _write_run(log_dir, "old", completed_at=_NOW - 10 * _DAY)
-    store = ArtifactStore(workspace_root=tmp_path)
-
-    counts = retention.run_sweep(log_dir, store, retention_days=0, now=_NOW)
-
-    assert counts == {"runs": 0, "artifacts": 0}
-    assert (log_dir / "old.json").exists()
+def test_retention_keeps_no_run_records():
+    """Run history is the agent record's to age out, not this sweep's."""
+    for gone in ("record_is_deletable", "delete_run_records", "sweep_dispatch_runs"):
+        assert not hasattr(retention, gone)
 
 
 # ---------------------------------------------------------------------------
-# retention_loop — one iteration, no real sleeps
+# retention_loop — driven a few iterations, no real sleeps
 # ---------------------------------------------------------------------------
+
+
+def _scoped_sleep(monkeypatch, cycles: int) -> list[float]:
+    """Patch the retention module's own ``asyncio.sleep`` to stop after *cycles*.
+
+    ``retention_loop`` awaits ``asyncio.sleep(...)`` through its own module-level
+    ``asyncio`` name. Patch THAT name, never ``asyncio.sleep`` itself: the
+    function is shared with every other event loop alive in the process, and a
+    daemon thread left by an earlier test in the same worker would tick through
+    the fake.
+    """
+    calls: list[float] = []
+
+    async def fake_sleep(interval):
+        calls.append(interval)
+        if len(calls) > cycles:
+            raise asyncio.CancelledError
+
+    class _AsyncioForRetention:
+        sleep = staticmethod(fake_sleep)
+
+        def __getattr__(self, name):
+            return getattr(asyncio, name)
+
+    monkeypatch.setattr(retention, "asyncio", _AsyncioForRetention())
+    return calls
+
+
+def _drive_loop(store_factory, in_flight=lambda: frozenset()) -> None:
+    async def drive():
+        with pytest.raises(asyncio.CancelledError):
+            await retention.retention_loop(
+                store_factory,
+                retention_days=5,
+                in_flight_run_ids=in_flight,
+                interval_sec=123.0,
+            )
+
+    asyncio.run(drive())
 
 
 def test_retention_loop_runs_one_iteration(tmp_path, monkeypatch):
-    log_dir = tmp_path / "dispatch"
-    _write_run(log_dir, "old", completed_at=_NOW - 10 * _DAY)
     store = ArtifactStore(workspace_root=tmp_path)
+    art = _save_artifact(store, "old")
+    _set_artifact_age_days(store, art, 10)
+    calls = _scoped_sleep(monkeypatch, cycles=1)
 
-    calls: list[float] = []
-
-    async def fake_sleep(interval):
-        # Let the first sleep return so one sweep runs, then cancel the loop.
-        calls.append(interval)
-        if len(calls) >= 2:
-            raise asyncio.CancelledError
-
-    # ``retention_loop`` awaits ``asyncio.sleep(...)`` through its own module-level
-    # ``asyncio`` name. Patch THAT name, never ``asyncio.sleep`` itself: the
-    # function is shared with every other event loop alive in the process, and a
-    # daemon thread left by an earlier test in the same worker would tick through
-    # the fake.
-    class _AsyncioForRetention:
-        sleep = staticmethod(fake_sleep)
-
-        def __getattr__(self, name):
-            return getattr(asyncio, name)
-
-    monkeypatch.setattr(retention, "asyncio", _AsyncioForRetention())
-
-    async def drive():
-        with pytest.raises(asyncio.CancelledError):
-            await retention.retention_loop(
-                log_dir,
-                lambda: store,
-                retention_days=5,
-                in_flight_run_ids=lambda: frozenset(),
-                interval_sec=123.0,
-            )
-
-    asyncio.run(drive())
+    _drive_loop(lambda: store)
 
     assert calls == [123.0, 123.0]
-    assert not (log_dir / "old.json").exists()  # the one iteration swept it
+    assert store.get_entry(art) is None  # the one iteration swept it
 
 
-def test_retention_loop_re_resolves_a_callable_log_dir(tmp_path, monkeypatch):
-    """A callable ``log_dir`` is called per cycle, not once at start.
+def test_retention_loop_builds_its_store_and_reads_in_flight_runs_per_cycle(tmp_path, monkeypatch):
+    """Both are resolved per cycle, not once at start.
 
-    The worker passes one because this loop starts during application lifespan,
-    before anything has established that the bind-mounted config is readable. If
-    the directory were resolved once there, a config that arrives a moment later
-    would leave the sweep pointed at the fallback root for the life of the
-    process — aging out nothing, silently, while the writer filled the real one.
-
-    Driven by making the FIRST answer a directory with nothing to sweep and the
-    second the one holding the expired record: a loop that resolved once would
-    leave that record in place.
+    The loop starts during application lifespan, before anything has
+    established that the bind-mounted config is readable, so a store rooted
+    once there could stay on the fallback root for the life of the process;
+    and a run that starts mid-interval must be protected on the next cycle.
     """
-    stale_root = tmp_path / "resolved-too-early"
-    stale_root.mkdir()
-    real_root = tmp_path / "dispatch"
-    _write_run(real_root, "old", completed_at=_NOW - 10 * _DAY)
     store = ArtifactStore(workspace_root=tmp_path)
+    built: list[int] = []
+    asked: list[int] = []
 
-    answers = [stale_root, real_root]
-    resolved: list[Path] = []
+    def _factory():
+        built.append(1)
+        return store
 
-    def _log_dir() -> Path:
-        answer = answers.pop(0) if answers else real_root
-        resolved.append(answer)
-        return answer
+    def _in_flight():
+        asked.append(1)
+        return frozenset()
 
-    calls: list[float] = []
+    _scoped_sleep(monkeypatch, cycles=2)
 
-    async def fake_sleep(interval):
-        calls.append(interval)
-        if len(calls) >= 3:
-            raise asyncio.CancelledError
+    _drive_loop(_factory, _in_flight)
 
-    # Same scoped patch as the test above: the name replaced is the retention
-    # module's own, so no other event loop in the process sees the fake.
-    class _AsyncioForRetention:
-        sleep = staticmethod(fake_sleep)
-
-        def __getattr__(self, name):
-            return getattr(asyncio, name)
-
-    monkeypatch.setattr(retention, "asyncio", _AsyncioForRetention())
-
-    async def drive():
-        with pytest.raises(asyncio.CancelledError):
-            await retention.retention_loop(
-                _log_dir,
-                lambda: store,
-                retention_days=5,
-                in_flight_run_ids=lambda: frozenset(),
-                interval_sec=123.0,
-            )
-
-    asyncio.run(drive())
-
-    assert resolved == [stale_root, real_root]
-    assert not (real_root / "old.json").exists()
-
-
-# ---------------------------------------------------------------------------
-# record_is_deletable / delete_run_records — the shared eligibility rule
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("status", ["completed", "error"])
-def test_record_is_deletable_terminal_without_age_floor(status):
-    """No age floor: a terminal record qualifies however young it is."""
-    record = {"status": status, "completed_at": _NOW}
-    assert retention.record_is_deletable(record, _NOW) is True
-
-
-@pytest.mark.parametrize("status", ["pending", "unknown", None])
-def test_record_is_deletable_rejects_non_terminal(status):
-    """A non-terminal record is never deletable, at any age or floor."""
-    record = {"status": status, "completed_at": _NOW - 100 * _DAY}
-    assert retention.record_is_deletable(record, _NOW) is False
-    assert retention.record_is_deletable(record, _NOW, older_than_days=1) is False
-
-
-def test_record_is_deletable_age_floor_matches_sweep_boundary():
-    """Same boundary as the sweep: N-1 and exactly N survive, N+1 goes."""
-    for days, expected in ((4, False), (5, False), (6, True)):
-        record = {"status": "completed", "completed_at": _NOW - days * _DAY}
-        assert retention.record_is_deletable(record, _NOW, older_than_days=5) is expected
-
-
-def test_record_is_deletable_unreadable_timestamp_under_age_floor():
-    """A record with no usable timestamp is kept when an age floor is asked for."""
-    record = {"status": "completed"}
-    assert retention.record_is_deletable(record, _NOW, older_than_days=5) is False
-    # …but it is still clearable when the caller asks for no floor at all.
-    assert retention.record_is_deletable(record, _NOW) is True
-
-
-def test_delete_run_records_clears_every_terminal_record(tmp_path):
-    log_dir = tmp_path / "dispatch"
-    _write_run(log_dir, "fresh", completed_at=_NOW)
-    _write_run(log_dir, "failed", status="error", completed_at=_NOW - _DAY)
-    _write_run(log_dir, "running", status="pending", created_at=_NOW)
-
-    deleted = retention.delete_run_records(log_dir, _NOW)
-
-    assert sorted(deleted) == ["failed", "fresh"]
-    assert not (log_dir / "fresh.json").exists()
-    assert not (log_dir / "failed.json").exists()
-    assert (log_dir / "running.json").exists()
-
-
-def test_delete_run_records_honours_in_flight_ids(tmp_path):
-    """A run the worker still holds as pending survives even if its record says done."""
-    log_dir = tmp_path / "dispatch"
-    _write_run(log_dir, "in-flight", completed_at=_NOW)
-    _write_run(log_dir, "done", completed_at=_NOW)
-
-    deleted = retention.delete_run_records(log_dir, _NOW, in_flight_run_ids=["in-flight"])
-
-    assert deleted == ["done"]
-    assert (log_dir / "in-flight.json").exists()
-
-
-def test_delete_run_records_age_floor_is_the_sweep_horizon(tmp_path):
-    """With a floor, delete_run_records deletes exactly what the sweep would."""
-    log_dir = tmp_path / "dispatch"
-    _write_run(log_dir, "young", completed_at=_NOW - 2 * _DAY)
-    _write_run(log_dir, "old", completed_at=_NOW - 20 * _DAY)
-
-    deleted = retention.delete_run_records(log_dir, _NOW, older_than_days=5)
-
-    assert deleted == ["old"]
-    assert (log_dir / "young.json").exists()
-
-
-def test_delete_run_records_missing_dir_is_a_noop(tmp_path):
-    assert retention.delete_run_records(tmp_path / "nope", _NOW) == []
-
-
-def test_delete_run_records_leaves_unreadable_files(tmp_path):
-    log_dir = tmp_path / "dispatch"
-    log_dir.mkdir(parents=True)
-    (log_dir / "corrupt.json").write_text("{not json")
-
-    assert retention.delete_run_records(log_dir, _NOW) == []
-    assert (log_dir / "corrupt.json").exists()
-
-
-def test_an_old_audit_spill_is_swept(tmp_path):
-    """Audit spills are hidden from listings but not from retention."""
-    store = ArtifactStore(workspace_root=tmp_path, auto_launch=False)
-    spill = store.save_or_touch_by_sha256(
-        "d" * 64,
-        origin="tool_call",
-        save_kwargs={
-            "file_content": b"\x89PNG audit",
-            "filename": "toolu_4-image-0.png",
-            "artifact_type": "image",
-            "title": "audit image",
-            "mime_type": "image/png",
-            "tool_source": "audit.tool_call",
-            "metadata": {"sha256": "d" * 64},
-        },
-    )
-    _set_artifact_age_days(store, spill.id, 30)
-    assert store.list_entries() == []
-
-    deleted = retention.sweep_artifacts(store, retention_days=5, now=_NOW)
-
-    assert deleted == 1
-    assert store.get_entry(spill.id) is None
+    assert len(built) == 2
+    assert len(asked) == 2

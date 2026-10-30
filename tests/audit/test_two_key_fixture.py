@@ -1,13 +1,13 @@
 """Two keys, one record each, and nothing filed twice.
 
-The P1/P2 refusal ledgers are gone: every protected-set refusal now goes
-through :mod:`osprey.audit.protected` onto ``var/audit/<identity>/<surface>``,
-and every executor refusal through :mod:`osprey.audit.dedup` onto the
-``executor`` surface. Each surface's own suite pins what its record *says*.
+Every protected-set refusal goes through :mod:`osprey.audit.protected` into
+one ``audit`` entry of the agent record carrying its own surface, and every
+executor refusal through :mod:`osprey.audit.dedup` onto the ``executor``
+surface. Each surface's own suite pins what its record *says*.
 What no single suite can pin is the property the retirement is judged on:
 
 * **One record per (surface, key).** Two protected keys in one request are two
-  lines, not one summarised line and not one line per request — the ledger
+  entries, not one summarised entry and not one entry per request — the record
   counts what was attempted.
 * **Zero duplicates.** No ``(surface, subject)`` pair appears twice for one
   attempt, and — the case the marker exists for — the HTTP mutation layer files
@@ -28,14 +28,14 @@ claim — the container-start restore — is pinned in the other direction.
 from __future__ import annotations
 
 import inspect
-import json
-from pathlib import Path
+import itertools
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
-from osprey.audit import dedup, protected, writer
+from osprey.audit import dedup, envelope, protected
 from osprey.audit.envelope import DECISION_REFUSED
 from osprey.audit.protected import (
     PROTECTED_SURFACES,
@@ -46,8 +46,7 @@ from osprey.audit.protected import (
     SURFACE_SETUP_PATCH,
 )
 from osprey.interfaces.common_middleware import HTTP_MUTATION_SURFACE, HttpAuditMiddleware
-from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
-from tests._audit_ledger import ledger_records
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from tests.audit._verdict_arming import arm_writes
 
 #: Two protected config keys, in two different blocks. Different blocks on
@@ -66,39 +65,54 @@ PATH_B = ".claude/settings.json"
 CHANNEL = "the build profile this project was rendered from"
 
 
-@pytest.fixture
-def audit_root(tmp_path, monkeypatch):
-    """A redirected audit zone with a known identity and no posture stamps.
+class _TickingClock(datetime):
+    """``datetime`` whose ``now`` advances one millisecond per call.
 
-    The identity is pinned rather than inherited so the ledger's directory is
-    predictable, and the posture variables are cleared so a developer's shell
+    An envelope's ``ts`` has millisecond resolution, and the record orders
+    entries by it; two refusals filed in one millisecond would tie. A clock
+    that never repeats keeps "oldest first" meaning "filed first".
+    """
+
+    _base = datetime.now(UTC)
+    _ticks = itertools.count()
+
+    @classmethod
+    def now(cls, tz=None):
+        return (cls._base + timedelta(milliseconds=next(cls._ticks))).astimezone(tz)
+
+
+@pytest.fixture
+def audit(monkeypatch, recorded_entries):
+    """The test's audit entries, under a known actor and no posture stamps.
+
+    The actor is pinned rather than inherited so the records say who it was
+    predictably, and the posture variables are cleared so a developer's shell
     cannot change what the records say.
     """
     for marker in (
         TERMINAL_USER_ENV,
-        writer.AUDIT_WRITER_ENV,
         protected.POSTURE_ENV_VAR,
         protected.POSTURE_SOURCE_ENV_VAR,
         protected.POSTURE_SESSION_ENV_VAR,
     ):
         monkeypatch.delenv(marker, raising=False)
     monkeypatch.setenv(AUDIT_IDENTITY_ENV, "svc.terminal")
+    monkeypatch.setattr(envelope, "datetime", _TickingClock)
 
-    root = tmp_path / "var" / "audit"
-    monkeypatch.setattr(writer, "audit_dir", lambda: root)
     dedup.clear_recorded()
-    yield root
+    yield recorded_entries
     dedup.clear_recorded()
 
 
-def _all_records(root: Path) -> list[dict]:
-    """Every record in the zone, whichever surface filed it."""
-    if not root.exists():
-        return []
-    out: list[dict] = []
-    for path in sorted(root.rglob("*.jsonl")):
-        out += [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-    return out
+def _all_records(audit) -> list[dict]:
+    """Every audit entry's body, whichever surface filed it, oldest first."""
+    bodies = [dict(entry.body) for entry in audit("audit")]
+    return sorted(bodies, key=lambda body: body["ts"])
+
+
+def _records(audit, surface: str) -> list[dict]:
+    """Every audit entry's body on one surface, oldest first."""
+    return [body for body in _all_records(audit) if body["surface"] == surface]
 
 
 def _keys(records: list[dict]) -> list[tuple[str, str]]:
@@ -129,7 +143,7 @@ class TestOneRecordPerSurfaceAndKey:
             SURFACE_SCAFFOLD_RESTORE,
         ],
     )
-    def test_two_subjects_are_two_records(self, audit_root, surface):
+    def test_two_subjects_are_two_records(self, audit, surface):
         subjects = (
             (KEY_A, KEY_B)
             if surface in {SURFACE_SETUP_PATCH, SURFACE_HTTP_CONFIG}
@@ -148,13 +162,13 @@ class TestOneRecordPerSurfaceAndKey:
                 claim=surface != SURFACE_SCAFFOLD_RESTORE,
             )
 
-        records = ledger_records(audit_root, surface)
+        records = _records(audit, surface)
         assert [r["subject"] for r in records] == list(subjects)
         assert _keys(records) == [(surface, subject) for subject in subjects]
-        _assert_no_duplicates(_all_records(audit_root))
+        _assert_no_duplicates(_all_records(audit))
 
-    def test_every_documented_surface_files_into_a_ledger_of_its_own(self, audit_root):
-        """One surface, one file: the name an operator filters on is the file name."""
+    def test_every_documented_surface_is_recorded_under_its_own_name(self, audit):
+        """One surface, one entry: the name an operator filters on is the entry's surface."""
         for surface in PROTECTED_SURFACES:
             protected.record_protected_refusal(
                 surface=surface,
@@ -166,13 +180,11 @@ class TestOneRecordPerSurfaceAndKey:
             )
 
         for surface in PROTECTED_SURFACES:
-            assert (audit_root / acting_identity() / f"{surface}.jsonl").is_file()
-        assert len(_all_records(audit_root)) == len(PROTECTED_SURFACES)
-        _assert_no_duplicates(_all_records(audit_root))
+            assert _keys(_records(audit, surface)) == [(surface, KEY_A)]
+        assert len(_all_records(audit)) == len(PROTECTED_SURFACES)
+        _assert_no_duplicates(_all_records(audit))
 
-    def test_the_record_carries_what_the_retired_ledger_carried(
-        self, audit_root, monkeypatch, tmp_path
-    ):
+    def test_the_record_carries_what_the_retired_ledger_carried(self, audit, monkeypatch, tmp_path):
         """Nothing the ``protected-writes`` record answered is unanswerable now."""
         arm_writes(monkeypatch, tmp_path / "agent_data", identity="svc.terminal")
         protected.record_protected_refusal(
@@ -183,7 +195,7 @@ class TestOneRecordPerSurfaceAndKey:
             reason="protected_key",
         )
 
-        (record,) = ledger_records(audit_root, SURFACE_HTTP_CONFIG)
+        (record,) = _records(audit, SURFACE_HTTP_CONFIG)
         assert record["surface"] == SURFACE_HTTP_CONFIG
         assert record["subject"] == KEY_A
         assert record["decision"] == DECISION_REFUSED
@@ -204,7 +216,7 @@ class TestOneRecordPerSurfaceAndKey:
 
 
 class TestTheOuterLayerDefersExactlyWhereItShould:
-    @pytest.mark.usefixtures("audit_root")
+    @pytest.mark.usefixtures("audit")
     def test_a_claiming_refusal_marks_the_decision(self):
         protected.record_protected_refusal(
             surface=SURFACE_HTTP_CONFIG,
@@ -218,7 +230,7 @@ class TestTheOuterLayerDefersExactlyWhereItShould:
         assert marker is not None
         assert (marker.decision, marker.reason) == (DECISION_REFUSED, "protected_key")
 
-    def test_the_restore_does_not_claim_the_call_it_runs_inside(self, audit_root):
+    def test_the_restore_does_not_claim_the_call_it_runs_inside(self, audit):
         """It skips one stored body and lets the caller continue.
 
         Claiming would silence the outer layer's record of an operation that
@@ -233,10 +245,10 @@ class TestTheOuterLayerDefersExactlyWhereItShould:
             claim=False,
         )
 
-        assert ledger_records(audit_root, SURFACE_SCAFFOLD_RESTORE), "the refusal is still durable"
+        assert _records(audit, SURFACE_SCAFFOLD_RESTORE), "the refusal is still durable"
         assert dedup.recorded_decision() is None
 
-    def test_the_restore_call_site_itself_asks_not_to_claim(self, audit_root):
+    def test_the_restore_call_site_itself_asks_not_to_claim(self, audit):
         """The site, not just the funnel: ``ownership`` must pass ``claim=False``.
 
         The test above pins what the funnel does when asked. This one drives
@@ -265,12 +277,12 @@ class TestTheOuterLayerDefersExactlyWhereItShould:
                 "will now defer to a refusal that was not the answer to its request"
             )
 
-        records = ledger_records(audit_root, SURFACE_SCAFFOLD_RESTORE)
+        records = _records(audit, SURFACE_SCAFFOLD_RESTORE)
         assert _keys(records) == [(SURFACE_SCAFFOLD_RESTORE, PATH_A)], (
             "the refusal is still durable -- not claiming is not not recording"
         )
 
-    def test_the_claude_setup_call_site_does_claim(self, audit_root, tmp_path):
+    def test_the_claude_setup_call_site_does_claim(self, audit, tmp_path):
         """The mirror: a site that *does* refuse the call leaves the marker.
 
         Same shape, opposite answer, so the pair says which sites claim rather
@@ -286,11 +298,9 @@ class TestTheOuterLayerDefersExactlyWhereItShould:
             assert marker is not None, "the panel refused the request and must claim it"
             assert (marker.decision, marker.reason) == (DECISION_REFUSED, "reserved path")
 
-        assert _keys(ledger_records(audit_root, SURFACE_CLAUDE_SETUP)) == [
-            (SURFACE_CLAUDE_SETUP, PATH_A)
-        ]
+        assert _keys(_records(audit, SURFACE_CLAUDE_SETUP)) == [(SURFACE_CLAUDE_SETUP, PATH_A)]
 
-    @pytest.mark.usefixtures("audit_root")
+    @pytest.mark.usefixtures("audit")
     def test_the_last_key_of_a_multi_key_refusal_owns_the_call(self):
         """A per-key loop marks per key; the outer layer needs only one answer."""
         for key in (KEY_A, KEY_B):
@@ -315,7 +325,7 @@ class TestTheHttpLayerFilesNothingOnTopOfTheRoute:
     """The duplicate the retirement removes, driven through both layers."""
 
     @pytest.fixture
-    def client(self, audit_root):  # noqa: ARG002 - audit_root redirects the audit zone under a temporary root
+    def client(self, audit):  # noqa: ARG002 - audit pins the actor and the posture
         from osprey.interfaces.web_terminal.routes import config as config_routes
 
         app = FastAPI()
@@ -330,29 +340,29 @@ class TestTheHttpLayerFilesNothingOnTopOfTheRoute:
         app.add_middleware(HttpAuditMiddleware)
         return TestClient(app)
 
-    def test_two_keys_are_two_records_and_the_layer_below_adds_none(self, client, audit_root):
+    def test_two_keys_are_two_records_and_the_layer_below_adds_none(self, client, audit):
         response = client.patch("/api/config", json={})
 
         assert response.status_code == 403
-        assert _keys(ledger_records(audit_root, SURFACE_HTTP_CONFIG)) == [
+        assert _keys(_records(audit, SURFACE_HTTP_CONFIG)) == [
             (SURFACE_HTTP_CONFIG, KEY_A),
             (SURFACE_HTTP_CONFIG, KEY_B),
         ]
-        assert ledger_records(audit_root, HTTP_MUTATION_SURFACE) == [], (
+        assert _records(audit, HTTP_MUTATION_SURFACE) == [], (
             "the HTTP layer filed a second record for a refusal the route already owned"
         )
-        _assert_no_duplicates(_all_records(audit_root))
+        _assert_no_duplicates(_all_records(audit))
 
-    def test_a_retry_is_a_second_pair_of_records(self, client, audit_root):
-        """Zero duplicates is not zero repeats: the ledger still counts attempts."""
+    def test_a_retry_is_a_second_pair_of_records(self, client, audit):
+        """Zero duplicates is not zero repeats: the record still counts attempts."""
         assert client.patch("/api/config", json={}).status_code == 403
         assert client.patch("/api/config", json={}).status_code == 403
 
-        subjects = [r["subject"] for r in ledger_records(audit_root, SURFACE_HTTP_CONFIG)]
+        subjects = [r["subject"] for r in _records(audit, SURFACE_HTTP_CONFIG)]
         assert subjects == [KEY_A, KEY_B, KEY_A, KEY_B]
-        assert ledger_records(audit_root, HTTP_MUTATION_SURFACE) == []
+        assert _records(audit, HTTP_MUTATION_SURFACE) == []
 
-    def test_an_admitted_mutation_is_still_recorded_by_the_layer_below(self, audit_root):
+    def test_an_admitted_mutation_is_still_recorded_by_the_layer_below(self, audit):
         """The negative control: with nothing claimed, the HTTP layer records.
 
         Without this, a marker that suppressed *everything* would pass every
@@ -367,7 +377,7 @@ class TestTheHttpLayerFilesNothingOnTopOfTheRoute:
         app.add_middleware(HttpAuditMiddleware)
 
         assert TestClient(app).patch("/api/config", json={}).status_code == 200
-        assert len(ledger_records(audit_root, HTTP_MUTATION_SURFACE)) == 1
+        assert len(_records(audit, HTTP_MUTATION_SURFACE)) == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -377,7 +387,7 @@ class TestTheHttpLayerFilesNothingOnTopOfTheRoute:
 
 class TestTheSetupPatchToolRecordsPerKey:
     @pytest.fixture
-    def render(self, audit_root, tmp_path):  # noqa: ARG002 - audit_root redirects the audit zone under a temporary root
+    def render(self, audit, tmp_path):  # noqa: ARG002 - audit pins the actor and the posture
         """The minimal render ``setup_patch`` resolves its root from."""
         from unittest.mock import patch as mock_patch
 
@@ -402,7 +412,7 @@ class TestTheSetupPatchToolRecordsPerKey:
             yield tmp_path
 
     @pytest.mark.usefixtures("render")
-    async def test_two_refused_patches_are_two_records(self, audit_root):
+    async def test_two_refused_patches_are_two_records(self, audit):
         from unittest.mock import patch as mock_patch
 
         from osprey.mcp_server.workspace.tools.setup import setup_patch
@@ -414,9 +424,9 @@ class TestTheSetupPatchToolRecordsPerKey:
                 with assert_raises_error(error_type="protected_key"):
                     await fn(file="config.yml", key_path=key, value="x")
 
-        records = ledger_records(audit_root, SURFACE_SETUP_PATCH)
+        records = _records(audit, SURFACE_SETUP_PATCH)
         assert _keys(records) == [(SURFACE_SETUP_PATCH, KEY_A), (SURFACE_SETUP_PATCH, KEY_B)]
-        _assert_no_duplicates(_all_records(audit_root))
+        _assert_no_duplicates(_all_records(audit))
 
 
 # --------------------------------------------------------------------------- #
@@ -508,7 +518,7 @@ class TestPinnedSpellings:
         assert gates.POSTURE_SANDBOX == protected.POSTURE_SANDBOX
         assert gates.POSTURE_WRITES == protected.POSTURE_WRITES
 
-    def test_the_sandbox_posture_reaches_the_record(self, audit_root, monkeypatch):
+    def test_the_sandbox_posture_reaches_the_record(self, audit, monkeypatch):
         """The posture is read per record, so a sandboxed session says so."""
         monkeypatch.setenv(protected.POSTURE_ENV_VAR, protected.SANDBOX_MODE)
         monkeypatch.setenv(protected.POSTURE_SESSION_ENV_VAR, "chat-7")
@@ -521,7 +531,7 @@ class TestPinnedSpellings:
             reason="reserved path",
         )
 
-        (record,) = ledger_records(audit_root, SURFACE_CLAUDE_SETUP)
+        (record,) = _records(audit, SURFACE_CLAUDE_SETUP)
         assert record["posture"] == protected.POSTURE_SANDBOX
         assert record["session"] == "chat-7"
 
@@ -537,8 +547,8 @@ class TestTheOldLedgersAreGone:
         with pytest.raises(ImportError):
             import osprey.services.python_executor.refusal_audit  # noqa: F401
 
-    def test_a_refusal_never_lands_in_a_deployment_wide_file(self, audit_root):
-        """Every record is under an identity directory — the mount-isolated unit."""
+    def test_a_refusal_is_recorded_under_the_writing_identity(self, audit, spool_zone):
+        """Every entry belongs to the identity whose spool wrote it — the mount-isolated unit."""
         protected.record_protected_refusal(
             surface=SURFACE_SCAFFOLD_GALLERY,
             target_file=PATH_A,
@@ -547,6 +557,6 @@ class TestTheOldLedgersAreGone:
             reason="reserved path",
         )
 
-        assert not (audit_root / "protected-writes.jsonl").exists()
-        assert not (audit_root / "readonly-refusals.jsonl").exists()
-        assert [p.parent.name for p in audit_root.rglob("*.jsonl")] == [acting_identity()]
+        assert [(entry.identity, entry.body["surface"]) for entry in audit("audit")] == [
+            (spool_zone.terminal, SURFACE_SCAFFOLD_GALLERY)
+        ]

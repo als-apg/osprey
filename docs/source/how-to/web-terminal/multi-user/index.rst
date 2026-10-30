@@ -266,7 +266,7 @@ The config block
                 untouched.
             * - **Rename or drop a user**
               - Edit the roster entry, and the user's entry in
-                ``services.telemetry_store.readers`` if it has one, then
+                ``agent_record.readers`` if it has one, then
                 ``osprey up``. A container whose
                 user is no longer on the roster is stopped and removed, so it
                 cannot keep serving that index's ports; its volumes are
@@ -313,7 +313,7 @@ That is the entire setup for the preset's roster: the preset ships the
 needed. Alongside the web tier,
 ``osprey up`` brings up everything else the control-assistant tutorial deploys
 — the virtual accelerator, the bluesky services, and the supporting
-PostgreSQL and telemetry containers — so the control-room terminals open onto a
+PostgreSQL and agent-record containers — so the control-room terminals open onto a
 working machine, the logbook app onto a live logbook and the knowledge
 app onto a seeded facility graph, not an empty shell.
 
@@ -323,8 +323,8 @@ app onto a seeded facility graph, not an empty shell.
 - Delete the ``users`` entries you do not want.
 - Delete ``tiers/<name>.yml`` for every tier nobody uses.
 - If ``readonly`` is gone, point ``default_tier`` at a tier that is left.
-- Drop removed users from ``services.telemetry_store.readers``, or
-  ``osprey up`` still mints a query key for them.
+- Drop removed users from ``agent_record.readers``, or
+  ``osprey up`` still mints a reader key for them.
 
 .. note::
 
@@ -608,15 +608,17 @@ What the stack records
 ----------------------
 
 Each terminal writes its own audit trail — refused writes, tool calls, hook
-decisions, config edits — into ``var/audit/<user>/`` in the project on the
-deploy host. A container is handed that one directory and nothing else under
-``var/audit/``, so no user's terminal can read or rewrite another's. The
-authentication service writes logins into ``var/audit/sidecar/``, which it owns
-as root and no terminal mounts at all.
+decisions, config edits — as entries in the agent record, through a spool
+directory of its own under ``var/spool/<user>/`` in the project on the deploy
+host. A container is handed that one directory and nothing else under
+``var/spool/``, and the record files every entry under the identity of the
+directory it came from, so no user's terminal can rewrite another's trail or
+write in another's name. The authentication service records logins through its
+own ``sidecar`` spool directory, which no terminal mounts at all.
 
-That makes the deploy host the place a question spanning several people is
-answered: ``grep -r alice var/audit/`` there sees every subdirectory, while the
-admin login inside a container sees only its own. :ref:`The audit trail
+That makes the agent record the place a question spanning several people is
+answered, by a reader whose record login covers those identities
+(:doc:`/how-to/health-and-monitoring/read-the-record`). :ref:`The audit trail
 <audit-trail-record>` has the record shape, and what append-only does and does
 not buy you.
 
@@ -626,12 +628,12 @@ The history page
 ================
 
 Where the web terminals sign people on (``auth.method`` of ``password`` or
-``oidc``) and the deployment runs the telemetry store, ``osprey up`` also runs
-a history page: every session the store holds, each with its conversation,
-tool calls, approvals and preflight checks, read in a browser. It is served at
-``/history/`` on the **readers' origin**, the web tier's second server on its
-own port (``modules.web_terminals.reader_port``, or
-``modules.web_terminals.reader_origin`` behind a load balancer), so a page an
+``oidc``), ``osprey up`` also runs a history page: every session the agent
+record holds, each with its conversation, tool calls, approvals and preflight
+checks, read in a browser. It is served at ``/history/`` on the **history
+page's origin**, the web tier's second server on its own port
+(``modules.web_terminals.history_port``, or
+``modules.web_terminals.history_origin`` behind a load balancer), so a page an
 agent wrote on the terminals' origin cannot read it. A visit without a valid
 sign-in goes to the terminals' sign-in and comes back. Without sign-on there is
 no history page; each terminal still shows its own past sessions.
@@ -654,19 +656,17 @@ Who sees what is decided per person, from the roster, every time a page loads:
            tier: admin
            history: all
 
-   services:
-     telemetry_store:
-       readers:
-         - name: carol                 # a reader is a reader everywhere
+   agent_record:
+     readers:
+       - name: carol                   # a reader is a reader everywhere
 
 - **Own** (the default): the sessions recorded under the person's own roster
   name.
 - **All**: ``history: all`` on the person's roster entry, or on a role in
   ``authorization.roles`` the person holds, shows every user's sessions.
-- **A reader** — a roster user named under
-  ``services.telemetry_store.readers``, or a reader recognised by its
-  ``oidc_subject`` — sees every user's sessions, bounded by that reader's
-  ``tables`` and ``days_back`` (:doc:`/how-to/health-and-monitoring/read-the-record`).
+- **A reader** — a roster user named under ``agent_record.readers``, or a
+  reader recognised by its ``oidc_subject`` — sees every user's sessions,
+  bounded by that reader's ``kinds`` and ``days_back`` (:doc:`/how-to/health-and-monitoring/read-the-record`).
   The reader entry takes precedence over ``history:``.
 
 The rules at the edges:
@@ -692,9 +692,9 @@ The rules at the edges:
   load after ``osprey up``; a person taken out of ``readers`` is back in their
   own scope then, even with the page still open.
 
-Every page query runs in the store as a view account for that one person, so
-the scope above is a permission of the database, not a filter of the page. The
-store's ``query_log`` names both the view account and the person.
+The page names the viewer to the agent record, and the record applies the
+scope above itself, from this deployment's config, so the scope is a
+permission of the record, not a filter of the page.
 
 Related pages
 =============

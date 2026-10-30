@@ -160,7 +160,6 @@ POSTURE_FLOOR_KEYS = frozenset(
         "archiver.type",
         "approval.enabled",
         "approval.default_policy",
-        "claude_code.telemetry.enabled",
         "hooks.debug",
     }
 )

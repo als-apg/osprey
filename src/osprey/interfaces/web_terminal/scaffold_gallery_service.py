@@ -62,9 +62,8 @@ logger = logging.getLogger(__name__)
 DIRECTORY_ENTRY_FILE = "SKILL.md"
 
 
-#: Surface name this module records its refusals under, and therefore the
-#: ledger its refusals land in (``var/audit/<identity>/scaffold_gallery.jsonl``),
-#: so an operator can tell a gallery refusal from a config-route one.
+#: Surface name this module records its refusals under, so an operator can
+#: tell a gallery refusal from a config-route one.
 REFUSAL_SURFACE = SURFACE_SCAFFOLD_GALLERY
 
 

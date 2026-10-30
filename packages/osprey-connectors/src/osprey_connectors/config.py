@@ -1013,7 +1013,7 @@ def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:
     subdirectory key absent from ``file_paths`` falls back to its own name.
 
     Args:
-        sub_dir: Subdirectory name (e.g., 'api_calls_dir', 'registry_exports_dir')
+        sub_dir: Subdirectory name (e.g., 'registry_exports_dir')
         host_path: If True, force return of host filesystem path even when running in container
 
     Returns:

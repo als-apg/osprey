@@ -265,7 +265,7 @@ BUILD_OUTPUT_DIR = BUILD_DIR_NAME
 # constant so the copy target and the emitted key cannot drift apart.
 PROFILE_TRIGGERS_FILENAME = "triggers.yml"
 
-#: The durable state zone (``var/agent_data``, ``var/audit``) — git-ignored,
+#: The durable state zone (``var/agent_data`` and the record's directories) — git-ignored,
 #: never rendered, and never wiped by a build. Aliased for the same reason.
 STATE_DIR = STATE_DIR_NAME
 

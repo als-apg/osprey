@@ -42,12 +42,12 @@ def test_archive_is_listed_and_resolves():
 def test_once_exit_codes(trees, tmp_path):
     sources, dest = trees
     runner = CliRunner()
-    _put(sources / "terminals/alice/projects/p/s.jsonl", "x\n")
+    _put(sources / "terminal_agent_data/alice/artifacts/s.json", "x\n")
 
     ok = runner.invoke(archive, ["--once", "--sources", str(sources), "--dest", str(dest)])
     assert ok.exit_code == 0, ok.output
 
-    bad = sources / "terminals/alice/projects/p/unreadable.jsonl"
+    bad = sources / "terminal_agent_data/alice/artifacts/unreadable.json"
     _put(bad, "y\n")
     os.chmod(bad, 0)
     try:
@@ -85,7 +85,7 @@ def test_watch_exits_after_five_passes_that_cannot_run(tmp_path, monkeypatch):
 
 def test_sources_and_dest_read_their_environment_variables(trees):
     sources, dest = trees
-    _put(sources / "audit/ident/ledger.jsonl", "{}\n")
+    _put(sources / "dispatch/shared/artifacts/artifacts.json", "[]")
 
     result = CliRunner().invoke(
         archive,
@@ -94,5 +94,17 @@ def test_sources_and_dest_read_their_environment_variables(trees):
     )
 
     assert result.exit_code == 0, result.output
-    copies = list(dest.glob("*/audit/ident/ledger.jsonl"))
+    copies = list(dest.glob("*/dispatch/shared/artifacts/artifacts.json"))
     assert len(copies) == 1
+
+
+@pytest.mark.parametrize("option", ["--store-url", "--store-backfill-days"])
+def test_the_archive_takes_no_store_option(trees, option):
+    sources, dest = trees
+
+    result = CliRunner().invoke(
+        archive, ["--once", "--sources", str(sources), "--dest", str(dest), option, "1"]
+    )
+
+    assert result.exit_code == 2
+    assert "No such option" in result.output

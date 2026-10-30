@@ -245,7 +245,7 @@ class TestRoleOnlyRosterIsIndistinguishable:
     ) -> None:
         """The compose overlay, the nginx fragment and the landing page, whole.
 
-        Compared as the render returns them — all three keys, full text — not a
+        Compared as the render returns them — every key, full text — not a
         sampled service block: a role that reached the compose file but not the
         landing page would be a deployment whose cards and whose containers
         disagree about who runs what.
@@ -266,10 +266,13 @@ class TestRoleOnlyRosterIsIndistinguishable:
         rendered_role_bound = render_web_terminals(role_bound)
 
         # Assert
+        # A password deployment serves the history page, so its gate snippet
+        # is rendered beside the three.
         assert sorted(rendered_pinned) == [
             "docker-compose.web.yml",
             "nginx/landing.html",
             "nginx/nginx.conf",
+            "nginx/templates/history-gate.conf.template",
         ]
         # The pinned twin declares no roles at all, so it must carry no session
         # role anywhere — the baseline the delta below is measured against.

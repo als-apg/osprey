@@ -26,9 +26,14 @@ export default [
   // deliberate change, not a side effect of a toolchain bump.
   { rules: { 'no-useless-assignment': 'off' } },
 
-  // (3) Interface + test JS: browser + vendor globals, house-style rules at error.
+  // (3) Browser JS (the interfaces and the history page) + test JS: browser +
+  // vendor globals, house-style rules at error.
   {
-    files: ['src/osprey/interfaces/**/*.js', 'tests/**/*.{js,mjs}'],
+    files: [
+      'src/osprey/interfaces/**/*.js',
+      'src/osprey/history/static/**/*.js',
+      'tests/**/*.{js,mjs}',
+    ],
     languageOptions: {
       globals: {
         ...globals.browser,

@@ -102,6 +102,7 @@ _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "bluesky",
         "virtual_accelerator",
         "va_archiver",
+        "agent_record",
         "bluesky_web",
         "nextcloud_bridge",
         "gchat_bridge",
@@ -405,6 +406,39 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #   pva_port: {PVA_DEFAULT_PORT}
 #   live_standin: true
 """,
+    "agent_record": """
+# --- Agent record ------------------------------------------------------------
+# Every session fact the deployment's agents produce — prompts, answers,
+# thinking, tool calls, decisions, runs — kept once, in one record, and read
+# through one service. Every deployment has one; this block only changes
+# where it is kept and who may read it. Leave it out for the defaults: the
+# embedded backend, which keeps the record in the agent-record service itself
+# with no store container, and 14 days of retention.
+#
+# The block is the deployment's, so a tier file may not spell it. The service
+# takes the agent_record slot of this deployment's port block; `port` below
+# pins it outside that block instead of moving the block with
+# `config: deployment.port_base`.
+#
+# A named reader reads only the kinds it lists (every kind when `kinds` is
+# left out), over at most `days_back` days (retention_days when left out).
+# `oidc_subject` lets someone who is not on the roster open the history page
+# under OIDC sign-on.
+#
+# agent_record:
+#   backend: embedded           # embedded | clickhouse
+#   retention_days: 14          # days an entry is kept after it arrives
+#   memory: 1g                  # the agent-record container's memory limit
+#   port: <host port>
+#   readers:
+#     - name: ops
+#       kinds: [prompt, answer, decision]
+#       days_back: 7
+#       oidc_subject: <subject>
+#   clickhouse:                 # read only with backend: clickhouse
+#     image: clickhouse/clickhouse-server:26.8.18.2
+#     memory: 2g
+""",
     "va_archiver": """
 # --- Stored archive ----------------------------------------------------------
 # Where a simulated deployment keeps its history: a MongoDB store the build
@@ -532,6 +566,7 @@ _COMMENTED_TEMPLATE_ORDER: tuple[str, ...] = (
     "bluesky",
     "virtual_accelerator",
     "va_archiver",
+    "agent_record",
     "bluesky_web",
     "nextcloud_bridge",
     "gchat_bridge",

@@ -19,8 +19,10 @@ from tests.deployment._dotenv import project_env
 
 
 @pytest.fixture
-def captured_argv(stub_deploy_up):
+def captured_argv(stub_deploy_up, monkeypatch):
     """Patch deploy_up's collaborators for a project with only 'postgresql' deployed."""
+    # Every start builds the project image agent-record runs on; no build here.
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
     return stub_deploy_up({"deployed_services": ["postgresql"]}, seam="subprocess.run")
 
 

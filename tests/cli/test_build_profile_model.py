@@ -140,7 +140,7 @@ def test_bridge_mode_workers_leave_the_stand_in_and_its_neighbours_alone(
         dispatch={"triggers": _TRIGGERS, "worker_count": 60},
         virtual_accelerator={"port": 5064, "live_standin": True},
         bluesky={"port": default_port("bluesky"), "tiled_enabled": True},
-        config={"services.telemetry_gateway.port": default_port("telemetry_gateway")},
+        config={"services.qmd.port": default_port("qmd")},
     )
     profile.validate(tmp_path)
 
@@ -270,8 +270,6 @@ def test_the_second_lane_is_derived_at_the_deployments_own_base() -> None:
 #: services it runs; nothing renders one underneath it, so a fixture that spells
 #: none has no ports to seed.
 _DEPLOYED_SERVICES = {
-    "services.telemetry_store.path": "./services/telemetry_store",
-    "services.telemetry_gateway.path": "./services/telemetry_gateway",
     "services.qmd.path": "./services/qmd",
     "services.postgresql.path": "./services/postgresql",
     "services.graphdb.path": "./services/graphdb",
@@ -287,8 +285,6 @@ def test_the_ledger_carries_the_layout_slots_the_build_deploys() -> None:
     """
     claimed = _profile(config=dict(_DEPLOYED_SERVICES))._claimed_ports()
 
-    assert claimed["services.telemetry_store.port"] == default_port("telemetry_store")
-    assert claimed["services.telemetry_gateway.port"] == default_port("telemetry_gateway")
     assert claimed["services.qmd.port"] == default_port("qmd")
     assert claimed["services.postgresql.port_host"] == default_port("postgres")
     assert claimed["services.graphdb.port_host"] == default_port("graphdb_bolt")
