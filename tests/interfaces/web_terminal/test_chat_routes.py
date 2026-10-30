@@ -1048,12 +1048,23 @@ class TestChatStatusMapIntegration:
             waiting = asyncio.ensure_future(
                 chat_module.chat(req, chat_module.ChatRequest(prompt="second", chat_id="c"))
             )
-            for _ in range(5):  # let the second request register its slot
-                await asyncio.sleep(0)
+            # Wait for the second request to hold the slot. The route reads the
+            # command files off the loop first, so no count of loop passes is
+            # enough: a third request that looks before the slot is taken takes
+            # it itself and waits, with no bound, for a turn that never ends.
+            pending = handoff_module.get_state(req.app).pending
+            for _ in range(200):
+                if "c" in pending or waiting.done():
+                    break
+                await asyncio.sleep(0.01)
+            assert "c" in pending, "the second request never registered its slot"
             assert not waiting.done()
 
             with pytest.raises(HTTPException) as ei:
-                await chat_module.chat(req, chat_module.ChatRequest(prompt="third", chat_id="c"))
+                await asyncio.wait_for(
+                    chat_module.chat(req, chat_module.ChatRequest(prompt="third", chat_id="c")),
+                    timeout=5.0,
+                )
 
             assert ei.value.status_code == 409
             assert ei.value.detail["error"] == "session_attached_elsewhere"
