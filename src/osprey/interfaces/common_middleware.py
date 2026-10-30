@@ -135,7 +135,7 @@ class NoCacheStaticMiddleware(BaseHTTPMiddleware):
                 response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
             else:
                 response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-        elif path.startswith("/static/") or path.startswith("/api/"):
+        elif path.startswith(("/static/", "/api/")):
             response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         return response
 

@@ -30,7 +30,7 @@ Three properties are load-bearing on both paths and each is asserted directly:
   once the render is root-owned -- so these pins look for it there.
 * **All-or-nothing.** One protected key refuses the whole body. A mixed request
   does not get to land its cosmetic half.
-* **It leaves a trace.** One ``http_config`` ledger record per refused key
+* **It leaves a trace.** One ``http_config`` audit entry per refused key
   and one activity frame, so the attempt is visible to the operator afterwards
   and not only to whoever saw the 403. The frame is stamped in-process, which is
   the point: no ``OSPREY_PANEL_TOKEN`` is needed to publish it.
@@ -72,7 +72,6 @@ from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_BUFFER_MAX
 from osprey.interfaces.web_terminal.routes.config import _changed_protected_keys
 from osprey.utils.config_writer import config_update_fields
-from tests._audit_ledger import ledger_records
 from tests._preset_data import create_project_as_built
 
 #: An unprotected key the Config panel may still write. ``claude_code`` is an
@@ -123,9 +122,10 @@ def _deny(project_dir):
     return settings["permissions"]["deny"]
 
 
-def _audit_records(zone):
-    """Every ``http_config`` record this identity filed, oldest first."""
-    return ledger_records(zone, SURFACE_HTTP_CONFIG)
+def _audit_records(recorded_entries):
+    """Every ``http_config`` audit body the test recorded, oldest first."""
+    entries = sorted(recorded_entries("audit"), key=lambda entry: entry.ts)
+    return [dict(e.body) for e in entries if e.body["surface"] == SURFACE_HTTP_CONFIG]
 
 
 def _refusal_frames(client):
@@ -375,7 +375,7 @@ class TestPatchProtectedKeys:
         assert cfg["claude_code"]["default_model"] == "claude-sonnet-5"
         assert "mcp__controls__channel_write" in _deny(built_project)
 
-    def test_patch_protected_refusal_leaks_no_value(self, client, audit_zone_path):
+    def test_patch_protected_refusal_leaks_no_value(self, client, recorded_entries):
         """Config values are secrets; a refusal reports the key, never the value."""
         sentinel = "qqzzSENTINELvalue77"
 
@@ -383,7 +383,7 @@ class TestPatchProtectedKeys:
 
         assert resp.status_code == 403
         assert sentinel not in resp.text
-        assert sentinel not in json.dumps(_audit_records(audit_zone_path))
+        assert sentinel not in json.dumps(_audit_records(recorded_entries))
         assert sentinel not in json.dumps(_refusal_frames(client))
 
 
@@ -553,7 +553,7 @@ class TestPutProtectedDocument:
         # The operator is pointed at the channel that *can* carry the change.
         assert "`config:` block" in detail
 
-    def test_put_protected_refusal_leaks_no_value(self, client, built_project, audit_zone_path):
+    def test_put_protected_refusal_leaks_no_value(self, client, built_project, recorded_entries):
         """Config values are secrets; a refusal reports the key, never the value."""
         sentinel = "qqzzSENTINELvalue77"
 
@@ -564,7 +564,7 @@ class TestPutProtectedDocument:
 
         assert resp.status_code == 403
         assert sentinel not in resp.text
-        assert sentinel not in json.dumps(_audit_records(audit_zone_path))
+        assert sentinel not in json.dumps(_audit_records(recorded_entries))
         assert sentinel not in json.dumps(_refusal_frames(client))
 
     def test_put_unprotected_edit_passes_the_protected_gate_and_regenerates(
@@ -657,13 +657,13 @@ class TestPutProtectedDocument:
         assert "claude_code.servers.evil.srv.command" in resp.json()["detail"]
 
     def test_put_protected_refusal_caps_the_message_but_not_the_audit(
-        self, client, built_project, audit_zone_path
+        self, client, built_project, recorded_entries
     ):
         """The cap trims what an operator reads, never what the audit keeps.
 
         Emptying the document changes every protected key the file carries at
         once -- far more than a refusal can name and stay readable. The message
-        names the first ten and counts the rest; the ``http_config`` ledger gets
+        names the first ten and counts the rest; the ``http_config`` audit entries get
         all of them, because the trail is what a later investigation reads and a
         summarized trail is a missing one.
         """
@@ -680,7 +680,7 @@ class TestPutProtectedDocument:
         assert re.findall(r"`([^`]+)`", head) == sorted(".".join(k) for k in current)[:10]
         assert f"and {len(current) - 10} more" in head
 
-        records = _audit_records(audit_zone_path)
+        records = _audit_records(recorded_entries)
         assert len(records) == len(current)
         assert {r["subject"] for r in records} == {".".join(k) for k in current}
         assert all(r["surface"] == "http_config" for r in records)

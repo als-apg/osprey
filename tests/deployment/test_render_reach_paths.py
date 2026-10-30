@@ -30,7 +30,7 @@ from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.deployment.web_terminals.roster import resolve_cards
 from osprey.services.ariel_search.enhancement.qmd_export.exporter import resolve_mirror_path
 from osprey.services.facility_knowledge.bundle_path import resolve_bundle_path
-from osprey.utils.workspace import AUDIT_DIR_RELPATH
+from osprey.utils.workspace import SPOOL_DIR_RELPATH
 from tests.cli.test_tier_app_presets import _build_render_stack
 
 #: Every test here builds the hosting preset for real — seconds, not
@@ -278,27 +278,26 @@ def test_render_mirror_is_the_hosts_mirror(built_stack, host_config, web_compose
 
 
 def test_render_audit_records_are_backed_by_a_volume(web_compose, resolved_entries):
-    """Every per-user container's audit subdirectory
-    (``<project>/var/audit/<user>``) must be covered by a volume or bind mount,
-    or every record the unified writer files there — refused writes, tool
-    calls, hook decisions — is silently discarded on the next recreate.
+    """Every per-user container's spool subdirectory
+    (``<project>/var/spool/<user>``) must be covered by a volume or bind mount,
+    or every record the writer spools there — refused writes, tool calls, hook
+    decisions — is silently discarded on the next recreate.
 
-    ``tests/deployment/test_audit_mounts.py`` pins the render's derivation of
+    ``tests/deployment/test_spool_mounts.py`` pins the render's derivation of
     the target; this asks the question from the writer's side: the directory
-    :func:`osprey.audit.writer.audit_dir` resolves for this identity, inside
-    the compose service the render actually runs in, is backed by some mount
-    — the agent-data volume beside it (``var/agent_data``) is a sibling, not
-    an ancestor.
+    the writer falls back to for this identity, inside the compose service the
+    render actually runs in, is backed by some mount — the agent-data volume
+    beside it (``var/agent_data``) is a sibling, not an ancestor.
     """
     for entry in resolved_entries:
         service = web_compose["services"][f"web-{entry['name']}"]
-        audit_dir = (
-            PurePosixPath(entry["container_project_dir"]) / AUDIT_DIR_RELPATH / entry["name"]
+        spool_dir = (
+            PurePosixPath(entry["container_project_dir"]) / SPOOL_DIR_RELPATH / entry["name"]
         )
         targets = [PurePosixPath(target) for target in _mount_targets(service)]
-        covered = any(target == audit_dir or target in audit_dir.parents for target in targets)
+        covered = any(target == spool_dir or target in spool_dir.parents for target in targets)
         assert covered, (
-            f"web-{entry['name']} writes its audit records under {audit_dir}, but no "
+            f"web-{entry['name']} spools its audit records under {spool_dir}, but no "
             f"volume or bind mount covers that path or an ancestor of it (mount targets: "
             f"{[str(t) for t in targets]}) — the log lands in the container's writable "
             f"layer and are discarded on the next recreate"

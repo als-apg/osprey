@@ -49,8 +49,7 @@ def parse_dotenv_text(text: str) -> dict[str, str]:
         if "=" not in line:
             continue
         # Skip `export` prefix (common in .env files)
-        if line.startswith("export "):
-            line = line[7:]
+        line = line.removeprefix("export ")
         key, _, value = line.partition("=")
         key = key.strip()
         if not key:

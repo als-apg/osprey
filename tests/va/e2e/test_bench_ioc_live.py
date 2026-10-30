@@ -78,6 +78,7 @@ from osprey_connectors.control_system._base import ChannelValue, raise_for_write
 from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
 from osprey_connectors.write_target import KIND_BANNERS
 from osprey_connectors_tests._harness import write_control_context
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests.fixtures import bench_ioc as bench
 from tests.fixtures.control_context import context_for, publish_reachability
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
@@ -89,7 +90,7 @@ REPO_PATHS = (str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-conne
 
 #: The virtual accelerator this module boots for its ``va`` target, and the
 #: simulation data it serves. Same image and same data directory as
-#: ``test_target_switch.py``; a container of its own, on an ephemeral port,
+#: ``test_target_switch.py``; a container of its own, on a reserved port,
 #: because writing setpoints into the directory's shared session container would
 #: move a lattice other modules read.
 VA_IMAGE = e2e_conftest.IMAGE
@@ -270,48 +271,48 @@ def va_endpoint() -> Iterator[int]:
     the container, which is what makes concurrent runs safe.
     """
     _require_va_image()
-    port = bench.free_port()
-    name = f"{VA_CONTAINER_PREFIX}-{port}"
-    # Stale cleanup only: the port is this run's alone, so this can name nothing
-    # a concurrent run is using.
-    bench.docker("rm", "-f", name, timeout=60)
+    with reserved_port() as port:
+        name = f"{VA_CONTAINER_PREFIX}-{port}"
+        # Stale cleanup only: the port is this run's alone, so this can name nothing
+        # a concurrent run is using.
+        bench.docker("rm", "-f", name, timeout=60)
 
-    started = bench.docker(
-        "run",
-        "-d",
-        "--name",
-        name,
-        "-e",
-        f"EPICS_CA_SERVER_PORT={port}",
-        "-p",
-        f"127.0.0.1:{port}:{port}/tcp",
-        *e2e_conftest.demo_data_run_args(),
-        # The namespace, named: the IOC refuses to boot without one rather
-        # than picking the framework's demo channels on its own.
-        *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
-        VA_IMAGE,
-    )
-    if started.returncode != 0:
-        with contextlib.suppress(subprocess.SubprocessError):
-            bench.docker("rm", "-f", name, timeout=60)
-        raise RuntimeError(f"docker run failed for {name}:\n{started.stdout}\n{started.stderr}")
+        started = bench.docker(
+            "run",
+            "-d",
+            "--name",
+            name,
+            "-e",
+            f"EPICS_CA_SERVER_PORT={port}",
+            "-p",
+            f"127.0.0.1:{port}:{port}/tcp",
+            *e2e_conftest.demo_data_run_args(),
+            # The namespace, named: the IOC refuses to boot without one rather
+            # than picking the framework's demo channels on its own.
+            *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
+            VA_IMAGE,
+        )
+        if started.returncode != 0:
+            with contextlib.suppress(subprocess.SubprocessError):
+                bench.docker("rm", "-f", name, timeout=60)
+            raise RuntimeError(f"docker run failed for {name}:\n{started.stdout}\n{started.stderr}")
 
-    try:
-        deadline = time.monotonic() + VA_BOOT_TIMEOUT_S
-        while time.monotonic() < deadline:
-            if _va_served(port):
-                break
-            time.sleep(1.0)
-        else:
-            logs = bench.docker("logs", "--tail", "40", name, timeout=60)
-            raise RuntimeError(
-                f"{name} never served {PROBE_CHANNEL} within {VA_BOOT_TIMEOUT_S}s.\n"
-                f"{logs.stdout}\n{logs.stderr}"
-            )
-        yield port
-    finally:
-        with contextlib.suppress(subprocess.SubprocessError):
-            bench.docker("rm", "-f", name, timeout=60)
+        try:
+            deadline = time.monotonic() + VA_BOOT_TIMEOUT_S
+            while time.monotonic() < deadline:
+                if _va_served(port):
+                    break
+                time.sleep(1.0)
+            else:
+                logs = bench.docker("logs", "--tail", "40", name, timeout=60)
+                raise RuntimeError(
+                    f"{name} never served {PROBE_CHANNEL} within {VA_BOOT_TIMEOUT_S}s.\n"
+                    f"{logs.stdout}\n{logs.stderr}"
+                )
+            yield port
+        finally:
+            with contextlib.suppress(subprocess.SubprocessError):
+                bench.docker("rm", "-f", name, timeout=60)
 
 
 # ---------------------------------------------------------------------------
@@ -364,7 +365,7 @@ def raw_config(
     IOC. Every switch to ``live`` is therefore a switch *toward* the real
     machine, which is the only direction FR-8's live gate applies to.
 
-    Both blocks name an explicit gateway port: the containers bind ephemeral
+    Both blocks name an explicit gateway port: the containers bind reserved
     ports and nothing may guess them. Both gateway roles name the same endpoint
     because there is one server at each end; the write-capable role is the one
     the child selects, so a refused write is refused by the IOC rather than by a

@@ -69,7 +69,8 @@ Under a readonly posture each write route is refused by the layer that owns it: 
 gate, and the remaining writes-check-gated tools by the writes_check hook \
 (best-effort — it is the first hook in the chain). Independently of the \
 posture, executed Python may not write into the render zone (`build/`), the \
-profile sources, or the audit ledger (`var/audit/`) in ANY mode; that runtime \
+profile sources, or the agent record and archive (`var/agent_record/`, \
+`var/spool/`, `var/archive/`) in ANY mode; that runtime \
 guard is defense in depth, and the enforcing boundary is the container's \
 privilege split.
 

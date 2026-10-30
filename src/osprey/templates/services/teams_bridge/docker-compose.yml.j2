@@ -122,6 +122,19 @@ services:
     container_name: {{ osprey_labels.project_name }}-teams-bridge
     command: ["python", "-m", "osprey.bridges.teams"]
     restart: unless-stopped
+{%- set record_login = (osprey_agent_record_bridge_logins | default({}, true))['teams_bridge'] | default({}, true) %}
+{%- if record_login %}
+    labels:
+      # Recreates the container when its agent-record login file changes:
+      # the file is read once, at start.
+      osprey.agent-record.cred.digest: "{{ record_login.digest_ref }}"
+    # Its agent-record login and nothing else, written by `osprey build`: the
+    # one file this service reads whole, never the bulk .env below.
+    env_file:
+{%- for env_file in record_login.env_files %}
+      - {{ env_file }}
+{%- endfor %}
+{%- endif %}
     # Deliberately NO bulk .env passthrough. The project .env carries the
     # provider keys the dispatch worker needs (CBORG/OpenAI/...), and this
     # service — the one component that talks to Azure Service Bus and the Bot
@@ -303,14 +316,27 @@ services:
       # test_teams_bridge_state_paths_match_their_code_defaults binds the two
       # sides so neither can drift alone.
       DEDUP_PATH: "${DEDUP_PATH:-/data/dedup.json}"
-      HISTORY_PATH: "${HISTORY_PATH:-/data/history.json}"
+      # ── Agent record ────────────────────────────────────────────────────
+      # Where the record's API answers from this container's network: the
+      # compose service on the bridge network, its loopback publish from the
+      # host namespace.
+{%- if bridge_on_host %}
+      OSPREY_AGENT_RECORD_URL: {{ osprey_agent_record_host_url }}
+{%- else %}
+      OSPREY_AGENT_RECORD_URL: {{ osprey_agent_record_url }}
+{%- endif %}
+      # This bridge's own spool and state directories, bound below. The image
+      # runs from /app with no project of its own and no entrypoint, so both
+      # are absolute and plain config the writer reads.
+      OSPREY_SPOOL_DIR: {{ osprey_bridge_spool_dir }}/teams-bridge
+      OSPREY_STATE_DIR: {{ osprey_bridge_state_dir }}/teams-bridge
       TZ: {{ system.timezone }}
 {{- hostenv.passthrough(services.teams_bridge) }}
     volumes:
       # Bridge state, and the ONLY stateful thing this service owns: the dedup
-      # store (message_id -> run, the crash-safety ledger) and the
-      # per-conversation history store, whose DEDUP_PATH/HISTORY_PATH defaults
-      # above both sit under /data, making it the single state root. Without a
+      # store (message_id -> run, the crash-safety ledger), whose DEDUP_PATH
+      # default above sits under /data, making it the single state root.
+      # Conversation history lives in the agent record, not here. Without a
       # persisted volume every restart would lose the in-flight ledger,
       # re-answering or dropping questions that were mid-run. (There is no read
       # cursor to persist beside them: ingestion is a Service Bus queue, and the
@@ -319,6 +345,11 @@ services:
       # (not a bind mount) so it is namespaced per compose project and survives
       # `osprey down`.
       - teams_bridge_data:/data
+      # Its spool and state directories, and only its own: binds the host
+      # provisions group-shared before the container starts, so agent-record
+      # can ingest and delete what this bridge appends.
+      - {{ osprey_spool_mount_source }}/teams-bridge:{{ osprey_bridge_spool_dir }}/teams-bridge
+      - {{ osprey_state_zone_mount_source }}/teams-bridge:{{ osprey_bridge_state_dir }}/teams-bridge
 {{- net.network(services.teams_bridge) }}
 
 volumes:

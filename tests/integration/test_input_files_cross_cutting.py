@@ -172,19 +172,27 @@ def _stub_sdk_helpers(monkeypatch):
 
 
 async def test_input_files_content_b64_absent_from_worker_record_and_logs(
-    tmp_path, monkeypatch, caplog, _stub_sdk_helpers
+    tmp_path, monkeypatch, caplog, _stub_sdk_helpers, spool_zone, spool_for
 ):
     """A full worker run that ingests and re-inlines an image never leaks its
-    content_b64 into the prompt text, the persisted run record, or any log."""
+    content_b64 into the prompt text, the run's record entries, or any log."""
     _project_root(tmp_path, monkeypatch)
     monkeypatch.setattr(dispatch_api, "_runs", {})
     monkeypatch.setattr(dispatch_api, "_queues", {})
     monkeypatch.setattr(dispatch_api, "_tasks", {})
     monkeypatch.setattr(dispatch_api, "_run_input_seam", {})
 
-    # Capture exactly what would be persisted to disk (the terminal run record).
+    # Capture exactly what the terminal run entry is written from, and the
+    # spool lines the run writes to the agent record.
     persisted: dict = {}
-    monkeypatch.setattr(dispatch_api, "_persist_run", lambda rid, r: persisted.update(r))
+    real_terminal = dispatch_api._write_run_terminal
+
+    def _capture_terminal(run_id, record):
+        persisted.update(record)
+        real_terminal(run_id, record)
+
+    monkeypatch.setattr(dispatch_api, "_write_run_terminal", _capture_terminal)
+    spool_for(spool_zone.dispatch)
 
     # Fake agent runner stream: capture the user content it is handed, then
     # return a normal completion.
@@ -228,11 +236,15 @@ async def test_input_files_content_b64_absent_from_worker_record_and_logs(
     assert text_block["type"] == "text"
     assert _LEAK_MARKER_B64 not in text_block["text"]
 
-    # The persisted terminal record — every field, serialized — carries no b64.
+    # The terminal record — every field, serialized — carries no b64, and
+    # neither does any entry the run wrote to the agent record.
     result = dispatch_api._runs["run-leak"]
     assert result["status"] == "completed"
     assert _LEAK_MARKER_B64 not in json.dumps(result, default=str)
     assert persisted and _LEAK_MARKER_B64 not in json.dumps(persisted, default=str)
+    entries = spool_zone.recorded_entries("run")
+    assert entries
+    assert _LEAK_MARKER_B64 not in json.dumps([dict(e.body) for e in entries], default=str)
     # The input file is surfaced by descriptor only (filename/mime/entry_id).
     assert [d["filename"] for d in result["input_artifacts"]] == ["plot.png"]
 

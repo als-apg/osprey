@@ -112,7 +112,6 @@ def test_neutral_vars_are_delegated_to_core_config(adapter):
             WORKER_URL="http://work:10011/",
             POLL_INTERVAL="0.5",
             DEDUP_PATH="/data/adapter_dedup.json",
-            HISTORY_PATH="/data/adapter_history.json",
         )
     )
     assert cfg.core.dispatcher_url == "http://disp:10010"
@@ -122,7 +121,6 @@ def test_neutral_vars_are_delegated_to_core_config(adapter):
     assert cfg.core.trigger == adapter.env["DISPATCH_TRIGGER"]
     assert cfg.core.poll_interval == 0.5
     assert cfg.core.dedup_path == "/data/adapter_dedup.json"
-    assert cfg.core.history_path == "/data/adapter_history.json"
 
 
 @pytest.mark.parametrize("adapter", ADAPTERS, ids=adapter_id)

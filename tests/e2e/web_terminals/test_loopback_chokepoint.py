@@ -49,9 +49,10 @@ from pathlib import Path
 
 import pytest
 
-from osprey.cli.web_cmd import DECLARED_BIND_ENV, resolve_bind_host
-from osprey.interfaces._serving import free_port
+from osprey.cli.web_cmd import _STARTUP_LINE, DECLARED_BIND_ENV, resolve_bind_host
 from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV
+from tests.e2e._server_port import bound_port
+from tests.e2e.web_terminals._minimal_repo import stop_host_record, write_minimal_repo
 
 pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke, pytest.mark.model_free]
 
@@ -123,7 +124,9 @@ def _wait_for_port(host: str, port: int, proc: subprocess.Popen, timeout: float)
     return False
 
 
-def test_declared_loopback_survives_hostile_host_flag_over_real_socket(tmp_path: Path) -> None:
+def test_declared_loopback_survives_hostile_host_flag_over_real_socket(
+    tmp_path: Path, record_port: int
+) -> None:
     """The C3 chokepoint, end to end, against a real listening socket.
 
     Setup mirrors the multi-user compose exactly: the deployment DECLARES
@@ -142,17 +145,15 @@ def test_declared_loopback_survives_hostile_host_flag_over_real_socket(tmp_path:
         "meaningful left to probe if that assumption doesn't hold."
     )
 
-    port = free_port()
     # `osprey web` serves a deployment repo's RENDER: it walks up from the
     # working directory to the nearest `profile.yml` and refuses when that repo
-    # has no `build/config.yml` to serve. So the directory it runs in has to be
-    # a real (if minimal) repo — same as the deployment this test mirrors.
-    # Without it the server exits before binding and the bind assertions below
-    # never get to run.
-    repo = tmp_path / "loopback-chokepoint"
-    (repo / "build").mkdir(parents=True)
-    (repo / "profile.yml").write_text("name: loopback-chokepoint\n")
-    (repo / "build" / "config.yml").write_text("system:\n  name: loopback-chokepoint\n")
+    # has no `build/config.yml` to serve, and it holds the deployment's agent
+    # record while it runs. So the directory it runs in has to be a real (if
+    # minimal) repo. Without it the server exits before binding and the bind
+    # assertions below never get to run.
+    repo = write_minimal_repo(
+        tmp_path / "loopback-chokepoint", {"system": {"name": "loopback-chokepoint"}}, record_port
+    )
     log_path = tmp_path / "server.log"
 
     # sys.executable, NEVER bare "python": in this shared worktree, bare
@@ -165,7 +166,7 @@ def test_declared_loopback_survives_hostile_host_flag_over_real_socket(tmp_path:
         "--host",
         "0.0.0.0",  # the hostile flag; DECLARED_BIND_ENV below must win anyway
         "--port",
-        str(port),
+        "0",  # the server binds a port the system chooses and names it
         "--shell",
         "true",  # avoid spawning `claude`; the PTY just runs /usr/bin/true
         "--skip-preflight",  # avoid companion-port/provider pre-flight probes
@@ -204,6 +205,7 @@ def test_declared_loopback_survives_hostile_host_flag_over_real_socket(tmp_path:
         )
 
     try:
+        port = bound_port(log_path, _STARTUP_LINE, child=proc, timeout=_READY_TIMEOUT)
         ready = _wait_for_port("127.0.0.1", port, proc, timeout=_READY_TIMEOUT)
         if not ready:
             exit_code = proc.poll()
@@ -237,3 +239,4 @@ def test_declared_loopback_survives_hostile_host_flag_over_real_socket(tmp_path:
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait(timeout=_TEARDOWN_TIMEOUT)
+        stop_host_record(repo)

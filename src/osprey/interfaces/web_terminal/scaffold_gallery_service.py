@@ -62,9 +62,8 @@ logger = logging.getLogger(__name__)
 DIRECTORY_ENTRY_FILE = "SKILL.md"
 
 
-#: Surface name this module records its refusals under, and therefore the
-#: ledger its refusals land in (``var/audit/<identity>/scaffold_gallery.jsonl``),
-#: so an operator can tell a gallery refusal from a config-route one.
+#: Surface name this module records its refusals under, so an operator can
+#: tell a gallery refusal from a config-route one.
 REFUSAL_SURFACE = SURFACE_SCAFFOLD_GALLERY
 
 
@@ -1244,12 +1243,9 @@ class ScaffoldGalleryService:
         """
         # Strip leading .claude/
         name = rel_path
-        if name.startswith(".claude/"):
-            name = name[len(".claude/") :]
+        name = name.removeprefix(".claude/")
         # Strip .md extension
-        if name.endswith(".md"):
-            name = name[: -len(".md")]
-        return name
+        return name.removesuffix(".md")
 
     @staticmethod
     def _canonical_to_path(canonical_name: str) -> str:
@@ -1399,9 +1395,8 @@ class ScaffoldGalleryService:
             template = manager.jinja_env.get_template(template_rel)
             rendered: str = template.render(**ctx)
             return rendered
-        else:
-            text: str = template_file.read_text(encoding="utf-8")
-            return text
+        text: str = template_file.read_text(encoding="utf-8")
+        return text
 
     def _read_user_file(self, art: BuildArtifact) -> str | None:
         """Read the user's copy of an artifact from the surface that holds it."""

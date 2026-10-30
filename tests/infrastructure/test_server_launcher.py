@@ -34,7 +34,6 @@ from osprey.infrastructure.server_launcher import (
     _resolve_dotted,
     ensure_web_server,
 )
-from osprey.interfaces._serving import free_port
 from osprey.registry.web import (
     FRAMEWORK_WEB_SERVERS,
     WebServerConfigDepthError,
@@ -42,14 +41,14 @@ from osprey.registry.web import (
     framework_web_port_default,
     resolve_web_server_address,
 )
+from osprey_connectors_tests._harness._ports import bound_socket, require_ipv6_loopback
 
 
-def _make_launcher(host: str = "127.0.0.1", port: int | None = None) -> ServerLauncher:
+def _make_launcher(host: str, port: int) -> ServerLauncher:
     """Build a ServerLauncher wired to a fixed (host, port), auto-launch on."""
-    settled = free_port() if port is None else port
     return ServerLauncher(
         name="Test Server",
-        config_reader=lambda: (host, settled),
+        config_reader=lambda: (host, port),
         auto_launch_checker=lambda: True,
         app_factory=lambda: object(),
     )
@@ -128,22 +127,6 @@ def _fake_socket(bind_error: OSError | None = None):
         return _FakeSocket(family, sock_type, log, bind_error)
 
     return _factory, log
-
-
-def _require_ipv6_loopback() -> None:
-    """Skip unless this host can actually bind ``::1`` — CI images vary.
-
-    Asked from inside the test rather than from a ``skipif`` condition: a
-    ``skipif`` argument is evaluated at import, and opening a socket while the
-    module is merely being collected is what ``test_import_time_audit`` forbids.
-    """
-    if not socket.has_ipv6:
-        pytest.skip("host has no IPv6 support")
-    try:
-        with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as sock:
-            sock.bind(("::1", 0))
-    except OSError as exc:
-        pytest.skip(f"host has no usable IPv6 loopback ({exc})")
 
 
 class _Fake302Handler(urllib.request.HTTPHandler):
@@ -382,23 +365,23 @@ class TestEnsureWebServerDispatch:
 
 
 class TestEnsureRunningShortCircuits:
-    def _launcher(self, auto_launch: bool) -> ServerLauncher:
+    def _launcher(self, auto_launch: bool, port: int) -> ServerLauncher:
         return ServerLauncher(
             name="Guarded",
-            config_reader=MagicMock(return_value=("127.0.0.1", free_port())),
+            config_reader=MagicMock(return_value=("127.0.0.1", port)),
             auto_launch_checker=lambda: auto_launch,
             app_factory=lambda: object(),
         )
 
-    def test_no_launch_when_auto_launch_disabled(self):
-        launcher = self._launcher(auto_launch=False)
+    def test_no_launch_when_auto_launch_disabled(self, reserve_port):
+        launcher = self._launcher(auto_launch=False, port=reserve_port())
         with patch.object(launcher, "_launch_in_thread") as mock_launch:
             launcher.ensure_running()
         mock_launch.assert_not_called()
         launcher._config_reader.assert_not_called()
 
-    def test_no_launch_when_already_launched(self):
-        launcher = self._launcher(auto_launch=True)
+    def test_no_launch_when_already_launched(self, reserve_port):
+        launcher = self._launcher(auto_launch=True, port=reserve_port())
         launcher._launched = True
         with patch.object(launcher, "_launch_in_thread") as mock_launch:
             launcher.ensure_running()
@@ -412,10 +395,10 @@ class TestEnsureRunningShortCircuits:
 
 
 class TestIsRunning:
-    def test_free_port_is_not_running(self):
+    def test_free_port_is_not_running(self, reserve_port):
         launcher = ServerLauncher(
             name="Probe",
-            config_reader=lambda: ("127.0.0.1", free_port()),
+            config_reader=lambda: ("127.0.0.1", reserve_port()),
             auto_launch_checker=lambda: True,
             app_factory=lambda: object(),
         )
@@ -455,9 +438,9 @@ class TestHeldPortAdoption:
             launcher.ensure_running()
         return mock_launch, mock_warn, mock_info
 
-    def test_gated_listener_accepting_our_secret_is_adopted(self):
+    def test_gated_listener_accepting_our_secret_is_adopted(self, reserve_port):
         """401 unauthenticated + 200 credentialed → our own panel; stand down and latch."""
-        launcher = _make_launcher()
+        launcher = _make_launcher("127.0.0.1", reserve_port())
 
         mock_launch, mock_warn, mock_info = self._run(launcher, _probes(401, 200))
 
@@ -466,9 +449,9 @@ class TestHeldPortAdoption:
         mock_warn.assert_not_called()
         assert "adopting" in _rendered(mock_info)
 
-    def test_ungated_listener_answering_200_is_refused(self):
+    def test_ungated_listener_answering_200_is_refused(self, reserve_port):
         """An open remote serving anyone is not ours, however healthy it looks."""
-        host, port = "127.0.0.1", free_port()
+        host, port = "127.0.0.1", reserve_port()
         launcher = _make_launcher(host, port)
 
         mock_launch, mock_warn, _ = self._run(launcher, _probes(200))
@@ -481,9 +464,9 @@ class TestHeldPortAdoption:
         assert "HTTP 200" in line
         assert "not attempted" in line
 
-    def test_listener_holding_a_different_secret_is_refused(self):
+    def test_listener_holding_a_different_secret_is_refused(self, reserve_port):
         """401 to both probes: it gates, but not for us — the credentials diverged."""
-        launcher = _make_launcher()
+        launcher = _make_launcher("127.0.0.1", reserve_port())
 
         mock_launch, mock_warn, _ = self._run(launcher, _probes(401, 401))
 
@@ -492,9 +475,9 @@ class TestHeldPortAdoption:
         mock_warn.assert_called_once()
         assert "HTTP 401" in _rendered(mock_warn)
 
-    def test_listener_that_never_answers_is_refused(self):
+    def test_listener_that_never_answers_is_refused(self, reserve_port):
         """A non-HTTP process holding the port cannot be attributed either."""
-        launcher = _make_launcher()
+        launcher = _make_launcher("127.0.0.1", reserve_port())
 
         mock_launch, mock_warn, _ = self._run(launcher, _probes(None))
 
@@ -503,14 +486,14 @@ class TestHeldPortAdoption:
         mock_warn.assert_called_once()
         assert "no answer" in _rendered(mock_warn)
 
-    def test_a_credentialed_probe_that_goes_unanswered_is_refused(self):
+    def test_a_credentialed_probe_that_goes_unanswered_is_refused(self, reserve_port):
         """401 then silence: the listener gates, but stopped answering mid-verdict.
 
         Attribution needs a non-401 *answer* to the credentialed probe, and no
         answer is not one — a listener that gates and then times out is exactly
         as unattributable as one that refuses our secret.
         """
-        launcher = _make_launcher()
+        launcher = _make_launcher("127.0.0.1", reserve_port())
 
         mock_launch, mock_warn, _ = self._run(launcher, _probes(401, None))
 
@@ -521,9 +504,9 @@ class TestHeldPortAdoption:
         assert "HTTP 401" in line
         assert "credentialed probe: no answer" in line
 
-    def test_missing_local_operator_secret_is_refused(self):
+    def test_missing_local_operator_secret_is_refused(self, reserve_port):
         """With no credential of our own there is no attribution to make."""
-        launcher = _make_launcher()
+        launcher = _make_launcher("127.0.0.1", reserve_port())
 
         mock_launch, mock_warn, _ = self._run(launcher, _probes(401, 200), secret=None)
 
@@ -532,13 +515,13 @@ class TestHeldPortAdoption:
         mock_warn.assert_called_once()
         assert "no operator secret" in _rendered(mock_warn)
 
-    def test_our_secret_is_never_offered_to_an_ungated_listener(self):
+    def test_our_secret_is_never_offered_to_an_ungated_listener(self, reserve_port):
         """A listener that served an ungated 200 must not be handed the secret.
 
         It has already demonstrated that it checks no credential, so sending
         one teaches us nothing and discloses it to a stranger.
         """
-        launcher = _make_launcher()
+        launcher = _make_launcher("127.0.0.1", reserve_port())
         offered: list[str | None] = []
 
         def _record(_host, _port, secret=None):
@@ -549,9 +532,9 @@ class TestHeldPortAdoption:
 
         assert offered == [None]
 
-    def test_a_refusal_does_not_latch_and_self_heals_when_the_port_frees(self):
+    def test_a_refusal_does_not_latch_and_self_heals_when_the_port_frees(self, reserve_port):
         """The per-save caller must recover once the conflicting listener exits."""
-        launcher = _make_launcher()
+        launcher = _make_launcher("127.0.0.1", reserve_port())
 
         self._run(launcher, _probes(200))
         assert launcher._launched is False
@@ -565,13 +548,13 @@ class TestHeldPortAdoption:
             launcher.ensure_running()
         mock_launch.assert_called_once()
 
-    def test_a_health_200_alone_never_suppresses_a_launch(self):
+    def test_a_health_200_alone_never_suppresses_a_launch(self, reserve_port):
         """Issue #327, restated against the adoption path: /health is not evidence.
 
         The port is bindable, so it is ours to take — and no probe of any kind,
         credentialed or not, may be consulted to talk us out of the launch.
         """
-        launcher = _make_launcher()
+        launcher = _make_launcher("127.0.0.1", reserve_port())
 
         with (
             patch.object(launcher, "_port_is_bindable", return_value=True),
@@ -585,9 +568,9 @@ class TestHeldPortAdoption:
         mock_launch.assert_called_once()
         mock_probe.assert_not_called()
 
-    def test_a_clean_start_pays_for_no_credentialed_probe(self):
+    def test_a_clean_start_pays_for_no_credentialed_probe(self, reserve_port):
         """The probes are a cost of the degraded path only."""
-        launcher = _make_launcher()
+        launcher = _make_launcher("127.0.0.1", reserve_port())
 
         with (
             patch.object(launcher, "_port_is_bindable", return_value=True),
@@ -631,11 +614,13 @@ class TestAdoptionProbeContract:
 
         assert server_launcher._BIND_HOST_ENV == BIND_HOST_ENV
 
-    def test_the_environment_carrier_is_read_when_it_is_still_present(self, monkeypatch):
+    def test_the_environment_carrier_is_read_when_it_is_still_present(
+        self, reserve_port, monkeypatch
+    ):
         monkeypatch.setenv("OSPREY_TERMINAL_SECRET", "  carried-secret  ")
-        assert _make_launcher()._operator_secret() == "carried-secret"
+        assert _make_launcher("127.0.0.1", reserve_port())._operator_secret() == "carried-secret"
 
-    def test_an_unanswered_probe_is_no_status_rather_than_a_status(self, monkeypatch):
+    def test_an_unanswered_probe_is_no_status_rather_than_a_status(self, reserve_port, monkeypatch):
         """A transport-level failure is None, not a status. No socket is opened:
         the point under test is the mapping, and a real connect to a "free" port
         is a race against whatever the OS hands out next."""
@@ -643,9 +628,11 @@ class TestAdoptionProbeContract:
         opener.open.side_effect = urllib.error.URLError("connection refused")
         monkeypatch.setattr(server_launcher, "_probe_opener", lambda *extra: opener)
 
-        assert _make_launcher()._probe_status("127.0.0.1", 9) is None
+        assert _make_launcher("127.0.0.1", reserve_port())._probe_status("127.0.0.1", 9) is None
 
-    def test_a_redirect_is_the_listeners_own_status_and_is_not_followed(self, monkeypatch):
+    def test_a_redirect_is_the_listeners_own_status_and_is_not_followed(
+        self, reserve_port, monkeypatch
+    ):
         """A 3xx must be reported as itself.
 
         The default opener would follow it and report the *destination's*
@@ -660,7 +647,12 @@ class TestAdoptionProbeContract:
             lambda *extra: real_opener(_Fake302Handler(), *extra),
         )
 
-        assert _make_launcher()._probe_status("127.0.0.1", 9, "operator-secret") == 302
+        assert (
+            _make_launcher("127.0.0.1", reserve_port())._probe_status(
+                "127.0.0.1", 9, "operator-secret"
+            )
+            == 302
+        )
 
 
 class TestRepeatRefusalsAreCheapAndQuiet:
@@ -688,9 +680,9 @@ class TestRepeatRefusalsAreCheapAndQuiet:
             launcher.ensure_running()
         return mock_warn, mock_info
 
-    def test_the_second_refusal_pays_no_grace_window(self):
+    def test_the_second_refusal_pays_no_grace_window(self, reserve_port):
         """A refused port is held by an established listener, not a departing one."""
-        launcher = _make_launcher()
+        launcher = _make_launcher("127.0.0.1", reserve_port())
         sleep = MagicMock()
 
         self._refuse(launcher, _probes(200), sleep)
@@ -701,14 +693,14 @@ class TestRepeatRefusalsAreCheapAndQuiet:
         self._refuse(launcher, _probes(200), sleep)
         sleep.assert_not_called()
 
-    def test_a_sleep_on_another_thread_is_not_the_launchers(self):
+    def test_a_sleep_on_another_thread_is_not_the_launchers(self, reserve_port):
         """The grace window is counted on the launcher's own wait, not the process's.
 
         A library thread that sleeps in a loop for the life of the process (a
         callback dispatcher's queue monitor, say) must not reach the stand-in
         that counts the launcher's waits, however often it sleeps.
         """
-        launcher = _make_launcher()
+        launcher = _make_launcher("127.0.0.1", reserve_port())
         sleep = MagicMock()
 
         def _probe(*_args):
@@ -720,8 +712,8 @@ class TestRepeatRefusalsAreCheapAndQuiet:
         self._refuse(launcher, _probe, sleep)
         assert sleep.call_count == launcher._release_grace_attempts
 
-    def test_an_unchanged_repeat_verdict_drops_to_info(self):
-        launcher = _make_launcher()
+    def test_an_unchanged_repeat_verdict_drops_to_info(self, reserve_port):
+        launcher = _make_launcher("127.0.0.1", reserve_port())
         sleep = MagicMock()
 
         first_warn, _ = self._refuse(launcher, _probes(200), sleep)
@@ -733,9 +725,9 @@ class TestRepeatRefusalsAreCheapAndQuiet:
         repeat_info.assert_called_once()
         assert "cannot attribute" in _rendered(repeat_info)
 
-    def test_a_changed_verdict_warns_again(self):
+    def test_a_changed_verdict_warns_again(self, reserve_port):
         """Demotion is per verdict, not per port: new evidence is new news."""
-        launcher = _make_launcher()
+        launcher = _make_launcher("127.0.0.1", reserve_port())
         sleep = MagicMock()
         answers = {"unauthenticated": 200, "credentialed": None}
 
@@ -752,10 +744,10 @@ class TestRepeatRefusalsAreCheapAndQuiet:
         second_warn.assert_called_once()
         assert "HTTP 401" in _rendered(second_warn)
 
-    def test_a_freed_port_still_launches_after_a_refusal(self):
+    def test_a_freed_port_still_launches_after_a_refusal(self, reserve_port):
         """Skipping the grace window must not cost the self-heal: every call
         re-asks the bind question first, and that is the one that matters."""
-        launcher = _make_launcher()
+        launcher = _make_launcher("127.0.0.1", reserve_port())
         self._refuse(launcher, _probes(200), MagicMock())
 
         launcher._retry_not_before = 0.0
@@ -777,7 +769,7 @@ class TestRepeatRefusalsAreCheapAndQuiet:
         """
         # Pinned port: the line renders host:port, and an OS-assigned port whose
         # digits happen to contain "502" would fail the status-code assertion.
-        launcher = _make_launcher(port=8080)
+        launcher = _make_launcher("127.0.0.1", 8080)
         _, mock_warn, _ = TestHeldPortAdoption._run(launcher, _probes(401, 200), secret=None)
 
         line = _rendered(mock_warn)
@@ -816,13 +808,15 @@ class TestOperatorSecretIsSideEffectFree:
         monkeypatch.setattr(web_auth, "_CREDENTIALS", None)
         return web_auth
 
-    def test_no_carrier_and_no_holder_is_no_secret(self, monkeypatch):
+    def test_no_carrier_and_no_holder_is_no_secret(self, reserve_port, monkeypatch):
         web_auth = self._unpopulated_holder(monkeypatch)
 
-        assert _make_launcher()._operator_secret() is None
+        assert _make_launcher("127.0.0.1", reserve_port())._operator_secret() is None
         assert web_auth._CREDENTIALS is None
 
-    def test_reading_the_secret_leaves_the_panel_token_carrier_alone(self, monkeypatch):
+    def test_reading_the_secret_leaves_the_panel_token_carrier_alone(
+        self, reserve_port, monkeypatch
+    ):
         """``_populate`` pops it unconditionally; peeking must not.
 
         The MCP process is handed a re-introduced panel token deliberately, and
@@ -831,7 +825,7 @@ class TestOperatorSecretIsSideEffectFree:
         """
         self._unpopulated_holder(monkeypatch)
 
-        _make_launcher()._operator_secret()
+        _make_launcher("127.0.0.1", reserve_port())._operator_secret()
 
         assert os.environ["OSPREY_PANEL_TOKEN"] == "carried-panel-token"
 
@@ -842,13 +836,18 @@ class TestOperatorSecretIsSideEffectFree:
         assert web_auth._CREDENTIALS is None
         assert os.environ["OSPREY_PANEL_TOKEN"] == "carried-panel-token"
 
-    def test_peek_web_credentials_returns_a_populated_holder_unchanged(self, monkeypatch):
+    def test_peek_web_credentials_returns_a_populated_holder_unchanged(
+        self, reserve_port, monkeypatch
+    ):
         """Peeking is not "always None": it reports what is genuinely there."""
         web_auth = self._unpopulated_holder(monkeypatch)
         settled = web_auth.get_web_credentials()
 
         assert web_auth.peek_web_credentials() is settled
-        assert _make_launcher()._operator_secret() == settled.operator_secret
+        assert (
+            _make_launcher("127.0.0.1", reserve_port())._operator_secret()
+            == settled.operator_secret
+        )
 
 
 class TestAnUnavailableAuthGateGetsItsOwnAdvice:
@@ -865,7 +864,7 @@ class TestAnUnavailableAuthGateGetsItsOwnAdvice:
     def test_a_503_names_the_configuration_fault_not_a_foreign_server(self):
         # Pinned port: the line renders host:port, and an OS-assigned port whose
         # digits happen to contain "502" would fail the status-code assertion.
-        launcher = _make_launcher(port=8080)
+        launcher = _make_launcher("127.0.0.1", 8080)
 
         _, mock_warn, _ = TestHeldPortAdoption._run(launcher, _probes(503))
 
@@ -877,14 +876,14 @@ class TestAnUnavailableAuthGateGetsItsOwnAdvice:
         assert "stop the other" not in line
         assert "foreign server" not in line
 
-    def test_the_recorded_503_outcome_reads_flat_rather_than_nested(self):
+    def test_the_recorded_503_outcome_reads_flat_rather_than_nested(self, reserve_port):
         """The outcome phrase is the demotion key AND a fragment of prose.
 
         It is compared against the next refusal to decide warn-vs-info, and it
         is written to be read: spelling it "not attempted (the gate is
         unavailable (503))" nested one parenthesis inside another.
         """
-        launcher = _make_launcher()
+        launcher = _make_launcher("127.0.0.1", reserve_port())
 
         TestHeldPortAdoption._run(launcher, _probes(503))
 
@@ -893,9 +892,9 @@ class TestAnUnavailableAuthGateGetsItsOwnAdvice:
         assert "unavailable, HTTP 503" in outcome
         assert "(503)" not in outcome
 
-    def test_a_503_is_refused_without_the_secret_ever_being_offered(self):
+    def test_a_503_is_refused_without_the_secret_ever_being_offered(self, reserve_port):
         """A gate answering for nobody is not handed this process's identity."""
-        launcher = _make_launcher()
+        launcher = _make_launcher("127.0.0.1", reserve_port())
         offered: list[str | None] = []
 
         def _record(_host, _port, secret=None):
@@ -921,8 +920,8 @@ class TestRefusalMemoryIsScopedToOneHeldPortEpisode:
     its window and a verdict that is news again even if it reads the same.
     """
 
-    def test_committing_a_launch_clears_the_refusal_memory(self):
-        launcher = _make_launcher()
+    def test_committing_a_launch_clears_the_refusal_memory(self, reserve_port):
+        launcher = _make_launcher("127.0.0.1", reserve_port())
         launcher._refused_once = True
         launcher._last_refusal = (200, "not attempted")
 
@@ -936,8 +935,8 @@ class TestRefusalMemoryIsScopedToOneHeldPortEpisode:
         assert launcher._refused_once is False
         assert launcher._last_refusal is None
 
-    def test_a_launch_between_two_refusals_restores_the_window_and_the_warning(self):
-        launcher = _make_launcher()
+    def test_a_launch_between_two_refusals_restores_the_window_and_the_warning(self, reserve_port):
+        launcher = _make_launcher("127.0.0.1", reserve_port())
         sleep = MagicMock()
 
         first_warn, _ = TestRepeatRefusalsAreCheapAndQuiet._refuse(launcher, _probes(200), sleep)
@@ -1115,35 +1114,45 @@ class TestPortIsBindableAgainstARealKernel:
     """One smoke row per family: the stand-in above must describe the real thing.
 
     Only the two unambiguous cases are asked of a real kernel — an exact-address
-    listener holds its own address, and a released port is free — because those
+    listener holds its own address, and a reserved port is free — because those
     are the rows macOS and Linux answer identically. The platform-divergent ones
     (a wildcard probe against a specific listener) stay mocked.
     """
 
-    def test_an_ipv4_listener_holds_its_own_address(self):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as srv:
-            srv.bind(("127.0.0.1", 0))
+    def test_an_ipv4_listener_holds_its_own_address(self, reserve_port):
+        with bound_socket() as srv:
             srv.listen(1)
             port = srv.getsockname()[1]
-            assert _make_launcher()._port_is_bindable("127.0.0.1", port) is False
+            assert (
+                _make_launcher("127.0.0.1", reserve_port())._port_is_bindable("127.0.0.1", port)
+                is False
+            )
 
-    def test_a_released_ipv4_port_is_bindable(self):
-        assert _make_launcher()._port_is_bindable("127.0.0.1", free_port()) is True
+    def test_a_reserved_ipv4_port_is_bindable(self, reserve_port):
+        assert (
+            _make_launcher("127.0.0.1", reserve_port())._port_is_bindable(
+                "127.0.0.1", reserve_port()
+            )
+            is True
+        )
 
-    def test_an_ipv6_listener_holds_its_own_address(self):
-        _require_ipv6_loopback()
-        with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as srv:
-            srv.bind(("::1", 0))
+    def test_an_ipv6_listener_holds_its_own_address(self, reserve_port):
+        require_ipv6_loopback()
+        with bound_socket("::1") as srv:
             srv.listen(1)
             port = srv.getsockname()[1]
-            assert _make_launcher()._port_is_bindable("::1", port) is False
+            assert (
+                _make_launcher("127.0.0.1", reserve_port())._port_is_bindable("::1", port) is False
+            )
 
-    def test_a_released_ipv6_port_is_bindable(self):
-        _require_ipv6_loopback()
-        with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as sock:
-            sock.bind(("::1", 0))
-            port = sock.getsockname()[1]
-        assert _make_launcher()._port_is_bindable("::1", port) is True
+    def test_a_reserved_ipv6_port_is_bindable(self, reserve_port):
+        """A reserved port lies below the ephemeral range, so no ``bind(0)`` on
+        ``::1`` is handed it; only a service fixed to that port could hold it."""
+        require_ipv6_loopback()
+        assert (
+            _make_launcher("127.0.0.1", reserve_port())._port_is_bindable("::1", reserve_port())
+            is True
+        )
 
 
 class TestPortAnswersConnectIsDiagnosticOnly:
@@ -1285,12 +1294,12 @@ class TestBehindTheProxyWithoutAnIdentity:
         for name in (*self._CARRIERS, "OSPREY_TERMINAL_BIND_HOST"):
             monkeypatch.delenv(name, raising=False)
 
-    def test_no_launch_and_no_probe_without_an_operator_identity(self, monkeypatch):
+    def test_no_launch_and_no_probe_without_an_operator_identity(self, reserve_port, monkeypatch):
         from osprey.interfaces import web_auth
 
         monkeypatch.setenv("OSPREY_TERMINAL_BIND_HOST", "127.0.0.1")
         assert web_auth.peek_web_credentials() is None
-        launcher = _make_launcher()
+        launcher = _make_launcher("127.0.0.1", reserve_port())
 
         with (
             patch.object(launcher, "_launch_in_thread") as mock_launch,
@@ -1301,12 +1310,12 @@ class TestBehindTheProxyWithoutAnIdentity:
         mock_launch.assert_not_called()
         mock_bindable.assert_not_called()
 
-    def test_the_panel_carrier_survives_the_declined_launch(self, monkeypatch):
+    def test_the_panel_carrier_survives_the_declined_launch(self, reserve_port, monkeypatch):
         from osprey.interfaces.web_auth import peek_web_credentials
 
         monkeypatch.setenv("OSPREY_TERMINAL_BIND_HOST", "127.0.0.1")
         monkeypatch.setenv("OSPREY_PANEL_TOKEN", "pty-supplied-token")
-        launcher = _make_launcher()
+        launcher = _make_launcher("127.0.0.1", reserve_port())
 
         with patch.object(launcher, "_launch_in_thread"):
             launcher.ensure_running()
@@ -1314,17 +1323,17 @@ class TestBehindTheProxyWithoutAnIdentity:
         assert os.environ["OSPREY_PANEL_TOKEN"] == "pty-supplied-token"
         assert peek_web_credentials() is None
 
-    def test_the_terminal_itself_still_launches_behind_the_proxy(self, monkeypatch):
+    def test_the_terminal_itself_still_launches_behind_the_proxy(self, reserve_port, monkeypatch):
         monkeypatch.setenv("OSPREY_TERMINAL_BIND_HOST", "127.0.0.1")
         monkeypatch.setenv("OSPREY_TERMINAL_SECRET", "from-deploy-env")
-        launcher = _make_launcher()
+        launcher = _make_launcher("127.0.0.1", reserve_port())
 
         with patch.object(launcher, "_launch_in_thread") as mock_launch:
             launcher.ensure_running()
 
         mock_launch.assert_called_once()
 
-    def test_a_populated_holder_is_an_identity_too(self, monkeypatch):
+    def test_a_populated_holder_is_an_identity_too(self, reserve_port, monkeypatch):
         """The mid-life terminal: its carrier is gone and only the holder remains."""
         from osprey.interfaces.web_auth import get_web_credentials
 
@@ -1332,25 +1341,25 @@ class TestBehindTheProxyWithoutAnIdentity:
         monkeypatch.setenv("OSPREY_TERMINAL_SECRET", "from-deploy-env")
         get_web_credentials()
         assert "OSPREY_TERMINAL_SECRET" not in os.environ
-        launcher = _make_launcher()
+        launcher = _make_launcher("127.0.0.1", reserve_port())
 
         with patch.object(launcher, "_launch_in_thread") as mock_launch:
             launcher.ensure_running()
 
         mock_launch.assert_called_once()
 
-    def test_the_single_user_shape_is_unaffected(self):
-        launcher = _make_launcher()
+    def test_the_single_user_shape_is_unaffected(self, reserve_port):
+        launcher = _make_launcher("127.0.0.1", reserve_port())
 
         with patch.object(launcher, "_launch_in_thread") as mock_launch:
             launcher.ensure_running()
 
         mock_launch.assert_called_once()
 
-    def test_the_decline_is_reported_once(self, monkeypatch):
+    def test_the_decline_is_reported_once(self, reserve_port, monkeypatch):
         """The most frequent caller asks on every save: one line, then debug."""
         monkeypatch.setenv("OSPREY_TERMINAL_BIND_HOST", "127.0.0.1")
-        launcher = _make_launcher()
+        launcher = _make_launcher("127.0.0.1", reserve_port())
 
         with (
             patch.object(launcher, "_launch_in_thread"),
@@ -1396,22 +1405,34 @@ class TestLateHealthIsWatchedNotWrittenOff:
             launcher._await_late_health(server, "127.0.0.1", 4321, time.monotonic())
         return mock_warn, mock_info
 
-    def test_a_late_first_answer_is_logged_as_the_check_passing(self):
-        warn, info = self._watch(_make_launcher(), alive=lambda: True, answers=[False, False, True])
+    def test_a_late_first_answer_is_logged_as_the_check_passing(self, reserve_port):
+        warn, info = self._watch(
+            _make_launcher("127.0.0.1", reserve_port()),
+            alive=lambda: True,
+            answers=[False, False, True],
+        )
         warn.assert_not_called()
         assert "health check passed" in _rendered(info)
 
-    def test_no_answer_within_the_window_is_the_warning(self):
-        warn, _ = self._watch(_make_launcher(), alive=lambda: True, answers=lambda *a: False)
+    def test_no_answer_within_the_window_is_the_warning(self, reserve_port):
+        warn, _ = self._watch(
+            _make_launcher("127.0.0.1", reserve_port()),
+            alive=lambda: True,
+            answers=lambda *a: False,
+        )
         assert "health check failed" in _rendered(warn)
 
-    def test_a_server_thread_that_dies_is_the_warning(self):
-        warn, _ = self._watch(_make_launcher(), alive=[True, False], answers=lambda *a: False)
+    def test_a_server_thread_that_dies_is_the_warning(self, reserve_port):
+        warn, _ = self._watch(
+            _make_launcher("127.0.0.1", reserve_port()),
+            alive=[True, False],
+            answers=lambda *a: False,
+        )
         assert "thread exited before health check passed" in _rendered(warn)
 
     @pytest.mark.real_server_launch
-    def test_the_launch_window_no_longer_calls_a_slow_server_failed(self):
-        launcher = _make_launcher()
+    def test_the_launch_window_no_longer_calls_a_slow_server_failed(self, reserve_port):
+        launcher = _make_launcher("127.0.0.1", reserve_port())
         with (
             patch("osprey.infrastructure.server_launcher.threading.Thread") as thread_cls,
             patch("osprey.infrastructure.server_launcher._sleep"),

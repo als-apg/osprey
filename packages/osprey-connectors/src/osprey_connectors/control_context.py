@@ -1005,6 +1005,26 @@ def set_switch(
 
 # -- process liveness -------------------------------------------------------
 
+_PROC_ROOT = "/proc"
+
+
+def _is_thread_id(pid: int) -> bool:
+    """Whether the kernel knows *pid* as a thread of some other process.
+
+    Linux draws PIDs and thread ids from one number space, and ``/proc/<tid>``
+    opens by number though no listing shows it. A process is its own thread
+    group leader, so a ``Tgid`` that differs from *pid* means a thread. ``False``
+    when ``/proc`` says nothing, which is every platform without one.
+    """
+    try:
+        with open(f"{_PROC_ROOT}/{pid}/status", "rb") as status:
+            for line in status:
+                if line.startswith(b"Tgid:"):
+                    return int(line.split()[1]) != pid
+    except (OSError, ValueError, IndexError):
+        return False  # no /proc, or one that does not read like Linux's: no claim either way
+    return False
+
 
 def is_process_alive(pid: object) -> bool:
     """Whether *pid* names a running process.
@@ -1015,6 +1035,11 @@ def is_process_alive(pid: object) -> bool:
     it counts as ALIVE: sweeping a file whose owner is merely unreachable would
     delete live state. Non-positive PIDs are rejected without calling
     ``os.kill`` at all, because 0 and negatives address process *groups*.
+
+    ``os.kill`` also answers for a thread id, which is no process: a PID kept
+    in a record that outlived its container can land on a thread of the
+    process reading it, which would then follow itself for ever
+    (:func:`_is_thread_id`). A real process on that PID is not told apart.
 
     Anything that is not an ``int`` names no process and is ``False`` without
     a call either, so a field read off a file can be handed over unconverted.
@@ -1029,10 +1054,10 @@ def is_process_alive(pid: object) -> bool:
     except ProcessLookupError:
         return False
     except PermissionError:
-        return True
+        pass  # another user's process still exists; the thread check below applies to it too
     except OSError:  # pragma: no cover - platform oddity; assume alive
         return True
-    return True
+    return not _is_thread_id(pid)
 
 
 def _pid_from_filename(name: str, prefix: str, suffix: str) -> int | None:

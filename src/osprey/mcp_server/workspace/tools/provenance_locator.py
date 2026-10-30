@@ -2,8 +2,8 @@
 
 Returns generic telemetry *coordinates* for the current agent session — a
 pointer a consumer can render into a filed issue so a maintainer can retrieve
-the turn's full provenance from the OTEL store (tool calls, subagents,
-model/tokens/cost, user prompts). The telemetry store is the harness-agnostic
+the turn's full provenance from the agent record (tool calls, subagents,
+model/tokens/cost, user prompts). The agent record is the harness-agnostic
 source of provenance truth; this tool is the seam that hands out the locator so
 consumers never scrape harness-specific environment themselves.
 
@@ -43,9 +43,9 @@ OSPREY_TELEMETRY_SESSION_START_ENV = "OSPREY_TELEMETRY_SESSION_START"
 def _telemetry_enabled() -> bool:
     """Whether Claude Code OTEL export is actually on for this run.
 
-    If telemetry is off (or has no exporter endpoint), records for this session
-    never reach the store, so any ``session_id`` we hand out would resolve to
-    nothing. Gate on the same env the emitter itself consumes.
+    If telemetry is off (or has no exporter endpoint), this session's OTLP
+    events never reach the agent record, so any ``session_id`` we hand out
+    would resolve to nothing. Gate on the same env the emitter itself consumes.
     """
     if os.environ.get("CLAUDE_CODE_ENABLE_TELEMETRY") != "1":
         return False
@@ -72,11 +72,12 @@ def _service_name() -> str:
 
 @mcp.tool()
 async def provenance_locator() -> str:
-    """Return telemetry coordinates locating this session in the OTEL store.
+    """Return telemetry coordinates locating this session in the agent record.
 
     A consumer renders these into a filed issue so a maintainer can pull the
-    session's full provenance from telemetry (the harness-agnostic source of
-    truth) instead of trusting a reconstructed narration. No parameters.
+    session's full provenance from the agent record (the harness-agnostic
+    source of truth) instead of trusting a reconstructed narration. No
+    parameters.
 
     Returns:
         JSON ``{session_id, service_name, since, emitted_at}``. ``session_id`` is ``null`` (with a

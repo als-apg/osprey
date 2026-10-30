@@ -54,8 +54,6 @@ import sys
 import time
 from typing import Any
 
-from osprey.interfaces._serving import free_port
-
 # The CA-client worker. Dispatched before this module imports pytest or any
 # osprey package, so the client process stays a bare aioca client.
 
@@ -203,6 +201,7 @@ from osprey_connectors.simulation.view import (  # noqa: E402
     Channel,
     SimulatorView,
 )
+from osprey_connectors_tests._harness._ports import reserved_port  # noqa: E402
 from tests.va._collection import assert_module_collected  # noqa: E402
 from tests.va.e2e import conftest as e2e_conftest  # noqa: E402
 
@@ -840,28 +839,28 @@ def test_a_worker_that_fails_leaves_as_promptly_as_one_that_answers() -> None:
 
     No container: the name server is a port nothing listens on.
     """
-    port = free_port()
-    environment = {
-        **os.environ,
-        "EPICS_CA_NAME_SERVERS": f"localhost:{port}",
-        "EPICS_CA_AUTO_ADDR_LIST": "NO",
-    }
-    request = {"op": "read", "addresses": ["PARITY:NOT:SERVED"], "timeout": 1.0}
+    with reserved_port() as port:
+        environment = {
+            **os.environ,
+            "EPICS_CA_NAME_SERVERS": f"localhost:{port}",
+            "EPICS_CA_AUTO_ADDR_LIST": "NO",
+        }
+        request = {"op": "read", "addresses": ["PARITY:NOT:SERVED"], "timeout": 1.0}
 
-    started = time.monotonic()
-    result = subprocess.run(
-        [sys.executable, __file__, "--worker", json.dumps(request)],
-        capture_output=True,
-        text=True,
-        timeout=120.0,
-        env=environment,
-    )
-    elapsed = time.monotonic() - started
+        started = time.monotonic()
+        result = subprocess.run(
+            [sys.executable, __file__, "--worker", json.dumps(request)],
+            capture_output=True,
+            text=True,
+            timeout=120.0,
+            env=environment,
+        )
+        elapsed = time.monotonic() - started
 
-    assert result.returncode != 0
-    assert "never connected to ['PARITY:NOT:SERVED']" in result.stderr
-    # The connect timeout is 1 s; libca's teardown alone is tens of seconds.
-    assert elapsed < 15.0, f"the failed worker took {elapsed:.1f}s to leave"
+        assert result.returncode != 0
+        assert "never connected to ['PARITY:NOT:SERVED']" in result.stderr
+        # The connect timeout is 1 s; libca's teardown alone is tens of seconds.
+        assert elapsed < 15.0, f"the failed worker took {elapsed:.1f}s to leave"
 
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:

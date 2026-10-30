@@ -41,11 +41,9 @@ services:
       # label makes such an edit a document change. Empty when the invocation
       # did not set the variable (a hand-run `docker compose up`).
       osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
-      # The same trigger for this worker's telemetry login file: a login
-      # minted anew recreates this worker and no other service.
-      osprey.telemetry.cred.digest: "${OSPREY_TELEMETRY_DIGEST_DISPATCH_WORKER_1:-}"
+      # The same trigger for this worker's agent-record login file.
+      osprey.agent-record.cred.digest: "${OSPREY_AGENT_RECORD_DIGEST_DISPATCH_WORKER_1:-}"
     restart: unless-stopped
-
     # Provider auth: the worker's startup hook (inject_provider_env) resolves
     # the LLM provider key (e.g. ALS_APG_API_KEY -> ANTHROPIC_AUTH_TOKEN) from
     # the process environment. `env_file:` is read by the compose CLI on the
@@ -67,13 +65,11 @@ services:
     # the disposable render.
     env_file:
       - ./.env
-      # This worker's telemetry login: its own file at the repo root, one
-      # login and nothing else. The exception to "only files that exist" —
-      # listed whenever the gateway is deployed, because `osprey build`
-      # creates it before this file is rendered, so `status`, `down` and
-      # `logs` resolve it on any built repo.
-      - .env.telemetry-sender.dispatch-worker-1
-
+      # This worker's agent-record login: one login and nothing else, which
+      # every worker shares in the shared workspace mode, because those
+      # workers write as one identity. Always listed, because the record is
+      # always deployed and `osprey build` writes the file before this one.
+      - .env.agent-record.login.dispatch-worker-1
     environment:
       # No :-default (see event_dispatcher compose): fail closed on an unset token.
       DISPATCH_WORKER_TOKEN: ${DISPATCH_WORKER_TOKEN}
@@ -91,8 +87,8 @@ services:
       # when the trigger names no ceiling of its own.
       DISPATCH_MAX_TURNS: "25"
       OSPREY_PROJECT_DIR: /app/golden-project
-      # WHO this worker's audit records are written as, and WHERE. The audit
-      # mount follows the MIDDLEWARE, not the interface app: this container
+      # WHO this worker's records are written as. The identity follows the
+      # MIDDLEWARE, not the interface app: this container
       # launches the framework MCP servers through a CLI subprocess, so every
       # tools/call it makes is recorded — and a worker that recorded as the
       # generic container user would file its records under a name that
@@ -105,13 +101,20 @@ services:
       # (compose_generator.dispatch_worker_audit_identities), which is why the
       # two are asserted against each other rather than kept in step by hand.
       #
-      # OSPREY_AUDIT_DIR is also the contract this file offers the image's
-      # entrypoint: its root phase is to join the group of each directory the
-      # render names here before dropping privileges. This worker mounts no
+      # OSPREY_SPOOL_DIR and OSPREY_STATE_DIR below are also the contract this
+      # file offers the image's entrypoint: its root phase is to join the group
+      # of each directory the render names here before dropping privileges. This worker mounts no
       # facility bundle, so it names no second directory and that step simply
       # finds nothing else to do — no special case needed for it.
       OSPREY_AUDIT_IDENTITY: dispatch-worker-1
-      OSPREY_AUDIT_DIR: /app/golden-project/var/audit/dispatch-worker-1
+      # WHERE this worker appends its agent-record events and keeps its own
+      # state: its own directories in the two zones, bound below. Named for
+      # the writer and for the entrypoint, which joins each one's group.
+      OSPREY_SPOOL_DIR: /app/golden-project/var/spool/dispatch-worker-1
+      # WHERE this worker reads the agent record: its compose service on the
+      # bridge network, its loopback publish from the host namespace.
+      OSPREY_AGENT_RECORD_URL: http://127.0.0.1:10053
+      OSPREY_STATE_DIR: /app/golden-project/var/state/dispatch-worker-1
 
       # WHO this worker is to the control system. Per worker, from the same
       # loop index as the audit identity above, so a write traced to
@@ -134,7 +137,7 @@ services:
       # known here; this worker runs the whole agent and can move between
       # targets at runtime, so whether it will write is not a render-time fact.
       #
-      # Like OSPREY_AUDIT_DIR above, this is also the contract offered to the
+      # Like OSPREY_SPOOL_DIR above, this is also the contract offered to the
       # image's entrypoint: its root phase joins the group of each directory
       # named here and probes it for READ (the tree is read-only, so a write
       # probe would report a loss nothing in this container was going to write).
@@ -174,12 +177,6 @@ services:
       OSPREY_ARCHIVER_MONGODB_HOST: localhost
       OSPREY_ARCHIVER_MONGODB_PORT: "10801"
 
-      # On the host namespace the gateway is reached where it PUBLISHES: the
-      # interface `deployment.bind_address` names (loopback for a wildcard),
-      # on the published port. A port published on one interface does not
-      # answer on loopback, and an exporter drops a failed post silently.
-      OSPREY_OTEL_GATEWAY_HOST: "127.0.0.1"
-      OSPREY_OTEL_GATEWAY_PORT: "10051"
     # Bind-mount sources are relative to the pinned compose project directory,
     # which is the deployment REPO ROOT — hence the build/services/ prefix on
     # the render output below.
@@ -203,23 +200,25 @@ services:
       # concatenation here could not tell apart from a relative one.
 
       - dispatch_workspace_1:/app/golden-project/var/agent_data
+      - dispatch_claude_projects_1:/app/golden-project/var/agent_data/claude-config/projects
 
-      # This worker's audit subdirectory, and only its own. A bind rather than a
-      # named volume, unlike the workspace above: the records are the operator's
-      # to read, grep and purge on the host, which a named volume would bury in
-      # the runtime's storage. The isolation is the MOUNT — this container holds
-      # a bind to `var/audit/dispatch-worker-<i>` and nothing else under
-      # `var/audit`, so a worker cannot read a terminal user's records or
-      # another worker's. Provisioned host-side before the mount is created
-      # (compose_generator.ensure_audit_dir, from `_ensure_agent_data_structure`
-      # on the build path): left to the container runtime, a rootful daemon
-      # creates the source root-owned and the dropped `osprey` process inside
-      # can write nothing to it.
-      - ./var/audit/dispatch-worker-1:/app/golden-project/var/audit/dispatch-worker-1
+      # This worker's spool and state directories, and only its own. Binds
+      # rather than named volumes, unlike the workspace above: agent-record
+      # binds the spool root whole and ingests what lands here, and the host
+      # reads the state. The isolation is the MOUNT — this container holds a
+      # bind to its own subdirectory of each zone and nothing else under them,
+      # so a worker cannot read a terminal user's events or another worker's.
+      # Provisioned host-side before the mount is created
+      # (compose_generator.ensure_spool_dir and ensure_state_dir, from
+      # `_ensure_agent_data_structure` on the build path): left to the container
+      # runtime, a rootful daemon creates the source root-owned and the dropped
+      # `osprey` process inside can write nothing to it.
+      - ./var/spool/dispatch-worker-1:/app/golden-project/var/spool/dispatch-worker-1
+      - ./var/state/dispatch-worker-1:/app/golden-project/var/state/dispatch-worker-1
 
       # The control-context tree, READ-ONLY and WHOLE — the opposite shape to
-      # the audit bind above, for the opposite reason. Audit isolation is the
-      # mount: a worker may see only the records it wrote. The tree is a thing
+      # the spool bind above, for the opposite reason. Spool isolation is the
+      # mount: a worker may see only the events it wrote. The tree is a thing
       # this worker READS about other people: the owner of a dispatch job
       # arrives with the request, so a mount narrowed to one identity would
       # answer for nobody. Read-only keeps the asymmetry honest — every record
@@ -266,6 +265,7 @@ volumes:
 
 
   dispatch_workspace_1:
+  dispatch_claude_projects_1:
 
 
 

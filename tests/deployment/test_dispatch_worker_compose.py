@@ -112,10 +112,10 @@ def test_tiered_worker_paths_share_the_tier_project_dir(mode: str) -> None:
         assert service["image"].endswith("demo-readonly:local}")
         assert env["OSPREY_PROJECT_DIR"] == _TIER_ROOT
         assert env["CONFIG_FILE"] == f"{_TIER_ROOT}/build/config.yml"
-        assert env["OSPREY_AUDIT_DIR"] == f"{_TIER_ROOT}/var/audit/{key}"
+        assert env["OSPREY_SPOOL_DIR"] == f"{_TIER_ROOT}/var/spool/{key}"
         assert env["OSPREY_GUARDED_RUN_DIR"].startswith(f"{_TIER_ROOT}/")
         assert f"{volume}:{agent_data}" in service["volumes"]
-        assert f"{_TIER_ROOT}/var/audit/{key}" in _mount_targets(service)
+        assert f"{_TIER_ROOT}/var/spool/{key}" in _mount_targets(service)
 
 
 def test_tiered_worker_agent_data_volume_lands_under_the_tier_project() -> None:
@@ -154,11 +154,12 @@ def test_tiered_worker_simulator_log_target_follows_the_tier_project() -> None:
     assert context["osprey_guarded_run_mount"]["target"].startswith(f"{_TIER_ROOT}/")
 
 
-def test_tier_moves_only_the_worker_audit_root() -> None:
-    """Other services (history) keep the deployment's own audit root."""
+def test_tier_moves_only_the_worker_zone_roots() -> None:
+    """Other services (history) keep the deployment's own spool and state roots."""
     context = _inject_project_metadata(_config())
-    assert context["osprey_container_audit_dir"] == f"{_OWN_ROOT}/var/audit"
-    assert context["osprey_worker_audit_dir"] == f"{_TIER_ROOT}/var/audit"
+    for zone in ("spool", "state"):
+        assert context[f"osprey_container_{zone}_dir"] == f"{_OWN_ROOT}/var/{zone}"
+        assert context[f"osprey_worker_{zone}_dir"] == f"{_TIER_ROOT}/var/{zone}"
 
 
 def test_tier_render_does_not_mutate_the_input_config() -> None:
@@ -179,7 +180,8 @@ def test_tier_without_a_render_is_refused() -> None:
 def test_untiered_worker_keeps_the_deployment_project_dir() -> None:
     context = _inject_project_metadata(_config(tier=None))
     assert context["osprey_worker_project_dir"] == _OWN_ROOT
-    assert context["osprey_worker_audit_dir"] == context["osprey_container_audit_dir"]
+    assert context["osprey_worker_spool_dir"] == context["osprey_container_spool_dir"]
+    assert context["osprey_worker_state_dir"] == context["osprey_container_state_dir"]
     assert context["osprey_worker_stages_config"] is True
     rendered = _render(_config(tier=None))
     (service,) = _worker_services(rendered).values()

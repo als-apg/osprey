@@ -280,18 +280,8 @@ def _binding_from_record(record: object) -> tuple[str, int] | None:
         return None
 
 
-#: How long the old-value read for the full tool-call record may take, seconds.
+#: How long the old-value read for the ``tool_call`` record may take, seconds.
 OLD_VALUE_READ_TIMEOUT_S = 2.0
-
-
-def _full_record_enabled() -> bool:
-    """Whether the opt-in full ``tool_call`` record is on for this server."""
-    try:
-        from osprey.audit import tool_call
-
-        return tool_call.settings()[0]
-    except Exception:  # pragma: no cover - defensive: settings never raises
-        return False
 
 
 def _note_attribution() -> None:
@@ -312,7 +302,7 @@ def _note_attribution() -> None:
 
 
 async def _note_old_values(connector: Any, channels: list[str]) -> None:
-    """Note each channel's value before the write, for the full record. Never raises.
+    """Note each channel's value before the write, for the ``tool_call`` record. Never raises.
 
     Bounded by :data:`OLD_VALUE_READ_TIMEOUT_S`; a channel that could not be
     read is noted with the error type, and nothing here blocks the write.
@@ -919,10 +909,6 @@ async def channel_write(
     # carries them too.
     _note_attribution()
 
-    # The full tool-call record wants the limits verdict and the old values;
-    # nothing extra is done for them when that record is off.
-    full_record = _full_record_enabled()
-
     # Limits validation (additional safety layer inside the tool)
     try:
         from osprey_connectors.control_system import LimitsValidator
@@ -980,13 +966,13 @@ async def channel_write(
                         violation["current_value"] = exc.current_value
                 violations.append(violation)
 
-    if full_record:
-        if validator is None:
-            note(limits={"verdict": "not_checked"})
-        elif violations:
-            note(limits={"verdict": "violated", "violations": violations})
-        else:
-            note(limits={"verdict": "passed"})
+    # The limits verdict, for the ``tool_call`` record.
+    if validator is None:
+        note(limits={"verdict": "not_checked"})
+    elif violations:
+        note(limits={"verdict": "violated", "violations": violations})
+    else:
+        note(limits={"verdict": "passed"})
 
     if violations:
         # Build a clear message with limits info for each violation
@@ -1017,11 +1003,10 @@ async def channel_write(
         registry = get_server_context()
         connector = await registry.control_system()
 
-        # The old values, for the full tool-call record only. When on, this
-        # read is the final await, so the execution-window check below still
-        # follows the last await before the write.
-        if full_record:
-            await _note_old_values(connector, [op["channel"] for op in operations])
+        # The old values, for the ``tool_call`` record. This read is the final
+        # await, so the execution-window check below still follows the last
+        # await before the write.
+        await _note_old_values(connector, [op["channel"] for op in operations])
 
         # The last thing before a value goes out: this read is as close to the
         # write as the server can get. A switch completing after it is refused
