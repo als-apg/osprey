@@ -42,6 +42,7 @@ from .build_profile_archiver import (
 )
 from .build_profile_deploy import DeployConfig
 from .build_profile_health import health_url_key_errors
+from .build_profile_merge import bundled_service_template
 from .build_profile_presets import is_bundled_preset_dir, resolve_triggers_path
 from .build_profile_schema import (
     SECOND_LANE_PORT_STRIDE,
@@ -1530,9 +1531,9 @@ class BuildProfile:
         for name, svc in self.services.items():
             if not svc.template:
                 errors.append(f"Service '{name}' missing 'template'")
-            elif svc.template.startswith("osprey."):
-                # Bundled template (e.g. "osprey.event_dispatcher") — resolved at copy
-                # time by _copy_service_templates; no profile-dir file to validate.
+            elif bundled_service_template(svc.template) is not None:
+                # A bundled template names a directory the framework ships; the
+                # injector resolves it, so there is no profile-dir file to check.
                 continue
             else:
                 tmpl_path = profile_dir / svc.template
