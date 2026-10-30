@@ -38,7 +38,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import yaml
 
-from osprey.interfaces._serving import free_port
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
 from osprey_connectors_tests._harness import (
     DEFAULT_GENERATION,
@@ -47,7 +46,6 @@ from osprey_connectors_tests._harness import (
     write_control_context,
 )
 from tests._approval_stamp_fixture import ApprovalStamps, use_stamp_dir
-from tests._audit_ledger import ledger_records
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,
@@ -902,20 +900,12 @@ _EXECUTE_TOOLS = ["execute", "execute_file"]
 _GATES_MOD = "osprey.mcp_server.python_executor.tools._execution_gates"
 
 
-@contextlib.contextmanager
-def _audit_to(root):
-    """Point the audit zone at *root* instead of the real state zone."""
-    from osprey.audit import writer
-
-    with patch.object(writer, "audit_dir", lambda: root / "var" / "audit"):
-        yield
-
-
-def _audit_records(root):
-    """Every executor refusal recorded under *root*, or ``[]`` when none were."""
+def _audit_records(recorded_entries):
+    """Every ``executor`` audit entry in the record, oldest first."""
     from osprey.audit.envelope import SURFACE_EXECUTOR
 
-    return ledger_records(root / "var" / "audit", SURFACE_EXECUTOR)
+    entries = sorted(recorded_entries("audit"), key=lambda e: e.ts)
+    return [dict(e.body) for e in entries if e.body["surface"] == SURFACE_EXECUTOR]
 
 
 def _execute_patterns(has_writes: bool) -> dict:
@@ -1088,7 +1078,7 @@ async def test_execute_readonly_gate_refusal_alerts_the_operator(tool_name, tmp_
     mod, call = _execute_tool_call(tool_name, tmp_path)
 
     with _execute_env(mod, tmp_path, monkeypatch) as (notify, exec_code):
-        with patch(f"{_GATES_MOD}.notify_agent_activity_async") as blocked, _audit_to(tmp_path):
+        with patch(f"{_GATES_MOD}.notify_agent_activity_async") as blocked:
             with assert_raises_error(error_type="safety_error"):
                 await call(execution_mode="readonly")
 
@@ -1101,17 +1091,19 @@ async def test_execute_readonly_gate_refusal_alerts_the_operator(tool_name, tmp_
 
 
 @pytest.mark.parametrize("tool_name", _EXECUTE_TOOLS)
-async def test_execute_readonly_gate_refusal_is_audited(tool_name, tmp_path, monkeypatch):
+async def test_execute_readonly_gate_refusal_is_audited(
+    tool_name, tmp_path, monkeypatch, recorded_entries
+):
     """...and leaves a durable record naming the source that was refused."""
     monkeypatch.chdir(tmp_path)
     mod, call = _execute_tool_call(tool_name, tmp_path)
 
     with _execute_env(mod, tmp_path, monkeypatch) as (_, exec_code):
-        with patch(f"{_GATES_MOD}.notify_agent_activity_async"), _audit_to(tmp_path):
+        with patch(f"{_GATES_MOD}.notify_agent_activity_async"):
             with assert_raises_error(error_type="safety_error"):
                 await call(execution_mode="readonly")
 
-    (record,) = _audit_records(tmp_path)
+    (record,) = _audit_records(recorded_entries)
     assert record["reason"] == "pattern_detection"
     assert record["subject"] == tool_name
     assert f"tool={tool_name}" in record["detail"]
@@ -1120,7 +1112,9 @@ async def test_execute_readonly_gate_refusal_is_audited(tool_name, tmp_path, mon
 
 
 @pytest.mark.parametrize("tool_name", _EXECUTE_TOOLS)
-async def test_execute_runtime_refusal_alerts_and_audits(tool_name, tmp_path, monkeypatch):
+async def test_execute_runtime_refusal_alerts_and_audits(
+    tool_name, tmp_path, monkeypatch, recorded_entries
+):
     """The guard refused mid-run: the tool recognises it in stderr and reports.
 
     This is the layer that catches the spellings no static check sees, so it is
@@ -1142,19 +1136,21 @@ async def test_execute_runtime_refusal_alerts_and_audits(tool_name, tmp_path, mo
         notify,
         _,
     ):
-        with patch(f"{_GATES_MOD}.notify_agent_activity_async") as blocked, _audit_to(tmp_path):
+        with patch(f"{_GATES_MOD}.notify_agent_activity_async") as blocked:
             with assert_raises_error(error_type="execution_error"):
                 await call(execution_mode="readonly")
 
     notify.assert_not_called()
     blocked.assert_called_once()
-    (record,) = _audit_records(tmp_path)
+    (record,) = _audit_records(recorded_entries)
     assert record["reason"] == "runtime_guard"
     assert record["subject"] == tool_name
 
 
 @pytest.mark.parametrize("tool_name", _EXECUTE_TOOLS)
-async def test_execute_connector_refusal_is_reported_too(tool_name, tmp_path, monkeypatch):
+async def test_execute_connector_refusal_is_reported_too(
+    tool_name, tmp_path, monkeypatch, recorded_entries
+):
     """A write refused by the connector — the *approved* path in the wrong mode.
 
     Its message is not the guard's, so this pins that the tool matches on what
@@ -1179,19 +1175,19 @@ async def test_execute_connector_refusal_is_reported_too(tool_name, tmp_path, mo
         _,
         _exec,
     ):
-        with patch(f"{_GATES_MOD}.notify_agent_activity_async") as blocked, _audit_to(tmp_path):
+        with patch(f"{_GATES_MOD}.notify_agent_activity_async") as blocked:
             with assert_raises_error(error_type="execution_error"):
                 await call(execution_mode="readonly")
 
     blocked.assert_called_once()
-    (record,) = _audit_records(tmp_path)
+    (record,) = _audit_records(recorded_entries)
     assert record["reason"] == "runtime_guard"
     assert "SR:CORR:SP" in record["detail"]
 
 
 @pytest.mark.parametrize("tool_name", _EXECUTE_TOOLS)
 async def test_execute_ordinary_failure_is_not_reported_as_a_refusal(
-    tool_name, tmp_path, monkeypatch
+    tool_name, tmp_path, monkeypatch, recorded_entries
 ):
     """A script that merely crashed must not land in the refusal audit log."""
     monkeypatch.chdir(tmp_path)
@@ -1207,13 +1203,13 @@ async def test_execute_ordinary_failure_is_not_reported_as_a_refusal(
         notify,
         _,
     ):
-        with patch(f"{_GATES_MOD}.notify_agent_activity_async") as blocked, _audit_to(tmp_path):
+        with patch(f"{_GATES_MOD}.notify_agent_activity_async") as blocked:
             with assert_raises_error(error_type="execution_error"):
                 await call(execution_mode="readonly")
 
     notify.assert_not_called()
     blocked.assert_not_called()
-    assert _audit_records(tmp_path) == []
+    assert _audit_records(recorded_entries) == []
 
 
 @pytest.mark.parametrize("tool_name", _EXECUTE_TOOLS)
@@ -1704,14 +1700,14 @@ async def test_manage_window_unknown_app_no_emit():
 # ── terminal down: real helper against a dead port ──────────────────────────
 
 
-async def test_focus_result_unchanged_when_terminal_down(tmp_path, monkeypatch):
+async def test_focus_result_unchanged_when_terminal_down(reserve_port, tmp_path, monkeypatch):
     """Real notify_agent_activity against a dead port: tool result unchanged."""
     monkeypatch.chdir(tmp_path)
     artifact_id = await _save_artifact(title="Down Terminal")
 
     from osprey.mcp_server.workspace.tools.focus_tools import artifact_focus
 
-    port = free_port()
+    port = reserve_port()
     # Gallery acknowledges the POST (a gallery failure is a tool error by
     # contract); only the TERMINAL is down here — the notify half under test.
     with (
@@ -1732,7 +1728,9 @@ async def test_focus_result_unchanged_when_terminal_down(tmp_path, monkeypatch):
     assert data["title"] == "Down Terminal"
 
 
-async def test_channel_write_result_unchanged_when_terminal_down(tmp_path, monkeypatch):
+async def test_channel_write_result_unchanged_when_terminal_down(
+    reserve_port, tmp_path, monkeypatch
+):
     """Real notify_agent_activity against a dead port: write result unchanged."""
     from osprey.mcp_server.control_system.server_context import initialize_server_context
 
@@ -1745,7 +1743,7 @@ async def test_channel_write_result_unchanged_when_terminal_down(tmp_path, monke
     mock_connector = AsyncMock()
     mock_connector.write_channel.return_value = write_result
 
-    port = free_port()
+    port = reserve_port()
     conn_patch, validator_patch = _channel_write_patches(mock_connector)
     with (
         conn_patch,

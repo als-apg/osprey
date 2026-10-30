@@ -2,7 +2,7 @@
 
 The ``dial`` of every consumer in :data:`osprey.deployment.reach.REACH_CONTRACTS`
 goes through the client's real resolver — the qmd base URL, the graph
-connection, the ARIEL DSN, the OTLP endpoint, the bridge URL, the panel URL,
+connection, the ARIEL DSN, the bridge URL, the panel URL,
 the VA gateway fill — so these tests pin the resolver-against-config seam:
 a moved key moves the dial, an env override wins where the client honours
 one, and a client with nothing to dial says ``None``.
@@ -64,37 +64,6 @@ class TestPostgresql:
     def test_an_explicit_uri_wins(self):
         config = {"ariel": {"database": {"uri": "postgresql://u:p@db.example:6543/ariel"}}}
         assert _dial("postgresql", config) == ("db.example", 6543)
-
-
-class TestTelemetryGateway:
-    CONFIG = {
-        "claude_code": {"telemetry": {"enabled": True, "backend": "gateway"}},
-        "services": {"telemetry_gateway": {"port": 18151}},
-    }
-
-    def test_follows_the_published_port(self, monkeypatch):
-        monkeypatch.delenv("OSPREY_OTEL_GATEWAY_HOST", raising=False)
-        monkeypatch.delenv("OSPREY_OTEL_GATEWAY_PORT", raising=False)
-        assert _dial("telemetry_gateway", self.CONFIG) == ("127.0.0.1", 18151)
-
-    def test_the_compose_authors_host_wins(self, monkeypatch):
-        """A bridge-networked sender is told the service name by its compose
-        block; the exporter, and so the knock, go there."""
-        monkeypatch.setenv("OSPREY_OTEL_GATEWAY_HOST", "telemetry_gateway")
-        monkeypatch.delenv("OSPREY_OTEL_GATEWAY_PORT", raising=False)
-        assert _dial("telemetry_gateway", self.CONFIG) == ("telemetry_gateway", 4318)
-
-    def test_an_explicit_endpoint_is_dialed_as_written(self):
-        config = {
-            "claude_code": {
-                "telemetry": {"enabled": True, "endpoint": "http://collector.example:4318"}
-            }
-        }
-        assert _dial("telemetry_gateway", config) == ("collector.example", 4318)
-
-    def test_telemetry_off_is_nothing_to_dial(self):
-        config = {"claude_code": {"telemetry": {"enabled": False}}}
-        assert _dial("telemetry_gateway", config) is None
 
 
 class TestBluesky:

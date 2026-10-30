@@ -187,15 +187,13 @@ def _server_side_effect_tools(server) -> list[str]:
     """
     from osprey.registry.mcp import _WRITES_CHECK
 
-    out: list[str] = []
-    for tool in (*server.permissions_ask, *server.fixed_ask):
-        out.append(f"mcp__{server.name}__{tool}")
-    for tool in (*server.permissions_allow, *server.fixed_allow):
-        if _is_destructive(tool):
-            out.append(f"mcp__{server.name}__{tool}")
-    for rule in server.hooks_pre:
-        if _WRITES_CHECK in rule.hooks:
-            out.append(rule.matcher)
+    out = [f"mcp__{server.name}__{tool}" for tool in (*server.permissions_ask, *server.fixed_ask)]
+    out.extend(
+        f"mcp__{server.name}__{tool}"
+        for tool in (*server.permissions_allow, *server.fixed_allow)
+        if _is_destructive(tool)
+    )
+    out.extend(rule.matcher for rule in server.hooks_pre if _WRITES_CHECK in rule.hooks)
     return out
 
 
@@ -287,14 +285,13 @@ def _custom_server_side_effect_tools(project_dir: Path) -> list[str]:
             perms = {}
         if "writes" in spec:
             out.extend(_declared_write_tools(name, spec, perms))
-        for tool in perms.get("ask") or []:
-            out.append(f"mcp__{name}__{tool}")
+        out.extend(f"mcp__{name}__{tool}" for tool in perms.get("ask") or [])
         # Destructive-named tools a custom server auto-allows (mirrors the
         # framework destructive-allow handling) — block them even though the
         # facility put them in ``allow``.
-        for tool in perms.get("allow") or []:
-            if _is_destructive(tool):
-                out.append(f"mcp__{name}__{tool}")
+        out.extend(
+            f"mcp__{name}__{tool}" for tool in perms.get("allow") or [] if _is_destructive(tool)
+        )
         pre = (spec.get("hooks") or {}).get("pre_tool_use") or []
         if "writes_check" in pre:
             # Whole server is write-gated; block it server-level (the only form

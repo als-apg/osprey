@@ -408,15 +408,15 @@ def test_the_source_scan_actually_finds_call_sites() -> None:
 
 
 # ---------------------------------------------------------------------------
-# The telemetry credential digests ride the same builder.
+# The credential digests ride the same builder.
 # ---------------------------------------------------------------------------
 
-_TELEMETRY_DIGEST_REFERENCE = re.compile(r"\$\{(OSPREY_TELEMETRY_DIGEST_[A-Za-z0-9_{} ]+?):-\}")
+_RECORD_DIGEST_REFERENCE = re.compile(r"\$\{(OSPREY_AGENT_RECORD_DIGEST_[A-Za-z0-9_{} ]+?):-\}")
 _WORKER_COUNT = 3
 
 
-def _telemetry_digest_names_the_templates_reference() -> set[str]:
-    """Every ``OSPREY_TELEMETRY_DIGEST_*`` a bundled compose template interpolates.
+def _record_digest_names_the_templates_reference() -> set[str]:
+    """Every ``OSPREY_AGENT_RECORD_DIGEST_*`` a bundled compose template interpolates.
 
     Read from the template sources, so a service template added later is
     covered without being listed. A per-worker name is spelled on the loop
@@ -427,7 +427,7 @@ def _telemetry_digest_names_the_templates_reference() -> set[str]:
     templates = Path(inspect.getfile(osprey)).parent / "templates"
     names: set[str] = set()
     for template in sorted(templates.rglob("*.j2")):
-        for raw in _TELEMETRY_DIGEST_REFERENCE.findall(template.read_text(encoding="utf-8")):
+        for raw in _RECORD_DIGEST_REFERENCE.findall(template.read_text(encoding="utf-8")):
             if "{{" not in raw:
                 names.add(raw)
                 continue
@@ -437,69 +437,72 @@ def _telemetry_digest_names_the_templates_reference() -> set[str]:
     return names
 
 
-def test_the_templates_reference_telemetry_digests_at_all() -> None:
+def test_the_templates_reference_record_digests_at_all() -> None:
     """The scan below is only a guard while it is finding something."""
-    names = _telemetry_digest_names_the_templates_reference()
+    names = _record_digest_names_the_templates_reference()
 
-    assert "OSPREY_TELEMETRY_DIGEST_ARCHIVE" in names
-    assert "OSPREY_TELEMETRY_DIGEST_DISPATCH_WORKER_1" in names
+    assert "OSPREY_AGENT_RECORD_DIGEST_AGENT_RECORD" in names
+    assert "OSPREY_AGENT_RECORD_DIGEST_HISTORY" in names
+    assert "OSPREY_AGENT_RECORD_DIGEST_DISPATCH_WORKER_1" in names
 
 
 @pytest.mark.parametrize("positional", [1, 2])
 @pytest.mark.parametrize("ignore_orphans", [False, True])
-def test_every_builder_call_carries_every_telemetry_digest_the_templates_read(
+def test_every_builder_call_carries_every_record_digest_the_templates_read(
     tmp_path: Path, positional: int, ignore_orphans: bool
 ) -> None:
     """A label interpolated from an unset variable reads as a document change.
 
-    So every ``OSPREY_TELEMETRY_DIGEST_*`` a rendered compose file can
+    So every ``OSPREY_AGENT_RECORD_DIGEST_*`` a rendered compose file can
     reference is set on every builder call, whatever its argument shape — the
     same property the env digest above has, for the same reason.
     """
-    from osprey.deployment import telemetry_credentials as creds
+    from osprey.agent_record import credentials as creds
 
     config = {
         "project_name": "proj-a",
         "project_root": str(tmp_path),
-        "deployed_services": ["telemetry_store", "telemetry_gateway", "dispatch_worker"],
+        "deployed_services": ["dispatch_worker"],
         "services": {"dispatch_worker": {"worker_count": _WORKER_COUNT}},
     }
-    creds.ensure_telemetry_credentials(tmp_path, config, reader_keys=False)
+    creds.ensure_agent_record_credentials(tmp_path, config, reader_keys=False)
     args = [config] if positional == 1 else [config, {}]
 
     env = runtime_env(*args, ignore_orphans=ignore_orphans)
 
-    referenced = _telemetry_digest_names_the_templates_reference()
+    referenced = _record_digest_names_the_templates_reference()
     assert referenced <= set(env), sorted(referenced - set(env))
     for service, files in creds.owner_files(config).items():
         assert env[creds.digest_env_name(service)] == creds.files_digest(tmp_path, files)
+    # Only the record's digests are recreate triggers.
+    assert not any(name.startswith("OSPREY_TELEMETRY_DIGEST_") for name in env)
 
 
-def test_the_fixed_telemetry_digests_are_set_for_a_config_that_deploys_no_store(
-    tmp_path: Path,
-) -> None:
+def test_the_fixed_record_digests_are_set_for_a_minimal_config(tmp_path: Path) -> None:
     """Unconditional, like the env digest: no call site can blank a label."""
     env = runtime_env({"project_name": "proj-a", "project_root": str(tmp_path)}, {})
 
-    for service in ("TELEMETRY_STORE", "TELEMETRY_GATEWAY", "ARCHIVE", "HISTORY", "NGINX"):
-        assert env[f"OSPREY_TELEMETRY_DIGEST_{service}"] == hashlib.sha256(b"").hexdigest()
+    for service in ("AGENT_RECORD", "AGENT_RECORD_CLICKHOUSE", "HISTORY", "NGINX"):
+        assert env[f"OSPREY_AGENT_RECORD_DIGEST_{service}"] == hashlib.sha256(b"").hexdigest()
 
 
-def test_a_rotated_credential_moves_its_owners_digest_and_no_other(tmp_path: Path) -> None:
-    from osprey.deployment import telemetry_credentials as creds
+def test_a_rotated_gate_secret_moves_its_owners_digest_and_no_other(tmp_path: Path) -> None:
+    from osprey.agent_record import credentials as creds
 
     config = {
         "project_name": "proj-a",
         "project_root": str(tmp_path),
-        "deployed_services": ["telemetry_store", "telemetry_gateway"],
+        "modules": {"web_terminals": {"enabled": True, "auth": {"method": "password"}}},
     }
-    creds.ensure_telemetry_credentials(tmp_path, config, reader_keys=False)
+    creds.ensure_agent_record_credentials(tmp_path, config, reader_keys=False)
+    assert (tmp_path / creds.HISTORY_GATE_FILE).is_file()
     before = runtime_env(config, {})
 
-    (tmp_path / creds.INGEST_FILE).unlink()
-    creds.ensure_telemetry_credentials(tmp_path, config, reader_keys=False)
+    (tmp_path / creds.HISTORY_GATE_FILE).unlink()
+    creds.ensure_agent_record_credentials(tmp_path, config, reader_keys=False)
     after = runtime_env(config, {})
 
     assert {name for name in before if before[name] != after[name]} == {
-        "OSPREY_TELEMETRY_DIGEST_TELEMETRY_GATEWAY"
+        "OSPREY_AGENT_RECORD_DIGEST_HISTORY",
+        "OSPREY_AGENT_RECORD_DIGEST_NGINX",
     }

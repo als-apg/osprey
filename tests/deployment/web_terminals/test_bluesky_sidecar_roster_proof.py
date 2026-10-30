@@ -440,7 +440,7 @@ def sidecar(tmp_path_factory) -> Iterator[Sidecar]:
     # The as-built list — what `osprey up` starts — plus the override, pinned
     # to the repo root the way every lifecycle verb pins its invocation, so
     # the rendered relative mounts (`./build/services/bluesky_web/config.yml`,
-    # `./var/audit/bluesky-web`) resolve where the build put them. Every file
+    # `./var/spool/bluesky-web`) resolve where the build put them. Every file
     # is passed, not just the sidecar's: its rendered `depends_on` names the
     # bridge service, which only the bridge's own file defines; `--no-deps`
     # then starts the sidecar alone.

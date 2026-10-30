@@ -1,446 +1,155 @@
-"""Tests for the web-terminal feedback record store.
+"""The web terminal keeps no feedback store of its own.
 
-Covers the three guarantees the on-disk layout rests on:
-
-* ids are unique even when two submissions land in the same millisecond,
-* the context document is durable on disk *before* the header that points at
-  it (a crash may leave an orphan context, never a dangling header),
-* in-flight temporary files can never be picked up by the ``fb-*.json`` /
-  ``ctx-*.json`` globs the CLI reads the store with,
-* pruning to the store ceiling drops bulk (contexts) oldest-first and never
-  drops history (headers).
+A submission is one ``feedback`` entry in the agent record, written through the
+record writer into the terminal's spool. These tests pin that the old file
+store is gone — no module, no ``app.state`` wiring, no file written anywhere
+but the spool — and that the entry the record holds has the shape ``osprey
+feedback`` reads: the header, the text, the context and scrollback the user
+chose, and the keys of the session's steps in place of excerpts of them.
 """
 
 from __future__ import annotations
 
-import fnmatch
-import json
-import os
-import re
-import tempfile
+import importlib.util
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
-from osprey.interfaces.web_terminal import feedback_store
+from osprey.agent_record.client import ClientAnswer
+from osprey.agent_record.contract import KIND_FEEDBACK
+from tests.agent_record.fakes import FakeRecordClient
 
-ID_RE = re.compile(r"^fb-\d+-[0-9a-f]{8}$")
+SESSION_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301"
 
-
-def _record_globs_in(directory: Path) -> list[str]:
-    """Names in *directory* that the store's public globs would pick up."""
-    return [
-        entry.name
-        for entry in sorted(directory.iterdir())
-        if fnmatch.fnmatch(entry.name, feedback_store.HEADER_GLOB)
-        or fnmatch.fnmatch(entry.name, feedback_store.CONTEXT_GLOB)
-    ]
-
-
-# ── ids ────────────────────────────────────────────────────────────────────
-
-
-def test_new_record_id_has_the_documented_shape() -> None:
-    record_id = feedback_store.new_record_id()
-    assert ID_RE.match(record_id), record_id
-
-
-def test_new_record_id_is_unique_within_one_frozen_millisecond(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(feedback_store, "_now_ms", lambda: 1755712345678)
-    ids = {feedback_store.new_record_id() for _ in range(200)}
-    assert len(ids) == 200
-    assert all(i.startswith("fb-1755712345678-") for i in ids)
+#: The fields every ``feedback`` entry carries, whatever the channel.
+HEADER_FIELDS = {
+    "id",
+    "identity",
+    "created_at",
+    "channel",
+    "version",
+    "app_name",
+    "session_id",
+    "include_metadata",
+    "include_context",
+    "excerpt",
+    "context_status",
+    "text_truncated",
+    "context_truncated",
+}
+CONTENT_FIELDS = {"text", "context", "scrollback", "refs"}
 
 
-# ── write_record ───────────────────────────────────────────────────────────
-
-
-def test_write_record_creates_both_documents_and_returns_the_id(tmp_path: Path) -> None:
-    feedback_dir = tmp_path / "nested" / "feedback"
-
-    allocated = feedback_store.new_record_id()
-
-    record_id = feedback_store.write_record(
-        feedback_dir,
-        {"channel": "local", "excerpt": "it broke"},
-        {"context": {"panels": []}, "scrollback": "$ osprey\n"},
-        record_id=allocated,
-    )
-
-    assert record_id == allocated
-    header_path = feedback_dir / feedback_store.header_filename(record_id)
-    context_path = feedback_dir / feedback_store.context_filename(record_id)
-    assert header_path.is_file()
-    assert context_path.is_file()
-
-    header = json.loads(header_path.read_text())
-    assert header["id"] == record_id
-    assert header["context_file"] == context_path.name
-    assert header["channel"] == "local"
-    assert header["excerpt"] == "it broke"
-
-    context = json.loads(context_path.read_text())
-    assert context["id"] == record_id
-    assert context["context"] == {"panels": []}
-    assert context["scrollback"] == "$ osprey\n"
-
-
-def test_write_record_puts_the_context_on_disk_before_the_header(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    feedback_dir = tmp_path / "feedback"
-    real_replace = os.replace
-    destinations: list[str] = []
-    committed_before_each: list[list[str]] = []
-
-    def spy_replace(src, dst, *args, **kwargs):
-        committed_before_each.append(_record_globs_in(Path(dst).parent))
-        destinations.append(Path(dst).name)
-        return real_replace(src, dst, *args, **kwargs)
-
-    monkeypatch.setattr(os, "replace", spy_replace)
-
-    record_id = feedback_store.write_record(
-        feedback_dir,
-        {"channel": "local"},
-        {"context": {}},
-        record_id=feedback_store.new_record_id(),
-    )
-
-    assert destinations == [
-        feedback_store.context_filename(record_id),
-        feedback_store.header_filename(record_id),
-    ]
-    # Nothing matching the globs existed before the context landed, and only the
-    # context existed when the header was committed.
-    assert committed_before_each[0] == []
-    assert committed_before_each[1] == [feedback_store.context_filename(record_id)]
-
-
-def test_write_record_temp_files_never_match_the_record_globs(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    feedback_dir = tmp_path / "feedback"
-    real_mkstemp = tempfile.mkstemp
-    temp_names: list[str] = []
-
-    def spy_mkstemp(*args, **kwargs):
-        fd, name = real_mkstemp(*args, **kwargs)
-        temp_names.append(Path(name).name)
-        return fd, name
-
-    monkeypatch.setattr(tempfile, "mkstemp", spy_mkstemp)
-    real_replace = os.replace
-    mid_write_listings: list[list[str]] = []
-
-    def spy_replace(src, dst, *args, **kwargs):
-        # The temp file is still present here; anything it matched would be
-        # read as a half-written record by the CLI.
-        mid_write_listings.append(sorted(p.name for p in Path(dst).parent.iterdir()))
-        return real_replace(src, dst, *args, **kwargs)
-
-    monkeypatch.setattr(os, "replace", spy_replace)
-
-    feedback_store.write_record(
-        feedback_dir,
-        {"channel": "local"},
-        {"context": {}},
-        record_id=feedback_store.new_record_id(),
-    )
-
-    assert len(temp_names) == 2
-    for name in temp_names:
-        assert name.startswith(".")
-        assert name.endswith(".tmp")
-        assert not fnmatch.fnmatch(name, feedback_store.HEADER_GLOB)
-        assert not fnmatch.fnmatch(name, feedback_store.CONTEXT_GLOB)
-    # The mid-write listing of the context step is the temp file alone.
-    assert all(n.startswith(".") for n in mid_write_listings[0])
-
-
-def test_write_record_does_not_mutate_the_caller_dicts(tmp_path: Path) -> None:
-    header = {"channel": "local"}
-    context = {"context": {}}
-
-    feedback_store.write_record(
-        tmp_path / "feedback", header, context, record_id=feedback_store.new_record_id()
-    )
-
-    assert header == {"channel": "local"}
-    assert context == {"context": {}}
-
-
-def test_write_record_id_and_pointer_win_over_caller_supplied_values(tmp_path: Path) -> None:
-    feedback_dir = tmp_path / "feedback"
-
-    record_id = feedback_store.write_record(
-        feedback_dir,
-        {"id": "spoofed", "context_file": "../escape.json"},
-        {"id": "spoofed"},
-        record_id=feedback_store.new_record_id(),
-    )
-
-    header = json.loads((feedback_dir / feedback_store.header_filename(record_id)).read_text())
-    context = json.loads((feedback_dir / feedback_store.context_filename(record_id)).read_text())
-    assert header["id"] == record_id
-    assert header["context_file"] == feedback_store.context_filename(record_id)
-    assert context["id"] == record_id
-
-
-def test_write_record_files_under_a_caller_supplied_id(tmp_path: Path) -> None:
-    feedback_dir = tmp_path / "feedback"
-    allocated = "fb-1755712345678-3fa9c1d2"
-
-    record_id = feedback_store.write_record(
-        feedback_dir,
-        {"channel": "local", "id": "spoofed"},
-        {"context": {}, "id": "spoofed"},
-        record_id=allocated,
-    )
-
-    assert record_id == allocated
-    assert _record_globs_in(feedback_dir) == [
-        "ctx-1755712345678-3fa9c1d2.json",
-        "fb-1755712345678-3fa9c1d2.json",
-    ]
-    header = json.loads((feedback_dir / feedback_store.header_filename(allocated)).read_text())
-    context = json.loads((feedback_dir / feedback_store.context_filename(allocated)).read_text())
-    assert header["id"] == allocated
-    assert header["context_file"] == feedback_store.context_filename(allocated)
-    assert context["id"] == allocated
-
-
-@pytest.mark.parametrize(
-    "bad_id", ["1755712345678-3fa9c1d2", "ctx-1755712345678-3fa9c1d2", "../escape", ""]
-)
-def test_write_record_refuses_an_id_without_the_header_prefix(tmp_path: Path, bad_id: str) -> None:
-    # The id IS the header's filename stem: without the prefix the header files
-    # somewhere HEADER_GLOB cannot see, so the submission disappears from every
-    # store reader and the pruner while its context becomes a prunable orphan.
-    feedback_dir = tmp_path / "feedback"
-
-    with pytest.raises(ValueError, match="must start with"):
-        feedback_store.write_record(
-            feedback_dir, {"channel": "local"}, {"context": {}}, record_id=bad_id
-        )
-
-    # Refused before the directory is even created, so a bad id leaves nothing.
-    assert not feedback_dir.exists()
-
-
-# ── prune_store ────────────────────────────────────────────────────────────
-
-
-def _seed_record(
-    feedback_dir: Path,
-    milliseconds: int,
-    suffix: str,
-    *,
-    context: bool = True,
-    header: dict | None = None,
-) -> str:
-    """Write one on-disk record by hand and return its id.
-
-    Built without :func:`write_record` so the timestamp component of the id —
-    the ordering prune relies on — is chosen by the test rather than the clock.
-    The context payload is far larger than the header, so a ceiling expressed
-    as "the store minus N contexts" cannot be met by header bytes alone.
-    """
-    feedback_dir.mkdir(parents=True, exist_ok=True)
-    record_id = f"fb-{milliseconds}-{suffix}"
-    header_doc = {
-        "id": record_id,
-        "context_file": feedback_store.context_filename(record_id),
-        "channel": "local",
+def _node(key: str, kind: str, body: dict) -> dict:
+    return {
+        "key": key,
+        "kind": kind,
+        "ts": "2026-08-20T18:00:00+00:00",
+        "body": body,
+        "decision": None,
+        "result": None,
+        "subagent": None,
     }
-    header_doc.update(header or {})
-    (feedback_dir / feedback_store.header_filename(record_id)).write_text(json.dumps(header_doc))
-    if context:
-        (feedback_dir / feedback_store.context_filename(record_id)).write_text(
-            json.dumps({"id": record_id, "scrollback": "x" * 2000})
-        )
-    return record_id
 
 
-def _store_bytes(directory: Path) -> int:
-    """Total size of the files the store ceiling is measured over."""
-    return sum(
-        entry.stat().st_size
-        for entry in directory.iterdir()
-        if fnmatch.fnmatch(entry.name, feedback_store.HEADER_GLOB)
-        or fnmatch.fnmatch(entry.name, feedback_store.CONTEXT_GLOB)
-    )
+@pytest.fixture
+def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spool_for) -> TestClient:
+    from osprey.interfaces.web_terminal.routes import feedback as module
 
-
-def test_prune_store_is_a_no_op_below_the_ceiling(tmp_path: Path) -> None:
-    feedback_dir = tmp_path / "feedback"
-    ids = [_seed_record(feedback_dir, 1755712345678 + i, f"{i:08x}") for i in range(3)]
-
-    assert feedback_store.prune_store(feedback_dir, 10_000_000) == []
-
-    assert _record_globs_in(feedback_dir) == sorted(
-        [feedback_store.header_filename(i) for i in ids]
-        + [feedback_store.context_filename(i) for i in ids]
-    )
-
-
-def test_prune_store_deletes_the_oldest_contexts_until_under_the_ceiling(
-    tmp_path: Path,
-) -> None:
-    feedback_dir = tmp_path / "feedback"
-    # Seeded out of chronological order: the deletion order must come from the
-    # id timestamp, not from directory or insertion order. 999999999999 is the
-    # oldest of these *numerically* and the newest lexicographically — a plain
-    # filename sort prunes the wrong record.
-    ids = {
-        ms: _seed_record(feedback_dir, ms, suffix)
-        for ms, suffix in (
-            (1755712345680, "cccccccc"),
-            (1755712345678, "aaaaaaaa"),
-            (999999999999, "dddddddd"),
-            (1755712345679, "bbbbbbbb"),
-        )
-    }
-    oldest, second = 999999999999, 1755712345678
-    context_size = (feedback_dir / feedback_store.context_filename(ids[oldest])).stat().st_size
-    ceiling = _store_bytes(feedback_dir) - 2 * context_size + 500
-
-    pruned = feedback_store.prune_store(feedback_dir, ceiling)
-
-    assert pruned == [ids[oldest], ids[second]]
-    surviving_contexts = sorted(p.name for p in feedback_dir.glob(feedback_store.CONTEXT_GLOB))
-    assert surviving_contexts == sorted(
-        feedback_store.context_filename(ids[ms]) for ms in (1755712345679, 1755712345680)
-    )
-    assert _store_bytes(feedback_dir) <= ceiling
-
-
-def test_prune_store_keeps_every_header_and_flags_the_pruned_ones(tmp_path: Path) -> None:
-    feedback_dir = tmp_path / "feedback"
-    old = _seed_record(feedback_dir, 1755712345678, "aaaaaaaa", header={"excerpt": "it broke"})
-    new = _seed_record(feedback_dir, 1755712345679, "bbbbbbbb")
-    context_size = (feedback_dir / feedback_store.context_filename(old)).stat().st_size
-    ceiling = _store_bytes(feedback_dir) - context_size + 500
-
-    assert feedback_store.prune_store(feedback_dir, ceiling) == [old]
-
-    old_header = json.loads((feedback_dir / feedback_store.header_filename(old)).read_text())
-    assert old_header["context_pruned"] is True
-    # The rest of the record survives verbatim — history is what headers are for.
-    assert old_header["id"] == old
-    assert old_header["excerpt"] == "it broke"
-    assert old_header["context_file"] == feedback_store.context_filename(old)
-
-    new_header = json.loads((feedback_dir / feedback_store.header_filename(new)).read_text())
-    assert "context_pruned" not in new_header
-
-
-def test_prune_store_rewrites_headers_through_the_temp_file_path(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    feedback_dir = tmp_path / "feedback"
-    old = _seed_record(feedback_dir, 1755712345678, "aaaaaaaa")
-    _seed_record(feedback_dir, 1755712345679, "bbbbbbbb")
-    context_size = (feedback_dir / feedback_store.context_filename(old)).stat().st_size
-    ceiling = _store_bytes(feedback_dir) - context_size + 500
-
-    real_replace = os.replace
-    replacements: list[tuple[str, str]] = []
-
-    def spy_replace(src, dst, *args, **kwargs):
-        replacements.append((Path(src).name, Path(dst).name))
-        return real_replace(src, dst, *args, **kwargs)
-
-    monkeypatch.setattr(os, "replace", spy_replace)
-
-    feedback_store.prune_store(feedback_dir, ceiling)
-
-    assert len(replacements) == 1
-    source, destination = replacements[0]
-    assert source.startswith(".")
-    assert source.endswith(".tmp")
-    assert not fnmatch.fnmatch(source, feedback_store.HEADER_GLOB)
-    assert destination == feedback_store.header_filename(old)
-
-
-def test_prune_store_deletes_an_orphan_context_without_writing_a_header(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    feedback_dir = tmp_path / "feedback"
-    orphan_id = "fb-1755712345678-aaaaaaaa"
-    feedback_dir.mkdir(parents=True)
-    (feedback_dir / feedback_store.context_filename(orphan_id)).write_text(
-        json.dumps({"id": orphan_id, "scrollback": "x" * 2000})
-    )
-    kept = _seed_record(feedback_dir, 1755712345679, "bbbbbbbb")
-    orphan_size = (feedback_dir / feedback_store.context_filename(orphan_id)).stat().st_size
-    ceiling = _store_bytes(feedback_dir) - orphan_size + 500
-
-    def refuse_replace(*args, **kwargs):
-        raise AssertionError("an orphan context has no header to rewrite")
-
-    monkeypatch.setattr(os, "replace", refuse_replace)
-
-    assert feedback_store.prune_store(feedback_dir, ceiling) == [orphan_id]
-
-    assert not (feedback_dir / feedback_store.context_filename(orphan_id)).exists()
-    assert not (feedback_dir / feedback_store.header_filename(orphan_id)).exists()
-    assert (feedback_dir / feedback_store.context_filename(kept)).is_file()
-
-
-def test_prune_store_never_deletes_headers_when_nothing_is_left_to_prune(
-    tmp_path: Path,
-) -> None:
-    feedback_dir = tmp_path / "feedback"
-    # Every record is already pruned: header-only, no context to reclaim.
-    ids = [
-        _seed_record(
-            feedback_dir,
-            1755712345678 + i,
-            f"{i:08x}",
-            context=False,
-            header={"context_pruned": True},
-        )
-        for i in range(3)
+    spool_for()
+    nodes = [
+        _node("sp:alice:p1", "prompt", {"text": "why did BPM 3 drift?"}),
+        _node("sp:alice:a1", "answer", {"text": "BPM 3 alone drifted"}),
     ]
+    record = FakeRecordClient({"timeline": ClientAnswer(data=nodes, complete=True)})
+    monkeypatch.setattr(module, "record_client", lambda: record)
+    store = MagicMock()
+    store.list_entries.return_value = []
+    monkeypatch.setattr("osprey.stores.artifact_store.ArtifactStore", lambda *a, **k: store)
 
-    assert feedback_store.prune_store(feedback_dir, 10) == []
+    app = FastAPI()
+    app.include_router(module.router)
+    app.state.project_cwd = str(tmp_path / "project")
+    app.state.workspace_dir = tmp_path / "workspace"
+    app.state.terminal_user = "alice"
+    app.state.transcript_map = {}
+    app.state.transcript_map_provisional = False
+    with TestClient(app) as test_client:
+        yield test_client
 
-    assert sorted(p.name for p in feedback_dir.glob(feedback_store.HEADER_GLOB)) == sorted(
-        feedback_store.header_filename(i) for i in ids
+
+def test_the_feedback_store_module_is_gone() -> None:
+    assert importlib.util.find_spec("osprey.interfaces.web_terminal.feedback_store") is None
+
+
+def test_the_route_module_reads_no_store_configuration() -> None:
+    from osprey.interfaces.web_terminal.routes import feedback as module
+
+    for name in ("prune_store", "write_record", "_feedback_dir", "_max_store_bytes"):
+        assert not hasattr(module, name), name
+
+
+def test_the_app_publishes_no_feedback_store() -> None:
+    source = Path(importlib.util.find_spec("osprey.interfaces.web_terminal.app").origin)
+    text = source.read_text(encoding="utf-8")
+    for wiring in ("feedback_dir", "feedback_rel", "feedback_max_store_bytes", "max_store_bytes"):
+        assert wiring not in text, wiring
+
+
+def test_a_submission_is_one_feedback_entry_and_no_file(
+    client: TestClient, tmp_path: Path, recorded_entries
+) -> None:
+    response = client.post(
+        "/api/feedback",
+        json={
+            "text": "the orbit plot froze",
+            "channel": "local",
+            "include_context": True,
+            "session_id": SESSION_ID,
+            "scrollback": "$ osprey web\n",
+        },
     )
 
+    assert response.status_code == 200
+    assert not list(tmp_path.rglob("fb-*.json"))
+    assert not list(tmp_path.rglob("ctx-*.json"))
+    assert not (tmp_path / "workspace" / "feedback").exists()
 
-def test_prune_store_measures_only_record_files(tmp_path: Path) -> None:
-    feedback_dir = tmp_path / "feedback"
-    record_id = _seed_record(feedback_dir, 1755712345678, "aaaaaaaa")
-    ceiling = _store_bytes(feedback_dir) + 10
-    # Unrelated debris — an editor scratch file and an in-flight temp file —
-    # must not push the store over its ceiling.
-    (feedback_dir / "notes.txt").write_text("y" * 100_000)
-    (feedback_dir / ".fb-1755712345679-bbbbbbbb.json.xyz.tmp").write_text("z" * 100_000)
-
-    assert feedback_store.prune_store(feedback_dir, ceiling) == []
-
-    assert (feedback_dir / feedback_store.context_filename(record_id)).is_file()
-
-
-def test_prune_store_tolerates_a_missing_directory(tmp_path: Path) -> None:
-    assert feedback_store.prune_store(tmp_path / "never-created", 0) == []
+    (entry,) = recorded_entries(KIND_FEEDBACK)
+    assert entry.identity == "alice"
+    assert entry.session_id == SESSION_ID
+    body = dict(entry.body)
+    assert HEADER_FIELDS | CONTENT_FIELDS <= set(body)
+    assert body["id"] == response.json()["id"]
+    assert body["text"] == "the orbit plot froze"
+    assert body["scrollback"] == "$ osprey web\n"
+    assert body["refs"] == ["sp:alice:p1", "sp:alice:a1"]
+    # Referenced, never copied: the steps' words are not in the entry.
+    assert "BPM 3" not in body["context"]
+    assert "## deployment" in body["context"]
 
 
-def test_prune_store_leaves_a_damaged_header_untouched(tmp_path: Path) -> None:
-    feedback_dir = tmp_path / "feedback"
-    record_id = "fb-1755712345678-aaaaaaaa"
-    feedback_dir.mkdir(parents=True)
-    (feedback_dir / feedback_store.header_filename(record_id)).write_text("{ truncated")
-    (feedback_dir / feedback_store.context_filename(record_id)).write_text(
-        json.dumps({"id": record_id, "scrollback": "x" * 2000})
+def test_an_unticked_context_box_records_no_scrollback_and_no_refs(
+    client: TestClient, recorded_entries
+) -> None:
+    response = client.post(
+        "/api/feedback",
+        json={
+            "text": "just a note",
+            "channel": "email",
+            "include_context": False,
+            "session_id": SESSION_ID,
+            "scrollback": "secret scrollback",
+        },
     )
 
-    assert feedback_store.prune_store(feedback_dir, 100) == [record_id]
-
-    assert not (feedback_dir / feedback_store.context_filename(record_id)).exists()
-    assert (feedback_dir / feedback_store.header_filename(record_id)).read_text() == "{ truncated"
+    assert response.status_code == 200
+    (entry,) = recorded_entries(KIND_FEEDBACK)
+    body = dict(entry.body)
+    assert body["scrollback"] == ""
+    assert body["refs"] == []
+    assert body["session_id"] is None
+    assert entry.session_id in (None, "")

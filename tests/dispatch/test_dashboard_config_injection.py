@@ -26,14 +26,6 @@ def test_default_injection_is_empty_config():
     assert "/* OSPREY_CONFIG_PLACEHOLDER */" not in html
 
 
-def test_config_names_no_telemetry_store():
-    """The dashboard is handed no telemetry store address and builds no link to one."""
-    html = render_dashboard_html(facility_name="Test")
-    injected = html.split("window.__OSPREY_CONFIG__ = ", 1)[1].split(";", 1)[0]
-    assert "telemetry" not in injected
-    assert "telemetryUrlForRun" not in html
-
-
 def test_injects_the_history_url():
     """The history page's URL reaches the dashboard config; empty by default."""
     url = "https://readers.example.org:10002/history/"

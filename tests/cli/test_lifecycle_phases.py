@@ -261,6 +261,7 @@ class TestBuildPhases:
 
     @pytest.fixture
     def build_stubs(self, monkeypatch, tmp_path: Path, seen):
+        from osprey.agent_record.config import AgentRecordConfig
         from osprey.cli import build_cmd, build_profile, build_profile_deploy
         from osprey.cli.build_environment import _ProjectVenvPlan
 
@@ -294,6 +295,8 @@ class TestBuildPhases:
             inherited_preset = None
             # No panel selection: nothing for the bar-items warning to check.
             web_panels: list[str] = []
+            # The default record: every build renders agent-record from it.
+            agent_record = AgentRecordConfig()
 
             def resolved_data_root(self, profile_dir: Path) -> Path:
                 return profile_dir / "data"

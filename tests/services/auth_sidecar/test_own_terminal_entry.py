@@ -16,13 +16,13 @@ from __future__ import annotations
 
 import dataclasses
 import re
-from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from osprey.agent_record.contract import SURFACE_FIELD
 from osprey.services.auth_sidecar import audit
 from osprey.services.auth_sidecar.app import create_app
 from osprey.services.auth_sidecar.passwords import hash_password
@@ -34,7 +34,7 @@ from osprey.services.auth_sidecar.sessions import (
     SessionCodec,
     UnlockedUser,
 )
-from tests.services.auth_sidecar._helpers import SESSION_LIFETIME, SESSION_SECRET, ledger_records
+from tests.services.auth_sidecar._helpers import SESSION_LIFETIME, SESSION_SECRET, SidecarZone
 from tests.services.auth_sidecar._oidc import EXTERNAL_ORIGIN
 
 ALICE_PASSWORD = "alice-password"
@@ -136,6 +136,11 @@ def _links(body: str) -> list[str]:
 def _inputs(body: str) -> list[str]:
     """Every ``<input>`` tag in the page, as raw markup."""
     return re.findall(r"<input[^>]*>", body, flags=re.IGNORECASE | re.DOTALL)
+
+
+def _records(zone: SidecarZone) -> list[dict[str, Any]]:
+    """The body of every sidecar ``audit`` entry the record holds, in write order."""
+    return [record for record in zone.records() if record.get(SURFACE_FIELD) == audit.SURFACE]
 
 
 def _throttle_window(client: TestClient, key: str) -> float:
@@ -245,7 +250,7 @@ def test_the_sign_in_opens_exactly_the_cards_the_card_login_opens(card: str, rul
 # --- Refusals ----------------------------------------------------------------
 
 
-def test_an_unknown_name_and_a_wrong_password_are_one_refusal(zone: Path) -> None:
+def test_an_unknown_name_and_a_wrong_password_are_one_refusal(zone: SidecarZone) -> None:
     unknown = _enter(_client(), username="mally", password=ALICE_PASSWORD)
     wrong = _enter(_client(), username="alice", password="not-it")
 
@@ -253,7 +258,7 @@ def test_an_unknown_name_and_a_wrong_password_are_one_refusal(zone: Path) -> Non
     assert DENIAL_MESSAGE in unknown.text
     assert DENIAL_MESSAGE in wrong.text
     assert unknown.text.replace("mally", "alice") == wrong.text
-    assert [(record["subject"], record["reason"]) for record in ledger_records(zone)] == [
+    assert [(record["subject"], record["reason"]) for record in _records(zone)] == [
         ("mally", audit.REASON_BAD_CREDENTIAL),
         ("alice", audit.REASON_BAD_CREDENTIAL),
     ]
@@ -269,17 +274,17 @@ def test_the_sign_in_and_the_card_share_one_throttle_window() -> None:
     assert _enter(client).status_code == 429
 
 
-def test_a_throttled_attempt_is_not_evaluated(zone: Path) -> None:
+def test_a_throttled_attempt_is_not_evaluated(zone: SidecarZone) -> None:
     client = _client()
     assert _enter(client, password="not-it").status_code == 401
     window = _throttle_window(client, "alice")
-    filed = len(ledger_records(zone))
+    filed = len(_records(zone))
 
     response = _enter(client)
 
     assert response.status_code == 429
     assert response.headers["retry-after"]
-    assert len(ledger_records(zone)) == filed
+    assert len(_records(zone)) == filed
     assert _throttle_window(client, "alice") <= window
 
 
@@ -319,31 +324,29 @@ def test_a_form_without_one_username_is_not_an_attempt(
         assert _throttle_window(client, name) == 0
 
 
-def test_an_over_long_username_is_never_looked_up(zone: Path) -> None:
+def test_an_over_long_username_is_never_looked_up(zone: SidecarZone) -> None:
     padded = "alice" + "x" * 200
     response = _enter(_client(), username=padded, password=ALICE_PASSWORD)
 
     assert response.status_code == 401
-    assert [record["subject"] for record in ledger_records(zone)] == [
-        padded[: entry.MAX_USERNAME_LENGTH]
-    ]
+    assert [record["subject"] for record in _records(zone)] == [padded[: entry.MAX_USERNAME_LENGTH]]
 
 
-def test_a_person_no_card_admits_is_refused_and_filed(zone: Path) -> None:
+def test_a_person_no_card_admits_is_refused_and_filed(zone: SidecarZone) -> None:
     client = _client(_access_env(alice='["domain:lab.example"]'))
     response = _enter(client)
 
     assert response.status_code == 403
     assert "No terminal for this account" in response.text
     assert "set-cookie" not in response.headers
-    assert [(record["subject"], record["reason"]) for record in ledger_records(zone)] == [
+    assert [(record["subject"], record["reason"]) for record in _records(zone)] == [
         ("alice", audit.REASON_NO_CARD)
     ]
     assert _throttle_window(client, "alice") == 0
 
 
 def test_a_card_the_recheck_refuses_is_left_out_and_filed(
-    zone: Path, monkeypatch: pytest.MonkeyPatch
+    zone: SidecarZone, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(f"{ENV_ROSTER_ROLE_PREFIX}{env_var_suffix('carol')}", "öperator")
     response = _enter(_client(_access_env(carol="any")))
@@ -351,22 +354,25 @@ def test_a_card_the_recheck_refuses_is_left_out_and_filed(
     assert response.status_code == 303
     assert response.headers["location"] == "/u/alice/"
     assert list(_entries(response)) == ["alice"]
-    records = [(record["subject"], record["reason"]) for record in ledger_records(zone)]
+    records = [(record["subject"], record["reason"]) for record in _records(zone)]
     assert ("carol", audit.REASON_UNSAFE_ROLE) in records
     assert ("alice", audit.REASON_PASSWORD_LOGIN) in records
     assert len(records) == 2
 
 
-def test_success_is_filed_once_per_opened_card(zone: Path) -> None:
+def test_success_is_filed_once_per_opened_card(zone: SidecarZone) -> None:
     assert _enter(_client(_access_env(carol="any"))).status_code == 200
 
-    records = ledger_records(zone)
-    assert [(record["subject"], record["reason"]) for record in records] == [
-        ("alice", audit.REASON_PASSWORD_LOGIN),
-        ("carol", audit.REASON_PASSWORD_LOGIN),
-    ]
-    assert "detail" not in records[0]
-    assert records[1]["detail"] == "opener=alice"
+    # One request writes both within one clock tick, so the record holds them
+    # in no particular order: each is found by its subject.
+    records = {record["subject"]: record for record in _records(zone)}
+    assert len(_records(zone)) == 2
+    assert {s: r["reason"] for s, r in records.items()} == {
+        "alice": audit.REASON_PASSWORD_LOGIN,
+        "carol": audit.REASON_PASSWORD_LOGIN,
+    }
+    assert "detail" not in records["alice"]
+    assert records["carol"]["detail"] == "opener=alice"
 
 
 # --- Where the routes apply ---------------------------------------------------

@@ -20,14 +20,17 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from osprey.agent_record.client import ClientAnswer
 from osprey.agent_runner.project_paths import CLAUDE_CONFIG_DIR_ENV, claude_project_dir
 from osprey.interfaces.web_terminal.operator_session import _ASYNC_LAUNCH_MARK, _EXPIRED_MESSAGES
+from osprey.interfaces.web_terminal.routes import session as session_routes
 from osprey.interfaces.web_terminal.routes.session import (
     _APPROVED_CALL_NOTE,
     _DECLINED_RESULTS,
     router,
 )
 from osprey.mcp_server.workspace.transcript_reader import MAX_CHAT_MESSAGE_LENGTH
+from tests.agent_record.fakes import FakeRecordClient
 from tests.interfaces.web_terminal._fakes import armed_chat
 from tests.interfaces.web_terminal._started_app import terminal_client
 
@@ -41,7 +44,7 @@ def _entry(role: str, text: str) -> dict:
     """A transcript entry holding one plain-text message."""
     return {
         "type": role,
-        "timestamp": datetime(2026, 2, 19, 12, 0, 0, tzinfo=UTC).isoformat(),
+        "timestamp": STAMP,
         "sessionId": SESSION_KEY,
         "message": {"role": role, "content": [{"type": "text", "text": text}]},
     }
@@ -55,12 +58,27 @@ def _write(transcript_dir: Path, transcript_id: str, entries: list[dict]) -> Non
 
 @pytest.fixture
 def transcripts(tmp_path, monkeypatch):
-    """A project whose Claude Code transcript directory lives under ``tmp_path``."""
+    """A project whose Claude Code transcripts live under ``tmp_path``, and a record serving them.
+
+    The record is a fake answering each session's timeline with the nodes the
+    agent record's own parser and timeline builder make of that session's
+    transcript, so a test writes what the CLI writes and reads what the
+    record would serve.
+    """
     monkeypatch.setenv(CLAUDE_CONFIG_DIR_ENV, str(tmp_path / "claude-config"))
     project = tmp_path / "project"
     project.mkdir()
     transcript_dir = claude_project_dir(project)
     transcript_dir.mkdir(parents=True)
+
+    def timeline(**kwargs) -> ClientAnswer:
+        path = transcript_dir / f"{kwargs['session_id']}.jsonl"
+        nodes = session_routes._transcript_nodes(path) if path.is_file() else []
+        return ClientAnswer(data=nodes, complete=True)
+
+    record = FakeRecordClient({"timeline": timeline})
+    monkeypatch.setattr(session_routes, "record_client", lambda: record)
+    monkeypatch.delenv("OSPREY_DISPATCH_RUN", raising=False)
     return project, transcript_dir
 
 
@@ -124,7 +142,7 @@ class TestSessionChatFull:
         resp = client.get("/api/session-chat?session_id=no-such-key&full=1")
 
         assert resp.status_code == 200
-        assert resp.json() == {"turns": [], "count": 0}
+        assert resp.json() == {"turns": [], "count": 0, "record": "complete"}
 
     def test_full_accepts_the_other_true_spellings(self, client, transcripts):
         """``true`` reads the same as ``1``; an unrecognized value keeps the cap."""
@@ -139,7 +157,9 @@ class TestSessionChatFull:
 
 
 #: Every fixture entry carries this timestamp; no test reads a duration off it.
-STAMP = "2026-10-23T05:56:12.493Z"
+#: The time every entry of a test transcript carries unless the test sets one: the
+#: record orders a session by time, and lines of one instant in their file order.
+STAMP = datetime(2026, 2, 19, 12, 0, 0, tzinfo=UTC).isoformat()
 #: The text a Simple-view decline reaches the SDK with, and the CLI's rejection at its prompt.
 SIMPLE_DECLINE = "The operator declined this tool call."
 CLI_REJECTION = (
@@ -341,13 +361,10 @@ def _agent_call(tool_use_id: str) -> dict:
     }
 
 
-def _write_subagent(transcript_dir: Path, agent_id: str, parent: str, entries: list[dict]) -> None:
-    """Write a subagent's transcript and the meta file naming the call that started it."""
+def _write_subagent(transcript_dir: Path, agent_id: str, entries: list[dict]) -> None:
+    """Write a subagent's transcript where the CLI writes it, beside its session's."""
     folder = transcript_dir / SESSION_KEY / "subagents"
     folder.mkdir(parents=True, exist_ok=True)
-    (folder / f"agent-{agent_id}.meta.json").write_text(
-        json.dumps({"agentType": "data-visualizer", "toolUseId": parent})
-    )
     sidechain = [{**e, "isSidechain": True} for e in entries]
     (folder / f"agent-{agent_id}.jsonl").write_text(
         "\n".join(json.dumps(e) for e in sidechain) + "\n"
@@ -355,20 +372,16 @@ def _write_subagent(transcript_dir: Path, agent_id: str, parent: str, entries: l
 
 
 class TestReplayedSubagents:
-    """A subagent's chip replays with the activity it showed live, read from its own transcript."""
+    """A subagent's chip replays with the activity it showed live, from the stream the
+    record holds for it: nested under its call once the call's result names the agent,
+    and, while it still works, the stream the call without a result waits on."""
 
-    def _agent_turn(self, client, transcripts, parent_of_subagent: str) -> dict:
+    def _agent_turn(self, client, transcripts, result: dict | None) -> dict:
         _, transcript_dir = transcripts
-        _write(
-            transcript_dir,
-            SESSION_KEY,
-            [
-                _entry("user", "plot the tunes"),
-                _agent_call("toolu_agent"),
-                _result("toolu_agent", "Created the tune diagram plot."),
-                _entry("assistant", "Here is the plot."),
-            ],
-        )
+        main = [_entry("user", "plot the tunes"), _agent_call("toolu_agent")]
+        if result is not None:
+            main += [result, _entry("assistant", "Here is the plot.")]
+        _write(transcript_dir, SESSION_KEY, main)
         prompt = {
             "type": "user",
             "timestamp": STAMP,
@@ -377,7 +390,6 @@ class TestReplayedSubagents:
         _write_subagent(
             transcript_dir,
             "a1",
-            parent_of_subagent,
             [
                 prompt,
                 _call("toolu_plot"),
@@ -390,7 +402,12 @@ class TestReplayedSubagents:
         return agent_turn
 
     def test_a_subagents_work_follows_its_call_under_that_call(self, replay_client, transcripts):
-        turn = self._agent_turn(replay_client, transcripts, "toolu_agent")
+        # The CLI names the agent a call started in the call's structured result.
+        named = {
+            **_result("toolu_agent", "Created the tune diagram plot."),
+            "toolUseResult": {"agentId": "a1", "status": "completed"},
+        }
+        turn = self._agent_turn(replay_client, transcripts, named)
 
         shape = [
             (e["type"], e.get("tool_use_id"), e.get("parent_tool_use_id")) for e in turn["events"]
@@ -407,9 +424,30 @@ class TestReplayedSubagents:
         assert turn["content"] == "Here is the plot."
 
     def test_a_subagent_started_by_another_call_is_not_attached(self, replay_client, transcripts):
-        turn = self._agent_turn(replay_client, transcripts, "toolu_elsewhere")
+        other = {
+            **_result("toolu_agent", "Created the tune diagram plot."),
+            "toolUseResult": {"agentId": "elsewhere", "status": "completed"},
+        }
+        turn = self._agent_turn(replay_client, transcripts, other)
 
         assert not [e for e in turn["events"] if e.get("parent_tool_use_id")]
+
+    def test_a_subagent_still_at_work_follows_the_call_waiting_on_it(
+        self, replay_client, transcripts
+    ):
+        turn = self._agent_turn(replay_client, transcripts, None)
+
+        shape = [
+            (e["type"], e.get("tool_use_id"), e.get("parent_tool_use_id")) for e in turn["events"]
+        ]
+        assert shape == [
+            ("tool_use", "toolu_agent", None),
+            ("tool_use", "toolu_plot", "toolu_agent"),
+            ("tool_result", "toolu_plot", "toolu_agent"),
+            ("text", None, "toolu_agent"),
+        ]
+        # The call waits on its agent: the turn is still running.
+        assert not [e for e in turn["events"] if e["type"] == "result"]
 
 
 def test_the_approval_note_is_the_hooks_own_text():
@@ -452,21 +490,20 @@ def _thinking(second: int | None) -> dict:
 
 
 @pytest.mark.parametrize(
-    ("prompt_at", "thought_at", "duration"),
+    ("prompt_at", "duration"),
     [
-        pytest.param(0, 3, 3000, id="from-the-entry-before"),
-        pytest.param(None, 3, None, id="no-time-for-the-entry-before"),
-        pytest.param(0, None, None, id="no-time-for-the-reasoning"),
+        pytest.param(0, 3000, id="from-the-entry-before"),
+        # The record stamps every entry, so a reasoning lacks a time only when no
+        # entry of the conversation came before it.
+        pytest.param(None, None, id="nothing-before-it"),
     ],
 )
-def test_replayed_reasoning_says_how_long_it_took(
-    replay_client, transcripts, prompt_at, thought_at, duration
-):
+def test_replayed_reasoning_says_how_long_it_took(replay_client, transcripts, prompt_at, duration):
     """The time runs from the entry before the reasoning to the entry that holds it."""
     _, transcript_dir = transcripts
     entries = [
-        _at(_entry("user", "check the orbit"), prompt_at),
-        _thinking(thought_at),
+        *([_at(_entry("user", "check the orbit"), prompt_at)] if prompt_at is not None else []),
+        _thinking(3),
         _at(_entry("assistant", "It is fine."), 4),
     ]
     _write(transcript_dir, SESSION_KEY, entries)

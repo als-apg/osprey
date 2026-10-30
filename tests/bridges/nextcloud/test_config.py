@@ -43,8 +43,8 @@ def test_from_env_defaults_when_unset():
     assert cfg.bot_account == ""
     assert cfg.app_password == ""
     assert cfg.rooms == ()
-    # Same bridge volume as the core stores, and the same naming shape as
-    # dedup_path/history_path.
+    # Same bridge volume as the core dedup store, and the same naming shape as
+    # dedup_path.
     assert cfg.offsets_path == "/data/offsets.json"
     assert cfg.mentions is True
 

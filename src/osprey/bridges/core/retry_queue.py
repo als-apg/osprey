@@ -43,7 +43,7 @@ from typing import Any
 
 from . import retry
 from .dedup import DedupStore
-from .history import HistoryStore
+from .history import ConversationHistory
 from .people import asker_of
 from .ports import ChannelOps
 
@@ -244,7 +244,7 @@ def give_up(
     message_id: str,
     entry: Mapping[str, Any],
     *,
-    history: HistoryStore | None = None,
+    history: ConversationHistory | None = None,
 ) -> None:
     """Post the honest "couldn't run this automatically" notice for an abandoned entry.
 

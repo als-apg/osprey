@@ -47,9 +47,6 @@ repos:
         # and trimming it rewrites the thing the fixture exists to preserve.
         # The demo element table is tab-separated with a fixed column count,
         # so a row whose last cells are empty ends in tabs.
-        # The clickhouseexporter insert templates are verbatim copies of the
-        # upstream release they are named for, whose last line need not end
-        # in a newline; a byte normalized here is a byte upstream never shipped.
         # The dock engine's built dist/ and its C-CASES fixtures are checked
         # byte for byte (dist/ by its manifest hashes and `build.mjs --check`,
         # each case by checkCase in cases.test.ts); a byte rewritten here is a
@@ -62,7 +59,6 @@ repos:
             scripts/facility_demo/injector_elements\.tsv|
             tests/deployment/web_terminals/golden/.*|
             tests/deployment/fixtures/.*\.log|
-            tests/deployment/telemetry_store/fixtures/clickhouseexporter-[^/]+/.*\.sql|
             tests/templates/render_defaults/.*|
             tests/templates/render_axis_shapes/.*
           )$
@@ -75,7 +71,6 @@ repos:
             packages/dock-engine/cases/.*|
             tests/deployment/web_terminals/golden/.*|
             tests/deployment/fixtures/.*\.log|
-            tests/deployment/telemetry_store/fixtures/clickhouseexporter-[^/]+/.*\.sql|
             tests/templates/render_defaults/.*|
             tests/templates/render_axis_shapes/.*
           )$

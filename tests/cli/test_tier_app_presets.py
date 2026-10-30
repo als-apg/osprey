@@ -1489,7 +1489,6 @@ class TestControlAssistantTiersAndApps:
                 "username": host["services"]["postgresql"]["username"],
                 "database_name": host["services"]["postgresql"]["database_name"],
             },
-            "telemetry_gateway": {"port": host["services"]["telemetry_gateway"]["port"]},
             # The single lane declares no `target`: it is addressed by the
             # fallback, the simulator the baseline names.
             "bluesky": {"port": host["services"]["bluesky"]["port"]},

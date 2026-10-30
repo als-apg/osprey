@@ -30,8 +30,13 @@ def _write(path: Path, data) -> Path:
 
 
 def _capture_console() -> Console:
-    """A rich Console that writes to an in-memory buffer for assertions."""
-    return Console(file=io.StringIO(), width=200, force_terminal=False, theme=osprey_theme)
+    """A rich Console that writes to an in-memory buffer for assertions.
+
+    Wide enough that a printed path never wraps: the tests look for whole
+    ``tmp_path`` paths in the text, and how long those are depends on where
+    the run's base temp sits.
+    """
+    return Console(file=io.StringIO(), width=1000, force_terminal=False, theme=osprey_theme)
 
 
 def _text(console: Console) -> str:

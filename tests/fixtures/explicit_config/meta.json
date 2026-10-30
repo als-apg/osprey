@@ -1,7 +1,7 @@
 {
   "api_key_env_stripped": true,
-  "baseline_commit": "163d2e259a2fa167d807b7b80d32afe13c50cc8c",
-  "baseline_sha": "163d2e259",
+  "baseline_commit": "467c4c642a261dea878ccd71e6ce858b5321f998",
+  "baseline_sha": "467c4c642",
   "build_account": "osprey-freeze-builder",
   "cells": [
     "hello-world/unset",
@@ -12,7 +12,7 @@
   ],
   "completeness": {
     "control-assistant/graph": {
-      "build_configs_checked": 27,
+      "build_configs_checked": 25,
       "documents": [
         "admin.yml",
         "channel-finder.yml",
@@ -33,7 +33,7 @@
       ]
     },
     "control-assistant/hierarchical": {
-      "build_configs_checked": 27,
+      "build_configs_checked": 25,
       "documents": [
         "admin.yml",
         "channel-finder.yml",
@@ -54,7 +54,7 @@
       ]
     },
     "control-assistant/in_context": {
-      "build_configs_checked": 27,
+      "build_configs_checked": 25,
       "documents": [
         "admin.yml",
         "channel-finder.yml",
@@ -75,7 +75,7 @@
       ]
     },
     "control-assistant/middle_layer": {
-      "build_configs_checked": 27,
+      "build_configs_checked": 25,
       "documents": [
         "admin.yml",
         "channel-finder.yml",
@@ -96,7 +96,7 @@
       ]
     },
     "hello-world/unset": {
-      "build_configs_checked": 4,
+      "build_configs_checked": 2,
       "documents": [
         "root.yml"
       ],
@@ -104,7 +104,7 @@
       "renders": []
     }
   },
-  "external_source": true,
+  "external_source": false,
   "masked_keys": {
     "replaced": {
       "api.providers": "sorted list of provider names, in place of the catalog mapping"

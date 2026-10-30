@@ -170,8 +170,7 @@ def load_theme_from_config(config_path: str | None = None) -> ColorTheme:
                         return VULCAN_THEME
 
                 # Create custom theme from config
-                theme = ColorTheme(**custom_colors)
-                return theme
+                return ColorTheme(**custom_colors)
             except Exception as e:
                 logger.warning(f"Failed to create custom theme: {e}, using default")
                 return VULCAN_THEME

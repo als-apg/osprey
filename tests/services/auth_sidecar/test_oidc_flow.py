@@ -28,7 +28,6 @@ import json
 import logging
 from base64 import b64decode
 from collections.abc import Iterator
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -71,7 +70,7 @@ from tests.services.auth_sidecar._helpers import (
     SESSION_LIFETIME,
     SESSION_SECRET,
     STATE_SECRET,
-    ledger_records,
+    SidecarZone,
     osprey_log,
     set_cookie_header,
 )
@@ -861,7 +860,7 @@ def test_an_entry_that_never_logs_into_its_own_card_can_open_a_shared_one(idp: M
 
 
 def test_an_identity_matching_no_entry_is_refused_on_a_shared_card(
-    idp: MockIdP, zone: Path
+    idp: MockIdP, zone: SidecarZone
 ) -> None:
     """A verified stranger is still a stranger: zero matches is the same
     ``identity_mismatch`` an own card refuses with, filed post-exchange."""
@@ -872,13 +871,13 @@ def test_an_identity_matching_no_entry_is_refused_on_a_shared_card(
 
     assert response.status_code == 403
     assert SESSION_COOKIE_NAME not in response.cookies
-    assert [(r["subject"], r["reason"]) for r in ledger_records(zone)] == [
+    assert [(r["subject"], r["reason"]) for r in zone.records()] == [
         ("bob", audit.REASON_IDENTITY_MISMATCH)
     ]
 
 
 def test_an_identity_mapped_to_two_entries_is_refused_as_ambiguous(
-    idp: MockIdP, zone: Path
+    idp: MockIdP, zone: SidecarZone
 ) -> None:
     """alice and carol both mapped to one identity: opening a shared card with
     it must not be resolved by roster order, so it is refused under its own
@@ -893,13 +892,13 @@ def test_an_identity_mapped_to_two_entries_is_refused_as_ambiguous(
 
     assert response.status_code == 403
     assert SESSION_COOKIE_NAME not in response.cookies
-    assert [(r["subject"], r["reason"]) for r in ledger_records(zone)] == [
+    assert [(r["subject"], r["reason"]) for r in zone.records()] == [
         ("bob", audit.REASON_AMBIGUOUS_IDENTITY)
     ]
 
 
 def test_a_matched_identity_that_cannot_be_carried_is_refused_not_a_crash(
-    idp: MockIdP, zone: Path
+    idp: MockIdP, zone: SidecarZone
 ) -> None:
     """The uncarryable-subject refusal moves post-match on a shared card.
 
@@ -921,7 +920,7 @@ def test_a_matched_identity_that_cannot_be_carried_is_refused_not_a_crash(
     assert SESSION_COOKIE_NAME not in response.cookies
     # Post-exchange: the token endpoint was genuinely reached first.
     assert idp.token_requests
-    assert [(r["subject"], r["reason"]) for r in ledger_records(zone)] == [
+    assert [(r["subject"], r["reason"]) for r in zone.records()] == [
         ("bob", audit.REASON_NON_ASCII_SUBJECT)
     ]
 
@@ -943,7 +942,7 @@ def test_a_shared_card_on_an_unmapped_roster_never_reaches_the_provider(idp: Moc
 
 
 def test_the_claims_binding_is_not_consulted_on_a_shared_card(
-    idp: MockIdP, zone: Path, monkeypatch: pytest.MonkeyPatch
+    idp: MockIdP, zone: SidecarZone, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Membership gating and shared cards do not compose.
 
@@ -973,7 +972,7 @@ def test_the_claims_binding_is_not_consulted_on_a_shared_card(
         refused = _log_in(client, "alice")
     assert refused.status_code == 403
 
-    assert [(r["subject"], r["reason"]) for r in ledger_records(zone)] == [
+    assert [(r["subject"], r["reason"]) for r in zone.records()] == [
         ("bob", audit.REASON_OIDC_LOGIN),
         ("alice", audit.REASON_UNMAPPED_ROLE_CLAIM),
     ]
@@ -1219,7 +1218,7 @@ def test_the_owner_of_a_self_and_domain_card_still_logs_into_it(idp: MockIdP) ->
 
 
 def test_the_owner_of_a_domain_only_card_outside_that_domain_is_refused(
-    idp: MockIdP, zone: Path
+    idp: MockIdP, zone: SidecarZone
 ) -> None:
     """The other half of the same rule: a card narrowed to a domain alone does
     not carry ``self``, so its own user is admitted no more than anybody else —
@@ -1235,13 +1234,13 @@ def test_the_owner_of_a_domain_only_card_outside_that_domain_is_refused(
 
     assert response.status_code == 403
     assert SESSION_COOKIE_NAME not in response.cookies
-    assert [(r["subject"], r["reason"]) for r in ledger_records(zone)] == [
+    assert [(r["subject"], r["reason"]) for r in zone.records()] == [
         ("bob", audit.REASON_NO_COVERING_PRINCIPAL)
     ]
 
 
 def test_a_mapped_roster_identity_outside_the_domain_is_not_admitted(
-    idp: MockIdP, zone: Path
+    idp: MockIdP, zone: SidecarZone
 ) -> None:
     """Being on the roster is not admission once the card stops saying so.
 
@@ -1261,7 +1260,7 @@ def test_a_mapped_roster_identity_outside_the_domain_is_not_admitted(
 
     assert response.status_code == 403
     assert SESSION_COOKIE_NAME not in response.cookies
-    assert [(r["subject"], r["reason"]) for r in ledger_records(zone)] == [
+    assert [(r["subject"], r["reason"]) for r in zone.records()] == [
         ("bob", audit.REASON_NO_COVERING_PRINCIPAL)
     ]
 
@@ -1276,7 +1275,7 @@ def test_a_mapped_roster_identity_outside_the_domain_is_not_admitted(
     ids=["hosted-domain-disagrees", "address-unverified", "no-covering-principal"],
 )
 def test_every_rule_refusal_answers_alike_and_files_its_own_category(
-    idp: MockIdP, zone: Path, email: str, claims: dict[str, Any], reason: str
+    idp: MockIdP, zone: SidecarZone, email: str, claims: dict[str, Any], reason: str
 ) -> None:
     """One answer for the caller, three categories for the operator.
 
@@ -1296,7 +1295,7 @@ def test_every_rule_refusal_answers_alike_and_files_its_own_category(
     assert response.json()["detail"] == "this identity is not permitted for this user"
     assert SESSION_COOKIE_NAME not in response.cookies
 
-    records = ledger_records(zone)
+    records = zone.records()
     assert [(r["subject"], r["reason"]) for r in records] == [("bob", reason)]
     filed = json.dumps(records)
     # String claims only. A boolean would be compared as `"False"` against a
@@ -1477,7 +1476,7 @@ def test_the_single_sign_on_entry_opens_exactly_the_cards_the_card_login_opens(
     assert _without_expiry(card_less) == _without_expiry(by_card)
 
 
-def test_an_identity_no_card_admits_is_refused_and_filed(idp: MockIdP, zone: Path) -> None:
+def test_an_identity_no_card_admits_is_refused_and_filed(idp: MockIdP, zone: SidecarZone) -> None:
     idp.subject = "idp|stranger"
     with _browser(_sidecar(idp)) as client:
         response = _enter(client)
@@ -1485,13 +1484,13 @@ def test_an_identity_no_card_admits_is_refused_and_filed(idp: MockIdP, zone: Pat
     assert response.status_code == 403
     assert "No terminal for this account" in response.text
     assert SESSION_COOKIE_NAME not in response.cookies
-    assert [(r["subject"], r["reason"]) for r in ledger_records(zone)] == [
+    assert [(r["subject"], r["reason"]) for r in zone.records()] == [
         (audit.SIGN_IN_SUBJECT, audit.REASON_NO_CARD)
     ]
 
 
 def test_a_card_refused_for_its_role_is_left_out_and_filed(
-    idp: MockIdP, zone: Path, monkeypatch: pytest.MonkeyPatch
+    idp: MockIdP, zone: SidecarZone, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("OSPREY_AUTH_ROLE_CLAIM", "groups")
     monkeypatch.setenv("OSPREY_AUTH_ROLE_MAP", '{"als-operators":"operator"}')
@@ -1503,13 +1502,13 @@ def test_a_card_refused_for_its_role_is_left_out_and_filed(
     assert response.status_code == 303
     assert response.headers["location"] == "/u/carol/"
     assert list(_minted(response)) == ["carol"]
-    assert [(r["subject"], r["reason"]) for r in ledger_records(zone)] == [
+    assert [(r["subject"], r["reason"]) for r in zone.records()] == [
         ("alice", audit.REASON_UNMAPPED_ROLE_CLAIM),
         ("carol", audit.REASON_OIDC_LOGIN),
     ]
 
 
-def test_an_ambiguous_shared_card_is_left_out_not_fatal(idp: MockIdP, zone: Path) -> None:
+def test_an_ambiguous_shared_card_is_left_out_not_fatal(idp: MockIdP, zone: SidecarZone) -> None:
     app = _sidecar(
         idp,
         OSPREY_AUTH_ROSTER_ACCESS_BOB="any",
@@ -1522,7 +1521,7 @@ def test_an_ambiguous_shared_card_is_left_out_not_fatal(idp: MockIdP, zone: Path
     assert "alice" in minted
     assert "bob" not in minted
     assert ("bob", audit.REASON_AMBIGUOUS_IDENTITY) in [
-        (r["subject"], r["reason"]) for r in ledger_records(zone)
+        (r["subject"], r["reason"]) for r in zone.records()
     ]
 
 
@@ -1541,13 +1540,13 @@ def test_a_card_less_callback_cannot_be_replayed(idp: MockIdP) -> None:
 
 
 def test_a_token_without_an_id_token_is_filed_under_the_sign_in_subject(
-    idp: MockIdP, zone: Path
+    idp: MockIdP, zone: SidecarZone
 ) -> None:
     idp.omit_id_token = True
     with _browser(_sidecar(idp)) as client:
         response = _enter(client)
 
     assert response.status_code == 502
-    assert [(r["subject"], r["reason"]) for r in ledger_records(zone)] == [
+    assert [(r["subject"], r["reason"]) for r in zone.records()] == [
         (audit.SIGN_IN_SUBJECT, audit.REASON_UNVALIDATED_TOKEN)
     ]

@@ -12,7 +12,7 @@ import base64
 import json
 import re
 import urllib.parse
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -502,7 +502,11 @@ def _stub_web_launch(monkeypatch, *, ready: bool = True):
     run = Mock()
     monkeypatch.setattr(capture.subprocess, "Popen", popen)
     monkeypatch.setattr(capture.subprocess, "run", run)
-    monkeypatch.setattr(capture, "free_port", lambda: 5151)
+    # The detached launch names the port its server bound.
+    popen.return_value.communicate.return_value = (
+        "Web terminal started (PID 4242).\n  URL   http://127.0.0.1:5151\n",
+        None,
+    )
     monkeypatch.setattr(capture, "mint_secret", lambda: SECRET)
 
     def wait_for_port(*_args, **_kwargs):
@@ -522,7 +526,7 @@ def test_bootstrap_web_terminal_exposes_secret_and_disables_tour(monkeypatch, tm
         run.assert_not_called()
     (args,), kwargs = popen.call_args
     assert kwargs["env"]["CLAUDE_CONFIG_DIR"] == str(web.claude_config_dir)
-    assert args == ["osprey", "web", "--repo", str(tmp_path), "--detach", "--port", "5151"]
+    assert args == ["osprey", "web", "--repo", str(tmp_path), "--detach", "--port", "0"]
     child_env = kwargs["env"]
     assert child_env[capture.OPERATOR_SECRET_ENV] == SECRET
     assert child_env["OSPREY_WEB_TOUR"] == "never"
@@ -537,6 +541,14 @@ def test_bootstrap_web_terminal_not_ready_skips_and_tears_down(monkeypatch, tmp_
         pytest.fail("body must not run")
     run.assert_called_once()
     popen.return_value.terminate.assert_called_once()
+
+
+def test_bootstrap_web_terminal_launch_naming_no_port_skips(monkeypatch, tmp_path) -> None:
+    popen, run = _stub_web_launch(monkeypatch)
+    popen.return_value.communicate.return_value = ("The web terminal exited\n", None)
+    with pytest.raises(capture.ScreenshotSkip), capture.web_terminal(tmp_path):
+        pytest.fail("body must not run")
+    run.assert_called_once()
 
 
 def test_bootstrap_web_terminal_missing_cli_skips(monkeypatch, tmp_path) -> None:
@@ -643,15 +655,15 @@ BEATS = [
 ]
 
 
-def _ask_line(tool, detail, tool_use_id) -> str:
-    rec = {"ts": "2026-09-24T10:00:00", "hook": "approval", "status": "ask"}
+def _ask_record(tool, detail, tool_use_id) -> dict:
+    rec = {"source": "hook", "ts": "2026-09-24T10:00:00", "hook": "approval", "status": "ask"}
     if tool is not None:
         rec["tool"] = tool
     if detail is not None:
         rec["detail"] = detail
     if tool_use_id is not None:
         rec["tool_use_id"] = tool_use_id
-    return json.dumps(rec) + "\n"
+    return rec
 
 
 class FakePlotFrame:
@@ -702,13 +714,16 @@ class World:
     screen keeps changing, the plot lands after this many seconds).
     """
 
-    def __init__(self, stack: VideoStack, tmp_path: Path, plans: list[dict]) -> None:
+    def __init__(self, tmp_path: Path, plans: list[dict]) -> None:
         self.t = 1000.0
         self.plans = plans
         self.take = -1
         self.focus = True
-        self.hook_log = video_take.video_check_approval.hook_log_path(stack.project_dir)
-        self.hook_log.parent.mkdir(parents=True, exist_ok=True)
+        # The hook debug lines on the record: (moment, body), in write order.
+        # Moments come from one counter shared with the take's marks, so
+        # "written since the mark" never depends on the wall clock's resolution.
+        self.hook_records: list[tuple[datetime, dict]] = []
+        self.moments = 0
         self.transcript = tmp_path / "transcript.jsonl"
         self.transcript.write_text("")
         self.artifacts: list[dict] = []
@@ -742,10 +757,19 @@ class World:
         for _, fn in due:
             fn()
 
+    def moment(self) -> datetime:
+        """The next instant on the world's own record clock."""
+        self.moments += 1
+        return datetime(2026, 9, 24, tzinfo=UTC) + timedelta(microseconds=self.moments)
+
     def write_asks(self, *asks) -> None:
-        with self.hook_log.open("a") as fh:
-            fh.writelines(_ask_line(*a) for a in asks)
+        for a in asks:
+            self.hook_records.append((self.moment(), _ask_record(*a)))
         self.asked = True
+
+    def read_hook_log(self, since: datetime) -> list[dict]:
+        """The record's hook debug bodies written since *since*, oldest first."""
+        return [body for written, body in self.hook_records if written >= since]
 
     def _set(self, **kw):
         return lambda: self.__dict__.update(kw)
@@ -947,7 +971,7 @@ def world_env(env, monkeypatch, tmp_path):
     holder: dict = {}
 
     def make(*plans: dict) -> World:
-        world = World(env.stack, tmp_path, list(plans))
+        world = World(tmp_path, list(plans))
         world.log = env.log
         holder["world"] = world
         return world
@@ -979,6 +1003,10 @@ def world_env(env, monkeypatch, tmp_path):
         return w().transcript
 
     monkeypatch.setattr(video_take.video_check_turn, "transcript_path", transcript_path)
+    monkeypatch.setattr(
+        video_take.video_check_approval, "record_log", lambda project: w().read_hook_log
+    )
+    monkeypatch.setattr(video_take.video_check_approval, "log_mark", lambda: w().moment())
     env.lookups = holder
     monkeypatch.setattr(
         video_take.video_check_turn, "turn_state", lambda path, submitted, **kw: w().turn

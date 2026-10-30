@@ -11,10 +11,10 @@ where nothing indexes it and the next recreate discards it. Entitlement is per
 render, the source is shared, the target is per service.
 
 The mirror joins the same ``group_add`` story as the bundle, and the two are
-emitted as one list per service. The per-user audit subdirectory is the third
-directory these containers write and is asserted in
-``tests/deployment/test_audit_mounts.py``: its group is joined inside the
-container by the entrypoint, so it appears in no ``group_add`` list.
+emitted as one list per service. The per-user spool and state directories
+these containers also write are asserted in
+``tests/deployment/test_spool_mounts.py``: the entrypoint joins their groups
+inside the container, so they appear in no ``group_add`` list.
 """
 
 from __future__ import annotations

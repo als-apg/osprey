@@ -1746,41 +1746,40 @@ async def run_qmd_resync(
 
     pool = await create_connection_pool(config.database)
     try:
-        async with pool.connection() as conn:
-            async with conn.cursor(row_factory=dict_row) as cur:
-                while True:
-                    rows = await _fetch_changed_page(cur, watermark, cursor_key, page_size)
-                    page_key = cursor_key
+        async with pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            while True:
+                rows = await _fetch_changed_page(cur, watermark, cursor_key, page_size)
+                page_key = cursor_key
 
-                    for row in rows:
-                        entry = dict(row)
-                        scanned += 1
-                        moment = entry.get("updated_at")
-                        if moment is not None:
-                            page_key = (moment, str(entry.get("entry_id", "")))
-                            if highest is None or moment > highest:
-                                highest = moment
-                        try:
-                            if write_entry(mirror_root, entry, expander=expander):
-                                written += 1
-                            else:
-                                unchanged += 1
-                        except (ValueError, OSError) as e:
-                            failed += 1
-                            logger.warning(f"Could not mirror entry {entry.get('entry_id')!r}: {e}")
+                for row in rows:
+                    entry = dict(row)
+                    scanned += 1
+                    moment = entry.get("updated_at")
+                    if moment is not None:
+                        page_key = (moment, str(entry.get("entry_id", "")))
+                        if highest is None or moment > highest:
+                            highest = moment
+                    try:
+                        if write_entry(mirror_root, entry, expander=expander):
+                            written += 1
+                        else:
+                            unchanged += 1
+                    except (ValueError, OSError) as e:
+                        failed += 1
+                        logger.warning(f"Could not mirror entry {entry.get('entry_id')!r}: {e}")
 
-                    if len(rows) < page_size:
-                        break
-                    if page_key == cursor_key:
-                        # A full page advanced nothing, which only happens when
-                        # every row in it carried a NULL updated_at. Those sort
-                        # last, so there is no key to page past them with.
-                        logger.warning(
-                            "Stopping the qmd resync scan: a full page of entries "
-                            "carried no updated_at timestamp"
-                        )
-                        break
-                    cursor_key = page_key
+                if len(rows) < page_size:
+                    break
+                if page_key == cursor_key:
+                    # A full page advanced nothing, which only happens when
+                    # every row in it carried a NULL updated_at. Those sort
+                    # last, so there is no key to page past them with.
+                    logger.warning(
+                        "Stopping the qmd resync scan: a full page of entries "
+                        "carried no updated_at timestamp"
+                    )
+                    break
+                cursor_key = page_key
     finally:
         await pool.close()
 
@@ -2922,62 +2921,41 @@ async def run_reembed(
 
         has_copy_state = (await service.repository.schema_facts()).has_copy_state
 
-        async with service.pool.connection() as conn:
-            async with conn.cursor() as cur:
-                rows: list[Any]
-                if has_copy_state:
+        async with service.pool.connection() as conn, conn.cursor() as cur:
+            rows: list[Any]
+            if has_copy_state:
+                await cur.execute(
+                    "SELECT entry_id, raw_text, attachment_text FROM enhanced_entries "
+                    "ORDER BY entry_id"
+                )
+                rows = list(await cur.fetchall())
+            else:
+                await cur.execute(
+                    "SELECT entry_id, raw_text FROM enhanced_entries ORDER BY entry_id"
+                )
+                rows = [(*row, None) for row in await cur.fetchall()]
+
+            batch_texts: list[str] = []
+            batch_ids: list[str] = []
+
+            for entry_id, raw_text, attachment_text in rows:
+                if not force:
                     await cur.execute(
-                        "SELECT entry_id, raw_text, attachment_text FROM enhanced_entries "
-                        "ORDER BY entry_id"
+                        f"SELECT 1 FROM {table_name} WHERE entry_id = %s",
+                        (entry_id,),
                     )
-                    rows = list(await cur.fetchall())
-                else:
-                    await cur.execute(
-                        "SELECT entry_id, raw_text FROM enhanced_entries ORDER BY entry_id"
-                    )
-                    rows = [(*row, None) for row in await cur.fetchall()]
+                    if await cur.fetchone():
+                        skipped += 1
+                        continue
 
-                batch_texts: list[str] = []
-                batch_ids: list[str] = []
+                batch_texts.append(
+                    build_embedding_input(
+                        raw_text or "", attachment_text, limit, expander=expander
+                    ).text
+                )
+                batch_ids.append(entry_id)
 
-                for entry_id, raw_text, attachment_text in rows:
-                    if not force:
-                        await cur.execute(
-                            f"SELECT 1 FROM {table_name} WHERE entry_id = %s",
-                            (entry_id,),
-                        )
-                        if await cur.fetchone():
-                            skipped += 1
-                            continue
-
-                    batch_texts.append(
-                        build_embedding_input(
-                            raw_text or "", attachment_text, limit, expander=expander
-                        ).text
-                    )
-                    batch_ids.append(entry_id)
-
-                    if len(batch_texts) >= batch_size:
-                        p, e = await _embed_batch(
-                            cur,
-                            embedder,
-                            batch_texts,
-                            batch_ids,
-                            model,
-                            base_url,
-                            table_name,
-                            force,
-                            progress,
-                            api_key=api_key,
-                            dimensions=dimensions,
-                            input_key=input_key,
-                        )
-                        processed += p
-                        errors += e
-                        batch_texts = []
-                        batch_ids = []
-
-                if batch_texts:
+                if len(batch_texts) >= batch_size:
                     p, e = await _embed_batch(
                         cur,
                         embedder,
@@ -2994,6 +2972,26 @@ async def run_reembed(
                     )
                     processed += p
                     errors += e
+                    batch_texts = []
+                    batch_ids = []
+
+            if batch_texts:
+                p, e = await _embed_batch(
+                    cur,
+                    embedder,
+                    batch_texts,
+                    batch_ids,
+                    model,
+                    base_url,
+                    table_name,
+                    force,
+                    progress,
+                    api_key=api_key,
+                    dimensions=dimensions,
+                    input_key=input_key,
+                )
+                processed += p
+                errors += e
 
     return ReembedResult(processed=processed, skipped=skipped, errors=errors, dry_run=False)
 
@@ -3220,18 +3218,17 @@ async def get_purge_info(config_dict: dict) -> PurgeInfo:
     pool = await create_connection_pool(config.database)
 
     try:
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute("SELECT COUNT(*) FROM enhanced_entries")
-                row = await cur.fetchone()
-                entry_count = row[0] if row else 0
+        async with pool.connection() as conn, conn.cursor() as cur:
+            await cur.execute("SELECT COUNT(*) FROM enhanced_entries")
+            row = await cur.fetchone()
+            entry_count = row[0] if row else 0
 
-                await cur.execute("""
+            await cur.execute("""
                     SELECT table_name FROM information_schema.tables
                     WHERE table_schema = 'public' AND table_name LIKE 'text_embeddings_%'
                 """)
-                embedding_tables = [r[0] for r in await cur.fetchall()]
-                image_tables = await image_embedding_table_names(cur)
+            embedding_tables = [r[0] for r in await cur.fetchall()]
+            image_tables = await image_embedding_table_names(cur)
     finally:
         await pool.close()
 
@@ -3298,36 +3295,35 @@ async def execute_purge(config_dict: dict, embeddings_only: bool, progress: _Pro
     pool = await create_connection_pool(config.database)
 
     try:
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                if embeddings_only:
-                    await cur.execute("""
+        async with pool.connection() as conn, conn.cursor() as cur:
+            if embeddings_only:
+                await cur.execute("""
                         SELECT table_name FROM information_schema.tables
                         WHERE table_schema = 'public' AND table_name LIKE 'text_embeddings_%'
                     """)
-                    embedding_tables = [r[0] for r in await cur.fetchall()]
-                    for table in embedding_tables:
-                        await cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
-                        if progress:
-                            progress(f"  Dropped {table}")
-                    await _unrecord_embedding_migration(cur)
-                    await _drop_image_embedding_tables(cur, progress)
+                embedding_tables = [r[0] for r in await cur.fetchall()]
+                for table in embedding_tables:
+                    await cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
                     if progress:
-                        progress("\n✓ Embedding tables purged. Entries preserved.")
-                else:
-                    await cur.execute("TRUNCATE enhanced_entries CASCADE")
-                    await cur.execute("TRUNCATE ingestion_runs CASCADE")
-                    await cur.execute("""
+                        progress(f"  Dropped {table}")
+                await _unrecord_embedding_migration(cur)
+                await _drop_image_embedding_tables(cur, progress)
+                if progress:
+                    progress("\n✓ Embedding tables purged. Entries preserved.")
+            else:
+                await cur.execute("TRUNCATE enhanced_entries CASCADE")
+                await cur.execute("TRUNCATE ingestion_runs CASCADE")
+                await cur.execute("""
                         SELECT table_name FROM information_schema.tables
                         WHERE table_schema = 'public' AND table_name LIKE 'text_embeddings_%'
                     """)
-                    embedding_tables = [r[0] for r in await cur.fetchall()]
-                    for table in embedding_tables:
-                        await cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
-                    await _unrecord_embedding_migration(cur)
-                    await _drop_image_embedding_tables(cur)
-                    if progress:
-                        progress("\n✓ All ARIEL data purged.")
+                embedding_tables = [r[0] for r in await cur.fetchall()]
+                for table in embedding_tables:
+                    await cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
+                await _unrecord_embedding_migration(cur)
+                await _drop_image_embedding_tables(cur)
+                if progress:
+                    progress("\n✓ All ARIEL data purged.")
     finally:
         await pool.close()
 

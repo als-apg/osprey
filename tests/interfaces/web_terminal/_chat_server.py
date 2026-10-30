@@ -266,7 +266,8 @@ def seed_transcript(project_dir: Path, transcript_id: str, turns) -> Path:
     Args:
         project_dir: The project the server serves.
         transcript_id: The Claude session id the file is named for.
-        turns: ``(role, text)`` pairs, oldest first.
+        turns: ``(role, text)`` pairs, oldest first. An assistant turn's text
+            may instead be its list of content blocks (thinking, text, ...).
 
     Returns:
         The path written.
@@ -275,7 +276,10 @@ def seed_transcript(project_dir: Path, transcript_id: str, turns) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     lines = []
     for index, (role, text) in enumerate(turns):
-        content = text if role == "user" else [{"type": "text", "text": text}]
+        if role == "user" or isinstance(text, list):
+            content = text
+        else:
+            content = [{"type": "text", "text": text}]
         lines.append(
             json.dumps(
                 {
@@ -289,6 +293,26 @@ def seed_transcript(project_dir: Path, transcript_id: str, turns) -> Path:
     path: Path = directory / f"{transcript_id}.jsonl"
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
+
+
+def seed_record_from(monkeypatch, transcript: Path) -> None:
+    """Make the session routes' agent record serve *transcript*'s conversation.
+
+    The record is a fake answering the session the transcript is named for with
+    the nodes the record's own parser and timeline builder make of that file,
+    and nothing for any other session.
+    """
+    from osprey.agent_record.client import ClientAnswer
+    from osprey.interfaces.web_terminal.routes import session as session_routes
+    from tests.agent_record.fakes import FakeRecordClient
+
+    def timeline(**kwargs) -> ClientAnswer:
+        named = transcript if kwargs.get("session_id") == transcript.stem else None
+        nodes = session_routes._transcript_nodes(named) if named and named.is_file() else []
+        return ClientAnswer(data=nodes, complete=True)
+
+    record = FakeRecordClient({"timeline": timeline})
+    monkeypatch.setattr(session_routes, "record_client", lambda: record)
 
 
 def _record_pty_spawns(app) -> None:

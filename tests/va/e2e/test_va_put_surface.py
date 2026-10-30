@@ -47,11 +47,11 @@ from typing import Any
 
 import pytest
 
-from osprey.interfaces._serving import free_port
+from osprey_connectors_tests._harness._ports import reserved_ports
 from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 
-#: Container-name prefix; ``_serving`` appends the run's own ephemeral port.
+#: Container-name prefix; ``_serving`` appends the run's own reserved port.
 CONTAINER_PREFIX = "osprey-va-e2e-put-surface"
 
 #: The instance the container serves as.
@@ -186,22 +186,21 @@ def _serving() -> Iterator[Served]:
     a search reply carries the server's own port; the Channel Access port also
     names the container.
     """
-    port = free_port()
-    pva_port = free_port()
-    with e2e_conftest.serving_container(
-        f"{CONTAINER_PREFIX}-{port}",
-        port,
-        "-e",
-        f"EPICS_PVAS_SERVER_PORT={pva_port}",
-        "-e",
-        f"VA_INSTANCE={INSTANCE}",
-        "-p",
-        f"127.0.0.1:{pva_port}:{pva_port}/tcp",
-        *e2e_conftest.demo_data_run_args(),
-        boot_timeout=BOOT_TIMEOUT_S,
-        served=_served,
-    ):
-        yield Served(ca=port, pva=pva_port)
+    with reserved_ports(2) as (port, pva_port):
+        with e2e_conftest.serving_container(
+            f"{CONTAINER_PREFIX}-{port}",
+            port,
+            "-e",
+            f"EPICS_PVAS_SERVER_PORT={pva_port}",
+            "-e",
+            f"VA_INSTANCE={INSTANCE}",
+            "-p",
+            f"127.0.0.1:{pva_port}:{pva_port}/tcp",
+            *e2e_conftest.demo_data_run_args(),
+            boot_timeout=BOOT_TIMEOUT_S,
+            served=_served,
+        ):
+            yield Served(ca=port, pva=pva_port)
 
 
 @pytest.fixture(scope="module")
