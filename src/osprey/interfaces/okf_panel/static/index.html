@@ -26,7 +26,7 @@
 
   <!-- Root-absolute asset refs: osprey's panel proxy rewrites these under
        /panel/okf/ in production; served verbatim at / in local/dev. Loaded
-       after tokens.css/base.css so its local scale/layout tokens win. -->
+       after tokens.css/base.css so its panel rules win over base.css. -->
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
@@ -62,11 +62,13 @@
          aria-orientation="vertical" aria-label="Resize sidebar"
          tabindex="0"></div>
     <main id="reader">
-      <!-- Reading-focused (Simple) affordance: hidden in Expert, a sticky
-           "Browse all pages" bar in Simple that returns to the structure
-           overview (the plain doc list). Sits OUTSIDE #reader-content because
-           app.js replaces that element's innerHTML on every render. -->
-      <div class="reader-topbar">
+      <!-- Standalone Simple's route back to the structure overview (the plain
+           doc list): hidden in Expert, a sticky "Browse all pages" bar in
+           Simple. Ships [hidden]; app.js reveals it standalone and removes it
+           when embedded, where the tile bar's Browse entry does this job.
+           Sits OUTSIDE #reader-content because app.js replaces that
+           element's innerHTML on every render. -->
+      <div id="reader-topbar" class="reader-topbar" hidden>
         <button type="button" id="browse-all" class="browse-all-btn">
           <svg class="browse-all-icon" viewBox="0 0 24 24" fill="none"
                stroke="currentColor" stroke-width="2" stroke-linecap="round"

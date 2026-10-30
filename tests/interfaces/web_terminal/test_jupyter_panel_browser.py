@@ -389,8 +389,11 @@ def test_notebooks_panel_opens_jupyterlab_and_runs_cells_on_a_real_kernel(
         lab = _lab(page)
         expect(lab.locator("#jp-main-dock-panel")).to_be_visible(timeout=_LAB_BOOT_MS)
 
-        # The pinned dark web theme reached JupyterLab through the labconfig
-        # override the sidecar wrote for this launch.
+        # The tile is dark: the pinned dark web theme, through the labconfig
+        # override the sidecar wrote for this launch. The hub is dark too, so
+        # the tile's theme follower (lab-theme-follow.js) has nothing to switch;
+        # it would also make a light Lab dark, so the override itself is pinned
+        # server-side in test_jupyter_sidecar.py.
         body = lab.locator("body")
         expect(body).to_have_attribute("data-jp-theme-light", "false", timeout=_LAB_BOOT_MS)
         expect(body).to_have_attribute("data-jp-theme-name", "JupyterLab Dark")

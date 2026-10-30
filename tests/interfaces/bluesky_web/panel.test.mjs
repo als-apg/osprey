@@ -3517,6 +3517,32 @@ describe('the merged panel shell', () => {
     return ['plans', 'queue', 'results'].filter((id) => !byId(`view-${id}`).hidden);
   }
 
+  test('the detail pane says what to do until a plan is selected, then shows that plan', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url) =>
+        String(url).endsWith('/plans')
+          ? {
+              ok: true,
+              status: 200,
+              json: async () => [{ name: 'orm', provenance: 'shipped', description: '' }],
+            }
+          : { ok: true, status: 200, json: async () => ({}) }
+      )
+    );
+    mount();
+    // Before any plan is chosen the pane is not a bare box: it carries the sentence.
+    const empty = byId('detail-empty');
+    expect(empty.hidden).toBe(false);
+    expect(empty.textContent).toContain('Select a plan to see its parameters.');
+    expect(byId('detail-body').hidden).toBe(true);
+
+    await import(`${BUNDLE}panel.js`);
+    // The first plan is auto-selected once the list lands: the sentence goes, the detail comes.
+    await vi.waitFor(() => expect(byId('detail-body').hidden).toBe(false));
+    expect(empty.hidden).toBe(true);
+  });
+
   test('exactly one view shows at a time, and Plans is the one on boot', async () => {
     mount();
     await import(`${BUNDLE}panel.js`);

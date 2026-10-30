@@ -731,16 +731,17 @@ def test_the_lab_page_carries_the_control_target_bar(
 def test_the_injected_import_map_is_scoped_to_the_bars_own_modules(
     proxied: TestClient, sidecar: JupyterSidecar
 ) -> None:
-    """One root-absolute specifier is retargeted, and only for the bar's files.
+    """One root-absolute prefix is retargeted, and only for the bar's files.
 
-    ``confirm-skip.js`` imports ``/design-system/js/storage-scope.js`` — the
-    ninth file the bar's graph fetches, and the only one that is not a relative
-    import. The hub's own page retargets that specifier with a document-wide
-    import map; here the mapping lives in a ``scopes`` entry keyed on the bar's
-    directory, so nothing JupyterLab itself imports can be redirected by it.
+    Two files in the bar's graph are not relative imports, both under
+    ``/design-system/js/``: ``confirm-skip.js`` imports ``storage-scope.js``,
+    and ``lab-theme-follow.js`` imports ``tokens.js``. The hub's own page
+    retargets that prefix with a document-wide import map; here the mapping
+    lives in a ``scopes`` entry keyed on the bar's directory, so nothing
+    JupyterLab itself imports can be redirected by it.
 
     The target is the HUB's own mount, byte-for-byte what the hub's index.html
-    maps the same specifier to — so the module resolves to the same file on
+    maps the same specifier to — so each module resolves to the same file on
     both surfaces, and no rewrite pass runs over its body on the way.
     """
     head, nonce = _lab_page(proxied)
@@ -754,13 +755,14 @@ def test_the_injected_import_map_is_scoped_to_the_bars_own_modules(
         "/design-system/": f"{compute_url_prefix()}/design-system/"
     }
 
-    # And the mapping resolves: the specifier confirm-skip.js writes, put
+    # And the mapping resolves: each specifier the bar's graph writes, put
     # through this map, is a module the terminal answers with.
-    mapped = import_map["scopes"][scope]["/design-system/"] + "js/storage-scope.js"
-    resolved = proxied.get(mapped)
+    for module in ("storage-scope.js", "tokens.js"):
+        mapped = import_map["scopes"][scope]["/design-system/"] + f"js/{module}"
+        resolved = proxied.get(mapped)
 
-    assert resolved.status_code == 200
-    assert resolved.headers["content-type"].startswith("text/javascript")
+        assert resolved.status_code == 200, mapped
+        assert resolved.headers["content-type"].startswith("text/javascript"), mapped
 
 
 def test_the_injection_leaves_the_pages_own_encoding_declaration_readable(

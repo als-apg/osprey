@@ -185,7 +185,8 @@ dispatch dashboard):
   `font-weight`, `line-height`, `border-radius` (and its longhands), or
   `transition`/`animation` duration literal is forbidden in any `.css` file
   belonging to an interface in `SCALE_ENFORCED_INTERFACES` (`web_terminal`,
-  `design_system`, and `ariel`). A deliberate exception gets a trailing
+  `design_system`, `ariel`, `channel_finder`, `okf_panel`, `lattice_dashboard`
+  and `health`). A deliberate exception gets a trailing
   `/* hygiene-allow-scale: <reason> */` comment. Four reasons are in active
   use today: `off-scale legacy value, designer to rationalize` (a value with
   no matching scale step, left for a designer to decide whether to fold onto
@@ -227,10 +228,10 @@ after the two original interfaces, and every claim below is something its
 migration actually did. `channel_finder` followed it, retiring its type,
 radius, transition and spacing scales (check (e2) guards them); its spacing
 mapped by value with one off-scale step, 20px, rounded down to `--space-4`
-as ARIEL's did. The remaining siblings — `artifacts`,
-`okf_panel`, `lattice_dashboard` — still define their own local,
-interface-prefixed scales (`--art-*`, `--okf-*`, `--ld-*`) and are the next
-followers. A brand-new standalone service has no local scale to
+as ARIEL's did. `okf_panel`, `lattice_dashboard` and `health` retired their
+local scales with the sidebar shell. `artifacts` still defines its own
+interface-prefixed scale (`--art-*`) and is the next follower. A brand-new
+standalone service has no local scale to
 retire, so steps 1 and 2 are empty for it — it reads the fleet variables from
 its first line of CSS and starts this playbook at step 3.
 

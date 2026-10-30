@@ -56,8 +56,10 @@ def config_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("TMPDIR", str(tmp_path))
 
 
-def _running(shared_root: Path, outer_prefix: str = "") -> Iterator[JupyterSidecar]:
-    sidecar = JupyterSidecar(shared_root, outer_prefix, None)
+def _running(
+    shared_root: Path, outer_prefix: str = "", pinned_mode: str | None = None
+) -> Iterator[JupyterSidecar]:
+    sidecar = JupyterSidecar(shared_root, outer_prefix, pinned_mode)
     try:
         sidecar.spawn()
         sidecar.wait_ready(READY_TIMEOUT)
@@ -377,6 +379,23 @@ def test_a_pinned_theme_is_seeded_into_the_launch_config_dir(
         assert override == expected
 
 
+@pytest.mark.usefixtures("config_env")
+@spawns
+def test_the_pinned_theme_is_the_theme_default_lab_is_served(shared_root: Path) -> None:
+    """``jupyterlab_server`` applies the pin: it is Lab's theme default.
+
+    Lab starts in that default while it has no stored pick. The browser smoke's
+    dark tile no longer shows this alone: inside the hub, the tile's theme
+    follower (``lab-theme-follow.js``) would switch a light Lab to the hub's
+    dark too. So the default is asserted here, where Lab reads it from.
+    """
+    for pinned in _running(shared_root, pinned_mode="dark"):
+        status, body = _get(f"{pinned.url}/lab/api/settings/{THEME_PLUGIN}", pinned.auth_headers)
+        assert status == 200
+        schema = json.loads(body)["schema"]
+        assert schema["properties"]["theme"]["default"] == "JupyterLab Dark"
+
+
 def test_the_update_check_is_switched_off(shared_root: Path) -> None:
     """The one pinned trait a running server cannot show.
 
@@ -572,7 +591,12 @@ def _page_config(lab_html: bytes) -> dict[str, object]:
 
 
 @spawns
-def test_the_lab_page_lists_the_disabled_plugins_and_no_news(sidecar: JupyterSidecar) -> None:
+def test_the_lab_page_carries_the_seeded_page_config(sidecar: JupyterSidecar) -> None:
+    """The disabled plugins, no news, and the app published for the theme follower.
+
+    Asserted on the served page: the seed file existing proves nothing about
+    whether ``jupyterlab_server`` merged it into what Lab reads.
+    """
     status, html = _get(f"{sidecar.url}/lab", sidecar.auth_headers)
     assert status == 200
 
@@ -584,6 +608,9 @@ def test_the_lab_page_lists_the_disabled_plugins_and_no_news(sidecar: JupyterSid
         "@jupyterlab/apputils-extension:announcements",
     } <= set(disabled)
     assert page_config["news"] == {"disabled": True}
+    # Lab sets window.jupyterapp only with this on (or in dev mode); it is the
+    # handle the Jupyter tile's theme follower (lab-theme-follow.js) drives.
+    assert page_config["exposeAppInBrowser"] is True
 
 
 # ---------------------------------------------------------------------------
