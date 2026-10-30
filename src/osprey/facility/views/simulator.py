@@ -195,15 +195,13 @@ def simulator_wiring(facility: FacilityDocument, model: str) -> list[dict[str, A
 def _wire(facility: FacilityDocument, entry: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Compute :func:`simulator_wiring` of ``entry`` without the per-build memo."""
     channels = {str(channel["id"]): channel for channel in facility.get("channels", [])}
-    wiring: list[dict[str, Any]] = []
-    for record in entry.get("wiring", []):
-        wiring.append(
-            {
-                **{key: copy.deepcopy(record[key]) for key in _WIRING_ENTRY_KEYS if key in record},
-                **_waveform(channels.get(str(record["address"]), {})),
-            }
-        )
-    return wiring
+    return [
+        {
+            **{key: copy.deepcopy(record[key]) for key in _WIRING_ENTRY_KEYS if key in record},
+            **_waveform(channels.get(str(record["address"]), {})),
+        }
+        for record in entry.get("wiring", [])
+    ]
 
 
 def served_deck_path(model: Mapping[str, Any]) -> str | None:
