@@ -447,7 +447,7 @@ def sdk_env(project_dir: Path | None = None, *, provider: str | None = None) -> 
     them: the ``Agent`` tool returns ``"Async agent launched successfully"``,
     the turn ends, and the subagent results arrive later as a
     ``<task-notification>`` on a *new* turn. Our SDK drain
-    (:func:`_drain_response`) stops at the first ``ResultMessage``, so it never
+    (``receive_response()``) stops at the first ``ResultMessage``, so it never
     sees that continuation — the agent would end at "I've launched the
     investigations" with none of the delegated results, silently under-running
     every benchmark and e2e that relies on delegation. Disabling background
@@ -800,30 +800,6 @@ def _absorb_message(
     else:
         for event in translate_message(message):
             _record_event(event, workflow.text_blocks, workflow.tool_traces, pending_tools)
-
-
-async def _drain_response(
-    client: ClaudeSDKClient,
-    workflow: SDKWorkflowResult,
-) -> None:
-    """Consume one response stream from *client* into *workflow*.
-
-    Iterates ``client.receive_response()`` (which terminates after the
-    ResultMessage) and collects assistant text, tool-call traces, tool results
-    (which arrive in a following ``UserMessage`` per the Anthropic contract, or
-    embedded in an ``AssistantMessage`` when the SDK forwards them), system
-    messages, and the final ResultMessage.
-
-    Args:
-        client: An open, connected ``ClaudeSDKClient`` with a query in flight.
-        workflow: Result accumulator; a fresh instance collects one turn, a
-            reused instance accumulates across turns.
-    """
-    # ``tool_use_id`` → ``ToolTrace`` map for matching results to their calls;
-    # purely local to this drain, reset for each response stream.
-    pending_tools: dict[str, ToolTrace] = {}
-    async for message in client.receive_response():
-        _absorb_message(message, workflow, pending_tools)
 
 
 async def _send_turn(client: ClaudeSDKClient, prompt: str | Sequence[Mapping[str, Any]]) -> None:

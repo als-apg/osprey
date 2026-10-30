@@ -39,7 +39,6 @@ class _HierarchicalBase(BaseDatabase):
     hierarchy_levels: list[str]
     naming_pattern: str
     hierarchy_config: dict[str, Any]
-    default_separators: dict[tuple[str, str], str]
     channel_map: dict[str, dict]
     # Lazily created by generate_tree_preview() (see _HierarchicalPreviewMixin).
     _tree_preview_cache: dict[tuple[int, int], str]
