@@ -14,14 +14,12 @@ pending documents per call, the way a session that runs out of time does.
 
 from __future__ import annotations
 
-import os
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
 
-ENTRYPOINT = Path(__file__).resolve().parents[2] / "src/osprey/templates/services/qmd/entrypoint.sh"
+from tests.deployment._qmd_entrypoint import run_entrypoint
 
 pytestmark = pytest.mark.skipif(shutil.which("sh") is None, reason="needs sh, as the image has")
 
@@ -54,33 +52,19 @@ exit 0
 
 
 def _run_embed_pass(tmp_path: Path, *, pending: int, per_round: int, floor: int = 0):
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    stub = bin_dir / "qmd"
-    stub.write_text(_STUB)
-    stub.chmod(0o755)
     state = tmp_path / "pending"
     state.write_text(f"{pending}\n")
     calls = tmp_path / "calls"
     calls.write_text("")
 
-    lines = ENTRYPOINT.read_text().splitlines()
-    assert lines[-1] == 'main "$@"', "the entrypoint no longer ends with its main call"
-    library = tmp_path / "entrypoint-lib.sh"
-    library.write_text("\n".join(lines[:-1]) + "\n")
-
     env = {
-        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
-        "HOME": str(tmp_path),
-        "OSPREY_QMD_PORT": "1",
         "STUB_STATE": str(state),
         "STUB_CALLS": str(calls),
         "STUB_PER_ROUND": str(per_round),
         "STUB_FLOOR": str(floor),
     }
-    script = f'. "{library}"; embed_until_done; echo "PENDING=$EMBED_PENDING"'
-    result = subprocess.run(
-        ["sh", "-c", script], env=env, capture_output=True, text=True, timeout=60
+    result = run_entrypoint(
+        tmp_path, stub=_STUB, script='embed_until_done; echo "PENDING=$EMBED_PENDING"', env=env
     )
     return result, len(calls.read_text().split())
 

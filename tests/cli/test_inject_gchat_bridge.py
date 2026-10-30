@@ -70,15 +70,13 @@ def _write_config(project_path: Path, *, deployed: list[str] | None = None) -> N
         "services": {"postgresql": {}},
         "system": {"timezone": "UTC"},
     }
-    with open(project_path / "config.yml", "w") as fh:
-        yaml_rt.dump(config, fh)
+    yaml_rt.dump(config, project_path / "config.yml")
 
 
 def _read_config(project_path: Path) -> dict:
     """Reload config.yml as a plain dict."""
     yaml_rt = YAML()
-    with open(project_path / "config.yml") as fh:
-        return yaml_rt.load(fh)
+    return yaml_rt.load(project_path / "config.yml")
 
 
 def _render_bridge_compose(project_path: Path) -> str:

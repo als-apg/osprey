@@ -393,12 +393,20 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     # images first guarantees the worker bakes the mutation above. Ignore failure
     # if an image is absent.
     project = resolve_project_name({"project_name": PROJECT_NAME})
-    subprocess.run(["docker", "rmi", "-f", f"{project}:local"], capture_output=True, text=True)
     subprocess.run(
-        ["docker", "rmi", "-f", f"{project}-dispatch:local"], capture_output=True, text=True
+        ["docker", "rmi", "-f", f"{project}:local"], capture_output=True, text=True, timeout=120
     )
     subprocess.run(
-        ["docker", "rmi", "-f", f"{WORKER_TIER_PROJECT}:local"], capture_output=True, text=True
+        ["docker", "rmi", "-f", f"{project}-dispatch:local"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    subprocess.run(
+        ["docker", "rmi", "-f", f"{WORKER_TIER_PROJECT}:local"],
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
 
     # Drop any stale project volumes so the fresh deploy repopulates the worker
@@ -712,12 +720,14 @@ def _diagnostics(dispatch_id: str, run: dict, record: dict, artifact_body: str) 
         ["docker", "exec", WORKER_CONTAINER, "ls", "-la", f"{WORKER_RENDER_DIR}/.claude/skills"],
         capture_output=True,
         text=True,
+        timeout=60,
     )
     lines.append(f"skills dir:\n{skills.stdout or skills.stderr}")
     md = subprocess.run(
         ["docker", "exec", WORKER_CONTAINER, "sh", "-c", f"find {WORKER_ARTIFACT_DIR} -type f"],
         capture_output=True,
         text=True,
+        timeout=60,
     )
     lines.append(f"artifact files:\n{md.stdout or md.stderr}")
     lines.append(f"worker logs for run:\n{_worker_logs_for(run_id)}")

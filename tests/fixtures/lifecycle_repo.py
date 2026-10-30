@@ -93,6 +93,7 @@ import re
 import subprocess
 from collections.abc import Callable, Mapping
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -3222,12 +3223,8 @@ def preserved_environ():
     all. Wrap every in-process ``osprey build`` (or config load) of a repo that
     carries a ``.env`` in this guard.
     """
-    snapshot = os.environ.copy()
-    try:
+    with patch.dict(os.environ):
         yield
-    finally:
-        os.environ.clear()
-        os.environ.update(snapshot)
 
 
 def build_exemplar_repo(
@@ -3313,6 +3310,7 @@ def _git_init(root: Path) -> None:
             env=env,
             check=True,
             capture_output=True,
+            timeout=60,
         )
 
     run("init", "--quiet", "--initial-branch", "main")

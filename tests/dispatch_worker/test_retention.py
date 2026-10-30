@@ -27,13 +27,13 @@ _NOW = 1_000_000_000.0  # fixed reference epoch for every age computation
 def _save_artifact(store: ArtifactStore, title: str, *, run_id: str = "") -> str:
     """Save a trivial artifact; return its id. run_id tags the created-by run."""
     import os
+    from unittest.mock import patch
 
-    prev = os.environ.get("OSPREY_DISPATCH_RUN_ID")
-    if run_id:
-        os.environ["OSPREY_DISPATCH_RUN_ID"] = run_id
-    else:
-        os.environ.pop("OSPREY_DISPATCH_RUN_ID", None)
-    try:
+    with patch.dict(os.environ):
+        if run_id:
+            os.environ["OSPREY_DISPATCH_RUN_ID"] = run_id
+        else:
+            os.environ.pop("OSPREY_DISPATCH_RUN_ID", None)
         entry = store.save_file(
             file_content=b"x",
             filename="a.txt",
@@ -42,11 +42,6 @@ def _save_artifact(store: ArtifactStore, title: str, *, run_id: str = "") -> str
             mime_type="text/plain",
             tool_source="test",
         )
-    finally:
-        if prev is None:
-            os.environ.pop("OSPREY_DISPATCH_RUN_ID", None)
-        else:
-            os.environ["OSPREY_DISPATCH_RUN_ID"] = prev
     return entry.id
 
 

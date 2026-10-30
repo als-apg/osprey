@@ -121,6 +121,7 @@ def _run(hook_name, tool, env):
         capture_output=True,
         text=True,
         env=env,
+        timeout=120,
     )
 
 

@@ -57,7 +57,7 @@ INVOCATION_SURFACES = (
 
 def _git(*args: str) -> str:
     return subprocess.run(
-        ["git", *args], cwd=REPO_ROOT, capture_output=True, text=True, check=True
+        ["git", *args], cwd=REPO_ROOT, capture_output=True, text=True, check=True, timeout=60
     ).stdout
 
 
@@ -107,6 +107,7 @@ def _ruff_selection() -> set[str]:
         capture_output=True,
         text=True,
         check=True,
+        timeout=120,
     ).stdout
     return {Path(line).resolve().relative_to(REPO_ROOT).as_posix() for line in out.splitlines()}
 
@@ -165,6 +166,7 @@ def test_ruff_discovers_no_file_git_ignores() -> None:
         input="\n".join(candidates),
         capture_output=True,
         text=True,
+        timeout=60,
     ).stdout.split()
     assert not ignored, f"ruff check . lints files git ignores: {ignored}"
 
@@ -258,6 +260,7 @@ def _reported(text: str, path: str) -> list[str]:
         input=text,
         capture_output=True,
         text=True,
+        timeout=120,
     ).stdout
     return sorted(diagnostic["code"] for diagnostic in json.loads(out))
 

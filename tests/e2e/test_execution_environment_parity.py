@@ -526,7 +526,7 @@ def built_image(built_render):
         )
         yield tag
     finally:
-        subprocess.run(["docker", "rmi", "-f", tag], capture_output=True)
+        subprocess.run(["docker", "rmi", "-f", tag], capture_output=True, timeout=120)
         for artifact in staged:
             # Staged dev artifacts must not outlive the build that needed them:
             # a leftover wheel would silently reinstall osprey in any later

@@ -46,9 +46,7 @@ Advisory CI lane (see ci.yml's ``bluesky-catalog-e2e`` job); run locally with
 
 from __future__ import annotations
 
-import os
 import shutil
-import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -312,15 +310,8 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
 
     # Force a fresh --dev build so the deployed bridge runs CURRENT source
     # (osprey up does not pass --build to compose, so it would otherwise
-    # reuse a stale cached image). Exact-named image only.
-    # E2E_REUSE_IMAGES=1 skips this for fast local iteration once the image
-    # cache is warm; never set it in CI.
-    if not os.environ.get("E2E_REUSE_IMAGES"):
-        subprocess.run(
-            ["docker", "rmi", "-f", _orm_stack.bridge_image(PROJECT_NAME)],
-            capture_output=True,
-            text=True,
-        )
+    # reuse a stale cached image).
+    _orm_stack.force_image_rebuild(_orm_stack.bridge_image(PROJECT_NAME))
 
     try:
         up = run_command(

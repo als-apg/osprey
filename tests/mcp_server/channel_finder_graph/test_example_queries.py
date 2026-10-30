@@ -59,6 +59,7 @@ def _run_probe(source: str) -> subprocess.CompletedProcess:
         capture_output=True,
         text=True,
         env=env,
+        timeout=120,
     )
 
 

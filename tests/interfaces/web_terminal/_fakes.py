@@ -44,6 +44,7 @@ from claude_agent_sdk import (
 
 from osprey.interfaces.web_terminal.operator_session import OperatorSession
 from osprey.interfaces.web_terminal.process_tree import ProcessTableUnreadable
+from tests._live import async_wait_until
 
 
 class FakePtySession:
@@ -252,11 +253,7 @@ async def created_first(created: list, timeout: float = 1.0) -> None:
     Waiting on the session's own ``started`` event rather than a sleep keeps a
     race against a creation in flight deterministic.
     """
-    deadline = time.monotonic() + timeout
-    while not created:
-        if time.monotonic() > deadline:  # pragma: no cover - guards a hang
-            raise AssertionError("factory never ran")
-        await asyncio.sleep(0)
+    await async_wait_until(lambda: created, timeout=timeout, interval=0, what="the factory to run")
     await asyncio.wait_for(created[0].started.wait(), timeout=timeout)
 
 

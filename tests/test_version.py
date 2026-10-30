@@ -38,7 +38,7 @@ def git_is_the_only_answer(monkeypatch):
 
 
 def _git(*args, cwd):
-    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, timeout=60)
 
 
 def _make_repo(path, tag, extra_commits=0):
@@ -164,6 +164,7 @@ class TestResolutionChain:
             capture_output=True,
             text=True,
             check=True,
+            timeout=60,
         ).stdout.split()
         missing = set(printed) - version_module._GIT_REPOSITORY_ENV
         assert not missing, f"git names repository-local variables the probe keeps: {missing}"
@@ -311,6 +312,7 @@ class TestLiveCheckout:
             capture_output=True,
             text=True,
             check=False,
+            timeout=60,
         )
         if described.returncode != 0:
             pytest.skip("no reachable v* tag in this checkout")

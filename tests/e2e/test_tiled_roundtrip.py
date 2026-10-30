@@ -59,7 +59,6 @@ safety/acceptance proof is never swept into lenient reruns).
 
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 import time
@@ -254,12 +253,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
 
     # Force a fresh --dev build so the deployed bridge container runs CURRENT
     # source (osprey up does not pass --build to compose, so it would
-    # otherwise reuse a stale cached image). Exact-named images only.
-    # E2E_REUSE_IMAGES=1 skips this (dev-only fast local iteration on the
-    # test itself when the osprey source is unchanged; never set in CI).
-    if not os.environ.get("E2E_REUSE_IMAGES"):
-        for image in (BRIDGE_IMAGE, VA_IMAGE):
-            subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
+    # otherwise reuse a stale cached image).
+    _orm_stack.force_image_rebuild(BRIDGE_IMAGE, VA_IMAGE)
 
     try:
         up = run_command(

@@ -27,6 +27,7 @@ from osprey.interfaces.web_terminal.session_handoff import (
     HandoffRefused,
 )
 from osprey.interfaces.web_terminal.turn_state import IDLE
+from tests._processes import kill_quietly, pid_gone, wait_gone
 from tests.interfaces.web_terminal._handoff_harness import (
     KEY,
     acquire,
@@ -39,11 +40,8 @@ from tests.interfaces.web_terminal._handoff_harness import (
 )
 from tests.interfaces.web_terminal._pty_child import (
     detaching_child_script,
-    kill_quietly,
-    pid_gone,
     sleeper_script,
     wait_for_pids,
-    wait_gone,
 )
 
 pytestmark = [

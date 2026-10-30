@@ -278,7 +278,7 @@ class TestProviderRegistry:
             " [m for m in sys.modules if m.startswith('osprey.models.providers.')])\n"
         )
         result = subprocess.run(
-            [sys.executable, "-c", code], capture_output=True, text=True, check=True
+            [sys.executable, "-c", code], capture_output=True, text=True, check=True, timeout=120
         )
         assert result.stdout.strip() == "False []"
 

@@ -802,8 +802,7 @@ class TestPromptsUnclaim:
         )
         assert result.exit_code == 0, result.output
 
-        with open(project_dir / "config.yml") as f:
-            config = yaml.safe_load(f)
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
         user_owned = config.get("scaffold", {}).get("user_owned", [])
         assert "rules/safety" not in user_owned
 
@@ -1063,6 +1062,7 @@ def test_main_cli_lists_scaffold_not_prompts():
         capture_output=True,
         text=True,
         check=True,
+        timeout=120,
     )
     assert "scaffold" in result.stdout
     # The old name must not appear as a command — match only at line start with

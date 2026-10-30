@@ -95,7 +95,9 @@ def test_import_is_clean_of_heavy_control_system_deps() -> None:
         f"leaked=[m for m in {_HEAVY_MODULES!r} if m in sys.modules]; "
         "sys.exit('leaked: ' + ','.join(leaked) if leaked else 0)"
     )
-    result = subprocess.run([sys.executable, "-c", check], capture_output=True, text=True)
+    result = subprocess.run(
+        [sys.executable, "-c", check], capture_output=True, text=True, timeout=120
+    )
     assert result.returncode == 0, (
         "osprey.interfaces.bluesky_web.app must not import a heavy control-system "
         f"dependency at module scope: {result.stdout}{result.stderr}"

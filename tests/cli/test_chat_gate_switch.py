@@ -50,9 +50,6 @@ class Handoff:
     reporter: object
 
 
-pytestmark = pytest.mark.usefixtures("restore_process_state")
-
-
 @pytest.fixture(autouse=True)
 def _no_managed_policy(monkeypatch: pytest.MonkeyPatch):
     """Pin the policy read to an empty policy.

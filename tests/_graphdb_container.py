@@ -48,6 +48,7 @@ from __future__ import annotations
 import io
 import logging
 import os
+import shutil
 import tarfile
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
@@ -136,7 +137,7 @@ def _fetch_n10s_jar(dest_dir: Path) -> None:
         source = Path(override).expanduser()
         if not source.is_file():
             pytest.skip(f"{N10S_JAR_ENV} points at {source}, which is not a file")
-        target.write_bytes(source.read_bytes())
+        shutil.copyfile(source, target)
         logger.info(f"n10s jar taken from {N10S_JAR_ENV}={source}")
         return
 

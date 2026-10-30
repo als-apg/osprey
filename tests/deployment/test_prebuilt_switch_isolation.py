@@ -10,6 +10,7 @@ below is about what a test actually sees on a shell that exported it.
 from __future__ import annotations
 
 import os
+from unittest.mock import patch
 
 import pytest
 
@@ -20,21 +21,14 @@ from osprey.deployment import container_lifecycle
 def the_switch_is_exported_for_this_module():
     """Put ``OSPREY_PREBUILT_IMAGES`` in the environment the way an operator does.
 
-    Written straight to ``os.environ`` at module scope rather than through
-    ``monkeypatch``: the switch has to be there before the suite-wide clear
-    runs, and a clear with nothing to remove proves nothing. Whatever was
-    there before is restored when the module is done, so no other module sees
-    the export.
+    Written with ``patch.dict`` at module scope rather than through the
+    function-scoped ``monkeypatch``: the switch has to be there before the
+    suite-wide clear runs, and a clear with nothing to remove proves nothing.
+    Whatever was there before is restored when the module is done, so no other
+    module sees the export.
     """
-    before = os.environ.get("OSPREY_PREBUILT_IMAGES")
-    os.environ["OSPREY_PREBUILT_IMAGES"] = "1"
-    try:
+    with patch.dict(os.environ, {"OSPREY_PREBUILT_IMAGES": "1"}):
         yield
-    finally:
-        if before is None:
-            os.environ.pop("OSPREY_PREBUILT_IMAGES", None)
-        else:
-            os.environ["OSPREY_PREBUILT_IMAGES"] = before
 
 
 def test_a_deployment_test_sees_no_prebuilt_switch_in_its_environment():

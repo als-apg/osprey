@@ -23,6 +23,7 @@ from osprey.deployment.subprocess_capture import (
     run_captured,
 )
 from tests._container_support import wait_until_ready
+from tests._live import wait_until
 from tests._processes import pid_alive
 
 
@@ -547,12 +548,12 @@ def _spawner(pid_file: Path) -> list[str]:
 
 
 def _wait_for_file(path: Path, timeout: float = 10.0) -> None:
-    import time
-
-    deadline = time.monotonic() + timeout
-    while not (path.exists() and path.read_text()):
-        assert time.monotonic() < deadline, f"{path} never written"
-        time.sleep(0.02)
+    wait_until(
+        lambda: path.exists() and path.read_text(),
+        timeout=timeout,
+        interval=0.02,
+        what=f"a write to {path}",
+    )
 
 
 @pytest.mark.real_bounded_run

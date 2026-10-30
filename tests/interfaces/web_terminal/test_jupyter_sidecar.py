@@ -8,6 +8,7 @@ survives ``stop()`` or a dead parent.
 
 from __future__ import annotations
 
+import contextlib
 import http.server
 import json
 import logging
@@ -36,7 +37,7 @@ from osprey.interfaces.web_terminal.jupyter_sidecar import (
 )
 from osprey.mcp_server.python_executor.executor import resolve_agent_interpreter
 from tests._live import wait_until
-from tests._processes import pid_alive
+from tests._processes import kill_quietly, pid_alive, pid_gone
 
 READY_TIMEOUT = 90.0
 
@@ -103,15 +104,6 @@ def _get_no_redirect(url: str, headers: dict[str, str] | None = None) -> tuple[i
             return int(response.status), response.headers.get("Location", "")
     except urllib.error.HTTPError as exc:
         return int(exc.code), exc.headers.get("Location", "")
-
-
-def _wait_gone(pid: int, timeout: float) -> bool:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if not pid_alive(pid):
-            return True
-        time.sleep(0.1)
-    return not pid_alive(pid)
 
 
 # ---------------------------------------------------------------------------
@@ -328,16 +320,18 @@ def test_the_sidecar_exits_when_its_parent_is_killed(shared_root: Path, tmp_path
         sidecar_pid = int(line)
         assert pid_alive(sidecar_pid)
 
-        os.kill(parent.pid, signal.SIGKILL)
+        parent.kill()
         parent.wait(10)
 
-        assert _wait_gone(sidecar_pid, 5.0), "the sidecar outlived its parent"
+        # Exited is enough: whoever the orphan was reparented to reaps it.
+        assert pid_gone(sidecar_pid, within=5.0), "the sidecar outlived its parent"
     finally:
         if parent.poll() is None:
             parent.kill()
-            parent.wait()
-        if sidecar_pid is not None and pid_alive(sidecar_pid):
-            os.killpg(sidecar_pid, signal.SIGKILL)
+            parent.wait(10)
+        if sidecar_pid is not None:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(sidecar_pid, signal.SIGKILL)
 
 
 # ---------------------------------------------------------------------------
@@ -675,9 +669,9 @@ def test_stop_reports_no_exit_and_fires_no_callback(
 #: kernel inherits it, then idles until it is signalled. The child's pid is
 #: published with a rename, so the file never exists without its content.
 _ORPHAN_SCRIPT = (
-    "import os, subprocess, sys, time\n"
+    "import os, pathlib, subprocess, sys, time\n"
     "child = subprocess.Popen(['sleep', '3600'], start_new_session=True)\n"
-    "open(sys.argv[1] + '.tmp', 'w').write(str(child.pid))\n"
+    "pathlib.Path(sys.argv[1] + '.tmp').write_text(str(child.pid))\n"
     "os.replace(sys.argv[1] + '.tmp', sys.argv[1])\n"
     "time.sleep(3600)\n"
 )
@@ -717,8 +711,8 @@ def test_stop_returns_while_an_orphan_still_holds_the_stderr_pipe(
         # the reap reaches it: it is killed here whichever assertion failed.
         if orphan is None and pid_file.exists():
             orphan = int(pid_file.read_text())
-        if orphan is not None and pid_alive(orphan):
-            os.kill(orphan, signal.SIGKILL)
+        if orphan is not None:
+            kill_quietly([orphan])
         sidecar.stop()
 
 

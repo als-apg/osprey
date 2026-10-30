@@ -311,5 +311,6 @@ def test_module_import_stays_lazy() -> None:
         capture_output=True,
         text=True,
         check=True,
+        timeout=120,
     )
     assert out.stdout.strip() == "", f"eagerly imported: {out.stdout.strip()}"

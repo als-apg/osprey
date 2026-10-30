@@ -116,15 +116,15 @@ async def test_a_saturated_pool_refuses_at_once():
     finally:
         release.set()
 
-    deadline = time.monotonic() + 10.0
-    while True:
+    async def _answers() -> bool:
         try:
-            assert await run_search_call(lambda: 1, timeout_s=5.0) == 1
-            break
+            return await run_search_call(lambda: 1, timeout_s=5.0) == 1
         except TimeoutError:
-            if time.monotonic() > deadline:
-                pytest.fail("the pool did not recover after its calls returned")
-            await asyncio.sleep(0.01)
+            return False
+
+    await async_wait_until(
+        _answers, timeout=10.0, interval=0.01, what="the pool recovering after its calls returned"
+    )
     assert counted == 0
 
 
@@ -142,16 +142,16 @@ async def test_a_forked_child_gets_its_own_pool():
         finally:
             os._exit(code)
 
-    deadline = time.monotonic() + 10.0
-    while True:
+    def _reaped() -> tuple[int, int] | None:
         done, status = os.waitpid(pid, os.WNOHANG)
-        if done:
-            break
-        if time.monotonic() > deadline:
-            os.kill(pid, 9)
-            os.waitpid(pid, 0)
-            pytest.fail("the forked child did not exit")
-        await asyncio.sleep(0.05)
+        return (done, status) if done else None
+
+    try:
+        _, status = await async_wait_until(_reaped, timeout=10.0, what="the forked child exiting")
+    except AssertionError:
+        os.kill(pid, 9)
+        os.waitpid(pid, 0)
+        raise
     assert os.waitstatus_to_exitcode(status) == 0
 
 

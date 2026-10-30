@@ -8,14 +8,12 @@ collection clients ask for, and it must not be empty.
 
 from __future__ import annotations
 
-import os
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
 
-ENTRYPOINT = Path(__file__).resolve().parents[2] / "src/osprey/templates/services/qmd/entrypoint.sh"
+from tests.deployment._qmd_entrypoint import run_entrypoint
 
 pytestmark = pytest.mark.skipif(shutil.which("sh") is None, reason="needs sh, as the image has")
 
@@ -37,10 +35,6 @@ exit 0
 
 
 def _check(tmp_path: Path, *, stamp: str | None, collection: str = "papers", docs: int = 5):
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    (bin_dir / "qmd").write_text(_STUB)
-    (bin_dir / "qmd").chmod(0o755)
     state = tmp_path / "state"
     (state / ".qmd").mkdir(parents=True)
     (state / ".qmd" / "index.sqlite").write_bytes(b"")
@@ -48,15 +42,7 @@ def _check(tmp_path: Path, *, stamp: str | None, collection: str = "papers", doc
     if stamp is not None:
         (state / ".qmd" / "osprey-embed-identity").write_text(stamp + "\n")
 
-    lines = ENTRYPOINT.read_text().splitlines()
-    assert lines[-1] == 'main "$@"', "the entrypoint no longer ends with its main call"
-    library = tmp_path / "entrypoint-lib.sh"
-    library.write_text("\n".join(lines[:-1]) + "\n")
-
     env = {
-        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
-        "HOME": str(tmp_path),
-        "OSPREY_QMD_PORT": "1",
         "OSPREY_QMD_STATE_DIR": str(state),
         "OSPREY_QMD_INDEX_MODE": "prebuilt",
         "OSPREY_QMD_CORPUS": "papers",
@@ -64,8 +50,8 @@ def _check(tmp_path: Path, *, stamp: str | None, collection: str = "papers", doc
         "STUB_COLLECTION": collection,
         "STUB_DOCS": str(docs),
     }
-    script = f'. "{library}"; prepare_state; check_prebuilt_index; echo CHECKED'
-    return subprocess.run(["sh", "-c", script], env=env, capture_output=True, text=True, timeout=60)
+    script = "prepare_state; check_prebuilt_index; echo CHECKED"
+    return run_entrypoint(tmp_path, stub=_STUB, script=script, env=env)
 
 
 def test_a_prebuilt_index_from_this_embedder_is_served(tmp_path):

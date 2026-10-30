@@ -4,7 +4,7 @@ Uses synthetic JSONL fixtures that mirror actual Claude Code transcript format.
 """
 
 import json
-import time
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -187,8 +187,11 @@ class TestFindCurrentTranscript:
         older = claude_dir / "old-session.jsonl"
         newer = claude_dir / "new-session.jsonl"
         older.write_text("{}\n")
-        time.sleep(0.05)
         newer.write_text("{}\n")
+        # Ten seconds apart, so the order does not depend on the filesystem's
+        # timestamp resolution.
+        stamp = newer.stat().st_mtime_ns - 10_000_000_000
+        os.utime(older, ns=(stamp, stamp))
 
         reader = TranscriptReader(project_dir)
         with pytest.MonkeyPatch.context() as mp:

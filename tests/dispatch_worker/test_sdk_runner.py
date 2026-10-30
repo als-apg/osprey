@@ -356,7 +356,7 @@ async def test_subagent_delegation_runs_in_the_foreground(monkeypatch):
 
     Since Claude Code CLI 2.1.x the Agent tool auto-backgrounds delegated
     subagents: the turn ends immediately and the subagent's results arrive on a
-    *later* turn as a task notification. ``_drain_response`` stops at the first
+    *later* turn as a task notification. ``receive_response()`` stops at the first
     result, so the worker would answer "the agent is searching, I'll
     notify you when it completes" and never deliver the delegated work.
 

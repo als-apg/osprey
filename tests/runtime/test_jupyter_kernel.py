@@ -58,16 +58,14 @@ KERNEL_ID = "4f1c2a7e0000400080000000000002"
 
 @pytest.fixture
 def kernel_env():
-    """This process's environment, restored whole afterwards.
+    """This process's environment, which the launcher stamps in place.
 
     The launcher stamps ``os.environ`` and nothing else: the resolvers it calls
     read the process environment, so a dict handed in would be invisible to
-    them.
+    them. The root conftest's ``restore_environ`` puts the environment back
+    after the test; the posture cache read from the stamped one is dropped here.
     """
-    saved = dict(os.environ)
     yield os.environ
-    os.environ.clear()
-    os.environ.update(saved)
     posture_store.invalidate_cache()
 
 
@@ -299,7 +297,7 @@ def test_importing_the_module_pulls_in_no_kernel_stack():
     )
 
     result = subprocess.run(
-        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True, timeout=120
     )
 
     assert result.stdout.strip() == ""

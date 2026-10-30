@@ -115,6 +115,8 @@ TARGET_SWITCH_JOB = "target-switch-e2e"
 #: second step in the one above because it needs the LLM secret and the CLI,
 #: and lane-level `if:` gating is the only granularity GitHub offers.
 TARGET_SWITCH_AGENTIC_JOB = "target-switch-agentic-e2e"
+#: Saves the qmd sidecar layer cache in main's scope; see the qmd section below.
+QMD_WARMUP_JOB = "qmd-cache-warmup"
 VA_LIVE_JOB = "va-live-e2e"
 VA_BLUESKY_JOB = "va-bluesky-deploy-e2e"
 #: The run step of each lane that executes modules from tests/va/e2e/. The
@@ -426,8 +428,7 @@ def _expand_run(run: str) -> str:
 @functools.cache
 def _raw_workflow() -> dict[str, Any]:
     """ci.yml as written, parsed once per process; read only through ``_load_raw_workflow``."""
-    with CI_YML.open() as f:
-        loaded = yaml.safe_load(f)
+    loaded = yaml.safe_load(CI_YML.read_text())
     assert loaded is not None, f"{CI_YML} parsed to None"
     return loaded
 
@@ -7208,8 +7209,7 @@ VA_TAG_SITES: dict[str, tuple[Path, Callable[[str], str]]] = {
 
 
 def _load_action_yml(path: Path) -> dict[str, Any]:
-    with path.open() as f:
-        loaded = yaml.safe_load(f)
+    loaded = yaml.safe_load(path.read_text())
     assert loaded is not None, f"{path} parsed to None"
     return loaded
 
@@ -7472,7 +7472,7 @@ def test_no_virtual_accelerator_lane_sets_up_its_own_builder(workflow: dict[str,
 
     The set is derived, so this constrains only the lanes that use this image:
     ``qmd-sidecar-e2e`` builds a different image, never calls the action and
-    keeps its own setup step.
+    gets its builder from its own shared action.
     """
     own = {}
     for name in sorted(_va_image_jobs(workflow)):
@@ -9626,7 +9626,12 @@ def _run_version_check(tmp_path: Path, version: str, files: list[str]) -> int:
         (dist / name).write_text("")
     env = {**os.environ, "VERSION": version}
     return subprocess.run(
-        ["bash", "-c", step["run"]], cwd=tmp_path, env=env, capture_output=True, text=True
+        ["bash", "-c", step["run"]],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
     ).returncode
 
 
@@ -9807,7 +9812,12 @@ def test_the_framework_version_check_refuses_a_connectors_artifact(tmp_path: Pat
 
     def run() -> int:
         return subprocess.run(
-            ["bash", "-c", step["run"]], cwd=tmp_path, env=env, capture_output=True, text=True
+            ["bash", "-c", step["run"]],
+            cwd=tmp_path,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
         ).returncode
 
     for name in (
@@ -9945,6 +9955,7 @@ def _git_in(cwd: Path, *args: str) -> str:
         capture_output=True,
         text=True,
         check=True,
+        timeout=60,
     )
     return done.stdout.strip()
 
@@ -9969,7 +9980,7 @@ def test_the_on_main_check_refuses_a_commit_main_cannot_reach(tmp_path: Path) ->
     def run(sha: str) -> subprocess.CompletedProcess[str]:
         env = {**os.environ, "TAG_SHA": sha, "TAG_NAME": "v2026.10.0"}
         return subprocess.run(
-            ["bash", "-c", script], cwd=clone, env=env, capture_output=True, text=True
+            ["bash", "-c", script], cwd=clone, env=env, capture_output=True, text=True, timeout=60
         )
 
     assert run(on_main).returncode == 0
@@ -11439,7 +11450,7 @@ def _staged_siblings(release: dict[str, Any], tmp_path: Path) -> list[str]:
         (dist / name).write_text("")
     sibling = tmp_path / "sibling"
     script = _release_staging_script(release).replace(RELEASE_SIBLING_DIR, str(sibling))
-    subprocess.run(["bash", "-euo", "pipefail", "-c", script], cwd=tmp_path, check=True)
+    subprocess.run(["bash", "-euo", "pipefail", "-c", script], cwd=tmp_path, check=True, timeout=60)
     return sorted(p.name for p in sibling.iterdir())
 
 
@@ -11920,8 +11931,7 @@ def _compat_matrix_module() -> Any:
 
 
 def _load_nightly() -> dict[str, Any]:
-    with NIGHTLY_YML.open() as f:
-        return yaml.safe_load(f)
+    return yaml.safe_load(NIGHTLY_YML.read_text())
 
 
 @pytest.fixture()
@@ -12887,6 +12897,9 @@ _GATED_LANES = [
     TARGET_SWITCH_AGENTIC_JOB,
     GRAPH_RESEED_JOB,
     RECORD_E2E_JOB,
+    # A warm-up that fails leaves every PR downloading the qmd models again;
+    # the gate on main is where that shows.
+    QMD_WARMUP_JOB,
 ]
 
 
@@ -12920,3 +12933,296 @@ def test_all_checks_passed_gates_on_lane__mutation_drops_check_pr_lane_line(job:
     assert job in _jobs(mutated)[GATE_JOB]["needs"]  # the needs entry survives
     with pytest.raises(AssertionError):
         test_all_checks_passed_gates_on_lane(mutated, job)
+
+
+# ---------------------------------------------------------------------------
+# The qmd sidecar image: one layer cache, saved in main's scope only
+# ---------------------------------------------------------------------------
+#
+# The image bakes in 2.1 GB of GGUF models fetched from huggingface.co during
+# its build, and the layer cache that holds them is 2.5 GB. A PR can restore a
+# cache saved on its own branch or on main and nowhere else, so an entry a PR
+# saves serves that PR alone and evicts the repo's smaller caches. The rule
+# pinned here: the warm-up job saves on pushes to main, every other caller of
+# the shared action restores only, and every lane that deploys the sidecar
+# starts it from the image the action built rather than building its own.
+
+QMD_IMAGE_ACTION = "./.github/actions/build-qmd-image"
+QMD_IMAGE_ACTION_YML = REPO_ROOT / ".github" / "actions" / "build-qmd-image" / "action.yml"
+QMD_WARMUP_CONDITION = "github.event_name == 'push' && github.ref == 'refs/heads/main'"
+QMD_IMAGE_ENV = "OSPREY_QMD_IMAGE"
+QMD_IMAGE_TAG = "osprey-qmd:ci"
+QMD_CACHE_DIR = "/tmp/qmd-buildx-cache"
+#: Saves either explicitly or in a post step; ``actions/cache/restore`` does neither.
+CACHE_SAVING_ACTIONS = ("actions/cache@", "actions/cache/save@")
+#: The input that turns the action's save on.
+QMD_WARM_INPUT = "warm"
+
+#: Every step that starts the qmd sidecar, by job and step name. Each deploys
+#: the control-assistant preset with qmd left in, or (qmd-sidecar-e2e) starts
+#: the sidecar directly. Kept by hand: which module's ``osprey up`` renders a
+#: qmd service is a fact about its fixture, not about the workflow.
+QMD_DEPLOYING_STEPS: dict[str, tuple[str, ...]] = {
+    "qmd-sidecar-e2e": (
+        "Run qmd sidecar E2E",
+        "Run the wall-clock budgets serially",
+        "Run the multi-user shared-bundle sidecar E2E",
+    ),
+    "jupyter-panel-e2e": ("Run notebook panel E2E",),
+    "scan-agentic-e2e": ("Run scan stack agentic E2E",),
+    "va-substrate-equivalence-e2e": ("Run VA substrate equivalence E2E",),
+    "bluesky-web-deploy-e2e": ("Run bluesky web deploy E2E",),
+    "bluesky-queue-e2e": ("Run Bluesky queue E2E",),
+    "bluesky-sandbox-escape-e2e": ("Run bluesky sandbox escape E2E",),
+    "tiled-roundtrip-e2e": ("Run Tiled roundtrip E2E",),
+    "single-user-narrowing-e2e": ("Run single-user narrowing E2E",),
+    "dispatch-overlay-e2e": ("Run dispatch overlay visibility E2E",),
+    "dispatch-deploy-e2e": ("Run dispatch deploy E2E",),
+    "orm-roundtrip-e2e": (
+        "Run ORM roundtrip E2E",
+        "Run grid scan roundtrip E2E",
+        "Run orbit bump sweep roundtrip E2E",
+        "Run preflight probe E2E",
+    ),
+}
+
+
+def _load_qmd_image_action() -> dict[str, Any]:
+    return _load_action_yml(QMD_IMAGE_ACTION_YML)
+
+
+@pytest.fixture()
+def qmd_image_action() -> dict[str, Any]:
+    return _load_qmd_image_action()
+
+
+def _qmd_action_calls(wf: dict[str, Any]) -> list[tuple[str, int, dict[str, Any]]]:
+    return [
+        (name, index, step)
+        for name, job in _jobs(wf).items()
+        for index, step in enumerate(job.get("steps", []))
+        if step.get("uses") == QMD_IMAGE_ACTION
+    ]
+
+
+def _warms(step: dict[str, Any]) -> bool:
+    return str((step.get("with") or {}).get(QMD_WARM_INPUT, "false")).lower() == "true"
+
+
+def _saving_steps_outside_the_warmup(wf: dict[str, Any]) -> list[str]:
+    """Every place in the workflow that would save a qmd layer cache, bar the warm-up's."""
+    found = [
+        f"{name}: '{step.get('name')}' calls the action with {QMD_WARM_INPUT}: true"
+        for name, _, step in _qmd_action_calls(wf)
+        if _warms(step) and name != QMD_WARMUP_JOB
+    ]
+    for name, job in _jobs(wf).items():
+        for step in job.get("steps", []):
+            uses = str(step.get("uses", ""))
+            if uses.startswith(CACHE_SAVING_ACTIONS) and "qmd" in json.dumps(step.get("with")):
+                found.append(f"{name}: '{step.get('name')}' saves a qmd cache with {uses}")
+            if "qmd" in str(step.get("run", "")) and "--cache-to" in str(step.get("run", "")):
+                found.append(f"{name}: '{step.get('name')}' exports a qmd layer cache")
+    return found
+
+
+def test_only_the_warmup_saves_the_qmd_cache(workflow: dict[str, Any]) -> None:
+    """A PR lane that saved would write a 2.5 GB entry only that PR can read,
+    which is what filled the repo's cache budget with copies of one layer set."""
+    assert _saving_steps_outside_the_warmup(workflow) == []
+
+
+def test_only_the_warmup_saves_the_qmd_cache__mutation_a_pr_lane_warms() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, "jupyter-panel-e2e", "Build the qmd sidecar image")
+    step["with"] = {QMD_WARM_INPUT: "true"}
+    assert len(_saving_steps_outside_the_warmup(mutated)) == 1
+
+
+def test_only_the_warmup_saves_the_qmd_cache__mutation_a_lane_brings_its_own_cache() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)["qmd-sidecar-e2e"]["steps"].insert(
+        0,
+        {
+            "name": "Cache the sidecar image layers",
+            "uses": "actions/cache@v6",
+            "with": {"path": QMD_CACHE_DIR, "key": "qmd-buildx-x"},
+        },
+    )
+    assert len(_saving_steps_outside_the_warmup(mutated)) == 1
+
+
+def test_only_the_warmup_saves_the_qmd_cache__mutation_a_lane_exports_layers() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(
+        mutated, "qmd-sidecar-e2e", "Build the sidecar image with the model fetches skipped"
+    )
+    step["run"] += f"  --cache-to type=local,dest={QMD_CACHE_DIR}-new,mode=max\n"
+    assert len(_saving_steps_outside_the_warmup(mutated)) == 1
+
+
+def _unguarded_saves(action: dict[str, Any]) -> list[str]:
+    """Steps of the action that save or export a cache without requiring warm mode."""
+    guard = f"inputs.{QMD_WARM_INPUT} == 'true'"
+    found = []
+    for step in action["runs"]["steps"]:
+        uses = str(step.get("uses", ""))
+        saves = uses.startswith(CACHE_SAVING_ACTIONS) or "--cache-to" in str(step.get("run", ""))
+        if saves and guard not in str(step.get("if", "")):
+            found.append(str(step.get("name")))
+        if uses.startswith("actions/cache@"):
+            found.append(f"{step.get('name')} (actions/cache saves in its post step)")
+    return found
+
+
+def test_the_action_saves_only_in_warm_mode(qmd_image_action: dict[str, Any]) -> None:
+    """The default call restores and builds; nothing it runs can write a cache."""
+    assert _unguarded_saves(qmd_image_action) == []
+
+
+def test_the_action_saves_only_in_warm_mode__mutation_drops_the_save_guard() -> None:
+    mutated = copy.deepcopy(_load_qmd_image_action())
+    save = next(s for s in mutated["runs"]["steps"] if "cache/save@" in str(s.get("uses", "")))
+    del save["if"]
+    assert _unguarded_saves(mutated) == [save["name"]]
+
+
+def test_the_action_saves_only_in_warm_mode__mutation_restores_with_the_saving_action() -> None:
+    mutated = copy.deepcopy(_load_qmd_image_action())
+    restore = next(s for s in mutated["runs"]["steps"] if s.get("id") == "restore")
+    restore["uses"] = "actions/cache@v6"
+    assert len(_unguarded_saves(mutated)) == 2
+
+
+def test_the_action_keeps_the_key_guards(qmd_image_action: dict[str, Any]) -> None:
+    """The default shell sets no `pipefail`: a grep that matched nothing would
+    key every pin set on the digest of the empty string. `-eq 3` fails loudly
+    if the pin labels are renamed instead of keying on a partial match."""
+    key = next(s for s in qmd_image_action["runs"]["steps"] if s.get("id") == "key")
+    lines = _uncommented_lines(key["run"])
+    assert lines[0] == "set -euo pipefail"
+    assert any("-eq 3" in line and "wc -l" in line for line in lines)
+
+
+def test_the_action_keeps_the_key_guards__mutation_drops_pipefail() -> None:
+    mutated = copy.deepcopy(_load_qmd_image_action())
+    key = next(s for s in mutated["runs"]["steps"] if s.get("id") == "key")
+    key["run"] = key["run"].replace("set -euo pipefail\n", "", 1)
+    with pytest.raises(AssertionError):
+        test_the_action_keeps_the_key_guards(mutated)
+
+
+def test_the_action_keeps_the_key_guards__mutation_drops_the_count() -> None:
+    mutated = copy.deepcopy(_load_qmd_image_action())
+    key = next(s for s in mutated["runs"]["steps"] if s.get("id") == "key")
+    key["run"] = "\n".join(line for line in key["run"].splitlines() if "-eq 3" not in line)
+    with pytest.raises(AssertionError):
+        test_the_action_keeps_the_key_guards(mutated)
+
+
+def _warmup_problems(wf: dict[str, Any]) -> list[str]:
+    job = _jobs(wf)[QMD_WARMUP_JOB]
+    problems = []
+    if job.get("if") != QMD_WARMUP_CONDITION:
+        problems.append(f"if: {job.get('if')!r}, expected {QMD_WARMUP_CONDITION!r}")
+    calls = [step for name, _, step in _qmd_action_calls(wf) if name == QMD_WARMUP_JOB]
+    if len(calls) != 1 or not _warms(calls[0]):
+        problems.append(f"expected one call of {QMD_IMAGE_ACTION} with {QMD_WARM_INPUT}: true")
+    return problems
+
+
+def test_the_warmup_runs_only_on_pushes_to_main(workflow: dict[str, Any]) -> None:
+    """Only a save on main is readable by every PR. A warm-up that also ran on
+    PRs would be the per-PR save this job exists to replace."""
+    assert _warmup_problems(workflow) == []
+
+
+def test_the_warmup_runs_only_on_pushes_to_main__mutation_also_runs_on_prs() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[QMD_WARMUP_JOB]["if"] = (
+        f"{QMD_WARMUP_CONDITION} || github.event_name == 'pull_request'"
+    )
+    assert len(_warmup_problems(mutated)) == 1
+
+
+def test_the_warmup_runs_only_on_pushes_to_main__mutation_any_branch_push() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[QMD_WARMUP_JOB]["if"] = "github.event_name == 'push'"
+    assert len(_warmup_problems(mutated)) == 1
+
+
+def test_the_warmup_runs_only_on_pushes_to_main__mutation_forgets_warm_mode() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _find_named_step(mutated, QMD_WARMUP_JOB, "Warm the qmd layer cache").pop("with")
+    assert len(_warmup_problems(mutated)) == 1
+
+
+def _qmd_deploy_problems(wf: dict[str, Any]) -> list[str]:
+    """Every listed step runs after one restore-only build and starts that image."""
+    problems = []
+    callers = {name for name, _, _ in _qmd_action_calls(wf)} - {QMD_WARMUP_JOB}
+    for name in sorted(callers - set(QMD_DEPLOYING_STEPS)):
+        problems.append(f"{name}: builds the qmd image but no step here is listed as using it")
+    for name, step_names in QMD_DEPLOYING_STEPS.items():
+        calls = [index for job, index, _ in _qmd_action_calls(wf) if job == name]
+        if len(calls) != 1:
+            problems.append(f"{name}: calls {QMD_IMAGE_ACTION} {len(calls)} times, expected 1")
+            continue
+        steps = _jobs(wf)[name]["steps"]
+        for step_name in step_names:
+            index = next((i for i, s in enumerate(steps) if s.get("name") == step_name), None)
+            if index is None:
+                problems.append(f"{name}: no step named '{step_name}'")
+                continue
+            if index < calls[0]:
+                problems.append(f"{name}: '{step_name}' runs before the image is built")
+            image = (steps[index].get("env") or {}).get(QMD_IMAGE_ENV)
+            if image != QMD_IMAGE_TAG:
+                problems.append(f"{name}: '{step_name}' sets {QMD_IMAGE_ENV}={image!r}")
+    return problems
+
+
+def test_every_qmd_deploying_step_starts_the_shared_image(workflow: dict[str, Any]) -> None:
+    """Without the variable `osprey up` builds `<project>-qmd:local` itself,
+    fetching the models from huggingface.co with no cache at all; with it but
+    no build first, the start fails on an image that does not exist."""
+    assert _qmd_deploy_problems(workflow) == []
+
+
+def test_every_qmd_deploying_step_starts_the_shared_image__mutation_drops_the_variable() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _find_named_step(mutated, "jupyter-panel-e2e", "Run notebook panel E2E")["env"][
+        QMD_IMAGE_ENV
+    ]
+    assert _qmd_deploy_problems(mutated) == [
+        f"jupyter-panel-e2e: 'Run notebook panel E2E' sets {QMD_IMAGE_ENV}=None"
+    ]
+
+
+def test_every_qmd_deploying_step_starts_the_shared_image__mutation_drops_the_build() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)["tiled-roundtrip-e2e"]["steps"]
+    steps.remove(_find_named_step(mutated, "tiled-roundtrip-e2e", "Build the qmd sidecar image"))
+    assert _qmd_deploy_problems(mutated) == [
+        f"tiled-roundtrip-e2e: calls {QMD_IMAGE_ACTION} 0 times, expected 1"
+    ]
+
+
+def test_every_qmd_deploying_step_starts_the_shared_image__mutation_builds_too_late() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)["orm-roundtrip-e2e"]["steps"]
+    build = _find_named_step(mutated, "orm-roundtrip-e2e", "Build the qmd sidecar image")
+    steps.remove(build)
+    steps.insert(
+        steps.index(_find_named_step(mutated, "orm-roundtrip-e2e", "Run preflight probe E2E")),
+        build,
+    )
+    assert len(_qmd_deploy_problems(mutated)) == 3
+
+
+def test_every_qmd_deploying_step_starts_the_shared_image__mutation_unlisted_caller() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)["lint"]["steps"].append({"name": "x", "uses": QMD_IMAGE_ACTION})
+    assert _qmd_deploy_problems(mutated) == [
+        "lint: builds the qmd image but no step here is listed as using it"
+    ]

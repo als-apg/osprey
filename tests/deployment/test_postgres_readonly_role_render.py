@@ -149,7 +149,7 @@ def _write_script(tmp_path, **postgresql_block: object):
 
 def test_the_rendered_script_is_valid_shell(tmp_path):
     script = _write_script(tmp_path)
-    assert subprocess.run(["bash", "-n", str(script)]).returncode == 0
+    assert subprocess.run(["bash", "-n", str(script)], timeout=60).returncode == 0
 
 
 def test_sourcing_it_leaves_the_callers_shell_options_alone(tmp_path):
@@ -169,6 +169,7 @@ def test_sourcing_it_leaves_the_callers_shell_options_alone(tmp_path):
         },
         capture_output=True,
         text=True,
+        timeout=60,
     )
 
     assert probe.returncode == 0, probe.stderr

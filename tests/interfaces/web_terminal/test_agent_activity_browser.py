@@ -52,6 +52,7 @@ import os
 import re
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 import requests
@@ -401,37 +402,27 @@ def _plan_panel_stack(tmp_path: Path) -> Iterator[str]:
     from osprey.services.bluesky_bridge import plan_loader
     from osprey.services.bluesky_bridge.app import app as bridge_app
 
-    managed = [
-        "BLUESKY_SESSION_PLAN_DIR",
-        "BLUESKY_PLAN_DIRS",
-        "BLUESKY_PLAN_MODULE",
-        "BLUESKY_BRIDGE_URL",
-        "OSPREY_CONFIG",
-    ]
-    saved = {k: os.environ.get(k) for k in managed}
+    plan_env = {
+        "BLUESKY_SESSION_PLAN_DIR": str(tmp_path / "plans_session"),
+        "OSPREY_CONFIG": str(tmp_path / "does-not-exist.yml"),
+    }
     try:
-        os.environ["BLUESKY_SESSION_PLAN_DIR"] = str(tmp_path / "plans_session")
-        os.environ["OSPREY_CONFIG"] = str(tmp_path / "does-not-exist.yml")
-        os.environ.pop("BLUESKY_PLAN_DIRS", None)
-        os.environ.pop("BLUESKY_PLAN_MODULE", None)
-        plan_loader.reset_facility_plans()
-        bridge_draft._clear()
+        with patch.dict(os.environ, plan_env):
+            os.environ.pop("BLUESKY_PLAN_DIRS", None)
+            os.environ.pop("BLUESKY_PLAN_MODULE", None)
+            plan_loader.reset_facility_plans()
+            bridge_draft._clear()
 
-        with run_app_server(bridge_app) as bridge_url:
-            os.environ["BLUESKY_BRIDGE_URL"] = bridge_url
-            # `sidecar_app` is a module-level singleton, so its cached
-            # credential holder goes stale the moment the root conftest
-            # resets the process one; without this the browser's minted
-            # session cookie is refused and /bluesky/ never renders.
-            use_process_web_credentials(sidecar_app)
-            with run_app_server(sidecar_app) as sidecar_url:
-                yield sidecar_url
+            with run_app_server(bridge_app) as bridge_url:
+                os.environ["BLUESKY_BRIDGE_URL"] = bridge_url
+                # `sidecar_app` is a module-level singleton, so its cached
+                # credential holder goes stale the moment the root conftest
+                # resets the process one; without this the browser's minted
+                # session cookie is refused and /bluesky/ never renders.
+                use_process_web_credentials(sidecar_app)
+                with run_app_server(sidecar_app) as sidecar_url:
+                    yield sidecar_url
     finally:
-        for k, v in saved.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
         plan_loader.reset_facility_plans()
         bridge_draft._clear()
 

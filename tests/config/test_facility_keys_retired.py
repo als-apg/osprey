@@ -84,8 +84,9 @@ def _rendered_dispatcher_name(tmp_path: Path, *, identity: dict | None, project_
     project_path.mkdir()
     profile_dir = tmp_path / "profile"
     profile_dir.mkdir()
-    with open(project_path / "config.yml", "w") as fh:
-        YAML().dump({"project_name": project_name, "deployed_services": []}, fh)
+    YAML().dump(
+        {"project_name": project_name, "deployed_services": []}, project_path / "config.yml"
+    )
     if identity is not None:
         document = {"schema": FACILITY_HEADER, "identity": identity}
         (project_path / "facility.json").write_text(json.dumps(document), encoding="utf-8")
@@ -96,8 +97,7 @@ def _rendered_dispatcher_name(tmp_path: Path, *, identity: dict | None, project_
         project_path=project_path,
     )
 
-    with open(project_path / "config.yml") as fh:
-        config = YAML().load(fh)
+    config = YAML().load(project_path / "config.yml")
     return config["services"]["event_dispatcher"]["facility_name"]
 
 
