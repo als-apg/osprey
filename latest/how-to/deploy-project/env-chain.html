@@ -425,10 +425,8 @@
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/read-the-record.html">Read the Record</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/reconstruct-session.html">Reconstruct a Session</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -646,10 +644,9 @@ the rename has happened. Do it yourself in that case:</p>
 service tokens and passwords (for example <code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code> or
 <code class="docutils literal notranslate"><span class="pre">ARIEL_DB_PASSWORD</span></code>) so no service ever starts on a blank or publicly-known
 credential, appends them under a “Minted by deploy” heading, and restricts the
-file to owner-only permissions. The telemetry store’s accounts are the
-exception: each has its own <code class="docutils literal notranslate"><span class="pre">.env.telemetry-&lt;account&gt;</span></code> file at the repo root,
-mode 0600, outside the env chain, so a container is handed only the accounts
-it acts as.
+file to owner-only permissions. The agent record’s logins are the exception:
+each has its own <code class="docutils literal notranslate"><span class="pre">.env.agent-record.*</span></code> file at the repo root, mode 0600,
+outside the env chain, so a container is handed only the login it acts as.
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes nothing into <code class="docutils literal notranslate"><span class="pre">.env</span></code>: the virtual accelerator reads
 the simulator view the build renders under <code class="docutils literal notranslate"><span class="pre">build/data/simulator/</span></code>.</p>
 <p>The deploy’s write is append-only, and a value already on file always wins. A

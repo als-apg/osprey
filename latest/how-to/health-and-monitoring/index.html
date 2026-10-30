@@ -425,10 +425,8 @@
 </details></li>
 <li class="toctree-l1 current active has-children"><a class="current reference internal" href="#">Health and Monitoring</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="configure-health-checks.html">Configure Health Checks</a></li>
-<li class="toctree-l2"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="agent-record.html">Keep the Agent Record</a></li>
 <li class="toctree-l2"><a class="reference internal" href="read-the-record.html">Read the Record</a></li>
-<li class="toctree-l2"><a class="reference internal" href="reconstruct-session.html">Reconstruct a Session</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -529,9 +527,9 @@
 diagnostics over configuration, the Python environment, container
 infrastructure, the framework services you enabled, and any probes a facility
 declares, read in the browser’s SYSTEM panel or parsed from <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span>
-<span class="pre">--json</span></code> by a CI job. <em>What is it doing?</em> is answered by telemetry: the logs
-and metrics the agent emits over OpenTelemetry as it works, sent to a backend
-you already run or to a local store the presets deploy alongside the project.</p>
+<span class="pre">--json</span></code> by a CI job. <em>What is it doing?</em> is answered by the agent record:
+what the agent was asked, what it answered and what it did, kept by the
+<code class="docutils literal notranslate"><span class="pre">agent-record</span></code> service every deployment runs.</p>
 <div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
 <div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-2 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
 <div class="sd-col sd-d-flex-row docutils">
@@ -549,20 +547,10 @@ facility’s own probes and tunes the suite’s timing.</p>
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
-Monitor Your OSPREY Agent</div>
-<p class="sd-card-text">Emitting the agent’s telemetry over OTLP to any compatible backend, and
-the local telemetry store and gateway the presets deploy by default for
-storing and querying it.</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="monitor-agent.html"><span class="doc">Monitor Your OSPREY Agent</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
 Keep the Agent Record</div>
-<p class="sd-card-text">Every store of what the agent was asked and did, where it lives, what
-deletes it, and the daily append-only archive that keeps a copy.</p>
+<p class="sd-card-text">Where the record of what the agent was asked and did lives, how long it
+keeps an entry, how to check on it, and the daily append-only archive
+that keeps it for good.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="agent-record.html"><span class="doc">Keep the Agent Record</span></a></div>
 </div>
@@ -571,20 +559,10 @@ deletes it, and the daily append-only archive that keeps a copy.</p>
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
 Read the Record</div>
-<p class="sd-card-text">Name the people who may query the telemetry store with SQL, hand over
-their keys, and know the limits every query runs under.</p>
+<p class="sd-card-text">Name the people who may read the record, hand over their keys, and know
+what each one can see and what the record can vouch for.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="read-the-record.html"><span class="doc">Read the Record</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-Reconstruct a Session</div>
-<p class="sd-card-text">One SQL query, run as a reader, that puts a session’s events, tool
-calls, approvals and preflight checks back in the order they happened.</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="reconstruct-session.html"><span class="doc">Reconstruct a Session</span></a></div>
 </div>
 </div>
 </div>

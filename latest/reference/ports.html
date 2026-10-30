@@ -515,9 +515,9 @@ virtual accelerator is the exception, and has its own section below.</p>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+2</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10002</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">reader</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">history_origin</span></code></p></td>
 <td><p>gateway</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">modules.web_terminals.reader_port</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">modules.web_terminals.history_port</span></code></p></td>
 <td><p>—</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+3</span></code></p></td>
@@ -541,144 +541,130 @@ virtual accelerator is the exception, and has its own section below.</p>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.dispatch_worker.worker_port_base</span></code></p></td>
 <td><p>—</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+51</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">10051</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">telemetry_gateway</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+53</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10053</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">agent_record</span></code></p></td>
 <td><p>services</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">services.telemetry_gateway.port</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">agent_record.port</span></code></p></td>
 <td><p>—</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+52</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">10052</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">telemetry_metrics</span></code></p></td>
-<td><p>services</p></td>
-<td><p>—</p></td>
-<td><p>—</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+60</span> <span class="pre">to</span> <span class="pre">+69</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+60</span> <span class="pre">to</span> <span class="pre">+69</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10060-10069</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">qmd</span></code></p></td>
 <td><p>services</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.qmd.port</span></code></p></td>
 <td><p>—</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+70</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+70</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10070</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">tiled</span></code></p></td>
 <td><p>services</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky.tiled_port</span></code></p></td>
 <td><p>—</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+71</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+71</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10071</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">bluesky_web</span></code></p></td>
 <td><p>services</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky_web.port</span></code></p></td>
 <td><p>—</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+80</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+80</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10080</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">bluesky</span></code></p></td>
 <td><p>services</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky.port</span></code></p></td>
 <td><p>—</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+81</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+81</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10081</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">bluesky_second_lane</span></code></p></td>
 <td><p>services</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky.port</span></code></p></td>
 <td><p>—</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+90</span> <span class="pre">to</span> <span class="pre">+99</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+90</span> <span class="pre">to</span> <span class="pre">+99</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10090-10099</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">va_standin</span></code></p></td>
 <td><p>services</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.live_standin.port</span></code></p></td>
 <td><p>—</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+100</span> <span class="pre">to</span> <span class="pre">+199</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+100</span> <span class="pre">to</span> <span class="pre">+199</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10100-10199</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">web</span></code></p></td>
 <td><p>panels</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">modules.web_terminals.web_base_port</span></code></p></td>
 <td><p>—</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+200</span> <span class="pre">to</span> <span class="pre">+299</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+200</span> <span class="pre">to</span> <span class="pre">+299</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10200-10299</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">artifact</span></code></p></td>
 <td><p>panels</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">modules.web_terminals.artifact_base_port</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_ARTIFACT_SERVER_PORT</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+300</span> <span class="pre">to</span> <span class="pre">+399</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+300</span> <span class="pre">to</span> <span class="pre">+399</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10300-10399</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">ariel</span></code></p></td>
 <td><p>panels</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">modules.web_terminals.ariel_base_port</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_ARIEL_PORT</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+400</span> <span class="pre">to</span> <span class="pre">+499</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+400</span> <span class="pre">to</span> <span class="pre">+499</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10400-10499</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">lattice</span></code></p></td>
 <td><p>panels</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">modules.web_terminals.lattice_base_port</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_LATTICE_DASHBOARD_PORT</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+500</span> <span class="pre">to</span> <span class="pre">+599</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+500</span> <span class="pre">to</span> <span class="pre">+599</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10500-10599</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">channel_finder</span></code></p></td>
 <td><p>panels</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">modules.web_terminals.channel_finder_base_port</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_CHANNEL_FINDER_PORT</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+600</span> <span class="pre">to</span> <span class="pre">+699</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+600</span> <span class="pre">to</span> <span class="pre">+699</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10600-10699</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">okf</span></code></p></td>
 <td><p>panels</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">modules.web_terminals.okf_base_port</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_FACILITY_KNOWLEDGE_PORT</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+700</span> <span class="pre">to</span> <span class="pre">+799</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+700</span> <span class="pre">to</span> <span class="pre">+799</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10700-10799</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">system_health</span></code></p></td>
 <td><p>panels</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">modules.web_terminals.system_health_base_port</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_HEALTH_PORT</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+800</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+800</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10800</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">postgres</span></code></p></td>
 <td><p>stores</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.postgresql.port_host</span></code></p></td>
 <td><p>—</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+801</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+801</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10801</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">mongo</span></code></p></td>
 <td><p>stores</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.mongodb.port_host</span></code></p></td>
 <td><p>—</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+802</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+802</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10802</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">graphdb_bolt</span></code></p></td>
 <td><p>stores</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.graphdb.port_host</span></code></p></td>
 <td><p>—</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+803</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+803</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10803</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">graphdb_http</span></code></p></td>
 <td><p>stores</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.graphdb.http_port_host</span></code></p></td>
-<td><p>—</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+804</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">10804</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">telemetry_store</span></code></p></td>
-<td><p>stores</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">services.telemetry_store.port</span></code></p></td>
 <td><p>—</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+900</span> <span class="pre">to</span> <span class="pre">+999</span></code></p></td>

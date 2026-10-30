@@ -880,7 +880,7 @@ audit record:</p>
 <span id="python-executor-protected-paths"></span><h3>What executed code may not change<a class="headerlink" href="#what-executed-code-may-not-change" title="Link to this heading">#</a></h3>
 <p>Refusing control-system writes is one boundary; this is a different one. Whatever
 mode a run is submitted in, it may not rewrite the deployment that runs it.
-Three locations are protected:</p>
+Four locations are protected:</p>
 <ul class="simple">
 <li><p><strong>The render zone</strong> (<code class="docutils literal notranslate"><span class="pre">build/</span></code>) — rebuilt wholesale by every
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, and the rendered <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> inside it is where the next
@@ -893,8 +893,14 @@ build or, worse, survives as a rendered setting nobody wrote.</p></li>
 directories (<code class="docutils literal notranslate"><span class="pre">rules/</span></code>, <code class="docutils literal notranslate"><span class="pre">skills/</span></code>, <code class="docutils literal notranslate"><span class="pre">agents/</span></code>, <code class="docutils literal notranslate"><span class="pre">commands/</span></code>,
 <code class="docutils literal notranslate"><span class="pre">output-styles/</span></code>, <code class="docutils literal notranslate"><span class="pre">hooks/</span></code>, <code class="docutils literal notranslate"><span class="pre">web-terminal-context/</span></code>, <code class="docutils literal notranslate"><span class="pre">mcp_servers/</span></code>,
 <code class="docutils literal notranslate"><span class="pre">services/</span></code>) and the <code class="docutils literal notranslate"><span class="pre">project/</span></code> mirror.</p></li>
-<li><p><strong>The audit ledger</strong> (<code class="docutils literal notranslate"><span class="pre">var/audit/</span></code>) — the record of what was refused. A
-run that could rewrite it could erase the evidence of its own refusal.</p></li>
+<li><p><strong>The agent record’s directories</strong> (<code class="docutils literal notranslate"><span class="pre">var/spool/</span></code>, <code class="docutils literal notranslate"><span class="pre">var/agent_record/</span></code>,
+<code class="docutils literal notranslate"><span class="pre">var/state/</span></code> and <code class="docutils literal notranslate"><span class="pre">var/archive/</span></code>) — the spool the record is read from,
+the record itself, the services’ own state and the daily archive, which
+together hold the record of what was refused. A run that could rewrite them
+could erase or forge the evidence of its own refusal.</p></li>
+<li><p><strong>The pre-upgrade audit files</strong> — the files a deployment kept before the
+agent record. Nothing writes them, and they stay protected for the
+same reason.</p></li>
 </ul>
 <p>A protected entry that does not exist yet is protected all the same: in a repo
 with no <code class="docutils literal notranslate"><span class="pre">apps/</span></code> directory, creating one is exactly the write to refuse.</p>
@@ -1008,15 +1014,14 @@ still working, and the run is worth retrying once the chip settles.</p>
 <li><p>The agent gets an error naming the mode and what to do instead.</p></li>
 <li><p>The operator is alerted — the Web Terminal reports that a write was
 attempted and blocked, not merely that a script failed.</p></li>
-<li><p>The attempt is recorded in the audit trail, at
-<code class="docutils literal notranslate"><span class="pre">var/audit/&lt;identity&gt;/executor.jsonl</span></code> — one JSON object per line, with a
-timestamp, who was acting, the write posture in force, the layer that refused
-(the record’s <code class="docutils literal notranslate"><span class="pre">reason</span></code>), and the offending source kept verbatim. That
-directory is durable: builds never touch it, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span></code> keeps
-it unless you pass <code class="docutils literal notranslate"><span class="pre">--purge-audit</span></code>.</p></li>
+<li><p>The attempt is recorded in the audit trail, as one <code class="docutils literal notranslate"><span class="pre">audit</span></code> entry in the
+agent record — with a timestamp, who was acting, the write posture in
+force, the layer that refused (the entry’s <code class="docutils literal notranslate"><span class="pre">reason</span></code>), and the offending
+source kept verbatim. Builds never touch the record, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span></code>
+keeps it unless you pass <code class="docutils literal notranslate"><span class="pre">--purge-audit</span></code>.</p></li>
 </ol>
-<p>The record is filed under the identity that was acting, so on a multi-user
-deployment each person’s refusals sit in their own file. The pre-run pass
+<p>The entry is filed under the identity that was acting, so on a multi-user
+deployment each person’s refusals are their own. The pre-run pass
 records in both execution modes — the path policy refuses a write into the
 protected set whether the run asked for <code class="docutils literal notranslate"><span class="pre">readonly</span></code> or <code class="docutils literal notranslate"><span class="pre">readwrite</span></code>, and the
 record’s <code class="docutils literal notranslate"><span class="pre">detail</span></code> says which mode the run was submitted under, so a readwrite
@@ -1029,12 +1034,12 @@ refusal still holds and still reaches the agent, in the run’s stderr; the reco
 and the operator alert are what is missing.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p><strong>This is the one ledger that holds a payload.</strong> Everywhere else OSPREY
+<p><strong>This is the one audit surface that holds a payload.</strong> Everywhere else OSPREY
 records identifiers and config keys only — never a value, a prompt or an
 agent message. Here the refused code <em>is</em> what the record is about, so it is
 kept whole (up to 8000 characters, flagged as truncated beyond that). Give
-<code class="docutils literal notranslate"><span class="pre">executor.jsonl</span></code> the same care you would give the code itself, and expect
-it to be the file that grows. See <a class="reference internal" href="../reference/contracts/audit-trail.html#reference-audit-trail"><span class="std std-ref">the audit trail</span></a>
+the <code class="docutils literal notranslate"><span class="pre">executor</span></code> entries the same care you would give the code itself, and
+expect them to be what grows. See <a class="reference internal" href="../reference/contracts/audit-trail.html#reference-audit-trail"><span class="std std-ref">the audit trail</span></a>
 for what the rest of it contains.</p>
 </div>
 <div class="admonition-control-system-operations-in-user-code admonition">

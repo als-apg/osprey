@@ -147,8 +147,8 @@ gives the container it runs in --- is what survives the stripping. In a
 multi-user deployment both answers are the user whose terminal the kernel
 belongs to, so a cell reads that user's own chip settings and nobody else's.
 
-Each channel a cell writes leaves one ``allowed`` record in
-``notebook_kernel.jsonl``, filed after the put. Its reason says how the write
+Each channel a cell writes leaves one ``allowed`` record on the
+``notebook_kernel`` surface, filed after the put. Its reason says how the write
 ended: ``write_landed`` when the write was verified, ``write_unconfirmed`` when
 the value was sent but not verified. The record's ``detail`` names the channel
 and the account and host the control system saw the write come from, which is
@@ -193,8 +193,8 @@ runtime's calls, which take the same address and value:
 ophyd, and ophyd-async's EPICS modules such as ``ophyd_async.epics.core``, are
 refused with them, because they load a client library underneath; ``bluesky``
 and ``ophyd_async.core`` import. Submit a plan that drives devices to a Bluesky
-lane queue instead, where it runs unchanged. Each refusal is filed in
-``notebook_kernel.jsonl`` with reason ``raw_client_import``.
+lane queue instead, where it runs unchanged. Each refusal is filed on the
+``notebook_kernel`` surface with reason ``raw_client_import``.
 
 The refusal keeps a cell on the connector path; it is not a sandbox. A shell
 escape or a subprocess starts a fresh interpreter without it, and what closes

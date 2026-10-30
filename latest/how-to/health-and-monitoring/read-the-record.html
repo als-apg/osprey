@@ -61,7 +61,7 @@
     <link rel="icon" href="../../_static/logo.svg"/>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="Reconstruct a Session" href="reconstruct-session.html" />
+    <link rel="next" title="Control Systems" href="../control-systems/index.html" />
     <link rel="prev" title="Keep the Agent Record" href="agent-record.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -425,10 +425,8 @@
 </details></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Health and Monitoring</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="configure-health-checks.html">Configure Health Checks</a></li>
-<li class="toctree-l2"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="agent-record.html">Keep the Agent Record</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Read the Record</a></li>
-<li class="toctree-l2"><a class="reference internal" href="reconstruct-session.html">Reconstruct a Session</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -528,34 +526,33 @@
                   
   <section id="read-the-record">
 <span id="how-to-read-the-record"></span><h1>Read the Record<a class="headerlink" href="#read-the-record" title="Link to this heading">#</a></h1>
-<p>The telemetry store holds what the agent emitted and every line of the audit
-ledger, as tables in the database <code class="docutils literal notranslate"><span class="pre">telemetry</span></code>. People read it with SQL, under
-an account of their own: a <strong>reader</strong>. This page sets readers up, says what each
-one can and cannot see, and lists the limits every query runs under.</p>
-<p>For what the store holds and how it is fed, see <a class="reference internal" href="monitor-agent.html"><span class="doc">Monitor Your OSPREY Agent</span></a>; for a
-ready-made query that puts one session back together, see
-<a class="reference internal" href="reconstruct-session.html"><span class="doc">Reconstruct a Session</span></a>.</p>
+<p>The agent record holds what the agent was asked, what it answered and what it
+did, as entries of named kinds kept by the <code class="docutils literal notranslate"><span class="pre">agent-record</span></code> service. Beyond
+their own sessions, people read it as a <strong>reader</strong>: a name in the config with a
+key of its own. This page sets readers up, says what each one can and cannot
+see, and what the record can vouch for.</p>
+<p>For how long the record keeps entries and the daily archive that keeps the
+rest, see <a class="reference internal" href="agent-record.html"><span class="doc">Keep the Agent Record</span></a>.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <ul class="simple">
 <li><p class="sd-card-text">How to name a reader, hand over its key, rotate it and withdraw it</p></li>
-<li><p class="sd-card-text">Where a reader opens the store’s query page, and how a script queries</p></li>
-<li><p class="sd-card-text">The limits every reader query runs under, and the one shape they miss</p></li>
+<li><p class="sd-card-text">What a reader sees, and where it reads</p></li>
 <li><p class="sd-card-text">What the record can and cannot vouch for</p></li>
 </ul>
 </div>
 </details><section id="name-the-readers">
 <h2>Name the readers<a class="headerlink" href="#name-the-readers" title="Link to this heading">#</a></h2>
-<p>Readers are listed in the config. Each entry is one account:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">telemetry_store</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">readers</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">carol</span><span class="w">                 </span><span class="c1"># a roster user: same name, same person</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dana</span>
-<span class="w">        </span><span class="nt">oidc_subject</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">7f3c9e1a-...</span><span class="w">  </span><span class="c1"># recognised by sign-on in the browser</span>
-<span class="w">        </span><span class="nt">tables</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">audit_ledger</span><span class="p p-Indicator">]</span><span class="w">      </span><span class="c1"># default: otel_logs, otel_traces, audit_ledger</span>
-<span class="w">        </span><span class="nt">days_back</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span><span class="w">                </span><span class="c1"># default: retention_days</span>
+<p>Readers are listed in the profile’s top-level <code class="docutils literal notranslate"><span class="pre">agent_record:</span></code> block. Each
+entry is one reader:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">agent_record</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">readers</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">carol</span><span class="w">                 </span><span class="c1"># a roster user: same name, same person</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dana</span>
+<span class="w">      </span><span class="nt">oidc_subject</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">7f3c9e1a-...</span><span class="w">  </span><span class="c1"># recognised by sign-on in the browser</span>
+<span class="w">      </span><span class="nt">kinds</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">audit</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">run</span><span class="p p-Indicator">]</span><span class="w">         </span><span class="c1"># default: every kind</span>
+<span class="w">      </span><span class="nt">days_back</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span><span class="w">                </span><span class="c1"># default: retention_days</span>
 </pre></div>
 </div>
 <div class="pst-scrollable-table-container"><table class="table">
@@ -570,213 +567,89 @@ ready-made query that puts one session back together, see
 </thead>
 <tbody>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">name</span></code></p></td>
-<td><p>The account name. It may not be one of the store’s own account names
-(<code class="docutils literal notranslate"><span class="pre">default</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey_admin</span></code>, <code class="docutils literal notranslate"><span class="pre">ingest</span></code>, <code class="docutils literal notranslate"><span class="pre">archive</span></code>, <code class="docutils literal notranslate"><span class="pre">history</span></code>,
-and the role, profile and quota names) or start with <code class="docutils literal notranslate"><span class="pre">view_</span></code>.</p></td>
+<td><p>The reader’s name: lowercase letters, digits, <code class="docutils literal notranslate"><span class="pre">_</span></code> and <code class="docutils literal notranslate"><span class="pre">-</span></code>, starting
+with a letter or digit. Each reader is named once.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code></p></td>
 <td><p>The sign-on subject that is this reader in a browser, when the web
 terminals sign people on with <code class="docutils literal notranslate"><span class="pre">oidc</span></code>. A reader with the same name as a
-roster user is that user already.</p></td>
+roster user is that user already, and may not carry a subject.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tables</span></code></p></td>
-<td><p>The tables the reader may read, from <code class="docutils literal notranslate"><span class="pre">otel_logs</span></code>, <code class="docutils literal notranslate"><span class="pre">otel_traces</span></code>,
-<code class="docutils literal notranslate"><span class="pre">audit_ledger</span></code> and the five <code class="docutils literal notranslate"><span class="pre">otel_metrics_*</span></code> tables.</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">kinds</span></code></p></td>
+<td><p>The kinds of entry the reader may read, from the record’s kinds
+(<code class="docutils literal notranslate"><span class="pre">prompt</span></code>, <code class="docutils literal notranslate"><span class="pre">answer</span></code>, <code class="docutils literal notranslate"><span class="pre">tool_call</span></code>, <code class="docutils literal notranslate"><span class="pre">audit</span></code>, <code class="docutils literal notranslate"><span class="pre">run</span></code> and the rest).</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">days_back</span></code></p></td>
-<td><p>How far back the reader sees. Rows older than that are not visible to
-this account at all; it is a scope, not a limit.</p></td>
+<td><p>How far back the reader sees, at most <code class="docutils literal notranslate"><span class="pre">agent_record.retention_days</span></code>.
+Entries older than that are not visible to this reader at all; it is a
+scope, not a limit.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<p>The presets declare one reader: the deployment’s admin roster user (<code class="docutils literal notranslate"><span class="pre">carol</span></code>)
-in <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code>, and <code class="docutils literal notranslate"><span class="pre">operator</span></code> where a preset has no roster.</p>
+<p>The control-assistant preset declares one reader, the deployment’s admin
+roster user (<code class="docutils literal notranslate"><span class="pre">carol</span></code>).</p>
 <section id="hand-over-the-key">
 <h3>Hand over the key<a class="headerlink" href="#hand-over-the-key" title="Link to this heading">#</a></h3>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> mints each new reader’s key into <code class="docutils literal notranslate"><span class="pre">.env.telemetry-reader.&lt;name&gt;</span></code>
-at the repo root, mode 0600, one line <code class="docutils literal notranslate"><span class="pre">password=&lt;key&gt;</span></code>. The deploy prints the
-file’s path and the reader’s query page, never the key. Read the file and give
-the key to the person out of band:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>sed<span class="w"> </span>-n<span class="w"> </span><span class="s1">&#39;s/^password=//p&#39;</span><span class="w"> </span>.env.telemetry-reader.dana
-</pre></div>
-</div>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> mints each new reader’s key into
+<code class="docutils literal notranslate"><span class="pre">.env.agent-record.reader.&lt;name&gt;</span></code> at the repo root, mode 0600, one line
+<code class="docutils literal notranslate"><span class="pre">OSPREY_AGENT_RECORD_LOGIN=reader.&lt;name&gt;:&lt;key&gt;</span></code>. The deploy prints the file’s
+path, never the key. Read the file and give the key to the person out of band.</p>
 <ul class="simple">
 <li><p><strong>Rotate</strong> a key: delete the file and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>. The old key stops
 working and a new file is written.</p></li>
-<li><p><strong>Withdraw</strong> a reader: delete the entry and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>. The account,
-its row policies and its browser view are dropped, and the key file is set
-aside as <code class="docutils literal notranslate"><span class="pre">.env.telemetry-reader.&lt;name&gt;.withdrawn-&lt;date&gt;</span></code>, so re-adding the
-name later mints a fresh key.</p></li>
-<li><p><strong>Narrow</strong> a reader: change <code class="docutils literal notranslate"><span class="pre">tables</span></code> or <code class="docutils literal notranslate"><span class="pre">days_back</span></code> and run
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>. A table taken away is refused on the next query.</p></li>
+<li><p><strong>Withdraw</strong> a reader: delete the entry and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>. The key stops
+working, and the key file is set aside as
+<code class="docutils literal notranslate"><span class="pre">.env.agent-record.reader.&lt;name&gt;.withdrawn-&lt;date&gt;</span></code>, so re-adding the name
+later mints a fresh key.</p></li>
+<li><p><strong>Narrow</strong> a reader: change <code class="docutils literal notranslate"><span class="pre">kinds</span></code> or <code class="docutils literal notranslate"><span class="pre">days_back</span></code> and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.</p></li>
 </ul>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> owns the accounts it made and nothing else: a store user of the
-same name that <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> did not make is refused by name, never taken over.</p>
 </section>
-</section>
-<section id="open-the-query-page">
-<h2>Open the query page<a class="headerlink" href="#open-the-query-page" title="Link to this heading">#</a></h2>
-<p>The store’s own SQL page, <code class="docutils literal notranslate"><span class="pre">/play</span></code>, is where a person types a query.</p>
-<ul>
-<li><p><strong>With web terminals</strong>, the page is on the <strong>readers’ origin</strong>: a second web
-server of the web tier, on its own port (<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.reader_port</span></code>,
-or the browser-facing origin <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.reader_origin</span></code> names
-behind a load balancer). <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> prints each reader’s link,
-<code class="docutils literal notranslate"><span class="pre">&lt;readers'</span> <span class="pre">origin&gt;/telemetry/play</span></code> already pointed at that origin’s query
-endpoint and naming the reader; the person types the key into the page. Pages on the terminals’ origin, where agent-written HTML runs,
-cannot read from this origin.</p></li>
-<li><p><strong>Without web terminals</strong>, the store answers on the deploy host’s loopback
-only, at <code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code> + 804 (<code class="docutils literal notranslate"><span class="pre">services.telemetry_store.port</span></code>).
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> prints the page as <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:&lt;port&gt;/play?user=&lt;name&gt;</span></code>
-and, beside it, the SSH tunnel that brings it to another machine:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>ssh<span class="w"> </span>-N<span class="w"> </span>-L<span class="w"> </span><span class="m">10804</span>:127.0.0.1:10804<span class="w"> </span>&lt;deploy<span class="w"> </span>host&gt;
-</pre></div>
-</div>
-</li>
-</ul>
-<p>The page runs each query and shows the result when it is complete: there is no
-live progress bar, and the chart view is not served. <strong>Download</strong> saves the
-result.</p>
-</section>
-<section id="query-from-a-script">
-<h2>Query from a script<a class="headerlink" href="#query-from-a-script" title="Link to this heading">#</a></h2>
-<p>Send the query as the request body, with the reader’s name and key as HTTP
-basic credentials. Through the readers’ origin the query endpoint is exactly
-<code class="docutils literal notranslate"><span class="pre">/telemetry/</span></code>:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">KEY</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span>sed<span class="w"> </span>-n<span class="w"> </span><span class="s1">&#39;s/^password=//p&#39;</span><span class="w"> </span>.env.telemetry-reader.carol<span class="k">)</span><span class="s2">&quot;</span>
-curl<span class="w"> </span>-sS<span class="w"> </span>--user<span class="w"> </span><span class="s2">&quot;carol:</span><span class="nv">$KEY</span><span class="s2">&quot;</span><span class="w"> </span>--data-binary<span class="w"> </span>@query.sql<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">&quot;https://&lt;readers&#39; origin&gt;/telemetry/&quot;</span>
-</pre></div>
-</div>
-<p>On the deploy host, query the loopback port and add
-<code class="docutils literal notranslate"><span class="pre">http_wait_end_of_query=1</span></code> to the URL yourself:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>--user<span class="w"> </span><span class="s2">&quot;operator:</span><span class="nv">$KEY</span><span class="s2">&quot;</span><span class="w"> </span>--data-binary<span class="w"> </span>@query.sql<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">&quot;http://127.0.0.1:10804/?http_wait_end_of_query=1&quot;</span>
-</pre></div>
-</div>
-<p>That setting makes the store hold the answer until the query has finished, so
-a query refused for a limit answers with an error status and the limit’s name
-rather than a <code class="docutils literal notranslate"><span class="pre">200</span></code> carrying part of a result. The readers’ origin adds it to
-every request and cannot be told otherwise; on the loopback port nothing adds
-it for you.</p>
-<p>Every query a reader runs is in the store’s <code class="docutils literal notranslate"><span class="pre">system.query_log</span></code> under the
-reader’s name. The archive copies that log every day.</p>
 </section>
 <section id="what-a-reader-sees">
 <h2>What a reader sees<a class="headerlink" href="#what-a-reader-sees" title="Link to this heading">#</a></h2>
-<p>A reader is a reader everywhere: the same <code class="docutils literal notranslate"><span class="pre">tables</span></code> and <code class="docutils literal notranslate"><span class="pre">days_back</span></code> bound it
-in SQL and on the history page. A reader account is read-only. It cannot insert,
-change a setting that loosens its limits, read another database, or reach
-outside the store (<code class="docutils literal notranslate"><span class="pre">remote</span></code>, <code class="docutils literal notranslate"><span class="pre">url</span></code>, <code class="docutils literal notranslate"><span class="pre">file</span></code> and the like are refused).
-A query that reaches past the reader’s scope — a join, a subquery, <code class="docutils literal notranslate"><span class="pre">merge()</span></code>
-or a date outside <code class="docutils literal notranslate"><span class="pre">days_back</span></code> — succeeds and returns no out-of-scope rows.</p>
-<p>The history page in a browser is described in
-<a class="reference internal" href="../web-terminal/multi-user/index.html#multi-user-history-page"><span class="std std-ref">The history page</span></a>.</p>
-</section>
-<section id="limits">
-<h2>Limits<a class="headerlink" href="#limits" title="Link to this heading">#</a></h2>
-<p>Every reader query runs under these limits. Over one, the query is refused with
-the limit named and an error status, never cut short and returned as if
-complete. Each is a key under <code class="docutils literal notranslate"><span class="pre">services.telemetry_store.limits</span></code>:</p>
-<div class="pst-scrollable-table-container"><table class="table">
-<colgroup>
-<col style="width: 22.0%" />
-<col style="width: 18.0%" />
-<col style="width: 60.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>Key</p></th>
-<th class="head"><p>Default</p></th>
-<th class="head"><p>What it bounds</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">result_rows</span></code></p></td>
-<td><p>1,000</p></td>
-<td><p>Rows in one answer</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">result_bytes</span></code></p></td>
-<td><p>10,000,000</p></td>
-<td><p>Bytes in one answer</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">seconds</span></code></p></td>
-<td><p>30</p></td>
-<td><p>Run time of one query</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">rows_read</span></code></p></td>
-<td><p>1,000,000</p></td>
-<td><p>Rows one query reads</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">bytes_read</span></code></p></td>
-<td><p>500,000,000</p></td>
-<td><p>Bytes one query reads</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">query_memory</span></code></p></td>
-<td><p>200,000,000</p></td>
-<td><p>Memory one query uses</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">concurrent</span></code></p></td>
-<td><p>2</p></td>
-<td><p>Queries one reader runs at once</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">per_minute</span></code></p></td>
-<td><p>60</p></td>
-<td><p>Queries one reader starts per minute</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">reader_slots</span></code></p></td>
-<td><p>2</p></td>
-<td><p>Queries <strong>all readers together</strong> run at once</p></td>
-</tr>
-</tbody>
-</table>
-</div>
-<p><code class="docutils literal notranslate"><span class="pre">reader_slots</span></code> is a shared pool. When it is full, a further reader query waits
-in a queue until a slot frees, rather than being refused. The archive and
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> take no slot of the pool, so readers never hold them up.</p>
-<p>The store’s memory limit (<code class="docutils literal notranslate"><span class="pre">services.telemetry_store.memory</span></code>, default <code class="docutils literal notranslate"><span class="pre">2g</span></code>)
-must hold every query that can run at once: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses a config
-where <code class="docutils literal notranslate"><span class="pre">reader_slots</span></code> plus the history page’s and the archive’s queries, each
-at <code class="docutils literal notranslate"><span class="pre">query_memory</span></code>, do not fit, and names the keys to change.</p>
-<div class="admonition important">
-<p class="admonition-title">Important</p>
-<p><strong>A query without</strong> <code class="docutils literal notranslate"><span class="pre">FROM</span></code> <strong>escapes two limits.</strong> The store does not count
-such a query against <code class="docutils literal notranslate"><span class="pre">per_minute</span></code>, and does not apply <code class="docutils literal notranslate"><span class="pre">result_rows</span></code> or
-<code class="docutils literal notranslate"><span class="pre">result_bytes</span></code> to it, so a scalar-subquery shape can return more than
-1,000 rows with a <code class="docutils literal notranslate"><span class="pre">200</span></code>. It is still bound by <code class="docutils literal notranslate"><span class="pre">rows_read</span></code>, <code class="docutils literal notranslate"><span class="pre">bytes_read</span></code>,
-<code class="docutils literal notranslate"><span class="pre">query_memory</span></code>, <code class="docutils literal notranslate"><span class="pre">seconds</span></code>, <code class="docutils literal notranslate"><span class="pre">concurrent</span></code> and the reader’s scope.</p>
-</div>
+<p>A reader is a reader everywhere: the same <code class="docutils literal notranslate"><span class="pre">kinds</span></code> and <code class="docutils literal notranslate"><span class="pre">days_back</span></code> bound it
+on the history page and with its key. Within them a reader sees every
+identity’s sessions. A reader writes nothing: its key reads, and no entry
+is ever filed under it.</p>
+<p>In a browser, a reader reads on the history page, served at <code class="docutils literal notranslate"><span class="pre">/history/</span></code> on
+the <strong>history page’s origin</strong>: the web tier’s second server on its own port
+(<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.history_port</span></code>, or the browser-facing origin
+<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.history_origin</span></code> names behind a load balancer). Pages
+on the terminals’ origin, where agent-written HTML runs, cannot read from it.
+A roster user named as a reader signs in as themselves; a reader off the
+roster is recognised by its <code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code>. The page, and who else sees what
+on it, is described in <a class="reference internal" href="../web-terminal/multi-user/index.html#multi-user-history-page"><span class="std std-ref">The history page</span></a>.</p>
 </section>
 <section id="what-the-record-can-vouch-for">
 <h2>What the record can vouch for<a class="headerlink" href="#what-the-record-can-vouch-for" title="Link to this heading">#</a></h2>
-<p>The store is as trustworthy as the processes that write to it. Read it with
+<p>The record is as trustworthy as the processes that write to it. Read it with
 these in mind:</p>
 <ul class="simple">
-<li><p><strong>Containers are the boundary.</strong> Each sender’s container holds the login of the one
-identity it sends as and mounts only its own ledger directory. On a deployment
-whose agent runs on the host, the agent runs as the operator’s own user, and
-the credential files and every identity’s ledger directory are within its
-reach.</p></li>
+<li><p><strong>Containers are the boundary.</strong> Each sender’s container holds the login of
+the one identity it records as, and only its own spool and transcripts. On a
+deployment whose agent runs on the host, the agent runs as the operator’s
+own user, and the credential files are within its reach.</p></li>
 <li><p><strong>Within one container, any process can write that user’s record.</strong> The
-ledger directory and the login belong to the container, not to one process
-in it.</p></li>
-<li><p><strong>Prompts and events are reported by the sender.</strong> The gateway stamps who
-sent a record from the login it arrived with; what the record says happened
-is the sender’s account of it.</p></li>
+login belongs to the container, not to one process in it.</p></li>
+<li><p><strong>Prompts and events are reported by the sender.</strong> The record files an
+entry under the identity it arrived from — its spool directory, its login
+or its transcript root — never a name the sender wrote; what the entry says
+happened is the sender’s account of it.</p></li>
 <li><p><strong>Agent-authored session plans run inside the queueserver container.</strong> Its
-preflight rows are therefore trusted narrowly: on a person’s own history page
-a preflight row appears only when it matches that person’s own queue-submit
-call within 60 seconds. Readers and <code class="docutils literal notranslate"><span class="pre">history:</span> <span class="pre">all</span></code> viewers see every
-preflight row as stored.</p></li>
-<li><p><strong>The accounts are told apart by password</strong>, not by the address they connect
-from.</p></li>
-<li><p><strong>The ledger feed is at least once</strong>, and duplicates are dropped when reading
-(<a class="reference internal" href="agent-record.html#agent-record-dedup"><span class="std std-ref">the keys</span></a>). One path can lose a batch: a gateway
-stopped while a ledger batch waits on a full export queue. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code>
-degrades the gateway when that queue passes 80%, so fix the store before
-restarting the gateway.</p></li>
-<li><p><strong>The store keeps</strong> <code class="docutils literal notranslate"><span class="pre">retention_days</span></code> <strong>of history.</strong> The daily archive keeps
-the rest (<a class="reference internal" href="agent-record.html"><span class="doc">Keep the Agent Record</span></a>).</p></li>
+preflight entries are therefore trusted narrowly: on a person’s own history
+page a preflight entry appears only when it matches that person’s own
+queue-submit call within 60 seconds. Readers and <code class="docutils literal notranslate"><span class="pre">history:</span> <span class="pre">all</span></code> viewers see
+every preflight entry as stored.</p></li>
+<li><p><strong>The logins are told apart by their tokens</strong>, not by the address they
+connect from.</p></li>
+<li><p><strong>Each fact is stored once.</strong> An entry’s key is fixed by its source, and a
+key already stored is never stored again, so a restart, a resumed session or
+a rewritten transcript adds no second copy. While the record’s store is
+unreachable, senders’ spools are kept, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> shows each
+source’s backlog.</p></li>
+<li><p><strong>The record keeps</strong> <code class="docutils literal notranslate"><span class="pre">retention_days</span></code> <strong>of history.</strong> The daily archive
+keeps the rest (<a class="reference internal" href="agent-record.html"><span class="doc">Keep the Agent Record</span></a>).</p></li>
 </ul>
 </section>
 </section>
@@ -801,11 +674,11 @@ the rest (<a class="reference internal" href="agent-record.html"><span class="do
       </div>
     </a>
     <a class="right-next"
-       href="reconstruct-session.html"
+       href="../control-systems/index.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Reconstruct a Session</p>
+        <p class="prev-next-title">Control Systems</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -832,10 +705,7 @@ the rest (<a class="reference internal" href="agent-record.html"><span class="do
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hand-over-the-key">Hand over the key</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#open-the-query-page">Open the query page</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#query-from-a-script">Query from a script</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-a-reader-sees">What a reader sees</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#limits">Limits</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-record-can-vouch-for">What the record can vouch for</a></li>
 </ul>
   </nav></div>

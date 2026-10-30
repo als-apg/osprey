@@ -425,10 +425,8 @@
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/read-the-record.html">Read the Record</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/reconstruct-session.html">Reconstruct a Session</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -713,16 +711,6 @@ every workspace failed to read, and when an export stopped part-way. A part-way
 export still parses: it holds what was read, and the summary says how much that
 was.</p>
 </section>
-<section id="keeping-the-store-bounded">
-<h3>Keeping the store bounded<a class="headerlink" href="#keeping-the-store-bounded" title="Link to this heading">#</a></h3>
-<p>Session contexts are much larger than the reports they belong to, so the store
-has a ceiling (<code class="docutils literal notranslate"><span class="pre">web.feedback.max_store_bytes</span></code>, 256 MB by default). When it is
-exceeded, the oldest saved <strong>contexts</strong> are dropped; their submissions are
-never dropped. An export marks a submission whose context was dropped this way
-with <code class="docutils literal notranslate"><span class="pre">context_pruned</span></code>, and one missing its context for any other reason with
-<code class="docutils literal notranslate"><span class="pre">context_missing</span></code> — the submission itself is exported either way, so the
-history of what people reported stays complete.</p>
-</section>
 </section>
 <section id="point-the-channels-at-your-facility">
 <h2>Point the channels at your facility<a class="headerlink" href="#point-the-channels-at-your-facility" title="Link to this heading">#</a></h2>
@@ -809,7 +797,6 @@ and read.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#copy-session-context">Copy session context</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#read-the-feedback-a-deployment-collected">Read the feedback a deployment collected</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-records-live">Where the records live</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#keeping-the-store-bounded">Keeping the store bounded</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#point-the-channels-at-your-facility">Point the channels at your facility</a></li>

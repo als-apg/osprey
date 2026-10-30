@@ -712,8 +712,7 @@ without root could not apply an <code class="docutils literal notranslate"><span
 </tbody>
 </table>
 </div>
-<p>Four more tie a container’s telemetry to the deployment’s telemetry gateway and
-to the audit record:</p>
+<p>Three more tie a container’s launches to the agent record:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 36.0%" />
@@ -725,24 +724,20 @@ to the audit record:</p>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_OTEL_GATEWAY_HOST</span></code>, <code class="docutils literal notranslate"><span class="pre">OSPREY_OTEL_GATEWAY_PORT</span></code></p></td>
-<td><p>Where this container reaches the gateway: its service name and the
-port it listens on from a container on the compose network, an address
-and the published port from one in the host’s network namespace. The
-<code class="docutils literal notranslate"><span class="pre">telemetry_store</span></code> and <code class="docutils literal notranslate"><span class="pre">telemetry_gateway</span></code> health categories read
-them to tell where they run</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_AGENT_RECORD_URL</span></code></p></td>
+<td><p>The agent-record service’s base URL, as this container reaches it. A
+launch sends its log events to <code class="docutils literal notranslate"><span class="pre">/v1/logs</span></code> there</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_TELEMETRY_LOGIN</span></code></p></td>
-<td><p>The sender’s own <code class="docutils literal notranslate"><span class="pre">&lt;identity&gt;:&lt;password&gt;</span></code> login to the gateway, from
-that sender’s <code class="docutils literal notranslate"><span class="pre">.env.telemetry-sender.&lt;identity&gt;</span></code> file. The gateway
-stamps every record with the identity it authenticated, never one a
-sender reports</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_AGENT_RECORD_LOGIN</span></code></p></td>
+<td><p>The container’s own <code class="docutils literal notranslate"><span class="pre">&lt;login&gt;:&lt;token&gt;</span></code> record login, from its
+<code class="docutils literal notranslate"><span class="pre">.env.agent-record.login.&lt;login&gt;</span></code> file. The record files every entry
+under the identity that login stands for, never one a sender reports</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_SESSION</span></code></p></td>
 <td><p>The terminal session a launch belongs to, written into its audit
-records and sent as the <code class="docutils literal notranslate"><span class="pre">terminal.session</span></code> attribute, so a record in
-the store joins the ledger line the same launch wrote. Read by exact
-name: other variables start with the same words</p></td>
+records and sent as the <code class="docutils literal notranslate"><span class="pre">terminal.session</span></code> attribute of its events,
+so both carry the same session. Read by exact name: other variables
+start with the same words</p></td>
 </tr>
 </tbody>
 </table>

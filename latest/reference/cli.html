@@ -499,8 +499,9 @@ osprey<span class="w"> </span>knowledge<span class="w">          </span><span cl
 osprey<span class="w"> </span>facility<span class="w">           </span><span class="c1"># Check and show the facility description under data/facility/</span>
 osprey<span class="w"> </span>eject<span class="w">              </span><span class="c1"># Copy framework components for customization</span>
 osprey<span class="w"> </span>ariel<span class="w">              </span><span class="c1"># ARIEL logbook search service</span>
-osprey<span class="w"> </span>archive<span class="w">            </span><span class="c1"># Copy the agent record into var/archive</span>
+osprey<span class="w"> </span>archive<span class="w">            </span><span class="c1"># Copy artifacts and plan-queue history into var/archive</span>
 osprey<span class="w"> </span><span class="nb">history</span><span class="w">            </span><span class="c1"># Serve the history page (the history service&#39;s entry)</span>
+osprey<span class="w"> </span>agent-record<span class="w">       </span><span class="c1"># The agent record: serve it, check its health, run its export</span>
 osprey<span class="w"> </span>artifacts<span class="w">          </span><span class="c1"># Artifact gallery</span>
 osprey<span class="w"> </span>web<span class="w">                </span><span class="c1"># Launch web terminal</span>
 osprey<span class="w"> </span>theme-lab<span class="w">          </span><span class="c1"># Design and preview a theme in the browser</span>
@@ -904,21 +905,38 @@ osprey<span class="w"> </span>logs<span class="w"> </span>--tail<span class="w">
 containers, volumes and images of this deployment, destroys the
 agent’s memory under <code class="docutils literal notranslate"><span class="pre">var/agent_data/</span></code>, strips the tokens <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> minted
 out of <code class="docutils literal notranslate"><span class="pre">.env</span></code>, and deletes <code class="docutils literal notranslate"><span class="pre">build/</span></code>.</p>
-<p>Two things survive, and the plan says so before you confirm: <code class="docutils literal notranslate"><span class="pre">var/audit/</span></code>, the
-safety audit log, and everything in <code class="docutils literal notranslate"><span class="pre">.env</span></code> that a deploy did not mint — your
-provider keys. The source zone is never touched: <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">data/</span></code>,
-<code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, <code class="docutils literal notranslate"><span class="pre">apps/</span></code>, <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code> and <code class="docutils literal notranslate"><span class="pre">.git</span></code> are exactly what they were.</p>
+<p>What survives, the plan lists before you confirm:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">var/audit/</span></code> — the audit files written before the agent record;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">var/agent_record/</span></code> — the agent record, with <code class="docutils literal notranslate"><span class="pre">var/spool/</span></code> feeding it and,
+on the ClickHouse backend, the record’s data volume
+(<code class="docutils literal notranslate"><span class="pre">&lt;project&gt;_agent_record_clickhouse_data</span></code>);</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">var/archive/</span></code> — the archive: the record’s daily exports, with the artifact
+and Bluesky copies beside them;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">var/state/</span></code> — each identity’s locks, leases and markers;</p></li>
+<li><p>everything in <code class="docutils literal notranslate"><span class="pre">.env</span></code> that a deploy did not mint — your provider keys.</p></li>
+</ul>
+<p>The source zone is never touched: <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">data/</span></code>, <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>,
+<code class="docutils literal notranslate"><span class="pre">apps/</span></code>, <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code> and <code class="docutils literal notranslate"><span class="pre">.git</span></code> are exactly what they were.</p>
+<p>Reset refuses, touching nothing, while a host <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>, <code class="docutils literal notranslate"><span class="pre">chat</span></code> or
+<code class="docutils literal notranslate"><span class="pre">query</span></code> is running the agent record locally, and names those sessions.</p>
 <p>What belongs to this deployment is decided two ways. A container records the
 checkout that created it in a label, and reset refuses outright — removing
 nothing — when containers under this <code class="docutils literal notranslate"><span class="pre">project_name</span></code> were created from a
 different checkout; it names that checkout so you can reset from there. A
 container with no label at all counts as this deployment’s. Volumes carry no
 such label: they belong to the project by name (<code class="docutils literal notranslate"><span class="pre">&lt;project_name&gt;_&lt;volume&gt;</span></code>),
-so once the containers check out, every volume under that name is removed.</p>
+so once the containers check out, every volume under that name is removed,
+except the record’s data volume a plain reset keeps.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--dry-run</span></code> — Show the removal plan and stop. Nothing is stopped, removed, or
 written.</p>
 <p><code class="docutils literal notranslate"><span class="pre">-y,</span> <span class="pre">--yes</span></code> — Skip the typed confirmation. The plan is still printed.</p>
-<p><code class="docutils literal notranslate"><span class="pre">--purge-audit</span></code> — Destroy <code class="docutils literal notranslate"><span class="pre">var/audit/</span></code> as well. It is kept by default.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--purge-audit</span></code> — Also destroy the agent record and the audit files from
+before it: <code class="docutils literal notranslate"><span class="pre">var/audit/</span></code>, <code class="docutils literal notranslate"><span class="pre">var/agent_record/</span></code>, <code class="docutils literal notranslate"><span class="pre">var/spool/</span></code>, the record’s
+ClickHouse volume, and the record’s exports in the archive
+(<code class="docutils literal notranslate"><span class="pre">var/archive/&lt;day&gt;/agent_record/</span></code>), marking each purged day in its
+manifest. All are kept by default. <code class="docutils literal notranslate"><span class="pre">var/state/</span></code> and the rest of
+<code class="docutils literal notranslate"><span class="pre">var/archive/</span></code> are kept either way.</p>
 <p>Exit status: <code class="docutils literal notranslate"><span class="pre">0</span></code> the reset did what it said (or there was nothing to do),
 <code class="docutils literal notranslate"><span class="pre">1</span></code> you declined or it refused, <code class="docutils literal notranslate"><span class="pre">3</span></code> it ran but the deployment is only partly
 reset, with each survivor named above the exit.</p>
@@ -1076,10 +1094,7 @@ terminal and the file holds the export. An empty store exports <code class="docu
 still listed or exported; the export’s closing summary distinguishes a workspace
 that contributed nothing from one that was only partly readable. If nothing at
 all could be read, both verbs stop rather than reporting a deployment with no
-feedback in it. A submission whose session was dropped to keep the store inside
-<code class="docutils literal notranslate"><span class="pre">web.feedback.max_store_bytes</span></code> carries <code class="docutils literal notranslate"><span class="pre">context_pruned</span></code>; one missing its
-session for any other reason carries <code class="docutils literal notranslate"><span class="pre">context_missing</span></code>. The submission is
-exported either way.</p>
+feedback in it.</p>
 <p>Exit status: <code class="docutils literal notranslate"><span class="pre">0</span></code> on success, including a deployment nobody has sent feedback
 from. Non-zero when the repository has no build, when every workspace failed to
 read, and when an export stopped part-way — in which case the file still parses
@@ -1120,8 +1135,9 @@ the <code class="docutils literal notranslate"><span class="pre">health:</span><
 </section>
 <section id="osprey-archive">
 <h2>osprey archive<a class="headerlink" href="#osprey-archive" title="Link to this heading">#</a></h2>
-<p>Copy the agent record into an append-only archive. See
-<a class="reference internal" href="../how-to/health-and-monitoring/agent-record.html"><span class="doc">Keep the Agent Record</span></a>.</p>
+<p>Copy the artifact stores of web terminals and dispatch workers and the
+plan-queue history into an append-only archive, beside the agent record’s own
+daily export. See <a class="reference internal" href="../how-to/health-and-monitoring/agent-record.html"><span class="doc">Keep the Agent Record</span></a>.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>archive<span class="w"> </span>--sources<span class="w"> </span>DIRECTORY<span class="w"> </span>--dest<span class="w"> </span>DIRECTORY<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
 </pre></div>
 </div>
@@ -1133,15 +1149,6 @@ into (environment: <code class="docutils literal notranslate"><span class="pre">
 and then every <code class="docutils literal notranslate"><span class="pre">--interval</span></code> seconds.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--interval</span> <span class="pre">SECONDS</span></code> – Seconds between passes under <code class="docutils literal notranslate"><span class="pre">--watch</span></code>, at least 60
 (environment: <code class="docutils literal notranslate"><span class="pre">OSPREY_ARCHIVE_INTERVAL_SECONDS</span></code>, default <code class="docutils literal notranslate"><span class="pre">86400</span></code>).</p>
-<p><code class="docutils literal notranslate"><span class="pre">--store-url</span> <span class="pre">URL</span></code> – HTTP address of the telemetry store to export completed
-days from; unset, none is exported (environment: <code class="docutils literal notranslate"><span class="pre">OSPREY_ARCHIVE_STORE_URL</span></code>).
-Every store table is exported per arrival day and the store’s query log per
-event day, each as one Parquet file under
-<code class="docutils literal notranslate"><span class="pre">&lt;day&gt;/telemetry/&lt;exported-day&gt;/&lt;table&gt;.parquet</span></code> with a manifest line naming
-its table, day, row count and sha256. The store is read as the <code class="docutils literal notranslate"><span class="pre">archive</span></code>
-account, with <code class="docutils literal notranslate"><span class="pre">OSPREY_TELEMETRY_ARCHIVE_PASSWORD</span></code> from the environment.</p>
-<p><code class="docutils literal notranslate"><span class="pre">--store-backfill-days</span> <span class="pre">N</span></code> – Most completed days a pass exports
-(environment: <code class="docutils literal notranslate"><span class="pre">OSPREY_ARCHIVE_STORE_BACKFILL_DAYS</span></code>, default <code class="docutils literal notranslate"><span class="pre">14</span></code>).</p>
 <p>Exit codes of <code class="docutils literal notranslate"><span class="pre">--once</span></code>: <code class="docutils literal notranslate"><span class="pre">0</span></code> the pass completed with no errors, <code class="docutils literal notranslate"><span class="pre">1</span></code> it
 completed with recorded errors, <code class="docutils literal notranslate"><span class="pre">2</span></code> it could not run (the destination is
 missing or unwritable). <code class="docutils literal notranslate"><span class="pre">--watch</span></code> exits <code class="docutils literal notranslate"><span class="pre">2</span></code> after five passes in a row that
@@ -1150,9 +1157,9 @@ could not run.</p>
 <section id="osprey-history">
 <h2>osprey history<a class="headerlink" href="#osprey-history" title="Link to this heading">#</a></h2>
 <p>Serve the history page: the across-users view of the agent record, which the
-deployment renders as the <code class="docutils literal notranslate"><span class="pre">history</span></code> service when it runs the telemetry store
-and its web terminals sign people in (<code class="docutils literal notranslate"><span class="pre">auth.method</span></code> of <code class="docutils literal notranslate"><span class="pre">password</span></code> or
-<code class="docutils literal notranslate"><span class="pre">oidc</span></code>). Browsers reach it under <code class="docutils literal notranslate"><span class="pre">/history/</span></code> on the readers’ origin only;
+deployment renders as the <code class="docutils literal notranslate"><span class="pre">history</span></code> service when its web terminals sign
+people in (<code class="docutils literal notranslate"><span class="pre">auth.method</span></code> of <code class="docutils literal notranslate"><span class="pre">password</span></code> or <code class="docutils literal notranslate"><span class="pre">oidc</span></code>). Browsers reach it
+under <code class="docutils literal notranslate"><span class="pre">/history/</span></code> on the history page’s origin only;
 the command is the service’s entry and is not run by hand.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">history</span><span class="w"> </span><span class="o">[</span>--host<span class="w"> </span>HOST<span class="o">]</span><span class="w"> </span><span class="o">[</span>--port<span class="w"> </span>PORT<span class="o">]</span>
 </pre></div>
@@ -1160,10 +1167,62 @@ the command is the service’s entry and is not run by hand.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--host</span> <span class="pre">HOST</span></code> – Interface to listen on (default <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>; the service
 listens on every interface of its container).</p>
 <p><code class="docutils literal notranslate"><span class="pre">--port</span> <span class="pre">PORT</span></code> – Port to serve on (default <code class="docutils literal notranslate"><span class="pre">8000</span></code>).</p>
-<p>The page reads the store at <code class="docutils literal notranslate"><span class="pre">OSPREY_HISTORY_STORE_URL</span></code> as the <code class="docutils literal notranslate"><span class="pre">history</span></code>
-account, with <code class="docutils literal notranslate"><span class="pre">OSPREY_TELEMETRY_HISTORY_PASSWORD</span></code> from the environment, and
-runs every query as the viewer’s own store view user. It admits only requests
-that carry the gate secret nginx presents (<code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_SECRET_HISTORY</span></code>).</p>
+<p>The page reads the agent record at <code class="docutils literal notranslate"><span class="pre">OSPREY_AGENT_RECORD_URL</span></code> with the
+record’s <code class="docutils literal notranslate"><span class="pre">history</span></code> login (<code class="docutils literal notranslate"><span class="pre">OSPREY_AGENT_RECORD_LOGIN</span></code>), naming the viewer
+the sign-in resolved; the record decides what that viewer sees. It admits only
+requests that carry the gate secret nginx presents
+(<code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_SECRET_HISTORY</span></code>).</p>
+</section>
+<section id="osprey-agent-record">
+<h2>osprey agent-record<a class="headerlink" href="#osprey-agent-record" title="Link to this heading">#</a></h2>
+<p>The agent record: the one store of every session fact the deployment’s agents
+produce. Every deployment renders it as the <code class="docutils literal notranslate"><span class="pre">agent-record</span></code> service; see
+<a class="reference internal" href="../how-to/health-and-monitoring/agent-record.html"><span class="doc">Keep the Agent Record</span></a> for how long it keeps an
+entry and how to check on it.</p>
+<section id="osprey-agent-record-serve">
+<h3>osprey agent-record serve<a class="headerlink" href="#osprey-agent-record-serve" title="Link to this heading">#</a></h3>
+<p>Serve agent-record: it ingests the spool every source appends to and the
+Claude Code transcripts mounted into it, writes them to the configured backend
+(<code class="docutils literal notranslate"><span class="pre">agent_record.backend</span></code>), and answers reads for the credentials the
+deployment minted. The command is the service’s entry and is not run by hand.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>agent-record<span class="w"> </span>serve<span class="w"> </span><span class="o">[</span>--host<span class="w"> </span>HOST<span class="o">]</span><span class="w"> </span><span class="o">[</span>--port<span class="w"> </span>PORT<span class="o">]</span><span class="w"> </span><span class="o">[</span>--lease-dir<span class="w"> </span>DIRECTORY<span class="o">]</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">--host</span> <span class="pre">HOST</span></code> – Interface to listen on (default <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>; the service
+listens on every interface of its container).</p>
+<p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--port</span> <span class="pre">PORT</span></code> – Port to serve on (default: the configured
+<code class="docutils literal notranslate"><span class="pre">agent_record.port</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--lease-dir</span> <span class="pre">DIRECTORY</span></code> – Run as the host-local record that host commands
+start when no stack runs one: report ready only after the first full ingest
+pass, and stop once no lease in this directory names a live process.</p>
+<p>It reads the verifier and the secret set, and the spool, record and transcript
+locations, from the environment its compose service renders.</p>
+</section>
+<section id="osprey-agent-record-health">
+<h3>osprey agent-record health<a class="headerlink" href="#osprey-agent-record-health" title="Link to this heading">#</a></h3>
+<p>Show the agent record’s health: every spool source and transcript root (live,
+idle or stopped, its backlog, refusals and errors), the backend, and how far
+the export to the archive is behind. It waits for the record’s start-up job
+run to finish, then answers, and names each problem it finds.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>agent-record<span class="w"> </span>health<span class="w"> </span><span class="o">[</span>--repo<span class="w"> </span>DIRECTORY<span class="o">]</span>
+</pre></div>
+</div>
+<p>It reads the record <code class="docutils literal notranslate"><span class="pre">OSPREY_AGENT_RECORD_URL</span></code> names; with no stack up and no
+host session, it starts the host-local record for the call and stops it again
+afterwards. A project whose <code class="docutils literal notranslate"><span class="pre">agent_record.backend</span></code> is <code class="docutils literal notranslate"><span class="pre">clickhouse</span></code> needs
+its stack: with nothing up the command refuses and names <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.</p>
+</section>
+<section id="osprey-agent-record-export">
+<h3>osprey agent-record export<a class="headerlink" href="#osprey-agent-record-export" title="Link to this heading">#</a></h3>
+<p>Run the catch-up export now: every closed day the archive does not hold yet is
+written to <code class="docutils literal notranslate"><span class="pre">var/archive/&lt;day&gt;/agent_record/</span></code>. It waits for the record’s
+start-up job run to finish, then prints the days this call exported and the
+latest exported day.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>agent-record<span class="w"> </span><span class="nb">export</span><span class="w"> </span><span class="o">[</span>--repo<span class="w"> </span>DIRECTORY<span class="o">]</span>
+</pre></div>
+</div>
+<p>It opens the record the same way <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">agent-record</span> <span class="pre">health</span></code> does.</p>
+</section>
 </section>
 <section id="osprey-chat">
 <h2>osprey chat<a class="headerlink" href="#osprey-chat" title="Link to this heading">#</a></h2>
@@ -1888,6 +1947,12 @@ osprey<span class="w"> </span>vendor<span class="w"> </span>verify<span class="w
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-health">osprey health</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-archive">osprey archive</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-history">osprey history</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-agent-record">osprey agent-record</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-agent-record-serve">osprey agent-record serve</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-agent-record-health">osprey agent-record health</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-agent-record-export">osprey agent-record export</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-chat">osprey chat</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-query">osprey query</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-eject">osprey eject</a></li>

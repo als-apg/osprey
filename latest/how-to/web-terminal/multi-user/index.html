@@ -425,10 +425,8 @@
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/read-the-record.html">Read the Record</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/reconstruct-session.html">Reconstruct a Session</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -605,7 +603,7 @@ for everything else.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 312" role="img" aria-labelledby="multi-user-title multi-user-desc">
   <title id="multi-user-title">Multi-user landing page</title>
-  <desc id="multi-user-desc">One nginx landing page on port 10000 routes each person by path to their own terminal container — alice, bob, and the logbook app everyone on the roster opens — all of which share the same databases and telemetry services; when login is on, nginx asks the auth service about every request before proxying.</desc>
+  <desc id="multi-user-desc">One nginx landing page on port 10000 routes each person by path to their own terminal container — alice, bob, and the logbook app everyone on the roster opens — all of which share the same databases and agent record; when login is on, nginx asks the auth service about every request before proxying.</desc>
   <defs>
     <marker id="multi-user-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -664,7 +662,7 @@ for everything else.</p>
   <text class="tn" x="864" y="144" text-anchor="middle">shared</text>
   <text class="tn" x="864" y="160" text-anchor="middle">services</text>
   <text class="ts" x="864" y="180" text-anchor="middle">databases</text>
-  <text class="ts" x="864" y="192" text-anchor="middle">telemetry</text>
+  <text class="ts" x="864" y="192" text-anchor="middle">agent record</text>
 </svg>
 </div>
 <p>Three ideas carry the whole design:</p>
@@ -843,7 +841,7 @@ untouched.</p></td>
 </tr>
 <tr class="row-odd"><td><p class="sd-card-text"><strong>Rename or drop a user</strong></p></td>
 <td><p class="sd-card-text">Edit the roster entry, and the user’s entry in
-<code class="docutils literal notranslate"><span class="pre">services.telemetry_store.readers</span></code> if it has one, then
+<code class="docutils literal notranslate"><span class="pre">agent_record.readers</span></code> if it has one, then
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>. A container whose
 user is no longer on the roster is stopped and removed, so it
 cannot keep serving that index’s ports; its volumes are
@@ -897,7 +895,7 @@ osprey<span class="w"> </span>up
 needed. Alongside the web tier,
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> brings up everything else the control-assistant tutorial deploys
 — the virtual accelerator, the bluesky services, and the supporting
-PostgreSQL and telemetry containers — so the control-room terminals open onto a
+PostgreSQL and agent-record containers — so the control-room terminals open onto a
 working machine, the logbook app onto a live logbook and the knowledge
 app onto a seeded facility graph, not an empty shell.</p>
 <p><strong>Trim the roster</strong> to the users you want, in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> before
@@ -906,8 +904,8 @@ app onto a seeded facility graph, not an empty shell.</p>
 <li><p>Delete the <code class="docutils literal notranslate"><span class="pre">users</span></code> entries you do not want.</p></li>
 <li><p>Delete <code class="docutils literal notranslate"><span class="pre">tiers/&lt;name&gt;.yml</span></code> for every tier nobody uses.</p></li>
 <li><p>If <code class="docutils literal notranslate"><span class="pre">readonly</span></code> is gone, point <code class="docutils literal notranslate"><span class="pre">default_tier</span></code> at a tier that is left.</p></li>
-<li><p>Drop removed users from <code class="docutils literal notranslate"><span class="pre">services.telemetry_store.readers</span></code>, or
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> still mints a query key for them.</p></li>
+<li><p>Drop removed users from <code class="docutils literal notranslate"><span class="pre">agent_record.readers</span></code>, or
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> still mints a reader key for them.</p></li>
 </ul>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
@@ -1165,26 +1163,28 @@ warm, and returning to the same user reconnects to it.</p>
 <section id="what-the-stack-records">
 <h3>What the stack records<a class="headerlink" href="#what-the-stack-records" title="Link to this heading">#</a></h3>
 <p>Each terminal writes its own audit trail — refused writes, tool calls, hook
-decisions, config edits — into <code class="docutils literal notranslate"><span class="pre">var/audit/&lt;user&gt;/</span></code> in the project on the
-deploy host. A container is handed that one directory and nothing else under
-<code class="docutils literal notranslate"><span class="pre">var/audit/</span></code>, so no user’s terminal can read or rewrite another’s. The
-authentication service writes logins into <code class="docutils literal notranslate"><span class="pre">var/audit/sidecar/</span></code>, which it owns
-as root and no terminal mounts at all.</p>
-<p>That makes the deploy host the place a question spanning several people is
-answered: <code class="docutils literal notranslate"><span class="pre">grep</span> <span class="pre">-r</span> <span class="pre">alice</span> <span class="pre">var/audit/</span></code> there sees every subdirectory, while the
-admin login inside a container sees only its own. <a class="reference internal" href="../../../reference/contracts/audit-trail.html#audit-trail-record"><span class="std std-ref">The audit trail</span></a> has the record shape, and what append-only does and does
+decisions, config edits — as entries in the agent record, through a spool
+directory of its own under <code class="docutils literal notranslate"><span class="pre">var/spool/&lt;user&gt;/</span></code> in the project on the deploy
+host. A container is handed that one directory and nothing else under
+<code class="docutils literal notranslate"><span class="pre">var/spool/</span></code>, and the record files every entry under the identity of the
+directory it came from, so no user’s terminal can rewrite another’s trail or
+write in another’s name. The authentication service records logins through its
+own <code class="docutils literal notranslate"><span class="pre">sidecar</span></code> spool directory, which no terminal mounts at all.</p>
+<p>That makes the agent record the place a question spanning several people is
+answered, by a reader whose record login covers those identities
+(<a class="reference internal" href="../../health-and-monitoring/read-the-record.html"><span class="doc">Read the Record</span></a>). <a class="reference internal" href="../../../reference/contracts/audit-trail.html#audit-trail-record"><span class="std std-ref">The audit trail</span></a> has the record shape, and what append-only does and does
 not buy you.</p>
 </section>
 </section>
 <section id="the-history-page">
 <span id="multi-user-history-page"></span><h2>The history page<a class="headerlink" href="#the-history-page" title="Link to this heading">#</a></h2>
 <p>Where the web terminals sign people on (<code class="docutils literal notranslate"><span class="pre">auth.method</span></code> of <code class="docutils literal notranslate"><span class="pre">password</span></code> or
-<code class="docutils literal notranslate"><span class="pre">oidc</span></code>) and the deployment runs the telemetry store, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> also runs
-a history page: every session the store holds, each with its conversation,
-tool calls, approvals and preflight checks, read in a browser. It is served at
-<code class="docutils literal notranslate"><span class="pre">/history/</span></code> on the <strong>readers’ origin</strong>, the web tier’s second server on its
-own port (<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.reader_port</span></code>, or
-<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.reader_origin</span></code> behind a load balancer), so a page an
+<code class="docutils literal notranslate"><span class="pre">oidc</span></code>), <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> also runs a history page: every session the agent
+record holds, each with its conversation, tool calls, approvals and preflight
+checks, read in a browser. It is served at <code class="docutils literal notranslate"><span class="pre">/history/</span></code> on the <strong>history
+page’s origin</strong>, the web tier’s second server on its own port
+(<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.history_port</span></code>, or
+<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.history_origin</span></code> behind a load balancer), so a page an
 agent wrote on the terminals’ origin cannot read it. A visit without a valid
 sign-in goes to the terminals’ sign-in and comes back. Without sign-on there is
 no history page; each terminal still shows its own past sessions.</p>
@@ -1203,10 +1203,9 @@ no history page; each terminal still shows its own past sessions.</p>
 <span class="w">        </span><span class="nt">tier</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">admin</span>
 <span class="w">        </span><span class="nt">history</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">all</span>
 
-<span class="nt">services</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">telemetry_store</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">readers</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">carol</span><span class="w">                 </span><span class="c1"># a reader is a reader everywhere</span>
+<span class="nt">agent_record</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">readers</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">carol</span><span class="w">                   </span><span class="c1"># a reader is a reader everywhere</span>
 </pre></div>
 </div>
 <ul class="simple">
@@ -1214,10 +1213,9 @@ no history page; each terminal still shows its own past sessions.</p>
 name.</p></li>
 <li><p><strong>All</strong>: <code class="docutils literal notranslate"><span class="pre">history:</span> <span class="pre">all</span></code> on the person’s roster entry, or on a role in
 <code class="docutils literal notranslate"><span class="pre">authorization.roles</span></code> the person holds, shows every user’s sessions.</p></li>
-<li><p><strong>A reader</strong> — a roster user named under
-<code class="docutils literal notranslate"><span class="pre">services.telemetry_store.readers</span></code>, or a reader recognised by its
-<code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code> — sees every user’s sessions, bounded by that reader’s
-<code class="docutils literal notranslate"><span class="pre">tables</span></code> and <code class="docutils literal notranslate"><span class="pre">days_back</span></code> (<a class="reference internal" href="../../health-and-monitoring/read-the-record.html"><span class="doc">Read the Record</span></a>).
+<li><p><strong>A reader</strong> — a roster user named under <code class="docutils literal notranslate"><span class="pre">agent_record.readers</span></code>, or a
+reader recognised by its <code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code> — sees every user’s sessions,
+bounded by that reader’s <code class="docutils literal notranslate"><span class="pre">kinds</span></code> and <code class="docutils literal notranslate"><span class="pre">days_back</span></code> (<a class="reference internal" href="../../health-and-monitoring/read-the-record.html"><span class="doc">Read the Record</span></a>).
 The reader entry takes precedence over <code class="docutils literal notranslate"><span class="pre">history:</span></code>.</p></li>
 </ul>
 <p>The rules at the edges:</p>
@@ -1243,9 +1241,9 @@ sign-in and offers a switch among the others, each in their own scope.</p></li>
 load after <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>; a person taken out of <code class="docutils literal notranslate"><span class="pre">readers</span></code> is back in their
 own scope then, even with the page still open.</p></li>
 </ul>
-<p>Every page query runs in the store as a view account for that one person, so
-the scope above is a permission of the database, not a filter of the page. The
-store’s <code class="docutils literal notranslate"><span class="pre">query_log</span></code> names both the view account and the person.</p>
+<p>The page names the viewer to the agent record, and the record applies the
+scope above itself, from this deployment’s config, so the scope is a
+permission of the record, not a filter of the page.</p>
 </section>
 <section id="related-pages">
 <h2>Related pages<a class="headerlink" href="#related-pages" title="Link to this heading">#</a></h2>

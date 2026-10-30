@@ -480,11 +480,10 @@ diagnostic suite (<code class="docutils literal notranslate"><span class="pre">h
 settings (<code class="docutils literal notranslate"><span class="pre">web:</span></code>), the artifact gallery’s own
 categories (<code class="docutils literal notranslate"><span class="pre">artifact_server:</span></code>), the Python sandbox’s run ceiling
 (<code class="docutils literal notranslate"><span class="pre">python_executor:</span></code>), where screenshots are written (<code class="docutils literal notranslate"><span class="pre">screen_capture:</span></code>), the
-full tool-call record (<code class="docutils literal notranslate"><span class="pre">audit.tool_call:</span></code>), the links from an answer to a
+links from an answer to a
 logbook entry (<code class="docutils literal notranslate"><span class="pre">ariel.entry_url_template</span></code>), how much of each logbook entry
-the agent reads (<code class="docutils literal notranslate"><span class="pre">ariel.entry_text</span></code>), the signals the agent exports
-(<code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.signals</span></code>), the collector token the agent sends
-(<code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.auth.token_env</span></code>), the Phoebus display bridge
+the agent reads (<code class="docutils literal notranslate"><span class="pre">ariel.entry_text</span></code>), whether the agent shows its
+thinking (<code class="docutils literal notranslate"><span class="pre">claude_code.thinking.display</span></code>), the Phoebus display bridge
 (<code class="docutils literal notranslate"><span class="pre">phoebus:</span></code>), and the deployment keys that decide which container image each
 service runs and how <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> placeholders in the compose files are filled
 in. Settings that only
@@ -700,8 +699,7 @@ tools report the same degraded states from the inside — see
 <li><p><code class="docutils literal notranslate"><span class="pre">reach</span></code> — appears when this render has a client switched on for a shared
 service: hybrid logbook search and the OKF panel (the qmd sidecar), the
 graph MCP server (the graph store), the ARIEL panel and MCP server
-(Postgres), agent telemetry (the telemetry gateway), the Bluesky MCP server
-(the bridge), the EVENTS and BLUESKY tabs (their sidecars), and the
+(Postgres), the Bluesky MCP server (the bridge), the EVENTS and BLUESKY tabs (their sidecars), and the
 virtual-accelerator connector. One row per service, and the address it
 knocks on is the one <strong>the client itself resolves</strong> from this config, in the
 process running the check — so the same category answers a different
@@ -711,22 +709,6 @@ user’s agent reaches). A knock is a TCP connect; a closed port warns and
 names the config key the client resolved it from, and a client switched on
 with nothing to resolve warns with the key that would give it one — the
 same condition <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses (<a class="reference internal" href="../../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a>).</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">telemetry_store</span></code> — appears when <code class="docutils literal notranslate"><span class="pre">telemetry_store</span></code> is in
-<code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>. One row, <strong>ping</strong>: <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/ping</span></code> against the store’s
-HTTP interface at the address that fits where the check runs (the service
-name from a container on the compose network, loopback and the published port
-from the host). <code class="docutils literal notranslate"><span class="pre">ok</span></code> on HTTP 200, <code class="docutils literal notranslate"><span class="pre">warning</span></code> otherwise: a store that is
-down loses no record, because the gateway queues on disk and retries.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">telemetry_gateway</span></code> — appears when <code class="docutils literal notranslate"><span class="pre">telemetry_gateway</span></code> is in
-<code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>. Reads the gateway’s own counters page and reports
-whether it answers, a <code class="docutils literal notranslate"><span class="pre">warning</span></code> when an exporter’s queue is more than 80 %
-full (fix the store before restarting the gateway, or a full queue can lose a
-batch), the refusals since the gateway started (information only), any
-<code class="docutils literal notranslate"><span class="pre">*.jsonl</span></code> under <code class="docutils literal notranslate"><span class="pre">var/audit</span></code> that is not a regular file, and the audit
-directories no feed reads until the next build. On the host it also keeps the
-previous sample in <code class="docutils literal notranslate"><span class="pre">var/health/telemetry_gateway.json</span></code> and warns when send
-failures or refusals rose since then, or when a queue has not drained for
-five minutes.</p></li>
 </ul>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
@@ -992,31 +974,26 @@ shorthand for a <code class="docutils literal notranslate"><span class="pre">git
 Nothing ships here: the draft can carry a session’s scrollback, so name
 the mailbox your operators should reach before offering the channel.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.feedback.max_store_bytes</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">268435456</span></code> (256 MB)</p></td>
-<td><p>Ceiling on the on-disk feedback store. Over it, the oldest saved session
-contexts are dropped; the submissions themselves are always kept.</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web.app_name</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.app_name</span></code></p></td>
 <td><p>unset (no badge)</p></td>
 <td><p>Optional name badge in the terminal header, so otherwise-identical
 deployments are told apart. The <code class="docutils literal notranslate"><span class="pre">OSPREY_WEB_APP_NAME</span></code> environment
 variable outranks it, which is what lets several containers sharing one
 baked config image each carry their own name.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.chat_turn_timeout_s</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web.chat_turn_timeout_s</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">600</span></code></p></td>
 <td><p>Ceiling in seconds on a single Simple-mode chat turn.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web.chat_idle_timeout_s</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.chat_idle_timeout_s</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">1800</span></code></p></td>
 <td><p>How long an operator’s chat session may sit idle before it is reaped.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.chat_max_sessions</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web.chat_max_sessions</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">5</span></code></p></td>
 <td><p>Cap on concurrent operator-chat sessions.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web.sidecar_ready_timeout_s</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.sidecar_ready_timeout_s</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">60</span></code></p></td>
 <td><p>Seconds the terminal waits for a panel that runs its own server (the
 <strong>JUPYTER</strong> tab) to answer before it greys that tab. The terminal starts
@@ -1039,7 +1016,6 @@ positive number is refused with a warning, and 60 applies.</p></td>
 <span class="w">        </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OSPREY upstream</span>
 <span class="w">    </span><span class="nt">github_repo</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&quot;</span>
 <span class="w">    </span><span class="nt">email</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">controls-support@example.org</span>
-<span class="w">    </span><span class="nt">max_store_bytes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">268435456</span>
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">docs_url</span></code>, <code class="docutils literal notranslate"><span class="pre">trackers</span></code>, <code class="docutils literal notranslate"><span class="pre">github_repo</span></code> and <code class="docutils literal notranslate"><span class="pre">email</span></code> are unset in every
@@ -1090,13 +1066,11 @@ aiming reports at the upstream maintainers’ tracker.</p></li>
 and it reads as <em>absent</em>, not blank — “I have not decided yet” rather than
 “there is none” — so you get the default. Write <code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code> when you mean none.</p></li>
 </ul>
-<p><code class="docutils literal notranslate"><span class="pre">max_store_bytes</span></code> takes a positive byte count; anything else — blank
-included — is reported in the log and the default is used. <code class="docutils literal notranslate"><span class="pre">trackers</span></code> has
-no blank posture of its own: an empty list, or none, simply adds no channel.
+<p><code class="docutils literal notranslate"><span class="pre">trackers</span></code> has no blank posture of its own: an empty list, or none, simply adds no channel.
 The feedback dialog’s Local channel is always available and needs no
 configuration at all.</p>
 <p>A build profile overrides any of these keys from its <code class="docutils literal notranslate"><span class="pre">config:</span></code> block in the
-dotted form, e.g. <code class="docutils literal notranslate"><span class="pre">web.feedback.max_store_bytes:</span> <span class="pre">536870912</span></code>.</p>
+dotted form, e.g. <code class="docutils literal notranslate"><span class="pre">web.feedback.email:</span> <span class="pre">controls-support&#64;example.org</span></code>.</p>
 </section>
 <section id="the-onboarding-tour-invite">
 <span id="config-web-tour"></span><h3>The onboarding tour invite<a class="headerlink" href="#the-onboarding-tour-invite" title="Link to this heading">#</a></h3>
@@ -1373,29 +1347,6 @@ set, for an analysis library that reads its own variable:</p>
 holds (the web-terminal, panel and dispatch tokens, a bridge launch token):
 naming one is an error, and the run does not start.</p>
 </section>
-<section id="audit-tool-call-the-full-record-of-every-tool-call">
-<span id="config-audit-tool-call"></span><h2><code class="docutils literal notranslate"><span class="pre">audit.tool_call:</span></code> — the full record of every tool call<a class="headerlink" href="#audit-tool-call-the-full-record-of-every-tool-call" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">audit.tool_call.enabled</span></code> (default <code class="docutils literal notranslate"><span class="pre">false</span></code>) turns on the full record: every
-osprey tool call, reads included, is written whole to
-<code class="docutils literal notranslate"><span class="pre">var/audit/&lt;identity&gt;/tool_call.jsonl</span></code> — arguments, result, control
-target, approval answer. Where the telemetry store is deployed, its gateway
-reads the file into <code class="docutils literal notranslate"><span class="pre">telemetry.audit_ledger</span></code> with every other ledger file.
-The control-assistant preset turns it on; delete the lines to opt out.</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">audit.tool_call.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">  </span><span class="nt">audit.tool_call.max_inline_bytes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">262144</span>
-</pre></div>
-</div>
-<p><code class="docutils literal notranslate"><span class="pre">audit.tool_call.max_inline_bytes</span></code> (default <code class="docutils literal notranslate"><span class="pre">262144</span></code>) bounds each payload,
-arguments and result on their own. A larger payload is saved as a JSON artifact
-and the record keeps <code class="docutils literal notranslate"><span class="pre">{&quot;size&quot;,</span> <span class="pre">&quot;sha256&quot;,</span> <span class="pre">&quot;artifact_id&quot;}</span></code> in its place. A value
-that is not a positive integer falls back to the default with a warning.</p>
-<p>Both keys are read once per MCP server process, so a change lands after
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and a restart. Unlike the rest of the audit trail, this file
-and those artifacts hold values: treat them with the access you give the
-control system’s own data. The fields are listed in
-<a class="reference internal" href="../contracts/audit-trail.html#audit-trail-tool-call"><span class="std std-ref">The full tool-call record</span></a>.</p>
-</section>
 <section id="ariel-entry-url-template-links-from-an-answer-to-the-logbook-entry">
 <span id="config-ariel-entry-url"></span><h2><code class="docutils literal notranslate"><span class="pre">ariel.entry_url_template</span></code> — links from an answer to the logbook entry<a class="headerlink" href="#ariel-entry-url-template-links-from-an-answer-to-the-logbook-entry" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">ariel.entry_url_template</span></code> is your logbook’s own address for one entry, with
@@ -1439,44 +1390,37 @@ keys are read at startup, so a change lands after <code class="docutils literal 
 restart. When choosing a value, the question is whether the part of an entry
 the agent needs routinely runs past 500 characters.</p>
 </section>
-<section id="claude-code-telemetry-signals-which-signals-the-agent-exports">
-<span id="config-telemetry-signals"></span><h2><code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.signals</span></code> — which signals the agent exports<a class="headerlink" href="#claude-code-telemetry-signals-which-signals-the-agent-exports" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.signals</span></code> lists the OpenTelemetry signals the agent
-exports while <code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.enabled</span></code> is <code class="docutils literal notranslate"><span class="pre">true</span></code>: any of
-<code class="docutils literal notranslate"><span class="pre">metrics</span></code>, <code class="docutils literal notranslate"><span class="pre">logs</span></code> and <code class="docutils literal notranslate"><span class="pre">traces</span></code>. Unset, it exports all three.</p>
+<section id="claude-code-thinking-display-whether-the-agent-shows-its-thinking">
+<span id="config-thinking-display"></span><h2><code class="docutils literal notranslate"><span class="pre">claude_code.thinking.display</span></code> — whether the agent shows its thinking<a class="headerlink" href="#claude-code-thinking-display-whether-the-agent-shows-its-thinking" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">claude_code.thinking.display</span></code> sets whether Claude Code shows a summary of
+its thinking. <code class="docutils literal notranslate"><span class="pre">summarized</span></code>, the default, shows the summaries, and they are
+recorded with the session, where the Simple-view chat and the agent timeline
+display them. <code class="docutils literal notranslate"><span class="pre">omitted</span></code> leaves thinking out. Any other value stops
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> with a message naming the key.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">claude_code.telemetry.signals</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">metrics</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">logs</span><span class="p p-Indicator">]</span>
+<span class="w">  </span><span class="nt">claude_code.thinking.display</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">omitted</span>
 </pre></div>
 </div>
-<p>A signal left out is exported as <code class="docutils literal notranslate"><span class="pre">none</span></code>, so an exporter variable in the
-shell or the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> cannot turn it back on. An empty list or any
-other name stops <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> with a message naming the key; to export
-nothing, set <code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.enabled:</span> <span class="pre">false</span></code>. Built-in tool output
-(<code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.log_tool_content</span></code>) is recorded as trace span events,
-so a list without <code class="docutils literal notranslate"><span class="pre">traces</span></code> leaves it out of the store; the tool-call record
-(<code class="docutils literal notranslate"><span class="pre">audit.tool_call.enabled</span></code>) is unaffected. Every launch reads the key: the
-web terminals, the dispatch worker, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code> and SDK agent runs. The
-rest of the block is covered in
-<a class="reference internal" href="../../how-to/health-and-monitoring/monitor-agent.html"><span class="doc">Monitor Your OSPREY Agent</span></a>.</p>
-</section>
-<section id="claude-code-telemetry-auth-token-env-the-collector-s-token">
-<span id="config-telemetry-auth"></span><h2><code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.auth.token_env</span></code> — the collector’s token<a class="headerlink" href="#claude-code-telemetry-auth-token-env-the-collector-s-token" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.auth.token_env</span></code> names the environment variable that
-holds the bearer token of an OTLP collector this deployment does not run. The
-agent sends it as <code class="docutils literal notranslate"><span class="pre">Authorization:</span> <span class="pre">Bearer</span> <span class="pre">&lt;value&gt;</span></code>. The key holds the
-variable’s name; the token goes in the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>.</p>
+<p>The key reaches a launch by one of three routes:</p>
+<ul class="simple">
+<li><p>Project settings: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes <code class="docutils literal notranslate"><span class="pre">showThinkingSummaries</span></code> into
+the project’s <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code>. This route covers interactive
+sessions only: the web terminals and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code> without <code class="docutils literal notranslate"><span class="pre">--print</span></code>.</p></li>
+<li><p>SDK runs: headless agent runs, such as the dispatch worker’s, pass
+<code class="docutils literal notranslate"><span class="pre">--thinking-display</span></code> to the CLI.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span> <span class="pre">--print</span></code>: the command line carries <code class="docutils literal notranslate"><span class="pre">--thinking-display</span></code>.</p></li>
+</ul>
+<p>The two flag routes need Claude Code 2.1.228 or later. A launch through an
+older build, or one whose version cannot be read, starts without the flag,
+records no thinking, and logs one warning. The warning names the fix: pin the
+agent CLI to 2.1.228 or later under <code class="docutils literal notranslate"><span class="pre">config:</span></code> in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and run
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">claude_code.telemetry.backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">generic</span>
-<span class="w">  </span><span class="nt">claude_code.telemetry.endpoint</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://otel-collector.example.org:4318</span>
-<span class="w">  </span><span class="nt">claude_code.telemetry.auth.token_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OTLP_COLLECTOR_TOKEN</span>
+<span class="w">  </span><span class="nt">claude_code.cli_version</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2.1.228&quot;</span>
 </pre></div>
 </div>
-<p>Every web terminal that exports telemetry receives the variable from the deploy
-<code class="docutils literal notranslate"><span class="pre">.env</span></code> through its own compose environment, never <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>, and
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses the deploy when it is unset. The <code class="docutils literal notranslate"><span class="pre">gateway</span></code> backend
-refuses the key: every sender authenticates to the deployment’s telemetry
-gateway with its own login. See
-<a class="reference internal" href="../../how-to/health-and-monitoring/monitor-agent.html"><span class="doc">Monitor Your OSPREY Agent</span></a>.</p>
+<p>The key changes only how thinking is shown. Whether the model thinks, and how
+much, is unchanged.</p>
 </section>
 <section id="phoebus-the-phoebus-display-bridge">
 <span id="config-phoebus"></span><h2><code class="docutils literal notranslate"><span class="pre">phoebus:</span></code> — the Phoebus display bridge<a class="headerlink" href="#phoebus-the-phoebus-display-bridge" title="Link to this heading">#</a></h2>
@@ -1679,12 +1623,9 @@ default. One row per image:</p>
 <p>Point either of the first two layers at an internal registry mirror or a
 pinned digest when your deployment host cannot (or should not) pull public
 images.</p>
-<p>The telemetry store and the telemetry gateway are upstream pins with no row and
-no environment variable: <code class="docutils literal notranslate"><span class="pre">services.telemetry_store.image</span></code> and
-<code class="docutils literal notranslate"><span class="pre">services.telemetry_gateway.image</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> are the only way to
-change them. The store’s tag decides whether the readers’ query page is served
-at all — OSPREY serves that page only for an image tag whose page script it
-knows — so the tag comes from the config alone.</p>
+<p>The agent record’s ClickHouse store is an upstream pin with no row and no
+environment variable: the profile’s <code class="docutils literal notranslate"><span class="pre">agent_record.clickhouse.image</span></code> is the
+only way to change it.</p>
 <p>Which of these images a deploy builds, and what naming another image does to
 that, is in <a class="reference internal" href="../../how-to/deploy-project/compose-templates.html#deployment-image-builds"><span class="std std-ref">When a deploy builds an image</span></a>.</p>
 <p>A row whose packaged default reads <em>upstream pin</em> is an <strong>upstream pin</strong> — an
@@ -1696,8 +1637,13 @@ axes below.</p>
 row value on purpose: all four run the bare project image, so all four read
 <code class="docutils literal notranslate"><span class="pre">OSPREY_WORKER_IMAGE</span></code>. Set that variable and all four services move to the
 image you name. <code class="docutils literal notranslate"><span class="pre">history</span></code> (the history page) is rendered whenever the
-deployment runs the telemetry store and its web terminals sign people in; it is
-never listed in <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>.</p>
+deployment’s web terminals sign people in (<code class="docutils literal notranslate"><span class="pre">auth.method</span></code> of <code class="docutils literal notranslate"><span class="pre">password</span></code> or
+<code class="docutils literal notranslate"><span class="pre">oidc</span></code>); it is never listed in <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>. Browsers reach it on
+the history page’s origin, a second server of the web tier on its own port:
+<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.history_port</span></code> (<code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code> + 2 by
+default), or <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.history_origin</span></code>, the address stated
+verbatim beside <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.external_origin</span></code> when a load balancer
+is what browsers reach. The two must share a host.</p>
 <section id="the-two-image-axes">
 <span id="deployment-image-axes"></span><h4>The two image axes<a class="headerlink" href="#the-two-image-axes" title="Link to this heading">#</a></h4>
 <p>An OSPREY-built default is always spelled the same way:</p>
@@ -1820,7 +1766,8 @@ the key families that gate writes and approval (<code class="docutils literal no
 are owned by the build profile: edit them in the profile and run
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>. Every refused attempt names the owning channel and is
 recorded in <a class="reference internal" href="../contracts/audit-trail.html#reference-audit-trail"><span class="std std-ref">the audit trail</span></a>, under
-<code class="docutils literal notranslate"><span class="pre">var/audit/&lt;identity&gt;/</span></code>, in a file named for the surface that refused it.</p>
+an <code class="docutils literal notranslate"><span class="pre">audit</span></code> entry filed under the acting identity, whose <code class="docutils literal notranslate"><span class="pre">surface</span></code> names
+the surface that refused it.</p>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <dl class="simple">
@@ -1911,11 +1858,9 @@ recorded in <a class="reference internal" href="../contracts/audit-trail.html#re
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#modules-web-terminals-the-landing-page-and-the-render-catalog"><code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> — the landing page and the render catalog</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#artifact-server-the-workspace-gallery-s-own-categories"><code class="docutils literal notranslate"><span class="pre">artifact_server:</span></code> — the workspace gallery’s own categories</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#python-executor-how-long-one-agent-script-may-run-and-what-it-inherits"><code class="docutils literal notranslate"><span class="pre">python_executor:</span></code> — how long one agent script may run, and what it inherits</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#audit-tool-call-the-full-record-of-every-tool-call"><code class="docutils literal notranslate"><span class="pre">audit.tool_call:</span></code> — the full record of every tool call</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel-entry-url-template-links-from-an-answer-to-the-logbook-entry"><code class="docutils literal notranslate"><span class="pre">ariel.entry_url_template</span></code> — links from an answer to the logbook entry</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel-entry-text-how-much-of-each-entry-the-agent-reads"><code class="docutils literal notranslate"><span class="pre">ariel.entry_text:</span></code> — how much of each entry the agent reads</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#claude-code-telemetry-signals-which-signals-the-agent-exports"><code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.signals</span></code> — which signals the agent exports</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#claude-code-telemetry-auth-token-env-the-collector-s-token"><code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.auth.token_env</span></code> — the collector’s token</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#claude-code-thinking-display-whether-the-agent-shows-its-thinking"><code class="docutils literal notranslate"><span class="pre">claude_code.thinking.display</span></code> — whether the agent shows its thinking</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#phoebus-the-phoebus-display-bridge"><code class="docutils literal notranslate"><span class="pre">phoebus:</span></code> — the Phoebus display bridge</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#screen-capture-where-screenshots-are-written"><code class="docutils literal notranslate"><span class="pre">screen_capture:</span></code> — where screenshots are written</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#deployment-service-images-and-var-interpolation">Deployment — service images and <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> interpolation</a><ul class="visible nav section-nav flex-column">

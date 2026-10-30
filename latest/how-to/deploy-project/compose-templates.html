@@ -425,10 +425,8 @@
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/read-the-record.html">Read the Record</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/reconstruct-session.html">Reconstruct a Session</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -736,10 +734,9 @@ fails at <code class="docutils literal notranslate"><span class="pre">up</span><
 </tr>
 <tr class="row-odd"><td><p>The upstream pins</p></td>
 <td><p>One row at a time: <code class="docutils literal notranslate"><span class="pre">services.&lt;name&gt;.image</span></code> (or the row’s
-<code class="docutils literal notranslate"><span class="pre">OSPREY_..._IMAGE</span></code> variable) naming your mirrored copy. The
-telemetry store and gateway have no variable; keep the store’s tag
-when you mirror it, since its query page is served only for a tag
-OSPREY knows.</p></td>
+<code class="docutils literal notranslate"><span class="pre">OSPREY_..._IMAGE</span></code> variable) naming your mirrored copy. The agent
+record’s ClickHouse store has no variable: the profile’s
+<code class="docutils literal notranslate"><span class="pre">agent_record.clickhouse.image</span></code> names its mirrored copy.</p></td>
 </tr>
 <tr class="row-even"><td><p>The web tier’s images, auth sidecar included</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">registry.url</span></code> plus <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.image_tag</span></code>.</p></td>
@@ -765,10 +762,6 @@ there is no one-shell equivalent.</p></td>
 <span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/pgvector/pgvector:pg16</span>
 <span class="w">  </span><span class="nt">mongodb</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/mongo:7</span>
-<span class="w">  </span><span class="nt">telemetry_store</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/clickhouse/clickhouse-server:26.8.18.2</span>
-<span class="w">  </span><span class="nt">telemetry_gateway</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/opentelemetry-collector-contrib:0.162.0</span>
 <span class="w">  </span><span class="nt">graphdb</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/neo4j:5.26-community</span>
 <span class="w">  </span><span class="nt">bluesky</span><span class="p">:</span>

@@ -425,10 +425,8 @@
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/read-the-record.html">Read the Record</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/reconstruct-session.html">Reconstruct a Session</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -905,8 +903,9 @@ provider or in the roster reaches the <em>next</em> login. Short of the next log
 the one way to end a role now is to end the person’s access:
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">remove</span> <span class="pre">&lt;name&gt;</span></code>.</p></li>
 </ul>
-<p>Every login and refusal is recorded in <code class="docutils literal notranslate"><span class="pre">var/audit/sidecar/auth_sidecar.jsonl</span></code>
-on the deploy host. A <code class="docutils literal notranslate"><span class="pre">claims</span></code> stanza under <code class="docutils literal notranslate"><span class="pre">password</span></code> resolves nothing;
+<p>Every login and refusal is recorded as an <code class="docutils literal notranslate"><span class="pre">audit</span></code> entry in the agent record,
+filed under the authentication service’s own identity (<code class="docutils literal notranslate"><span class="pre">sidecar</span></code>) and naming
+the person it was for. A <code class="docutils literal notranslate"><span class="pre">claims</span></code> stanza under <code class="docutils literal notranslate"><span class="pre">password</span></code> resolves nothing;
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> warns rather than fails.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
@@ -1146,7 +1145,7 @@ the <code class="docutils literal notranslate"><span class="pre">access</span></
 <code class="docutils literal notranslate"><span class="pre">own</span></code> refuses the sessions minted while it was its owner’s, a card returned
 to <code class="docutils literal notranslate"><span class="pre">own</span></code> refuses the shared ones, and a narrowed list refuses whoever it no
 longer covers.</p>
-<p>The ledger records who opened a session beside the card
+<p>The audit trail records who opened a session beside the card
 (<a class="reference internal" href="../../../reference/contracts/audit-trail.html#audit-trail-identity-keys"><span class="std std-ref">The login behind the record</span></a>), so a shared terminal’s records still say
 who did what.</p>
 <p>The card’s role rides the card. The claims binding
@@ -1292,7 +1291,7 @@ card, write as <code class="docutils literal notranslate"><span class="pre">ospr
 <p>The name is attribution, not authentication; the login wall is what
 authenticates the person. See <a class="reference internal" href="../../../architecture/safety-chain.html#architecture-safety-chain-owner"><span class="std std-ref">Whose write is it</span></a> for what
 the name does and does not establish, and <a class="reference internal" href="../../../reference/contracts/audit-trail.html#audit-trail-attribution"><span class="std std-ref">Who the control system saw</span></a> for
-how the audit ledger joins a write to the put-log.</p>
+how the audit trail joins a write to the put-log.</p>
 <p>These rosters are refused by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span></code> in every
 auth method, and by the build itself even with <code class="docutils literal notranslate"><span class="pre">--no-lint</span></code>:</p>
 <ul class="simple">
@@ -1482,7 +1481,7 @@ Delete the line by hand when the person leaves.</p></li>
 carrying is refused from that moment on. The login page’s cookie is refused
 too, and stays refused when the authentication service restarts or is
 recreated (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">passwd</span></code>): the service keeps each
-logged-out session as a one-way digest in <code class="docutils literal notranslate"><span class="pre">var/audit/sidecar/</span></code>, until that
+logged-out session as a one-way digest in <code class="docutils literal notranslate"><span class="pre">var/state/sidecar/</span></code>, until that
 session would have expired anyway. If that directory cannot be written, the
 service logs a warning and a logout lasts until the service restarts.</p></li>
 <li><p><strong>Terminal sessions are kept on disk</strong> — behind <code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">token</span></code> and

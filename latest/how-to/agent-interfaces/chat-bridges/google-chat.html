@@ -425,10 +425,8 @@
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/read-the-record.html">Read the Record</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/reconstruct-session.html">Reconstruct a Session</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -726,10 +724,10 @@ checked.</p></td>
 <td><p class="sd-card-text">A release label shown with each acknowledgement, so a conversation
 shows which version answered. Omitted when unset.</p></td>
 </tr>
-<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">DEDUP_PATH</span></code>, <code class="docutils literal notranslate"><span class="pre">HISTORY_PATH</span></code></p></td>
-<td><p class="sd-card-text">Where the bridge keeps what it remembers. Both default to files under
-<code class="docutils literal notranslate"><span class="pre">/data</span></code>, its own volume; change them only if you deliberately
-relocate that state.</p></td>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">DEDUP_PATH</span></code></p></td>
+<td><p class="sd-card-text">Where the bridge keeps the questions it has answered. It defaults to
+a file under <code class="docutils literal notranslate"><span class="pre">/data</span></code>, its own volume; change it only if you
+deliberately relocate that state.</p></td>
 </tr>
 <tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">TZ</span></code></p></td>
 <td><p class="sd-card-text">Timezone, taken from your project configuration so timestamps match

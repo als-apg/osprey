@@ -767,66 +767,51 @@ put bounds on it. Add one record:</p>
 either side of the new bounds. This edit-rebuild-observe loop — in <code class="docutils literal notranslate"><span class="pre">data/</span></code>
 or in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> — is the same loop every real deployment is grown with.</p>
 </section>
-<section id="step-10-first-containers-deploy-the-telemetry-store">
-<h2>Step 10: First Containers — Deploy the Telemetry Store<a class="headerlink" href="#step-10-first-containers-deploy-the-telemetry-store" title="Link to this heading">#</a></h2>
-<p>Everything so far ran container-free. The preset declares exactly two
-containerized services, the telemetry store and the gateway that feeds it, and
-this is the deployment lesson:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>up<span class="w"> </span>-d
+<section id="step-10-read-what-the-agent-recorded">
+<h2>Step 10: Read What the Agent Recorded<a class="headerlink" href="#step-10-read-what-the-agent-recorded" title="Link to this heading">#</a></h2>
+<p>Every prompt, answer, tool call and approval decision of your session went into
+the <strong>agent record</strong>, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> runs as a local process beside the
+agent. The preset keeps it on the embedded backend, with no container:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">agent_record</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">embedded</span>
 </pre></div>
 </div>
-<p>This needs a container runtime (Docker or Podman). It starts the store, bound to
-localhost, and the gateway the agent sends its logs and metrics to; the gateway
-also reads the audit ledger under <code class="docutils literal notranslate"><span class="pre">var/audit/</span></code> into the store. The preset names
-one reader, <code class="docutils literal notranslate"><span class="pre">operator</span></code>: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> writes its key to
-<code class="docutils literal notranslate"><span class="pre">.env.telemetry-reader.operator</span></code> and prints that file’s path and the store’s
-query page, <a class="reference external" href="http://127.0.0.1:10804/play?user=operator">http://127.0.0.1:10804/play?user=operator</a>
-(<code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code> + 804), never the key itself.</p>
-<p>Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>, ask the agent something, then ask the store what it
-recorded. This query lists the newest events and ledger records of the last
-hour:</p>
-<div class="highlight-postgresql notranslate"><div class="highlight"><pre><span></span><span class="c1">-- What the agent recorded in the last hour: its own events (prompts,</span>
-<span class="c1">-- responses, API calls) from otel_logs and the records its tools filed in</span>
-<span class="c1">-- audit_ledger, the newest ten of each, newest first.</span>
-<span class="k">SELECT</span><span class="w"> </span><span class="n">source</span><span class="p">,</span><span class="w"> </span><span class="nb">Timestamp</span><span class="p">,</span><span class="w"> </span><span class="k">User</span><span class="p">,</span><span class="w"> </span><span class="n">SessionId</span><span class="p">,</span><span class="w"> </span><span class="n">what</span>
-<span class="k">FROM</span>
-<span class="p">(</span>
-<span class="w">    </span><span class="k">SELECT</span>
-<span class="w">        </span><span class="s1">&#39;otel_logs&#39;</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">source</span><span class="p">,</span>
-<span class="w">        </span><span class="nb">Timestamp</span><span class="p">,</span>
-<span class="w">        </span><span class="k">User</span><span class="p">,</span>
-<span class="w">        </span><span class="n">SessionId</span><span class="p">,</span>
-<span class="w">        </span><span class="k">Event</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">what</span>
-<span class="w">    </span><span class="k">FROM</span><span class="w"> </span><span class="n">telemetry</span><span class="mf">.</span><span class="n">otel_logs</span>
-<span class="w">    </span><span class="k">WHERE</span><span class="w"> </span><span class="nb">Timestamp</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">now</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nb">INTERVAL</span><span class="w"> </span><span class="mf">1</span><span class="w"> </span><span class="k">HOUR</span>
-
-<span class="w">    </span><span class="k">UNION</span><span class="w"> </span><span class="k">ALL</span>
-
-<span class="w">    </span><span class="k">SELECT</span>
-<span class="w">        </span><span class="s1">&#39;audit_ledger&#39;</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">source</span><span class="p">,</span>
-<span class="w">        </span><span class="nb">Timestamp</span><span class="p">,</span>
-<span class="w">        </span><span class="k">User</span><span class="p">,</span>
-<span class="w">        </span><span class="n">SessionId</span><span class="p">,</span>
-<span class="w">        </span><span class="n">concat</span><span class="p">(</span><span class="n">Surface</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;: &#39;</span><span class="p">,</span><span class="w"> </span><span class="n">Decision</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">what</span>
-<span class="w">    </span><span class="k">FROM</span><span class="w"> </span><span class="n">telemetry</span><span class="mf">.</span><span class="n">audit_ledger</span>
-<span class="w">    </span><span class="k">WHERE</span><span class="w"> </span><span class="nb">Timestamp</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">now</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nb">INTERVAL</span><span class="w"> </span><span class="mf">1</span><span class="w"> </span><span class="k">HOUR</span>
-<span class="p">)</span>
-<span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="nb">Timestamp</span><span class="w"> </span><span class="k">DESC</span>
-<span class="k">LIMIT</span><span class="w"> </span><span class="mf">10</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">source</span>
+<p>While <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> runs, the record answers its read API on
+<a class="reference external" href="http://127.0.0.1:10053">http://127.0.0.1:10053</a> (<code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code> + 53). <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> minted
+an operator login for it into <code class="docutils literal notranslate"><span class="pre">.env.agent-record.login.operator</span></code> (mode 0600).
+List your sessions, then the approval decisions the safety chain made:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">LOGIN</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span>sed<span class="w"> </span>-n<span class="w"> </span><span class="s1">&#39;s/^OSPREY_AGENT_RECORD_LOGIN=//p&#39;</span><span class="w"> </span>.env.agent-record.login.operator<span class="k">)</span><span class="s2">&quot;</span>
+curl<span class="w"> </span>-sS<span class="w"> </span>--user<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$LOGIN</span><span class="s2">&quot;</span><span class="w"> </span><span class="s2">&quot;http://127.0.0.1:10053/v1/read/list_sessions?limit=5&quot;</span>
+curl<span class="w"> </span>-sS<span class="w"> </span>--user<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$LOGIN</span><span class="s2">&quot;</span><span class="w"> </span><span class="s2">&quot;http://127.0.0.1:10053/v1/read/entries?kind=decision&amp;limit=10&quot;</span>
 </pre></div>
 </div>
-<p>Save it as <code class="docutils literal notranslate"><span class="pre">hello-world-tutorial.sql</span></code> in the repo root and send it as
-<code class="docutils literal notranslate"><span class="pre">operator</span></code>:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">KEY</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span>sed<span class="w"> </span>-n<span class="w"> </span><span class="s1">&#39;s/^password=//p&#39;</span><span class="w"> </span>.env.telemetry-reader.operator<span class="k">)</span><span class="s2">&quot;</span>
-curl<span class="w"> </span>-sS<span class="w"> </span>--user<span class="w"> </span><span class="s2">&quot;operator:</span><span class="nv">$KEY</span><span class="s2">&quot;</span><span class="w"> </span>--data-binary<span class="w"> </span>@hello-world-tutorial.sql<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">&quot;http://127.0.0.1:10804/?http_wait_end_of_query=1&quot;</span>
+<p>The record keeps an entry for 14 days. Each UTC day that has closed is also
+exported, whole, as <code class="docutils literal notranslate"><span class="pre">var/archive/&lt;day&gt;/agent_record/entries.parquet</span></code> the next
+time the record runs: the lasting copy, which outlives that window. This query
+counts what each identity wrote, by kind, across every exported day:</p>
+<div class="highlight-sql notranslate"><div class="highlight"><pre><span></span><span class="c1">-- What the agent recorded, from the record&#39;s archive: every closed day the</span>
+<span class="c1">-- record has exported, counted by who wrote each entry and what kind it is,</span>
+<span class="c1">-- the most frequent first. Run it from the repo root.</span>
+<span class="k">SELECT</span>
+<span class="w">    </span><span class="k">identity</span><span class="p">,</span>
+<span class="w">    </span><span class="n">kind</span><span class="p">,</span>
+<span class="w">    </span><span class="k">count</span><span class="p">(</span><span class="k">DISTINCT</span><span class="w"> </span><span class="k">key</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">entries</span><span class="p">,</span>
+<span class="w">    </span><span class="k">min</span><span class="p">(</span><span class="n">ts</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">first_seen</span><span class="p">,</span>
+<span class="w">    </span><span class="k">max</span><span class="p">(</span><span class="n">ts</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">last_seen</span>
+<span class="k">FROM</span><span class="w"> </span><span class="n">read_parquet</span><span class="p">(</span><span class="s1">&#39;var/archive/*/agent_record/entries.parquet&#39;</span><span class="p">)</span>
+<span class="k">GROUP</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="k">identity</span><span class="p">,</span><span class="w"> </span><span class="n">kind</span>
+<span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">entries</span><span class="w"> </span><span class="k">DESC</span><span class="p">,</span><span class="w"> </span><span class="k">identity</span><span class="p">,</span><span class="w"> </span><span class="n">kind</span>
 </pre></div>
 </div>
-<p>Each row names its <code class="docutils literal notranslate"><span class="pre">source</span></code> table, the time, the <code class="docutils literal notranslate"><span class="pre">User</span></code> it was recorded
-under and the session. Or paste the query into the query page with the key.
-See <a class="reference internal" href="../how-to/health-and-monitoring/monitor-agent.html"><span class="doc">Monitor Your OSPREY Agent</span></a> for what the store
-holds and <a class="reference internal" href="../how-to/health-and-monitoring/read-the-record.html"><span class="doc">Read the Record</span></a> for readers.
-Stop the stack with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">down</span></code>; the agent itself keeps working without it.</p>
+<p>Save it as <code class="docutils literal notranslate"><span class="pre">hello-world-tutorial.sql</span></code> in the repo root and run it with DuckDB,
+which OSPREY installs:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import duckdb; duckdb.sql(open(&#39;hello-world-tutorial.sql&#39;).read()).show()&quot;</span>
+</pre></div>
+</div>
+<p>On the first day the archive is still empty, and DuckDB reports that no file
+matches. See <a class="reference internal" href="../how-to/health-and-monitoring/agent-record.html"><span class="doc">Keep the Agent Record</span></a> for what the
+record and its archive hold. The control-assistant preset adds a history page in the browser,
+described in <a class="reference internal" href="../how-to/health-and-monitoring/read-the-record.html"><span class="doc">Read the Record</span></a>.</p>
 <p>The commands you now know are the complete lifecycle, and they are the same
 for a production facility deployment: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> once, then edit →
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> → <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> / <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> forever after.</p>
@@ -912,7 +897,7 @@ or volume.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-7-enable-writes-tier-rebuild-chip">Step 7: Enable Writes — Tier, Rebuild, Chip</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-8-write-with-the-guards-watching">Step 8: Write with the Guards Watching</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-9-edit-the-limits-file">Step 9: Edit the Limits File</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-10-first-containers-deploy-the-telemetry-store">Step 10: First Containers — Deploy the Telemetry Store</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-10-read-what-the-agent-recorded">Step 10: Read What the Agent Recorded</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#next-steps">Next Steps</a></li>
 </ul>
 </li>

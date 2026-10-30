@@ -1028,8 +1028,8 @@ and, where that channel’s policy asks for it, waits for the machine to confirm
 channel back and compares what it now holds with what was sent. See
 <a class="reference internal" href="../reference/contracts/connectors.html"><span class="doc">Connector Contracts</span></a>.</p>
 <p><strong>The audit trail.</strong> Every refusal and every approval prompt on every path, and every tool
-call that was allowed, is written down as one line under <code class="docutils literal notranslate"><span class="pre">var/audit/</span></code> in the deployment
-repository, by the check, the server or the Python executor that made the decision; the
+call that was allowed, is written down as one <code class="docutils literal notranslate"><span class="pre">audit</span></code> entry in the agent record, by the
+check, the server or the Python executor that made the decision; the
 connector writes none itself, the path that called it does. Each line records the write
 posture in force and who acted, or which kernel. See <a class="reference internal" href="../reference/contracts/audit-trail.html#reference-audit-trail"><span class="std std-ref">Audit Trail Contract</span></a>.</p>
 </section>
@@ -1052,11 +1052,11 @@ dialogs, enable rules and scripts run; semantic writes a typed value straight to
 channel. So none of <a class="reference internal" href="#architecture-safety-chain-shared"><span class="std std-ref">what every path shares</span></a> reaches
 the value: the limits check does not see it, neither at the <code class="docutils literal notranslate"><span class="pre">osprey_limits</span></code> hook nor at a
 connector; no connector asks the verdict at write time; and nothing reads the channel back.</p>
-<p>The audit trail records the call as it records any tool call: one line naming
-<code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code>, who called it, the posture in force and the decision. With
-<code class="docutils literal notranslate"><span class="pre">audit.tool_call.enabled</span></code> on (<a class="reference internal" href="../reference/configuration/config.html#config-audit-tool-call"><span class="std std-ref">audit.tool_call: — the full record of every tool call</span></a>), a second record carries the
-widget, verb, mode and value the call was given and the bridge’s answer. Neither names the
-channel written, because the bridge decides which channel a widget writes. See
+<p>The audit trail records the call as it records any tool call: one entry naming
+<code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code>, who called it, the posture in force and the decision. The tool call’s
+own entry in the agent record carries the widget, verb, mode and value the call was given
+and the bridge’s answer. Neither names the channel written, because the bridge decides
+which channel a widget writes. See
 <a class="reference internal" href="../how-to/control-systems/phoebus-bridge.html"><span class="doc">Connect the Agent to Phoebus Displays</span></a> for the configuration and for the displays a
 drive is fit for.</p>
 </section>
@@ -1171,7 +1171,7 @@ container then gives uid 1000 that name at start (<a class="reference internal" 
 shared writers carry fixed service names instead: dispatch worker <em>i</em> writes as
 <code class="docutils literal notranslate"><span class="pre">osprey-dispatch-&lt;i&gt;</span></code>, and each Bluesky lane OSPREY renders writes as <code class="docutils literal notranslate"><span class="pre">osprey-bluesky</span></code> or
 <code class="docutils literal notranslate"><span class="pre">osprey-bluesky-&lt;lane&gt;</span></code>. An external-worker lane writes under whatever account the facility
-runs it as. The audit ledger records the same name beside the person who asked, so a put-log
+runs it as. The audit trail records the same name beside the person who asked, so a put-log
 line joins back to them; see <a class="reference internal" href="../reference/contracts/audit-trail.html#audit-trail-attribution"><span class="std std-ref">Who the control system saw</span></a>.</p>
 <p><strong>The name is attribution, not authentication.</strong> The client asserts it and the server takes it
 on trust. OSPREY authenticates the person at the login wall, and the name repeats that answer

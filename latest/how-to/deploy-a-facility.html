@@ -425,10 +425,8 @@
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
-<li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
 <li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/read-the-record.html">Read the Record</a></li>
-<li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/reconstruct-session.html">Reconstruct a Session</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -564,7 +562,7 @@ scaffolding that goes with it:</p>
 ├── services/facility-mcp/            the facility&#39;s own container
 ├── scripts/verify.sh                 the post-deploy health check
 ├── .env                              the deployment&#39;s secrets
-├── .env.telemetry-*                  telemetry store credentials, one file per account
+├── .env.agent-record.*               agent record credentials, one file per login
 ├── build/                            render target, kept out of git
 ├── var/                              agent memory and audit log, kept out of git
 ├── .gitlab-ci.yml                    emitted from the profile&#39;s deploy: block
@@ -586,14 +584,15 @@ scaffolding that goes with it:</p>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">telemetry_store</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">agent-record</span></code></p></td>
 <td><p>packaged</p></td>
-<td><p>Telemetry store for the agent’s logs, metrics and traces and the audit
-ledger, queried with SQL.</p></td>
+<td><p>Keeps the agent record: what the agent was asked, what it answered and
+what it did (<a class="reference internal" href="health-and-monitoring/agent-record.html"><span class="doc">Keep the Agent Record</span></a>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">telemetry_gateway</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">agent-record-clickhouse</span></code></p></td>
 <td><p>packaged</p></td>
-<td><p>Admits each sender by its own login and feeds the telemetry store.</p></td>
+<td><p>The ClickHouse store the record is kept in, from the preset’s
+<code class="docutils literal notranslate"><span class="pre">agent_record.backend:</span> <span class="pre">clickhouse</span></code>.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code></p></td>
 <td><p>packaged</p></td>
@@ -609,10 +608,10 @@ lives in the profile.</p></td>
 </tbody>
 </table>
 </div>
-<p>The first two are packaged with OSPREY and come from their own upstreams. The
-third is the interesting one: it is the part no framework can ship for you, and
-everything about how a facility-owned container is declared, built, and reached
-is in <a class="reference internal" href="#deploy-a-facility-own-service"><span class="std std-ref">Step 4 — Add the facility’s own container</span></a>.</p>
+<p>The first three are packaged with OSPREY. The last is the interesting one: it
+is the part no framework can ship for you, and everything about how a
+facility-owned container is declared, built, and reached is in
+<a class="reference internal" href="#deploy-a-facility-own-service"><span class="std std-ref">Step 4 — Add the facility’s own container</span></a>.</p>
 </section>
 <section id="what-the-perimeter-needs">
 <span id="perimeter-limits"></span><h2>What the perimeter needs<a class="headerlink" href="#what-the-perimeter-needs" title="Link to this heading">#</a></h2>
@@ -753,9 +752,7 @@ are already present with a different value; some ship commented out.</p>
 <span class="w">  </span><span class="nt">control_system.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">virtual_accelerator</span>
 <span class="w">  </span><span class="nt">claude_code.servers.health.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="nt">system.timezone</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">America/Los_Angeles</span>
-<span class="w">  </span><span class="nt">deployed_services</span><span class="p">:</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">telemetry_store</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">telemetry_gateway</span>
+<span class="w">  </span><span class="nt">deployed_services</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">control_system.type:</span> <span class="pre">virtual_accelerator</span></code> points the agent at the deployed
@@ -784,9 +781,10 @@ block no target ever reaches. See
 <a class="reference internal" href="control-systems/switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> looks too short, and is not. The <code class="docutils literal notranslate"><span class="pre">virtual_accelerator:</span></code>
 block and the <code class="docutils literal notranslate"><span class="pre">services:</span></code> entry you add in Step 4 each append their own
-service to this list at build time. Naming the two telemetry services
-explicitly is what keeps the packaged skeleton’s <code class="docutils literal notranslate"><span class="pre">postgresql</span></code> <em>out</em> — declared is not deployed,
-and this list is what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> reads.</p>
+service to this list at build time. Starting it empty is what keeps the
+preset’s <code class="docutils literal notranslate"><span class="pre">postgresql</span></code>, <code class="docutils literal notranslate"><span class="pre">qmd</span></code> and <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> <em>out</em> — declared is not
+deployed, and this list is what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> reads. The agent record’s
+services come from the <code class="docutils literal notranslate"><span class="pre">agent_record:</span></code> block, never from this list.</p>
 <p>The web tier is named from <code class="docutils literal notranslate"><span class="pre">project_name</span></code> like the rest of the deployment, so
 this one runs <code class="docutils literal notranslate"><span class="pre">demo-facility-nginx</span></code> and one <code class="docutils literal notranslate"><span class="pre">demo-facility-web-&lt;user&gt;</span></code> per
 operator (<code class="docutils literal notranslate"><span class="pre">demo-facility-web-alice</span></code>).</p>
@@ -1027,12 +1025,11 @@ yet, start from the documented list:</p>
 <p>Either way, edit <code class="docutils literal notranslate"><span class="pre">.env</span></code> and set <code class="docutils literal notranslate"><span class="pre">ANTHROPIC_API_KEY</span></code> (or the key for
 whichever provider your profile names) and <code class="docutils literal notranslate"><span class="pre">DEMO_REGISTRY_TOKEN</span></code>. The
 repository’s <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code> keeps <code class="docutils literal notranslate"><span class="pre">.env</span></code> out of git.</p>
-<p>The telemetry credentials do not go in <code class="docutils literal notranslate"><span class="pre">.env</span></code>. The telemetry store’s accounts
-and the senders’ logins are minted into files of their own, <code class="docutils literal notranslate"><span class="pre">.env.telemetry-*</span></code> at
-the repo root, mode 0600 and outside the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes
-them, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> adds a key file per reader. A later rebuild keeps them,
-so the stack comes up on the same credentials its volumes were initialized
-with.</p>
+<p>The agent record’s credentials do not go in <code class="docutils literal notranslate"><span class="pre">.env</span></code>. Each login is minted
+into a file of its own, <code class="docutils literal notranslate"><span class="pre">.env.agent-record.*</span></code> at the repo root, mode 0600 and
+outside the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes them, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> adds
+a key file per reader. A later rebuild keeps them, so the stack comes up on the
+same credentials its volumes were initialized with.</p>
 <p><code class="docutils literal notranslate"><span class="pre">.env.example</span></code> is written by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>. After you change
 <code class="docutils literal notranslate"><span class="pre">env.required</span></code>, update the example alongside it — it is the documented list
 that whoever sets this up next will read.</p>
@@ -1110,12 +1107,12 @@ Watch for these lines in the output:</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">Persisted</span> <span class="pre">1</span> <span class="pre">MCP</span> <span class="pre">server(s)</span> <span class="pre">to</span> <span class="pre">config.yml</span></code> — the agent can reach
 <code class="docutils literal notranslate"><span class="pre">facility-mcp</span></code>.</p></li>
 </ul>
-<p>Confirm the service list is exactly the four you expect:</p>
+<p>Confirm the service list is exactly the two you expect:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>config<span class="w"> </span>--rendered<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-A4<span class="w"> </span><span class="s1">&#39;^deployed_services:&#39;</span>
 </pre></div>
 </div>
-<p>It should read <code class="docutils literal notranslate"><span class="pre">telemetry_store</span></code>, <code class="docutils literal notranslate"><span class="pre">telemetry_gateway</span></code>, <code class="docutils literal notranslate"><span class="pre">facility-mcp</span></code>,
-<code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code>.</p>
+<p>It should read <code class="docutils literal notranslate"><span class="pre">facility-mcp</span></code> and <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code>; the record’s two
+services are rendered beside them.</p>
 </section>
 <section id="step-9-deploy-and-check">
 <h2>Step 9 — Deploy and check<a class="headerlink" href="#step-9-deploy-and-check" title="Link to this heading">#</a></h2>
@@ -1231,7 +1228,7 @@ what you need and remove them.</p>
 <p>Everything past “the stack is up” runs from anywhere inside the repository:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>status<span class="w">                  </span><span class="c1"># what is running, where it answers</span>
 osprey<span class="w"> </span>logs<span class="w"> </span>event_dispatcher<span class="w">   </span><span class="c1"># one service&#39;s output; -f to follow</span>
-osprey<span class="w"> </span>health<span class="w">                  </span><span class="c1"># config, environment, providers, telemetry</span>
+osprey<span class="w"> </span>health<span class="w">                  </span><span class="c1"># config, environment, providers, agent record</span>
 osprey<span class="w"> </span>restart<span class="w">                 </span><span class="c1"># stop and start again</span>
 osprey<span class="w"> </span>down<span class="w">                    </span><span class="c1"># stop it, keeping the volumes</span>
 </pre></div>

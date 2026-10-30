@@ -887,7 +887,7 @@ entries and keys OSPREY ships that it lacks.</p></li>
 </section>
 <section id="the-posture-floor">
 <span id="profile-posture-floor"></span><h2>The posture floor<a class="headerlink" href="#the-posture-floor" title="Link to this heading">#</a></h2>
-<p>Six config keys have no safe unstated answer, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses a
+<p>Five config keys have no safe unstated answer, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses a
 deployment that leaves one of them silent rather than letting a reader’s
 fallback decide. The refusal names the dotted key and <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. The gate
 reads the <em>rendered</em> config, so a key a preset’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block spelled, an
@@ -919,10 +919,7 @@ whether it prompts at all</p></td>
 <td><p>the <code class="docutils literal notranslate"><span class="pre">approval</span></code> hook is in the profile’s <code class="docutils literal notranslate"><span class="pre">hooks:</span></code> list; this key is
 what it does with a tool nothing named</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.enabled</span></code></p></td>
-<td><p>always</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">hooks.debug</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">hooks.debug</span></code></p></td>
 <td><p>always</p></td>
 </tr>
 </tbody>
@@ -1387,7 +1384,7 @@ keys and the <code class="docutils literal notranslate"><span class="pre">graphd
 <span class="w">  </span><span class="nt">services.graphdb.path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/graphdb</span>
 <span class="w">  </span><span class="nt">services.graphdb.image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">neo4j:5.26-community</span>
 <span class="w">  </span><span class="c1"># ... the JVM and query-bound keys the preset also ships</span>
-<span class="w">  </span><span class="nt">deployed_services</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">postgresql</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">telemetry_store</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">telemetry_gateway</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">qmd</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">graphdb</span><span class="p p-Indicator">]</span>
+<span class="w">  </span><span class="nt">deployed_services</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">postgresql</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">qmd</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">graphdb</span><span class="p p-Indicator">]</span>
 </pre></div>
 </div>
 <p>The mode reads the same <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block when the store is one the
@@ -1402,7 +1399,7 @@ taking away:</p>
 <span class="w">  </span><span class="nt">services.graphdb.uri</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bolt://graph.facility.org:7687</span>
 <span class="w">  </span><span class="nt">services.graphdb.username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">neo4j</span>
 <span class="w">  </span><span class="c1"># DEVIATION: graphdb is the facility&#39;s store, so deployed_services drops it</span>
-<span class="w">  </span><span class="nt">deployed_services</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">postgresql</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">telemetry_store</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">telemetry_gateway</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">qmd</span><span class="p p-Indicator">]</span>
+<span class="w">  </span><span class="nt">deployed_services</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">postgresql</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">qmd</span><span class="p p-Indicator">]</span>
 </pre></div>
 </div>
 <p>Those are structural differences from the preset — two added keys and a dropped
@@ -1440,8 +1437,8 @@ this deployment does not run (an external store’s <code class="docutils litera
 DSN).</p>
 <p>An attached project rarely has to say anything, because <strong>the build tells it
 where the host’s services are</strong>. Every client-facing fact — the sidecar’s port,
-the graph store’s bolt port, the Postgres the logbook lives in, the telemetry
-store’s port, the Bluesky bridge, the EVENTS and BLUESKY tab URLs — is copied
+the graph store’s bolt port, the Postgres the logbook lives in, the Bluesky
+bridge, the EVENTS and BLUESKY tab URLs — is copied
 from the hosting deployment’s own render into each tier and app built beside
 it, so a service moved on the hosting profile moves every render with it, and
 the bundled tier and app files pin none of them. A tier or app that spells one

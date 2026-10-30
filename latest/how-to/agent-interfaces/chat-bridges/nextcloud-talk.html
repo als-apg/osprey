@@ -425,10 +425,8 @@
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/read-the-record.html">Read the Record</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/reconstruct-session.html">Reconstruct a Session</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -699,12 +697,12 @@ follow-up (default 3000). A longer one is sent as its opening, and the
 agent reads the rest only if it needs it. <code class="docutils literal notranslate"><span class="pre">0</span></code> always sends every
 answer in full.</p></td>
 </tr>
-<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">DEDUP_PATH</span></code>, <code class="docutils literal notranslate"><span class="pre">HISTORY_PATH</span></code>, <code class="docutils literal notranslate"><span class="pre">OFFSETS_PATH</span></code></p></td>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">DEDUP_PATH</span></code>, <code class="docutils literal notranslate"><span class="pre">OFFSETS_PATH</span></code></p></td>
 <td><p class="sd-card-text">Where the bridge keeps what it remembers: the questions it has
-answered, the recent exchanges, and how far it has read in each room.
-All three default to files under <code class="docutils literal notranslate"><span class="pre">/data</span></code>, its own volume; change
-them only if you deliberately relocate that state, and move all three
-together — losing <code class="docutils literal notranslate"><span class="pre">OFFSETS_PATH</span></code> alone replays or skips history.</p></td>
+answered and how far it has read in each room. Both default to files
+under <code class="docutils literal notranslate"><span class="pre">/data</span></code>, its own volume; change them only if you deliberately
+relocate that state, and move both together: losing <code class="docutils literal notranslate"><span class="pre">OFFSETS_PATH</span></code>
+alone replays or skips history.</p></td>
 </tr>
 <tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">TZ</span></code></p></td>
 <td><p class="sd-card-text">Timezone, taken from your project configuration so timestamps match

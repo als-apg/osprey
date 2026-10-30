@@ -62,7 +62,7 @@
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
     <link rel="next" title="Read the Record" href="read-the-record.html" />
-    <link rel="prev" title="Monitor Your OSPREY Agent" href="monitor-agent.html" />
+    <link rel="prev" title="Configure Health Checks" href="configure-health-checks.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
@@ -425,10 +425,8 @@
 </details></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Health and Monitoring</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="configure-health-checks.html">Configure Health Checks</a></li>
-<li class="toctree-l2"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Keep the Agent Record</a></li>
 <li class="toctree-l2"><a class="reference internal" href="read-the-record.html">Read the Record</a></li>
-<li class="toctree-l2"><a class="reference internal" href="reconstruct-session.html">Reconstruct a Session</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -528,12 +526,14 @@
                   
   <section id="keep-the-agent-record">
 <h1>Keep the Agent Record<a class="headerlink" href="#keep-the-agent-record" title="Link to this heading">#</a></h1>
-<p>What the agent was asked, what it answered and what it did is kept in several
-places, and most of them delete on a clock of their own. The <code class="docutils literal notranslate"><span class="pre">archive</span></code> service
-copies all of them, once a day, into an append-only tree on the deployment
-host. This page lists every store, what deletes it, and what the archive keeps.</p>
-<p>For the telemetry itself — what the agent emits and how to query it — see
-<a class="reference internal" href="monitor-agent.html"><span class="doc">Monitor Your OSPREY Agent</span></a> and <a class="reference internal" href="read-the-record.html"><span class="doc">Read the Record</span></a>.</p>
+<p>What the agent was asked, what it answered and what it did is one record: the
+<code class="docutils literal notranslate"><span class="pre">agent-record</span></code> service keeps every entry for <code class="docutils literal notranslate"><span class="pre">agent_record.retention_days</span></code>,
+and exports each closed day into an append-only archive on the deployment host.
+The files the agent produced and the plan-queue history are kept beside it: the
+<code class="docutils literal notranslate"><span class="pre">archive</span></code> service copies them into the same archive once a day. This page
+says where each part lives, what deletes it, how to check on it, and what the
+archive keeps.</p>
+<p>For who may read the record, see <a class="reference internal" href="read-the-record.html"><span class="doc">Read the Record</span></a>.</p>
 <section id="where-the-record-lives">
 <h2>Where the record lives<a class="headerlink" href="#where-the-record-lives" title="Link to this heading">#</a></h2>
 <div class="pst-scrollable-table-container"><table class="table">
@@ -551,28 +551,40 @@ host. This page lists every store, what deletes it, and what the archive keeps.<
 </tr>
 </thead>
 <tbody>
+<tr class="row-even"><td><p>The agent record’s entries: prompts, answers, tool calls, transcripts,
+safety decisions, dispatch runs and bridge turns</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">var/agent_record/</span></code> (<code class="docutils literal notranslate"><span class="pre">backend:</span> <span class="pre">embedded</span></code>), or the
+<code class="docutils literal notranslate"><span class="pre">agent_record_clickhouse_data</span></code> volume (<code class="docutils literal notranslate"><span class="pre">backend:</span> <span class="pre">clickhouse</span></code>)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">agent_record.retention_days</span></code> (default 14), only for days the archive
+holds; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span> <span class="pre">--purge-audit</span></code></p></td>
+<td><p>yes, one Parquet file per day</p></td>
+</tr>
+<tr class="row-odd"><td><p>The spool every writer appends to before the record ingests it</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">var/spool/&lt;identity&gt;/</span></code></p></td>
+<td><p>the record, once a segment is ingested; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span> <span class="pre">--purge-audit</span></code></p></td>
+<td><p>no; what it carried is in the record</p></td>
+</tr>
 <tr class="row-even"><td><p>Web-terminal transcripts</p></td>
 <td><p>each user’s <code class="docutils literal notranslate"><span class="pre">&lt;user&gt;-claude-config</span></code> volume, <code class="docutils literal notranslate"><span class="pre">projects/</span></code></p></td>
-<td><p>Claude Code at startup, after
-<code class="docutils literal notranslate"><span class="pre">claude_code.transcripts.retention_days</span></code> (default 30)</p></td>
-<td><p>yes</p></td>
+<td><p>Claude Code at startup, after the larger of
+<code class="docutils literal notranslate"><span class="pre">agent_record.retention_days</span></code> and 30 days</p></td>
+<td><p>no; the record ingests them as they are written</p></td>
+</tr>
+<tr class="row-odd"><td><p>Dispatch transcripts</p></td>
+<td><p>the worker’s agent-data volume, <code class="docutils literal notranslate"><span class="pre">claude-config/projects/</span></code></p></td>
+<td><p>Claude Code, after the same key</p></td>
+<td><p>no; the record ingests them as they are written</p></td>
+</tr>
+<tr class="row-even"><td><p>Host-session transcripts (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> on the host)</p></td>
+<td><p>your own <code class="docutils literal notranslate"><span class="pre">~/.claude/projects/</span></code>, the folder for the deployment’s build</p></td>
+<td><p>Claude Code, after its own setting</p></td>
+<td><p>no; the record ingests them as they are written</p></td>
 </tr>
 <tr class="row-odd"><td><p>Web-terminal artifact stores</p></td>
 <td><p>each user’s <code class="docutils literal notranslate"><span class="pre">&lt;user&gt;-agent-data</span></code> volume, <code class="docutils literal notranslate"><span class="pre">artifacts/</span></code> (files and
 <code class="docutils literal notranslate"><span class="pre">artifacts.json</span></code>)</p></td>
 <td><p>deleting an artifact in the gallery, and removing the user’s volumes</p></td>
 <td><p>yes, files and index</p></td>
-</tr>
-<tr class="row-even"><td><p>Dispatch transcripts</p></td>
-<td><p>the worker’s agent-data volume, <code class="docutils literal notranslate"><span class="pre">claude-config/projects/</span></code></p></td>
-<td><p>Claude Code, after the same key</p></td>
-<td><p>yes</p></td>
-</tr>
-<tr class="row-odd"><td><p>Dispatch run records</p></td>
-<td><p>the worker’s agent-data volume, <code class="docutils literal notranslate"><span class="pre">dispatch/*.json</span></code>; at most 200 tool
-calls, 16 KB per result</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">RETENTION_DAYS</span></code> and the dashboard’s clear-history</p></td>
-<td><p>yes, from the next pass on — a record cleared before it is gone</p></td>
 </tr>
 <tr class="row-even"><td><p>Dispatch artifact store</p></td>
 <td><p>the worker’s agent-data volume, <code class="docutils literal notranslate"><span class="pre">artifacts/</span></code> (files and
@@ -585,125 +597,147 @@ calls, 16 KB per result</p></td>
 <td><p>removing the volume</p></td>
 <td><p>yes, as Redis persistence files</p></td>
 </tr>
-<tr class="row-even"><td><p>Audit ledger</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">var/audit/&lt;identity&gt;/</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span> <span class="pre">--purge-audit</span></code></p></td>
-<td><p>yes; dot-named <code class="docutils literal notranslate"><span class="pre">.json</span></code> and <code class="docutils literal notranslate"><span class="pre">.tmp</span></code> files there are a service’s working state and are
-not copied</p></td>
-</tr>
-<tr class="row-odd"><td><p>Telemetry store: the agent’s logs, traces and metrics, and the audit
-ledger as rows</p></td>
-<td><p>the <code class="docutils literal notranslate"><span class="pre">telemetry_store</span></code> volume, tables <code class="docutils literal notranslate"><span class="pre">telemetry.*</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">services.telemetry_store.retention_days</span></code> (default 14)</p></td>
-<td><p>yes, one Parquet file per table per day</p></td>
-</tr>
 <tr class="row-even"><td><p>The archive</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">var/archive/&lt;YYYY-MM-DD&gt;/</span></code>, with <code class="docutils literal notranslate"><span class="pre">MANIFEST.jsonl</span></code></p></td>
-<td><p>nothing in OSPREY, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span></code> included</p></td>
+<td><p>nothing but <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span> <span class="pre">--purge-audit</span></code>, which removes the record’s
+exports only</p></td>
 <td><p>—</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">claude_code.transcripts.retention_days</span></code> also sets how long Claude Code keeps
-its file history, shell snapshots, plan files and debug logs. The
-control-assistant preset sets it to 3650; budget disk for that.</p>
+<p>The larger of <code class="docutils literal notranslate"><span class="pre">agent_record.retention_days</span></code> and 30 days also sets how long
+Claude Code keeps its file history, shell snapshots, plan files and debug logs
+on these volumes. Host settings are never written.</p>
 </section>
-<section id="turn-it-on-and-off">
-<h2>Turn it on and off<a class="headerlink" href="#turn-it-on-and-off" title="Link to this heading">#</a></h2>
-<p>The control-assistant preset deploys the archive. In any other profile, add it
-under <code class="docutils literal notranslate"><span class="pre">services:</span></code>:</p>
+<section id="how-long-the-record-keeps-an-entry">
+<h2>How long the record keeps an entry<a class="headerlink" href="#how-long-the-record-keeps-an-entry" title="Link to this heading">#</a></h2>
+<p>The record counts days by <strong>arrival day</strong>: the UTC day an entry reached the
+record. <code class="docutils literal notranslate"><span class="pre">agent_record.retention_days</span></code> (default 14, at least 1) is the window:
+an arrival day earlier than that many days before today is past retention.</p>
+<p>Once a day, right after the export, the record removes the days past retention,
+oldest first, and only the days the archive holds. It stops at the first day
+the archive does not hold, so nothing is ever removed that has no lasting copy:
+an export that is down for longer than the window removes nothing, and the
+record grows until the export catches up. Whole days are removed, never single
+entries.</p>
+<p>A removed day stays out. A transcript Claude Code rewrites still carries the
+lines of removed days, and the record skips every line older than its oldest
+remaining day, so those lines are not taken in a second time. The export never
+goes back to a day before the record’s oldest day either.</p>
+<p>Lowering <code class="docutils literal notranslate"><span class="pre">agent_record.retention_days</span></code> takes effect at the next daily run;
+raising it keeps the days still held, not the ones already removed. Those are
+in the archive.</p>
+</section>
+<section id="turn-the-archive-on-and-off">
+<h2>Turn the archive on and off<a class="headerlink" href="#turn-the-archive-on-and-off" title="Link to this heading">#</a></h2>
+<p>The control-assistant preset deploys the archive service. In any other profile,
+add it under <code class="docutils literal notranslate"><span class="pre">services:</span></code>:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">archive</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">osprey.archive</span>
 </pre></div>
 </div>
 <p>Delete the block to turn it off. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> carry either
-change into the deployment.</p>
+change into the deployment. Without it the record still exports its own days
+into <code class="docutils literal notranslate"><span class="pre">var/archive/</span></code>; only the artifact and plan-queue copies stop.</p>
 <p><code class="docutils literal notranslate"><span class="pre">services.archive.interval_seconds</span></code> sets the time between passes (default
 <code class="docutils literal notranslate"><span class="pre">86400</span></code>, one day). <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> warns when the last pass is older than
-twice that, when it recorded errors, and, with the telemetry store deployed,
-when the newest archived telemetry day is older than the day before yesterday
-(UTC).</p>
+twice that, or when it recorded errors.</p>
+</section>
+<section id="check-it">
+<h2>Check it<a class="headerlink" href="#check-it" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> asks the record for its own account of itself and shows one
+<code class="docutils literal notranslate"><span class="pre">agent_record</span></code> group of rows. Every problem is a warning: the record keeps
+working in part, and the row says where.</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">agent_record_backend</span></code> — the store the record writes. A warning names why
+it is not ok, or that it refused a spool pass.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">agent_record_spool</span></code> — only when the spool set aside paths it would not
+read.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">agent_record_source.&lt;identity&gt;</span></code> — one per spool directory, that is per
+writer identity. It reads <strong>receiving</strong> while entries arrive, and <strong>idle</strong>
+when the source has no live session and nothing waiting; both are fine. It
+warns when the source is <strong>stopped</strong> — a live session, or lines waiting,
+and nothing from it reached the record for 5 minutes — when its <strong>backlog
+grows</strong> (lines not yet in the record that are older than 2 minutes), when
+the record <strong>refused</strong> its lines in the last 24 hours, or when its writers
+logged errors or abandoned segments.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">agent_record_transcripts.&lt;identity&gt;</span></code> — one per transcript folder, the
+same way: receiving, idle, stopped, or a folder or file that cannot be read.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">agent_record_export</span></code> — how far the export to the archive is behind. One
+closed day behind is normal, because yesterday is exported by the next daily
+run; it warns at more than one closed day, when the last export failed, or
+when the archive cannot be read.</p></li>
+</ul>
+<p>A plain <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> on the host, with nothing in that shell pointing at
+a record, shows one skipped row instead. Two host commands ask the record
+directly, starting the host-local one for the call when no stack or host
+session runs it:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">agent-record</span> <span class="pre">health</span></code> prints every source, transcript folder, the
+backend and the export lag, and names each problem.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">agent-record</span> <span class="pre">export</span></code> runs the catch-up export now and prints the
+days it wrote.</p></li>
+</ul>
+<p>See <a class="reference internal" href="../../reference/cli.html"><span class="doc">CLI Reference</span></a> for both.</p>
 </section>
 <section id="permissions">
 <h2>Permissions<a class="headerlink" href="#permissions" title="Link to this heading">#</a></h2>
-<p>The archive holds verbatim copies. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> creates <code class="docutils literal notranslate"><span class="pre">var/archive/</span></code> at
-mode <code class="docutils literal notranslate"><span class="pre">0700</span></code>; an existing directory keeps the mode it has. Every directory the
-archive writes gets the root’s mode, and every file that mode without execute
-bits, so widening the root to <code class="docutils literal notranslate"><span class="pre">0750</span></code> for a group is a deliberate, per-facility
-decision.</p>
-<p>Under rootless podman the service’s root is your own user, so every copy is
-owned by you. Under rootful docker the service hands every path it creates to
-the owner of <code class="docutils literal notranslate"><span class="pre">var/archive/</span></code>.</p>
+<p>The archive is the lasting half of the audit trail, and it has two writers:
+agent-record exports the record’s closed days into it, and the archive service
+copies artifacts and Bluesky history into it. Each runs in its own container
+under its own user, so <code class="docutils literal notranslate"><span class="pre">var/archive/</span></code> is shared the way
+<code class="docutils literal notranslate"><span class="pre">var/agent_record/</span></code> is. Every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> sets it to mode <code class="docutils literal notranslate"><span class="pre">2770</span></code>:
+setgid, read and write for the owner and the group, nothing for anyone else.
+Its group is the one <code class="docutils literal notranslate"><span class="pre">var/agent_record/</span></code> has. Both writers give every
+directory they create the root’s mode, and every file that mode without the
+setgid and execute bits, so every copy is readable by that group, artifact and
+Bluesky copies included. Only agent-record and the archive service mount the
+directory, and the agent’s own code may not touch it.</p>
+<p>You own the directory and belong to its group, so the commands you run on the
+host, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code>, an export and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span> <span class="pre">--purge-audit</span></code> among
+them, read and delete what either container wrote. Under rootless podman a
+container’s root is your own user, so its copies are owned by you. Under
+rootful docker the archive service hands every path it creates to the owner and
+group of <code class="docutils literal notranslate"><span class="pre">var/archive/</span></code>.</p>
 </section>
 <section id="read-it">
 <h2>Read it<a class="headerlink" href="#read-it" title="Link to this heading">#</a></h2>
 <p>Each day directory holds the files copied that day, under
-<code class="docutils literal notranslate"><span class="pre">&lt;kind&gt;/&lt;name&gt;/&lt;path&gt;</span></code>, and one <code class="docutils literal notranslate"><span class="pre">MANIFEST.jsonl</span></code>. It is appended to and never
-rewritten, with three kinds of line:</p>
+<code class="docutils literal notranslate"><span class="pre">&lt;kind&gt;/&lt;name&gt;/&lt;path&gt;</span></code>, the record’s export of that day, under
+<code class="docutils literal notranslate"><span class="pre">agent_record/entries.parquet</span></code>, and one <code class="docutils literal notranslate"><span class="pre">MANIFEST.jsonl</span></code>. It is appended to
+and never rewritten, with these kinds of line:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">file</span></code> — one copied file: its <code class="docutils literal notranslate"><span class="pre">source</span></code>, its <code class="docutils literal notranslate"><span class="pre">path</span></code> in the archive, its
-<code class="docutils literal notranslate"><span class="pre">size</span></code> and <code class="docutils literal notranslate"><span class="pre">sha256</span></code>; a file exported from the telemetry store also carries
-its <code class="docutils literal notranslate"><span class="pre">table</span></code>, <code class="docutils literal notranslate"><span class="pre">day</span></code> and <code class="docutils literal notranslate"><span class="pre">rows</span></code>;</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">telemetry_day</span></code> — one exported day of the telemetry store, with the rows
-written per table;</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">pass</span></code> — the last line of every pass: when it ran, how many files and bytes
-it copied, and any errors.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">file</span></code> — one copied or exported file: its <code class="docutils literal notranslate"><span class="pre">source</span></code>, its <code class="docutils literal notranslate"><span class="pre">path</span></code> in the
+archive, its <code class="docutils literal notranslate"><span class="pre">size</span></code> and <code class="docutils literal notranslate"><span class="pre">sha256</span></code>; the record’s export file also carries
+its <code class="docutils literal notranslate"><span class="pre">day</span></code> and <code class="docutils literal notranslate"><span class="pre">rows</span></code>;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">agent_record_day</span></code> — the record’s export of that day is whole: its <code class="docutils literal notranslate"><span class="pre">day</span></code>
+and <code class="docutils literal notranslate"><span class="pre">rows</span></code>. It is the last line of the export, and a day with no entries
+gets it with <code class="docutils literal notranslate"><span class="pre">rows:</span> <span class="pre">0</span></code> and no file. A day without it is not exported, and
+the next export writes that day again, over any file it left;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">agent_record_purged</span></code> — the record’s export of that day was purged; it
+clears the day’s earlier <code class="docutils literal notranslate"><span class="pre">agent_record_day</span></code> lines;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pass</span></code> — the last line of every archive-service pass: when it ran, how many
+files and bytes it copied, and any errors.</p></li>
 </ul>
-<p>A file is copied again only when its content changed. A transcript that grew is
-copied whole; a second copy on the same day gets the pass time before its
-suffix, for example <code class="docutils literal notranslate"><span class="pre">abc.T142233Z.jsonl</span></code>.</p>
-<section id="the-telemetry-store-s-days">
-<span id="agent-record-telemetry-export"></span><h3>The telemetry store’s days<a class="headerlink" href="#the-telemetry-store-s-days" title="Link to this heading">#</a></h3>
-<p>A UTC day is exported once, by the first pass at or after ten past midnight of
-the next day, as <code class="docutils literal notranslate"><span class="pre">&lt;pass-day&gt;/telemetry/&lt;day&gt;/&lt;table&gt;.parquet</span></code>: one file for
-each table of the store and one for the store’s own <code class="docutils literal notranslate"><span class="pre">query_log</span></code>. A table is
-read by <strong>arrival day</strong>, the day a row reached the store (its <code class="docutils literal notranslate"><span class="pre">InsertedAt</span></code>),
-so rows that arrive late after a store outage are in the export of the day they
-arrived. <code class="docutils literal notranslate"><span class="pre">query_log</span></code> is read by its own <code class="docutils literal notranslate"><span class="pre">event_date</span></code>. A day whose export
-fails part-way is not recorded and is exported again by the next pass; a pass
-walks back at most <code class="docutils literal notranslate"><span class="pre">services.telemetry_store.retention_days</span></code> days, the
-oldest day the store still holds.
-The archive reads the store with its own read-only account.</p>
-</section>
-<section id="duplicate-rows">
-<span id="agent-record-dedup"></span><h3>Duplicate rows<a class="headerlink" href="#duplicate-rows" title="Link to this heading">#</a></h3>
-<p>Each stored row is exported once, but the store can hold a row twice. The
-gateway’s ledger feed is at least once: a gateway stopped between a stored batch
-and its acknowledgement stores that batch again, and a gateway whose state
-volume is lost reads every ledger file from the start, storing the retention
-window once more. A duplicate in the store is a duplicate in the archive. Drop
-them when you read, with <code class="docutils literal notranslate"><span class="pre">LIMIT</span> <span class="pre">1</span> <span class="pre">BY</span></code> on the natural key:</p>
-<div class="pst-scrollable-table-container"><table class="table">
-<colgroup>
-<col style="width: 30.0%" />
-<col style="width: 70.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>Table</p></th>
-<th class="head"><p>Key</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">audit_ledger</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">User</span></code>, <code class="docutils literal notranslate"><span class="pre">Surface</span></code>, <code class="docutils literal notranslate"><span class="pre">ToolUseId</span></code>, <code class="docutils literal notranslate"><span class="pre">Timestamp</span></code>, <code class="docutils literal notranslate"><span class="pre">cityHash64(Body)</span></code></p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">otel_logs</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">User</span></code>, <code class="docutils literal notranslate"><span class="pre">SessionId</span></code>, <code class="docutils literal notranslate"><span class="pre">Timestamp</span></code>, <code class="docutils literal notranslate"><span class="pre">cityHash64(Body,</span> <span class="pre">toJSONString(LogAttributes))</span></code></p></td>
-</tr>
-</tbody>
-</table>
-</div>
-<p>An <code class="docutils literal notranslate"><span class="pre">otel_logs</span></code> key hashes the attributes as well as <code class="docutils literal notranslate"><span class="pre">Body</span></code>, because
-<code class="docutils literal notranslate"><span class="pre">Body</span></code> names the event kind, not the record: two events of one kind in the
-same millisecond differ only in their attributes.</p>
-<p>The queries the history page and <a class="reference internal" href="reconstruct-session.html"><span class="doc">Reconstruct a Session</span></a> run use the same
-keys.</p>
+<p>Agent-record exports each UTC day once, after the day has closed, by arrival
+day. It runs when the service starts and daily, and catches up every closed day
+a stopped service missed, oldest first.</p>
+<p>The archive service copies a file again only when its content changed. A file
+that changed is copied whole; a second copy on the same day gets the pass time
+before its suffix, for example <code class="docutils literal notranslate"><span class="pre">artifacts.T142233Z.json</span></code>.</p>
 <p>To restore a lane’s plan-queue history, point <code class="docutils literal notranslate"><span class="pre">redis-server</span> <span class="pre">--appendonly</span> <span class="pre">yes</span></code>
 at a copied <code class="docutils literal notranslate"><span class="pre">appendonlydir</span></code>. A copy taken mid-write can end on a torn command;
 <code class="docutils literal notranslate"><span class="pre">redis-check-aof</span> <span class="pre">--fix</span></code> repairs it.</p>
 </section>
+<section id="audit-files-from-before-the-record">
+<h2>Audit files from before the record<a class="headerlink" href="#audit-files-from-before-the-record" title="Link to this heading">#</a></h2>
+<p>A deployment that wrote safety decisions before it had the agent record keeps
+those files in <code class="docutils literal notranslate"><span class="pre">var/audit/</span></code>. They stay on disk as they were: the record does
+not read them, they are not archived, and the agent’s own code may not write
+them. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span></code> keeps them, and only <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span> <span class="pre">--purge-audit</span></code>
+deletes them. Read them on the host with <code class="docutils literal notranslate"><span class="pre">grep</span></code> or <code class="docutils literal notranslate"><span class="pre">jq</span></code>, as before.</p>
 </section>
 <section id="removing-a-user">
 <h2>Removing a user<a class="headerlink" href="#removing-a-user" title="Link to this heading">#</a></h2>
@@ -717,11 +751,9 @@ the archive container before removing the volumes. Run <code class="docutils lit
 <ul class="simple">
 <li><p>The Tiled catalog of a plan lane: it is beamline data, with its own
 retention and backup, not a record of what the agent was asked and did.</p></li>
-<li><p>Sessions of <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code> or <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> run on the host, which live
-under your own <code class="docutils literal notranslate"><span class="pre">~/.claude</span></code>.</p></li>
-<li><p>Anything deleted between two passes: a dispatch run cleared or expired, or a
-transcript Claude Code pruned before the first pass after
-<code class="docutils literal notranslate"><span class="pre">claude_code.transcripts.retention_days</span></code> was set.</p></li>
+<li><p>The audit files from before the record, in <code class="docutils literal notranslate"><span class="pre">var/audit/</span></code>.</p></li>
+<li><p>An artifact deleted between two archive passes, or a dispatch run’s
+artifacts cleared or expired before the first pass after they were written.</p></li>
 <li><p>Anything a user’s volumes held when they are purged while the archive service
 is not running.</p></li>
 </ul>
@@ -739,12 +771,12 @@ is not running.</p></li>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="monitor-agent.html"
+       href="configure-health-checks.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Monitor Your OSPREY Agent</p>
+        <p class="prev-next-title">Configure Health Checks</p>
       </div>
     </a>
     <a class="right-next"
@@ -776,13 +808,12 @@ is not running.</p></li>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-record-lives">Where the record lives</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#turn-it-on-and-off">Turn it on and off</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-long-the-record-keeps-an-entry">How long the record keeps an entry</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#turn-the-archive-on-and-off">Turn the archive on and off</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#check-it">Check it</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#permissions">Permissions</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#read-it">Read it</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-telemetry-store-s-days">The telemetry store’s days</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#duplicate-rows">Duplicate rows</a></li>
-</ul>
-</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#read-it">Read it</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#audit-files-from-before-the-record">Audit files from before the record</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#removing-a-user">Removing a user</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-is-not-archived">What is not archived</a></li>
 </ul>
