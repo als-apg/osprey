@@ -29,7 +29,10 @@ pass between them, which no import catches:
   durable ``var/`` when its rebuild picks up a newer connectors. A newer
   writer re-writes such a record in schema 1's normal form
   (:func:`check_golden_rewrite`), so the hook is held to reading that
-  re-write as the same record, not as the same bytes.
+  re-write as the same record, not as the same bytes. The golden record is
+  epoch-less and carries no ``switch``, so this check is blind to the switch's
+  words: the read of a legacy ``"on"`` as ``"asked"`` is pinned by the in-tree
+  package and hook tests, not here.
 
 Usage::
 

@@ -77,7 +77,7 @@ def arm_switch(
     Points the host record at *root*, pins the acting identity, clears every
     variable that would change the verdict
     (:func:`~osprey_connectors_tests._harness._control_context_fixtures.isolate_verdict_environment`) and writes an
-    ownerless record whose switch is ``{target: "on"}`` through the person's
+    ownerless record whose switch is ``{target: "asked"}`` through the person's
     gesture. ``None`` writes no record at all: every switch off.
 
     *stamp* sets the class default of ``_control_target`` to *target*, so a
@@ -97,25 +97,26 @@ def arm_switch(
         monkeypatch.setattr(ControlSystemConnector, "_control_target", target)
     if target is None:
         return None
-    return write_control_context(root, target=target, owned_by=None, switch={target: "on"})
+    return write_control_context(root, target=target, owned_by=None, switch={target: "asked"})
 
 
 def turn_switch(target: str, state: str) -> None:
     """The person's switch gesture for *target*, against the record the environment names.
 
-    A turn-on names the record's epoch, as the chip does; an epoch-less record is
-    stamped by the refused gesture, and the retry with that epoch succeeds.
+    *state* is a switch position. A move to an armed position names the record's
+    epoch, as the chip does; an epoch-less record is stamped by the refused
+    gesture, and the retry with that epoch succeeds.
     """
     if state == "off":
         control_context.set_switch([target], "off")
     else:
         record = control_context.read_record()
         try:
-            control_context.set_switch([target], "on", epoch=record.switch_epoch)
+            control_context.set_switch([target], state, epoch=record.switch_epoch)
         except control_context.StoppedSince:
             control_context.invalidate_cache()
             record = control_context.read_record()
-            control_context.set_switch([target], "on", epoch=record.switch_epoch)
+            control_context.set_switch([target], state, epoch=record.switch_epoch)
     control_context.invalidate_cache()
 
 

@@ -1,12 +1,13 @@
 """The login tier's write ceiling (``control_system.writes``) and the machine kind of a target.
 
-``tier_writes`` is the ceiling a login tier sets on writes: ``allowed`` or
-``never``, target-blind. What is pinned here is the reading rule. When the new
-key is present it decides alone, and only the literal string ``"allowed"`` arms;
-every other value is ``never``. When it is absent the tier is ``never``: the
-retired arming leaves are not read at run time, so a render built before the
-tier key existed (an unrebuilt render) writes nowhere until the build's
-normalizer rewrites it. A section nobody can read is ``never``.
+``tier_writes`` is the ceiling a login tier sets on writes: ``never``, ``asked``
+or ``allowed``, target-blind. What is pinned here is the reading rule. When the
+new key is present it decides alone, and only the literal strings ``"asked"`` and
+``"allowed"`` arm; every other value is ``never``. ``tier_allows`` is "the word
+is not ``never``", so it is true of both arming words. When the key is absent the
+tier is ``never``: the retired arming leaves are not read at run time, so a
+render built before the tier key existed (an unrebuilt render) writes nowhere
+until the build's normalizer rewrites it. A section nobody can read is ``never``.
 
 ``machine_kind`` names what a target is by its name, for the words a refusal
 uses: ``live`` and ``standin`` are the real machine, ``va`` the simulator, and
@@ -61,12 +62,17 @@ def test_new_names_are_exported() -> None:
         assert name in types.__all__
 
 
-# -- the new key present: only the literal "allowed" arms ----------------------
+# -- the new key present: only the two literal arming words arm ----------------
 
 
 def test_literal_allowed_arms() -> None:
     assert tier_writes(_section(writes="allowed")) == "allowed"
     assert tier_allows(_section(writes="allowed")) is True
+
+
+def test_literal_asked_arms() -> None:
+    assert tier_writes(_section(writes="asked")) == "asked"
+    assert tier_allows(_section(writes="asked")) is True
 
 
 @pytest.mark.parametrize(
@@ -77,14 +83,23 @@ def test_literal_allowed_arms() -> None:
         "ALLOWED",
         " allowed",
         "allowed ",
+        "Asked",
+        "ASKED",
+        " asked",
+        "asked ",
+        "on",
+        "off",
         "yes",
         "",
         True,
         1,
         None,
         ["allowed"],
+        ["asked"],
         {"allowed": True},
+        {"asked": True},
         b"allowed",
+        b"asked",
     ],
 )
 def test_any_other_value_of_the_new_key_is_never(value: Any) -> None:
@@ -167,7 +182,13 @@ def test_absent_key_with_nothing_stated_is_never(section: dict[str, Any]) -> Non
 
 @pytest.mark.parametrize(
     ("writes", "expected"),
-    [("never", "never"), ("garbage", "never"), (None, "never"), ("allowed", "allowed")],
+    [
+        ("never", "never"),
+        ("garbage", "never"),
+        (None, "never"),
+        ("asked", "asked"),
+        ("allowed", "allowed"),
+    ],
 )
 def test_new_key_decides_when_both_are_present(writes: Any, expected: str) -> None:
     armed = _section(

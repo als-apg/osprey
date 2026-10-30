@@ -205,15 +205,15 @@ def test_the_lock_is_released_after_every_write(data_root):
 
 
 def test_a_write_keeps_the_switch_and_epoch_on_disk(data_root):
-    path = write_control_context(data_root, switch={"live": "on"})
+    path = write_control_context(data_root, switch={"live": "asked"})
     epoch = _payload(path)["switch_epoch"]
     stale = control_context.ControlContext(
-        target="va", generation=2, switch={"standin": "on"}, switch_epoch=1
+        target="va", generation=2, switch={"standin": "asked"}, switch_epoch=1
     )
     control_context.write_record(stale)
     stored = control_context.read_record()
     assert stored.target == "va" and stored.generation == 2
-    assert stored.switch == {"live": "on"}
+    assert stored.switch == {"live": "asked"}
     assert stored.switch_epoch == epoch
 
 
@@ -223,15 +223,17 @@ def test_a_write_over_an_epoch_less_record_keeps_it_epoch_less():
     from osprey_connectors_tests._harness import write_payload
 
     path = control_context.record_path()
-    write_payload(path, {"schema": 1, "target": "live", "generation": 1, "switch": {"live": "on"}})
+    write_payload(
+        path, {"schema": 1, "target": "live", "generation": 1, "switch": {"live": "asked"}}
+    )
     control_context.write_record(control_context.ControlContext(target="live", generation=2))
     assert _payload(path)["switch_epoch"] is None
-    assert _payload(path)["switch"] == {"live": "on"}
+    assert _payload(path)["switch"] == {"live": "asked"}
 
 
 @pytest.mark.parametrize("damage", ["missing", "corrupt", "foreign_schema"])
 def test_a_write_over_a_lost_record_writes_the_switch_empty_with_a_fresh_epoch(data_root, damage):
-    path = write_control_context(data_root, switch={"live": "on"})
+    path = write_control_context(data_root, switch={"live": "asked"})
     old_epoch = _payload(path)["switch_epoch"]
     if damage == "missing":
         path.unlink()
@@ -242,7 +244,7 @@ def test_a_write_over_a_lost_record_writes_the_switch_empty_with_a_fresh_epoch(d
     control_context.invalidate_cache()
     before = time.time_ns()
     control_context.write_record(
-        control_context.ControlContext(target="live", generation=1, switch={"live": "on"})
+        control_context.ControlContext(target="live", generation=1, switch={"live": "asked"})
     )
     payload = _payload(path)
     assert payload["switch"] == {}
@@ -272,7 +274,7 @@ _CHILD = """
                     switch_epoch=max(current.switch_epoch + 1, time.time_ns()),
                 )
             else:
-                new = replace(current, switch={**current.switch, "va": "on"})
+                new = replace(current, switch={**current.switch, "va": "asked"})
             mark("locked")
             time.sleep(hold)
             cc._write_record_unlocked(new, path)
@@ -303,7 +305,7 @@ _CHILD = """
 
 @pytest.mark.parametrize("interleaved", [True, False], ids=["interleaved", "after"])
 def test_a_stop_and_a_terminus_leave_the_switch_empty(data_root, tmp_path, interleaved):
-    path = write_control_context(data_root, switch={"live": "on", "va": "on"})
+    path = write_control_context(data_root, switch={"live": "asked", "va": "asked"})
     old_epoch = _payload(path)["switch_epoch"]
 
     stopped, answered = race_record_writers(
@@ -328,7 +330,7 @@ def test_a_non_person_write_keeps_a_turn_on_and_its_epoch(data_root, tmp_path, i
     )
 
     record = control_context.read_record()
-    assert record.switch == {"va": "on"}
+    assert record.switch == {"va": "asked"}
     assert record.switch_epoch == epoch == turned_on["epoch"]
     # And the non-person write itself landed, after the turn-on.
     assert record.generation == 5

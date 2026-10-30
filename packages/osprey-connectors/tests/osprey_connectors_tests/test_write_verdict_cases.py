@@ -26,6 +26,7 @@ from osprey_connectors_tests._harness._write_verdict_cases import (
     CaseTableError,
     case_environment,
     cases_for,
+    expected_position,
     login_tiers_shape,
     owner_argument,
     parse_cases,
@@ -58,6 +59,7 @@ def test_package_verdict_matches_the_row(case: Case, monkeypatch, tmp_path):
     expect = case.expect
     assert verdict.allowed is expect["allowed"]
     assert verdict.reason == expect["reason"]
+    assert verdict.position == expected_position(case)
     if not verdict.allowed:
         assert verdict.reason in REASONS
     if "target" in expect:
@@ -136,6 +138,90 @@ def test_a_malformed_row_fails_the_load(change, message):
     rows[0] = {**rows[0], **change}
     with pytest.raises(CaseTableError, match=message):
         parse_cases(rows)
+
+
+@pytest.mark.parametrize(
+    ("expect", "message"),
+    [
+        ({"allowed": True, "reason": None}, "states position"),
+        ({"allowed": True, "reason": None, "position": None}, "states position"),
+        ({"allowed": True, "reason": None, "position": "off"}, "states position"),
+        ({"allowed": True, "reason": None, "position": "on"}, "states position"),
+        ({"allowed": False, "reason": "switch_off", "position": "asked"}, "only a write allow"),
+    ],
+)
+def test_a_write_row_with_a_wrong_position_fails_the_load(expect, message):
+    rows = _rows()
+    rows[0] = {**rows[0], "expect": expect}
+    with pytest.raises(CaseTableError, match=message):
+        parse_cases(rows)
+
+
+def test_a_backstop_row_with_a_position_fails_the_load():
+    rows = _rows()
+    index = next(i for i, row in enumerate(rows) if row["verdict"] == "backstop")
+    rows[index] = {
+        **rows[index],
+        "expect": {"allowed": True, "reason": None, "position": "allowed"},
+    }
+    with pytest.raises(CaseTableError, match="only a write allow"):
+        parse_cases(rows)
+
+
+def test_a_refusal_may_leave_the_position_out():
+    (case,) = [case for case in CASES if case.id == "switch-off-no-stamp"]
+    assert "position" not in case.expect
+    assert expected_position(case) is None
+
+
+@pytest.mark.parametrize(
+    ("case_id", "allowed", "reason", "position"),
+    [
+        ("position-off", False, "switch_off", None),
+        ("position-asked", True, None, "asked"),
+        ("position-allowed", True, None, "allowed"),
+        ("position-legacy-on", True, None, "asked"),
+        ("position-unknown-value", False, "switch_off", None),
+        ("position-allowed-under-asked-ceiling", True, None, "asked"),
+        ("position-allowed-under-never", False, "tier_never", None),
+        ("tree-section-asked-map-allowed", True, None, "allowed"),
+        ("tree-section-allowed-map-asked", True, None, "asked"),
+        ("dispatch-host-owner-position-off", False, "switch_off", None),
+        ("dispatch-host-owner-position-asked", True, None, "asked"),
+        ("dispatch-host-owner-position-allowed", True, None, "allowed"),
+        ("dispatch-tree-owner-position-off", False, "switch_off", None),
+        ("dispatch-tree-owner-position-asked", True, None, "asked"),
+        ("dispatch-tree-owner-position-allowed", True, None, "allowed"),
+        ("dispatch-host-no-owner", False, "owner_unscheduled", None),
+        ("dispatch-tree-no-owner", False, "owner_unscheduled", None),
+    ],
+)
+def test_the_table_states_each_position(case_id, allowed, reason, position):
+    """The rows the switch's three positions rest on, spelled out here so none can drift."""
+    (case,) = [case for case in CASES if case.id == case_id]
+    assert case.expect["allowed"] is allowed
+    assert case.expect["reason"] == reason
+    assert expected_position(case) == position
+
+
+def test_the_legacy_word_stays_on_the_rows_about_it():
+    """Every other row stores what a writer stores now."""
+    legacy = {
+        case.id
+        for case in CASES
+        if case.record is not None and "on" in (case.record.get("switch") or {}).values()
+    } | {
+        case.id
+        for case in CASES
+        if case.tree is not None
+        for record in case.tree.get("records", {}).values()
+        if "on" in (record.get("switch") or {}).values()
+    }
+    assert legacy == {
+        "position-legacy-on",
+        "position-legacy-on-under-asked-ceiling",
+        "tree-legacy-on-map-allowed",
+    }
 
 
 def test_a_repeated_id_fails_the_load():

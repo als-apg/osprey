@@ -21,6 +21,7 @@ from osprey_connectors_tests._harness._write_verdict_cases import case_environme
 __all__ = ["case_environment"]
 
 LIVE = {"type": "epics", "writes": "allowed"}
+ASKED = {"type": "epics", "writes": "asked"}
 NEVER = {"type": "epics", "writes": "never"}
 
 EXECUTION_MODE = "OSPREY_EXECUTION_MODE"
@@ -64,6 +65,7 @@ def _refused(verdict: WriteVerdict, reason: str) -> None:
     assert verdict.reason in REASONS
     assert verdict.target is None
     assert verdict.kind is None
+    assert verdict.position is None
 
 
 # --- the allow ------------------------------------------------------------
@@ -76,6 +78,21 @@ def test_allowed_tier_allows_with_no_target_and_no_kind():
 
     # Assert
     assert verdict == WriteVerdict(allowed=True, reason=None, target=None, kind=None)
+
+
+@pytest.mark.usefixtures("blind")
+def test_asked_tier_allows():
+    verdict = backstop_verdict(ASKED)
+
+    assert verdict == WriteVerdict(allowed=True, reason=None, target=None, kind=None)
+
+
+@pytest.mark.parametrize("stored", ["asked", "allowed"])
+def test_an_allow_reports_no_position_whatever_is_stored(tmp_path, stored):
+    """The backstop is switch-blind: it never answers for a position."""
+    write_control_context(tmp_path / "data", switch={"live": stored}, owned_by=None)
+
+    assert backstop_verdict(LIVE).position is None
 
 
 @pytest.mark.usefixtures("blind")
@@ -136,7 +153,7 @@ def test_other_execution_modes_are_not_readonly(monkeypatch):
 
 def test_readonly_run_refuses_even_with_the_switch_on(monkeypatch, tmp_path):
     """A switched-on record does not lift a read-only run in the backstop either."""
-    write_control_context(tmp_path / "data", switch={"live": "on"}, owned_by=None)
+    write_control_context(tmp_path / "data", switch={"live": "asked"}, owned_by=None)
     monkeypatch.setenv(EXECUTION_MODE, "readonly")
 
     _refused(backstop_verdict(LIVE), "readonly_run")
