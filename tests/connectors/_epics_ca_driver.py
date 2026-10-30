@@ -30,6 +30,7 @@ from osprey_connectors import control_context
 from osprey_connectors.control_system._base import ControlSystemConnector
 from osprey_connectors.control_system._ca_loop import get_ca_loop
 from osprey_connectors.control_system._epics_connector import EPICSConnector
+from tests._live import async_wait_until
 
 RESULT_MARKER = "__RESULT__"
 ATEXIT_MARKER = "__ATEXIT__"
@@ -172,10 +173,17 @@ async def dispatch(prefix: str) -> dict[str, Any]:
     source = EpicsCaSource()
     await source.start([trigger], fire)
     connector = await _connect()
-    await asyncio.sleep(0.5)
+    # Opening the monitor only queues the search; the watcher takes its first
+    # update as the baseline and never fires on it. Writing before that update
+    # lands makes a write the baseline instead, so wait for it, not a fixed time.
+    await async_wait_until(
+        lambda: bool(source._watchers) and source._watchers[0]._last_value is not None,
+        what="the trigger's first read",
+    )
     for value in (1.0, 6.0, 2.0, 7.5):
         await connector.write_channel(f"{prefix}:AO", value)
         await asyncio.sleep(0.3)
+    await async_wait_until(lambda: len(fired) >= 2, what="the second crossing's fire")
     await source.stop()
     return {"fired": fired}
 
