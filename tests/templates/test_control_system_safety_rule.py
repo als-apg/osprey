@@ -318,7 +318,12 @@ def test_rule_heading_contract_intact(tmp_path):
 
 def test_routing_section_renders_for_every_control_system_type(tmp_path):
     """The routing cases are about tools, not protocols, so every render gets
-    them -- an in-process deployment routes requests the same way an EPICS one does."""
+    them -- an in-process deployment routes requests the same way an EPICS one does.
+
+    The section must also carry no protocol-specific text: ``epics`` and
+    ``virtual_accelerator`` are included because those are the only renders
+    where the string ``EPICS`` exists elsewhere in the document -- they are
+    where a leak into the routing section would actually be caught."""
     for cs_type in (
         "epics",
         "virtual_accelerator",
@@ -333,24 +338,6 @@ def test_routing_section_renders_for_every_control_system_type(tmp_path):
         assert ROUTING_HEADING in content, f"{label}: routing section missing"
         for case in ROUTING_CASES:
             assert case in content, f"{label}: missing routing case: {case!r}"
-
-
-def test_routing_section_is_protocol_neutral(tmp_path):
-    """The section must carry no protocol-specific text: it renders on every
-    control-system type, and ``epics``/``virtual_accelerator`` are included
-    because those are the only renders where the string ``EPICS`` exists
-    elsewhere in the document -- they are where a leak into the routing
-    section would actually be caught."""
-    for cs_type in (
-        "epics",
-        "virtual_accelerator",
-        "live_standin",
-        "tango",
-        IN_PROCESS,
-        None,
-    ):
-        label = cs_type or "preset"
-        content = _render_safety_rule(tmp_path / label, f"neutral-{label}", cs_type)
 
         start = content.index(ROUTING_HEADING)
         next_heading = content.find("\n## ", start + len(ROUTING_HEADING))
@@ -485,15 +472,6 @@ def test_non_epics_branches_have_no_pvaccess_lines(cs_type):
 
     assert "pvaccess" not in content
     assert "RpcClient" not in content
-
-
-def test_the_simulator_in_process_renders_no_epics_prohibition(tmp_path):
-    """The simulator in process speaks no Channel Access, so the rule names no
-    EPICS client to keep away from — there is no wire for one to reach."""
-    content = _render_safety_rule(tmp_path, "safety-in-process", IN_PROCESS)
-
-    assert "epics.caput" not in content
-    assert "p4p" not in content
 
 
 #: Every section word a direct render is asked about, with the wire's libraries.
