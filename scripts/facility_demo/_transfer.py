@@ -746,10 +746,11 @@ def write_sources(tree: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(_line._dump(measurement(section)), encoding="utf-8")
     places_path = tree / "records" / "places.yaml"
-    spanned = []
-    for record in _line._load(places_path):
-        if record["id"] in SECTIONS:
-            spanned.append({**record, "span": _span(record["id"])})
+    spanned = [
+        {**record, "span": _span(record["id"])}
+        for record in _line._load(places_path)
+        if record["id"] in SECTIONS
+    ]
     _line._merge(places_path, spanned, "id", ordered=False)
     _strip_nominals(tree / "seeds.yaml", wired_addresses())
 

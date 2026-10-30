@@ -32,6 +32,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 
@@ -68,7 +69,13 @@ def _hub_server(workspace_dir: Path) -> Iterator[str]:
     Yields:
         The hub's base URL.
     """
-    with hub_server(workspace_dir) as (base_url, _app):
+    # The feedback and bar-items stores live under the shared data root;
+    # pinning it to this test's workspace keeps a saved rail layout from
+    # leaking into later hub suites in the same worker.
+    shared_root = patch(
+        "osprey_connectors.workspace.resolve_shared_data_root", return_value=workspace_dir
+    )
+    with hub_server(workspace_dir, shared_root) as (base_url, _app):
         yield base_url
 
 

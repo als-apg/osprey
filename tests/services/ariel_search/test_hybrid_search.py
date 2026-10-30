@@ -397,7 +397,7 @@ class TestQueryKnobs:
     """What this module hands the client."""
 
     @pytest.mark.asyncio
-    async def test_config_rerank_is_forwarded(self):
+    async def test_config_rerank_is_forwarded(self, search_calls):
         """The assertion documents the mode it measures: config says False."""
         client = StubClient([])
         await hybrid_search(
@@ -405,6 +405,7 @@ class TestQueryKnobs:
             StubRepository([]),
             make_config({"rerank": False, "candidate_limit": 12}),
             client=client,
+            search_calls=search_calls,
         )
         assert client.calls[0]["rerank"] is False
         assert client.calls[0]["candidate_limit"] == 12
@@ -412,15 +413,17 @@ class TestQueryKnobs:
         assert [call["limit"] for call in client.calls] == [10]
 
     @pytest.mark.asyncio
-    async def test_default_is_reranked(self):
+    async def test_default_is_reranked(self, search_calls):
         """Nothing configured: the agent-facing tool keeps qmd's quality path."""
         client = StubClient([])
-        await hybrid_search("beam", StubRepository([]), make_config(), client=client)
+        await hybrid_search(
+            "beam", StubRepository([]), make_config(), client=client, search_calls=search_calls
+        )
         assert client.calls[0]["rerank"] is True
         assert client.calls[0]["candidate_limit"] == DEFAULT_CANDIDATE_LIMIT
 
     @pytest.mark.asyncio
-    async def test_per_query_override_beats_config(self):
+    async def test_per_query_override_beats_config(self, search_calls):
         client = StubClient([])
         await hybrid_search(
             "beam",
@@ -429,12 +432,13 @@ class TestQueryKnobs:
             client=client,
             rerank=False,
             candidate_limit=5,
+            search_calls=search_calls,
         )
         assert client.calls[0]["rerank"] is False
         assert client.calls[0]["candidate_limit"] == 5
 
     @pytest.mark.asyncio
-    async def test_request_cannot_enable_a_deployment_disabled_reranker(self):
+    async def test_request_cannot_enable_a_deployment_disabled_reranker(self, search_calls):
         client = StubClient([])
 
         await hybrid_search(
@@ -443,13 +447,14 @@ class TestQueryKnobs:
             make_config({"rerank": False}),
             client=client,
             rerank=True,
+            search_calls=search_calls,
         )
 
         assert [call["rerank"] for call in client.calls] == [False]
         assert [call["search_types"] for call in client.calls] == [("lex", "vec")]
 
     @pytest.mark.asyncio
-    async def test_rrf_never_calls_the_qmd_reranker(self):
+    async def test_rrf_never_calls_the_qmd_reranker(self, search_calls):
         client = StubClient([])
         await hybrid_search(
             "beam",
@@ -458,12 +463,13 @@ class TestQueryKnobs:
             StubEmbedder(),
             client=client,
             rerank=True,
+            search_calls=search_calls,
         )
         assert [call["rerank"] for call in client.calls] == [False]
         assert [call["search_types"] for call in client.calls] == [("lex",)]
 
     @pytest.mark.asyncio
-    async def test_qmd_strategy_never_resolves_the_embedder(self, monkeypatch):
+    async def test_qmd_strategy_never_resolves_the_embedder(self, monkeypatch, search_calls):
         """A broken semantic provider cannot reach the default qmd strategy."""
         from osprey.services.ariel_search.search import semantic
 
@@ -478,12 +484,15 @@ class TestQueryKnobs:
             SemanticRepository([make_entry("1")], []),
             make_semantic_config(),
             client=client,
+            search_calls=search_calls,
         )
 
         assert [entry["entry_id"] for entry, _, _ in results] == ["1"]
 
     @pytest.mark.asyncio
-    async def test_rrf_resolves_the_configured_embedder_when_none_is_passed(self, monkeypatch):
+    async def test_rrf_resolves_the_configured_embedder_when_none_is_passed(
+        self, monkeypatch, search_calls
+    ):
         from osprey.services.ariel_search.search import semantic
 
         resolved: list[ARIELConfig] = []
@@ -495,20 +504,33 @@ class TestQueryKnobs:
         monkeypatch.setattr(semantic, "semantic_provider_class", provider_class)
         config = make_semantic_config({"strategy": "rrf"})
 
-        await hybrid_search("beam", SemanticRepository([], []), config, client=StubClient([]))
+        await hybrid_search(
+            "beam",
+            SemanticRepository([], []),
+            config,
+            client=StubClient([]),
+            search_calls=search_calls,
+        )
 
         assert resolved == [config]
 
     @pytest.mark.asyncio
-    async def test_query_is_scoped_to_the_ariel_collection(self):
+    async def test_query_is_scoped_to_the_ariel_collection(self, search_calls):
         client = StubClient([])
-        await hybrid_search("beam", StubRepository([]), make_config(), client=client)
+        await hybrid_search(
+            "beam", StubRepository([]), make_config(), client=client, search_calls=search_calls
+        )
         assert client.calls[0]["collection"] == ARIEL_COLLECTION
 
     @pytest.mark.asyncio
-    async def test_blank_query_never_reaches_the_sidecar(self):
+    async def test_blank_query_never_reaches_the_sidecar(self, search_calls):
         client = StubClient([])
-        assert await hybrid_search("   ", StubRepository([]), make_config(), client=client) == []
+        assert (
+            await hybrid_search(
+                "   ", StubRepository([]), make_config(), client=client, search_calls=search_calls
+            )
+            == []
+        )
         assert client.calls == []
 
 
@@ -558,18 +580,20 @@ class TestIdentityRecovery:
             "EX-2003-0001",
         ],
     )
-    async def test_hostile_ids_survive_a_slugifying_daemon(self, entry_id):
+    async def test_hostile_ids_survive_a_slugifying_daemon(self, entry_id, search_calls):
         """Every one of these has a mangled path; all must still hydrate."""
         client = StubClient([mangled_hit(entry_id)])
         repo = StubRepository([make_entry(entry_id)])
 
-        results = await hybrid_search("beam", repo, make_config(), client=client)
+        results = await hybrid_search(
+            "beam", repo, make_config(), client=client, search_calls=search_calls
+        )
 
         assert repo.requested == [[entry_id]]
         assert [entry["entry_id"] for entry, _, _ in results] == [entry_id]
 
     @pytest.mark.asyncio
-    async def test_underscore_and_hyphen_ids_do_not_cross_hydrate(self):
+    async def test_underscore_and_hyphen_ids_do_not_cross_hydrate(self, search_calls):
         """The collision case: two real entries whose paths slugify alike.
 
         ``beam_current_setpoint`` and ``beam-current-setpoint`` are reported
@@ -584,12 +608,14 @@ class TestIdentityRecovery:
         client = StubClient([mangled_hit(underscore), mangled_hit(hyphen, score=0.5)])
         repo = StubRepository([make_entry(underscore), make_entry(hyphen)])
 
-        results = await hybrid_search("beam", repo, make_config(), client=client)
+        results = await hybrid_search(
+            "beam", repo, make_config(), client=client, search_calls=search_calls
+        )
 
         assert [entry["entry_id"] for entry, _, _ in results] == [underscore, hyphen]
 
     @pytest.mark.asyncio
-    async def test_encoded_looking_id_is_not_double_decoded(self):
+    async def test_encoded_looking_id_is_not_double_decoded(self, search_calls):
         """The title carries the raw id, so it must never be unquoted.
 
         ``a%2Fb`` is a legal identifier whose *encoding* is ``a%252Fb``. Reading
@@ -599,12 +625,14 @@ class TestIdentityRecovery:
         client = StubClient([mangled_hit("a%2Fb")])
         repo = StubRepository([make_entry("a%2Fb"), make_entry("a/b")])
 
-        results = await hybrid_search("beam", repo, make_config(), client=client)
+        results = await hybrid_search(
+            "beam", repo, make_config(), client=client, search_calls=search_calls
+        )
 
         assert [entry["entry_id"] for entry, _, _ in results] == ["a%2Fb"]
 
     @pytest.mark.asyncio
-    async def test_path_is_ignored_however_the_daemon_spells_it(self):
+    async def test_path_is_ignored_however_the_daemon_spells_it(self, search_calls):
         """Prefix, no prefix, bare name, wrong suffix — the title decides."""
         entry_id = "77"
         name = encode_entry_id(entry_id) + ".md"
@@ -618,14 +646,16 @@ class TestIdentityRecovery:
         )
         repo = StubRepository([make_entry(entry_id)])
 
-        results = await hybrid_search("beam", repo, make_config(), client=client)
+        results = await hybrid_search(
+            "beam", repo, make_config(), client=client, search_calls=search_calls
+        )
 
         # All four name the same entry, so it is requested and returned once.
         assert repo.requested == [[entry_id]]
         assert len(results) == 1
 
     @pytest.mark.asyncio
-    async def test_a_hit_declaring_no_entry_is_dropped_not_guessed(self):
+    async def test_a_hit_declaring_no_entry_is_dropped_not_guessed(self, search_calls):
         """Never fall back to the path — that is the channel known to be wrong."""
         good = "88"
         client = StubClient(
@@ -638,7 +668,9 @@ class TestIdentityRecovery:
         )
         repo = StubRepository([make_entry(good), make_entry("99")])
 
-        results = await hybrid_search("beam", repo, make_config(), client=client)
+        results = await hybrid_search(
+            "beam", repo, make_config(), client=client, search_calls=search_calls
+        )
 
         # 99 has a row and is what every dropped hit's path pointed at, so it
         # would have appeared had the path been used as a fallback.
@@ -646,7 +678,7 @@ class TestIdentityRecovery:
         assert [entry["entry_id"] for entry, _, _ in results] == [good]
 
     @pytest.mark.asyncio
-    async def test_path_disagreement_is_logged(self, caplog):
+    async def test_path_disagreement_is_logged(self, caplog, search_calls):
         """A silent corruption becomes a discoverable one."""
         with caplog.at_level("WARNING", logger="ariel"):
             await hybrid_search(
@@ -654,6 +686,7 @@ class TestIdentityRecovery:
                 StubRepository([make_entry("beam_current_setpoint")]),
                 make_config(),
                 client=StubClient([mangled_hit("beam_current_setpoint")]),
+                search_calls=search_calls,
             )
 
         assert any("disagrees with the document's own title" in r.message for r in caplog.records)
@@ -674,12 +707,14 @@ class TestIdentityRecovery:
         assert heading == f"# {TITLE_ENTRY_PREFIX}EX-2003-0001"
 
     @pytest.mark.asyncio
-    async def test_hit_without_a_row_is_dropped(self):
+    async def test_hit_without_a_row_is_dropped(self, search_calls):
         """The mirror is a copy of the database and may lag a deletion."""
         client = StubClient([make_hit("gone"), make_hit("here", score=0.5)])
         repo = StubRepository([make_entry("here")])
 
-        results = await hybrid_search("beam", repo, make_config(), client=client)
+        results = await hybrid_search(
+            "beam", repo, make_config(), client=client, search_calls=search_calls
+        )
 
         assert [entry["entry_id"] for entry, _, _ in results] == ["here"]
 
@@ -693,7 +728,7 @@ class TestRankingAndHydration:
     """qmd ranks, Postgres answers."""
 
     @pytest.mark.asyncio
-    async def test_results_follow_qmd_rank_not_row_order(self):
+    async def test_results_follow_qmd_rank_not_row_order(self, search_calls):
         """The repository answers in its own order; the ranking must survive."""
         client = StubClient(
             [
@@ -704,46 +739,65 @@ class TestRankingAndHydration:
         )
         repo = StubRepository([make_entry("a"), make_entry("b"), make_entry("c")])
 
-        results = await hybrid_search("beam", repo, make_config(), client=client)
+        results = await hybrid_search(
+            "beam", repo, make_config(), client=client, search_calls=search_calls
+        )
 
         assert [entry["entry_id"] for entry, _, _ in results] == ["c", "a", "b"]
         assert [score for _, score, _ in results] == [1.0, 0.5, 0.33]
 
     @pytest.mark.asyncio
-    async def test_snippet_is_carried_as_the_highlight(self):
+    async def test_snippet_is_carried_as_the_highlight(self, search_calls):
         client = StubClient([make_hit("1", snippet="7: water leak")])
         repo = StubRepository([make_entry("1")])
 
-        _, _, highlights = (await hybrid_search("beam", repo, make_config(), client=client))[0]
+        _, _, highlights = (
+            await hybrid_search(
+                "beam", repo, make_config(), client=client, search_calls=search_calls
+            )
+        )[0]
 
         assert highlights == ["7: water leak"]
 
     @pytest.mark.asyncio
-    async def test_missing_snippet_yields_no_highlights(self):
+    async def test_missing_snippet_yields_no_highlights(self, search_calls):
         client = StubClient([make_hit("1", snippet="")])
         repo = StubRepository([make_entry("1")])
 
-        _, _, highlights = (await hybrid_search("beam", repo, make_config(), client=client))[0]
+        _, _, highlights = (
+            await hybrid_search(
+                "beam", repo, make_config(), client=client, search_calls=search_calls
+            )
+        )[0]
 
         assert highlights == []
 
     @pytest.mark.asyncio
-    async def test_entry_body_comes_from_postgres_not_the_index(self):
+    async def test_entry_body_comes_from_postgres_not_the_index(self, search_calls):
         client = StubClient([make_hit("1")])
         repo = StubRepository([make_entry("1", author="Chen")])
 
-        entry, _, _ = (await hybrid_search("beam", repo, make_config(), client=client))[0]
+        entry, _, _ = (
+            await hybrid_search(
+                "beam", repo, make_config(), client=client, search_calls=search_calls
+            )
+        )[0]
 
         assert entry["author"] == "Chen"
         assert entry["raw_text"] == "text for 1"
 
     @pytest.mark.asyncio
-    async def test_max_results_caps_the_returned_set(self):
+    async def test_max_results_caps_the_returned_set(self, search_calls):
         hits = [make_hit(str(i), score=1.0 / (i + 1)) for i in range(6)]
         repo = StubRepository([make_entry(str(i)) for i in range(6)])
 
         results = await hybrid_search(
-            "beam", repo, make_config(), client=StubClient(hits), max_results=2
+            "beam",
+            repo,
+            make_config(),
+            client=StubClient(hits),
+            max_results=2,
+            search_calls=search_calls,
         )
 
         assert len(results) == 2
@@ -758,15 +812,20 @@ class TestFiltersAndOverfetch:
     """Filters run after hydration, so the fetch must leave room for them."""
 
     @pytest.mark.asyncio
-    async def test_unfiltered_query_fetches_exactly_max_results(self):
+    async def test_unfiltered_query_fetches_exactly_max_results(self, search_calls):
         client = StubClient([])
         await hybrid_search(
-            "beam", StubRepository([]), make_config(), client=client, max_results=10
+            "beam",
+            StubRepository([]),
+            make_config(),
+            client=client,
+            max_results=10,
+            search_calls=search_calls,
         )
         assert client.calls[0]["limit"] == 10
 
     @pytest.mark.asyncio
-    async def test_filtered_query_overfetches(self):
+    async def test_filtered_query_overfetches(self, search_calls):
         client = StubClient([])
         await hybrid_search(
             "beam",
@@ -775,11 +834,12 @@ class TestFiltersAndOverfetch:
             client=client,
             max_results=10,
             author="chen",
+            search_calls=search_calls,
         )
         assert client.calls[0]["limit"] == 10 * OVERFETCH_FACTOR
 
     @pytest.mark.asyncio
-    async def test_overfetch_is_capped(self):
+    async def test_overfetch_is_capped(self, search_calls):
         client = StubClient([])
         await hybrid_search(
             "beam",
@@ -788,11 +848,12 @@ class TestFiltersAndOverfetch:
             client=client,
             max_results=50,
             source_system="Example eLog",
+            search_calls=search_calls,
         )
         assert client.calls[0]["limit"] == MAX_FETCH_LIMIT
 
     @pytest.mark.asyncio
-    async def test_overfetch_survives_filtering_to_a_full_page(self):
+    async def test_overfetch_survives_filtering_to_a_full_page(self, search_calls):
         """Two of every three hits are rejected; the page must still fill."""
         hits = [make_hit(str(i), score=1.0 / (i + 1)) for i in range(12)]
         entries = [make_entry(str(i), author="Chen" if i % 3 == 0 else "Other") for i in range(12)]
@@ -804,23 +865,29 @@ class TestFiltersAndOverfetch:
             client=StubClient(hits),
             max_results=3,
             author="chen",
+            search_calls=search_calls,
         )
 
         assert [entry["entry_id"] for entry, _, _ in results] == ["0", "3", "6"]
 
     @pytest.mark.asyncio
-    async def test_author_filter_is_case_insensitive_substring(self):
+    async def test_author_filter_is_case_insensitive_substring(self, search_calls):
         hits = [make_hit("1"), make_hit("2", score=0.5)]
         entries = [make_entry("1", author="Wei Chen"), make_entry("2", author="Ada Lovelace")]
 
         results = await hybrid_search(
-            "beam", StubRepository(entries), make_config(), client=StubClient(hits), author="chen"
+            "beam",
+            StubRepository(entries),
+            make_config(),
+            client=StubClient(hits),
+            author="chen",
+            search_calls=search_calls,
         )
 
         assert [entry["entry_id"] for entry, _, _ in results] == ["1"]
 
     @pytest.mark.asyncio
-    async def test_source_system_filter_is_exact(self):
+    async def test_source_system_filter_is_exact(self, search_calls):
         hits = [make_hit("1"), make_hit("2", score=0.5)]
         entries = [
             make_entry("1", source_system="Example eLog"),
@@ -833,12 +900,13 @@ class TestFiltersAndOverfetch:
             make_config(),
             client=StubClient(hits),
             source_system="JLab Logbook",
+            search_calls=search_calls,
         )
 
         assert [entry["entry_id"] for entry, _, _ in results] == ["2"]
 
     @pytest.mark.asyncio
-    async def test_date_range_filters_inclusively(self):
+    async def test_date_range_filters_inclusively(self, search_calls):
         hits = [make_hit(str(i), score=1.0 / (i + 1)) for i in range(3)]
         entries = [
             make_entry("0", timestamp=datetime(2024, 1, 1, tzinfo=UTC)),
@@ -853,12 +921,13 @@ class TestFiltersAndOverfetch:
             client=StubClient(hits),
             start_date=datetime(2024, 6, 1, tzinfo=UTC),
             end_date=datetime(2024, 12, 1, tzinfo=UTC),
+            search_calls=search_calls,
         )
 
         assert [entry["entry_id"] for entry, _, _ in results] == ["1", "2"]
 
     @pytest.mark.asyncio
-    async def test_naive_bound_compares_against_aware_timestamp(self):
+    async def test_naive_bound_compares_against_aware_timestamp(self, search_calls):
         """A request carrying a naive datetime must not raise on comparison."""
         hits = [make_hit("1")]
         entries = [make_entry("1", timestamp=datetime(2024, 6, 1, tzinfo=UTC))]
@@ -869,12 +938,13 @@ class TestFiltersAndOverfetch:
             make_config(),
             client=StubClient(hits),
             start_date=datetime(2024, 1, 1),
+            search_calls=search_calls,
         )
 
         assert len(results) == 1
 
     @pytest.mark.asyncio
-    async def test_entry_without_a_timestamp_fails_a_date_filter(self):
+    async def test_entry_without_a_timestamp_fails_a_date_filter(self, search_calls):
         hits = [make_hit("1")]
         entries = [make_entry("1")]
         entries[0]["timestamp"] = None
@@ -885,6 +955,7 @@ class TestFiltersAndOverfetch:
             make_config(),
             client=StubClient(hits),
             start_date=datetime(2024, 1, 1, tzinfo=UTC),
+            search_calls=search_calls,
         )
 
         assert results == []
@@ -946,17 +1017,19 @@ class TestEventLoopIsNotBlocked:
     """
 
     @pytest.mark.asyncio
-    async def test_no_blocking_call_runs_on_the_loop_thread(self):
+    async def test_no_blocking_call_runs_on_the_loop_thread(self, search_calls):
         client = BlockingClient()
         loop_thread = threading.current_thread().name
 
-        await hybrid_search("beam", StubRepository([]), make_config(), client=client)
+        await hybrid_search(
+            "beam", StubRepository([]), make_config(), client=client, search_calls=search_calls
+        )
 
         assert client.threads["is_available"] != loop_thread
         assert client.threads["query"] != loop_thread
 
     @pytest.mark.asyncio
-    async def test_other_coroutines_keep_running_during_a_slow_probe(self):
+    async def test_other_coroutines_keep_running_during_a_slow_probe(self, search_calls):
         """The thread assertion says where the work went; this says it mattered.
 
         The probe blocks until another coroutine has made progress: a counter
@@ -983,7 +1056,9 @@ class TestEventLoopIsNotBlocked:
         client = BlockingClient(probe_seconds=10.0, query_seconds=0.0, probe_release=release)
         ticker = asyncio.create_task(counter())
         try:
-            await hybrid_search("beam", StubRepository([]), make_config(), client=client)
+            await hybrid_search(
+                "beam", StubRepository([]), make_config(), client=client, search_calls=search_calls
+            )
         finally:
             ticker.cancel()
 
@@ -1002,41 +1077,51 @@ class TestSidecarFaults:
     """ "Search is down" and "nothing matched" must not look alike."""
 
     @pytest.mark.asyncio
-    async def test_unconfigured_sidecar_raises_rather_than_returning_empty(self):
+    async def test_unconfigured_sidecar_raises_rather_than_returning_empty(self, search_calls):
         client = StubClient(available=False, configured=False)
 
         with pytest.raises(QMDUnavailableError, match="no qmd sidecar is configured"):
-            await hybrid_search("beam", StubRepository([]), make_config(), client=client)
+            await hybrid_search(
+                "beam", StubRepository([]), make_config(), client=client, search_calls=search_calls
+            )
 
     @pytest.mark.asyncio
-    async def test_configured_but_down_sidecar_names_its_endpoint(self):
+    async def test_configured_but_down_sidecar_names_its_endpoint(self, search_calls):
         client = StubClient(available=False, configured=True)
 
         with pytest.raises(QMDUnavailableError, match="127.0.0.1:8180"):
-            await hybrid_search("beam", StubRepository([]), make_config(), client=client)
+            await hybrid_search(
+                "beam", StubRepository([]), make_config(), client=client, search_calls=search_calls
+            )
 
     @pytest.mark.asyncio
-    async def test_a_down_sidecar_is_never_queried(self):
+    async def test_a_down_sidecar_is_never_queried(self, search_calls):
         client = StubClient(available=False)
 
         with pytest.raises(QMDUnavailableError):
-            await hybrid_search("beam", StubRepository([]), make_config(), client=client)
+            await hybrid_search(
+                "beam", StubRepository([]), make_config(), client=client, search_calls=search_calls
+            )
         assert client.calls == []
 
     @pytest.mark.asyncio
-    async def test_query_failure_propagates(self):
+    async def test_query_failure_propagates(self, search_calls):
         from osprey.services.qmd import QMDClientError
 
         client = StubClient(error=QMDClientError("qmd tool 'query' failed: index missing"))
 
         with pytest.raises(QMDClientError, match="index missing"):
-            await hybrid_search("beam", StubRepository([]), make_config(), client=client)
+            await hybrid_search(
+                "beam", StubRepository([]), make_config(), client=client, search_calls=search_calls
+            )
 
     @pytest.mark.asyncio
-    async def test_empty_result_set_is_not_an_error(self):
+    async def test_empty_result_set_is_not_an_error(self, search_calls):
         repo = StubRepository([make_entry("1")])
 
-        results = await hybrid_search("beam", repo, make_config(), client=StubClient([]))
+        results = await hybrid_search(
+            "beam", repo, make_config(), client=StubClient([]), search_calls=search_calls
+        )
 
         assert results == []
         # Nothing to hydrate, so Postgres is not touched at all.
@@ -1126,7 +1211,7 @@ class TestReciprocalRankFusion:
             _rrf_hits([], [], k=0)
 
     @pytest.mark.asyncio
-    async def test_fast_hybrid_fuses_qmd_bm25_with_ariel_nomic(self):
+    async def test_fast_hybrid_fuses_qmd_bm25_with_ariel_nomic(self, search_calls):
         entries = [make_entry(entry_id) for entry_id in ("both", "lexical", "semantic")]
         by_id = {entry["entry_id"]: entry for entry in entries}
         repository = SemanticRepository(
@@ -1141,6 +1226,7 @@ class TestReciprocalRankFusion:
             make_semantic_config({"strategy": "rrf", "candidate_limit": 40}),
             StubEmbedder(),
             client=client,
+            search_calls=search_calls,
         )
 
         assert [entry["entry_id"] for entry, _score, _snippet in results] == [
@@ -1153,7 +1239,9 @@ class TestReciprocalRankFusion:
         assert repository.semantic_calls[0]["similarity_threshold"] == 0.0
 
     @pytest.mark.asyncio
-    async def test_a_timed_out_semantic_lane_keeps_the_keyword_hits(self, monkeypatch):
+    async def test_a_timed_out_semantic_lane_keeps_the_keyword_hits(
+        self, monkeypatch, search_calls
+    ):
         """A hung embedding provider costs hybrid its semantic lane, not its answer."""
         from osprey.services.ariel_search.exceptions import SearchTimeoutError
         from osprey.services.ariel_search.search import semantic
@@ -1175,6 +1263,7 @@ class TestReciprocalRankFusion:
             make_semantic_config({"strategy": "rrf"}),
             StubEmbedder(),
             client=client,
+            search_calls=search_calls,
         )
 
         assert isinstance(output, ModuleOutput)
@@ -1193,11 +1282,13 @@ class TestRerankFallback:
     """A reranked-query failure degrades the ranking; it never breaks search."""
 
     @pytest.mark.asyncio
-    async def test_failed_rerank_retries_without_the_reranker(self):
+    async def test_failed_rerank_retries_without_the_reranker(self, search_calls):
         client = RerankFaultClient([make_hit("1")])
         repo = StubRepository([make_entry("1")])
 
-        result = await hybrid_search("beam", repo, make_config({"rerank": True}), client=client)
+        result = await hybrid_search(
+            "beam", repo, make_config({"rerank": True}), client=client, search_calls=search_calls
+        )
 
         assert isinstance(result, ModuleOutput)
         assert [call["rerank"] for call in client.calls] == [True, False]
@@ -1209,7 +1300,7 @@ class TestRerankFallback:
         assert entry["entry_id"] == "1"
 
     @pytest.mark.asyncio
-    async def test_the_retry_is_otherwise_the_same_query(self):
+    async def test_the_retry_is_otherwise_the_same_query(self, search_calls):
         """Only ``rerank`` changes — a narrower retry would answer differently."""
         client = RerankFaultClient([])
 
@@ -1220,6 +1311,7 @@ class TestRerankFallback:
             client=client,
             max_results=7,
             candidate_limit=11,
+            search_calls=search_calls,
         )
 
         first, fallback = client.calls
@@ -1231,11 +1323,13 @@ class TestRerankFallback:
         assert fallback["search_types"] == ("lex", "vec")
 
     @pytest.mark.asyncio
-    async def test_the_degraded_ranking_is_reported_as_a_warning(self):
+    async def test_the_degraded_ranking_is_reported_as_a_warning(self, search_calls):
         client = RerankFaultClient([make_hit("1")])
         repo = StubRepository([make_entry("1")])
 
-        result = await hybrid_search("beam", repo, make_config({"rerank": True}), client=client)
+        result = await hybrid_search(
+            "beam", repo, make_config({"rerank": True}), client=client, search_calls=search_calls
+        )
 
         (diagnostic,) = result.diagnostics
         assert diagnostic.level is DiagnosticLevel.WARNING
@@ -1243,18 +1337,20 @@ class TestRerankFallback:
         assert "rerank" in diagnostic.message.lower()
 
     @pytest.mark.asyncio
-    async def test_any_exception_triggers_the_retry(self):
+    async def test_any_exception_triggers_the_retry(self, search_calls):
         """The client raises whatever its transport raised; all of it falls back."""
         client = RerankFaultClient([make_hit("1")], error=TimeoutError("read timed out"))
         repo = StubRepository([make_entry("1")])
 
-        result = await hybrid_search("beam", repo, make_config({"rerank": True}), client=client)
+        result = await hybrid_search(
+            "beam", repo, make_config({"rerank": True}), client=client, search_calls=search_calls
+        )
 
         assert isinstance(result, ModuleOutput)
         assert [call["rerank"] for call in client.calls] == [True, False]
 
     @pytest.mark.asyncio
-    async def test_a_failed_retry_raises_the_retrys_error(self):
+    async def test_a_failed_retry_raises_the_retrys_error(self, search_calls):
         """One retry, not a loop: if the fast path is down too, search is down."""
         client = RerankFaultClient(
             error=TimeoutError("read timed out"),
@@ -1263,39 +1359,53 @@ class TestRerankFallback:
 
         with pytest.raises(RuntimeError, match="qmd daemon is gone"):
             await hybrid_search(
-                "beam", StubRepository([]), make_config({"rerank": True}), client=client
+                "beam",
+                StubRepository([]),
+                make_config({"rerank": True}),
+                client=client,
+                search_calls=search_calls,
             )
         assert [call["rerank"] for call in client.calls] == [True, False]
 
     @pytest.mark.asyncio
-    async def test_a_working_reranker_queries_once_and_returns_a_bare_list(self):
+    async def test_a_working_reranker_queries_once_and_returns_a_bare_list(self, search_calls):
         client = StubClient([make_hit("1")])
         repo = StubRepository([make_entry("1")])
 
-        results = await hybrid_search("beam", repo, make_config({"rerank": True}), client=client)
+        results = await hybrid_search(
+            "beam", repo, make_config({"rerank": True}), client=client, search_calls=search_calls
+        )
 
         assert isinstance(results, list)
         assert len(client.calls) == 1
         assert client.calls[0]["rerank"] is True
 
     @pytest.mark.asyncio
-    async def test_an_unreranked_query_is_never_retried(self):
+    async def test_an_unreranked_query_is_never_retried(self, search_calls):
         """With the reranker off there is nothing to fall back to."""
         client = StubClient([make_hit("1")], error=RuntimeError("index missing"))
 
         with pytest.raises(RuntimeError, match="index missing"):
             await hybrid_search(
-                "beam", StubRepository([]), make_config({"rerank": False}), client=client
+                "beam",
+                StubRepository([]),
+                make_config({"rerank": False}),
+                client=client,
+                search_calls=search_calls,
             )
         assert len(client.calls) == 1
 
     @pytest.mark.asyncio
-    async def test_a_zero_hit_fallback_still_reports_the_warning(self):
+    async def test_a_zero_hit_fallback_still_reports_the_warning(self, search_calls):
         """The degraded ranking is news even when it ranked nothing."""
         client = RerankFaultClient([])
 
         result = await hybrid_search(
-            "beam", StubRepository([]), make_config({"rerank": True}), client=client
+            "beam",
+            StubRepository([]),
+            make_config({"rerank": True}),
+            client=client,
+            search_calls=search_calls,
         )
 
         assert isinstance(result, ModuleOutput)
@@ -1303,7 +1413,7 @@ class TestRerankFallback:
         assert len(result.diagnostics) == 1
 
     @pytest.mark.asyncio
-    async def test_one_output_carries_both_the_warning_and_the_expansion(self):
+    async def test_one_output_carries_both_the_warning_and_the_expansion(self, search_calls):
         client = RerankFaultClient([make_hit("1")])
         repo = StubRepository([make_entry("1")])
 
@@ -1313,6 +1423,7 @@ class TestRerankFallback:
             make_config({"rerank": True}),
             client=client,
             query_expansion=AMBIGUOUS_EXPANSION,
+            search_calls=search_calls,
         )
 
         assert result.expansion == AMBIGUOUS_GROUPS
@@ -1328,11 +1439,13 @@ class TestServiceDispatch:
     """The shape the service's ``_run_module`` unpacks."""
 
     @pytest.mark.asyncio
-    async def test_results_unpack_as_entry_score_extra(self):
+    async def test_results_unpack_as_entry_score_extra(self, search_calls):
         client = StubClient([make_hit("1")])
         repo = StubRepository([make_entry("1")])
 
-        results = await hybrid_search("beam", repo, make_config(), client=client)
+        results = await hybrid_search(
+            "beam", repo, make_config(), client=client, search_calls=search_calls
+        )
 
         for entry, score, *extra in results:
             assert entry["entry_id"] == "1"
@@ -1340,7 +1453,7 @@ class TestServiceDispatch:
             assert extra and isinstance(extra[0], list)
 
     @pytest.mark.asyncio
-    async def test_unknown_kwargs_are_tolerated(self):
+    async def test_unknown_kwargs_are_tolerated(self, search_calls):
         """The service forwards a request's advanced params verbatim."""
         client = StubClient([])
 
@@ -1351,6 +1464,7 @@ class TestServiceDispatch:
             client=client,
             similarity_threshold=0.5,
             include_highlights=True,
+            search_calls=search_calls,
         )
 
         assert client.calls
@@ -1377,7 +1491,7 @@ class TestVocabularyExpansion:
     """
 
     @pytest.mark.asyncio
-    async def test_flattened_text_reaches_the_sidecar(self):
+    async def test_flattened_text_reaches_the_sidecar(self, search_calls):
         client = StubClient([])
 
         await hybrid_search(
@@ -1386,42 +1500,49 @@ class TestVocabularyExpansion:
             make_config(),
             client=client,
             query_expansion=AMBIGUOUS_EXPANSION,
+            search_calls=search_calls,
         )
 
         assert client.calls[0]["text"] == "ts fault troubleshoot timing system"
 
     @pytest.mark.asyncio
-    async def test_raw_query_reaches_the_sidecar_without_expansion(self):
+    async def test_raw_query_reaches_the_sidecar_without_expansion(self, search_calls):
         """Without an expansion the call is byte-identical to today's."""
         client = StubClient([])
 
-        await hybrid_search("ts fault", StubRepository([]), make_config(), client=client)
+        await hybrid_search(
+            "ts fault", StubRepository([]), make_config(), client=client, search_calls=search_calls
+        )
 
         assert client.calls[0]["text"] == "ts fault"
 
     @pytest.mark.asyncio
-    async def test_long_query_is_not_truncated(self):
+    async def test_long_query_is_not_truncated(self, search_calls):
         """The 1000-char cap is keyword-only; hybrid queries go whole."""
         client = StubClient([])
         query = "beam loss " * 120  # 1200 characters
 
-        await hybrid_search(query, StubRepository([]), make_config(), client=client)
+        await hybrid_search(
+            query, StubRepository([]), make_config(), client=client, search_calls=search_calls
+        )
 
         assert client.calls[0]["text"] == query
 
     @pytest.mark.asyncio
-    async def test_without_expansion_a_bare_list_is_returned(self):
+    async def test_without_expansion_a_bare_list_is_returned(self, search_calls):
         """Direct callers keep the list they have always received."""
         client = StubClient([make_hit("1")])
         repo = StubRepository([make_entry("1")])
 
-        results = await hybrid_search("beam", repo, make_config(), client=client)
+        results = await hybrid_search(
+            "beam", repo, make_config(), client=client, search_calls=search_calls
+        )
 
         assert isinstance(results, list)
         assert len(results) == 1
 
     @pytest.mark.asyncio
-    async def test_with_expansion_a_module_output_carries_the_groups(self):
+    async def test_with_expansion_a_module_output_carries_the_groups(self, search_calls):
         client = StubClient([make_hit("1")])
         repo = StubRepository([make_entry("1")])
 
@@ -1431,6 +1552,7 @@ class TestVocabularyExpansion:
             make_config(),
             client=client,
             query_expansion=AMBIGUOUS_EXPANSION,
+            search_calls=search_calls,
         )
 
         assert isinstance(result, ModuleOutput)
@@ -1442,7 +1564,7 @@ class TestVocabularyExpansion:
         assert isinstance(snippets, list)
 
     @pytest.mark.asyncio
-    async def test_zero_hit_path_keeps_the_shape(self):
+    async def test_zero_hit_path_keeps_the_shape(self, search_calls):
         """A query the sidecar answers with nothing still answers in shape."""
         client = StubClient([])
 
@@ -1452,13 +1574,14 @@ class TestVocabularyExpansion:
             make_config(),
             client=client,
             query_expansion=AMBIGUOUS_EXPANSION,
+            search_calls=search_calls,
         )
 
         assert isinstance(result, ModuleOutput)
         assert result.entries == []
 
     @pytest.mark.asyncio
-    async def test_blank_query_keeps_the_shape_without_reaching_the_sidecar(self):
+    async def test_blank_query_keeps_the_shape_without_reaching_the_sidecar(self, search_calls):
         client = StubClient([])
 
         result = await hybrid_search(
@@ -1467,6 +1590,7 @@ class TestVocabularyExpansion:
             make_config(),
             client=client,
             query_expansion=AMBIGUOUS_EXPANSION,
+            search_calls=search_calls,
         )
 
         assert isinstance(result, ModuleOutput)
@@ -1513,7 +1637,7 @@ class TestCaptionMatchedIds:
         )
 
     @pytest.mark.asyncio
-    async def test_a_covering_caption_marks_its_attachment(self):
+    async def test_a_covering_caption_marks_its_attachment(self, search_calls):
         """Image embedding is off (the default config): captions still match."""
         config = make_config()
         assert config.is_enhancement_module_enabled("image_embedding") is False
@@ -1524,6 +1648,7 @@ class TestCaptionMatchedIds:
             repository,
             config,
             client=StubClient([make_hit("e1", score=0.9), make_hit("e2", score=0.4)]),
+            search_calls=search_calls,
         )
 
         assert isinstance(results, list)
@@ -1532,7 +1657,7 @@ class TestCaptionMatchedIds:
         assert "_matched_attachment_ids" not in by_id["e2"]
 
     @pytest.mark.asyncio
-    async def test_the_call_carries_the_coverage_form(self):
+    async def test_the_call_carries_the_coverage_form(self, search_calls):
         repository = self._repository()
 
         await hybrid_search(
@@ -1540,6 +1665,7 @@ class TestCaptionMatchedIds:
             repository,
             make_config(),
             client=StubClient([make_hit("e1"), make_hit("e2")]),
+            search_calls=search_calls,
         )
 
         [call] = repository.caption_calls
@@ -1551,7 +1677,7 @@ class TestCaptionMatchedIds:
         assert "pattern_bodies" not in call
 
     @pytest.mark.asyncio
-    async def test_the_configured_caption_model_is_passed(self):
+    async def test_the_configured_caption_model_is_passed(self, search_calls):
         """The module's enabled flag is ignored: existing captions stay searchable."""
         config = ARIELConfig.from_dict(
             {
@@ -1569,12 +1695,13 @@ class TestCaptionMatchedIds:
             repository,
             config,
             client=StubClient([make_hit("e1")]),
+            search_calls=search_calls,
         )
 
         assert repository.caption_calls[0]["model_id"] == "cap-model"
 
     @pytest.mark.asyncio
-    async def test_with_vocabulary_expansion_the_flattened_text_is_counted(self):
+    async def test_with_vocabulary_expansion_the_flattened_text_is_counted(self, search_calls):
         repository = self._repository()
 
         output = await hybrid_search(
@@ -1583,6 +1710,7 @@ class TestCaptionMatchedIds:
             make_config(),
             client=StubClient([make_hit("e1"), make_hit("e2")]),
             query_expansion=KICK_EXPANSION,
+            search_calls=search_calls,
         )
 
         assert isinstance(output, ModuleOutput)
@@ -1592,19 +1720,21 @@ class TestCaptionMatchedIds:
         assert call["terms"] == coverage_terms("orbit kick near BPM 7", KICK_EXPANSION)
 
     @pytest.mark.asyncio
-    async def test_ordering_and_scores_are_unchanged(self):
+    async def test_ordering_and_scores_are_unchanged(self, search_calls):
         hits = [make_hit("e2", score=0.8, snippet="1: rf"), make_hit("e1", score=0.3)]
         plain = await hybrid_search(
             "orbit kick near BPM 7",
             StubRepository([make_entry("e1"), make_entry("e2")]),
             make_config(),
             client=StubClient(hits),
+            search_calls=search_calls,
         )
         marked = await hybrid_search(
             "orbit kick near BPM 7",
             self._repository(),
             make_config(),
             client=StubClient(hits),
+            search_calls=search_calls,
         )
 
         assert isinstance(plain, list) and isinstance(marked, list)
@@ -1614,7 +1744,7 @@ class TestCaptionMatchedIds:
         assert [e["entry_id"] for e, _s, _h in marked] == ["e2", "e1"]
 
     @pytest.mark.asyncio
-    async def test_a_query_below_half_coverage_marks_nothing(self):
+    async def test_a_query_below_half_coverage_marks_nothing(self, search_calls):
         repository = self._repository()
 
         results = await hybrid_search(
@@ -1622,23 +1752,28 @@ class TestCaptionMatchedIds:
             repository,
             make_config(),
             client=StubClient([make_hit("e1"), make_hit("e2")]),
+            search_calls=search_calls,
         )
 
         assert isinstance(results, list)
         assert all("_matched_attachment_ids" not in entry for entry, _s, _h in results)
 
     @pytest.mark.asyncio
-    async def test_no_results_makes_no_caption_call(self):
+    async def test_no_results_makes_no_caption_call(self, search_calls):
         repository = self._repository()
 
         await hybrid_search(
-            "orbit kick near BPM 7", repository, make_config(), client=StubClient([])
+            "orbit kick near BPM 7",
+            repository,
+            make_config(),
+            client=StubClient([]),
+            search_calls=search_calls,
         )
 
         assert repository.caption_calls == []
 
     @pytest.mark.asyncio
-    async def test_filtered_out_hits_are_not_looked_up(self):
+    async def test_filtered_out_hits_are_not_looked_up(self, search_calls):
         repository = CaptionRepository(
             [make_entry("e1", author="alice"), make_entry("e2", author="bob")],
             {"e1": {"att-kick": "orbit kick at BPM 7"}, "e2": {"att-b": "orbit kick at BPM 7"}},
@@ -1650,13 +1785,16 @@ class TestCaptionMatchedIds:
             make_config(),
             author="alice",
             client=StubClient([make_hit("e1"), make_hit("e2")]),
+            search_calls=search_calls,
         )
 
         assert repository.caption_calls[0]["entry_ids"] == ["e1"]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("error_kind", ["timeout", "database"])
-    async def test_a_failing_lookup_warns_and_keeps_the_results(self, error_kind, caplog):
+    async def test_a_failing_lookup_warns_and_keeps_the_results(
+        self, error_kind, caplog, search_calls
+    ):
         """An unmigrated or slow store degrades to no ids, never to a failed search."""
         from osprey.services.ariel_search.exceptions import (
             DatabaseQueryError,
@@ -1678,6 +1816,7 @@ class TestCaptionMatchedIds:
                 repository,
                 make_config(),
                 client=StubClient([make_hit("e1"), make_hit("e2")]),
+                search_calls=search_calls,
             )
 
         assert isinstance(results, list)
@@ -1686,7 +1825,7 @@ class TestCaptionMatchedIds:
         assert any("caption matching skipped" in r.getMessage() for r in caplog.records)
 
     @pytest.mark.asyncio
-    async def test_an_unmigrated_store_returns_results_without_ids(self):
+    async def test_an_unmigrated_store_returns_results_without_ids(self, search_calls):
         """A store without copy state answers ``{}``: results come back unmarked."""
         repository = StubRepository([make_entry("e1")])
 
@@ -1695,6 +1834,7 @@ class TestCaptionMatchedIds:
             repository,
             make_config(),
             client=StubClient([make_hit("e1")]),
+            search_calls=search_calls,
         )
 
         assert isinstance(results, list)
@@ -1748,7 +1888,7 @@ class FakeLane:
         self.result = result
         self.calls: list[dict[str, Any]] = []
 
-    async def __call__(self, query, repository, config, *, fetch_limit):  # noqa: ARG002
+    async def __call__(self, query, repository, config, *, fetch_limit, search_calls):  # noqa: ARG002
         self.calls.append({"query": query, "fetch_limit": fetch_limit})
         return self.result
 
@@ -1830,12 +1970,18 @@ def _req4_fixture():
 class TestPictureLaneFusion:
     """Requirement 4: the picture lane fused into the text ranking."""
 
-    async def test_fused_order_matched_via_and_picture_ids(self, fake_lane, fuse_spy):
+    async def test_fused_order_matched_via_and_picture_ids(self, fake_lane, fuse_spy, search_calls):
         lane = fake_lane(dict(REQ4_IMAGES))
         client, repo = _req4_fixture()
 
         result = await hybrid_search(
-            "orbit plot", repo, lane_config(), client=client, max_results=10, include_images=True
+            "orbit plot",
+            repo,
+            lane_config(),
+            client=client,
+            max_results=10,
+            include_images=True,
+            search_calls=search_calls,
         )
 
         rows = _entries(result)
@@ -1867,19 +2013,26 @@ class TestPictureLaneFusion:
         assert fuse_spy[0]["cap"] == 4
         assert lane.calls == [{"query": "orbit plot", "fetch_limit": 10}]
 
-    async def test_i3_ties_t3_and_is_ranked_after_it(self, fake_lane):
+    async def test_i3_ties_t3_and_is_ranked_after_it(self, fake_lane, search_calls):
         fake_lane(dict(REQ4_IMAGES))
         client, repo = _req4_fixture()
 
         rows = _entries(
-            await hybrid_search("q", repo, lane_config(), client=client, include_images=True)
+            await hybrid_search(
+                "q",
+                repo,
+                lane_config(),
+                client=client,
+                include_images=True,
+                search_calls=search_calls,
+            )
         )
 
         scores = {entry["entry_id"]: score for entry, score, _ in rows}
         assert scores["I3"] == pytest.approx(scores["T3"])
         assert _ids(rows).index("T3") < _ids(rows).index("I3")
 
-    async def test_picture_caption_ids_come_before_the_picture_id(self, fake_lane):
+    async def test_picture_caption_ids_come_before_the_picture_id(self, fake_lane, search_calls):
         fake_lane({"T1": ImageHit("att-pic", 0.9)})
         client = StubClient([make_hit("T1")])
         repo = CaptionRepository([make_entry("T1")], {"T1": {"att-cap": "orbit plot"}})
@@ -1887,46 +2040,74 @@ class TestPictureLaneFusion:
 
         rows = _entries(
             await hybrid_search(
-                "orbit plot", repo, lane_config(), client=client, include_images=True
+                "orbit plot",
+                repo,
+                lane_config(),
+                client=client,
+                include_images=True,
+                search_calls=search_calls,
             )
         )
 
         assert rows[0][0]["_matched_attachment_ids"] == ["att-cap", "att-pic"]
 
-    async def test_caption_and_picture_naming_the_same_id_list_it_once(self, fake_lane):
+    async def test_caption_and_picture_naming_the_same_id_list_it_once(
+        self, fake_lane, search_calls
+    ):
         fake_lane({"T1": ImageHit("att-cap", 0.9)})
         client = StubClient([make_hit("T1")])
         repo = CaptionRepository([make_entry("T1")], {"T1": {"att-cap": "orbit plot"}})
 
         rows = _entries(
             await hybrid_search(
-                "orbit plot", repo, lane_config(), client=client, include_images=True
+                "orbit plot",
+                repo,
+                lane_config(),
+                client=client,
+                include_images=True,
+                search_calls=search_calls,
             )
         )
 
         assert rows[0][0]["_matched_attachment_ids"] == ["att-cap"]
 
     @pytest.mark.parametrize(("distance", "admitted"), [(0.30, True), (0.70, False)])
-    async def test_similarity_floor_admits_070_and_drops_030(self, fake_lane, distance, admitted):
+    async def test_similarity_floor_admits_070_and_drops_030(
+        self, fake_lane, distance, admitted, search_calls
+    ):
         fake_lane({"PIC": ImageHit("att-pic", 1 - distance)})
         client = StubClient([make_hit("T1")])
         repo = LaneRepository([make_entry("T1"), make_entry("PIC")])
 
         ids = _ids(
-            await hybrid_search("q", repo, lane_config(), client=client, include_images=True)
+            await hybrid_search(
+                "q",
+                repo,
+                lane_config(),
+                client=client,
+                include_images=True,
+                search_calls=search_calls,
+            )
         )
 
         assert ("PIC" in ids) is admitted
         assert "T1" in ids
 
-    async def test_an_empty_lane_result_marks_text_hits_and_keeps_qmd_order(self, fake_lane):
+    async def test_an_empty_lane_result_marks_text_hits_and_keeps_qmd_order(
+        self, fake_lane, search_calls
+    ):
         fake_lane({})
         hits = [make_hit("a", score=0.9), make_hit("b", score=0.4)]
         repo = LaneRepository([make_entry("a"), make_entry("b")])
 
         rows = _entries(
             await hybrid_search(
-                "q", repo, lane_config(), client=StubClient(hits), include_images=True
+                "q",
+                repo,
+                lane_config(),
+                client=StubClient(hits),
+                include_images=True,
+                search_calls=search_calls,
             )
         )
 
@@ -1935,19 +2116,24 @@ class TestPictureLaneFusion:
             ("b", 0.4, ["text"]),
         ]
 
-    async def test_no_text_hits_still_fuse_the_picture_matches(self, fake_lane):
+    async def test_no_text_hits_still_fuse_the_picture_matches(self, fake_lane, search_calls):
         fake_lane({"PIC": ImageHit("att-pic", 0.8)})
         repo = LaneRepository([make_entry("PIC")])
 
         rows = _entries(
             await hybrid_search(
-                "q", repo, lane_config(), client=StubClient([]), include_images=True
+                "q",
+                repo,
+                lane_config(),
+                client=StubClient([]),
+                include_images=True,
+                search_calls=search_calls,
             )
         )
 
         assert [(e["entry_id"], e["_matched_via"]) for e, _, _ in rows] == [("PIC", ["image"])]
 
-    async def test_image_only_entries_pass_the_filters(self, fake_lane):
+    async def test_image_only_entries_pass_the_filters(self, fake_lane, search_calls):
         fake_lane({"MINE": ImageHit("a1", 0.8), "THEIRS": ImageHit("a2", 0.8)})
         repo = LaneRepository(
             [make_entry("T1"), make_entry("MINE"), make_entry("THEIRS", author="someone else")]
@@ -1961,25 +2147,31 @@ class TestPictureLaneFusion:
                 client=StubClient([make_hit("T1")]),
                 author="operator",
                 include_images=True,
+                search_calls=search_calls,
             )
         )
 
         assert "MINE" in ids
         assert "THEIRS" not in ids
 
-    async def test_a_picture_hit_without_a_row_is_dropped(self, fake_lane):
+    async def test_a_picture_hit_without_a_row_is_dropped(self, fake_lane, search_calls):
         fake_lane({"GONE": ImageHit("a1", 0.8)})
         repo = LaneRepository([make_entry("T1")])
 
         ids = _ids(
             await hybrid_search(
-                "q", repo, lane_config(), client=StubClient([make_hit("T1")]), include_images=True
+                "q",
+                repo,
+                lane_config(),
+                client=StubClient([make_hit("T1")]),
+                include_images=True,
+                search_calls=search_calls,
             )
         )
 
         assert ids == ["T1"]
 
-    async def test_the_lane_sees_the_typed_query_not_the_expansion(self, fake_lane):
+    async def test_the_lane_sees_the_typed_query_not_the_expansion(self, fake_lane, search_calls):
         lane = fake_lane({})
         client = StubClient([make_hit("a")])
         expansion = QueryExpansion(
@@ -1994,6 +2186,7 @@ class TestPictureLaneFusion:
             client=client,
             query_expansion=expansion,
             include_images=True,
+            search_calls=search_calls,
         )
 
         assert lane.calls[0]["query"] == "BPM"
@@ -2003,7 +2196,9 @@ class TestPictureLaneFusion:
 class TestPictureLaneWindow:
     """Image-only entries never push fetched text hits out."""
 
-    async def test_ten_text_hits_and_five_image_only_keep_all_ten_text_hits(self, fake_lane):
+    async def test_ten_text_hits_and_five_image_only_keep_all_ten_text_hits(
+        self, fake_lane, search_calls
+    ):
         images = {f"I{i}": ImageHit(f"a{i}", 0.70 - i * 0.001) for i in range(1, 6)}
         fake_lane(images)
         text = [f"T{i:02d}" for i in range(1, 11)]
@@ -2017,6 +2212,7 @@ class TestPictureLaneWindow:
                 client=StubClient([make_hit(e) for e in text]),
                 max_results=10,
                 include_images=True,
+                search_calls=search_calls,
             )
         )
 
@@ -2025,7 +2221,9 @@ class TestPictureLaneWindow:
         assert sorted(text_rows) == text
         assert len(image_rows) == math.ceil(10 / 3)
 
-    async def test_fusion_runs_over_every_filter_accepted_text_hit(self, fake_lane, fuse_spy):
+    async def test_fusion_runs_over_every_filter_accepted_text_hit(
+        self, fake_lane, fuse_spy, search_calls
+    ):
         fake_lane({"I1": ImageHit("a1", 0.7)})
         text = [f"T{i:02d}" for i in range(1, 16)]
         repo = LaneRepository([make_entry(e) for e in [*text, "I1"]])
@@ -2038,13 +2236,14 @@ class TestPictureLaneWindow:
                 client=StubClient([make_hit(e) for e in text]),
                 max_results=15,
                 include_images=True,
+                search_calls=search_calls,
             )
         )
 
         assert [eid for eid, _ in fuse_spy[0]["text_hits"]] == text
         assert len([e for e, _, _ in rows if e["_matched_via"] == ["text"]]) == 15
 
-    async def test_at_most_max_results_text_lane_entries_are_kept(self, fake_lane):
+    async def test_at_most_max_results_text_lane_entries_are_kept(self, fake_lane, search_calls):
         fake_lane({"T01": ImageHit("a1", 0.7)})
         text = [f"T{i:02d}" for i in range(1, 13)]
         repo = LaneRepository([make_entry(e) for e in text])
@@ -2056,7 +2255,13 @@ class TestPictureLaneWindow:
 
         rows = _entries(
             await hybrid_search(
-                "q", repo, lane_config(), client=client, max_results=10, include_images=True
+                "q",
+                repo,
+                lane_config(),
+                client=client,
+                max_results=10,
+                include_images=True,
+                search_calls=search_calls,
             )
         )
 
@@ -2067,7 +2272,9 @@ class TestPictureLaneWindow:
 class TestPictureLaneOff:
     """With the lane off the B1 path runs unchanged."""
 
-    async def test_explicit_false_runs_no_lane(self, monkeypatch, fuse_spy, provider_spy):
+    async def test_explicit_false_runs_no_lane(
+        self, monkeypatch, fuse_spy, provider_spy, search_calls
+    ):
         lane_calls: list[Any] = []
         real = image_lane.search_images
 
@@ -2080,7 +2287,12 @@ class TestPictureLaneOff:
         repo = LaneRepository([make_entry("a"), make_entry("b")])
 
         result = await hybrid_search(
-            "q", repo, lane_config(), client=StubClient(hits), include_images=False
+            "q",
+            repo,
+            lane_config(),
+            client=StubClient(hits),
+            include_images=False,
+            search_calls=search_calls,
         )
 
         assert lane_calls == []
@@ -2090,7 +2302,9 @@ class TestPictureLaneOff:
         assert all("_matched_via" not in e for e, _, _ in result)
         assert [(e["entry_id"], s) for e, s, _ in result] == [("a", 0.9), ("b", 0.5)]
 
-    async def test_disabled_module_and_unset_flag_runs_no_lane(self, fake_lane, fuse_spy):
+    async def test_disabled_module_and_unset_flag_runs_no_lane(
+        self, fake_lane, fuse_spy, search_calls
+    ):
         lane = fake_lane({"x": ImageHit("a", 0.9)})
 
         result = await hybrid_search(
@@ -2098,13 +2312,14 @@ class TestPictureLaneOff:
             LaneRepository([make_entry("a")]),
             lane_config(enabled=False),
             client=StubClient([make_hit("a")]),
+            search_calls=search_calls,
         )
 
         assert lane.calls == []
         assert fuse_spy == []
         assert all("_matched_via" not in e for e, _, _ in result)
 
-    async def test_unset_flag_with_the_module_enabled_runs_the_lane(self, fake_lane):
+    async def test_unset_flag_with_the_module_enabled_runs_the_lane(self, fake_lane, search_calls):
         lane = fake_lane({})
 
         await hybrid_search(
@@ -2112,16 +2327,23 @@ class TestPictureLaneOff:
             LaneRepository([make_entry("a")]),
             lane_config(),
             client=StubClient([make_hit("a")]),
+            search_calls=search_calls,
         )
 
         assert len(lane.calls) == 1
 
-    async def test_lane_off_keeps_the_early_stop_at_max_results(self):
+    async def test_lane_off_keeps_the_early_stop_at_max_results(self, search_calls):
         hits = [make_hit(e) for e in ["a", "b", "c"]]
         repo = LaneRepository([make_entry(e) for e in ["a", "b", "c"]])
 
         result = await hybrid_search(
-            "q", repo, lane_config(), client=StubClient(hits), max_results=2, include_images=False
+            "q",
+            repo,
+            lane_config(),
+            client=StubClient(hits),
+            max_results=2,
+            include_images=False,
+            search_calls=search_calls,
         )
 
         assert _ids(result) == ["a", "b"]
@@ -2130,7 +2352,9 @@ class TestPictureLaneOff:
 class TestPictureLaneFailure:
     """A failed or cooling-down lane leaves qmd's output plus one diagnostic."""
 
-    async def test_failed_lane_gives_the_text_result_plus_the_diagnostic(self, fake_lane, fuse_spy):
+    async def test_failed_lane_gives_the_text_result_plus_the_diagnostic(
+        self, fake_lane, fuse_spy, search_calls
+    ):
         hits = [make_hit("a", score=0.9), make_hit("b", score=0.5), make_hit("c", score=0.1)]
         rows = [make_entry("a"), make_entry("b"), make_entry("c")]
 
@@ -2141,6 +2365,7 @@ class TestPictureLaneFailure:
             client=StubClient(hits),
             max_results=2,
             include_images=False,
+            search_calls=search_calls,
         )
         fake_lane(None)
         failed = await hybrid_search(
@@ -2150,6 +2375,7 @@ class TestPictureLaneFailure:
             client=StubClient(hits),
             max_results=2,
             include_images=True,
+            search_calls=search_calls,
         )
 
         assert isinstance(failed, ModuleOutput)
@@ -2161,7 +2387,9 @@ class TestPictureLaneFailure:
         assert diag.message.startswith("Picture search unavailable")
         assert diag.category == "picture_search"
 
-    async def test_failed_lane_with_a_rerank_fallback_carries_both_diagnostics(self, fake_lane):
+    async def test_failed_lane_with_a_rerank_fallback_carries_both_diagnostics(
+        self, fake_lane, search_calls
+    ):
         fake_lane(None)
 
         class FlakyReranker(StubClient):
@@ -2177,11 +2405,12 @@ class TestPictureLaneFailure:
             client=FlakyReranker([make_hit("a")]),
             rerank=True,
             include_images=True,
+            search_calls=search_calls,
         )
 
         assert [d.category for d in result.diagnostics] == ["rerank", "picture_search"]
 
-    async def test_qmd_client_error_leaves_no_pending_lane_task(self):
+    async def test_qmd_client_error_leaves_no_pending_lane_task(self, search_calls):
         held: list[int] = []
         tasks: list[asyncio.Task[Any]] = []
 
@@ -2220,6 +2449,7 @@ class TestPictureLaneFailure:
                     client=client,
                     rerank=False,
                     include_images=True,
+                    search_calls=search_calls,
                 )
 
         assert len(tasks) == 1
@@ -2229,7 +2459,9 @@ class TestPictureLaneFailure:
         pending = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
         assert tasks[0] not in pending
 
-    async def test_qmd_down_with_picture_hits_returns_them_with_a_diagnostic(self, fake_lane):
+    async def test_qmd_down_with_picture_hits_returns_them_with_a_diagnostic(
+        self, fake_lane, search_calls
+    ):
         fake_lane({"PIC": ImageHit("att-pic", 0.8)})
         client = StubClient(available=False)
 
@@ -2239,6 +2471,7 @@ class TestPictureLaneFailure:
             lane_config(),
             client=client,
             include_images=True,
+            search_calls=search_calls,
         )
 
         assert isinstance(result, ModuleOutput)
@@ -2255,7 +2488,7 @@ class TestPictureLaneFailure:
         [(True, "http://127.0.0.1:8180"), (False, "no qmd sidecar is configured")],
     )
     async def test_the_picture_only_diagnostic_names_the_dialled_sidecar(
-        self, fake_lane, configured, named
+        self, fake_lane, configured, named, search_calls
     ):
         # From inside a container the address dialled is not the one in the
         # config block, so the diagnostic says which one did not answer.
@@ -2267,6 +2500,7 @@ class TestPictureLaneFailure:
             lane_config(),
             client=StubClient(available=False, configured=configured),
             include_images=True,
+            search_calls=search_calls,
         )
 
         (diag,) = result.diagnostics
@@ -2274,7 +2508,9 @@ class TestPictureLaneFailure:
         assert named in diag.message
 
     @pytest.mark.parametrize("lane_result", [{}, None])
-    async def test_qmd_down_without_picture_hits_still_raises(self, fake_lane, lane_result):
+    async def test_qmd_down_without_picture_hits_still_raises(
+        self, fake_lane, lane_result, search_calls
+    ):
         fake_lane(lane_result)
 
         with pytest.raises(QMDUnavailableError):
@@ -2284,9 +2520,10 @@ class TestPictureLaneFailure:
                 lane_config(),
                 client=StubClient(available=False),
                 include_images=True,
+                search_calls=search_calls,
             )
 
-    async def test_qmd_down_with_the_lane_off_raises_as_before(self, fake_lane):
+    async def test_qmd_down_with_the_lane_off_raises_as_before(self, fake_lane, search_calls):
         lane = fake_lane({"PIC": ImageHit("a", 0.9)})
 
         with pytest.raises(QMDUnavailableError):
@@ -2296,6 +2533,7 @@ class TestPictureLaneFailure:
                 lane_config(),
                 client=StubClient(available=False),
                 include_images=False,
+                search_calls=search_calls,
             )
         assert lane.calls == []
 
@@ -2313,23 +2551,19 @@ def lane_clock(monkeypatch):
     return clock
 
 
-def _closed_port_url() -> str:
-    import socket
-
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return f"http://127.0.0.1:{sock.getsockname()[1]}"
+def _closed_port_url(port: int) -> str:
+    return f"http://127.0.0.1:{port}"
 
 
 class TestPictureLaneAgainstAServer:
     """Owner ruling 17: no llama-server, or the wrong one, answers text-only."""
 
     async def test_closed_port_answers_text_only_fast_and_reports_unreachable(
-        self, llama_stub, lane_clock
+        self, reserve_port, llama_stub, lane_clock, search_calls
     ):
         # llama_stub empties LLAMA_CPP_HOST and the container fallbacks, so the
         # bound does not depend on the host's name resolution.
-        config = lane_config(_closed_port_url())
+        config = lane_config(_closed_port_url(reserve_port()))
         hits = [make_hit("a", score=0.9), make_hit("b", score=0.5)]
 
         def repo() -> LaneRepository:
@@ -2337,12 +2571,19 @@ class TestPictureLaneAgainstAServer:
 
         started = time.monotonic()
         off = await hybrid_search(
-            "q", repo(), config, client=StubClient(hits), include_images=False
+            "q",
+            repo(),
+            config,
+            client=StubClient(hits),
+            include_images=False,
+            search_calls=search_calls,
         )
         off_s = time.monotonic() - started
 
         started = time.monotonic()
-        first = await hybrid_search("q", repo(), config, client=StubClient(hits))
+        first = await hybrid_search(
+            "q", repo(), config, client=StubClient(hits), search_calls=search_calls
+        )
         first_s = time.monotonic() - started
 
         assert first_s - off_s < 1.0
@@ -2355,7 +2596,9 @@ class TestPictureLaneAgainstAServer:
 
         lane_clock.now += 0.5
         started = time.monotonic()
-        second = await hybrid_search("q", repo(), config, client=StubClient(hits))
+        second = await hybrid_search(
+            "q", repo(), config, client=StubClient(hits), search_calls=search_calls
+        )
         assert time.monotonic() - started < 1.0
         assert list(second.entries) == list(off)
         assert len(_picture_diagnostics(second)) == 1
@@ -2366,18 +2609,24 @@ class TestPictureLaneAgainstAServer:
 
         stub = llama_stub()
         working = lane_config(stub.url)
-        result = await hybrid_search("q", repo(), working, client=StubClient(hits))
+        result = await hybrid_search(
+            "q", repo(), working, client=StubClient(hits), search_calls=search_calls
+        )
         assert _picture_diagnostics(result) == []
         assert [e["_matched_via"] for e, _, _ in _entries(result)] == [["text"], ["text"]]
         assert attachments_capability(working)["picture_search_unavailable"] is None
 
-    async def test_a_server_serving_another_model_answers_text_only(self, llama_stub):
+    async def test_a_server_serving_another_model_answers_text_only(self, llama_stub, search_calls):
         stub = llama_stub()
         stub.alias = "other"
         config = lane_config(stub.url)
 
         result = await hybrid_search(
-            "q", LaneRepository([make_entry("a")]), config, client=StubClient([make_hit("a")])
+            "q",
+            LaneRepository([make_entry("a")]),
+            config,
+            client=StubClient([make_hit("a")]),
+            search_calls=search_calls,
         )
 
         assert _ids(result) == ["a"]

@@ -1,38 +1,66 @@
 {% extends "base.html" %}
+{% from "_rows.html" import source_of, hhmm %}
 {% block title %}Sessions{% endblock %}
 {% block main %}
-{% if not_in_tables %}
-<p class="notice not-in-tables">Sessions are read from <code>{{ not_in_tables }}</code>, which is not in your tables.</p>
-{% else %}
-<p class="window">Sessions with a prompt between {{ window_from.strftime('%Y-%m-%d %H:%M') }} and {{ window_to.strftime('%Y-%m-%d %H:%M') }} UTC.</p>
-{% if groups %}
-<table class="sessions">
-  <thead><tr><th>User</th><th>Session</th><th>First prompt</th><th>Last prompt</th><th>Prompts</th></tr></thead>
-  <tbody>
-{% for group in groups %}
-{% set first = group.first %}
-    <tr class="transcript">
-      <td class="user">{{ group.user }}</td>
-      <td class="session">
-        <a href="{{ viewer.href('/session/' ~ first.SessionId, user=group.user) }}">{{ first.SessionId }}</a>
-{% for row in group.sessions if row.SessionId != first.SessionId %}
-        <div class="continued">continued as <a href="{{ viewer.href('/session/' ~ row.SessionId, user=group.user) }}">{{ row.SessionId }}</a></div>
-{% endfor %}
-      </td>
-      <td>{{ first.first_ts }}</td>
-      <td>{{ group.last_ts }}</td>
-      <td>{{ group.sessions | sum(attribute='prompts') }}</td>
-    </tr>
-{% endfor %}
-  </tbody>
-</table>
-{% else %}
-<p class="empty">No sessions in this window.</p>
+<p class="window">Sessions active in the last {{ days }} days{% if person %}, with <strong>{{ person }}</strong> (<a href="{{ viewer.href('/') }}">everyone</a>){% endif %}.</p>
+{% if not complete %}
+<p class="notice incomplete">This list is incomplete: the record has not yet answered everything it holds for this window.</p>
 {% endif %}
-<nav class="paging">
-{% if newer_href %}<a class="newer" href="{{ newer_href }}">newer</a>{% endif %}
-{% if next_href %}<a class="next" href="{{ next_href }}">more in this window</a>{% endif %}
-{% if older_href %}<a class="older" href="{{ older_href }}">older</a>{% endif %}
+{% if users | length > 1 %}
+<nav class="people" aria-label="people">
+{% for u in users %}
+  <a class="person" href="{{ viewer.href('/', person=u.person) }}">{{ u.person }}</a> <span class="count">({{ u.sessions }})</span>
+{% endfor %}
 </nav>
 {% endif %}
+{% set seen = namespace(sources=[]) %}
+{% for row in rows %}
+{% set label = source_of(row) | string %}
+{% if label not in seen.sources %}{% set seen.sources = seen.sources + [label] %}{% endif %}
+{% endfor %}
+<section class="session-list">
+  <div class="list-head">
+    <h2>Sessions</h2>
+    <label class="source-filter" hidden>
+      <span class="visually-hidden">source</span>
+      <select name="source" aria-label="source">
+        <option value="">all sources</option>
+{% for label in seen.sources | sort %}
+        <option value="{{ label }}">{{ label }}</option>
+{% endfor %}
+      </select>
+    </label>
+  </div>
+{% if rows %}
+  <ol class="sessions">
+{% set day = namespace(last='') %}
+{% for row in rows %}
+{% set date = (row.last_ts | clock)[:10] %}
+{% if date != day.last %}
+{% set day.last = date %}
+    <li class="day" data-day="{{ date }}">{{ date }}</li>
+{% endif %}
+    <li class="session" data-source="{{ source_of(row) }}" data-day="{{ date }}">
+      <a class="row" href="{{ viewer.href('/session/' ~ row.session_id) }}">
+        <span class="mark" aria-hidden="true">▸</span>
+        <time class="ts" datetime="{{ row.last_ts }}" title="{{ row.last_ts | clock }}">{{ hhmm(row.last_ts) }}</time>
+        <span class="origin"><span class="source" title="{{ (row.identities or []) | join(', ') }}">{{ source_of(row) }}</span> · <span class="user">{{ (row.persons or []) | join(', ') or '—' }}</span></span>
+{% if row.prompt %}
+        <span class="prompt">“{{ row.prompt | truncate(160) }}”</span>
+{% else %}
+        <span class="prompt none">(no prompt) {{ row.session_id }}</span>
+{% endif %}
+      </a>
+    </li>
+{% endfor %}
+  </ol>
+{% if more %}<p class="notice more">More sessions are active in this window than one list shows.</p>{% endif %}
+{% else %}
+  <p class="empty">No sessions in this window.</p>
+{% endif %}
+</section>
+<nav class="paging">
+{% if newer_href %}<a class="newer" href="{{ newer_href }}">newer</a>{% endif %}
+{% if older_href %}<a class="older" href="{{ older_href }}">older ↓</a>{% endif %}
+</nav>
 {% endblock %}

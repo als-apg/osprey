@@ -191,7 +191,7 @@ def feedback_owner_advisories(rendered_config: Mapping[str, Any]) -> list[str]:
 
     email_aim = _feedback_aim(email, _PROJECT_EMAIL)
     repo_aim = _feedback_aim(repo, _PROJECT_REPO)
-    if not ({email_aim, repo_aim} == {"moved", "upstream"}):
+    if {email_aim, repo_aim} != {"moved", "upstream"}:
         return []
 
     moved, stale, stale_key = (

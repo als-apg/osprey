@@ -1,33 +1,35 @@
-"""Tests for the unified audit ledger writer.
+"""Tests for the audit writer.
 
-The writer is the one place a record becomes a file, so these pin the four
-properties every emitter downstream is allowed to assume:
+The writer turns every safety decision into one ``audit`` entry in the agent
+record, so these pin the properties every emitter downstream is allowed to
+assume:
 
-* **Routing is (identity, surface).** One file per pair, so a record's home is
-  a function of who acted and which surface decided — never of the emitter.
-* **The maintenance marker moves the FILE, not the record.** A root-run phase
-  files under ``<identity>/maintenance.jsonl`` while its envelopes keep saying
-  ``scaffold_restore``; that is what keeps one uid per file.
-* **The append is one bounded ``write()``.** One syscall, one line, no fsync,
-  ≤2 KB except for the documented executor-source case.
-* **Nothing here can cost the operation.** A broken audit zone, an unwritable
-  file, even an invalid envelope, degrade to ``None`` and a log line.
+* **One decision, one entry.** The body is the envelope exactly, recorded once,
+  under the identity of the process that wrote it — never the envelope's
+  ``actor``.
+* **The ids it can be joined on travel with it.** ``ts``, ``tool_use_id``, the
+  terminal session and ``on_behalf_of`` are the line's ids as well as body
+  fields.
+* **A bounded body.** ≤2 KB, ``detail`` gives way first, the executor's source
+  and every identifier never do.
+* **Nothing here can cost the operation.** An unwritable spool, a failing
+  record writer, the off switch, even an invalid envelope, degrade to ``None``
+  and a log line.
 
-The cross-module spelling pin at the bottom is the same settlement
-``tests/registry/test_marker_nonpinnability.py`` makes for the other three
-markers: the registry reserved ``OSPREY_AUDIT_WRITER`` before its assigner
-existed, and this is the module that finally reads it.
+Every test reads what it wrote through the record (``recorded_entries``), or
+through the spool line the record consumes, never through a file of the
+writer's own.
 """
 
 from __future__ import annotations
 
 import json
-import os
-import stat
 from pathlib import Path
 
 import pytest
 
+from osprey.agent_record import writer as record_writer
+from osprey.agent_record.contract import KIND_AUDIT, RECORD_OFF_ENV
 from osprey.audit import writer
 from osprey.audit.call import call_scope
 from osprey.audit.envelope import (
@@ -37,28 +39,28 @@ from osprey.audit.envelope import (
     POSTURE_SOURCE_APP,
     POSTURE_SOURCE_PROCESS,
     SURFACE_EXECUTOR,
+    TERMINAL_SESSION_ENV,
     AuditEnvelope,
 )
-from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, UNKNOWN_IDENTITY
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 
 # --------------------------------------------------------------------------
 # Fixtures and helpers
 # --------------------------------------------------------------------------
 
 
-@pytest.fixture
-def audit_root(tmp_path, monkeypatch):
-    """Redirect the audit zone at its single seam, and clear the markers.
-
-    The env is cleared rather than trusted: a developer machine that happens
-    to export ``OSPREY_TERMINAL_USER`` would otherwise silently re-route every
-    record in this file.
-    """
-    for marker in (TERMINAL_USER_ENV, AUDIT_IDENTITY_ENV, writer.AUDIT_WRITER_ENV):
+@pytest.fixture(autouse=True)
+def _clean_markers(monkeypatch):
+    """Clear the identity and session markers a developer shell may export."""
+    for marker in (
+        TERMINAL_USER_ENV,
+        AUDIT_IDENTITY_ENV,
+        TERMINAL_SESSION_ENV,
+        RECORD_OFF_ENV,
+        "CLAUDE_CODE_SESSION_ID",
+        "OSPREY_TELEMETRY_SESSION_ID",
+    ):
         monkeypatch.delenv(marker, raising=False)
-    target = tmp_path / "var" / "audit"
-    monkeypatch.setattr(writer, "audit_dir", lambda: target)
-    return target
 
 
 #: A minimal legal record for the ``record(**fields)`` entry point.
@@ -71,11 +73,6 @@ _RECORD_FIELDS = {
     "decision": DECISION_ALLOWED,
     "reason": "allowed",
 }
-
-
-def _records(path: Path) -> list[dict]:
-    """The JSON objects in a JSONL ledger, in file order."""
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
 def make_envelope(**overrides) -> AuditEnvelope:
@@ -94,659 +91,230 @@ def make_envelope(**overrides) -> AuditEnvelope:
     return AuditEnvelope(**kwargs)
 
 
+def _audit(recorded_entries) -> list:
+    """Every ``audit`` entry the test's spool has produced."""
+    return recorded_entries(KIND_AUDIT)
+
+
+def _bodies(recorded_entries) -> list[dict]:
+    return [dict(entry.body) for entry in _audit(recorded_entries)]
+
+
+def _spool_lines(directory: Path) -> list[dict]:
+    """The raw spool lines under *directory*, as the record consumer reads them."""
+    record_writer.seal_all()
+    lines: list[dict] = []
+    for segment in sorted(directory.glob("*.sealed")):
+        lines.extend(json.loads(line) for line in segment.read_text().splitlines() if line)
+    return lines
+
+
+def _encoded_size(body: dict) -> int:
+    return len(writer._encode(body))
+
+
 # --------------------------------------------------------------------------
 
 
-class TestLedgerRouting:
-    """Key = (identity, surface): ``var/audit/<identity>/<surface>.jsonl``."""
+class TestOneDecisionOneEntry:
+    """The body is the envelope, recorded exactly once."""
 
-    def test_path_is_identity_then_surface(self, audit_root, monkeypatch):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "dispatch-worker-1")
+    def test_record_envelope_records_the_envelope_once(self, recorded_entries):
+        envelope = make_envelope()
 
-        assert writer.ledger_path("http_config") == (
-            audit_root / "dispatch-worker-1" / "http_config.jsonl"
-        )
+        entry_id = writer.record_envelope(envelope)
 
-    def test_record_lands_at_that_path(self, audit_root, monkeypatch):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "sidecar")
+        assert isinstance(entry_id, str) and entry_id
+        (entry,) = _audit(recorded_entries)
+        assert dict(entry.body) == envelope.to_dict()
+        assert list(entry.body) == list(envelope.to_dict())
 
-        written = writer.record_envelope(make_envelope())
+    def test_two_decisions_are_two_entries(self, recorded_entries):
+        writer.record_envelope(make_envelope(subject="first"))
+        writer.record_envelope(make_envelope(subject="second", surface="http_mutation"))
 
-        assert written == audit_root / "sidecar" / "http_config.jsonl"
-        assert written.is_file()
-
-    @pytest.mark.usefixtures("audit_root")
-    def test_terminal_user_outranks_the_service_identity(self, monkeypatch):
-        """The writer's file ladder is the identity module's ladder, not a copy."""
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "shared-service")
-        monkeypatch.setenv(TERMINAL_USER_ENV, "alice")
-
-        assert writer.ledger_path("http_config").parent.name == "alice"
-
-    def test_unresolvable_identity_still_files_the_record(self, audit_root, monkeypatch):
-        """An unnamed account degrades the attribution, never the record."""
-        monkeypatch.setattr(writer, "acting_identity", lambda: UNKNOWN_IDENTITY)
-
-        written = writer.record_envelope(make_envelope())
-
-        assert written == audit_root / UNKNOWN_IDENTITY / "http_config.jsonl"
-
-    def test_two_surfaces_one_identity_are_two_files(self, audit_root, monkeypatch):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-
-        writer.record_envelope(make_envelope(surface="http_config"))
-        writer.record_envelope(make_envelope(surface="scaffold_restore"))
-
-        assert sorted(p.name for p in (audit_root / "alice").iterdir()) == [
-            "http_config.jsonl",
-            "scaffold_restore.jsonl",
+        bodies = sorted(_bodies(recorded_entries), key=lambda b: b["subject"])
+        assert [(b["subject"], b["surface"]) for b in bodies] == [
+            ("first", "http_config"),
+            ("second", "http_mutation"),
         ]
 
-    def test_two_identities_one_surface_are_two_files(self, audit_root, monkeypatch):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-        writer.record_envelope(make_envelope())
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "bob")
-        writer.record_envelope(make_envelope())
+    def test_session_is_present_even_when_null(self, recorded_entries):
+        writer.record_envelope(make_envelope(session=None))
 
-        assert sorted(p.name for p in audit_root.iterdir()) == ["alice", "bob"]
+        (body,) = _bodies(recorded_entries)
+        assert "session" in body
+        assert body["session"] is None
 
-    @pytest.mark.usefixtures("audit_root")
-    def test_the_identity_is_read_per_call(self, monkeypatch):
-        """Not cached at import: the markers are set per process, and a value
-        frozen at import time would be whatever the first importer saw."""
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "before")
-        first = writer.record_envelope(make_envelope())
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "after")
-        second = writer.record_envelope(make_envelope())
+    def test_the_identity_is_the_spool_directorys_not_the_actor(self, recorded_entries, spool_for):
+        """A service acting for someone files under its own identity and names
+        the person as the actor; the record never routes on the field."""
+        spool_for("alice")
+        writer.record_envelope(make_envelope(actor="mallory"))
 
-        assert first.parent.name == "before"
-        assert second.parent.name == "after"
+        (entry,) = _audit(recorded_entries)
+        assert entry.identity == "alice"
+        assert entry.body["actor"] == "mallory"
 
-    def test_the_directory_is_the_process_identity_not_the_actor(self, audit_root, monkeypatch):
-        """A service that acts for someone files under ITSELF and names them.
+    def test_two_identities_are_two_sources(self, recorded_entries, spool_for):
+        spool_for("alice")
+        writer.record_envelope(make_envelope(subject="from-alice"))
+        spool_for("bob")
+        writer.record_envelope(make_envelope(subject="from-bob"))
 
-        Each container binds only its own ``var/audit/<identity>/`` read-write,
-        so routing on a caller-supplied ``actor`` would file records where the
-        process cannot write them. The sidecar's refusal of alice's login is
-        the shape: ``sidecar/`` on disk, ``alice`` in the record.
-        """
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "sidecar")
-
-        written = writer.record_envelope(make_envelope(actor="alice"))
-
-        assert written == audit_root / "sidecar" / "http_config.jsonl"
-        (record,) = _records(written)
-        assert record["actor"] == "alice"
+        seen = {(e.identity, e.body["subject"]) for e in _audit(recorded_entries)}
+        assert seen == {("alice", "from-alice"), ("bob", "from-bob")}
 
 
-class TestSuppliedIdentity:
-    """``ledger_path(identity=...)`` is a shortcut, not a hole in the zone."""
+class TestJoinIds:
+    """The ids a reader joins on are the line's ids, not only body fields."""
 
-    def test_one_path_component_is_honoured(self, audit_root, monkeypatch):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
+    def test_ts_and_tool_use_id_are_the_entrys(self, recorded_entries):
+        envelope = make_envelope(tool_use_id="toolu_01", ts="2026-10-25T10:15:02.123Z")
 
-        assert writer.ledger_path("http_config", identity="bob") == (
-            audit_root / "bob" / "http_config.jsonl"
-        )
+        writer.record_envelope(envelope)
 
-    @pytest.mark.parametrize(
-        "identity",
-        ["../../../tmp/pwned", "..", ".", "nested/name", "with\\sep", "with\x00nul", "", "   "],
-        ids=["parent", "dotdot", "dot", "separator", "backslash", "nul", "empty", "blank"],
-    )
-    def test_anything_that_is_not_one_component_falls_back_to_the_ladder(
-        self, audit_root, monkeypatch, identity
-    ):
-        """The value a caller has in hand is the envelope's ``actor``, which
-        the envelope bounds but never validates as a path component. An
-        emitter that reads a user out of a request header must not be able to
-        walk the ledger out of the audit zone.
-        """
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
+        (entry,) = _audit(recorded_entries)
+        assert entry.tool_use_id == "toolu_01"
+        assert entry.ts.isoformat().startswith("2026-10-25T10:15:02.123")
 
-        path = writer.ledger_path("http_config", identity=identity)
+    def test_the_terminal_session_is_the_processs(self, recorded_entries, monkeypatch):
+        monkeypatch.setenv(TERMINAL_SESSION_ENV, "term-42")
 
-        assert path == audit_root / "alice" / "http_config.jsonl"
-        assert audit_root in path.parents
+        writer.record_envelope(make_envelope(session="posture-session"))
 
-    def test_an_identity_too_long_for_a_directory_name_is_shortened(self, audit_root, monkeypatch):
-        """The other half of the surface's byte cut, on the other component.
+        (entry,) = _audit(recorded_entries)
+        assert entry.terminal_session == "term-42"
+        assert entry.body["session"] == "posture-session"
 
-        The envelope bounds an identifier at 256 characters — already one byte
-        past what a file name may be — so an unbounded identity produces a
-        directory ``mkdir`` refuses with ``ENAMETOOLONG``. The never-raises
-        boundary would swallow that, which costs EVERY record the process
-        writes rather than one file's name.
-        """
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-
-        path = writer.ledger_path("http_config", identity="x" * 300)
-
-        assert path.parent.name == "x" * writer.MAX_LEDGER_STEM_BYTES
-        assert len(path.parent.name.encode("utf-8")) <= 255
-        assert audit_root in path.parents
-
-    @pytest.mark.usefixtures("audit_root")
-    def test_a_record_under_a_too_long_identity_still_lands(self, monkeypatch):
-        """Behavioural half: the record is stored, under the shortened name."""
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "x" * 300)
-
-        written = writer.record_envelope(make_envelope())
-
-        assert written is not None, "a long identity dropped the record"
-        assert written.is_file()
-        assert len(written.parent.name.encode("utf-8")) <= 255
-
-    @pytest.mark.usefixtures("audit_root")
-    def test_a_non_ascii_identity_is_shortened_by_bytes(self, monkeypatch):
-        """``NAME_MAX`` counts bytes, so the cut is on the encoded form and
-        never leaves a partial character behind."""
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "é" * 200)
-
-        written = writer.record_envelope(make_envelope())
-
-        assert written is not None
-        assert written.is_file()
-        assert len(written.parent.name.encode("utf-8")) <= 255
-        assert set(written.parent.name) == {"é"}, "the cut split a character"
-
-    def test_the_record_lands_in_the_zone_too(self, audit_root, monkeypatch):
-        """Not just the path helper: nothing escapes on the writing path."""
-        monkeypatch.setattr(writer, "acting_identity", lambda: "alice")
-        escape = audit_root.parent / "http_config.jsonl"
-
-        written = writer.record_envelope(make_envelope(actor="../../../tmp/pwned"))
-
-        assert written == audit_root / "alice" / "http_config.jsonl"
-        assert not escape.exists()
-
-
-class TestRecordShape:
-    """The line is exactly the envelope's own JSON, one per line."""
-
-    @pytest.mark.usefixtures("audit_root")
-    def test_line_is_the_envelope_to_dict(self, monkeypatch):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-        envelope = make_envelope(detail="channel=config", role="operator")
-
-        written = writer.record_envelope(envelope)
-
-        (record,) = _records(written)
-        assert record == envelope.to_dict()
-
-    @pytest.mark.usefixtures("audit_root")
-    def test_session_is_present_even_when_null(self, monkeypatch):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-
-        written = writer.record_envelope(make_envelope(session=None))
-
-        (record,) = _records(written)
-        assert record["session"] is None
-
-    def test_appends_rather_than_replaces(self, audit_root, monkeypatch):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-
-        for index in range(3):
-            writer.record_envelope(make_envelope(subject=f"key.{index}"))
-
-        records = _records(audit_root / "alice" / "http_config.jsonl")
-        assert [r["subject"] for r in records] == ["key.0", "key.1", "key.2"]
-
-    def test_existing_content_is_preserved(self, audit_root, monkeypatch):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-        path = audit_root / "alice" / "http_config.jsonl"
-        path.parent.mkdir(parents=True)
-        path.write_text('{"ts": "old"}\n')
+    def test_the_session_id_is_the_processs_conversation(self, recorded_entries, monkeypatch):
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "conv-proc")
+        monkeypatch.delenv("OSPREY_TELEMETRY_SESSION_ID", raising=False)
 
         writer.record_envelope(make_envelope())
 
-        assert [r.get("ts") for r in _records(path)][0] == "old"
-        assert len(_records(path)) == 2
+        (entry,) = _audit(recorded_entries)
+        assert entry.session_id == "conv-proc"
 
-    @pytest.mark.usefixtures("audit_root")
-    def test_every_line_ends_with_a_newline(self, monkeypatch):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
+    def test_on_behalf_of_travels_on_the_line(self, spool_zone):
+        writer.record_envelope(make_envelope(on_behalf_of="bob"))
 
-        written = writer.record_envelope(make_envelope())
+        (line,) = _spool_lines(spool_zone.root / spool_zone.terminal)
+        assert line["on_behalf_of"] == "bob"
+        assert line["body"]["on_behalf_of"] == "bob"
 
-        assert written.read_bytes().endswith(b"\n")
+    def test_an_untrusted_writers_on_behalf_of_is_not_kept(self, recorded_entries):
+        """Only the identities the trust list names may act for someone; a
+        terminal's claim stays in the body and never becomes the entry's."""
+        writer.record_envelope(make_envelope(on_behalf_of="bob"))
+
+        (entry,) = _audit(recorded_entries)
+        assert entry.on_behalf_of == ""
+
+    def test_no_id_no_key(self, spool_zone):
+        writer.record_envelope(make_envelope())
+
+        (line,) = _spool_lines(spool_zone.root / spool_zone.terminal)
+        assert "tool_use_id" not in line
+        assert "on_behalf_of" not in line
+        assert "terminal_session" not in line
+        assert "session_id" not in line
 
 
 class TestKwargsEntryPoint:
-    """``record(**fields)`` builds the envelope inside the never-raises boundary."""
+    """``record(**fields)`` for emitters that have facts, not an envelope."""
 
-    @pytest.mark.usefixtures("audit_root")
-    def test_builds_and_writes(self, monkeypatch):
+    def test_builds_and_writes(self, recorded_entries, monkeypatch):
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
 
-        written = writer.record(
-            surface="mcp_python",
-            posture="sandbox",
-            posture_source=POSTURE_SOURCE_PROCESS,
-            session=None,
-            subject="mcp__python__execute",
-            decision=DECISION_ALLOWED,
-            reason="allowed",
-        )
-
-        (record,) = _records(written)
-        assert record["subject"] == "mcp__python__execute"
-
-    @pytest.mark.usefixtures("audit_root")
-    def test_actor_defaults_to_the_acting_identity(self, monkeypatch):
-        """No emitter re-implements the ladder: an omitted actor is resolved
-        by the same helper that names the file."""
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "dispatch-worker-1")
-
-        written = writer.record(
-            surface="mcp_python",
-            posture="sandbox",
-            posture_source=POSTURE_SOURCE_PROCESS,
-            session=None,
-            subject="mcp__python__execute",
-            decision=DECISION_REFUSED,
-            reason="posture",
-        )
-
-        (record,) = _records(written)
-        assert record["actor"] == "dispatch-worker-1"
-
-    @pytest.mark.usefixtures("audit_root")
-    def test_an_explicit_actor_wins(self, monkeypatch):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "sidecar")
-
-        written = writer.record(
-            surface="login",
-            actor="sidecar",
-            posture="sandbox",
-            posture_source=POSTURE_SOURCE_APP,
-            session=None,
-            subject="alice",
-            decision=DECISION_REFUSED,
-            reason="claim_mismatch",
-        )
-
-        (record,) = _records(written)
-        assert record["actor"] == "sidecar"
-
-    @pytest.mark.usefixtures("audit_root")
-    def test_record_takes_the_tool_use_id_from_the_call_scope(self, monkeypatch):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-        with call_scope("toolu_scope", None):
-            written = writer.record(**_RECORD_FIELDS)
-
-        (record,) = _records(written)
-        assert record["tool_use_id"] == "toolu_scope"
-
-    @pytest.mark.usefixtures("audit_root")
-    def test_an_explicit_tool_use_id_wins(self, monkeypatch):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-        with call_scope("toolu_scope", None):
-            written = writer.record(**_RECORD_FIELDS, tool_use_id="toolu_explicit")
-
-        (record,) = _records(written)
-        assert record["tool_use_id"] == "toolu_explicit"
-
-    @pytest.mark.usefixtures("audit_root")
-    def test_no_scope_no_key(self, monkeypatch):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-        written = writer.record(**_RECORD_FIELDS)
-
-        (record,) = _records(written)
-        assert "tool_use_id" not in record
-
-    def test_an_invalid_envelope_degrades_instead_of_raising(self, audit_root, monkeypatch):
-        """Construction validates; the writer's boundary is what keeps a
-        construction bug from failing the operation being described."""
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-
-        assert (
-            writer.record(
-                surface="http_config",
-                posture="sandbox",
-                posture_source="made-up",
-                session=None,
-                subject="key",
-                decision=DECISION_REFUSED,
-                reason="protected_key",
-            )
-            is None
-        )
-        assert not audit_root.exists()
-
-    @pytest.mark.usefixtures("audit_root")
-    def test_a_missing_required_field_degrades(self, monkeypatch):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-
-        assert writer.record(surface="http_config") is None
-
-    def test_source_outside_the_executor_surface_degrades(self, audit_root, monkeypatch):
-        """The schema's payload guard survives the writer's boundary: the
-        record is dropped rather than the leak being written."""
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-
-        assert (
-            writer.record(
-                surface="http_config",
-                posture="sandbox",
-                posture_source=POSTURE_SOURCE_APP,
-                session=None,
-                subject="key",
-                decision=DECISION_REFUSED,
-                reason="protected_key",
-                source="caput('PV', 1)",
-            )
-            is None
-        )
-        assert not audit_root.exists()
-
-
-class TestMaintenanceRouting:
-    """The process marker moves the FILE; the envelope keeps its surface."""
+        assert writer.record(**_RECORD_FIELDS)
 
-    def test_marker_routes_to_the_maintenance_ledger(self, audit_root, monkeypatch):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-        monkeypatch.setenv(writer.AUDIT_WRITER_ENV, writer.WRITER_MAINTENANCE)
+        (body,) = _bodies(recorded_entries)
+        assert body["surface"] == "mcp_python"
+        assert body["subject"] == "mcp__python__execute"
 
-        written = writer.record_envelope(make_envelope(surface="scaffold_restore"))
+    def test_actor_defaults_to_the_acting_identity(self, recorded_entries, monkeypatch):
+        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "svc-mcp")
 
-        assert written == audit_root / "alice" / "maintenance.jsonl"
+        writer.record(**_RECORD_FIELDS)
 
-    @pytest.mark.usefixtures("audit_root")
-    def test_the_record_still_names_the_real_surface(self, monkeypatch):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-        monkeypatch.setenv(writer.AUDIT_WRITER_ENV, writer.WRITER_MAINTENANCE)
+        (body,) = _bodies(recorded_entries)
+        assert body["actor"] == "svc-mcp"
 
-        written = writer.record_envelope(make_envelope(surface="scaffold_restore"))
+    def test_the_terminal_user_outranks_the_service_identity(self, recorded_entries, monkeypatch):
+        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "svc-mcp")
+        monkeypatch.setenv(TERMINAL_USER_ENV, "alice")
 
-        (record,) = _records(written)
-        assert record["surface"] == "scaffold_restore"
+        writer.record(**_RECORD_FIELDS)
 
-    @pytest.mark.usefixtures("audit_root")
-    def test_the_marker_does_not_move_the_identity(self, monkeypatch):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-        monkeypatch.setenv(writer.AUDIT_WRITER_ENV, writer.WRITER_MAINTENANCE)
+        (body,) = _bodies(recorded_entries)
+        assert body["actor"] == "alice"
 
-        assert writer.ledger_path("scaffold_restore").parent.name == "alice"
+    def test_an_explicit_actor_wins(self, recorded_entries, monkeypatch):
+        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "svc-mcp")
 
-    def test_every_surface_in_the_phase_lands_in_one_file(self, audit_root, monkeypatch):
-        """The marker is a process context, not a per-call argument: a whole
-        maintenance phase collapses into one file whatever it touches."""
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-        monkeypatch.setenv(writer.AUDIT_WRITER_ENV, writer.WRITER_MAINTENANCE)
+        writer.record(**_RECORD_FIELDS, actor="bob")
 
-        writer.record_envelope(make_envelope(surface="scaffold_restore"))
-        writer.record_envelope(make_envelope(surface="setup_patch"))
+        (body,) = _bodies(recorded_entries)
+        assert body["actor"] == "bob"
 
-        assert [p.name for p in (audit_root / "alice").iterdir()] == ["maintenance.jsonl"]
-        assert len(_records(audit_root / "alice" / "maintenance.jsonl")) == 2
+    def test_record_takes_the_tool_use_id_from_the_call_scope(self, recorded_entries):
+        with call_scope("toolu_scope", "conv-1"):
+            writer.record(**_RECORD_FIELDS)
 
-    @pytest.mark.parametrize("value", ["", "   "], ids=["empty", "blank"])
-    @pytest.mark.usefixtures("audit_root")
-    def test_an_unset_shaped_marker_routes_normally(self, monkeypatch, value):
-        """A rendered-but-blank ``environment:`` entry is the unset case."""
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-        monkeypatch.setenv(writer.AUDIT_WRITER_ENV, value)
+        (entry,) = _audit(recorded_entries)
+        assert entry.body["tool_use_id"] == "toolu_scope"
+        assert entry.tool_use_id == "toolu_scope"
+        assert entry.session_id == "conv-1"
 
-        assert writer.ledger_path("http_config").name == "http_config.jsonl"
+    def test_an_explicit_tool_use_id_wins(self, recorded_entries):
+        with call_scope("toolu_scope", "conv-1"):
+            writer.record(**_RECORD_FIELDS, tool_use_id="toolu_explicit")
 
-    def test_an_unrecognised_writer_name_routes_normally(self, audit_root, monkeypatch):
-        """The marker's values are a closed set: an inherited stray value
-        must not silently open a new ledger nobody reads."""
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-        monkeypatch.setenv(writer.AUDIT_WRITER_ENV, "somebody-else")
+        (body,) = _bodies(recorded_entries)
+        assert body["tool_use_id"] == "toolu_explicit"
 
-        written = writer.record_envelope(make_envelope())
+    def test_no_scope_no_key(self, recorded_entries):
+        writer.record(**_RECORD_FIELDS)
 
-        assert written == audit_root / "alice" / "http_config.jsonl"
+        (body,) = _bodies(recorded_entries)
+        assert "tool_use_id" not in body
 
-    def test_maintenance_is_the_only_recognised_writer(self):
-        assert writer.WRITER_CONTEXTS == (writer.WRITER_MAINTENANCE,)
+    def test_an_invalid_envelope_degrades_instead_of_raising(self, recorded_entries, caplog):
+        with caplog.at_level("WARNING"):
+            result = writer.record(**{**_RECORD_FIELDS, "posture_source": "made-up"})
 
+        assert result is None
+        assert _audit(recorded_entries) == []
+        assert "record dropped" in caplog.text
 
-class TestOneUidPerFile:
-    """The regression the invariant exists for: root and app never share a file."""
+    def test_a_missing_required_field_degrades(self, recorded_entries):
+        fields = dict(_RECORD_FIELDS)
+        del fields["subject"]
 
-    def _restore_refusal(self):
-        return make_envelope(
-            surface="scaffold_restore",
-            posture="sandbox",
-            posture_source=POSTURE_SOURCE_PROCESS,
-            session=None,
-            subject="build/config.yml",
-            reason="reserved_path",
-        )
+        assert writer.record(**fields) is None
+        assert _audit(recorded_entries) == []
 
-    @pytest.mark.usefixtures("audit_root")
-    def test_root_phase_and_app_run_land_in_different_files(self, monkeypatch):
-        """Same container, same identity, same surface — split by the marker,
-        which is exactly what makes each file single-uid."""
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "operator")
-
-        monkeypatch.setenv(writer.AUDIT_WRITER_ENV, writer.WRITER_MAINTENANCE)
-        root_run = writer.record_envelope(self._restore_refusal())
-
-        monkeypatch.delenv(writer.AUDIT_WRITER_ENV)
-        app_run = writer.record_envelope(self._restore_refusal())
-
-        assert root_run != app_run
-        assert root_run.name == "maintenance.jsonl"
-        assert app_run.name == "scaffold_restore.jsonl"
-
-    @pytest.mark.usefixtures("audit_root")
-    def test_different_process_identities_land_in_different_files(self, monkeypatch):
-        """The other topology: no marker, but the ladder resolves the root
-        process and the app process to different names."""
-        monkeypatch.setattr(writer, "acting_identity", lambda: "root")
-        root_run = writer.record_envelope(self._restore_refusal())
-
-        monkeypatch.setattr(writer, "acting_identity", lambda: "osprey")
-        app_run = writer.record_envelope(self._restore_refusal())
-
-        assert root_run != app_run
-        assert root_run.parent.name == "root"
-        assert app_run.parent.name == "osprey"
-
-
-class TestAppendMechanics:
-    """One ``write()`` on an O_APPEND descriptor, and no fsync."""
-
-    def test_append_envelope_hands_an_io_failure_back(self, audit_root, monkeypatch):
-        """The seam for a caller that owns the path raises rather than swallows:
-        that caller owns the degrade, and a ``try`` added here would take it away."""
-
-        def exploding_open(_path, _flags, _mode=0o777):
-            raise OSError("the audit zone is gone")
-
-        monkeypatch.setattr(writer.os, "open", exploding_open)
-        with pytest.raises(OSError):
-            writer.append_envelope(audit_root / "alice" / "x.jsonl", make_envelope())
-
-    def test_append_envelope_reports_a_short_append_as_not_stored(self, audit_root, monkeypatch):
-        monkeypatch.setattr(writer.os, "write", lambda fd, data: 1)
-        path = audit_root / "alice" / "x.jsonl"
-        assert writer.append_envelope(path, make_envelope()) is False
-
-    @pytest.mark.usefixtures("audit_root")
-    def test_one_write_call_per_record(self, monkeypatch):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-        calls = []
-        real_write = os.write
-
-        def counting_write(fd, data):
-            calls.append(data)
-            return real_write(fd, data)
-
-        monkeypatch.setattr(writer.os, "write", counting_write)
-        writer.record_envelope(make_envelope())
-
-        assert len(calls) == 1
-        assert calls[0].endswith(b"\n")
-
-    @pytest.mark.usefixtures("audit_root")
-    def test_the_descriptor_is_opened_append_only(self, monkeypatch):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-        seen = {}
-        real_open = os.open
-
-        def recording_open(path, flags, mode=0o777):
-            seen["flags"] = flags
-            return real_open(path, flags, mode)
-
-        monkeypatch.setattr(writer.os, "open", recording_open)
-        writer.record_envelope(make_envelope())
-
-        assert seen["flags"] & os.O_APPEND
-        assert seen["flags"] & os.O_CREAT
-
-    @pytest.mark.usefixtures("audit_root")
-    def test_no_fsync(self, monkeypatch):
-        """A durable-by-construction zone does not buy an fsync per record."""
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-
-        def refuse(*args, **kwargs):
-            raise AssertionError("the writer must not fsync")
-
-        monkeypatch.setattr(writer.os, "fsync", refuse)
-        assert writer.record_envelope(make_envelope()) is not None
-
-    def test_missing_parent_directories_are_created(self, audit_root, monkeypatch):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-        assert not audit_root.exists()
-
-        writer.record_envelope(make_envelope())
-
-        assert (audit_root / "alice").is_dir()
-
-    @pytest.mark.usefixtures("audit_root")
-    def test_a_short_write_is_reported_rather_than_claimed(self, monkeypatch):
-        """A torn line is not a stored record; the caller learns so."""
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-        real_write = os.write
-
-        def short_write(fd, data):
-            real_write(fd, data[:5])
-            return 5
-
-        monkeypatch.setattr(writer.os, "write", short_write)
-
-        assert writer.record_envelope(make_envelope()) is None
-
-    @pytest.mark.usefixtures("audit_root")
-    def test_a_torn_line_does_not_swallow_the_next_record(self, monkeypatch):
-        """One torn write costs one record, never the records after it.
-
-        Without a terminator the next record is appended straight onto the
-        fragment, so a single tear destroys a second, fully written record and
-        the writer hands back a path for it.
-        """
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-        real_write = os.write
-        torn = {"done": False}
-
-        def short_first_write(fd, data):
-            if not torn["done"]:
-                torn["done"] = True
-                return real_write(fd, data[:5])
-            return real_write(fd, data)
-
-        monkeypatch.setattr(writer.os, "write", short_first_write)
-
-        assert writer.record_envelope(make_envelope(subject="torn")) is None
-        second = writer.record_envelope(make_envelope(subject="intact"))
-
-        assert second is not None
-        lines = second.read_text().splitlines()
-        assert len(lines) == 2
-        assert json.loads(lines[-1])["subject"] == "intact"
-
-    @pytest.mark.usefixtures("audit_root")
-    def test_the_ledger_is_created_without_a_second_writer(self, monkeypatch):
-        """Group READ is the point of the mode; group write would let anyone
-        in the shared audit group forge a record the ledger attributes to
-        another uid."""
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-
-        written = writer.record_envelope(make_envelope())
-
-        current_umask = os.umask(0)
-        os.umask(current_umask)
-        assert stat.S_IMODE(written.stat().st_mode) == writer.LEDGER_FILE_MODE & ~current_umask
-        assert not writer.LEDGER_FILE_MODE & (
-            stat.S_IWGRP | stat.S_IWOTH | stat.S_IROTH | stat.S_IXOTH
-        )
-
-    def test_the_ledger_file_mode(self):
-        assert writer.LEDGER_FILE_MODE == 0o640
-
-    def test_a_created_identity_directory_is_group_shared_and_setgid(self, audit_root, monkeypatch):
-        """The fallback mkdir and the deploy-path provisioner create the SAME
-        directory, so they must create it the same way: root-created 0o755
-        would lock the dropped app user out of the ledger it exists to write,
-        and no setgid would lose the host's group access to what a container
-        wrote. ``mkdir(mode=...)`` is umask-masked, so the writer chmods.
-        """
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-        assert not audit_root.exists()
-
-        writer.record_envelope(make_envelope())
-
-        assert stat.S_IMODE((audit_root / "alice").stat().st_mode) == writer.LEDGER_DIR_MODE
-
-    def test_a_chmod_that_is_refused_costs_the_mode_never_the_record(self, audit_root, monkeypatch):
-        """Best-effort on the mode, never on the directory.
-
-        A container whose app user may create a directory inside a host-owned
-        mount but may not ``chmod`` it is exactly the host where this fallback
-        path gets taken — and letting ``EPERM`` out would reach the
-        never-raises boundary and drop the record there. A slightly narrow
-        directory beats a dropped record.
-        """
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-
-        def refuse(*args, **kwargs):
-            raise OSError(1, "EPERM")
-
-        monkeypatch.setattr(writer.os, "chmod", refuse)
-
-        written = writer.record_envelope(make_envelope())
-
-        assert written is not None, "a refused chmod cost the record"
-        assert written.is_file()
-        assert (audit_root / "alice").is_dir()
-
-    def test_the_directory_mode_is_the_deploy_paths_shared_mode(self):
-        """Pinned rather than imported: the audit package must not depend on
-        the deployment package, the way AUDIT_WRITER_ENV is pinned against the
-        registry below."""
-        from osprey.deployment.compose_generator import SHARED_CORPUS_DIR_MODE
-
-        assert writer.LEDGER_DIR_MODE == SHARED_CORPUS_DIR_MODE == 0o2770
+    def test_source_outside_the_executor_surface_degrades(self, recorded_entries):
+        assert writer.record(**_RECORD_FIELDS, source="print(1)") is None
+        assert _audit(recorded_entries) == []
 
 
 class TestRecordBound:
-    """≤2 KB per line, with one documented exception."""
+    """≤2 KB per body, with the documented exceptions."""
 
-    @pytest.mark.usefixtures("audit_root")
-    def test_an_ordinary_record_is_well_inside_the_bound(self, monkeypatch):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
+    def test_an_ordinary_record_is_well_inside_the_bound(self, recorded_entries):
+        writer.record_envelope(make_envelope(detail="channel=config"))
 
-        written = writer.record_envelope(make_envelope(detail="channel=config"))
+        (body,) = _bodies(recorded_entries)
+        assert body["detail"] == "channel=config"
+        assert _encoded_size(body) <= writer.MAX_RECORD_BYTES
 
-        assert len(written.read_bytes()) <= writer.MAX_RECORD_BYTES
-
-    @pytest.mark.usefixtures("audit_root")
-    def test_an_oversize_detail_is_dropped_to_fit(self, monkeypatch):
-        """``detail`` is supplementary by contract, so it is what gives way.
-
-        It takes long identifiers *and* a full ``detail`` to reach the bound —
-        a maximal ``detail`` alone is only half of it — which is why the
-        degrade is a step rather than a rule about one field.
-        """
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
+    def test_an_oversize_detail_is_dropped_to_fit(self, recorded_entries):
+        """``detail`` is supplementary by contract, so it is what gives way."""
         long_name = "n" * 256
 
-        written = writer.record_envelope(
+        writer.record_envelope(
             make_envelope(
                 actor=long_name,
                 posture=long_name,
@@ -756,59 +324,50 @@ class TestRecordBound:
             )
         )
 
-        (record,) = _records(written)
-        assert record["detail"] == writer.DETAIL_DROPPED
-        assert len(written.read_bytes()) <= writer.MAX_RECORD_BYTES
-        assert record["subject"] == "connectors.epics.writes_enabled"
+        (body,) = _bodies(recorded_entries)
+        assert body["detail"] == writer.DETAIL_DROPPED
+        assert _encoded_size(body) <= writer.MAX_RECORD_BYTES
+        assert body["subject"] == "connectors.epics.writes_enabled"
 
-    @pytest.mark.usefixtures("audit_root")
-    def test_identifiers_are_never_sacrificed_to_the_bound(self, monkeypatch):
+    def test_identifiers_are_never_sacrificed_to_the_bound(self, recorded_entries):
         """A record whose identifiers were trimmed would name the wrong thing;
         over-budget-but-true beats in-budget-but-wrong."""
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
         long_name = "n" * 256
-        envelope = make_envelope(
-            surface="http_config",
-            actor=long_name,
-            posture=long_name,
-            subject=long_name,
-            reason=long_name,
-            role=long_name,
-            detail="x" * 1024,
+
+        writer.record_envelope(
+            make_envelope(
+                actor=long_name,
+                posture=long_name,
+                subject=long_name,
+                reason=long_name,
+                role=long_name,
+                detail="x" * 1024,
+            )
         )
 
-        written = writer.record_envelope(envelope)
+        (body,) = _bodies(recorded_entries)
+        assert body["subject"] == long_name
+        assert body["reason"] == long_name
 
-        (record,) = _records(written)
-        assert record["subject"] == long_name
-        assert record["reason"] == long_name
-
-    @pytest.mark.usefixtures("audit_root")
-    def test_executor_source_is_written_whole(self, monkeypatch):
-        """The documented exception: on the executor surface the refused code
-        IS the artifact, so the record keeps it and stays a single write()."""
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
+    def test_executor_source_is_written_whole(self, recorded_entries):
+        """On the executor surface the refused code IS the artifact."""
         code = "caput('PV', 1)\n" * 400
         assert len(code) > writer.MAX_RECORD_BYTES
 
-        written = writer.record_envelope(
+        writer.record_envelope(
             make_envelope(surface=SURFACE_EXECUTOR, source=code, detail="tool=execute")
         )
 
-        (record,) = _records(written)
-        assert record["source"] == code
-        assert record["detail"] == "tool=execute"
+        (body,) = _bodies(recorded_entries)
+        assert body["source"] == code
+        assert body["detail"] == "tool=execute"
 
-    @pytest.mark.usefixtures("audit_root")
-    def test_an_executor_record_drops_its_detail_before_its_atomicity(self, monkeypatch):
-        """The executor exception buys the SOURCE, not the detail. An executor
-        record whose source is small fits once the supplementary field gives
-        way, so it keeps the interleave-proof append the module promises."""
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
+    def test_an_executor_record_drops_its_detail_before_its_bound(self, recorded_entries):
+        """The executor exception buys the SOURCE, not the detail."""
         long_name = "n" * 256
         source = "caput('PV', 1)"
 
-        written = writer.record_envelope(
+        writer.record_envelope(
             make_envelope(
                 surface=SURFACE_EXECUTOR,
                 source=source,
@@ -821,41 +380,23 @@ class TestRecordBound:
             )
         )
 
-        (record,) = _records(written)
-        assert record["source"] == source
-        assert record["detail"] == writer.DETAIL_DROPPED
-        assert len(written.read_bytes()) <= writer.MAX_RECORD_BYTES
+        (body,) = _bodies(recorded_entries)
+        assert body["source"] == source
+        assert body["detail"] == writer.DETAIL_DROPPED
+        assert _encoded_size(body) <= writer.MAX_RECORD_BYTES
 
-    @pytest.mark.usefixtures("audit_root")
-    def test_a_truncated_source_still_says_so(self, monkeypatch):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-
-        written = writer.record_envelope(
+    def test_a_truncated_source_still_says_so(self, recorded_entries):
+        writer.record_envelope(
             make_envelope(surface=SURFACE_EXECUTOR, source="c" * (MAX_SOURCE_CHARS + 10))
         )
 
-        (record,) = _records(written)
-        assert record["source_truncated"] is True
-        assert len(record["source"]) == MAX_SOURCE_CHARS
+        (body,) = _bodies(recorded_entries)
+        assert body["source_truncated"] is True
+        assert len(body["source"]) == MAX_SOURCE_CHARS
 
-    @pytest.mark.usefixtures("audit_root")
-    def test_an_oversize_record_is_still_one_line(self, monkeypatch):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-
-        written = writer.record_envelope(
-            make_envelope(surface=SURFACE_EXECUTOR, source="c" * MAX_SOURCE_CHARS)
-        )
-
-        assert len(written.read_text().splitlines()) == 1
-
-    @pytest.mark.usefixtures("audit_root")
     def test_an_identifier_only_record_over_budget_is_written_and_flagged(
-        self, monkeypatch, caplog
+        self, recorded_entries, caplog
     ):
-        """Reachable with every bounded field at its maximum (~2.2 KB). The
-        record is stored whole and the log says the append was oversize, so an
-        operator learns of it without the ledger losing the record."""
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
         long_name = "n" * 256
         envelope = make_envelope(
             surface=long_name,
@@ -870,196 +411,130 @@ class TestRecordBound:
         )
 
         with caplog.at_level("WARNING"):
-            written = writer.record_envelope(envelope)
+            writer.record_envelope(envelope)
 
-        (record,) = _records(written)
-        assert record["subject"] == long_name
-        assert record["detail"] == writer.DETAIL_DROPPED
-        assert len(written.read_bytes()) > writer.MAX_RECORD_BYTES
+        (body,) = _bodies(recorded_entries)
+        assert body["subject"] == long_name
+        assert body["detail"] == writer.DETAIL_DROPPED
+        assert _encoded_size(body) > writer.MAX_RECORD_BYTES
         assert "exceeds" in caplog.text
 
-    def test_the_bound_is_the_atomic_append_bound(self):
+    def test_the_caller_s_envelope_is_not_modified(self, recorded_entries):
+        long_name = "n" * 256
+        envelope = make_envelope(
+            actor=long_name,
+            posture=long_name,
+            session=long_name,
+            role=long_name,
+            detail="x" * 1024,
+        )
+
+        writer.record_envelope(envelope)
+
+        assert envelope.detail == "x" * 1024
+        assert _bodies(recorded_entries)[0]["detail"] == writer.DETAIL_DROPPED
+
+    def test_the_bound_is_two_kilobytes(self):
         assert writer.MAX_RECORD_BYTES == 2048
 
 
-class TestSurfaceRouting:
-    """The filename is derived from the surface, so it must be one component."""
+class TestAppendRecord:
+    """The full ``tool_call`` record: not an envelope, not bounded."""
 
-    @pytest.mark.parametrize(
-        "surface",
-        ["../escape", "nested/name", "..", ".", "with\\sep", "with\x00nul"],
-        ids=["parent", "separator", "dotdot", "dot", "backslash", "nul"],
-    )
-    def test_a_surface_that_is_not_a_path_component_is_quarantined(
-        self, audit_root, monkeypatch, surface
-    ):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
+    def test_the_record_is_the_body_on_its_surface(self, recorded_entries):
+        record = {
+            "ts": "2026-10-25T10:15:04.000Z",
+            "surface": "tool_call",
+            "actor": "alice",
+            "tool_use_id": "toolu_9",
+            "result": "r" * (writer.MAX_RECORD_BYTES * 4),
+        }
 
-        written = writer.record_envelope(make_envelope(surface=surface))
+        assert writer.append_record("tool_call", record)
 
-        assert written == audit_root / "alice" / f"{writer.FALLBACK_SURFACE}.jsonl"
-        (record,) = _records(written)
-        assert record["surface"] == surface
+        (entry,) = _audit(recorded_entries)
+        assert dict(entry.body) == record
+        assert entry.tool_use_id == "toolu_9"
 
-    @pytest.mark.usefixtures("audit_root")
-    def test_a_surface_too_long_for_a_file_name_is_shortened(self, monkeypatch):
-        """The envelope bounds a surface at 256 characters — one longer than a
-        file name may be. Shortening the stem keeps the record; refusing the
-        name would lose it, and the envelope still says which surface it was.
-        """
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-        surface = "s" * 256
+    def test_the_surface_argument_names_the_surface(self, recorded_entries):
+        writer.append_record("tool_call", {"a": 1})
 
-        written = writer.record_envelope(make_envelope(surface=surface))
+        (body,) = _bodies(recorded_entries)
+        assert body == {"a": 1, "surface": "tool_call"}
 
-        assert len(written.name) <= 255
-        assert written.name == f"{'s' * writer.MAX_LEDGER_STEM_BYTES}.jsonl"
-        (record,) = _records(written)
-        assert record["surface"] == surface
+    def test_nan_inside_facts_is_named_and_keeps_the_rest(self, spool_zone):
+        record = {
+            "surface": "tool_call",
+            "facts": {"old_values": {"A:1": float("nan"), "A:2": 2.0}},
+        }
 
-    @pytest.mark.usefixtures("audit_root")
-    def test_a_non_ascii_surface_is_shortened_by_bytes(self, monkeypatch):
-        """``NAME_MAX`` counts BYTES. A 200-character surface is a 400-byte
-        name: APFS takes it, ext4 and overlayfs — what the containers actually
-        mount — raise ENAMETOOLONG, and the never-raises boundary would swallow
-        that and drop every record on the surface.
-        """
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-        surface = "é" * 200
+        writer.append_record("tool_call", record)
 
-        written = writer.record_envelope(make_envelope(surface=surface))
+        (line,) = _spool_lines(spool_zone.root / spool_zone.terminal)
+        assert line["body"]["facts"]["old_values"] == {"A:1": "NaN", "A:2": 2.0}
+        (value,) = [record["facts"]["old_values"]["A:1"]]
+        assert value != value, "the caller's record was modified"
 
-        assert len(written.name.encode("utf-8")) <= 255
-        assert written.is_file()
-        (record,) = _records(written)
-        assert record["surface"] == surface
+    def test_append_record_never_raises(self, monkeypatch):
+        def broken(*args, **kwargs):
+            raise OSError("gone")
+
+        monkeypatch.setattr(writer.record_writer, "write", broken)
+        assert writer.append_record("tool_call", {"a": 1}) is None
 
 
 class TestNeverRaises:
-    """Nothing the audit zone can do may reach the operation being recorded."""
+    """Every failure degrades to ``None``; the operation is untouched."""
 
-    @pytest.mark.usefixtures("audit_root")
-    def test_an_unwritable_zone_degrades_to_none(self, monkeypatch, tmp_path):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-        blocker = tmp_path / "blocker"
-        blocker.write_text("not a directory")
-        monkeypatch.setattr(writer, "audit_dir", lambda: blocker)
+    def test_an_unwritable_spool_degrades_to_none(self, monkeypatch, tmp_path):
+        blocker = tmp_path / "not-a-directory"
+        blocker.write_text("")
+        monkeypatch.setenv("OSPREY_SPOOL_DIR", str(blocker / "alice"))
 
         assert writer.record_envelope(make_envelope()) is None
+        assert writer.record(**_RECORD_FIELDS) is None
 
-    @pytest.mark.usefixtures("audit_root")
-    def test_a_broken_audit_dir_resolver_degrades_to_none(self, monkeypatch):
-        def explode():
-            raise RuntimeError("no project root here")
+    def test_a_failing_record_writer_degrades_to_none(self, monkeypatch):
+        def broken(*args, **kwargs):
+            raise RuntimeError("boom")
 
-        monkeypatch.setattr(writer, "audit_dir", explode)
-
+        monkeypatch.setattr(writer.record_writer, "write", broken)
         assert writer.record_envelope(make_envelope()) is None
 
-    @pytest.mark.usefixtures("audit_root")
-    def test_a_failing_open_degrades_to_none(self, monkeypatch):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-
-        def explode(*args, **kwargs):
-            raise OSError("read-only file system")
-
-        monkeypatch.setattr(writer.os, "open", explode)
+    def test_the_off_switch_stores_nothing(self, recorded_entries, monkeypatch):
+        monkeypatch.setenv(RECORD_OFF_ENV, "1")
 
         assert writer.record_envelope(make_envelope()) is None
+        monkeypatch.delenv(RECORD_OFF_ENV)
+        assert _audit(recorded_entries) == []
 
-    @pytest.mark.usefixtures("audit_root")
-    def test_a_failing_write_degrades_to_none(self, monkeypatch):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-
-        def explode(*args, **kwargs):
-            raise OSError("no space left on device")
-
-        monkeypatch.setattr(writer.os, "write", explode)
-
-        assert writer.record_envelope(make_envelope()) is None
-
-    @pytest.mark.usefixtures("audit_root")
-    def test_the_descriptor_is_closed_even_when_the_write_fails(self, monkeypatch):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-        closed = []
-        real_close = os.close
-
-        def counting_close(fd):
-            closed.append(fd)
-            real_close(fd)
-
-        def explode(*args, **kwargs):
-            raise OSError("no space left on device")
-
-        monkeypatch.setattr(writer.os, "close", counting_close)
-        monkeypatch.setattr(writer.os, "write", explode)
-        writer.record_envelope(make_envelope())
-
-        assert len(closed) == 1
-
-    @pytest.mark.usefixtures("audit_root")
     def test_a_non_envelope_argument_degrades_to_none(self):
-        assert writer.record_envelope("not an envelope") is None
+        assert writer.record_envelope("not an envelope") is None  # type: ignore[arg-type]
 
 
 class TestServerLogCarriesTheEvent:
-    """Logged before the durable write, so a broken zone downgrades rather
-    than erases the trail — the invariant ``refusal_audit`` established."""
+    """Logged before the write, so a broken spool downgrades rather than erases
+    the trail."""
 
-    @pytest.mark.usefixtures("audit_root")
     def test_a_refusal_warns_even_when_the_write_fails(self, monkeypatch, caplog):
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-
         def explode(*args, **kwargs):
             raise OSError("read-only file system")
 
-        monkeypatch.setattr(writer.os, "open", explode)
+        monkeypatch.setattr(writer.record_writer, "write", explode)
         with caplog.at_level("WARNING"):
             writer.record_envelope(make_envelope(subject="connectors.epics.writes_enabled"))
 
         assert "connectors.epics.writes_enabled" in caplog.text
 
-    @pytest.mark.usefixtures("audit_root")
-    def test_an_allowed_record_does_not_warn(self, monkeypatch, caplog):
-        """The middleware records every admitted tool call; a warning apiece
-        would drown the log the refusals need to stand out in."""
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
-
+    def test_an_allowed_record_does_not_warn(self, caplog):
         with caplog.at_level("WARNING"):
             writer.record_envelope(make_envelope(decision=DECISION_ALLOWED, reason="allowed"))
 
         assert caplog.text == ""
 
 
-class TestAuditDirSeam:
-    """``audit_dir()`` is the one seam, and it is spelled by the workspace."""
-
-    def test_it_is_the_workspace_audit_relpath_under_the_project_root(self, tmp_path, monkeypatch):
-        from osprey_connectors import workspace
-
-        monkeypatch.setattr(workspace, "load_osprey_config", lambda: {}, raising=False)
-        monkeypatch.setattr(workspace, "resolve_project_root", lambda cfg: tmp_path, raising=False)
-
-        from osprey.utils.workspace import AUDIT_DIR_RELPATH
-
-        assert writer.audit_dir() == tmp_path / AUDIT_DIR_RELPATH
-
-    def test_it_is_imported_lazily(self):
-        """Kept inside the function so the writer stays importable from the
-        MCP middleware and the HTTP layer without dragging the workspace
-        resolver — and so tests have one seam instead of a project root."""
-        source = Path(writer.__file__).read_text()
-        assert "from osprey_connectors.workspace import" in source
-        module_scope_imports = [
-            line
-            for line in source.splitlines()
-            if line.startswith("from osprey_connectors.workspace")
-        ]
-        assert module_scope_imports == []
-
-
 class TestNonFiniteNumbers:
-    """A ledger line is strict JSON, whatever number a record was handed."""
+    """A line is strict JSON, whatever number a record was handed."""
 
     @staticmethod
     def _strict(line: str) -> dict:
@@ -1067,27 +542,6 @@ class TestNonFiniteNumbers:
             raise AssertionError(f"the line carries the bare token {token}")
 
         return json.loads(line, parse_constant=refuse)
-
-    def test_nan_inside_facts_round_trips_and_keeps_the_rest(self, audit_root):
-        assert not audit_root.exists()
-        record = {
-            "ts": "t",
-            "surface": "tool_call",
-            "actor": "alice",
-            "tool_use_id": "toolu_1",
-            "duration_ms": 3.5,
-            "arguments": {"value": 1.25},
-            "facts": {"old_values": {"A:1": float("nan"), "A:2": 2.0}},
-        }
-
-        path = writer.append_record("tool_call", record)
-
-        (line,) = path.read_text().splitlines()
-        stored = self._strict(line)
-        assert stored["facts"]["old_values"] == {"A:1": "NaN", "A:2": 2.0}
-        expected = {**record, "facts": {"old_values": {"A:1": "NaN", "A:2": 2.0}}}
-        assert stored == expected
-        assert list(stored) == list(record)
 
     def test_every_non_finite_value_is_named(self):
         record = {
@@ -1102,15 +556,7 @@ class TestNonFiniteNumbers:
             "Infinity": "key",
         }
 
-    def test_the_caller_s_record_is_not_modified(self):
-        record = {"facts": {"old_values": [float("nan")]}}
-        writer._encode(record)
-        (value,) = record["facts"]["old_values"]
-        assert value != value
-
     def test_a_finite_record_is_encoded_in_one_pass(self, monkeypatch):
-        """The walk is for the rare record that needs it, never the hot path."""
-
         def unexpected(value):
             raise AssertionError(f"a finite record was walked: {value!r}")
 
@@ -1119,36 +565,5 @@ class TestNonFiniteNumbers:
         assert writer._encode(record) == b'{"a":1.5,"b":[1,2.0,{"c":null}],"d":"x"}\n'
 
     def test_an_unencodable_record_is_still_refused(self):
-        """Only numbers are spelled out; anything else keeps the encoder's verdict."""
         with pytest.raises(TypeError):
             writer._encode({"a": object()})
-
-    def test_an_envelope_line_is_strict_json(self, audit_root):
-        path = writer.record_envelope(make_envelope(on_behalf_of="bob"))
-        assert audit_root in path.parents
-        (line,) = path.read_text().splitlines()
-        assert self._strict(line)["on_behalf_of"] == "bob"
-
-
-class TestMarkerSpelling:
-    """The writer marker's spelling is a wire contract with the registry.
-
-    ``registry/mcp.py`` reserved ``OSPREY_AUDIT_WRITER`` (post-merge removal
-    from every server spec) before the writer that reads it existed. Neither
-    can import the other — the registry must not depend on the audit package,
-    and the writer must not drag the registry — so the copy is pinned here,
-    mirroring ``TestMarkerSpellings`` in ``test_marker_nonpinnability.py``.
-    """
-
-    def test_the_writer_marker_matches_the_registry_reservation(self):
-        from osprey.registry.mcp import AUDIT_WRITER_ENV as REGISTRY_AUDIT_WRITER_ENV
-
-        assert writer.AUDIT_WRITER_ENV == REGISTRY_AUDIT_WRITER_ENV
-
-    def test_the_marker_is_non_pinnable_from_a_server_spec(self):
-        from osprey.registry.mcp import NON_PINNABLE_AUDIT_MARKERS
-
-        assert writer.AUDIT_WRITER_ENV in NON_PINNABLE_AUDIT_MARKERS
-
-    def test_the_documented_spelling(self):
-        assert writer.AUDIT_WRITER_ENV == "OSPREY_AUDIT_WRITER"

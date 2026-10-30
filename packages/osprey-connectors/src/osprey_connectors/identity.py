@@ -1,10 +1,10 @@
 """Who an audit record names — one ladder, shared by every surface that records.
 
 An audit record uses its identity twice: once as the ``actor`` field inside the
-envelope, and once as the ``<identity>`` path component of
-``var/audit/<identity>/<surface>.jsonl``. If those two were resolved by
+envelope, and once as the ``<identity>`` path component of the spool directory
+``var/spool/<identity>`` it is written into. If those two were resolved by
 separate code they would drift by a rung the first time one of them grew a
-fallback, and the ledger would start naming one actor while filing under
+fallback, and the record would start naming one actor while filing under
 another. This module is the single resolution, so both uses read the same
 answer by construction.
 
@@ -102,7 +102,7 @@ def usable_identity(value: str | None) -> str:
     case spelled differently — a rendered-but-blank ``environment:`` entry, an
     env var exported as ``""``. Values carrying a path separator or naming a
     relative directory are rejected because the same string becomes a directory
-    name under ``var/audit/``, where ``../elsewhere`` would file one service's
+    name under ``var/spool/``, where ``../elsewhere`` would file one service's
     records into another's mount.
 
     Rejection is deliberately narrow: it covers what breaks path semantics and

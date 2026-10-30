@@ -15,6 +15,9 @@ children serving the pool tests' mock connector.
 """
 
 import asyncio
+import inspect
+import os
+import signal
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -32,6 +35,7 @@ from osprey_connectors.types import baseline_target, configured_targets, resolve
 from osprey_connectors_tests._harness import state_dir_under, write_control_context
 from osprey_connectors_tests._write_fakes import arm_switch, turn_switch
 from osprey_connectors_tests.ipc._pool_connectors import WRITE_LOG_ENV
+from tests._live import wait_until
 from tests._processes import pid_alive
 from tests.connectors.ipc.test_pool import CHILD_START_TIMEOUT_S, PYTHONPATH, SERVED, SLOW
 from tests.facility.served_tree import in_process_config, served_tree
@@ -93,10 +97,7 @@ def runtime_state(monkeypatch):
     reset()
     yield
     reset()
-    loop = runtime._pool_loop
-    runtime._pool_loop = None
-    if loop is not None:
-        loop.call_soon_threadsafe(loop.stop)
+    runtime._stop_pool_loop()
 
 
 @pytest.fixture
@@ -658,10 +659,97 @@ class TestPoolCleanup:
         runtime._run_on_pool_loop(runtime._runtime_connector.disconnect())
         runtime._runtime_connector = None
 
+        loop = runtime._pool_loop
+
         runtime._cleanup_on_exit()
 
-        assert fake_pool[0].closed_on is runtime._pool_loop
+        assert fake_pool[0].closed_on is loop
         assert runtime._connector_pool is None
+
+    def test_the_exit_hook_closes_the_pool_on_its_loop_then_the_loop(self, monkeypatch, fake_pool):
+        _serve(monkeypatch, SWITCHABLE)
+        runtime._route_connector_through_pool()
+        runtime.read_channel("SR:X")
+        loop = runtime._pool_loop
+
+        runtime._cleanup_on_exit()
+
+        assert fake_pool[0].closed_on is loop
+        assert loop.is_closed()
+        assert runtime._pool_loop is None
+
+    @pytest.mark.filterwarnings("ignore:.*multi-threaded.*fork:DeprecationWarning")
+    def test_a_forked_child_exits_without_touching_the_parents_pool(self, monkeypatch, fake_pool):
+        _serve(monkeypatch, SWITCHABLE)
+        runtime._route_connector_through_pool()
+        runtime.read_channel("SR:X")
+
+        pid = os.fork()
+        if pid == 0:
+            code = 1
+            try:
+                runtime._cleanup_on_exit()
+                code = 0
+            finally:
+                os._exit(code)
+
+        status: list[int] = []
+
+        def reaped() -> bool:
+            done, code = os.waitpid(pid, os.WNOHANG)
+            if done == pid:
+                status.append(code)
+            return bool(status)
+
+        try:
+            wait_until(reaped, timeout=10, what="the forked child's exit")
+        finally:
+            if not status:
+                os.kill(pid, signal.SIGKILL)
+                os.waitpid(pid, 0)
+        assert os.waitstatus_to_exitcode(status[0]) == 0
+        assert fake_pool[0].closed_on is None
+        assert runtime._connector_pool is not None
+
+
+class TestThePoolLoop:
+    """The pool's loop is started once, stopped and closed once, refused in a forked child."""
+
+    def test_the_pool_loop_is_closed_by_its_stop(self):
+        loop = runtime._pool_event_loop()
+
+        runtime._stop_pool_loop()
+
+        assert loop.is_closed()
+        assert runtime._pool_loop is None
+
+    def test_stop_from_the_pool_loop_is_refused(self):
+        loop = runtime._pool_event_loop()
+
+        async def stop_here() -> None:
+            runtime._stop_pool_loop()
+
+        with pytest.raises(RuntimeError, match="cannot be stopped from its own thread"):
+            asyncio.run_coroutine_threadsafe(stop_here(), loop).result(timeout=10)
+        assert runtime._pool_loop is loop
+        assert not loop.is_closed()
+
+    @pytest.mark.filterwarnings("error::RuntimeWarning")
+    def test_the_pool_loop_refuses_a_forked_child(self, monkeypatch):
+        runtime._pool_event_loop()
+        ran = []
+
+        async def work() -> None:
+            ran.append(True)
+
+        coro = work()
+        with monkeypatch.context() as child:
+            child.setattr(runtime.os, "getpid", lambda: runtime._pool_loop_pid + 1)
+            with pytest.raises(RuntimeError, match="forked process"):
+                runtime._run_on_pool_loop(coro)
+
+        assert ran == []
+        assert inspect.getcoroutinestate(coro) == inspect.CORO_CLOSED
 
 
 # ---------------------------------------------------------------------------

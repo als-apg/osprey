@@ -22,8 +22,15 @@ import logging
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
+from osprey.interfaces.lattice_dashboard.schema import (
+    DashboardEvent,
+    FigureErrorEvent,
+    FigureReadyEvent,
+    FigureStatusEvent,
+    StateUpdatedEvent,
+)
 from osprey.interfaces.lattice_dashboard.state import (
     ALL_FIGURES,
     VERIFICATION_FIGURES,
@@ -48,17 +55,23 @@ def worker_argv(name: str, job_path: Path, output_path: Path) -> list[str]:
     return [sys.executable, "-m", f"{_WORKERS}.{name}", str(job_path), str(output_path)]
 
 
+class Broadcaster(Protocol):
+    """Pushes one live-update event to every connected page."""
+
+    def broadcast(self, event: DashboardEvent) -> None: ...
+
+
 class ComputeManager:
     """Supervises the figure workers and derives each figure's status.
 
     Args:
         state: The selection, the what-if inputs and the figure store.
-        broadcaster: Object with a ``broadcast(data)`` method for SSE push.
+        broadcaster: Takes each ``DashboardEvent`` through ``broadcast(event)``.
         slots: The job slots, one per figure; a fresh set when omitted.
     """
 
     def __init__(
-        self, state: LatticeState, broadcaster: Any, slots: JobSlots | None = None
+        self, state: LatticeState, broadcaster: Broadcaster, slots: JobSlots | None = None
     ) -> None:
         self._state = state
         self._broadcaster = broadcaster
@@ -128,7 +141,9 @@ class ComputeManager:
         self._keys[job.job] = key
         self._running.add(job.job)
         logger.info("Launching %s worker (job %d)", name, job.job)
-        self._broadcaster.broadcast({"type": "figure_status", "name": name, "status": "computing"})
+        self._broadcaster.broadcast(
+            FigureStatusEvent(type="figure_status", name=name, status="computing")
+        )
         task = asyncio.get_running_loop().create_task(
             self._supervise(job, argv, key, job_path, output_path)
         )
@@ -165,9 +180,10 @@ class ComputeManager:
             self._fail(name, key, f"Worker timed out after {WORKER_DEADLINE_S:.0f} s")
             return
         if exit_.cause is not ExitCause.COMPLETED:
-            self._fail(
-                name, key, f"Worker exited with code {exit_.returncode}: {exit_.stderr_tail}"
-            )
+            error = f"Worker exited with code {exit_.returncode}"
+            if exit_.stderr_tail.strip():
+                error += f": {exit_.stderr_tail}"
+            self._fail(name, key, error)
             return
         if not output_path.is_file():
             self._fail(name, key, "Worker completed but no output file produced")
@@ -176,13 +192,13 @@ class ComputeManager:
         logger.info("%s worker completed successfully", name)
         self._failures.pop(name, None)
         self._state.prune(name)
-        self._broadcaster.broadcast({"type": "figure_ready", "name": name})
+        self._broadcaster.broadcast(FigureReadyEvent(type="figure_ready", name=name))
         if name == "optics":
             # The summary chips come from the optics figure through
             # /api/state, so ask for a state re-read.
-            self._broadcaster.broadcast({"type": "state_updated"})
+            self._broadcaster.broadcast(StateUpdatedEvent(type="state_updated"))
 
     def _fail(self, name: str, key: str, error: str) -> None:
         logger.warning("%s worker failed: %s", name, error)
         self._failures[name] = (key, error)
-        self._broadcaster.broadcast({"type": "figure_error", "name": name, "error": error})
+        self._broadcaster.broadcast(FigureErrorEvent(type="figure_error", name=name, error=error))

@@ -45,14 +45,16 @@ import shutil
 import subprocess
 import urllib.request
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
 from osprey.agent_runner.tool_policy import PASSTHROUGH_TOOLS
-from osprey.interfaces._serving import free_port
 from tests._live import wait_until
 from tests.e2e._dispatch_harness import build_repo, start_worker, terminate
+from tests.e2e._facility_select import repo_view, seeded_readback
+from tests.e2e._worker_record import WORKER_IDENTITY, WorkerRecord, worker_record
 from tests.e2e.provider import E2E_MODEL, e2e_provider
 from tests.e2e.test_dispatch_tutorial import HEALTH_TIMEOUT_SEC
 
@@ -146,21 +148,32 @@ def approval_off_repo(built_repo: Path, tmp_path_factory: pytest.TempPathFactory
 # ---------------------------------------------------------------------------
 
 
-def _start_worker(repo: Path) -> tuple[subprocess.Popen, str]:
-    port = free_port()
-    proc = start_worker(repo, port, token=TOKEN, health_timeout=HEALTH_TIMEOUT_SEC)
+def _start_worker(repo: Path, log: Path, record: WorkerRecord) -> tuple[subprocess.Popen, str]:
+    """A worker on *repo* that records its runs in *record* and reads them back from it."""
+    proc, port = start_worker(
+        repo, log, token=TOKEN, health_timeout=HEALTH_TIMEOUT_SEC, env=record.worker_env()
+    )
     return proc, f"http://127.0.0.1:{port}"
 
 
+@dataclass(frozen=True)
+class Worker:
+    """A running worker and the record it records its runs in."""
+
+    url: str
+    record: WorkerRecord
+
+
 @pytest.fixture
-def worker(request) -> Iterator[str]:
-    """Start a real worker on the repo fixture named by the test param."""
+def worker(request, tmp_path: Path) -> Iterator[Worker]:
+    """Start a real worker, recording into its own record, on the repo fixture named by the param."""
     repo = request.getfixturevalue(request.param)
-    proc, url = _start_worker(repo)
-    try:
-        yield url
-    finally:
-        terminate(proc)
+    with worker_record(tmp_path / "agent_record", repo) as record:
+        proc, url = _start_worker(repo, tmp_path / "worker.log", record)
+        try:
+            yield Worker(url, record)
+        finally:
+            terminate(proc)
 
 
 def _http_json(url: str, payload: dict | None = None) -> dict:
@@ -175,21 +188,44 @@ def _http_json(url: str, payload: dict | None = None) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def dispatch_and_wait(worker_url: str, prompt: str, allowed_tools: list[str]) -> dict:
-    """POST /dispatch and poll until the run leaves 'running'."""
+def dispatch_and_wait(worker: Worker, prompt: str, allowed_tools: list[str]) -> dict:
+    """POST /dispatch, poll until the run leaves 'running', and add its tool calls.
+
+    A run's status names its outcome and how many tool calls it made; the calls
+    themselves are its session's timeline in the record, read here under the
+    worker's own login as ``{"name", "result"}`` per MCP call, subagents' included.
+    """
     accepted = _http_json(
-        f"{worker_url}/dispatch",
+        f"{worker.url}/dispatch",
         {"prompt": prompt, "allowed_tools": allowed_tools, "max_turns": 15},
     )
     run_id = accepted["run_id"]
 
     def finished() -> dict | None:
-        run = _http_json(f"{worker_url}/dispatch/{run_id}")
+        run = _http_json(f"{worker.url}/dispatch/{run_id}")
         return run if run.get("status") not in ("running", "pending") else None
 
-    return wait_until(
+    run = wait_until(
         finished, timeout=RUN_TIMEOUT_SEC, interval=3.0, what=f"dispatch run {run_id} to finish"
     )
+    return {**run, "tool_calls": _recorded_tool_calls(worker.record, run)}
+
+
+def _recorded_tool_calls(record: WorkerRecord, run: dict) -> list[dict]:
+    """Every MCP tool call of *run*'s session, as the record holds it."""
+    from osprey.agent_record.client import RecordClient
+    from osprey.mcp_server import session as session_record
+
+    session = run.get("session_id")
+    assert session, f"the run names no session: {run}"
+    login, _, token = record.login(WORKER_IDENTITY).partition(":")
+    read = session_record.read_timeline(session, client=RecordClient(record.url, login, token))
+    assert read.record == session_record.RECORD_COMPLETE, read.reason
+    return [
+        {"name": event["full_tool_name"], "result": event["result_summary"]}
+        for event in session_record.session_events(read.nodes, session)
+        if event["type"] == "tool_call"
+    ]
 
 
 def _calls(run: dict, prefix: str) -> list[dict]:
@@ -297,19 +333,20 @@ def test_subagent_tools_work_in_settings_stripped_repo(worker):
 
 
 @pytest.mark.parametrize("worker", ["approval_off_repo"], indirect=True)
-def test_approval_hook_allow_does_not_override_worker_deny(worker):
+def test_approval_hook_allow_does_not_override_worker_deny(worker, built_repo):
     """With approval disabled the facility hook would emit an explicit allow
     for mcp__controls__* (documented to override static permission lists, and
     CLI aggregation is not deny-dominates). Under OSPREY_DISPATCH_RUN=1 it
     emits no decision, so the worker hook's deny must stand for a
     trigger-excluded controls tool."""
+    channel = seeded_readback(repo_view(built_repo))
     run = dispatch_and_wait(
         worker,
         # Fully specified so the agent has no reason to ask a clarifying
         # question instead of attempting the tool call (observed flake: with no
         # time range the agent asked "what period?" and never touched the tool,
         # so the deny this test exists to observe never happened).
-        "Call the archiver_read tool NOW for channel SR:BEAM:CURRENT with "
+        f"Call the archiver_read tool NOW for channel {channel} with "
         "start='2h ago' and end='now'. Do not ask any clarifying questions; "
         "attempt the tool call immediately and report its result.",
         allowed_tools=["mcp__controls__channel_read"],

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import io
 import json
+from pathlib import Path
 
 import pytest
 
@@ -245,7 +246,7 @@ def test_write_snapshot_roundtrips_and_leaves_no_temp_file(temp_snapshot_dir):
     state = {"tiles": ["bluesky"], "active": "bluesky", "visible": ["bluesky"]}
 
     assert panels._write_snapshot(path, state) is True
-    assert json.loads(open(path).read()) == state
+    assert json.loads(Path(path).read_text()) == state
     assert list(temp_snapshot_dir.iterdir()) == [temp_snapshot_dir / "osprey-workspace-sess-1.json"]
 
 
@@ -254,7 +255,7 @@ def test_write_snapshot_overwrites_previous_content():
     path = panels._snapshot_path("sess-1")
     panels._write_snapshot(path, {"tiles": ["old"], "active": "old", "visible": ["old"]})
     panels._write_snapshot(path, {"tiles": ["new"], "active": "new", "visible": ["new"]})
-    assert json.loads(open(path).read())["tiles"] == ["new"]
+    assert json.loads(Path(path).read_text())["tiles"] == ["new"]
 
 
 def test_write_snapshot_writes_nothing_without_the_file_helper(temp_snapshot_dir, monkeypatch):
@@ -489,7 +490,7 @@ def test_main_keeps_surface_line_when_web_terminal_down(monkeypatch, capsys):
 
 
 @pytest.mark.parametrize("stdin", ["", "{nope", "[]"], ids=["empty", "invalid-json", "wrong-shape"])
-def test_malformed_stdin_fails_open(hook_runner_raw, monkeypatch, stdin):
+def test_malformed_stdin_fails_open(reserve_port, hook_runner_raw, monkeypatch, stdin):
     """Stdin the hook cannot use still leaves the session start unblocked.
 
     SessionStart hands the hook a JSON payload it never reads. Run as a real
@@ -498,9 +499,7 @@ def test_malformed_stdin_fails_open(hook_runner_raw, monkeypatch, stdin):
     points at a port nobody is listening on so the result does not depend on
     whether a web terminal happens to be running on the developer's machine.
     """
-    from osprey.interfaces._serving import free_port
-
-    monkeypatch.setenv("OSPREY_WEB_PORT", str(free_port()))
+    monkeypatch.setenv("OSPREY_WEB_PORT", str(reserve_port()))
 
     returncode, stdout, stderr = hook_runner_raw(
         "osprey_panels_context.py",

@@ -54,8 +54,6 @@ class TestPolicySets:
     def test_config_dependent_names(self):
         assert CONFIG_DEPENDENT == frozenset(
             {
-                "telemetry_store",
-                "telemetry_gateway",
                 "providers",
                 "claude_cli_pinned",
                 "model_chat",

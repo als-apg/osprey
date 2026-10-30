@@ -86,9 +86,9 @@ import pytest
 import yaml
 
 from osprey.deployment.compose_generator import ensure_control_target_dir, resolve_project_name
-from osprey.interfaces._serving import free_port
 from osprey_connectors import posture_store
 from osprey_connectors.types import TARGET_VA
+from osprey_connectors_tests._harness._ports import hold_ports
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import (
     container_logs,
@@ -132,8 +132,8 @@ SCENARIO_VISIBLE_SEC = 30.0
 SP_ECHO_BAND = (280.0, 360.0)
 
 
-# Channel Access port the Virtual Accelerator serves on. An ephemeral free
-# port, not 5064: this module already plumbs the one value everywhere it
+# Channel Access port the Virtual Accelerator serves on. A port reserved for
+# the process, not 5064: this module already plumbs the one value everywhere it
 # matters (`--set virtual_accelerator.port=` at init, and the name-server
 # gateway below), and 5064 on a dev host belongs to whatever real deployment
 # the operator is running — `port_layout.CA_DEFAULT_PORT` keeps VA instance 1
@@ -142,8 +142,9 @@ SP_ECHO_BAND = (280.0, 360.0)
 
 
 # import-time required because VA_CA_PORT seeds module-level constants
-# (_VA_GATEWAY, the fixture's --set args) built while the module imports.
-VA_CA_PORT = free_port()
+# (_VA_GATEWAY, the fixture's --set args) built while the module imports. The
+# reservation is held until the process exits.
+(VA_CA_PORT,) = hold_ports(1)
 # The deployment repo's directory name IS the deployment's name; the compose
 # templates render each service's container_name AND its locally-built image as
 # ``<project>-<service>`` (services/*/docker-compose.yml.j2), so derive both
@@ -554,13 +555,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
 
     # Force fresh --dev builds so the deployed containers run CURRENT source
     # (osprey up does not pass --build to compose, so it would otherwise reuse a
-    # stale cached image). Exact-named images only.
-    # E2E_REUSE_IMAGES=1 skips this (dev-only: fast local iteration on the test
-    # itself when the osprey source is unchanged; never set it in CI, where a
-    # source change must always rebuild). The first-time native VA build is slow.
-    if not os.environ.get("E2E_REUSE_IMAGES"):
-        subprocess.run(["docker", "rmi", "-f", VA_IMAGE], capture_output=True, text=True)
-        subprocess.run(["docker", "rmi", "-f", BRIDGE_IMAGE], capture_output=True, text=True)
+    # stale cached image). The first-time native VA build is slow.
+    _orm_stack.force_image_rebuild(VA_IMAGE, BRIDGE_IMAGE)
 
     try:
         up = run_command(
@@ -887,7 +883,7 @@ def test_p2_full_manifest_liveness(deployed_stack: DeployedStack) -> None:
     # client pointed at this stack's port belongs in a process of its own (see
     # tests/va/e2e/conftest.py's `_readiness_pv_served`).
     # The sweep script defaults EPICS_CA_NAME_SERVERS to localhost:5064; this
-    # stack serves CA on the module's ephemeral VA_CA_PORT, so the subprocess
+    # stack serves CA on the module's reserved VA_CA_PORT, so the subprocess
     # must be told explicitly (the in-process connectors get it via
     # _VA_GATEWAY instead). The view is the deployed render's, named
     # absolutely: the script's default is relative to its working directory.

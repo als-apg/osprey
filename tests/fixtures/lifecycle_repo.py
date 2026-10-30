@@ -19,7 +19,7 @@ The layout is the four-zone repo — one directory, four kinds of content::
     │  ═ OUTPUT — ignored, disposable ════════════════
     ├── build/                     (never materialized here: a build makes it)
     │  ═ STATE — ignored, durable ════════════════════
-    └── var/agent_data/  var/audit/
+    └── var/agent_data/
 
 ``build/`` is deliberately absent. It is 100% derived, so the source repo the
 exemplar models is the repo *before* any build has run — which is also the
@@ -68,11 +68,12 @@ sentinels and expanded at materialization, so a byte-comparison against a live
 ``str.format``/``%`` because the YAML carries literal ``${VAR:-default}`` shell
 expansions.
 
-``providers.yml`` and ``triggers.yml`` are the fourth and fifth things not
-frozen. Init copies the packaged provider catalog and the packaged tutorial
-trigger file into the repo verbatim, so the fixture reads both rather than
-holding a second copy of either; see :func:`packaged_providers_yml` and
-:func:`packaged_tutorial_triggers_yml`.
+``providers.yml``, ``triggers.yml`` and ``data/README.md`` are the fourth,
+fifth and sixth things not frozen. Init copies the packaged provider catalog,
+the packaged tutorial trigger file and the preset's data README into the repo
+verbatim, so the fixture reads all three rather than holding a second copy of
+any; see :func:`packaged_providers_yml`, :func:`packaged_tutorial_triggers_yml`
+and :func:`packaged_data_readme_md`.
 
 Usage::
 
@@ -93,6 +94,7 @@ import re
 import subprocess
 from collections.abc import Callable, Mapping
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -134,7 +136,7 @@ SHARED_APPS: tuple[str, ...] = ("logbook", "knowledge", "channel-finder")
 
 #: Durable state zone, created empty. A build recreates these when absent
 #: (FR-2), so a fresh clone and a reset repo look identical here.
-STATE_DIRS: tuple[str, ...] = ("var/agent_data", "var/audit")
+STATE_DIRS: tuple[str, ...] = ("var/agent_data",)
 
 #: Paths the shipped ``.gitignore`` must keep out of git, anchored to the repo
 #: root. Unanchored spellings are the foot-gun this list exists to pin: they
@@ -345,6 +347,19 @@ va_archiver:
   # your machine that always changes; delete the key for no check at all.
   freshness_channel: SR:DIAG:DCCT:01:CURRENT:RB
 
+# ── Agent record ─────────────────────────────────────────────────────────────
+# Every prompt, answer, tool call and decision, kept once. `clickhouse` keeps
+# it in a store container that `osprey up` runs beside the agent-record service.
+agent_record:
+  backend: clickhouse
+  # Days an entry is kept after it arrives. The history page reaches as far
+  # back, and the archive keeps every closed day for good.
+  retention_days: 90
+  # Who may read every session, beyond their own: the deployment admin on the
+  # roster below. `kinds:` and `days_back:` narrow a reader to less.
+  readers:
+    - name: carol
+
 # ── Everything else ──────────────────────────────────────────────────────────
 # One dotted `key.path` per line. Never write a nested block here: it would
 # replace the whole subtree and silently drop the keys beside it.
@@ -358,7 +373,8 @@ va_archiver:
 # `provider:` / `model:` above), the channel-finder pipeline block (from
 # `channel_finder_mode:`), the panel selection (from `web_panels:`), every
 # host port, and everything the `bluesky:`, `virtual_accelerator:`,
-# `va_archiver:`, `dispatch:` and `mcp_servers:` sections above stand for.
+# `va_archiver:`, `agent_record:`, `dispatch:` and `mcp_servers:` sections
+# above stand for.
 config:
   # ── Facility ───────────────────────────────────────────────────────────────
   # Your facility's own registry module — the file that registers its
@@ -661,20 +677,11 @@ config:
   approval.tools.register_panel: always
 
   # ── Hook observability ─────────────────────────────────────────────────────
-  # On here. Every hook call logs one line to stderr and appends to
-  # .claude/hooks/hook_debug.jsonl (never rotated: prune it yourself), which
-  # is what the web terminal's Safety panel hook feed reads. OSPREY_HOOK_DEBUG
+  # On here. Every hook call logs one line to stderr and records it
+  # as a hook debug entry on the agent record, which is what the web
+  # terminal's Safety panel hook feed reads. OSPREY_HOOK_DEBUG
   # in the environment forces it on regardless of this key.
   hooks.debug: true
-
-  # ── Full tool-call record ──────────────────────────────────────────────────
-  # On here. Every osprey tool call — reads included — is written whole to
-  # var/audit/<identity>/tool_call.jsonl and sent to the telemetry store as
-  # one log line: arguments, result, control target, approval answer. A
-  # payload over the bound below is stored as an artifact and recorded as its
-  # size and sha256. The value-free audit files are unchanged either way.
-  audit.tool_call.enabled: true
-  audit.tool_call.max_inline_bytes: 262144
 
   # ── ARIEL logbook search ───────────────────────────────────────────────────
   # No `ariel.database.uri`: the DSN is derived from `services.postgresql.*`
@@ -775,8 +782,9 @@ config:
   # fallback a keyword search runs when nothing matches exactly. Lower accepts
   # looser spellings.
   ariel.search_modules.keyword.settings.fuzzy_threshold: 0.3
-  # Semantic search over pgvector embeddings. Degrades to keyword-only when
-  # Ollama or pgvector is unavailable, and says so.
+  # Semantic search over pgvector embeddings. An embedding provider that is
+  # down fails semantic queries with a diagnostic; a missing embedding table is
+  # refused with the fix.
   ariel.search_modules.semantic.enabled: true
   # Embedding provider (an entry in providers.yml) and model.
   ariel.search_modules.semantic.provider: ollama
@@ -929,53 +937,6 @@ config:
   # claude_code.servers.python.enabled: false
   # claude_code.agents.logbook-search.enabled: false
 
-  # ── Telemetry ──────────────────────────────────────────────────────────────
-  # The agent emits OTLP logs, metrics and traces to the telemetry gateway this
-  # deployment runs, which stamps each record with its sender and writes it to
-  # the telemetry store (`services.telemetry_store.*` below). On by default: the
-  # harness already records every prompt and API body to disk, so this adds no
-  # exposure, only a queryable local store you own.
-  claude_code.telemetry.enabled: true
-  # gateway | generic
-  claude_code.telemetry.backend: gateway
-  # http/protobuf | http/json. The gateway receives HTTP only; grpc is for
-  # backend generic, with an explicit `claude_code.telemetry.endpoint`.
-  claude_code.telemetry.protocol: http/protobuf
-  # Signals to export, all three unless listed. Drop traces for a collector
-  # that takes no traces; built-in tool output rides traces and goes with them.
-  # claude_code.telemetry.signals: [metrics, logs]
-  # No endpoint key: with backend gateway it is derived per network
-  # context (the gateway's published port on the host, or its own listen port
-  # inside the deploy network), so the in-container dispatch worker does not
-  # emit to its own loopback.
-  # For a collector this deployment does not run, name it and the variable
-  # holding its bearer token; the variable goes in this repo's .env.
-  # claude_code.telemetry.backend: generic
-  # claude_code.telemetry.endpoint: https://otel-collector.example.org:4318
-  # claude_code.telemetry.auth.token_env: OTLP_COLLECTOR_TOKEN
-  # No credential key either: every sender logs in to the gateway with a
-  # login `osprey build` mints into a file of its own, outside the .env chain.
-  # Content gates, all on. The store captures full transcripts; a named
-  # reader, and anyone holding the store's admin credential on this host, can
-  # read everything. Set any gate to
-  # false to keep that category out of the emitted telemetry.
-  claude_code.telemetry.log_user_prompts: true
-  claude_code.telemetry.log_assistant_responses: true
-  claude_code.telemetry.log_tool_details: true
-  # Raw provider request and response bodies.
-  claude_code.telemetry.log_raw_api_bodies: true
-  # Built-in tool output as trace span events: what Read and Bash returned,
-  # and, with log_tool_details, what Edit and Write changed.
-  claude_code.telemetry.log_tool_content: true
-  # Longest content value one record carries, in UTF-16 code units, before
-  # Claude Code cuts it and marks it truncated. Its own limit is 61440.
-  claude_code.telemetry.content_max_length: 262144
-
-  # ── Transcripts ────────────────────────────────────────────────────────────
-  # Days Claude Code keeps a session transcript before deleting it at startup
-  # (its own default is 30). Every terminal and the dispatch worker read it.
-  claude_code.transcripts.retention_days: 3650
-
   # ── Services ───────────────────────────────────────────────────────────────
   # Containerized companion services. Declare one as `services.<name>.*` and
   # add its name to `deployed_services` below to launch it with `osprey up`.
@@ -993,19 +954,6 @@ config:
   # container and the agent's ARIEL DSN, which is derived from this block.
   services.postgresql.database_name: ariel
   services.postgresql.username: ariel
-  # The telemetry store and the gateway the agent emits to (see
-  # `claude_code.telemetry.*` above). Compose directories, under build/.
-  services.telemetry_store.path: ./services/telemetry_store
-  services.telemetry_gateway.path: ./services/telemetry_gateway
-  # Growth bound: the store drops rows older than N days. A named volume has
-  # no size cap, so age is the size knob.
-  services.telemetry_store.retention_days: 14
-  # Who may query the store with SQL: the deployment admin on the roster below.
-  # `osprey up` mints each reader's key into `.env.telemetry-reader.<name>`
-  # (0600) and prints the file and the query page, never the key. Delete the
-  # file and rerun `osprey up` to rotate it; drop the entry to withdraw it.
-  services.telemetry_store.readers:
-    - name: carol
   # qmd, the semantic-search sidecar. It indexes the facility-knowledge bundle
   # and the ARIEL markdown mirror that `ariel.enhancement_modules.qmd_export`
   # writes, and answers ranked KNOWLEDGE search and the `hybrid` logbook mode
@@ -1061,8 +1009,6 @@ config:
   # together with their `services.<name>.*` keys above: remove both or neither.
   deployed_services:
     - postgresql
-    - telemetry_store
-    - telemetry_gateway
     - qmd
     - graphdb
   # Host interface the services publish on. 127.0.0.1 keeps every port
@@ -1187,9 +1133,6 @@ config:
   # over `owner.email` above, on the same grounds as `github_repo`, and
   # commented for the same reason.
   # web.feedback.email: controls@example.org
-  # Ceiling in bytes on the on-disk feedback store (256 MB). Above it the
-  # oldest saved session contexts are deleted; submission headers are kept.
-  web.feedback.max_store_bytes: 268435456
   # Channel-name typeahead in the web panels: the build snapshots the names in
   # this deployment's channel-finder database next to the generated config, so
   # a form field can complete what an operator types. No control-system
@@ -1397,8 +1340,8 @@ config:
   simulation.default_scenarios: [rf-thermal]
 
 # ── Record archive ─────────────────────────────────────────────────────────
-# Copies transcripts, dispatch runs, plan-queue history, the audit ledger and a
-# day of telemetry into var/archive/ once a day. Delete this block to turn it off.
+# Copies artifacts and plan-queue history into var/archive/ once a day, beside
+# the record's own export of each closed day. Delete this block to turn it off.
 services:
   archive:
     template: osprey.archive
@@ -2139,6 +2082,29 @@ def packaged_tutorial_triggers_yml() -> str:
 TRIGGERS_YML = packaged_tutorial_triggers_yml()
 
 
+def packaged_data_readme_md() -> str:
+    """The preset's packaged ``data/README.md``, which ``osprey init`` copies verbatim.
+
+    Read rather than frozen, for the same reason the provider catalog and the
+    trigger file are: the package owns this file's content, so a copy here
+    would prove only that someone remembered to update two places. What the
+    byte comparison downstream is for is that init copies the README through
+    unchanged, and that is what reading it here asserts.
+
+    Resolved from the preset's packaged composition, the tree ``osprey init``
+    copies into ``data/``, so the exemplar and the emission it is compared
+    against read one file.
+    """
+    from tests._preset_data import preset_data
+
+    return (preset_data("control_assistant").app_data / "README.md").read_text(encoding="utf-8")
+
+
+#: The ``data/README.md`` the ``control-assistant`` preset ships. Resolved at
+#: import, because :data:`BASE_SOURCE_FILES` is built at import.
+DATA_README_MD = packaged_data_readme_md()
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # SOURCE zone — git, secrets, README
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2327,7 +2293,7 @@ in `profile.yml`, not the folder name.
 | Your settings | `profile.yml`, `data/`, `tiers/`, `apps/` | yes | yes |
 | Your API keys | `.env` | no | yes |
 | Generated files | `build/` | no | no, safe to delete |
-| The agent's memory and audit log | `var/agent_data/`, `var/audit/` | no | yes |
+| The agent's memory and record | `var/agent_data/`, `var/agent_record/` | no | yes |
 
 In full, the first row is: `profile.yml`, `providers.yml`, `data/`, `tiers/`, `apps/`, `triggers.yml`, `web-terminal-context/`, `.env.example`, `rules/`, `.gitignore`, `.env.shared`, `README.md`, `ci-extra.yml`, `.gitlab-ci.yml`, `scripts/verify.sh`.
 
@@ -2406,8 +2372,8 @@ which nothing ever overwrites.
 osprey reset          # stops everything, then deletes containers, agent data and build/
 ```
 
-`reset` keeps `var/audit/` and your API keys. `osprey reset --purge-audit`
-deletes the audit log as well; that plus deleting this folder removes it all.
+`reset` keeps the agent record and your API keys. `osprey reset --purge-audit`
+deletes the record as well; that plus deleting this folder removes it all.
 
 ## Backups
 
@@ -2650,13 +2616,17 @@ VERIFY_SH = """\
 #   ./scripts/verify.sh containers         # one group
 #   ./scripts/verify.sh --strict           # exit 1 if anything is flagged
 #
+# The containers group lists the compose project `osprey up` recorded in
+# var/deployment.json, with the runtime it recorded. Before the first
+# `osprey up` there is no record: the script says so and checks nothing.
+#
 # Exits 0 unless run with --strict. A container that is not running or not
 # healthy, and a probe that gets no answer, is flagged: it tells an operator
 # where to look, and is never by itself the reason a deploy is reported as
 # failed. --strict exits 1 when anything is flagged, for a job that should fail
 # on it. A group or option the script does not have exits 2.
 #
-# Needs curl, and python3 to read the container runtime's JSON.
+# Needs curl, and python3 to read the record and the container runtime's JSON.
 #
 # No `set -e`: one probe timing out must not skip the ones after it.
 # =============================================================================
@@ -2712,55 +2682,22 @@ sys.exit(s.connect_ex(('$host', $port)))" 2>/dev/null; then
 # The repo root: this script sits in scripts/ directly under it.
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# This deployment's compose project, named the way `osprey up` names it:
-# COMPOSE_PROJECT_NAME when the caller pins it, else project_name in
-# build/config.yml. The built config is the source; the repo directory's
-# name is only a fallback for a repo that has no project_name there. Either is
-# put in compose's alphabet — lower case, [a-z0-9_-], no leading or trailing _ or -.
-compose_project() {
-  if [ -n "${COMPOSE_PROJECT_NAME:-}" ]; then
-    printf '%s' "$COMPOSE_PROJECT_NAME"
-    return
-  fi
-  local name=""
-  if [ -f "$REPO_ROOT/build/config.yml" ]; then
-    name="$(sed -n "s/^project_name:[[:space:]]*[\\"']\\{0,1\\}\\([A-Za-z0-9_.-]*\\).*/\\1/p" \\
-      "$REPO_ROOT/build/config.yml" | head -n 1)"
-  fi
-  if [ -z "$name" ]; then
-    name="$(basename "$REPO_ROOT")"
-  fi
-  name="$(printf '%s' "$name" | LC_ALL=C tr '[:upper:]' '[:lower:]' \\
-    | LC_ALL=C tr -cd 'a-z0-9_-' | sed -e 's/^[-_]*//' -e 's/[-_]*$//')"
-  printf '%s' "${name:-unnamed-project}"
-}
-
-# The runtime `osprey up` uses: CONTAINER_RUNTIME, then container_runtime in
-# build/config.yml, then docker before podman — the first whose compose
-# and daemon both answer. A `docker` that is podman's Docker-CLI emulation
-# (podman-docker) is passed over, as `osprey up` passes over it.
-container_runtime() {
-  local pinned="${CONTAINER_RUNTIME:-}" runtime
-  if [ -z "$pinned" ] && [ -f "$REPO_ROOT/build/config.yml" ]; then
-    pinned="$(sed -n "s/^container_runtime:[[:space:]]*[\\"']\\{0,1\\}\\([A-Za-z]*\\).*/\\1/p" \\
-      "$REPO_ROOT/build/config.yml")"
-  fi
-  case "$(printf '%s' "$pinned" | LC_ALL=C tr '[:upper:]' '[:lower:]')" in
-    docker) printf docker; return ;;
-    podman) printf podman; return ;;
-  esac
-  for runtime in docker podman; do
-    if [ "$runtime" = docker ] && command -v docker >/dev/null 2>&1 \\
-      && docker --version 2>&1 \\
-        | grep -qi -e '^podman version' -e 'emulate docker cli using podman'; then
-      continue
-    fi
-    if command -v "$runtime" >/dev/null 2>&1 \\
-      && "$runtime" compose version >/dev/null 2>&1 && "$runtime" ps >/dev/null 2>&1; then
-      printf '%s' "$runtime"
-      return
-    fi
-  done
+# What `osprey up` recorded it drove, as one "runtime<TAB>project" line. No
+# output and status 0 when there is no record; no output and status 3 when the
+# file is there but is not a record.
+read_record() {
+  python3 -c '
+import json, os, sys
+path = sys.argv[1]
+if not os.path.lexists(path):
+    sys.exit(0)
+try:
+    with open(path, encoding="utf-8") as handle:
+        record = json.load(handle)
+    print("%s\\t%s" % (record["runtime"], record["compose_project"]))
+except (OSError, ValueError, KeyError, TypeError):
+    sys.exit(3)
+' "$REPO_ROOT/var/deployment.json"
 }
 
 # Every container of the project as JSON, stopped ones included. podman-compose's
@@ -2801,17 +2738,11 @@ for row in sorted(rows):
     print("\\t".join(row))
 '
 
-# One line per container; a container not running, or running unhealthy, is
-# flagged. The loop reads a here-string, not a pipe, so the count survives it.
+# One line per container of the recorded project, listed with the recorded
+# runtime; a container not running, or running unhealthy, is flagged. The loop
+# reads a here-string, not a pipe, so the count survives it.
 check_containers() {
-  local runtime project listing rows name state health
-  runtime="$(container_runtime)"
-  if [ -z "$runtime" ]; then
-    printf '  %s✗%s no container runtime answers (docker, podman)\\n' "$RED" "$RESET"
-    FLAGGED=$((FLAGGED + 1))
-    return
-  fi
-  project="$(compose_project)"
+  local runtime="$1" project="$2" listing rows name state health
   if ! listing="$(list_containers "$runtime" "$project")" \\
     || ! rows="$(printf '%s' "$listing" | python3 -c "$PS_ROWS")"; then
     printf '  %s✗%s could not list project %s with %s\\n' "$RED" "$RESET" "$project" "$runtime"
@@ -2840,19 +2771,36 @@ check_containers() {
 
 wants() { case " $PROBE_GROUPS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
+# The deployment every group checks is the one the record names. With no record,
+# or one that cannot be read, that is the one thing flagged and no group runs.
+RECORD="$(read_record)"
+RECORD_STATUS=$?
+RUNTIME="${RECORD%%$'\\t'*}"
+PROJECT="${RECORD#*$'\\t'}"
+if [ "$RECORD_STATUS" -eq 0 ] && [ -z "$RECORD" ]; then
+  printf '\\n  %s✗%s nothing has been deployed from this repo yet — run osprey up\\n' \\
+    "$RED" "$RESET"
+  FLAGGED=1
+  PROBE_GROUPS=""
+elif [ "$RECORD_STATUS" -ne 0 ] || [ -z "$PROJECT" ] \\
+  || { [ "$RUNTIME" != docker ] && [ "$RUNTIME" != podman ]; }; then
+  printf '\\n  %s✗%s var/deployment.json is unreadable — run osprey up to rewrite it\\n' \\
+    "$RED" "$RESET"
+  FLAGGED=1
+  PROBE_GROUPS=""
+fi
+
 # ── Containers ───────────────────────────────────────────────────────────────
-# Every container of this deployment's compose project, stopped ones included.
+# Every container of the recorded compose project, stopped ones included.
 if wants containers; then
   printf '\\n%s── Containers ──%s\\n\\n' "$BOLD" "$RESET"
-  check_containers
+  check_containers "$RUNTIME" "$PROJECT"
 fi
 
 # ── Deployed services ────────────────────────────────────────────────────────
 if wants services; then
   printf '\\n%s── Services ──%s\\n\\n' "$BOLD" "$RESET"
-  probe_tcp  'virtual-accelerator: Channel Access on 5064'  localhost 5064
-  probe_tcp  'telemetry-gateway: OTLP receiver on 10051'    localhost 10051
-  probe_http 'telemetry-store: query interface on 10804'    http://localhost:10804/ping
+  probe_tcp  'virtual-accelerator: Channel Access on 5064' localhost 5064
 fi
 
 # ── Web tier ─────────────────────────────────────────────────────────────────
@@ -2893,108 +2841,11 @@ exit 0
 # ─────────────────────────────────────────────────────────────────────────────
 # SOURCE zone — data tree
 # ─────────────────────────────────────────────────────────────────────────────
-# Hand-authored and deliberately small. The packaged bundle a real `init`
-# copies here is ~2 MB across ~60 files; a per-test tmp_path materialization
-# wants the *shape* — every path the profile and the build reference — not the
-# volume. Each file below is valid content of its real kind.
-
-DATA_README_MD = """\
-# Project Data Directory
-
-Everything the agent reads from disk lives here: channel databases, benchmark
-query sets, and the facility's sources and scenarios. These are your files —
-edit them freely.
-
-## Directory Structure
-
-The channel-finder indexes are not here: each is a view the build writes from
-`facility/` into the render. As shipped by the preset:
-
-```
-data/
-├── channel_databases/
-│   └── examples/                         # Hierarchy-shape examples
-├── benchmarks/
-│   └── cross_paradigm/queries/           # Benchmark query sources, one per channel-finder pipeline
-├── ariel/
-│   ├── vocabulary.yml                    # Logbook shorthand -> the words entries use
-│   └── README.md                         # Vocabulary format walkthrough
-├── facility/                              # The facility's authored sources
-│   ├── knowledge/                         # Markdown knowledge bundle
-│   └── scenarios/                         # Simulation scenarios
-```
-
-`osprey build` copies the benchmark query file matching `channel_finder_mode`
-to `benchmarks/queries.json`: `in_context_queries.json` for `in_context`,
-`tree_queries.json` for every other mode. Each channel-finder index is the view
-the build writes at its own path; nothing is flattened. The render drops the
-`benchmarks/cross_paradigm/` subtree.
-
-## Database Paradigms
-
-`channel_finder_mode` in the build profile picks one of three ways to organize
-the same channel namespace as a file; all three are views of the same
-facility records. The mode's fourth value, `graph`, is not one of them: it
-answers from the facility knowledge graph rather than a channel database. Its
-corpus is `data/graph/facility.ttl`, the graph view the build writes from
-`facility/`, seeded into the `services.graphdb` store.
-
-### `in_context` — flat structure
-
-Best for fewer than about 1,000 channels. The whole database fits in the
-agent's context, so lookup is direct semantic search over a flat list of
-channels.
-
-### `hierarchical` — nested structure
-
-Best for more than about 1,000 channels. The agent navigates the hierarchy
-level by level instead of loading everything at once: the facility's place
-words by depth, then class, device and leaf.
-
-### `middle_layer` — functional structure
-
-An MML-organized functional hierarchy: System / Family / Field / Subfield.
-Navigation mirrors the way operators reason about devices rather than the way
-the control system names them.
-
-## Database Tools
-
-Database tools are `osprey channel-finder` CLI subcommands. Each reads the
-active database from `config.yml` unless you pass `--database`.
-
-Validate database format and structure:
-
-```bash
-osprey channel-finder validate
-osprey channel-finder validate --database data/channel_finder/hierarchical.json
-```
-
-Preview database contents:
-
-```bash
-osprey channel-finder preview
-osprey channel-finder preview --database data/channel_finder/hierarchical.json
-```
-
-## Benchmarks
-
-Evaluate channel-finder accuracy against the query set in
-`data/benchmarks/queries.json`:
-
-```bash
-# Full query set
-osprey channel-finder benchmark --model anthropic/claude-haiku-4-5
-
-# A slice of the query set
-osprey channel-finder benchmark --model anthropic/claude-haiku-4-5 --queries 0:10
-
-# Repeat each query to measure run-to-run variance
-osprey channel-finder benchmark --model anthropic/claude-haiku-4-5 --runs-per-query 3
-```
-
-Results are written to `data/benchmarks/results/` as JSON reports carrying
-per-query outcomes, accuracy, timing, and cost.
-"""
+# Hand-authored and deliberately small, except ``data/README.md``, which is
+# read from the package (:func:`packaged_data_readme_md`). The packaged bundle a
+# real `init` copies here is ~2 MB across ~60 files; a per-test tmp_path
+# materialization wants the *shape* — every path the profile and the build
+# reference — not the volume. Each file below is valid content of its real kind.
 
 BENCHMARK_QUERIES_JSON = """\
 [
@@ -3282,12 +3133,8 @@ def preserved_environ():
     all. Wrap every in-process ``osprey build`` (or config load) of a repo that
     carries a ``.env`` in this guard.
     """
-    snapshot = os.environ.copy()
-    try:
+    with patch.dict(os.environ):
         yield
-    finally:
-        os.environ.clear()
-        os.environ.update(snapshot)
 
 
 def build_exemplar_repo(
@@ -3373,6 +3220,7 @@ def _git_init(root: Path) -> None:
             env=env,
             check=True,
             capture_output=True,
+            timeout=60,
         )
 
     run("init", "--quiet", "--initial-branch", "main")

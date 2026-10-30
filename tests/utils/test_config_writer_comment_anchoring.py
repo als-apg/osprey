@@ -40,14 +40,14 @@ web:
 services:
   postgresql:
     path: ./services/postgresql
-  telemetry_store:
-    path: ./services/telemetry_store
-    port: 10804         # Host port
+  qmd:
+    path: ./services/qmd
+    port: 10060         # Host port
 
 # Services to deploy with `osprey up`
 deployed_services:
   - postgresql
-  - telemetry_store
+  - qmd
 
 # ============================================================
 # SAFETY CONTROLS
@@ -77,8 +77,7 @@ def _line_no(text: str, needle: str) -> int:
 
 def _load(path):
     yaml = YAML(typ="safe")
-    with open(path, encoding="utf-8") as fh:
-        return yaml.load(fh)
+    return yaml.load(path)
 
 
 # ---------------------------------------------------------------------------
@@ -95,15 +94,14 @@ class TestAnchoredAppend:
         anchored_append(config["deployed_services"], "virtual_accelerator")
         anchored_append(config["deployed_services"], "bluesky")
 
-        with open(path, "w", encoding="utf-8") as fh:
-            yaml.dump(config, fh)
+        yaml.dump(config, path)
         text = path.read_text(encoding="utf-8")
 
         assert _line_no(text, "- bluesky") < _line_no(text, "# SAFETY CONTROLS")
         assert _line_no(text, "- virtual_accelerator") < _line_no(text, "- bluesky")
         assert _load(path)["deployed_services"] == [
             "postgresql",
-            "telemetry_store",
+            "qmd",
             "virtual_accelerator",
             "bluesky",
         ]
@@ -126,14 +124,13 @@ class TestAnchoredPut:
             {"path": "./services/virtual_accelerator", "port": 5064},
         )
 
-        with open(path, "w", encoding="utf-8") as fh:
-            yaml.dump(config, fh)
+        yaml.dump(config, path)
         text = path.read_text(encoding="utf-8")
 
         # New block sits under services:, before the deployed_services comment.
         assert _line_no(text, "virtual_accelerator:") < _line_no(text, "# Services to deploy")
         # The inline comment on the previous last entry survives in place.
-        assert "port: 10804         # Host port" in text
+        assert "port: 10060         # Host port" in text
         assert _load(path)["services"]["virtual_accelerator"] == {
             "path": "./services/virtual_accelerator",
             "port": 5064,
@@ -146,8 +143,7 @@ class TestAnchoredPut:
 
         anchored_put(config["services"], "va", {"port": 5064})
 
-        with open(path, "w", encoding="utf-8") as fh:
-            yaml.dump(config, fh)
+        yaml.dump(config, path)
         lines = path.read_text(encoding="utf-8").splitlines()
 
         comment_line = _line_no("\n".join(lines), "# Services to deploy")
@@ -160,8 +156,7 @@ class TestAnchoredPut:
 
         anchored_put(config["services"], "postgresql", {"path": "./services/postgresql"})
 
-        with open(path, "w", encoding="utf-8") as fh:
-            yaml.dump(config, fh)
+        yaml.dump(config, path)
         text = path.read_text(encoding="utf-8")
 
         assert _line_no(text, "# Services to deploy") < _line_no(text, "deployed_services:")
@@ -178,8 +173,7 @@ class TestAnchoredPut:
             {"url": "http://localhost:8020", "path": "/dashboard"},
         )
 
-        with open(path, "w", encoding="utf-8") as fh:
-            yaml.dump(config, fh)
+        yaml.dump(config, path)
         text = path.read_text(encoding="utf-8")
 
         assert _line_no(text, "events:") < _line_no(text, "# trailing panel docs")

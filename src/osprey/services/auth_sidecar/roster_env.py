@@ -35,7 +35,7 @@ always is.
 
 
 HISTORY_ORIGIN_VAR = "OSPREY_AUTH_HISTORY_ORIGIN"
-"""The readers' origin, ``scheme://host[:port]``, where the history page lives.
+"""The origin, ``scheme://host[:port]``, where the history page lives.
 
 A login may return the browser to an absolute URL only under this origin's
 ``/history/`` path; every other return-to stays a same-origin path.
@@ -51,11 +51,7 @@ ROLE_HISTORY_VAR_PREFIX = "OSPREY_AUTH_ROLE_HISTORY_"
 without the marker grants nothing beyond its holder's own sessions."""
 
 READERS_VAR = "OSPREY_AUTH_READERS"
-"""Comma-separated name of every configured telemetry reader."""
-
-READER_TABLES_VAR_PREFIX = "OSPREY_AUTH_READER_TABLES_"
-"""Stem of a reader's comma-separated table list, completed by
-:func:`env_var_suffix` of the reader name."""
+"""Comma-separated name of every configured agent-record reader."""
 
 READER_SUBJECT_VAR_PREFIX = "OSPREY_AUTH_READER_SUBJECT_"
 """Stem of an external reader's IdP identity, completed by :func:`env_var_suffix`

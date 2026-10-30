@@ -25,6 +25,7 @@ from osprey_connectors_tests._harness import (
     _env_scope_guard,
     _live_threads,
     _repo_cleanliness,
+    _run_temp,
     ci_diagnostics,
 )
 from osprey_connectors_tests._harness._env_scope_guard import restore_module_environment
@@ -236,21 +237,16 @@ def session_posture_leak_guard(monkeypatch):
 
 _REAL_DEPLOYMENT_LANES = ("tests/e2e/", "tests/va/e2e/")
 
-#: The lane that asserts where ``audit_dir()`` resolves to, rather than writing
-#: through it. :func:`_isolate_audit_zone` and :func:`_isolate_module_audit_zone`
-#: leave it alone; it pins its own zone wherever it records, and the repo guard
-#: below still watches it.
-_AUDIT_RESOLVER_LANE = "tests/audit/"
-
 #: ``<repo>/var/agent_data`` — the directory :func:`no_agent_data_in_the_repo`
 #: watches. Spelled once, at import, because the creator hook below needs it
 #: before any fixture has run.
 _AGENT_DATA_MARKER = _REPO_ROOT / "var" / "agent_data"
 
-#: ``<repo>/var/audit`` — the twin marker, watched by
-#: :func:`no_audit_ledger_in_the_repo`. The ledger and the agent-data root are
-#: siblings under one resolver, so they leak together and are watched together.
-_AUDIT_MARKER = _REPO_ROOT / "var" / "audit"
+#: ``<repo>/var/spool`` — the spool root the record writer falls back to when
+#: ``OSPREY_SPOOL_DIR`` is unset, watched by :func:`no_spool_in_the_repo`. It
+#: hangs off the same resolver as the agent-data root, so the two leak together
+#: and are watched together.
+_SPOOL_MARKER = _REPO_ROOT / "var" / "spool"
 
 #: The directory as it was when this conftest was imported — the only moment
 #: guaranteed to precede every test and every higher-scoped fixture. A
@@ -260,18 +256,16 @@ _AUDIT_MARKER = _REPO_ROOT / "var" / "audit"
 #: disarmed for every run after it.
 _AGENT_DATA_BASELINE = _repo_cleanliness.snapshot(_AGENT_DATA_MARKER)
 
-#: The same baseline for the ledger, taken at the same moment and for the same
-#: reason. A developer who has run OSPREY in this checkout owns the records
-#: that were already there; what this run files beside them is the suite's.
-_AUDIT_BASELINE = _repo_cleanliness.snapshot(_AUDIT_MARKER)
+#: The same baseline for the spool root, taken at the same moment.
+_SPOOL_BASELINE = _repo_cleanliness.snapshot(_SPOOL_MARKER)
 
 #: The first test in THIS worker whose teardown found this run's mark on the
 #: directory, ``None`` while none has. Recorded by
 #: :func:`pytest_runtest_teardown` and read by the guard.
 _AGENT_DATA_FIRST_SEEN: str | None = None
 
-#: The same bound for ``<repo>/var/audit``.
-_AUDIT_FIRST_SEEN: str | None = None
+#: The same bound for ``<repo>/var/spool``.
+_SPOOL_FIRST_SEEN: str | None = None
 
 #: Whether the item now running is a real-deployment one. Written by
 #: :func:`pytest_runtest_setup`, cleared by :func:`pytest_runtest_teardown`,
@@ -291,7 +285,7 @@ _REAL_DEPLOYMENT_LANE_RAN = False
 def _is_real_deployment_item(item) -> bool:
     """Whether *item* runs against this checkout as a real deployment.
 
-    The one predicate behind the divert, both repo guards and the audit seam,
+    The one predicate behind the divert, the repo guards and the spool zone,
     so a lane cannot be exempt from one of them and not the others.
     """
     return item.nodeid.startswith(_REAL_DEPLOYMENT_LANES)
@@ -312,7 +306,7 @@ def pytest_runtest_setup(item):
 
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_teardown(item):
-    """Timestamp this run's mark on ``<repo>/var/{agent_data,audit}`` against a
+    """Timestamp this run's mark on ``<repo>/var/{agent_data,spool}`` against a
     test, and close the real-deployment window the setup hook opened.
 
     The guards below run once per worker at session teardown and can only
@@ -331,7 +325,7 @@ def pytest_runtest_teardown(item):
     created it. What the name is good for is bounding the search — nothing in
     this worker before it can be the cause.
 
-    One hook for both markers, because pytest calls it once per test and each
+    One hook for every marker, because pytest calls it once per test and each
     marker stops being read after its own first hit — two comparisons at the
     start of a run, none once both findings are in hand. A comparison is one
     ``stat`` and one directory listing, cheap enough to leave armed for every
@@ -348,7 +342,7 @@ def pytest_runtest_teardown(item):
     flag is cleared AFTER them, so a real-deployment item's fixtures still
     resolve to the checkout while they finalize.
     """
-    global _AGENT_DATA_FIRST_SEEN, _AUDIT_FIRST_SEEN
+    global _AGENT_DATA_FIRST_SEEN, _SPOOL_FIRST_SEEN
     global _REAL_DEPLOYMENT_ITEM_RUNNING
     if not _REAL_DEPLOYMENT_LANE_RAN:
         worker = os.environ.get("PYTEST_XDIST_WORKER", "master")
@@ -356,10 +350,10 @@ def pytest_runtest_teardown(item):
             _AGENT_DATA_BASELINE, _AGENT_DATA_MARKER
         ):
             _AGENT_DATA_FIRST_SEEN = f"{item.nodeid} (worker {worker})"
-        if _AUDIT_FIRST_SEEN is None and _repo_cleanliness.what_this_run_did(
-            _AUDIT_BASELINE, _AUDIT_MARKER
+        if _SPOOL_FIRST_SEEN is None and _repo_cleanliness.what_this_run_did(
+            _SPOOL_BASELINE, _SPOOL_MARKER
         ):
-            _AUDIT_FIRST_SEEN = f"{item.nodeid} (worker {worker})"
+            _SPOOL_FIRST_SEEN = f"{item.nodeid} (worker {worker})"
     try:
         yield
     finally:
@@ -396,7 +390,7 @@ def agent_data_never_the_checkout(tmp_path_factory):
     Every path to the agent-data root funnels through
     ``osprey_connectors.workspace.resolve_project_root`` — ``resolve_shared_data_root``
     and ``resolve_agent_data_root`` both anchor ``agent_data.base_dir`` on
-    whatever it answers, and ``writer.audit_dir`` anchors the ledger on it too.
+    whatever it answers, and the record writer anchors its host spool on it too.
     It is also the only seam in that chain that is looked up by module global at
     call time, so binding it here reaches every caller regardless of how it
     imported its own resolver: the modules that did ``from ... import
@@ -509,46 +503,46 @@ def no_agent_data_in_the_repo():
         )
 
 
-@pytest.fixture(autouse=True, scope="session")
-def no_audit_ledger_in_the_repo():
-    """Fail the session if the suite created ``<repo>/var/audit``.
+def _spool_leak(baseline, marker: Path, first_seen: str | None) -> str | None:
+    """The failure :func:`no_spool_in_the_repo` raises for *marker*, or ``None``.
 
-    The twin of :func:`no_agent_data_in_the_repo`, watching the other tree that
-    hangs off ``resolve_project_root``. It is the more corrosive of the two
-    when it leaks: an agent-data directory left behind is empty and merely
-    untidy, while a ledger left behind holds ``web_auth`` refusals and
-    ``http_mutation`` admissions that an operator reading ``var/audit`` cannot
-    tell from records of things that really happened.
-
-    Only what the RUN did is a failure — the same rule as the twin, keyed the
-    same way. A ledger that was already there is not one, and what is in it is
-    a local deployment's business, but a record this run filed beside those is,
-    because a ledger left behind by an interrupted run is indistinguishable
-    from one a developer owns, and keying on existence hands the guard's
-    silence to the first leak that happens here. The consequence is worth
-    stating plainly: a live local deployment recording while the suite runs is
-    now named as a failure. The message names the entry that appeared, so that
-    case can be recognised for what it is.
-
-    The real-deployment lanes are exempt once such an item has RUN in this
-    worker, for the twin's reason: they file real records against this checkout
-    on purpose.
+    Separate from the fixture so the message can be checked against a marker
+    of a test's own, without writing into the checkout's spool.
     """
-    marker = _AUDIT_MARKER
+    clause = _repo_cleanliness.what_this_run_did(baseline, marker)
+    if not clause:
+        return None
+    return (
+        f"the test run {clause} — something wrote a record line with the spool "
+        "resolved to the repository, where the agent-record service would ingest it "
+        "as a fact that really happened. Every test gets a spool root of its own from "
+        "the root conftest's _isolate_spool_zone, which sets OSPREY_SPOOL_DIR; a leak "
+        "means something bypassed it: a test that unset the variable, a subprocess "
+        "started with a scrubbed environment, or a thread that outlived its test."
+        f"{_first_seen_clause(first_seen)}"
+        f"{_GUARD_KNOWN_LIMIT}"
+    )
+
+
+@pytest.fixture(autouse=True, scope="session")
+def no_spool_in_the_repo():
+    """Fail the session if the suite wrote under ``<repo>/var/spool``.
+
+    The twin of :func:`no_agent_data_in_the_repo`, watching the record
+    writer's host fallback. A line left there is worse than an untidy
+    directory: the next agent-record service started in this checkout ingests
+    it into the record, where nobody can tell it from a fact that happened.
+
+    Keyed on what the run did, the same way as its twin, and exempt once a
+    real-deployment item has run in this worker, for their reason.
+    """
+    marker = _SPOOL_MARKER
     yield
     if _REAL_DEPLOYMENT_LANE_RAN:
         return
-    clause = _repo_cleanliness.what_this_run_did(_AUDIT_BASELINE, marker)
-    if clause:
-        raise AssertionError(
-            f"the test run {clause} — something fired a recorder with the "
-            "ledger resolved to the repository, so records nobody caused now sit "
-            "where an operator reads the real ones. A test that records must point "
-            "writer.audit_dir at a tmp path (see _isolate_audit_zone) rather than "
-            "leave it to resolve_project_root()."
-            f"{_first_seen_clause(_AUDIT_FIRST_SEEN)}"
-            f"{_GUARD_KNOWN_LIMIT}"
-        )
+    message = _spool_leak(_SPOOL_BASELINE, marker, _SPOOL_FIRST_SEEN)
+    if message:
+        raise AssertionError(message)
 
 
 # ===================================================================
@@ -747,8 +741,15 @@ def reset_second_real_block_warning():
 # the variable unset this installs nothing and costs nothing.
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_configure(config):
-    """Register the harness plugins, the CI recorder among them."""
+    """Claim the run's temporary root, then register the harness plugins and the CI recorder.
+
+    The root is claimed first, ahead of pytest's own temporary-path setup,
+    which reads it. See _run_temp.py.
+    """
+    _run_temp.claim(config)
+
     # Registered as a plugin rather than left as a hook in this file: a
     # session-scoped fixture's ``pytest_fixture_setup`` is dispatched on the
     # Session node, whose hook proxy carries only the conftests above it — this

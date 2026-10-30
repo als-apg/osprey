@@ -90,6 +90,8 @@ def _load_by_path(relative: str, name: str) -> ModuleType:
 check_set = _load_by_path(CHECK_SCRIPT, "_check_set_by_path")
 #: The framework's checks module: the unit sweep's selection and the package build.
 framework_checks = check_set.FRAMEWORK
+#: How a check starts a tool in the project's environment, as one shell line.
+CHECK_UV_RUN = shlex.join(framework_checks.UV_RUN)
 
 TILED_JOB = "tiled-roundtrip-e2e"
 VA_JOB = "va-substrate-equivalence-e2e"
@@ -115,6 +117,8 @@ TARGET_SWITCH_JOB = "target-switch-e2e"
 #: second step in the one above because it needs the LLM secret and the CLI,
 #: and lane-level `if:` gating is the only granularity GitHub offers.
 TARGET_SWITCH_AGENTIC_JOB = "target-switch-agentic-e2e"
+#: Saves the qmd sidecar layer cache in main's scope; see the qmd section below.
+QMD_WARMUP_JOB = "qmd-cache-warmup"
 VA_LIVE_JOB = "va-live-e2e"
 VA_BLUESKY_JOB = "va-bluesky-deploy-e2e"
 #: The run step of each lane that executes modules from tests/va/e2e/. The
@@ -180,8 +184,6 @@ NO_MODEL_RUN_STEP = "Run the model-free E2E files"
 NO_MODEL_SKIP_GATE_STEP = "Fail the lane on any skipped test"
 #: The files the model-free lane names, in the order its run step names them.
 NO_MODEL_TEST_FILES = (
-    "tests/e2e/test_telemetry_store_e2e.py",
-    "tests/e2e/test_telemetry_access_e2e.py",
     "tests/e2e/test_sdk_helpers.py",
     "tests/e2e/test_scripted_model.py",
     "tests/e2e/claude_code/test_safety_gates_scripted.py",
@@ -197,6 +199,18 @@ NO_MODEL_TEST_FILES = (
     "tests/e2e/claude_code/test_chat_plan_mode_scripted.py",
     "tests/e2e/claude_code/test_chat_attachment_read_scripted.py",
 )
+
+#: The agent record's replay: model-free, but its own lane, because it deploys
+#: two stacks in turn and waits out a stopped source twice.
+RECORD_E2E_JOB = "agent-record-e2e"
+RECORD_E2E_RUN_STEP = "Run the agent record replay"
+RECORD_E2E_SKIP_GATE_STEP = "Fail the lane on any skipped test"
+RECORD_E2E_FILE = "tests/e2e/test_agent_record_e2e.py"
+#: The two stopped-source waits of five minutes each, plus two deploys: the
+#: run step's floor. Below it the lane reds on its own waits, not on a fault.
+RECORD_E2E_MIN_STEP_MINUTES = 40
+#: Every model-free file, whichever of the two model-free lanes runs it.
+MODEL_FREE_TEST_FILES = (*NO_MODEL_TEST_FILES, RECORD_E2E_FILE)
 SAME_REPO_CLAUSE = "github.event.pull_request.head.repo.full_name == github.repository"
 
 ALS_APG_BASE_URL_ENV = "ALS_APG_BASE_URL"
@@ -416,8 +430,7 @@ def _expand_run(run: str) -> str:
 @functools.cache
 def _raw_workflow() -> dict[str, Any]:
     """ci.yml as written, parsed once per process; read only through ``_load_raw_workflow``."""
-    with CI_YML.open() as f:
-        loaded = yaml.safe_load(f)
+    loaded = yaml.safe_load(CI_YML.read_text())
     assert loaded is not None, f"{CI_YML} parsed to None"
     return loaded
 
@@ -1599,8 +1612,11 @@ _HOSTED = [(row, host) for row in LANE_LEAVING_MARKERS for host in row.hosts]
 _HOSTED_IDS = [f"{row.marker}-{host.job}" for row, host in _HOSTED]
 _HOSTS = [host for _, host in _HOSTED]
 
-#: A pytest invocation in a ci.yml run block, in both spellings the file uses.
-_CI_PYTEST_RE = re.compile(r"uv run (?:--no-sync )?pytest\b")
+#: A pytest invocation in a ci.yml run block, in both spellings the file uses,
+#: or in the command a check-command call there resolves to.
+_CI_PYTEST_RE = re.compile(
+    r"(?:uv run (?:--no-sync )?|" + re.escape(f"{CHECK_UV_RUN} ") + r")pytest\b"
+)
 #: Where one shell command ends and the next (or a pipe) begins.
 _SHELL_SEPARATOR_RE = re.compile(r"\|\||&&|[|;]")
 
@@ -2001,6 +2017,107 @@ def test_pty_step_runs_only_where_a_terminal_is_real__mutation_drops_the_gate() 
         test_pty_step_runs_only_where_a_terminal_is_real(mutated)
 
 
+#: The unit-lane step that runs the readonly gate's warm-up module under 3.14 on
+#: macOS, where the stdlib's lazy native loads differ from the ubuntu 3.14 cells.
+READONLY_314_STEP = "Readonly gate under Python 3.14"
+#: The check that step calls, declared in scripts/check.py.
+READONLY_314_CHECK = "readonly-warmups-py314"
+READONLY_WARMUPS_TEST_FILE = "tests/runtime/test_raw_put_block_readonly_warmups.py"
+_MATRIX_TERM_RE = re.compile(r"matrix\.([\w-]+) == '([^']*)'")
+
+
+def _with_check_argv(check_id: str, argv: tuple[str, ...]) -> tuple[Any, ...]:
+    """``check_set.CHECKS`` with *check_id*'s command replaced by *argv*."""
+    return tuple(
+        replace(check, argv=argv) if check.id == check_id else check for check in check_set.CHECKS
+    )
+
+
+def test_readonly_314_step_runs_the_warmups_in_one_macos_cell(
+    raw_workflow: dict[str, Any], checks: tuple[Any, ...] = check_set.CHECKS
+) -> None:
+    """One macOS cell calls the warm-up check; it runs the module alone, serially.
+
+    The condition is a conjunction of one equality per matrix axis, so it names
+    exactly one cell: the pull request's macOS cell, which every other event
+    runs too. The step calls the declared check, whose command names the
+    module and nothing else, with no xdist workers."""
+    step = _find_named_step(raw_workflow, UNIT_TEST_JOB, READONLY_314_STEP)
+    condition = step.get("if", "")
+    terms = [term.strip() for term in condition.split("&&")]
+    pairs = [_MATRIX_TERM_RE.fullmatch(term) for term in terms]
+    assert all(pairs), f"'{READONLY_314_STEP}' if: must be matrix equalities; got {condition!r}"
+    named = {match.group(1): match.group(2) for match in pairs if match}
+    assert len(named) == len(terms), f"an axis is named twice in {condition!r}"
+    assert set(named) == {"os", "python-version", "shard"}, (
+        f"'{READONLY_314_STEP}' must pin os, python-version and shard; got {condition!r}"
+    )
+    cells = _unit_macos_cells(raw_workflow)
+    (pr_cell,) = cells["pull_request"]
+    assert named == pr_cell, f"'{READONLY_314_STEP}' must name the PR macOS cell {pr_cell}"
+    assert pr_cell in cells["other"], f"the other events do not run the PR macOS cell {pr_cell}"
+
+    assert shlex.split(step["run"]) == [
+        "uv",
+        "run",
+        "python",
+        "scripts/check.py",
+        "run",
+        READONLY_314_CHECK,
+    ], f"'{READONLY_314_STEP}' must call the declared check; got {step['run']!r}"
+    (check,) = [check for check in checks if check.id == READONLY_314_CHECK]
+    tokens = list(check.argv)
+    assert tokens[:2] == ["uv", "run"] and "pytest" in tokens, tokens
+    assert tokens[tokens.index("--python") + 1] == "3.14", tokens
+    after_pytest = tokens[tokens.index("pytest") + 1 :]
+    paths = [token for token in after_pytest if not token.startswith("-")]
+    assert paths == [READONLY_WARMUPS_TEST_FILE], f"the check must run only the warm-ups: {paths}"
+    assert (CI_YML.parents[2] / READONLY_WARMUPS_TEST_FILE).is_file()
+    assert not {"-n", "--numprocesses"} & set(after_pytest), tokens
+    assert not any(t.startswith(("-n", "--numprocesses=")) for t in after_pytest), tokens
+
+
+def test_readonly_314_step__mutation_drops_the_gate() -> None:
+    mutated = _load_raw_workflow()
+    del _find_named_step(mutated, UNIT_TEST_JOB, READONLY_314_STEP)["if"]
+    with pytest.raises(AssertionError):
+        test_readonly_314_step_runs_the_warmups_in_one_macos_cell(mutated)
+
+
+def test_readonly_314_step__mutation_runs_on_every_macos_cell() -> None:
+    mutated = _load_raw_workflow()
+    step = _find_named_step(mutated, UNIT_TEST_JOB, READONLY_314_STEP)
+    step["if"] = "matrix.os == 'macos-latest' && matrix.shard == 'macos'"
+    with pytest.raises(AssertionError, match="must pin os, python-version and shard"):
+        test_readonly_314_step_runs_the_warmups_in_one_macos_cell(mutated)
+
+
+def test_readonly_314_step__mutation_spells_pytest_in_the_step() -> None:
+    mutated = _load_raw_workflow()
+    step = _find_named_step(mutated, UNIT_TEST_JOB, READONLY_314_STEP)
+    step["run"] = f"uv run --isolated --python 3.14 --extra dev pytest {READONLY_WARMUPS_TEST_FILE}"
+    with pytest.raises(AssertionError, match="must call the declared check"):
+        test_readonly_314_step_runs_the_warmups_in_one_macos_cell(mutated)
+
+
+def test_readonly_314_step__mutation_adds_xdist_workers() -> None:
+    (check,) = [check for check in check_set.CHECKS if check.id == READONLY_314_CHECK]
+    mutated = _with_check_argv(READONLY_314_CHECK, (*check.argv, "-n", "4"))
+    with pytest.raises(AssertionError):
+        test_readonly_314_step_runs_the_warmups_in_one_macos_cell(_load_raw_workflow(), mutated)
+
+
+def test_readonly_314_step__mutation_widens_to_the_directory() -> None:
+    (check,) = [check for check in check_set.CHECKS if check.id == READONLY_314_CHECK]
+    assert READONLY_WARMUPS_TEST_FILE in check.argv, "mutation is stale"
+    argv = tuple(
+        "tests/runtime/" if arg == READONLY_WARMUPS_TEST_FILE else arg for arg in check.argv
+    )
+    mutated = _with_check_argv(READONLY_314_CHECK, argv)
+    with pytest.raises(AssertionError, match="must run only the warm-ups"):
+        test_readonly_314_step_runs_the_warmups_in_one_macos_cell(_load_raw_workflow(), mutated)
+
+
 def _imports_stdlib_pty(source: str) -> bool:
     """Whether *source* imports the stdlib ``pty`` module, at any nesting.
 
@@ -2096,7 +2213,7 @@ SERIAL_MIRROR_TIERS = ("full",)
 
 
 def _script_pytest_lines(source: str) -> list[str]:
-    return [line for line in source.splitlines() if "uv run pytest " in line]
+    return [line for line in source.splitlines() if f"{CHECK_UV_RUN} pytest " in line]
 
 
 def _repo_source(path: str) -> str:
@@ -2185,14 +2302,14 @@ def _unreached_by_serial_runs(source: str, row: LaneLeavingMarker, files: list[s
     """The *files* that none of the tier's serial runs for *row* collects
     (empty = every one is reached).
 
-    Each line carrying the row's selection is read from ``uv run pytest`` up to
+    Each line carrying the row's selection is read from the check's pytest up to
     the next shell separator, the way ``_ci_pytest_invocations`` cuts a ci.yml
     command, so a wrapper before it (``run_bounded.py … --``) and a ``; then``
     after it are not read as paths. A line whose only path is ``"$@"`` reaches
     nothing by ``_invocation_reaches``' shell-variable rule: a run over the
     caller's paths owes no fixed file."""
     runs = [
-        _SHELL_SEPARATOR_RE.split(line[line.index("uv run pytest ") :], maxsplit=1)[0]
+        _SHELL_SEPARATOR_RE.split(line[line.index(f"{CHECK_UV_RUN} pytest ") :], maxsplit=1)[0]
         for line in _script_pytest_lines(source)
         if row.select() in line
     ]
@@ -2256,13 +2373,13 @@ def test_per_pr_hosts_are_the_hosts_the_merge_gate_needs(
 
 
 def test_unreached_by_serial_runs_reads_each_serial_line() -> None:
-    """Each serial line is read from ``uv run pytest`` to the next separator;
+    """Each serial line is read from the check's pytest to the next separator;
     a file under neither line's path is the one reported."""
     row = _row("wallclock")
     source = (
-        "if ! uv run python scripts/run_bounded.py 900 -- uv run pytest tests/integration "
+        f"if ! uv run python scripts/run_bounded.py 900 -- {CHECK_UV_RUN} pytest tests/integration "
         "-m wallclock -v; then\n"
-        "uv run pytest tests/cli/test_a.py -m wallclock && echo tests/elsewhere\n"
+        f"{CHECK_UV_RUN} pytest tests/cli/test_a.py -m wallclock && echo tests/elsewhere\n"
     )
     files = ["tests/integration/test_x.py", "tests/cli/test_a.py", "tests/elsewhere/test_y.py"]
     assert _unreached_by_serial_runs(source, row, files) == ["tests/elsewhere/test_y.py"]
@@ -3386,6 +3503,17 @@ def _model_free_selected_paths(wf: dict[str, Any]) -> list[str]:
     return [token for token in run_text.split() if token.startswith("tests/")]
 
 
+def _record_lane_paths(wf: dict[str, Any]) -> list[str]:
+    """The paths the agent record lane's run step hands pytest to collect."""
+    run_text = _find_named_step(wf, RECORD_E2E_JOB, RECORD_E2E_RUN_STEP)["run"]
+    return [token for token in run_text.split() if token.startswith("tests/")]
+
+
+def _model_free_lanes_paths(wf: dict[str, Any]) -> list[str]:
+    """Every path either model-free lane names."""
+    return [*_model_free_selected_paths(wf), *_record_lane_paths(wf)]
+
+
 def _collected_ids(args: list[str]) -> set[str]:
     """The node ids pytest collects for ``args``, from the repo root.
 
@@ -3421,12 +3549,13 @@ def test_the_model_free_marker_equals_the_model_free_lane_selection(
     the lane is where those tests run. A test the lane runs without the marker
     would be refused in a run with no provider; a marked test the lane leaves
     out claims a lane that never runs it."""
-    paths = _model_free_selected_paths(workflow)
+    paths = _model_free_lanes_paths(workflow)
     marked = _collected_ids([*paths, "-m", "model_free"])
     selected = _collected_ids(paths)
+    lanes = f"'{NO_MODEL_JOB}'/'{RECORD_E2E_JOB}'"
     assert marked == selected, (
-        f"marked model_free but not run by '{NO_MODEL_JOB}': {sorted(marked - selected)}; "
-        f"run by '{NO_MODEL_JOB}' but not marked model_free: {sorted(selected - marked)}"
+        f"marked model_free but not run by {lanes}: {sorted(marked - selected)}; "
+        f"run by {lanes} but not marked model_free: {sorted(selected - marked)}"
     )
 
 
@@ -3435,14 +3564,17 @@ def test_only_the_model_free_lane_files_carry_the_marker(workflow: dict[str, Any
     anywhere else under ``tests/e2e/`` is read from source instead of from a
     whole-directory collection."""
     root = CI_YML.parents[2]
-    lane = set(_model_free_selected_paths(workflow))
+    lane = set(_model_free_lanes_paths(workflow))
     stray = sorted(
         path.relative_to(root).as_posix()
         for path in (root / "tests" / "e2e").rglob("test_*.py")
         if "mark.model_free" in path.read_text(encoding="utf-8")
         and path.relative_to(root).as_posix() not in lane
     )
-    assert stray == [], f"marked model_free but not named in '{NO_MODEL_RUN_STEP}': {stray}"
+    assert stray == [], (
+        f"marked model_free but not named in '{NO_MODEL_RUN_STEP}' or "
+        f"'{RECORD_E2E_RUN_STEP}': {stray}"
+    )
 
 
 def test_model_free_lane_exists(workflow: dict[str, Any]) -> None:
@@ -3518,11 +3650,11 @@ def test_model_free_lane_names_every_file_it_owns__mutation_drops_a_file_from_th
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, NO_MODEL_JOB, NO_MODEL_RUN_STEP)
     lines = step["run"].splitlines(keepends=True)
-    kept = [line for line in lines if "tests/e2e/test_telemetry_store_e2e.py" not in line]
+    kept = [line for line in lines if "tests/e2e/test_sdk_helpers.py" not in line]
     assert len(kept) == len(lines) - 1, "expected exactly one line dropped"
     step["run"] = "".join(kept)
     # the neighbour survives, so the mutation is one file wide
-    assert "tests/e2e/test_sdk_helpers.py" in _model_free_selected_paths(mutated)
+    assert "tests/e2e/test_scripted_model.py" in _model_free_selected_paths(mutated)
     with pytest.raises(AssertionError, match="does not name"):
         test_model_free_lane_names_every_file_it_owns(mutated)
 
@@ -3606,6 +3738,130 @@ def test_model_free_lane_fails_on_any_skipped_test__mutation_gate_stops_failing(
         test_model_free_lane_fails_on_any_skipped_test(mutated)
 
 
+# ---------------------------------------------------------------------------
+# The agent record replay: its own model-free lane
+# ---------------------------------------------------------------------------
+
+
+def test_record_lane_runs_exactly_the_replay(workflow: dict[str, Any]) -> None:
+    """The replay deploys two stacks one after the other on one port block, so
+    it runs alone, serially, and by path — a path that stops existing exits
+    pytest 4 instead of selecting nothing."""
+    paths = _record_lane_paths(workflow)
+    assert paths == [RECORD_E2E_FILE], f"'{RECORD_E2E_RUN_STEP}' runs {paths}, not the replay alone"
+    assert (REPO_ROOT / RECORD_E2E_FILE).is_file(), f"{RECORD_E2E_FILE} is not on disk"
+    run = _find_named_step(workflow, RECORD_E2E_JOB, RECORD_E2E_RUN_STEP)["run"]
+    assert not re.search(r"(^|\s)(-n|--numprocesses)\b", run), (
+        f"'{RECORD_E2E_RUN_STEP}' runs under xdist; its cases share one port block"
+    )
+
+
+def test_record_lane_runs_exactly_the_replay__mutation_adds_xdist() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, RECORD_E2E_JOB, RECORD_E2E_RUN_STEP)
+    step["run"] = step["run"].replace("--durations=15", "--durations=15 -n 2")
+    with pytest.raises(AssertionError, match="xdist"):
+        test_record_lane_runs_exactly_the_replay(mutated)
+
+
+def test_record_lane_runs_exactly_the_replay__mutation_adds_a_file() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, RECORD_E2E_JOB, RECORD_E2E_RUN_STEP)
+    step["run"] = step["run"].replace(
+        RECORD_E2E_FILE, f"{RECORD_E2E_FILE} tests/e2e/test_sdk_helpers.py"
+    )
+    with pytest.raises(AssertionError, match="replay alone"):
+        test_record_lane_runs_exactly_the_replay(mutated)
+
+
+def test_record_lane_is_not_in_the_model_free_lane(workflow: dict[str, Any]) -> None:
+    """One file, one lane: in both it is deployed twice per pull request."""
+    assert RECORD_E2E_FILE not in _model_free_selected_paths(workflow), (
+        f"'{NO_MODEL_JOB}' still runs {RECORD_E2E_FILE}, which has its own lane"
+    )
+
+
+def test_record_lane_is_not_in_the_model_free_lane__mutation_names_it_there() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, NO_MODEL_JOB, NO_MODEL_RUN_STEP)
+    step["run"] = step["run"].replace(
+        "tests/e2e/test_sdk_helpers.py", f"{RECORD_E2E_FILE} tests/e2e/test_sdk_helpers.py"
+    )
+    with pytest.raises(AssertionError, match="has its own lane"):
+        test_record_lane_is_not_in_the_model_free_lane(mutated)
+
+
+def test_record_lane_timeout_covers_its_waits(workflow: dict[str, Any]) -> None:
+    """The run step's cap holds the two five-minute stopped-source waits and
+    both deploys; the job's cap sits above it so a hang fails the run step and
+    the diagnostics capture still runs."""
+    job = _jobs(workflow)[RECORD_E2E_JOB]
+    step = _find_named_step(workflow, RECORD_E2E_JOB, RECORD_E2E_RUN_STEP)
+    step_cap = int(step.get("timeout-minutes", 0))
+    assert step_cap >= RECORD_E2E_MIN_STEP_MINUTES, (
+        f"'{RECORD_E2E_RUN_STEP}' caps at {step_cap} min, under the "
+        f"{RECORD_E2E_MIN_STEP_MINUTES} min its waits need"
+    )
+    assert int(job.get("timeout-minutes", 0)) > step_cap, (
+        f"'{RECORD_E2E_JOB}' job cap must sit above its run step's {step_cap} min"
+    )
+
+
+def test_record_lane_timeout_covers_its_waits__mutation_shrinks_the_step() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _find_named_step(mutated, RECORD_E2E_JOB, RECORD_E2E_RUN_STEP)["timeout-minutes"] = 25
+    with pytest.raises(AssertionError, match="its waits need"):
+        test_record_lane_timeout_covers_its_waits(mutated)
+
+
+def test_record_lane_timeout_covers_its_waits__mutation_job_cap_under_step() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, RECORD_E2E_JOB, RECORD_E2E_RUN_STEP)
+    _jobs(mutated)[RECORD_E2E_JOB]["timeout-minutes"] = step["timeout-minutes"]
+    with pytest.raises(AssertionError, match="must sit above"):
+        test_record_lane_timeout_covers_its_waits(mutated)
+
+
+def test_record_lane_runs_on_every_pull_request_without_a_key(workflow: dict[str, Any]) -> None:
+    """Model-free: no label, no actor guard, no gateway key; the revalidation
+    dispatch runs it too, as it runs every lane a push skips."""
+    job = _jobs(workflow)[RECORD_E2E_JOB]
+    expected = f"(github.event_name == 'pull_request') || {REVALIDATION_ARM}"
+    assert " ".join(str(job.get("if")).split()) == expected, job.get("if")
+    assert not _job_declares_secret(workflow, RECORD_E2E_JOB, SECRET_TOKEN), (
+        f"'{RECORD_E2E_JOB}' declares the gateway key; it reaches no model"
+    )
+
+
+def test_record_lane_runs_on_every_pull_request_without_a_key__mutation_adds_a_label() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[RECORD_E2E_JOB]
+    job["if"] = f"{job['if']} && {FULL_CI_LABEL_CLAUSE}"
+    with pytest.raises(AssertionError):
+        test_record_lane_runs_on_every_pull_request_without_a_key(mutated)
+
+
+def test_record_lane_fails_on_any_skipped_test(workflow: dict[str, Any]) -> None:
+    reports = _JUNIT_RE.findall(
+        _find_named_step(workflow, RECORD_E2E_JOB, RECORD_E2E_RUN_STEP)["run"]
+    )
+    assert len(reports) == 1, (
+        f"'{RECORD_E2E_RUN_STEP}' must write exactly one --junitxml report; got {reports}"
+    )
+    gate = _find_named_step(workflow, RECORD_E2E_JOB, RECORD_E2E_SKIP_GATE_STEP)["run"]
+    assert reports[0] in gate, f"'{RECORD_E2E_SKIP_GATE_STEP}' never reads: {reports[0]}"
+    assert 'get("skipped"' in gate, "the gate must read the junit skipped count"
+    assert "sys.exit(1)" in gate, "the gate must fail the job, not just print"
+
+
+def test_record_lane_fails_on_any_skipped_test__mutation_gate_stops_failing() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, RECORD_E2E_JOB, RECORD_E2E_SKIP_GATE_STEP)
+    step["run"] = step["run"].replace("sys.exit(1)", "pass")
+    with pytest.raises(AssertionError, match="must fail the job"):
+        test_record_lane_fails_on_any_skipped_test(mutated)
+
+
 def _e2e_files_the_shared_lane_sweeps(wf: dict[str, Any]) -> set[str]:
     """The ``tests/e2e/**/test_*.py`` paths the shared lane's directory sweep
     still collects, repo-relative and POSIX.
@@ -3624,22 +3880,22 @@ def _e2e_files_the_shared_lane_sweeps(wf: dict[str, Any]) -> set[str]:
 def test_shared_lane_hands_over_every_model_free_file(workflow: dict[str, Any]) -> None:
     """The handover is one ``--ignore`` per file: the shared lane names a
     directory, so a file only stops being swept when it is named."""
-    missing = _run_step_ignores_all(workflow, list(NO_MODEL_TEST_FILES))
+    missing = _run_step_ignores_all(workflow, list(MODEL_FREE_TEST_FILES))
     assert missing == [], (
         f"model-free e2e file(s) still swept by the '{E2E_TESTS_JOB}' lane: {missing} — "
         f"they would run in both lanes, paying the label for work that needs no label"
     )
 
 
-def test_shared_lane_hands_over_every_model_free_file__mutation_drops_the_telemetry_ignore() -> (
+def test_shared_lane_hands_over_every_model_free_file__mutation_drops_the_record_smoke_ignore() -> (
     None
 ):
-    telemetry = "tests/e2e/test_telemetry_store_e2e.py"
+    smoke = RECORD_E2E_FILE
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
-    step["run"] = _drop_ignore_line(step["run"], telemetry)
-    others = [f for f in NO_MODEL_TEST_FILES if f != telemetry]
-    assert _run_step_ignores_all(mutated, others) == []  # the other nine survive
+    step["run"] = _drop_ignore_line(step["run"], smoke)
+    others = [f for f in MODEL_FREE_TEST_FILES if f != smoke]
+    assert _run_step_ignores_all(mutated, others) == []  # every other file survives
     with pytest.raises(AssertionError, match="still swept"):
         test_shared_lane_hands_over_every_model_free_file(mutated)
 
@@ -3654,7 +3910,7 @@ def test_shared_lane_hands_over_every_model_free_file__mutation_drops_the_termin
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
     step["run"] = _drop_ignore_line(step["run"], terminal_auth)
-    others = [f for f in NO_MODEL_TEST_FILES if f != terminal_auth]
+    others = [f for f in MODEL_FREE_TEST_FILES if f != terminal_auth]
     assert _run_step_ignores_all(mutated, others) == []  # the other nine survive
     with pytest.raises(AssertionError, match="still swept"):
         test_shared_lane_hands_over_every_model_free_file(mutated)
@@ -3670,7 +3926,7 @@ def test_no_end_to_end_file_runs_in_both_lanes(workflow: dict[str, Any]) -> None
         f"the '{E2E_TESTS_JOB}' sweep was computed as empty — the discovery broke, and "
         f"an empty set makes the disjointness below vacuous"
     )
-    both = sorted(set(NO_MODEL_TEST_FILES) & swept)
+    both = sorted(set(MODEL_FREE_TEST_FILES) & swept)
     assert both == [], (
         f"file(s) in both end-to-end lanes: {both} — each is collected twice, once "
         f"behind the label and once without it"
@@ -3682,7 +3938,7 @@ def test_no_end_to_end_file_runs_in_both_lanes__mutation_returns_a_file_to_the_s
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
     step["run"] = _drop_ignore_line(step["run"], render)
-    assert set(NO_MODEL_TEST_FILES) & _e2e_files_the_shared_lane_sweeps(mutated) == {render}
+    assert set(MODEL_FREE_TEST_FILES) & _e2e_files_the_shared_lane_sweeps(mutated) == {render}
     with pytest.raises(AssertionError, match="in both end-to-end lanes"):
         test_no_end_to_end_file_runs_in_both_lanes(mutated)
 
@@ -4564,6 +4820,7 @@ CLI_DEPENDENT_JOBS = (
     "e2e-tests",
     "channel-finder-benchmarks",
     NO_MODEL_JOB,
+    RECORD_E2E_JOB,
     SCAN_AGENTIC_JOB,
     TARGET_SWITCH_AGENTIC_JOB,
     NEXTCLOUD_JOB,
@@ -4638,7 +4895,8 @@ def test_cli_dependent_lane_installs_the_pinned_claude__mutation_other_action(
 
 
 def test_the_pinned_cli_action_installs_and_verifies_the_one_pinned_version() -> None:
-    """The action installs exactly the framework's pin and fails unless PATH yields it."""
+    """The action installs the pin the gate resolver reads and puts on PATH the
+    directory that resolver finds, so CI and a local gate verify it one way."""
     action = _pinned_cli_action()
     assert action["runs"]["using"] == "composite"
     steps = action["runs"]["steps"]
@@ -4646,13 +4904,12 @@ def test_the_pinned_cli_action_installs_and_verifies_the_one_pinned_version() ->
     (install,) = [s for s in steps if "npm install" in (s.get("run") or "")]
     run = install["run"]
     assert "set -euo pipefail" in run
-    # The pin is read from the one constant that names it, never spelled here.
-    assert "_DEFAULT_CLAUDE_CLI_VERSION" in run
     assert not re.search(r"claude-code@[0-9]", run), "the action spells a version of its own"
     assert 'npm install -g "@anthropic-ai/claude-code@$pin"' in run
-    # Verified, so a registry or PATH surprise fails here and not in a test.
-    assert "claude --version" in run
-    assert "exit 1" in run
+    assert "scripts/pinned_claude.py --pin" in run
+    # The resolver is the verification: it fails the step when nothing reports the pin.
+    assert re.search(r"scripts/pinned_claude\.py\)", run), "the action never resolves the CLI"
+    assert '>> "$GITHUB_PATH"' in run
 
 
 def test_no_lane_reaches_for_the_agent_sdks_bundled_cli() -> None:
@@ -5694,8 +5951,6 @@ def _two_shape_resource_names() -> list[str]:
 
     project = _two_shape_module_constant("PROJECT_NAME")
     compose_project = resolve_project_name({"project_name": project})
-    telemetry = _two_shape_module_constant("TELEMETRY_PROJECT_NAME")
-    telemetry_compose = resolve_project_name({"project_name": telemetry})
     return [
         f"{project}-event-dispatcher",
         f"{project}-dispatch-worker-1",
@@ -5703,27 +5958,14 @@ def _two_shape_resource_names() -> list[str]:
         f"{compose_project}_osprey-network",
         f"{project}:local",
         f"{project}-dispatch:local",
-        f"{telemetry}-telemetry-store",
-        f"{telemetry}-telemetry-gateway",
-        f"{telemetry_compose}_telemetry_store_data",
-        f"{telemetry_compose}_gateway-state",
-        f"{telemetry_compose}_osprey-network",
     ]
 
 
 def _two_shape_module_ports() -> list[str]:
-    """The host ports the module binds: the dispatch pair's, and the telemetry
-    case's gateway, gateway counters and store, resolved from that case's port
-    block exactly as the deployment resolves them."""
-    from osprey.deployment import telemetry_config
-
-    config = {"deployment": {"port_base": _two_shape_module_constant("TELEMETRY_PORT_BASE")}}
+    """The host ports the module binds: the dispatcher's and the worker's."""
     return [
         str(_two_shape_module_constant("DISPATCHER_PORT")),
         str(_two_shape_module_constant("WORKER_PORT")),
-        str(telemetry_config.gateway_port(config)),
-        str(telemetry_config.metrics_port(config)),
-        str(telemetry_config.store_port(config)),
     ]
 
 
@@ -5790,20 +6032,11 @@ def test_two_shape_lane_ports_match_the_module__mutation_drifts_the_probed_ports
     symptom the mutation is meant to expose."""
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, TWO_SHAPE_JOB, PORT_PREFLIGHT_STEP)
-    loop = "for port in 21781 21791 18151 18152 18904; do"
+    loop = "for port in 21781 21791; do"
     assert loop in step["run"], "the pre-flight loop moved — mutation is stale"
-    step["run"] = step["run"].replace(loop, "for port in 8020 9190 18151 18152 18904; do")
+    step["run"] = step["run"].replace(loop, "for port in 8020 9190; do")
     assert "21781" in step["run"], "the echo must still carry the real ports"
     with pytest.raises(AssertionError, match="does not probe"):
-        test_two_shape_lane_ports_match_the_module(mutated)
-
-
-def test_two_shape_lane_ports_match_the_module__mutation_drops_a_telemetry_port() -> None:
-    """The telemetry case publishes its own ports beside the dispatch pair's."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, TWO_SHAPE_JOB, PORT_PREFLIGHT_STEP)
-    step["run"] = step["run"].replace(" 18904; do", "; do")
-    with pytest.raises(AssertionError, match="18904"):
         test_two_shape_lane_ports_match_the_module(mutated)
 
 
@@ -7084,8 +7317,7 @@ VA_TAG_SITES: dict[str, tuple[Path, Callable[[str], str]]] = {
 
 
 def _load_action_yml(path: Path) -> dict[str, Any]:
-    with path.open() as f:
-        loaded = yaml.safe_load(f)
+    loaded = yaml.safe_load(path.read_text())
     assert loaded is not None, f"{path} parsed to None"
     return loaded
 
@@ -7348,7 +7580,7 @@ def test_no_virtual_accelerator_lane_sets_up_its_own_builder(workflow: dict[str,
 
     The set is derived, so this constrains only the lanes that use this image:
     ``qmd-sidecar-e2e`` builds a different image, never calls the action and
-    keeps its own setup step.
+    gets its builder from its own shared action.
     """
     own = {}
     for name in sorted(_va_image_jobs(workflow)):
@@ -8075,7 +8307,7 @@ def test_the_gate_checks_the_lockfile_before_any_uv_run(gate_source: str | None 
 def test_the_gate_checks_the_lockfile_before_any_uv_run__mutation_moves_it_after_ruff() -> None:
     lines = _tier_source("full", CI_BASE).splitlines()
     lines.remove("uv lock --check")
-    ruff = max(i for i, line in enumerate(lines) if line.startswith("uv run ruff "))
+    ruff = max(i for i, line in enumerate(lines) if line.startswith(f"{CHECK_UV_RUN} ruff "))
     lines.insert(ruff + 1, "uv lock --check")
     with pytest.raises(AssertionError):
         test_the_gate_checks_the_lockfile_before_any_uv_run("\n".join(lines))
@@ -8530,7 +8762,7 @@ def test_privilege_split_lane_fails_on_a_lane_wide_skip__mutation_gate_tolerates
 
 #: The pytest targets of the full-chain lane's run step: its own module and
 #: nothing else, so the stack it builds once serves exactly the cases written
-#: for it (the reader-origin and `/play` proofs among them).
+#: for it (the history proofs among them).
 FULL_CHAIN_PYTEST_FILES = (FULL_CHAIN_TEST_FILE,)
 FULL_CHAIN_PLAYWRIGHT_STEP = "Install Playwright chromium"
 
@@ -8552,7 +8784,7 @@ def test_full_chain_auth_lane_runs_exactly_its_own_module__mutation_adds_a_file(
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, FULL_CHAIN_JOB, FULL_CHAIN_RUN_STEP)
     step["run"] = step["run"].replace(
-        FULL_CHAIN_TEST_FILE, f"{FULL_CHAIN_TEST_FILE} tests/e2e/test_telemetry_access_e2e.py"
+        FULL_CHAIN_TEST_FILE, f"{FULL_CHAIN_TEST_FILE} {RECORD_E2E_FILE}"
     )
     with pytest.raises(AssertionError, match="alone"):
         test_full_chain_auth_lane_runs_exactly_its_own_module(mutated)
@@ -8561,7 +8793,7 @@ def test_full_chain_auth_lane_runs_exactly_its_own_module__mutation_adds_a_file(
 def test_full_chain_auth_lane_installs_chromium_before_its_module(
     workflow: dict[str, Any],
 ) -> None:
-    """The `/play` and history proofs drive a real browser against the lane's stack."""
+    """The history proofs drive a real browser against the lane's stack."""
     steps = _jobs(workflow)[FULL_CHAIN_JOB]["steps"]
     names = [step.get("name") for step in steps]
     assert FULL_CHAIN_PLAYWRIGHT_STEP in names, f"'{FULL_CHAIN_JOB}' installs no browser"
@@ -8711,18 +8943,19 @@ def test_full_chain_auth_cleanup_removes_the_history_page_and_its_image__mutatio
 
 
 # ---------------------------------------------------------------------------
-# Model-spending lanes: `full-ci` on a pull request, on demand on main
+# Model-spending lanes: `full-ci` on a pull request, the revalidation dispatch on main
 # ---------------------------------------------------------------------------
 #
-# Nine jobs drive real Claude sessions through the gateway. Measured on its
+# Ten jobs drive real Claude sessions through the gateway. Measured on its
 # ledger for the week of 2026-09-01, the set cost about $15 per run and ran on
 # every push of every same-repo PR (~150 a week, on pace for $10k a month).
 # The fix is WHEN, not WHAT: each of these lanes runs on a labeled PR or on
 # the revalidation dispatch — and on nothing else. Both arms are pinned
-# below, and so is the absence of a third: a schedule arm (or a `schedule`
-# trigger on the workflow) spends model tokens with nobody watching and
-# turns red where nobody reads it. Dropping the label clause is the other
-# regression — the lane is back on every push, and so is the bill.
+# below, and so is the absence of a third: ci.yml has no schedule arm and no
+# `schedule` trigger. Main's nightly run is the revalidation dispatch, started
+# by main-full-ci.yml, which spends nothing itself, dispatches only when main
+# has moved, and turns a red into an issue. Dropping the label clause is the
+# other regression — the lane is back on every push, and so is the bill.
 
 SPENDING_LANES = frozenset(
     {
@@ -8730,6 +8963,7 @@ SPENDING_LANES = frozenset(
         "e2e-tests",
         "dispatch-deploy-e2e",
         "single-user-narrowing-e2e",
+        "host-record-e2e",
         "dispatch-overlay-e2e",
         "scan-agentic-e2e",
         "nextcloud-talk-bridge-e2e",
@@ -8844,11 +9078,11 @@ def test_spending_lanes_name_no_base_ref__mutation_adds_an_integration_base() ->
 
 
 def test_workflow_has_no_schedule_trigger(workflow: dict[str, Any]) -> None:
-    """No cron at all: every run of this workflow is one somebody asked for
-    (a push, a pull request, a dispatch), so every red has a reader. A
-    schedule would also be the only trigger that can spend model tokens with
-    nobody in the loop; the lane `if:` checks above pin the arm, this pins
-    the event."""
+    """ci.yml keeps no cron: every run is a push, a pull request or a
+    dispatch. The schedule lives in main-full-ci.yml, which spends nothing
+    itself and dispatches the revalidation run only when main moved, so a
+    cron here would be a second, ungated spender. The lane `if:` checks above
+    pin the arm, this pins the event."""
     assert "schedule" not in workflow[True], "workflow declares a schedule trigger"
 
 
@@ -9024,6 +9258,60 @@ def test_the_tag_gate_blocks_the_publish() -> None:
     assert release["jobs"][RELEASE_GATE_JOB]["permissions"]["actions"] == "read", (
         "reading another workflow's runs needs the actions:read scope"
     )
+
+
+# ---------------------------------------------------------------------------
+# A job's display name says what it tests; its `if:` alone says when it runs
+# ---------------------------------------------------------------------------
+#
+# A check name is read on every PR, but the condition that decides when the job
+# runs lives in its `if:`. A name that restates that condition goes stale the
+# moment the `if:` gains an arm, and then tells the reader something false. The
+# phrases below are trigger-scope wording only; product words such as "dispatch"
+# are deliberately absent.
+
+WORKFLOWS_DIR = CI_YML.parent
+
+_TRIGGER_SCOPE_PHRASE = re.compile(
+    r"PRs? into|\bon main\b|nightly|workflow_dispatch|pull[ _-]request|\bschedul",
+    re.IGNORECASE,
+)
+
+
+def _job_display_names(path: Path, wf: dict[str, Any]) -> dict[tuple[str, str], str]:
+    return {
+        (path.name, job_id): str(job["name"]) for job_id, job in _jobs(wf).items() if "name" in job
+    }
+
+
+def _assert_no_display_name_states_when_it_runs(names: dict[tuple[str, str], str]) -> None:
+    for (file, job_id), name in sorted(names.items()):
+        match = _TRIGGER_SCOPE_PHRASE.search(name)
+        assert match is None, (
+            f"{file}: job {job_id!r} is named {name!r}, which states when it runs "
+            f"({match.group(0)!r}); a job's `if:` is where when lives, its name says what it tests"
+        )
+
+
+def test_no_job_display_name_states_when_it_runs() -> None:
+    """Every job in every workflow is named for what it tests, never for the
+    events that run it."""
+    names: dict[tuple[str, str], str] = {}
+    for path in sorted(WORKFLOWS_DIR.glob("*.yml")):
+        names.update(_job_display_names(path, yaml.safe_load(path.read_text())))
+    assert names, f"no job display names found under {WORKFLOWS_DIR}"
+    _assert_no_display_name_states_when_it_runs(names)
+
+
+def test_no_job_display_name_states_when_it_runs__mutation_names_a_trigger() -> None:
+    """A lifecycle lane named for one trigger while its `if:` also runs it on
+    the revalidation dispatch fails the check."""
+    mutated = _load_workflow()
+    _jobs(mutated)["multi-user-deploy-lifecycle-e2e"]["name"] = (
+        "Multi-User Deploy Lifecycle E2E (PRs into main, real container runtime)"
+    )
+    with pytest.raises(AssertionError, match="PRs into"):
+        _assert_no_display_name_states_when_it_runs(_job_display_names(CI_YML, mutated))
 
 
 # ---------------------------------------------------------------------------
@@ -9501,7 +9789,12 @@ def _run_version_check(tmp_path: Path, version: str, files: list[str]) -> int:
         (dist / name).write_text("")
     env = {**os.environ, "VERSION": version}
     return subprocess.run(
-        ["bash", "-c", step["run"]], cwd=tmp_path, env=env, capture_output=True, text=True
+        ["bash", "-c", step["run"]],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
     ).returncode
 
 
@@ -9682,7 +9975,12 @@ def test_the_framework_version_check_refuses_a_connectors_artifact(tmp_path: Pat
 
     def run() -> int:
         return subprocess.run(
-            ["bash", "-c", step["run"]], cwd=tmp_path, env=env, capture_output=True, text=True
+            ["bash", "-c", step["run"]],
+            cwd=tmp_path,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
         ).returncode
 
     for name in (
@@ -9820,6 +10118,7 @@ def _git_in(cwd: Path, *args: str) -> str:
         capture_output=True,
         text=True,
         check=True,
+        timeout=60,
     )
     return done.stdout.strip()
 
@@ -9844,7 +10143,7 @@ def test_the_on_main_check_refuses_a_commit_main_cannot_reach(tmp_path: Path) ->
     def run(sha: str) -> subprocess.CompletedProcess[str]:
         env = {**os.environ, "TAG_SHA": sha, "TAG_NAME": "v2026.10.0"}
         return subprocess.run(
-            ["bash", "-c", script], cwd=clone, env=env, capture_output=True, text=True
+            ["bash", "-c", script], cwd=clone, env=env, capture_output=True, text=True, timeout=60
         )
 
     assert run(on_main).returncode == 0
@@ -10265,7 +10564,7 @@ def test_the_package_check_reports_twines_own_verdict__mutation_restores_the_gre
 # cannot reach the verdict at all.
 
 LINKCHECK_CHECK = "linkcheck"
-LINKCHECK_COMMAND = "uv run make linkcheck"
+LINKCHECK_COMMAND = f"{CHECK_UV_RUN} make linkcheck"
 LINKCHECK_STEP = "Check for broken links"
 DOCS_BUILD_STEP = "Build documentation"
 DOCS_UPLOAD_STEP = "Upload documentation artifact"
@@ -10595,21 +10894,17 @@ def test_auth_sidecar_cleanup_removes_project_named_sidecar__mutation_prefix_ima
 
 
 # ---------------------------------------------------------------------------
-# A lane whose stack deploys the telemetry store removes it by exact name
+# The compose projects each stack lane's cleanup step owes
 # ---------------------------------------------------------------------------
 
-#: Every belt-and-suspenders cleanup step of a lane whose deployment runs the
-#: telemetry store and its gateway, with the compose projects that deployment
-#: takes. Both shipped presets deploy the pair and no lane module narrows
-#: ``deployed_services``, so every lane that runs ``osprey up`` belongs here, as
-#: does every lane whose modules deploy the store directly. A killed run
-#: otherwise leaves the store holding its port and its credential-pinned volume
-#: on a self-hosted or reused runner.
+#: The belt-and-suspenders cleanup step of a lane whose modules deploy a stack
+#: under their own compose projects. A killed run otherwise leaves that stack
+#: holding its ports and volumes on a self-hosted or reused runner.
 STACK_CLEANUP_STEP = "Clean up any stranded stack resources"
 
-#: The compose projects of the lanes that deploy the store, each from its
-#: module's ``PROJECT_NAME``. The shared ``e2e-tests`` lane can run any of them
-#: through its ``E2E_FILTER`` input, so its cleanup step names them all.
+#: The compose projects of the lanes whose modules deploy a stack, each from
+#: its module's ``PROJECT_NAME``. The shared ``e2e-tests`` lane can run any of
+#: them through its ``E2E_FILTER`` input, so its cleanup step names them all.
 _STACK_LANE_PROJECTS: dict[str, tuple[str, ...]] = {
     "bluesky-queue-e2e": ("queue-e2e",),
     "bluesky-deploy-e2e": ("osprey-e2e-bluesky-deploy",),
@@ -10627,9 +10922,10 @@ _STACK_LANE_PROJECTS: dict[str, tuple[str, ...]] = {
     "dispatch-deploy-e2e": ("osprey-e2e-dispatch",),
     "dispatch-overlay-e2e": ("osprey-e2e-overlay",),
     "single-user-narrowing-e2e": ("suproj",),
+    "host-record-e2e": ("osprey-e2e-host-record",),
     "va-substrate-equivalence-e2e": ("osprey-e2e-va-substrate",),
     "va-bluesky-deploy-e2e": ("lane-e2e",),
-    "e2e-no-model": ("osprey-e2e-telemetry-store", "osprey-e2e-telemetry-access"),
+    RECORD_E2E_JOB: ("osprey-e2e-agent-record",),
 }
 
 #: Where each lane's projects come from: the module constant they must equal.
@@ -10650,11 +10946,13 @@ _STACK_PROJECT_SOURCES: dict[str, str] = {
     "suproj": "tests/e2e/test_single_user_narrowing_e2e.py",
     "osprey-e2e-va-substrate": "tests/e2e/test_va_substrate_equivalence.py",
     "lane-e2e": "tests/va/e2e/test_bluesky_lanes.py",
-    "osprey-e2e-telemetry-store": "tests/e2e/test_telemetry_store_e2e.py",
-    "osprey-e2e-telemetry-access": "tests/e2e/test_telemetry_access_e2e.py",
+    "osprey-e2e-agent-record": RECORD_E2E_FILE,
+    "osprey-e2e-host-record": "tests/e2e/test_host_record_e2e.py",
 }
 
-TELEMETRY_CLEANUP_STEPS: dict[tuple[str, str], tuple[str, ...]] = {
+#: Every such cleanup step, with the compose projects its lane deploys: the
+#: stack lanes above, plus the lanes whose cleanup step carries its own name.
+STACK_CLEANUP_STEPS: dict[tuple[str, str], tuple[str, ...]] = {
     (
         "multi-user-deploy-lifecycle-e2e",
         "Clean up any stranded lifecycle-e2e resources",
@@ -10663,9 +10961,6 @@ TELEMETRY_CLEANUP_STEPS: dict[tuple[str, str], tuple[str, ...]] = {
         "multi-user-deploy-lifecycle-e2e-podman",
         "Clean up any stranded lifecycle-e2e resources",
     ): ("osprey-e2e-mus-p3",),
-    (TWO_SHAPE_JOB, "Clean up any stranded two-shape resources"): (
-        "osprey-e2e-two-shape-telemetry",
-    ),
     (
         "full-chain-auth-e2e",
         "Clean up any stranded full-chain-auth resources",
@@ -10674,10 +10969,6 @@ TELEMETRY_CLEANUP_STEPS: dict[tuple[str, str], tuple[str, ...]] = {
         "jupyter-panel-e2e",
         "Clean up any stranded notebook-panel resources",
     ): ("osprey-e2e-jnb",),
-    (
-        "agentic-per-preset",
-        "Clean up any stranded tutorial-stack resources",
-    ): (_module_constant(TESTS_ROOT / "e2e" / "test_preset_agentic.py", "TUTORIAL_PROJECT_NAME"),),
     **{(job, STACK_CLEANUP_STEP): projects for job, projects in _STACK_LANE_PROJECTS.items()},
     ("e2e-tests", STACK_CLEANUP_STEP): tuple(
         project for projects in _STACK_LANE_PROJECTS.values() for project in projects
@@ -10698,56 +10989,171 @@ def test_stack_lane_projects_match_their_modules() -> None:
     assert listed == set(_STACK_PROJECT_SOURCES)
 
 
-def _telemetry_cleanup_gaps(run: str, project: str) -> list[str]:
-    """What *run* fails to remove of *project*'s store, gateway and their volumes.
+# ---------------------------------------------------------------------------
+# Every lane that can bring up a stack removes the agent record by exact name
+# ---------------------------------------------------------------------------
 
-    A volume counts as removed when the step names it exactly or sweeps the
+#: The step that tears down what ``deploy-e2e``'s ``osprey up`` started, and
+#: the step that does the same for ``archiver-world-e2e``.
+DEPLOY_STACK_CLEANUP_STEP = "Clean up any stranded hello-world resources"
+ARCHIVER_CLEANUP_STEP = "Clean up any stranded archiver-world resources"
+TWO_SHAPE_CLEANUP_STEP = "Clean up any stranded two-shape resources"
+
+
+def _deploy_e2e_project(wf: dict[str, Any]) -> str:
+    """The project ``deploy-e2e`` creates, read off its own ``osprey init``."""
+    for step in _jobs(wf)[DEPLOY_JOB]["steps"]:
+        found = re.search(r"\bosprey init (\S+)", str(step.get("run", "")))
+        if found:
+            return found.group(1)
+    raise AssertionError(f"'{DEPLOY_JOB}' runs no `osprey init <project>`")
+
+
+def _record_cleanup_steps(wf: dict[str, Any]) -> dict[tuple[str, str], tuple[str, ...]]:
+    """Every belt-and-suspenders cleanup step of a lane that can bring up a
+    stack, with the compose projects that lane deploys.
+
+    The agent record renders into every deployment, so every lane that runs
+    ``osprey up`` (directly or through its module) owes it, whichever other
+    services the lane also deploys.
+    """
+    return {
+        **STACK_CLEANUP_STEPS,
+        **WEB_TERMINAL_CLEANUP_STEPS,
+        (WRITEBACK_JOB, WRITEBACK_CLEANUP_STEP): tuple(
+            f"{WRITEBACK_PROJECT_PREFIX}{case}" for case in sorted(_writeback_project_cases())
+        ),
+        (TWO_SHAPE_JOB, TWO_SHAPE_CLEANUP_STEP): (_two_shape_module_constant("PROJECT_NAME"),),
+        (ARCHIVER_JOB, ARCHIVER_CLEANUP_STEP): (
+            _module_constant(REPO_ROOT / ARCHIVER_TEST_FILE, "PROJECT_NAME"),
+        ),
+        (DEPLOY_JOB, DEPLOY_STACK_CLEANUP_STEP): (_deploy_e2e_project(wf),),
+    }
+
+
+#: Lanes that run a docker-backed module or carry a docker cleanup step but
+#: never run ``osprey up``, so no agent record can exist there to strand.
+RECORD_CLEANUP_EXEMPT: dict[str, str] = {
+    "dockerfile-e2e": "runs the generated image on its own; no compose deployment",
+    "execution-environment-parity-e2e": "builds and runs the project image only",
+    "graph-reseed-e2e": "runs the graph store container only",
+    "nextcloud-talk-bridge-e2e": "runs fixture containers and the bridge process only",
+    "target-switch-agentic-e2e": "runs the VA and an agent turn; no osprey up deployment",
+    "privilege-split-e2e": "starts hand-named containers and sweeps their name prefix",
+}
+
+_OSPREY_UP = re.compile(r"\bosprey (?:deploy )?up\b")
+_COMPOSE_DOWN = re.compile(r"\b(?:docker|podman)[ -]compose\b[^\n]*\bdown\b")
+
+
+def _expand_shell_loops(run: str) -> str:
+    """*run* with each ``for <var> in <cases>; do … done`` loop unrolled, and
+    each plain ``name="…"`` assignment in the unrolled body substituted, so a
+    removal spelled ``"${project}-agent-record"`` reads as the names it removes.
+    """
+    loop = re.compile(r"for (\w+) in ([^;\n]+); do\n(.*?)\ndone", re.DOTALL)
+
+    def _unroll(match: re.Match[str]) -> str:
+        var, cases, body = match.group(1), match.group(2).split(), match.group(3)
+        out = []
+        for case in cases:
+            text = body.replace(f"${{{var}}}", case).replace(f"${var}", case)
+            for name, value in re.findall(r'^\s*(\w+)="([^"$]*)"\s*$', text, re.MULTILINE):
+                text = text.replace(f"${{{name}}}", value).replace(f"${name}", value)
+            out.append(text)
+        return "\n".join(out)
+
+    return loop.sub(_unroll, run)
+
+
+def _record_cleanup_gaps(run: str, project: str) -> list[str]:
+    """What *run* fails to remove of *project*'s agent record, its ClickHouse
+    store and the store's data volume.
+
+    The volume counts as removed when the step names it exactly or sweeps the
     project's own volume prefix (``--filter "name=^<project>_"``).
     """
     from osprey.deployment.compose_generator import resolve_project_name
 
-    removed = set(_CONTAINER_REMOVAL.findall(run))
+    expanded = _expand_shell_loops(run)
+    removed = set(_CONTAINER_REMOVAL.findall(expanded))
+    name = resolve_project_name({"project_name": project})
     gaps = [
-        name
-        for name in (f"{project}-telemetry-store", f"{project}-telemetry-gateway")
-        if name not in removed
+        container
+        for container in (f"{name}-agent-record", f"{name}-agent-record-clickhouse")
+        if container not in removed
     ]
-    prefix = f"{resolve_project_name({'project_name': project})}_"
-    swept = f'name=^{prefix}"' in run
-    for suffix in ("telemetry_store_data", "gateway-state"):
-        volume = f"{prefix}{suffix}"
-        if not swept and not re.search(rf"volume rm (?:-f )?{re.escape(volume)}(?:\s|$)", run):
-            gaps.append(volume)
+    volume = f"{name}_agent_record_clickhouse_data"
+    swept = f'name=^{name}_"' in expanded
+    if not swept and not re.search(
+        rf"volume rm (?:-f )?\"?{re.escape(volume)}\"?(?:\s|$)", expanded
+    ):
+        gaps.append(volume)
     return gaps
 
 
-def test_store_deploying_lanes_remove_the_store_by_name(workflow: dict[str, Any]) -> None:
-    """A store left behind by a killed run holds its port and its credential-
-    pinned data volume on a host that outlives the job;
-    a cleanup spelling the names any other way removes nothing."""
+def _stack_capable_jobs(wf: dict[str, Any]) -> set[str]:
+    """Every job that can bring up a stack: it runs a docker-backed e2e module,
+    runs ``osprey up`` itself, or carries an ``if: always()`` docker or podman
+    cleanup step."""
+    jobs = {job for f in _dockerbuild_marked_e2e_files() for job in _jobs_running_e2e_file(wf, f)}
+    for job, spec in _jobs(wf).items():
+        for step in spec.get("steps") or []:
+            run = str(step.get("run", ""))
+            if _OSPREY_UP.search(run):
+                jobs.add(job)
+            if step.get("if") == "always()" and (
+                _CONTAINER_REMOVAL.search(run)
+                or _COMPOSE_DOWN.search(run)
+                or re.search(r"\b(?:docker|podman) ps -aq\b", run)
+            ):
+                jobs.add(job)
+    return jobs
+
+
+def test_every_stack_lane_owes_the_record_cleanup(workflow: dict[str, Any]) -> None:
+    """A lane that can bring up a stack and has no record cleanup leaves the
+    record container holding the next lane's port and volume after a failed
+    run. Each such lane is either in the record-cleanup table or exempt with
+    a reason; an exemption for a lane outside the rule is stale."""
+    covered = {job for job, _ in _record_cleanup_steps(workflow)}
+    unowned = sorted(_stack_capable_jobs(workflow) - covered - set(RECORD_CLEANUP_EXEMPT))
+    assert unowned == [], f"stack lanes with no agent-record cleanup: {unowned}"
+    stale = sorted(
+        job
+        for job in RECORD_CLEANUP_EXEMPT
+        if job in covered or job not in _stack_capable_jobs(workflow)
+    )
+    assert stale == [], f"record-cleanup exemptions that no longer apply: {stale}"
+
+
+def test_stack_lanes_remove_the_agent_record_by_name(workflow: dict[str, Any]) -> None:
+    """Each cleanup step removes ``<project>-agent-record``,
+    ``<project>-agent-record-clickhouse`` and the store's data volume for every
+    project its lane deploys."""
     gaps = {
         job: missing
-        for (job, step_name), projects in TELEMETRY_CLEANUP_STEPS.items()
+        for (job, step_name), projects in _record_cleanup_steps(workflow).items()
         if (
             missing := [
                 gap
                 for project in projects
-                for gap in _telemetry_cleanup_gaps(
+                for gap in _record_cleanup_gaps(
                     _cleanup_step_run(workflow, job, step_name), project
                 )
             ]
         )
     }
-    assert gaps == {}, f"cleanup steps that do not remove the telemetry store: {gaps}"
+    assert gaps == {}, f"cleanup steps that do not remove the agent record: {gaps}"
 
 
-def test_store_cleanup_steps_run_always_after_the_failure_capture(
+def test_record_cleanup_steps_run_always_after_the_failure_capture(
     workflow: dict[str, Any],
 ) -> None:
-    """The cleanup must run on a failed or cancelled run, and only after the
+    """The record cleanup runs on a failed or cancelled run, and only after the
     failure capture has read the containers' logs."""
     misplaced = []
-    for job, step_name in TELEMETRY_CLEANUP_STEPS:
+    for job, step_name in _record_cleanup_steps(workflow):
         steps = workflow["jobs"][job]["steps"]
         step = _find_named_step(workflow, job, step_name)
         captures = [
@@ -10755,52 +11161,97 @@ def test_store_cleanup_steps_run_always_after_the_failure_capture(
         ]
         if step.get("if") != "always()" or any(i > steps.index(step) for i in captures):
             misplaced.append(job)
-    assert misplaced == [], f"store cleanup not always() or before the failure capture: {misplaced}"
-
-
-def test_store_cleanup_steps_run_always_after_the_failure_capture__mutation_drops_always() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    del _find_named_step(mutated, "bluesky-queue-e2e", STACK_CLEANUP_STEP)["if"]
-    with pytest.raises(AssertionError, match="bluesky-queue-e2e"):
-        test_store_cleanup_steps_run_always_after_the_failure_capture(mutated)
-
-
-def test_store_deploying_lanes_remove_the_store_by_name__mutation_drops_one_project() -> None:
-    """The shared lane's step names many projects; losing one is a gap."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, "e2e-tests", STACK_CLEANUP_STEP)
-    before = step["run"]
-    step["run"] = "\n".join(line for line in before.splitlines() if "suproj" not in line)
-    assert step["run"] != before, "no suproj in the shared cleanup — mutation is stale"
-    with pytest.raises(AssertionError, match="suproj-telemetry-store"):
-        test_store_deploying_lanes_remove_the_store_by_name(mutated)
-
-
-def test_store_deploying_lanes_remove_the_store_by_name__mutation_drops_the_gateway() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(
-        mutated,
-        "multi-user-deploy-lifecycle-e2e-podman",
-        "Clean up any stranded lifecycle-e2e resources",
+    assert misplaced == [], (
+        f"record cleanup not always() or before the failure capture: {misplaced}"
     )
-    before = step["run"]
-    step["run"] = "\n".join(line for line in before.splitlines() if "telemetry-gateway" not in line)
-    assert step["run"] != before, "no gateway removal in the cleanup — mutation is stale"
-    with pytest.raises(AssertionError, match="osprey-e2e-mus-p3-telemetry-gateway"):
-        test_store_deploying_lanes_remove_the_store_by_name(mutated)
 
 
-def test_store_deploying_lanes_remove_the_store_by_name__mutation_drops_a_volume() -> None:
+def test_stack_lanes_remove_the_agent_record_by_name__mutation_drops_the_cleanup_step() -> None:
+    """A stack lane whose cleanup step is gone is named by the rule."""
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, TWO_SHAPE_JOB, "Clean up any stranded two-shape resources")
+    steps = _jobs(mutated)[ARCHIVER_JOB]["steps"]
+    before = len(steps)
+    steps[:] = [s for s in steps if s.get("name") != ARCHIVER_CLEANUP_STEP]
+    assert len(steps) == before - 1, "no archiver-world cleanup step — mutation is stale"
+    with pytest.raises(AssertionError, match=ARCHIVER_JOB):
+        test_stack_lanes_remove_the_agent_record_by_name(mutated)
+
+
+def test_every_stack_lane_owes_the_record_cleanup__mutation_adds_an_unowned_lane() -> None:
+    """A new lane that runs ``osprey up`` with no table entry is named."""
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)["stray-stack-e2e"] = {
+        "steps": [{"name": "boot", "run": "uv run osprey up -d --dev"}]
+    }
+    with pytest.raises(AssertionError, match="stray-stack-e2e"):
+        test_every_stack_lane_owes_the_record_cleanup(mutated)
+
+
+def test_every_stack_lane_owes_the_record_cleanup__mutation_stale_exemption() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _jobs(mutated)["graph-reseed-e2e"]
+    with pytest.raises(AssertionError, match="graph-reseed-e2e"):
+        test_every_stack_lane_owes_the_record_cleanup(mutated)
+
+
+@pytest.mark.parametrize(
+    ("job", "step_name", "dropped"),
+    [
+        ("bluesky-queue-e2e", STACK_CLEANUP_STEP, "queue-e2e-agent-record"),
+        ("e2e-tests", STACK_CLEANUP_STEP, "suproj-agent-record-clickhouse"),
+        (
+            "auth-perimeter-e2e",
+            "Clean up any stranded auth-perimeter resources",
+            "osprey-e2e-auth-perimeter-agent-record",
+        ),
+        (TWO_SHAPE_JOB, TWO_SHAPE_CLEANUP_STEP, "osprey-e2e-two-shape-agent-record-clickhouse"),
+        (DEPLOY_JOB, DEPLOY_STACK_CLEANUP_STEP, "hello-world-test-agent-record"),
+        (ARCHIVER_JOB, ARCHIVER_CLEANUP_STEP, "archiver-world-agent-record"),
+    ],
+)
+def test_stack_lanes_remove_the_agent_record_by_name__mutation_drops_a_removal(
+    job: str, step_name: str, dropped: str
+) -> None:
+    """Dropping one record removal from one lane is a gap naming that lane."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, job, step_name)
     before = step["run"]
-    step["run"] = "\n".join(line for line in before.splitlines() if "_gateway-state" not in line)
-    assert step["run"] != before, "no gateway-state volume in the cleanup — mutation is stale"
-    with pytest.raises(AssertionError, match="osprey-e2e-two-shape-telemetry_gateway-state"):
-        test_store_deploying_lanes_remove_the_store_by_name(mutated)
+    step["run"] = "\n".join(
+        line for line in before.splitlines() if not line.rstrip().endswith(f"{dropped} || true")
+    )
+    assert step["run"] != before, f"no {dropped} removal in '{job}' — mutation is stale"
+    with pytest.raises(
+        AssertionError, match=rf"'{re.escape(job)}': \[[^\]]*'{re.escape(dropped)}'"
+    ):
+        test_stack_lanes_remove_the_agent_record_by_name(mutated)
 
 
-def test_store_deploying_lanes_remove_the_store_by_name__mutation_drops_the_volume_sweep() -> None:
+def test_stack_lanes_remove_the_agent_record_by_name__mutation_drops_the_loop_removal() -> None:
+    """The write-back lane removes its records inside its per-project loop."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, WRITEBACK_JOB, WRITEBACK_CLEANUP_STEP)
+    before = step["run"]
+    step["run"] = "\n".join(
+        line for line in before.splitlines() if '"${project}-agent-record" ' not in line
+    )
+    assert step["run"] != before, "no looped record removal — mutation is stale"
+    with pytest.raises(AssertionError, match="osprey-e2e-wb-render-agent-record'"):
+        test_stack_lanes_remove_the_agent_record_by_name(mutated)
+
+
+def test_stack_lanes_remove_the_agent_record_by_name__mutation_drops_the_record_volume() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, ARCHIVER_JOB, ARCHIVER_CLEANUP_STEP)
+    before = step["run"]
+    step["run"] = "\n".join(
+        line for line in before.splitlines() if "agent_record_clickhouse_data" not in line
+    )
+    assert step["run"] != before, "no record volume removal — mutation is stale"
+    with pytest.raises(AssertionError, match="archiver-world_agent_record_clickhouse_data"):
+        test_stack_lanes_remove_the_agent_record_by_name(mutated)
+
+
+def test_stack_lanes_remove_the_agent_record_by_name__mutation_drops_the_volume_sweep() -> None:
     """The notebook-panel lane removes its volumes by project prefix only."""
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(
@@ -10809,8 +11260,28 @@ def test_store_deploying_lanes_remove_the_store_by_name__mutation_drops_the_volu
     before = step["run"]
     step["run"] = before.replace('"name=^osprey-e2e-jnb_"', '"name=^osprey-e2e-jnb-web_"')
     assert step["run"] != before, "no project volume sweep — mutation is stale"
-    with pytest.raises(AssertionError, match="osprey-e2e-jnb_telemetry_store_data"):
-        test_store_deploying_lanes_remove_the_store_by_name(mutated)
+    with pytest.raises(AssertionError, match="osprey-e2e-jnb_agent_record_clickhouse_data"):
+        test_stack_lanes_remove_the_agent_record_by_name(mutated)
+
+
+def test_record_cleanup_steps_run_always_after_the_failure_capture__mutation_drops_always() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _find_named_step(mutated, DEPLOY_JOB, DEPLOY_STACK_CLEANUP_STEP)["if"]
+    with pytest.raises(AssertionError, match=DEPLOY_JOB):
+        test_record_cleanup_steps_run_always_after_the_failure_capture(mutated)
+
+
+def test_expand_shell_loops_unrolls_cases_and_assignments() -> None:
+    run = (
+        "for case in a b; do\n"
+        '  project="p-${case}"\n'
+        '  docker rm -f "${project}-agent-record" || true\n'
+        "done\n"
+    )
+    assert _CONTAINER_REMOVAL.findall(_expand_shell_loops(run)) == [
+        "p-a-agent-record",
+        "p-b-agent-record",
+    ]
 
 
 _YAML_KEY_LINE = re.compile(r"^\s*[A-Za-z_][\w-]*:(?:\s|$)")
@@ -10838,9 +11309,7 @@ def test_no_run_script_absorbs_a_step_key(workflow: dict[str, Any]) -> None:
 
 def test_no_run_script_absorbs_a_step_key__mutation_splices_a_key() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(
-        mutated, "agentic-per-preset", "Clean up any stranded tutorial-stack resources"
-    )
+    step = _find_named_step(mutated, DEPLOY_JOB, DEPLOY_STACK_CLEANUP_STEP)
     step["run"] += "engine: docker\n"
     with pytest.raises(AssertionError, match="engine: docker"):
         test_no_run_script_absorbs_a_step_key(mutated)
@@ -10848,9 +11317,7 @@ def test_no_run_script_absorbs_a_step_key__mutation_splices_a_key() -> None:
 
 def test_no_run_script_absorbs_a_step_key__a_heredoc_block_is_not_a_key() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(
-        mutated, "agentic-per-preset", "Clean up any stranded tutorial-stack resources"
-    )
+    step = _find_named_step(mutated, DEPLOY_JOB, DEPLOY_STACK_CLEANUP_STEP)
     step["run"] = "python - <<'PY'\ntry:\n    pass\nfinally:\n    pass\nPY\n" + step["run"]
     test_no_run_script_absorbs_a_step_key(mutated)
 
@@ -11146,7 +11613,7 @@ def _staged_siblings(release: dict[str, Any], tmp_path: Path) -> list[str]:
         (dist / name).write_text("")
     sibling = tmp_path / "sibling"
     script = _release_staging_script(release).replace(RELEASE_SIBLING_DIR, str(sibling))
-    subprocess.run(["bash", "-euo", "pipefail", "-c", script], cwd=tmp_path, check=True)
+    subprocess.run(["bash", "-euo", "pipefail", "-c", script], cwd=tmp_path, check=True, timeout=60)
     return sorted(p.name for p in sibling.iterdir())
 
 
@@ -11597,6 +12064,246 @@ def test_the_unit_shards_cover_the_test_tree__mutation_ignores_below_the_top_lev
 
 
 # ---------------------------------------------------------------------------
+# The revalidation dispatch runs every lane a push skips
+# ---------------------------------------------------------------------------
+#
+# A push to main runs only the jobs with no `if:`. Every other lane is scoped
+# to pull requests, so main's coverage of those lanes comes from one place:
+# the `revalidate_secret_lanes` dispatch. Each such lane carries the dispatch
+# arm beside its pull-request arm, and the set of lanes that must carry it is
+# derived from the workflow, not listed: a new pull-request-only lane without
+# the arm fails here. The benchmark lanes run on their own dispatch input and
+# the roll-up gate runs on every event, so neither is in the set.
+
+REVALIDATION_ARM = "(github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)"
+#: e2e-tests runs on every dispatch that is not a benchmark run, which
+#: includes the revalidation dispatch.
+_E2E_DISPATCH_ARM = "(github.event_name == 'workflow_dispatch' && !inputs.run_benchmarks)"
+
+
+def _lanes_a_push_skips(wf: dict[str, Any]) -> set[str]:
+    """Jobs whose `if:` names no push arm, minus the benchmarks and the gate."""
+    return {
+        name
+        for name, job in _jobs(wf).items()
+        if "if" in job
+        and "push" not in str(job["if"])
+        and name not in {BENCHMARKS_JOB, TIER2_JOB, GATE_JOB}
+    }
+
+
+def test_every_lane_a_push_skips_runs_on_the_revalidation_dispatch(
+    workflow: dict[str, Any],
+) -> None:
+    lanes = _lanes_a_push_skips(workflow)
+    assert len(lanes) > len(SPENDING_LANES), f"derived set looks empty: {sorted(lanes)}"
+    missing = sorted(
+        name
+        for name in lanes
+        if not any(
+            arm in " ".join(str(_jobs(workflow)[name]["if"]).split())
+            for arm in (REVALIDATION_ARM, _E2E_DISPATCH_ARM)
+        )
+    )
+    assert missing == [], f"lanes with no revalidation arm: {missing}"
+
+
+def test_every_lane_a_push_skips_runs_on_the_revalidation_dispatch__mutation_strips_queue() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[QUEUE_JOB]
+    stripped = re.sub(rf"\s*\|\|\s*{re.escape(REVALIDATION_ARM)}", "", str(job["if"]))
+    assert stripped != job["if"], "no revalidation arm on the queue lane — mutation is stale"
+    job["if"] = stripped
+    with pytest.raises(AssertionError, match=QUEUE_JOB):
+        test_every_lane_a_push_skips_runs_on_the_revalidation_dispatch(mutated)
+
+
+def test_dockerfile_e2e_installs_the_dispatched_sha_when_there_is_no_pull_request(
+    workflow: dict[str, Any],
+) -> None:
+    """Under a dispatch `github.event.pull_request.head.sha` is empty, so the
+    pip spec falls back to the run's own sha."""
+    spec = json.dumps(_jobs(workflow)[DOCKERFILE_E2E_JOB])
+    assert "${{ github.event.pull_request.head.sha || github.sha }}" in spec
+    assert "@${{ github.event.pull_request.head.sha }}" not in spec
+
+
+def test_dockerfile_e2e_installs_the_dispatched_sha__mutation_drops_the_fallback() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    raw = json.dumps(_jobs(mutated)[DOCKERFILE_E2E_JOB]).replace(" || github.sha", "")
+    _jobs(mutated)[DOCKERFILE_E2E_JOB] = json.loads(raw)
+    with pytest.raises(AssertionError):
+        test_dockerfile_e2e_installs_the_dispatched_sha_when_there_is_no_pull_request(mutated)
+
+
+def _check_pr_lane_exit(wf: dict[str, Any], event: str, revalidate: str, result: str) -> int:
+    """Run the gate's own `check_pr_lane` on one lane result; return its exit code."""
+    run = _gate_run_text(wf)
+    start = run.index("check_pr_lane() {")
+    function = run[start : run.index("\n}\n", start) + 3]
+    env = {**os.environ, "EVENT_NAME": event, "REVALIDATE": revalidate}
+    done = subprocess.run(
+        ["bash", "-ec", f'{function}check_pr_lane "Some lane" "{result}"'],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return done.returncode
+
+
+def test_the_gate_fails_a_skipped_lane_on_a_revalidation_run(workflow: dict[str, Any]) -> None:
+    """A green revalidation run vouches for every lane on its sha, so a lane
+    that skipped there fails the gate. Elsewhere a skip still passes."""
+    env = _find_named_step(workflow, GATE_JOB, "Check all jobs status")["env"]
+    assert env["REVALIDATE"] == "${{ inputs.revalidate_secret_lanes }}"
+    assert _check_pr_lane_exit(workflow, "workflow_dispatch", "true", "skipped") != 0, (
+        "a skipped lane passes the gate on a revalidation run"
+    )
+    assert _check_pr_lane_exit(workflow, "workflow_dispatch", "true", "success") == 0
+    assert _check_pr_lane_exit(workflow, "workflow_dispatch", "false", "skipped") == 0
+    assert _check_pr_lane_exit(workflow, "pull_request", "", "skipped") == 0
+    assert _check_pr_lane_exit(workflow, "push", "", "skipped") == 0
+    assert _check_pr_lane_exit(workflow, "pull_request", "", "failure") != 0
+
+
+def test_the_gate_fails_a_skipped_lane_on_a_revalidation_run__mutation_drops_the_branch() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    original = step["run"]
+    step["run"] = re.sub(
+        r'if \[\[ "\$2" == "skipped" && .*?\n  elif ', "if ", original, flags=re.DOTALL
+    )
+    assert step["run"] != original, "no revalidation branch in check_pr_lane — mutation is stale"
+    with pytest.raises(AssertionError, match="passes the gate on a revalidation run"):
+        test_the_gate_fails_a_skipped_lane_on_a_revalidation_run(mutated)
+
+
+# ---------------------------------------------------------------------------
+# main-full-ci.yml: the change-gated nightly revalidation of main
+# ---------------------------------------------------------------------------
+#
+# The nightly spends nothing itself: its only `gh workflow run` dispatches
+# ci.yml's revalidation run against main, and only in a step gated on the
+# lookup's `dispatch` answer. Its red reaches a person through the report job,
+# and the lookup module's lane map is the tag gate's map, so a renamed lane
+# fails here rather than in a nightly that silently finds nothing.
+
+MAIN_FULL_CI_YML = CI_YML.parent / "main-full-ci.yml"
+FULL_CI_ON_MAIN_PY = CI_YML.parents[2] / "scripts" / "ci" / "full_ci_on_main.py"
+_DISPATCH_COMMAND = "gh workflow run ci.yml --ref main -f revalidate_secret_lanes=true"
+
+
+def _load_main_full_ci() -> dict[str, Any]:
+    return yaml.safe_load(MAIN_FULL_CI_YML.read_text(encoding="utf-8"))
+
+
+def _full_ci_on_main_lanes() -> dict[str, str]:
+    spec = importlib.util.spec_from_file_location("full_ci_on_main", FULL_CI_ON_MAIN_PY)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.SPENDING_LANES
+
+
+def test_the_nightly_dispatches_only_the_revalidation_run_and_only_when_main_moved(
+    nightly: dict[str, Any] | None = None,
+) -> None:
+    wf = nightly if nightly is not None else _load_main_full_ci()
+    dispatching = [
+        (name, step)
+        for name, job in wf["jobs"].items()
+        for step in job["steps"]
+        if "gh workflow run" in step.get("run", "")
+    ]
+    assert len(dispatching) == 1, f"expected one `gh workflow run` step; got {len(dispatching)}"
+    job_name, step = dispatching[0]
+    assert step["run"].strip() == _DISPATCH_COMMAND, f"dispatches {step['run'].strip()!r}"
+    assert step.get("if") == "steps.decide.outputs.decision == 'dispatch'", (
+        "the dispatch is not conditioned on the should-dispatch answer"
+    )
+    decide = next(s for s in wf["jobs"][job_name]["steps"] if s.get("id") == "decide")
+    assert "full_ci_on_main.py should-dispatch" in decide["run"]
+    assert wf["jobs"][job_name]["permissions"]["actions"] == "write"
+    triggers = wf[True]
+    assert len(triggers["schedule"]) == 1, "one cron a day"
+    assert "workflow_dispatch" in triggers
+
+
+def test_the_nightly_dispatch__mutation_drops_the_ref() -> None:
+    mutated = _load_main_full_ci()
+    step = mutated["jobs"]["dispatch"]["steps"][-1]
+    step["run"] = step["run"].replace(" --ref main", "")
+    with pytest.raises(AssertionError, match="dispatches"):
+        test_the_nightly_dispatches_only_the_revalidation_run_and_only_when_main_moved(mutated)
+
+
+def test_the_nightly_dispatch__mutation_drops_the_condition() -> None:
+    mutated = _load_main_full_ci()
+    del mutated["jobs"]["dispatch"]["steps"][-1]["if"]
+    with pytest.raises(AssertionError, match="not conditioned"):
+        test_the_nightly_dispatches_only_the_revalidation_run_and_only_when_main_moved(mutated)
+
+
+def test_a_finished_revalidation_run_files_its_verdict(
+    nightly: dict[str, Any] | None = None,
+) -> None:
+    """A completed dispatch of CI on main runs `report`, which may write issues."""
+    wf = nightly if nightly is not None else _load_main_full_ci()
+    reporting = [
+        job
+        for job in wf["jobs"].values()
+        if any("full_ci_on_main.py report" in s.get("run", "") for s in job["steps"])
+        and "github.event_name == 'workflow_run'" in " ".join(str(job.get("if", "")).split())
+    ]
+    assert len(reporting) == 1, "no job files the verdict of a finished revalidation run"
+    job = reporting[0]
+    condition = " ".join(str(job["if"]).split())
+    assert "github.event_name == 'workflow_run'" in condition
+    assert "github.event.workflow_run.event == 'workflow_dispatch'" in condition
+    assert job["permissions"]["issues"] == "write"
+    assert wf[True]["workflow_run"] == {
+        "workflows": ["CI"],
+        "types": ["completed"],
+        "branches": ["main"],
+    }
+    assert _load_workflow()["name"] == "CI", "workflow_run names a workflow ci.yml no longer is"
+
+
+def test_a_finished_revalidation_run_files_its_verdict__mutation_drops_the_job() -> None:
+    mutated = _load_main_full_ci()
+    del mutated["jobs"]["report"]
+    with pytest.raises(AssertionError, match="no job files the verdict"):
+        test_a_finished_revalidation_run_files_its_verdict(mutated)
+
+
+def test_the_lookup_lane_map_is_the_spending_lane_set(
+    lanes: dict[str, str] | None = None,
+) -> None:
+    """Same pin as the tag gate's map: every spending lane, each prefix naming
+    its own rendered job and no other."""
+    lanes = lanes if lanes is not None else _full_ci_on_main_lanes()
+    assert set(lanes) == set(SPENDING_LANES), (
+        f"full_ci_on_main.py lanes differ from SPENDING_LANES: "
+        f"{sorted(set(lanes) ^ set(SPENDING_LANES))}"
+    )
+    jobs = _jobs(_load_workflow())
+    for lane, prefix in lanes.items():
+        assert jobs[lane]["name"].startswith(prefix), (
+            f"{lane}: full_ci_on_main.py looks for {prefix!r}, ci.yml renders {jobs[lane]['name']!r}"
+        )
+        others = [n for n, j in jobs.items() if n != lane and j.get("name", "").startswith(prefix)]
+        assert others == [], f"{prefix!r} also matches {others}"
+
+
+def test_the_lookup_lane_map__mutation_renames_a_key() -> None:
+    lanes = dict(_full_ci_on_main_lanes())
+    lanes["scan-agentic"] = lanes.pop("scan-agentic-e2e")
+    with pytest.raises(AssertionError, match="differ from SPENDING_LANES"):
+        test_the_lookup_lane_map_is_the_spending_lane_set(lanes)
+
+
+# ---------------------------------------------------------------------------
 # Connectors compatibility lanes: Lane A runs HEAD connectors under every
 # supported framework release, Lane B runs HEAD framework at its connectors
 # floor, and the nightly runs Lane A and each release's own tests. Each stands
@@ -11627,8 +12334,7 @@ def _compat_matrix_module() -> Any:
 
 
 def _load_nightly() -> dict[str, Any]:
-    with NIGHTLY_YML.open() as f:
-        return yaml.safe_load(f)
+    return yaml.safe_load(NIGHTLY_YML.read_text())
 
 
 @pytest.fixture()
@@ -11941,7 +12647,10 @@ CHECKS_WITHOUT_A_CI_STEP = {
     "pytest-wallclock": "its suite runs serially in the lane that hosts the wallclock marker",
 }
 #: The `if:` clause that puts a step on the runners that meet the venue.
-VENUE_RUNNER_CLAUSES = {framework_checks.LIVE_CA_VENUE: "matrix.os == 'ubuntu-latest'"}
+VENUE_RUNNER_CLAUSES = {
+    framework_checks.LIVE_CA_VENUE: "matrix.os == 'ubuntu-latest'",
+    framework_checks.DARWIN_VENUE: "matrix.os == 'macos-latest'",
+}
 
 
 @pytest.fixture()
@@ -12593,6 +13302,10 @@ _GATED_LANES = [
     # sessions on real API budget, goes unwatched.
     TARGET_SWITCH_AGENTIC_JOB,
     GRAPH_RESEED_JOB,
+    RECORD_E2E_JOB,
+    # A warm-up that fails leaves every PR downloading the qmd models again;
+    # the gate on main is where that shows.
+    QMD_WARMUP_JOB,
 ]
 
 
@@ -12626,3 +13339,296 @@ def test_all_checks_passed_gates_on_lane__mutation_drops_check_pr_lane_line(job:
     assert job in _jobs(mutated)[GATE_JOB]["needs"]  # the needs entry survives
     with pytest.raises(AssertionError):
         test_all_checks_passed_gates_on_lane(mutated, job)
+
+
+# ---------------------------------------------------------------------------
+# The qmd sidecar image: one layer cache, saved in main's scope only
+# ---------------------------------------------------------------------------
+#
+# The image bakes in 2.1 GB of GGUF models fetched from huggingface.co during
+# its build, and the layer cache that holds them is 2.5 GB. A PR can restore a
+# cache saved on its own branch or on main and nowhere else, so an entry a PR
+# saves serves that PR alone and evicts the repo's smaller caches. The rule
+# pinned here: the warm-up job saves on pushes to main, every other caller of
+# the shared action restores only, and every lane that deploys the sidecar
+# starts it from the image the action built rather than building its own.
+
+QMD_IMAGE_ACTION = "./.github/actions/build-qmd-image"
+QMD_IMAGE_ACTION_YML = REPO_ROOT / ".github" / "actions" / "build-qmd-image" / "action.yml"
+QMD_WARMUP_CONDITION = "github.event_name == 'push' && github.ref == 'refs/heads/main'"
+QMD_IMAGE_ENV = "OSPREY_QMD_IMAGE"
+QMD_IMAGE_TAG = "osprey-qmd:ci"
+QMD_CACHE_DIR = "/tmp/qmd-buildx-cache"
+#: Saves either explicitly or in a post step; ``actions/cache/restore`` does neither.
+CACHE_SAVING_ACTIONS = ("actions/cache@", "actions/cache/save@")
+#: The input that turns the action's save on.
+QMD_WARM_INPUT = "warm"
+
+#: Every step that starts the qmd sidecar, by job and step name. Each deploys
+#: the control-assistant preset with qmd left in, or (qmd-sidecar-e2e) starts
+#: the sidecar directly. Kept by hand: which module's ``osprey up`` renders a
+#: qmd service is a fact about its fixture, not about the workflow.
+QMD_DEPLOYING_STEPS: dict[str, tuple[str, ...]] = {
+    "qmd-sidecar-e2e": (
+        "Run qmd sidecar E2E",
+        "Run the wall-clock budgets serially",
+        "Run the multi-user shared-bundle sidecar E2E",
+    ),
+    "jupyter-panel-e2e": ("Run notebook panel E2E",),
+    "scan-agentic-e2e": ("Run scan stack agentic E2E",),
+    "va-substrate-equivalence-e2e": ("Run VA substrate equivalence E2E",),
+    "bluesky-web-deploy-e2e": ("Run bluesky web deploy E2E",),
+    "bluesky-queue-e2e": ("Run Bluesky queue E2E",),
+    "bluesky-sandbox-escape-e2e": ("Run bluesky sandbox escape E2E",),
+    "tiled-roundtrip-e2e": ("Run Tiled roundtrip E2E",),
+    "single-user-narrowing-e2e": ("Run single-user narrowing E2E",),
+    "dispatch-overlay-e2e": ("Run dispatch overlay visibility E2E",),
+    "dispatch-deploy-e2e": ("Run dispatch deploy E2E",),
+    "orm-roundtrip-e2e": (
+        "Run ORM roundtrip E2E",
+        "Run grid scan roundtrip E2E",
+        "Run orbit bump sweep roundtrip E2E",
+        "Run preflight probe E2E",
+    ),
+}
+
+
+def _load_qmd_image_action() -> dict[str, Any]:
+    return _load_action_yml(QMD_IMAGE_ACTION_YML)
+
+
+@pytest.fixture()
+def qmd_image_action() -> dict[str, Any]:
+    return _load_qmd_image_action()
+
+
+def _qmd_action_calls(wf: dict[str, Any]) -> list[tuple[str, int, dict[str, Any]]]:
+    return [
+        (name, index, step)
+        for name, job in _jobs(wf).items()
+        for index, step in enumerate(job.get("steps", []))
+        if step.get("uses") == QMD_IMAGE_ACTION
+    ]
+
+
+def _warms(step: dict[str, Any]) -> bool:
+    return str((step.get("with") or {}).get(QMD_WARM_INPUT, "false")).lower() == "true"
+
+
+def _saving_steps_outside_the_warmup(wf: dict[str, Any]) -> list[str]:
+    """Every place in the workflow that would save a qmd layer cache, bar the warm-up's."""
+    found = [
+        f"{name}: '{step.get('name')}' calls the action with {QMD_WARM_INPUT}: true"
+        for name, _, step in _qmd_action_calls(wf)
+        if _warms(step) and name != QMD_WARMUP_JOB
+    ]
+    for name, job in _jobs(wf).items():
+        for step in job.get("steps", []):
+            uses = str(step.get("uses", ""))
+            if uses.startswith(CACHE_SAVING_ACTIONS) and "qmd" in json.dumps(step.get("with")):
+                found.append(f"{name}: '{step.get('name')}' saves a qmd cache with {uses}")
+            if "qmd" in str(step.get("run", "")) and "--cache-to" in str(step.get("run", "")):
+                found.append(f"{name}: '{step.get('name')}' exports a qmd layer cache")
+    return found
+
+
+def test_only_the_warmup_saves_the_qmd_cache(workflow: dict[str, Any]) -> None:
+    """A PR lane that saved would write a 2.5 GB entry only that PR can read,
+    which is what filled the repo's cache budget with copies of one layer set."""
+    assert _saving_steps_outside_the_warmup(workflow) == []
+
+
+def test_only_the_warmup_saves_the_qmd_cache__mutation_a_pr_lane_warms() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, "jupyter-panel-e2e", "Build the qmd sidecar image")
+    step["with"] = {QMD_WARM_INPUT: "true"}
+    assert len(_saving_steps_outside_the_warmup(mutated)) == 1
+
+
+def test_only_the_warmup_saves_the_qmd_cache__mutation_a_lane_brings_its_own_cache() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)["qmd-sidecar-e2e"]["steps"].insert(
+        0,
+        {
+            "name": "Cache the sidecar image layers",
+            "uses": "actions/cache@v6",
+            "with": {"path": QMD_CACHE_DIR, "key": "qmd-buildx-x"},
+        },
+    )
+    assert len(_saving_steps_outside_the_warmup(mutated)) == 1
+
+
+def test_only_the_warmup_saves_the_qmd_cache__mutation_a_lane_exports_layers() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(
+        mutated, "qmd-sidecar-e2e", "Build the sidecar image with the model fetches skipped"
+    )
+    step["run"] += f"  --cache-to type=local,dest={QMD_CACHE_DIR}-new,mode=max\n"
+    assert len(_saving_steps_outside_the_warmup(mutated)) == 1
+
+
+def _unguarded_saves(action: dict[str, Any]) -> list[str]:
+    """Steps of the action that save or export a cache without requiring warm mode."""
+    guard = f"inputs.{QMD_WARM_INPUT} == 'true'"
+    found = []
+    for step in action["runs"]["steps"]:
+        uses = str(step.get("uses", ""))
+        saves = uses.startswith(CACHE_SAVING_ACTIONS) or "--cache-to" in str(step.get("run", ""))
+        if saves and guard not in str(step.get("if", "")):
+            found.append(str(step.get("name")))
+        if uses.startswith("actions/cache@"):
+            found.append(f"{step.get('name')} (actions/cache saves in its post step)")
+    return found
+
+
+def test_the_action_saves_only_in_warm_mode(qmd_image_action: dict[str, Any]) -> None:
+    """The default call restores and builds; nothing it runs can write a cache."""
+    assert _unguarded_saves(qmd_image_action) == []
+
+
+def test_the_action_saves_only_in_warm_mode__mutation_drops_the_save_guard() -> None:
+    mutated = copy.deepcopy(_load_qmd_image_action())
+    save = next(s for s in mutated["runs"]["steps"] if "cache/save@" in str(s.get("uses", "")))
+    del save["if"]
+    assert _unguarded_saves(mutated) == [save["name"]]
+
+
+def test_the_action_saves_only_in_warm_mode__mutation_restores_with_the_saving_action() -> None:
+    mutated = copy.deepcopy(_load_qmd_image_action())
+    restore = next(s for s in mutated["runs"]["steps"] if s.get("id") == "restore")
+    restore["uses"] = "actions/cache@v6"
+    assert len(_unguarded_saves(mutated)) == 2
+
+
+def test_the_action_keeps_the_key_guards(qmd_image_action: dict[str, Any]) -> None:
+    """The default shell sets no `pipefail`: a grep that matched nothing would
+    key every pin set on the digest of the empty string. `-eq 3` fails loudly
+    if the pin labels are renamed instead of keying on a partial match."""
+    key = next(s for s in qmd_image_action["runs"]["steps"] if s.get("id") == "key")
+    lines = _uncommented_lines(key["run"])
+    assert lines[0] == "set -euo pipefail"
+    assert any("-eq 3" in line and "wc -l" in line for line in lines)
+
+
+def test_the_action_keeps_the_key_guards__mutation_drops_pipefail() -> None:
+    mutated = copy.deepcopy(_load_qmd_image_action())
+    key = next(s for s in mutated["runs"]["steps"] if s.get("id") == "key")
+    key["run"] = key["run"].replace("set -euo pipefail\n", "", 1)
+    with pytest.raises(AssertionError):
+        test_the_action_keeps_the_key_guards(mutated)
+
+
+def test_the_action_keeps_the_key_guards__mutation_drops_the_count() -> None:
+    mutated = copy.deepcopy(_load_qmd_image_action())
+    key = next(s for s in mutated["runs"]["steps"] if s.get("id") == "key")
+    key["run"] = "\n".join(line for line in key["run"].splitlines() if "-eq 3" not in line)
+    with pytest.raises(AssertionError):
+        test_the_action_keeps_the_key_guards(mutated)
+
+
+def _warmup_problems(wf: dict[str, Any]) -> list[str]:
+    job = _jobs(wf)[QMD_WARMUP_JOB]
+    problems = []
+    if job.get("if") != QMD_WARMUP_CONDITION:
+        problems.append(f"if: {job.get('if')!r}, expected {QMD_WARMUP_CONDITION!r}")
+    calls = [step for name, _, step in _qmd_action_calls(wf) if name == QMD_WARMUP_JOB]
+    if len(calls) != 1 or not _warms(calls[0]):
+        problems.append(f"expected one call of {QMD_IMAGE_ACTION} with {QMD_WARM_INPUT}: true")
+    return problems
+
+
+def test_the_warmup_runs_only_on_pushes_to_main(workflow: dict[str, Any]) -> None:
+    """Only a save on main is readable by every PR. A warm-up that also ran on
+    PRs would be the per-PR save this job exists to replace."""
+    assert _warmup_problems(workflow) == []
+
+
+def test_the_warmup_runs_only_on_pushes_to_main__mutation_also_runs_on_prs() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[QMD_WARMUP_JOB]["if"] = (
+        f"{QMD_WARMUP_CONDITION} || github.event_name == 'pull_request'"
+    )
+    assert len(_warmup_problems(mutated)) == 1
+
+
+def test_the_warmup_runs_only_on_pushes_to_main__mutation_any_branch_push() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[QMD_WARMUP_JOB]["if"] = "github.event_name == 'push'"
+    assert len(_warmup_problems(mutated)) == 1
+
+
+def test_the_warmup_runs_only_on_pushes_to_main__mutation_forgets_warm_mode() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _find_named_step(mutated, QMD_WARMUP_JOB, "Warm the qmd layer cache").pop("with")
+    assert len(_warmup_problems(mutated)) == 1
+
+
+def _qmd_deploy_problems(wf: dict[str, Any]) -> list[str]:
+    """Every listed step runs after one restore-only build and starts that image."""
+    problems = []
+    callers = {name for name, _, _ in _qmd_action_calls(wf)} - {QMD_WARMUP_JOB}
+    for name in sorted(callers - set(QMD_DEPLOYING_STEPS)):
+        problems.append(f"{name}: builds the qmd image but no step here is listed as using it")
+    for name, step_names in QMD_DEPLOYING_STEPS.items():
+        calls = [index for job, index, _ in _qmd_action_calls(wf) if job == name]
+        if len(calls) != 1:
+            problems.append(f"{name}: calls {QMD_IMAGE_ACTION} {len(calls)} times, expected 1")
+            continue
+        steps = _jobs(wf)[name]["steps"]
+        for step_name in step_names:
+            index = next((i for i, s in enumerate(steps) if s.get("name") == step_name), None)
+            if index is None:
+                problems.append(f"{name}: no step named '{step_name}'")
+                continue
+            if index < calls[0]:
+                problems.append(f"{name}: '{step_name}' runs before the image is built")
+            image = (steps[index].get("env") or {}).get(QMD_IMAGE_ENV)
+            if image != QMD_IMAGE_TAG:
+                problems.append(f"{name}: '{step_name}' sets {QMD_IMAGE_ENV}={image!r}")
+    return problems
+
+
+def test_every_qmd_deploying_step_starts_the_shared_image(workflow: dict[str, Any]) -> None:
+    """Without the variable `osprey up` builds `<project>-qmd:local` itself,
+    fetching the models from huggingface.co with no cache at all; with it but
+    no build first, the start fails on an image that does not exist."""
+    assert _qmd_deploy_problems(workflow) == []
+
+
+def test_every_qmd_deploying_step_starts_the_shared_image__mutation_drops_the_variable() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _find_named_step(mutated, "jupyter-panel-e2e", "Run notebook panel E2E")["env"][
+        QMD_IMAGE_ENV
+    ]
+    assert _qmd_deploy_problems(mutated) == [
+        f"jupyter-panel-e2e: 'Run notebook panel E2E' sets {QMD_IMAGE_ENV}=None"
+    ]
+
+
+def test_every_qmd_deploying_step_starts_the_shared_image__mutation_drops_the_build() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)["tiled-roundtrip-e2e"]["steps"]
+    steps.remove(_find_named_step(mutated, "tiled-roundtrip-e2e", "Build the qmd sidecar image"))
+    assert _qmd_deploy_problems(mutated) == [
+        f"tiled-roundtrip-e2e: calls {QMD_IMAGE_ACTION} 0 times, expected 1"
+    ]
+
+
+def test_every_qmd_deploying_step_starts_the_shared_image__mutation_builds_too_late() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)["orm-roundtrip-e2e"]["steps"]
+    build = _find_named_step(mutated, "orm-roundtrip-e2e", "Build the qmd sidecar image")
+    steps.remove(build)
+    steps.insert(
+        steps.index(_find_named_step(mutated, "orm-roundtrip-e2e", "Run preflight probe E2E")),
+        build,
+    )
+    assert len(_qmd_deploy_problems(mutated)) == 3
+
+
+def test_every_qmd_deploying_step_starts_the_shared_image__mutation_unlisted_caller() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)["lint"]["steps"].append({"name": "x", "uses": QMD_IMAGE_ACTION})
+    assert _qmd_deploy_problems(mutated) == [
+        "lint: builds the qmd image but no step here is listed as using it"
+    ]

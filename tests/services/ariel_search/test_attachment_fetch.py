@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import errno
 import os
-import socket
 from collections.abc import AsyncIterator
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -455,11 +454,8 @@ async def test_fetch_host_up_statuses_are_transient_with_host_up(server, adapter
     assert out == FetchOutcome(transient=True, host_up=True)
 
 
-async def test_fetch_connection_refused_is_transient_host_down(adapter):
-    sock = socket.socket()
-    sock.bind(("127.0.0.1", 0))
-    port = sock.getsockname()[1]
-    sock.close()
+async def test_fetch_connection_refused_is_transient_host_down(adapter, reserve_port):
+    port = reserve_port()
     sent: list[int] = []
     out = await fetch_attachment_bytes(
         f"http://127.0.0.1:{port}/pic.png",

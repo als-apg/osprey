@@ -96,7 +96,6 @@ from tests.e2e._deploy_support import (
 )
 from tests.e2e._orm_stack import seed_repo_env
 from tests.e2e._volumes import remove_project_volumes
-from tests.e2e.profile_edits import set_pairs
 
 # Deliberately NOT the bridge's slot in the deployment's port block: this is a
 # shared dev machine with other long-running services, and the bridge's port
@@ -105,15 +104,10 @@ from tests.e2e.profile_edits import set_pairs
 # than letting the layout place it.
 BRIDGE_PORT = 18090
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
-# ``hello-world`` deploys the telemetry store and its gateway on their slots in
-# the port block, which a locally-running tutorial stack routinely holds — and
-# a bound-port collision aborts `up` before the bluesky containers it creates
-# alongside it ever start. Both are moved to high, unassigned ports, same
-# defensive convention as BRIDGE_PORT above, and PORT_BASE moves the block
-# itself, which carries the gateway's own metrics port that no key moves.
-# Nothing in this proof touches telemetry.
-TELEMETRY_GATEWAY_PORT = 24319
-TELEMETRY_STORE_PORT = 28124
+# A locally-running deployment routinely holds the default port block, and a
+# bound-port collision aborts `up` before the bluesky containers it creates
+# ever start. PORT_BASE moves this deployment's whole block off it, same
+# defensive convention as BRIDGE_PORT above.
 PORT_BASE = 22200
 # The fixture builds/deploys under this project name; the compose template
 # renders each container_name AND the bridge's locally-built image as
@@ -172,10 +166,6 @@ def deployed_bridge(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     base = tmp_path_factory.mktemp("scan_deploy_build")
     repo = base / PROJECT_NAME
 
-    # A `config.`-scoped edit names one leaf of the rendered config:
-    # everything after `config.` is one key, so the rest of the `services:`
-    # block stays as the preset wrote it.
-
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset, `build` renders build/ from it. The repo directory
     # name IS the deployment name, so the container names above still hold.
@@ -187,14 +177,6 @@ def deployed_bridge(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             "--preset",
             "hello-world",
             "--no-git",
-            *set_pairs(
-                {
-                    "config": {
-                        "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
-                        "services.telemetry_store.port": TELEMETRY_STORE_PORT,
-                    }
-                }
-            ),
             "--set",
             f"port_base={PORT_BASE}",
             # The `bluesky.port` edit is what opts this project into the bluesky
@@ -223,7 +205,9 @@ def deployed_bridge(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     # silently reuse a stale cached <project>-bluesky-bridge:local.
     # Exact-named image only. (The queueserver deliberately has no `build:`
     # block and runs this same image, so one rmi covers both services.)
-    subprocess.run(["docker", "rmi", "-f", BRIDGE_IMAGE], capture_output=True, text=True)
+    subprocess.run(
+        ["docker", "rmi", "-f", BRIDGE_IMAGE], capture_output=True, text=True, timeout=120
+    )
 
     try:
         up = run_command(

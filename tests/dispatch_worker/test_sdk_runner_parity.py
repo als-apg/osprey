@@ -193,6 +193,7 @@ async def test_the_agent_options_are_the_ones_dispatch_always_built(monkeypatch,
         mcp_servers=str(render_dir / ".mcp.json"),
         strict_mcp_config=True,
         cli_path=STUB_AGENT_CLI,
+        extra_args={"thinking-display": "summarized"},
     )
     assert sorted(options.env) == sorted(_ENV_KEYS)
     assert options.env["OSPREY_TERMINAL_SESSION"] == "dispatch-run-p"

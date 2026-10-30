@@ -8,12 +8,12 @@ default. It becomes silence, and each of these keys has a reader that answers
 something when it is not told anything.
 
 So the keys whose silence flips a posture are required outright, and a build
-that cannot read one is refused naming it. Six keys, no more: the posture floor
+that cannot read one is refused naming it. Five keys, no more: the posture floor
 is a *gate*, never a writer of defaults. It reads the render and writes
 nothing, so a deployment that states its posture builds exactly the config it
 built before this module existed.
 
-Which six depends on what the deployment actually runs, because a key no
+Which five depends on what the deployment actually runs, because a key no
 surface reads is not a posture at all:
 
 * ``control_system.type`` and ``archiver.type`` — required when the ``controls``
@@ -28,9 +28,8 @@ surface reads is not a posture at all:
   human gate in front of every write, and it reads both keys to decide whether
   to prompt and what to do about a tool nothing named. Selected, but unable to
   read its own posture, it is a gate whose behaviour nobody stated.
-* ``claude_code.telemetry.enabled`` and ``hooks.debug`` — required
-  unconditionally. Both exist in every deployment (the agent session and the
-  hook chain are not optional), both are read at run time, and both are exactly
+* ``hooks.debug`` — required unconditionally. It exists in every deployment
+  (the hook chain is not optional), it is read at run time, and it is exactly
   the sort of key an operator wants to see the answer to in the file rather
   than infer from a reader's fallback.
 
@@ -137,13 +136,8 @@ REQUIRED_WITH_APPROVAL_HOOK: tuple[tuple[str, str], ...] = (
     ),
 )
 
-#: Required of every deployment, with why. Both surfaces exist in all of them.
+#: Required of every deployment, with why. The surface exists in all of them.
 REQUIRED_ALWAYS: tuple[tuple[str, str], ...] = (
-    (
-        "claude_code.telemetry.enabled",
-        "every deployment either emits agent telemetry or does not, and a reader's "
-        "fallback is not where an operator should have to find out which",
-    ),
     (
         "hooks.debug",
         "every deployment's hook chain either logs its decisions or does not, and a "
@@ -177,9 +171,7 @@ def _stated(rendered: Mapping[str, Any], dotted: str) -> bool:
         node = node[segment]
     if node is None:
         return False
-    if isinstance(node, str) and not node.strip():
-        return False
-    return True
+    return not (isinstance(node, str) and not node.strip())
 
 
 def _enabled_servers(rendered: Mapping[str, Any]) -> frozenset[str]:
@@ -226,7 +218,7 @@ def _controls_enabled(rendered: Mapping[str, Any]) -> bool:
 def missing_posture_errors(rendered: Mapping[str, Any], selected_hooks: Iterable[str]) -> list[str]:
     """Every posture key a render's own surfaces read but nothing states, named.
 
-    See the module docstring for the six keys and the surface that makes each
+    See the module docstring for the five keys and the surface that makes each
     of them required. A key is required only when the thing that reads it is
     part of *this* deployment, so a standalone with no controls server is never
     asked for a control-system type and a profile that does not select the

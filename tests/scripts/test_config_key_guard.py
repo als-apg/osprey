@@ -138,7 +138,7 @@ def test_path_absence_is_measured_by_git_not_the_filesystem(tmp_path):
     ``Path.exists()`` therefore reports the module as still present on a
     developer worktree while CI, which never imported it, stays green.
     """
-    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True, timeout=60)
     deleted = tmp_path / "src/osprey/services/machine_state/__pycache__"
     deleted.mkdir(parents=True)
     (deleted / "reader.cpython-313.pyc").write_bytes(b"\x00machine_state stale bytecode")
@@ -528,9 +528,9 @@ def test_a_same_value_mark_on_a_divergent_key_goes_red():
     assert "control-assistant" in text
 
 
-@pytest.mark.parametrize("key", ["web.theme", "services.telemetry_store.port"])
+@pytest.mark.parametrize("key", ["web.theme", "services.qmd.port"])
 def test_a_same_value_mark_no_two_presets_state_goes_red(key: str):
-    # web.theme is live only in control-assistant; services.telemetry_store.port
+    # web.theme is live only in control-assistant; services.qmd.port
     # reaches the union only through the layout fill, which no preset writes.
     guard = make_guard(mark_same_value(key))
     guard.check_parity()
@@ -1174,6 +1174,7 @@ def _baseline_reachable() -> bool:
         cwd=REPO_ROOT,
         capture_output=True,
         check=False,
+        timeout=60,
     )
     return proc.returncode == 0
 

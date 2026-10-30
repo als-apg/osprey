@@ -312,6 +312,7 @@ async def get_panels(request: Request):
             "allow_runtime_panels": bool,  # whether the human "+" may add a URL panel
             "presets":  [...],          # config-defined layouts: [{"name", "panels": [id,...]}]
             "ui_mode":  str,            # resolved web.ui_mode ("expert" | "simple")
+            "expert_view": bool,        # web.expert_view: whether Expert is offered at all
             "project_key": str,         # stable 16-hex per-project key (layout persistence)
             "workspace_has_artifacts": bool,  # any non-hidden file under the agent workspace
             "open_tiles": [...]|None,   # last-reported service tiles, reading order
@@ -398,9 +399,7 @@ async def get_panels(request: Request):
     the outbound channels the feedback dialog offers (one prefilled new-issue
     link per configured tracker — ``web.feedback.trackers`` plus the
     ``web.feedback.github_repo`` sugar, already merged server-side — and a
-    prefilled ``mailto:`` draft). The store ceiling
-    (``web.feedback.max_store_bytes``) is deliberately not echoed — it governs
-    server-side pruning and nothing in the browser acts on it.
+    prefilled ``mailto:`` draft).
 
     ``loopback_ports`` maps a panel id to its backend's port, for each panel
     whose backend is a loopback literal served at its root (see
@@ -446,6 +445,10 @@ async def get_panels(request: Request):
     # "expert" default mirrors app.DEFAULT_UI_MODE — kept as a literal here to
     # avoid a routes->app import cycle.
     ui_mode = getattr(request.app.state, "web_ui_mode", "expert")
+    # Whether the deployment offers the Expert view at all (web.expert_view);
+    # false is stamped as <html data-expert-view="off"> for first paint, and
+    # echoed here the way ui_mode is.
+    expert_view = bool(getattr(request.app.state, "web_expert_view", True))
     # Echo the resolved rail position (server-rendered onto
     # <html data-rail-position>). "left" default mirrors
     # app.DEFAULT_RAIL_POSITION — a literal for the same import-cycle reason.
@@ -508,6 +511,7 @@ async def get_panels(request: Request):
         "allow_runtime_panels": allow_runtime,
         "presets": presets,
         "ui_mode": ui_mode,
+        "expert_view": expert_view,
         "rail_position": rail_position,
         "rail_position_configured": rail_position_configured,
         "family_rail_defaults": dict(FAMILY_RAIL_DEFAULTS),
@@ -1690,8 +1694,7 @@ async def get_mcp_servers(request: Request):
         return []
 
     try:
-        servers = await get_mcp_servers_cached(mcp_json_path, project_dir, timeout=10.0)
-        return servers
+        return await get_mcp_servers_cached(mcp_json_path, project_dir, timeout=10.0)
     except Exception:
         logger.warning("mcp-servers: introspection failed", exc_info=True)
         return []

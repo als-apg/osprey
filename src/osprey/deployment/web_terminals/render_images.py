@@ -24,7 +24,6 @@ from pathlib import Path
 from typing import Any, cast
 
 from osprey.agent_runner.provider_env import load_provider_spec
-from osprey.build.claude_code_telemetry import TELEMETRY_LOGIN_ENV, ObservabilityCredentialError
 from osprey.cli.phase_reporter import report_group as _report_group
 from osprey.cli.phase_reporter import report_step as _report_step
 from osprey.deployment.build_progress import with_plain_build_progress
@@ -57,7 +56,6 @@ from osprey.utils.workspace import (
     TIERS_DIRNAME,
 )
 from osprey_connectors.config import ConfigBuilder
-from osprey_connectors.dotenv import ENV_LOCAL_FILENAME
 from osprey_connectors.log_filter import quiet_logger
 from osprey_connectors.logger import get_logger
 from osprey_connectors.workspace import BUILD_DIR_NAME
@@ -710,19 +708,6 @@ def _check_existing_render(render_name: str, project_path: Path, repo_root: Path
     ``default_model: ${OPS_MODEL}`` as a literal placeholder and refuse a
     render the deployment can in fact serve.
 
-    That same resolve also reads the render's telemetry block, so a missing or
-    unresolved observability credential surfaces here too — and it is reported
-    as the credential problem it is. The remedy for a model the provider cannot
-    serve is an edit to the profile; the remedy for an unset observability
-    credential is a variable in the deployment's own ``.env``, and an operator
-    handed the wrong one of those goes and changes something that was never
-    wrong.
-
-    One missing credential is NOT a refusal: the render's gateway login
-    (``OSPREY_TELEMETRY_LOGIN``). It reaches the render's container through
-    that container's own ``env_file``, never this host's environment, so its
-    absence here says nothing about the launch.
-
     Args:
         render_name: The render whose render is being checked.
         project_path: Its rendered project directory under ``build/``.
@@ -754,33 +739,6 @@ def _check_existing_render(render_name: str, project_path: Path, repo_root: Path
 
     try:
         load_provider_spec(project_path, env_dir=repo_root)
-    except ObservabilityCredentialError as e:
-        # Ahead of the ValueError arm below on purpose: this IS a ValueError,
-        # so the broad handler would otherwise claim a credential the profile
-        # never names is a bad model, and send the operator to edit profile.yml
-        # over a variable that belongs in the deployment's secret store. Only
-        # the credential failures land here — an unusable endpoint stays a
-        # general telemetry misconfiguration and keeps the broad frame.
-        names = list(e.unresolved_vars)
-        if names == [TELEMETRY_LOGIN_ENV]:
-            return
-        env_path = repo_root / ENV_LOCAL_FILENAME
-        if names:
-            # Names only, never values.
-            fix = " && ".join(f'echo "{var}=<value>" >> {env_path}' for var in names)
-            remedy = f"Set {', '.join(names)} in {env_path} — {fix} — "
-        else:
-            remedy = f"Give the telemetry credential a usable value, via {env_path} — "
-        closing = (
-            "These credentials come from whoever operates the collector, and the "
-            "value has to be put in that file by hand."
-        )
-        raise ValueError(
-            f"Render {render_name!r} render at {project_path} names "
-            f"observability credentials this deployment cannot resolve:\n  {e}\n"
-            f"{remedy}then re-render with `osprey build`. The model "
-            f"configuration is not what is wrong here. {closing}"
-        ) from e
     except ValueError as e:
         raise ValueError(
             f"Render {render_name!r} render at {project_path} has a "

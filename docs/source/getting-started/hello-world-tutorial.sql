@@ -1,28 +1,12 @@
--- What the agent recorded in the last hour: its own events (prompts,
--- responses, API calls) from otel_logs and the records its tools filed in
--- audit_ledger, the newest ten of each, newest first.
-SELECT source, Timestamp, User, SessionId, what
-FROM
-(
-    SELECT
-        'otel_logs' AS source,
-        Timestamp,
-        User,
-        SessionId,
-        Event AS what
-    FROM telemetry.otel_logs
-    WHERE Timestamp > now() - INTERVAL 1 HOUR
-
-    UNION ALL
-
-    SELECT
-        'audit_ledger' AS source,
-        Timestamp,
-        User,
-        SessionId,
-        concat(Surface, ': ', Decision) AS what
-    FROM telemetry.audit_ledger
-    WHERE Timestamp > now() - INTERVAL 1 HOUR
-)
-ORDER BY Timestamp DESC
-LIMIT 10 BY source
+-- What the agent recorded, from the record's archive: every closed day the
+-- record has exported, counted by who wrote each entry and what kind it is,
+-- the most frequent first. Run it from the repo root.
+SELECT
+    identity,
+    kind,
+    count(DISTINCT key) AS entries,
+    min(ts) AS first_seen,
+    max(ts) AS last_seen
+FROM read_parquet('var/archive/*/agent_record/entries.parquet')
+GROUP BY identity, kind
+ORDER BY entries DESC, identity, kind

@@ -25,9 +25,10 @@ One call:
 The response is a summary: names, shape, steps used and the view's digest,
 never the matrix itself, which ``data_file`` and ``artifact_id`` point at.
 Every result lists the setpoints the call moved with their values before the
-call (``moved``); a stopped run also returns its ``remainder``. A run that
-ends without a result line, killed at its timeout above all, fails naming the
-channels it attempted (``written_channels``).
+call (``moved``) and what it did not measure (``missing``), each mapped to
+the text that stopped the run; a completed run's ``missing`` is ``{}``. A run that ends without a result
+line, killed at its timeout above all, fails naming the channels it attempted
+(``written_channels``).
 """
 
 from __future__ import annotations
@@ -312,8 +313,10 @@ async def pyaml_measure(
         ``shape``, ``data_file`` and ``artifact_id``; a ``data_file`` that is not
         the run's own measurement file is answered as ``null`` with
         ``data_file_refused``; every result has ``moved``, each entry
-        ``{address, device, before}``. A stopped run returns its
-        ``remainder`` and, when an error stopped it, ``error``.
+        ``{address, device, before}``, and ``missing``: ``{}`` for a
+        completed run; for a stopped run each setpoint address not measured,
+        or the kind when none is left, mapped to the first line of what
+        stopped the run, or ``null`` when nothing raised.
     """
     from osprey.mcp_server.python_executor.tools._response_builder import _note_writes
     from osprey.utils.config_paths import resolve_config_dir

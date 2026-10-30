@@ -384,6 +384,8 @@ services:
       # directory the audit bind targets.
       OSPREY_CONFIG: /app/project/config.yml
       OSPREY_AUDIT_IDENTITY: queueserver
+      OSPREY_SPOOL_DIR: /app/project/var/spool/queueserver
+      OSPREY_STATE_DIR: /app/project/var/state/queueserver
       TZ: UTC
 
       # The read-only control-context tree, mounted below. The per-put reference
@@ -478,7 +480,8 @@ services:
       NO_PROXY: ${NO_PROXY}
     volumes:
       - ./build/services/bluesky/config.yml:/app/project/config.yml:ro
-      - ./var/audit/queueserver:/app/project/var/audit/queueserver
+      - ./var/spool/queueserver:/app/project/var/spool/queueserver
+      - ./var/state/queueserver:/app/project/var/state/queueserver
       # Plan/device permissions for the RE Manager. Without this file the
       # manager knows only a `root` group and rejects every request the bridge
       # makes as "Unknown user group: 'primary'" — see the file's own header

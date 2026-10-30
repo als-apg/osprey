@@ -16,6 +16,7 @@ difference.
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -23,6 +24,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from osprey.agent_runner import launcher
 from osprey.cli.chat_cmd import chat
 from tests.cli._lifecycle_build import stub_build
 from tests.cli._scoped_subprocess import patch_subprocess
@@ -53,9 +55,6 @@ class Launch:
     env: dict[str, str] = field(default_factory=dict)
 
 
-pytestmark = pytest.mark.usefixtures("restore_process_state")
-
-
 @pytest.fixture(autouse=True)
 def _no_managed_policy(monkeypatch: pytest.MonkeyPatch):
     """Pin the policy read to an empty policy.
@@ -67,6 +66,28 @@ def _no_managed_policy(monkeypatch: pytest.MonkeyPatch):
         "osprey.agent_runner.provider_env.read_managed_policy_env",
         lambda paths=None: {},
     )
+
+
+#: The version the installed ``claude`` reports in these tests: one that
+#: accepts ``--thinking-display``.
+INSTALLED_CLI_VERSION = "2.1.300"
+
+
+@pytest.fixture(autouse=True)
+def installed_cli(monkeypatch: pytest.MonkeyPatch):
+    """Pin the installed ``claude`` and the version it reports.
+
+    A ``--print`` launch asks the CLI it runs for its version, so without this
+    every such test would depend on, and probe, the host's ``claude``. Returns
+    a setter that changes the reported version for one test.
+    """
+    monkeypatch.setattr(launcher, "_locate_claude", lambda: "/usr/local/bin/claude")
+
+    def report(version: str | None) -> None:
+        monkeypatch.setattr(launcher, "_probe_cli_version", lambda executable: version)
+
+    report(INSTALLED_CLI_VERSION)
+    return report
 
 
 @pytest.fixture
@@ -231,7 +252,15 @@ class TestFlags:
             "--strict-mcp-config",
             "--mcp-config=.mcp.json",
         ]
-        assert argv[5:] == ["--resume", "abc123", "--print", "--effort", "high"]
+        assert argv[5:] == [
+            "--resume",
+            "abc123",
+            "--print",
+            "--effort",
+            "high",
+            "--thinking-display",
+            "summarized",
+        ]
 
     def test_prompt_is_passed_as_the_opening_message(self, runner, launches, lifecycle_repo):
         stub_build(lifecycle_repo)
@@ -241,7 +270,12 @@ class TestFlags:
         )
 
         assert result.exit_code == 0
-        assert launches[0].argv[-2:] == ["--print", "what is the beam current?"]
+        assert launches[0].argv[-4:] == [
+            "--print",
+            "--thinking-display",
+            "summarized",
+            "what is the beam current?",
+        ]
 
     def test_an_unquoted_prompt_reaches_the_agent_as_one_message(
         self, runner, launches, lifecycle_repo
@@ -259,7 +293,12 @@ class TestFlags:
         )
 
         assert result.exit_code == 0
-        assert launches[0].argv[-2:] == ["--print", "what is the beam current"]
+        assert launches[0].argv[-4:] == [
+            "--print",
+            "--thinking-display",
+            "summarized",
+            "what is the beam current",
+        ]
 
     def test_a_quoted_prompt_produces_the_same_single_argument(
         self, runner, launches, lifecycle_repo
@@ -272,7 +311,12 @@ class TestFlags:
         )
 
         assert result.exit_code == 0
-        assert launches[0].argv[-2:] == ["--print", "what is the beam current"]
+        assert launches[0].argv[-4:] == [
+            "--print",
+            "--thinking-display",
+            "summarized",
+            "what is the beam current",
+        ]
 
     def test_effort_defaults_to_the_builds_configured_value(self, runner, launches, lifecycle_repo):
         stub_build(
@@ -314,6 +358,120 @@ class TestFlags:
             "--strict-mcp-config",
             "--mcp-config=.mcp.json",
         ]
+
+
+def _withheld(caplog) -> list[logging.LogRecord]:
+    return [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING
+        and launcher.THINKING_DISPLAY_MIN_CLI_VERSION in r.getMessage()
+    ]
+
+
+class TestThinkingDisplay:
+    """A --print run states its thinking display by flag, when its CLI accepts one."""
+
+    def test_print_through_the_pin_carries_the_flag(
+        self, runner, launches, lifecycle_repo, installed_cli, caplog
+    ):
+        stub_build(
+            lifecycle_repo,
+            config='claude_code:\n  provider: anthropic\n  cli_version: "2.1.300"\n',
+        )
+        installed_cli(None)
+
+        with caplog.at_level(logging.WARNING, logger=launcher.logger.name):
+            result = runner.invoke(chat, ["--repo", str(lifecycle_repo), "--print", "hi"])
+
+        assert result.exit_code == 0, result.output
+        argv = launches[0].argv
+        assert argv[:3] == ["npx", "-y", "@anthropic-ai/claude-code@2.1.300"]
+        assert argv[-4:] == ["--print", "--thinking-display", "summarized", "hi"]
+        assert _withheld(caplog) == []
+
+    def test_the_configured_display_is_the_one_sent(self, runner, launches, lifecycle_repo):
+        stub_build(
+            lifecycle_repo,
+            config="claude_code:\n  provider: anthropic\n  thinking:\n    display: omitted\n",
+        )
+
+        result = runner.invoke(
+            chat, ["--repo", str(lifecycle_repo), "--print", "--effort", "high", "hi"]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert launches[0].argv[-6:] == [
+            "--print",
+            "--effort",
+            "high",
+            "--thinking-display",
+            "omitted",
+            "hi",
+        ]
+
+    def test_no_pin_with_an_unprobeable_cli_withholds_the_flag_and_warns_once(
+        self, runner, launches, lifecycle_repo, installed_cli, caplog
+    ):
+        stub_build(
+            lifecycle_repo,
+            config='claude_code:\n  provider: anthropic\n  cli_version: "2.1.300"\n',
+        )
+        installed_cli(None)
+
+        with caplog.at_level(logging.WARNING, logger=launcher.logger.name):
+            result = runner.invoke(
+                chat, ["--repo", str(lifecycle_repo), "--no-pin", "--print", "hi"]
+            )
+
+        assert result.exit_code == 0, result.output
+        argv = launches[0].argv
+        assert "--thinking-display" not in argv
+        assert argv[-2:] == ["--print", "hi"]
+        assert len(_withheld(caplog)) == 1
+
+    def test_an_installed_cli_older_than_the_threshold_withholds_the_flag(
+        self, runner, launches, lifecycle_repo, installed_cli, caplog
+    ):
+        stub_build(lifecycle_repo)
+        installed_cli("2.1.100")
+
+        with caplog.at_level(logging.WARNING, logger=launcher.logger.name):
+            result = runner.invoke(chat, ["--repo", str(lifecycle_repo), "--print", "hi"])
+
+        assert result.exit_code == 0, result.output
+        assert "--thinking-display" not in launches[0].argv
+        assert len(_withheld(caplog)) == 1
+
+    @pytest.mark.parametrize("args", [[], ["hi"], ["--resume", "abc123"]])
+    def test_an_interactive_chat_never_carries_the_flag_or_probes(
+        self, runner, launches, lifecycle_repo, monkeypatch, caplog, args
+    ):
+        stub_build(lifecycle_repo)
+        probed: list[str] = []
+        monkeypatch.setattr(
+            launcher, "_probe_cli_version", lambda executable: probed.append(executable)
+        )
+
+        with caplog.at_level(logging.WARNING, logger=launcher.logger.name):
+            result = runner.invoke(chat, ["--repo", str(lifecycle_repo), *args])
+
+        assert result.exit_code == 0, result.output
+        assert "--thinking-display" not in launches[0].argv
+        assert probed == []
+        assert _withheld(caplog) == []
+
+    def test_a_bad_display_refuses_before_anything_launches(self, runner, launches, lifecycle_repo):
+        stub_build(
+            lifecycle_repo,
+            config="claude_code:\n  provider: anthropic\n  thinking:\n    display: loud\n",
+        )
+
+        result = runner.invoke(chat, ["--repo", str(lifecycle_repo), "--print", "hi"])
+
+        assert result.exit_code != 0
+        assert launcher.THINKING_DISPLAY_KEY in result.output
+        assert launches == []
 
 
 #: The opening of the DRIFT verdict's own message, which ``chat`` prints
@@ -612,30 +770,3 @@ def _pin_policy(monkeypatch: pytest.MonkeyPatch, **env: str) -> None:
         "osprey.agent_runner.provider_env.read_managed_policy_env",
         lambda paths=None: policy,
     )
-
-
-_GATEWAY_CONFIG = (
-    "claude_code:\n  provider: anthropic\n  telemetry:\n    enabled: true\n    backend: gateway\n"
-)
-
-
-class TestTelemetryLoginMissing:
-    """Chat whose gateway login cannot be found is refused, never degraded.
-
-    The gateway refuses an unauthenticated sender, so a session started without
-    the login would drop every record behind a healthy-looking session.
-    """
-
-    def test_a_missing_login_refuses_the_session(
-        self, runner, launches, lifecycle_repo, monkeypatch: pytest.MonkeyPatch
-    ):
-        from osprey.build.claude_code_telemetry import TelemetryConfigError
-
-        monkeypatch.delenv("OSPREY_TELEMETRY_LOGIN", raising=False)
-        stub_build(lifecycle_repo, config=_GATEWAY_CONFIG)
-
-        result = runner.invoke(chat, ["--repo", str(lifecycle_repo)])
-
-        assert result.exit_code != 0
-        assert isinstance(result.exception, TelemetryConfigError)
-        assert launches == []

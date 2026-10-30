@@ -22,6 +22,7 @@ from typing import Any
 
 from osprey_connectors import posture_store
 from osprey_connectors.control_system.write_door import open_door
+from osprey_connectors.errors import RefusalReason
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.posture_store import WriteVerdict
 
@@ -229,6 +230,11 @@ def as_number(value: Any) -> float | None:
     return float(value)
 
 
+#: The outcomes whose result carries an ``error_message``: each has something
+#: the operator has to be told.
+_MESSAGE_OUTCOMES = frozenset({WriteOutcome.REFUSED, WriteOutcome.FAILED, WriteOutcome.UNCONFIRMED})
+
+
 @dataclass
 class ChannelWriteResult:
     """What became of one channel write, and what the channel was seen to hold.
@@ -241,14 +247,18 @@ class ChannelWriteResult:
     ``refused``, ``failed`` or ``unconfirmed`` — the three words that carry
     something the operator has to be told. A ``mismatch`` needs no message:
     both numbers are on the result already, in ``value_written`` and
-    ``observed_value``.
+    ``observed_value``. Construction enforces it: a result that breaks it
+    raises ``ValueError``.
 
     ``notes`` is display-only text ("observed 2.4, sent 2.5", "cannot be
     compared"). No consumer reads it, and nothing classifies a write by
     parsing it.
 
-    ``refusal_reason`` names the policy that refused, and is set only when the
-    outcome is ``refused``. ``observed_value`` is whatever the confirming
+    ``refusal_reason`` is the :class:`~osprey_connectors.errors.RefusalReason`
+    that says why, and who, refused; it is set **if and only if** the outcome
+    is ``refused``. Construction enforces it too: a refused result with no
+    reason or an unknown one, or a reason on any other outcome, raises
+    ``ValueError``. ``observed_value`` is whatever the confirming
     re-read returned, in the type the channel holds — a number, a string, an
     enum label, a waveform; :attr:`observed_number` narrows it to a float
     where that makes sense.
@@ -265,9 +275,10 @@ class ChannelWriteResult:
     channel_address: str  # Channel that was written
     value_written: Any  # Value that was sent
     outcome: WriteOutcome  # The one verdict, set by the connector
-    # One of ``ChannelWriteBlockedError._VALID_REASONS`` when refused, else None
-    refusal_reason: str | None = None
-    error_message: str | None = None  # Set iff refused, failed or unconfirmed
+    # Set iff refused, enforced at construction
+    refusal_reason: RefusalReason | None = None
+    # Set iff refused, failed or unconfirmed, enforced at construction
+    error_message: str | None = None
     observed_value: Any = None  # What the confirming re-read returned
     # Alarm name reported for the reading, e.g. "NO_ALARM"/"HIHI"; None if not reported
     alarm_status: str | None = None
@@ -276,17 +287,44 @@ class ChannelWriteResult:
     notes: str | None = None  # Display-only detail
 
     def __post_init__(self) -> None:
-        """Coerce a string ``outcome`` to the :class:`WriteOutcome` member.
+        """Coerce ``outcome`` and ``refusal_reason`` to members, then check the shape.
 
         A ``StrEnum`` crosses the connector-host IPC as the plain string JSON
         encodes it to, and the codec rebuilds the dataclass by calling it with
         the decoded fields — so what arrives here on the parent side is a
         ``str``. Coercing once, on construction, is what lets every consumer
-        compare against :class:`WriteOutcome` members whichever side of the
-        process boundary it runs on.
+        compare against the members whichever side of the process boundary it
+        runs on.
+
+        Raises:
+            ValueError: ``refusal_reason`` is not a known reason, is missing on
+                a ``refused`` result or set on any other, or ``error_message``
+                is missing on a ``refused``, ``failed`` or ``unconfirmed``
+                result or set on any other.
         """
         if not isinstance(self.outcome, WriteOutcome):
             self.outcome = WriteOutcome(self.outcome)
+        if self.refusal_reason is not None and not isinstance(self.refusal_reason, RefusalReason):
+            try:
+                self.refusal_reason = RefusalReason(self.refusal_reason)
+            except ValueError:
+                raise ValueError(
+                    f"Write result for '{self.channel_address}' (outcome {self.outcome}): "
+                    f"refusal_reason {self.refusal_reason!r} is not a known refusal reason"
+                ) from None
+        refused = self.outcome is WriteOutcome.REFUSED
+        if refused != (self.refusal_reason is not None):
+            expected = "a known refusal reason" if refused else "None"
+            raise ValueError(
+                f"Write result for '{self.channel_address}' (outcome {self.outcome}): "
+                f"refusal_reason must be {expected}, got {self.refusal_reason!r}"
+            )
+        if bool(self.error_message) != (self.outcome in _MESSAGE_OUTCOMES):
+            expected = "a message" if self.outcome in _MESSAGE_OUTCOMES else "None"
+            raise ValueError(
+                f"Write result for '{self.channel_address}' (outcome {self.outcome}): "
+                f"error_message must be {expected}, got {self.error_message!r}"
+            )
 
     @property
     def observed_number(self) -> float | None:
@@ -418,7 +456,7 @@ def _verdict_refusal(
         channel_address=channel_address,
         value_written=value,
         outcome=WriteOutcome.REFUSED,
-        refusal_reason="WRITES_DISABLED",
+        refusal_reason=RefusalReason.WRITES_DISABLED,
         error_message=f"Write to '{channel_address}' blocked{marker}: {spoken}",
     )
 
@@ -598,7 +636,7 @@ class ControlSystemConnector(ABC):
             channel_address=channel_address,
             value_written=value,
             outcome=WriteOutcome.REFUSED,
-            refusal_reason="VALIDATION_ERROR",
+            refusal_reason=RefusalReason.VALIDATION_ERROR,
             error_message=f"Write to '{channel_address}' refused: validation error: {error}",
         )
 
@@ -673,14 +711,12 @@ class ControlSystemConnector(ABC):
             config: Control system-specific configuration
 
         Raises:
-            ConnectionError: If connection cannot be established
+            ConnectorUnavailableError: If connection cannot be established
         """
-        pass
 
     @abstractmethod
     async def disconnect(self) -> None:
         """Close connection to control system and cleanup resources."""
-        pass
 
     @abstractmethod
     async def read_channel(
@@ -697,13 +733,14 @@ class ControlSystemConnector(ABC):
             ChannelValue with current value, timestamp, and metadata
 
         Raises:
-            ConnectionError: If channel cannot be reached
+            ChannelUnreachableError: This channel cannot be reached or did not
+                answer in time; the connector stays in place
+            ConnectorUnavailableError: The connector's own transport is gone
             TimeoutError: If operation times out
             ValueError: If channel address is invalid
             ChannelNotFoundError: The address is not a channel of the facility
                 (a connector that holds the facility's address set)
         """
-        pass
 
     @abstractmethod
     async def write_channel(
@@ -728,7 +765,9 @@ class ControlSystemConnector(ABC):
             seen to hold
 
         Raises:
-            ConnectionError: If channel cannot be reached
+            ChannelUnreachableError: This channel cannot be reached or did not
+                answer in time; the connector stays in place
+            ConnectorUnavailableError: The connector's own transport is gone
             TimeoutError: If operation times out
             ValueError: If value is invalid for this channel
             PermissionError: If write access is not allowed
@@ -780,7 +819,6 @@ class ControlSystemConnector(ABC):
             out of a mechanical refusal, and the approval layer cannot substitute for
             that refusal.
         """
-        pass
 
     async def write_channel_checked(
         self, channel_address: str, value: Any, **kwargs: Any
@@ -789,7 +827,7 @@ class ControlSystemConnector(ABC):
 
         ``refused`` (policy/limits/validation) -> raises ChannelWriteBlockedError.
         ``failed`` / ``mismatch`` / ``unconfirmed`` -> raises ChannelWriteFailedError.
-        Native ConnectionError/TimeoutError from the transport -> propagate unchanged.
+        Connection failures and timeouts propagate unchanged.
         ``confirmed`` or ``unrequested`` -> returns the ChannelWriteResult.
 
         A scan device setter wraps this so any raise aborts the RunEngine, while a
@@ -808,8 +846,8 @@ class ControlSystemConnector(ABC):
             result = await self.write_channel(channel_address, value, **kwargs)
         except ChannelLimitsViolationError as exc:
             # A limits refusal is a REFUSAL — normalize it into the unified denial type
-            # so consumers key on one refusal signal. (ConnectionError/TimeoutError are
-            # NOT caught here, so they propagate unchanged.)
+            # so consumers key on one refusal signal. Connection failures and
+            # timeouts are not caught here, so they propagate unchanged.
             raise ChannelWriteBlockedError(channel_address, "LIMITS", message=str(exc)) from exc
 
         return raise_for_write_result(result)
@@ -846,7 +884,6 @@ class ControlSystemConnector(ABC):
             Dictionary mapping channel address to ChannelValue
             (May exclude channels that failed to read)
         """
-        pass
 
     async def write_multiple_channels(
         self,
@@ -905,7 +942,6 @@ class ControlSystemConnector(ABC):
         Returns:
             Subscription ID for later unsubscribe
         """
-        pass
 
     @abstractmethod
     async def unsubscribe(self, subscription_id: str) -> None:
@@ -915,7 +951,6 @@ class ControlSystemConnector(ABC):
         Args:
             subscription_id: Subscription ID returned by subscribe()
         """
-        pass
 
     @abstractmethod
     async def get_metadata(self, channel_address: str) -> ChannelMetadata:
@@ -930,9 +965,10 @@ class ControlSystemConnector(ABC):
             control system reports one) a display range
 
         Raises:
-            ConnectionError: If channel cannot be reached
+            ChannelUnreachableError: This channel cannot be reached; the
+                connector stays in place
+            ConnectorUnavailableError: The connector's own transport is gone
         """
-        pass
 
     @abstractmethod
     async def validate_channel(self, channel_address: str) -> bool:
@@ -945,4 +981,3 @@ class ControlSystemConnector(ABC):
         Returns:
             True if channel is valid and accessible
         """
-        pass

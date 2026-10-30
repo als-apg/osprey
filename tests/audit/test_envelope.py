@@ -193,7 +193,7 @@ class TestSourceIsExecutorOnly:
 
 
 class TestToDict:
-    """The exact JSON object a line of ``var/audit/<identity>/<surface>.jsonl`` holds."""
+    """The exact JSON object an ``audit`` entry's body holds in the agent record."""
 
     def test_minimal_record_shape(self) -> None:
         record = make_envelope().to_dict()
@@ -375,6 +375,7 @@ class TestLeafModule:
             [sys.executable, "-c", "import osprey.audit.envelope"],
             capture_output=True,
             text=True,
+            timeout=120,
         )
         assert result.returncode == 0, result.stderr
 

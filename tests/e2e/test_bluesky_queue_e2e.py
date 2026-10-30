@@ -118,7 +118,6 @@ from __future__ import annotations
 import contextlib
 import http.server
 import json
-import os
 import shutil
 import subprocess
 import threading
@@ -199,8 +198,6 @@ PANELS_URL = f"http://localhost:{PANELS_PORT}"
 TILED_PORT = 18191
 VA_CA_PORT = 15064
 POSTGRES_PORT = 25432
-TELEMETRY_GATEWAY_PORT = 24318
-TELEMETRY_STORE_PORT = 28123
 # The archiver's store, deployed by the preset's `va_archiver:` block.
 MONGODB_PORT = 47017
 
@@ -704,10 +701,9 @@ def _profile_edits() -> dict[str, Any]:
     build (same convention as ``_orm_stack.profile_edits``). The preset's
     ``services:`` block holds the record archive, which runs the same project
     image, so it goes with the dispatch stack: ``services: {}`` is the spelling
-    because a single service cannot be nulled. The config port keys move
-    ariel-postgres, the telemetry gateway and the telemetry store -- services
-    the preset deploys unconditionally -- off the ports a locally running
-    tutorial deploy routinely holds.
+    because a single service cannot be nulled. The config port key moves
+    ariel-postgres -- a service the preset deploys unconditionally -- off the
+    port a locally running deploy routinely holds.
 
     The archiver's MongoDB moves through ``va_archiver.port_host`` instead, and
     that difference is load-bearing: the archiver injector RENDERS
@@ -737,8 +733,6 @@ def _profile_edits() -> dict[str, Any]:
         "services": {},
         "config": {
             "services.postgresql.port_host": POSTGRES_PORT,
-            "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
-            "services.telemetry_store.port": TELEMETRY_STORE_PORT,
             "modules.web_terminals.enabled": False,
         },
         "va_archiver": {
@@ -852,12 +846,8 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
 
     # Force fresh --dev builds so the deployed containers run CURRENT source
     # (`osprey up` does not pass --build to compose, so it would otherwise
-    # reuse a stale cached image). Exact-named images only.
-    # E2E_REUSE_IMAGES=1 skips this for fast local iteration on the test
-    # itself; never set it in CI, where a source change must always rebuild.
-    if not os.environ.get("E2E_REUSE_IMAGES"):
-        for image in (BRIDGE_IMAGE, VA_IMAGE, PANELS_IMAGE):
-            subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
+    # reuse a stale cached image).
+    _orm_stack.force_image_rebuild(BRIDGE_IMAGE, VA_IMAGE, PANELS_IMAGE)
 
     try:
         up = run_command(

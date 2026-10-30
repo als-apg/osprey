@@ -108,7 +108,7 @@ from tests.e2e._deploy_support import (
     run_osprey,
     runtime_cli,
 )
-from tests.e2e._facility_select import repo_view
+from tests.e2e._facility_select import bounded_corrector, repo_view, seeded_readback
 from tests.e2e._orm_stack import VA_CA_PORT, VA_PVA_PORT
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
@@ -144,16 +144,11 @@ KERNELSPEC = "osprey"
 STARTER_NOTEBOOK = "getting-started.ipynb"
 SURVIVOR_NOTEBOOK = "e2e-survives.ipynb"
 
-#: A readback the virtual accelerator always serves.
-CHANNEL = "SR:DIAG:DCCT:01:CURRENT:RB"
-
-#: A setpoint the virtual accelerator serves and the limits database lets the
-#: ``va`` target write (range -12..12, confirmed). A readback cannot stand in:
-#: the limits layer refuses it as unwritable before a write ever reaches the
-#: mechanism under test.
-WRITE_TARGET = "SR:MAG:HCM:01:CURRENT:SP"
-#: The setpoint's identity readback in the virtual accelerator's bindings.
-WRITE_READBACK = "SR:MAG:HCM:01:CURRENT:RB"
+#: Where in the written setpoint's band the two runtime writes land, as
+#: fractions from its low end to its high end: inside the band on any facility,
+#: and apart from each other and from the band's middle.
+FIRST_WRITE_FRACTION = 0.55
+SECOND_WRITE_FRACTION = 0.625
 
 #: The hint line the kernel prints before a writes-off refusal's traceback. It
 #: is about the CELL rather than the kernel: a kernel re-routes itself from the
@@ -175,9 +170,9 @@ HINT_RAW_CLIENT_IMPORT = (
 #: The text every client refusal carries, re-spelled for the same reason.
 CLIENT_REFUSED_TEXT = "control-system client refused"
 
-#: The audit surface a cell's refusals file under, and the ledger it lands in.
+#: The audit surface a cell's refusals file under. The audit writer files them
+#: as ``audit`` entries in the agent record, under the terminal user's identity.
 SURFACE = "notebook_kernel"
-LEDGER = Path("var") / "audit" / USER / f"{SURFACE}.jsonl"
 
 DEPLOY_UP_TIMEOUT_SEC = 2400
 VERB_TIMEOUT_SEC = 180
@@ -309,7 +304,6 @@ def _profile_edits() -> dict[str, Any]:
             "deploy.fqdn": "127.0.0.1",
             PORT_BASE_CONFIG_KEY: PORT_BASE,
             "control_system.type": "virtual_accelerator",
-            "claude_code.telemetry.enabled": False,
             "claude_code.servers.bluesky.enabled": False,
             "claude_code.servers.health.enabled": False,
             "modules.web_terminals": {
@@ -480,14 +474,37 @@ class Terminal:
         return response.json()
 
     def ledger(self) -> list[dict[str, Any]]:
-        path = self.repo / LEDGER
-        if not path.is_file():
-            return []
-        return [
-            json.loads(line)
-            for line in path.read_text(encoding="utf-8").splitlines()
-            if line.strip()
+        """Every :data:`SURFACE` audit entry :data:`USER` wrote, oldest first.
+
+        Read from the deployed agent record under the user's own login, drained
+        first so a refusal a cell just spooled is in the answer. A partial
+        answer fails the test rather than reading as "nothing was audited".
+        """
+        from osprey.agent_record.client import RecordClient
+        from osprey.agent_record.config import parse_agent_record_block
+        from osprey.agent_record.contract import Drain
+        from osprey.agent_record.credentials import login_file, read_login
+        from osprey.agent_record.identities import login_for
+        from osprey.port_layout import resolve_port_base
+
+        config = yaml.safe_load((self.repo / "build" / "config.yml").read_text(encoding="utf-8"))
+        port = parse_agent_record_block(config, base=resolve_port_base(config)).port
+        login = login_for(USER)
+        token = read_login(self.repo / login_file(login), login)
+        assert token, f"no {login!r} record login at the repo root"
+        answer = RecordClient(f"http://127.0.0.1:{port}", login, token).recent_audit(
+            surface=SURFACE, written_by="self", wait=Drain()
+        )
+        assert answer.available, f"the agent record is unavailable: {answer.unavailable}"
+        assert answer.complete and not answer.more, (
+            f"the record's {SURFACE} audit answer is partial: {answer.reason or 'more pages'}"
+        )
+        bodies = [
+            dict(item["body"])
+            for item in answer.data or []
+            if isinstance(item, dict) and isinstance(item.get("body"), dict)
         ]
+        return list(reversed(bodies))
 
     def start_notebook_session(self, notebook: str) -> dict[str, Any]:
         response = self.post(
@@ -739,8 +756,18 @@ STAMPS_CELL = (
     "or k in ('OSPREY_LAUNCH_POSTURE', 'OSPREY_POSTURE_SESSION', 'OSPREY_AGENT_DATA_ROOT') "
     "or k == 'JUPYTER_TOKEN'}))\n"
 )
-READ_CELL = f"from osprey.runtime import read_channel\nprint(repr(read_channel({CHANNEL!r})))\n"
-WRITE_CELL = f"from osprey.runtime import write_channel\nwrite_channel({CHANNEL!r}, 1.0)\n"
+
+
+def _read_cell(channel: str) -> str:
+    """A cell that prints ``channel``'s value."""
+    return f"from osprey.runtime import read_channel\nprint(repr(read_channel({channel!r})))\n"
+
+
+def _write_cell(channel: str, value: float) -> str:
+    """A cell that writes ``value`` to ``channel`` through the runtime."""
+    return f"from osprey.runtime import write_channel\nwrite_channel({channel!r}, {value!r})\n"
+
+
 #: The Channel Access client's import, straight past the runtime.
 CLIENT_IMPORT_CELL = "import aioca\n"
 #: A client shared library loaded through ``ctypes``. The path comes from the
@@ -767,18 +794,18 @@ NO_CLIENT_LOADED_CELL = (
 READBACK_SETTLE_SEC = 20.0
 
 
-def _setpoint_cell(band: float) -> str:
+def _setpoint_cell(lane: LaneChannels, band: float) -> str:
     """A cell that prints the setpoint and, once its readback is within ``band``
     of it or the wait runs out, the readback, as JSON."""
     return (
         "import json, time\n"
         "from osprey.runtime import read_channel\n"
-        f"sp = read_channel({WRITE_TARGET!r})\n"
+        f"sp = read_channel({lane.write_target!r})\n"
         f"deadline = time.monotonic() + {READBACK_SETTLE_SEC}\n"
-        f"rb = read_channel({WRITE_READBACK!r})\n"
+        f"rb = read_channel({lane.write_readback!r})\n"
         f"while abs(rb - sp) > {band!r} and time.monotonic() < deadline:\n"
         "    time.sleep(0.5)\n"
-        f"    rb = read_channel({WRITE_READBACK!r})\n"
+        f"    rb = read_channel({lane.write_readback!r})\n"
         "print(json.dumps({'sp': sp, 'rb': rb}))\n"
     )
 
@@ -787,13 +814,13 @@ def _stamps(socket: Any, session_id: str) -> dict[str, str]:
     return json.loads(_run_ok(socket, STAMPS_CELL, session_id))
 
 
-def _read_value(socket: Any, session_id: str) -> float:
-    printed = _run_ok(socket, READ_CELL, session_id).strip()
+def _read_value(socket: Any, session_id: str, channel: str) -> float:
+    printed = _run_ok(socket, _read_cell(channel), session_id).strip()
     try:
         return float(printed)
     except ValueError:
         raise AssertionError(
-            f"read_channel({CHANNEL!r}) printed {printed!r}, not a number"
+            f"read_channel({channel!r}) printed {printed!r}, not a number"
         ) from None
 
 
@@ -829,6 +856,51 @@ def terminal(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Terminal]:
         run_osprey(osprey_bin, ["down"], repo, timeout=VERB_TIMEOUT_SEC)
         _teardown(project)
         client.close()
+
+
+@dataclass(frozen=True)
+class LaneChannels:
+    """The channels this lane reads and writes, chosen from the deployed facility.
+
+    ``channel`` is a seeded reading no model moves, read near its seed's
+    nominal within its motion envelope. ``write_target`` is the corrector the
+    limits file bounds at both ends -- a readback cannot stand in, because the
+    limits layer refuses it as unwritable before a write reaches the mechanism
+    under test -- and ``write_readback`` its own readback.
+    """
+
+    channel: str
+    nominal: float
+    envelope: float
+    write_target: str
+    write_readback: str
+    band: tuple[float, float]
+
+    def at(self, fraction: float) -> float:
+        """The value ``fraction`` of the way from the band's low end to its high end."""
+        low, high = self.band
+        return low + fraction * (high - low)
+
+
+@pytest.fixture(scope="module")
+def lane(terminal: Terminal) -> LaneChannels:
+    """The lane's channels, taken once from the view the deployment built."""
+    view = repo_view(terminal.repo)
+    channel = seeded_readback(view)
+    seed = view.seed(channel)
+    assert seed is not None and "nominal" in seed, f"{channel} has no seeded nominal"
+    write_target, write_readback, _model = bounded_corrector(terminal.repo)
+    value_range = view.channel(write_target).value_range
+    assert value_range is not None, f"{write_target} has no band"
+    low, high = value_range
+    return LaneChannels(
+        channel=channel,
+        nominal=float(seed["nominal"]),
+        envelope=view.motion_envelope(channel),
+        write_target=write_target,
+        write_readback=write_readback,
+        band=(float(low), float(high)),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -910,21 +982,21 @@ def test_attaching_a_terminal_finds_the_deployments_target(terminal: Terminal) -
 # ---------------------------------------------------------------------------
 
 
-def _setpoint(socket: Any, session_id: str, band: float) -> dict[str, float]:
-    return json.loads(_run_ok(socket, _setpoint_cell(band), session_id))
+def _setpoint(socket: Any, session_id: str, lane: LaneChannels, band: float) -> dict[str, float]:
+    return json.loads(_run_ok(socket, _setpoint_cell(lane, band), session_id))
 
 
-def _assert_held(reading: dict[str, float], value: float, band: float) -> None:
+def _assert_held(lane: LaneChannels, reading: dict[str, float], value: float, band: float) -> None:
     """The setpoint holds ``value`` exactly; its readback is within ``band`` of it."""
     assert reading["sp"] == pytest.approx(value), reading
     assert abs(reading["rb"] - value) <= band, (
-        f"{WRITE_READBACK} read {reading['rb']}, not within {band:g} (its seed's noise "
+        f"{lane.write_readback} read {reading['rb']}, not within {band:g} (its seed's noise "
         f"and drift) of {value}"
     )
 
 
 def test_a_cell_cannot_load_a_client_library_while_a_runtime_write_lands(
-    terminal: Terminal,
+    terminal: Terminal, lane: LaneChannels
 ) -> None:
     """A kernel's cells reach the machine through the runtime; a client library does not load.
 
@@ -943,7 +1015,9 @@ def test_a_cell_cannot_load_a_client_library_while_a_runtime_write_lands(
     _wait_for_switch_to_settle(terminal, "va")
     # A fresh login's switch is off; the chip's turn-on is what arms this card.
     _turn_switch(terminal, "va", "asked")
-    band = repo_view(terminal.repo).motion_envelope(WRITE_READBACK)
+    band = repo_view(terminal.repo).motion_envelope(lane.write_readback)
+    first = lane.at(FIRST_WRITE_FRACTION)
+    second = lane.at(SECOND_WRITE_FRACTION)
 
     session = terminal.start_notebook_session(STARTER_NOTEBOOK)
     kernel_id = session["kernel"]["id"]
@@ -971,16 +1045,12 @@ def test_a_cell_cannot_load_a_client_library_while_a_runtime_write_lands(
             assert stamps.get("OSPREY_CONTROL_TARGET") == "va", stamps
             assert stamps.get("OSPREY_LAUNCH_POSTURE") != "va=sandbox", stamps
 
-            _run_ok(
-                socket,
-                f"from osprey.runtime import write_channel\nwrite_channel({WRITE_TARGET!r}, 1.0)\n",
-                channel_session,
-            )
-            _assert_held(_setpoint(socket, channel_session, band), 1.0, band)
+            _run_ok(socket, _write_cell(lane.write_target, first), channel_session)
+            _assert_held(lane, _setpoint(socket, channel_session, lane, band), first, band)
 
             detail = refused_once(CLIENT_IMPORT_CELL, len(terminal.ledger()))
             assert detail.get("package") == "aioca", detail
-            _assert_held(_setpoint(socket, channel_session, band), 1.0, band)
+            _assert_held(lane, _setpoint(socket, channel_session, lane, band), first, band)
 
             detail = refused_once(LIBCA_LOAD_CELL, len(terminal.ledger()))
             assert detail.get("library", "").startswith("libca"), detail
@@ -988,12 +1058,8 @@ def test_a_cell_cannot_load_a_client_library_while_a_runtime_write_lands(
             loaded = json.loads(_run_ok(socket, NO_CLIENT_LOADED_CELL, channel_session))
             assert loaded == [], loaded
 
-            _run_ok(
-                socket,
-                f"from osprey.runtime import write_channel\nwrite_channel({WRITE_TARGET!r}, 3.0)\n",
-                channel_session,
-            )
-            _assert_held(_setpoint(socket, channel_session, band), 3.0, band)
+            _run_ok(socket, _write_cell(lane.write_target, second), channel_session)
+            _assert_held(lane, _setpoint(socket, channel_session, lane, band), second, band)
     finally:
         terminal.delete(f"{PANEL}/api/sessions/{session['id']}")
 
@@ -1004,7 +1070,7 @@ def test_a_cell_cannot_load_a_client_library_while_a_runtime_write_lands(
 
 
 def test_a_sandboxed_cell_refuses_writes_with_the_turn_writes_on_line(
-    terminal: Terminal,
+    terminal: Terminal, lane: LaneChannels
 ) -> None:
     """The narrowing is per target and the pin is per cell.
 
@@ -1033,12 +1099,14 @@ def test_a_sandboxed_cell_refuses_writes_with_the_turn_writes_on_line(
         assert stamps.get("OSPREY_CONTROL_TARGET") == target, stamps
         assert stamps.get("OSPREY_LAUNCH_POSTURE") == f"{target}=sandbox", stamps
 
-        assert _read_value(socket, channel_session) == pytest.approx(500.0, abs=50.0)
+        assert _read_value(socket, channel_session, lane.channel) == pytest.approx(
+            lane.nominal, abs=lane.envelope
+        )
 
-        refused = _run_cell(socket, WRITE_CELL, channel_session)
+        refused = _run_cell(socket, _write_cell(lane.channel, 1.0), channel_session)
         assert refused.error_name == "ChannelWriteBlockedError", refused
         assert refused.error_value.startswith(
-            f"Write to '{CHANNEL}' blocked: Writes are off; turn it on from the chip"
+            f"Write to '{lane.channel}' blocked: Writes are off; turn it on from the chip"
         ), refused.error_value
         assert "[osprey-refusal: switch_off]" in refused.error_value, refused.error_value
         assert HINT_WRITES_OFF in refused.stdout, refused.stdout
@@ -1051,7 +1119,9 @@ def test_a_sandboxed_cell_refuses_writes_with_the_turn_writes_on_line(
     assert record["reason"] == "channel_write_blocked"
     assert record["session"] == f"kernel:{terminal.kernel_id}"
     assert record["subject"] == "notebook_cell"
-    assert dict(token.split("=", 1) for token in record["detail"].split())["channel"] == CHANNEL
+    assert (
+        dict(token.split("=", 1) for token in record["detail"].split())["channel"] == lane.channel
+    )
 
     # The pin is per cell: the SAME kernel, with the switch turned back on,
     # stamps its next cell from the record again, so that cell no longer
@@ -1074,7 +1144,7 @@ def test_a_sandboxed_cell_refuses_writes_with_the_turn_writes_on_line(
 # ---------------------------------------------------------------------------
 
 
-def test_the_next_cell_follows_a_chip_target_switch(terminal: Terminal) -> None:
+def test_the_next_cell_follows_a_chip_target_switch(terminal: Terminal, lane: LaneChannels) -> None:
     """No restart: the kernel re-routes itself from the record before each cell.
 
     A sandbox process is stamped once and never re-pointed, so a switch under
@@ -1111,7 +1181,7 @@ def test_the_next_cell_follows_a_chip_target_switch(terminal: Terminal) -> None:
             # so the new one carries the deployment's own posture and the write
             # is admitted. What is being ruled out is a cell still pinned to a
             # machine the deployment has left.
-            reading = _read_value(socket, channel_session)
+            reading = _read_value(socket, channel_session, lane.channel)
             assert isinstance(reading, float), reading
     finally:
         terminal.delete(f"{PANEL}/api/sessions/{terminal.notebook_session_id}")

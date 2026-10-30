@@ -27,6 +27,7 @@ from osprey.interfaces.web_terminal.app import (
 from osprey.interfaces.web_terminal.operator_session import resolve_agent_data_root
 from osprey.interfaces.web_terminal.routes import panels as panels_module
 from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, SIDECAR_PANELS
+from tests._live import wait_until
 from tests.interfaces.web_terminal._started_app import terminal_client
 
 from .conftest import HOST_ADDRS_TARGET, StubWorkspaceWatcher
@@ -1545,14 +1546,9 @@ class TestSidecarExitsLater:
         # the loop the retraction, so the route may need one more turn.
         threading.Thread(target=state.sidecars[SIDECAR_ID].on_exit).start()
 
-        deadline = time.monotonic() + 5.0
-        while time.monotonic() < deadline:
-            resp = client_with_sidecar.get(f"/api/{SIDECAR_ID}-server")
-            if resp.json()["available"] is False:
-                break
-            time.sleep(0.05)
+        body = _settle(client_with_sidecar, lambda b: b["available"] is False)
 
-        assert resp.json() == {
+        assert body == {
             "url": None,
             "available": False,
             "state": "failed",
@@ -1587,13 +1583,13 @@ def _start(client, panel_id=SIDECAR_ID):
 
 
 def _settle(client, predicate, timeout=5.0):
-    """Poll the sidecar's config route until *predicate* holds; return the last body."""
-    deadline = time.monotonic() + timeout
-    while True:
+    """Poll the sidecar's config route until *predicate* holds; return that body."""
+
+    def settled():
         body = client.get(f"/api/{SIDECAR_ID}-server").json()
-        if predicate(body) or time.monotonic() >= deadline:
-            return body
-        time.sleep(0.02)
+        return body if predicate(body) else None
+
+    return wait_until(settled, timeout=timeout, interval=0.02, what="the sidecar's config route")
 
 
 @pytest.fixture
@@ -1720,10 +1716,7 @@ class TestSidecarStartsAgain:
         failed_sidecar.preflight_error = None
         failed_sidecar.hold = threading.Event()
         assert _start(client).status_code == 202
-        deadline = time.monotonic() + 5.0
-        while not failed_sidecar.waited and time.monotonic() < deadline:
-            time.sleep(0.02)
-        assert failed_sidecar.waited, "the retry never reached wait_ready"
+        wait_until(lambda: failed_sidecar.waited, timeout=5.0, what="the retry to reach wait_ready")
 
         with pytest.raises(StopIteration):
             next(client_gen)

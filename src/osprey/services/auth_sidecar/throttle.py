@@ -129,9 +129,12 @@ def throttle_problems(
         problems["initial_delay"] = "must be greater than zero"
     if numbers.get("multiplier", 1.0) < 1:
         problems["multiplier"] = "must be at least 1"
-    if "max_delay" in numbers and "initial_delay" in numbers:
-        if numbers["max_delay"] < numbers["initial_delay"]:
-            problems["max_delay"] = f"must be at least the initial delay ({initial_delay} s)"
+    if (
+        "max_delay" in numbers
+        and "initial_delay" in numbers
+        and numbers["max_delay"] < numbers["initial_delay"]
+    ):
+        problems["max_delay"] = f"must be at least the initial delay ({initial_delay} s)"
     if numbers.get("forget_after", 0.0) < 0:
         problems["forget_after"] = "must not be negative"
     return problems

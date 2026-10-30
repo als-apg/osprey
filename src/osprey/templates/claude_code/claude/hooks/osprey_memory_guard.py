@@ -225,10 +225,7 @@ def is_allowed_memory_write(file_path: str, memory_dir: Path) -> bool:
         return False
 
     # Reject path traversal components in the original input
-    if ".." in file_path:
-        return False
-
-    return True
+    return ".." not in file_path
 
 
 def is_allowed_plan_write(file_path: str, plans_dir: Path) -> bool:

@@ -101,7 +101,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
         except Exception:
             raise Exception("DOOCS archiver connector failed to connect to the ENS.") from None
 
-        self._avg_window = config.get("avg_window", None)
+        self._avg_window = config.get("avg_window")
         self._timeout = connection.timeout_or(60)
 
         self._connected = True

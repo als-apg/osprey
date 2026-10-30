@@ -651,9 +651,12 @@ class _Combiner:
         elif kind == "group":
             for model, measurement in sorted(self.sources.measurement.items()):
                 groups = measurement.get("groups")
-                if ("model", model) in self.records and isinstance(groups, dict):
-                    if any(rid in group_families(value) for value in groups.values()):
-                        yield f"measurement/{model}.yaml (groups)"
+                if (
+                    ("model", model) in self.records
+                    and isinstance(groups, dict)
+                    and any(rid in group_families(value) for value in groups.values())
+                ):
+                    yield f"measurement/{model}.yaml (groups)"
 
     def _on_referrers(self, kind: str, rid: str) -> Iterator[str]:
         for channel in self._live("channel"):

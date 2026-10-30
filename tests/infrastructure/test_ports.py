@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import fcntl
 import os
 import socket
@@ -11,8 +12,38 @@ import textwrap
 
 import pytest
 
+from osprey.deployment.subprocess_capture import observe_exit, stop_child
 from osprey_connectors_tests._harness import _ports
-from osprey_connectors_tests._harness._ports import ephemeral_range_start, lock_path, reserved_port
+from osprey_connectors_tests._harness._ports import (
+    bound_socket,
+    ephemeral_range_start,
+    lock_path,
+    port_reserver,
+    require_ipv6_loopback,
+    reserved_port,
+    reserved_ports,
+)
+from tests._nested_pytest import with_harness_path
+
+#: Seconds a lock holder gets between SIGTERM and SIGKILL when it did not end.
+_HOLDER_GRACE_S = 1.0
+
+
+def _end_holder(holder: subprocess.Popen[str]) -> None:
+    """End a lock holder by closing its stdin, then stop its group, which reaps it.
+
+    A holder exits on EOF; one that ignores it is stopped all the same and
+    fails the test.
+    """
+    if holder.stdin is not None:
+        holder.stdin.close()
+    exited = observe_exit(holder, within=10.0)
+    if holder.stdout is not None:
+        holder.stdout.close()
+    outcome = stop_child(holder, grace=_HOLDER_GRACE_S)
+    assert outcome.gone, outcome.describe()
+    if exited is None:
+        pytest.fail("the lock holder ignored EOF; its group was stopped")
 
 
 def test_the_port_lies_below_the_ephemeral_range():
@@ -54,6 +85,7 @@ def test_a_port_locked_by_another_process_is_never_yielded(monkeypatch):
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         text=True,
+        start_new_session=True,
     )
     try:
         assert holder.stdout is not None
@@ -62,7 +94,7 @@ def test_a_port_locked_by_another_process_is_never_yielded(monkeypatch):
         with pytest.raises(RuntimeError, match="1 candidate"), reserved_port():
             pass
     finally:
-        holder.communicate(timeout=10)
+        _end_holder(holder)
 
 
 @pytest.mark.parametrize(
@@ -87,3 +119,119 @@ def test_the_lock_is_released_when_the_block_ends():
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     finally:
         os.close(fd)
+
+
+def test_the_lock_directory_ignores_tmpdir(tmp_path):
+    with reserved_port() as port:
+        probe = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                f"from osprey_connectors_tests._harness._ports import _lock; print(_lock({port}))",
+            ],
+            env=with_harness_path({**os.environ, "TMPDIR": str(tmp_path)}),
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=True,
+        )
+    assert probe.stdout.strip() == "None"
+
+
+def _lockable_elsewhere(ports: list[int]) -> list[bool]:
+    """Whether a fresh process can take each port's lock."""
+    probe = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            f"from osprey_connectors_tests._harness._ports import _lock; print([_lock(p) is not None for p in {ports!r}])",
+        ],
+        env=with_harness_path(dict(os.environ)),
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+    return ast.literal_eval(probe.stdout)
+
+
+def test_reserved_ports_are_distinct_and_held():
+    with reserved_ports(3) as ports:
+        assert len(set(ports)) == 3
+        assert all(_ports.PORT_FLOOR <= port < ephemeral_range_start() for port in ports)
+        assert _lockable_elsewhere(ports) == [False, False, False]
+    assert _lockable_elsewhere(ports) == [True, True, True]
+
+
+def test_a_port_reserver_hands_distinct_ports_held_until_its_block_ends():
+    with port_reserver() as reserve:
+        ports = [reserve(), reserve(), reserve()]
+        assert len(set(ports)) == 3
+        assert _lockable_elsewhere(ports) == [False, False, False]
+    assert _lockable_elsewhere(ports) == [True, True, True]
+
+
+def test_the_reserve_port_fixture_holds_distinct_ports_for_the_test(reserve_port):
+    ports = [reserve_port(), reserve_port(), reserve_port()]
+    assert len(set(ports)) == 3
+    assert _lockable_elsewhere(ports) == [False, False, False]
+
+
+def test_hold_ports_keeps_the_locks_until_exit():
+    holder = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            textwrap.dedent(
+                """
+                import sys
+                from osprey_connectors_tests._harness._ports import hold_ports
+                print(hold_ports(2), flush=True)
+                sys.stdin.read()
+                """
+            ),
+        ],
+        env=with_harness_path(dict(os.environ)),
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        assert holder.stdout is not None
+        ports = ast.literal_eval(holder.stdout.readline())
+        assert len(set(ports)) == 2
+        assert _lockable_elsewhere(ports) == [False, False]
+    finally:
+        _end_holder(holder)
+    assert holder.returncode == 0
+    assert _lockable_elsewhere(ports) == [True, True]
+
+
+def test_a_reserved_port_refuses_connections():
+    with reserved_port() as port, socket.socket() as client:
+        client.settimeout(5)
+        with pytest.raises(ConnectionRefusedError):
+            client.connect(("127.0.0.1", port))
+
+
+@pytest.mark.parametrize(
+    ("host", "family"),
+    [("127.0.0.1", socket.AF_INET), ("::1", socket.AF_INET6)],
+    ids=["ipv4", "ipv6"],
+)
+def test_a_bound_socket_holds_its_port(host, family):
+    if family == socket.AF_INET6:
+        require_ipv6_loopback()
+    with bound_socket(host) as held:
+        assert held.family == family
+        port = held.getsockname()[1]
+        with socket.socket(family, socket.SOCK_STREAM) as rival, pytest.raises(OSError):
+            rival.bind((host, port))
+
+
+def test_a_bound_socket_can_listen():
+    with bound_socket() as held, socket.socket() as client:
+        held.listen()
+        client.settimeout(5)
+        client.connect(("127.0.0.1", held.getsockname()[1]))

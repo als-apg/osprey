@@ -317,12 +317,16 @@ def execute_litellm_completion(
     response = litellm.completion(**completion_kwargs)
 
     # Handle extended thinking response (returns content blocks)
-    if enable_thinking and budget_tokens is not None and provider == "anthropic":
-        # Return raw content blocks for thinking responses
-        if hasattr(response, "choices") and response.choices:
-            choice = response.choices[0]
-            if hasattr(choice.message, "content") and isinstance(choice.message.content, list):
-                return choice.message.content
+    if (
+        enable_thinking
+        and budget_tokens is not None
+        and provider == "anthropic"
+        and hasattr(response, "choices")
+        and response.choices
+    ):
+        choice = response.choices[0]
+        if hasattr(choice.message, "content") and isinstance(choice.message.content, list):
+            return choice.message.content
 
     # Handle tool call responses
     if hasattr(response, "choices") and response.choices:
@@ -566,8 +570,7 @@ def _clean_json_response(text: str) -> str:
     elif text.startswith("```"):
         text = text[3:]
 
-    if text.endswith("```"):
-        text = text[:-3]
+    text = text.removesuffix("```")
 
     text = text.strip()
 
@@ -577,9 +580,7 @@ def _clean_json_response(text: str) -> str:
     text = re.sub(r":\s*True\b", ": true", text)
     text = re.sub(r":\s*False\b", ": false", text)
     text = re.sub(r",\s*True\b", ", true", text)
-    text = re.sub(r",\s*False\b", ", false", text)
-
-    return text
+    return re.sub(r",\s*False\b", ", false", text)
 
 
 #: Seconds a direct Ollama request may take when the caller gives no timeout.

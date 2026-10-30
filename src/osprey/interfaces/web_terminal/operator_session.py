@@ -46,10 +46,11 @@ from osprey.agent_runner.sdk_context import (
 from osprey.agent_runner.write_tools import load_approval_prefixes, read_only_disallowed_tools
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.build.claude_code_telemetry import terminal_session_env
+from osprey.deployment.process_table import ProcessRow
 from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, get_web_credentials
 from osprey.interfaces.web_terminal import process_tree
 from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionPool
-from osprey.interfaces.web_terminal.process_tree import ProcessGroup, ProcessRow
+from osprey.interfaces.web_terminal.process_tree import ProcessGroup
 from osprey.interfaces.web_terminal.session_key import is_posture_key
 from osprey.interfaces.web_terminal.slash_commands import operator_skill, operator_skill_frames
 from osprey.interfaces.web_terminal.tool_preview import (
@@ -798,9 +799,7 @@ def is_terminal_event(event: dict[str, Any]) -> bool:
     etype = event.get("type")
     if etype == "result":
         return True
-    if etype == "error" and event.get("error_type") != "AssistantMessageError":
-        return True
-    return False
+    return etype == "error" and event.get("error_type") != "AssistantMessageError"
 
 
 @dataclass(frozen=True)
@@ -820,8 +819,9 @@ class TreeEnding:
     ``read`` is False when the process table could not be read while the child
     was alive: nothing was ended because nothing could be looked for, which is
     not the same as the child having started nothing. The ``ended`` fields
-    hold what was signalled, the ``surviving`` ones what the last look still
-    found after SIGKILL.
+    hold what was signalled, the ``surviving`` ones what a read still found
+    after SIGKILL, and the ``unknown`` ones what the table could not be read
+    to re-identify: it was not signalled and may still be running.
     """
 
     read: bool
@@ -829,6 +829,8 @@ class TreeEnding:
     ended_members: tuple[ProcessRow, ...] = ()
     surviving_groups: tuple[ProcessGroup, ...] = ()
     surviving_members: tuple[ProcessRow, ...] = ()
+    unknown_groups: tuple[ProcessGroup, ...] = ()
+    unknown_members: tuple[ProcessRow, ...] = ()
 
 
 def _read_tree(pid: int, alive: Callable[[], bool]) -> _AgentTree:
@@ -857,44 +859,44 @@ def _read_tree(pid: int, alive: Callable[[], bool]) -> _AgentTree:
 
 
 def _end_tree(pid: int, tree: _AgentTree) -> TreeEnding:
-    """End what *tree* found under the chat child *pid*, and log it in one line. Blocking."""
-    ended_groups, surviving_groups = process_tree.end_groups(tree.groups)
-    ended_members, surviving_members = process_tree.end_processes(tree.members)
-    if ended_groups or ended_members:
-        parts = [
-            part
-            for part in (
-                process_tree.describe(ended_groups),
-                process_tree.describe_processes(ended_members),
-            )
-            if part
-        ]
+    """End what *tree* found under the chat child *pid*, and log what became of it. Blocking."""
+    groups = process_tree.end_groups(tree.groups)
+    members = process_tree.end_processes(tree.members)
+    if groups.ended or members.ended:
         logger.info(
             "Ended %d process group(s) and %d process(es) the chat child %d started: %s",
-            len(ended_groups),
-            len(ended_members),
+            len(groups.ended),
+            len(members.ended),
             pid,
-            "; ".join(parts),
+            _describe(groups.ended, members.ended),
         )
-    if surviving_groups or surviving_members:
-        parts = [
-            part
-            for part in (
-                process_tree.describe(surviving_groups),
-                process_tree.describe_processes(surviving_members),
-            )
-            if part
-        ]
+    if groups.survivors or members.survivors:
         logger.warning(
-            "Process(es) the chat child %d started survived SIGKILL: %s", pid, "; ".join(parts)
+            "Process(es) the chat child %d started survived SIGKILL: %s",
+            pid,
+            _describe(groups.survivors, members.survivors),
+        )
+    if groups.unknown or members.unknown:
+        logger.warning(
+            "Chat child %d: process table unreadable: started process(es) may still be running: %s",
+            pid,
+            _describe(groups.unknown, members.unknown),
         )
     return TreeEnding(
         read=tree.read,
-        ended_groups=tuple(ended_groups),
-        ended_members=tuple(ended_members),
-        surviving_groups=tuple(surviving_groups),
-        surviving_members=tuple(surviving_members),
+        ended_groups=groups.ended,
+        ended_members=members.ended,
+        surviving_groups=groups.survivors,
+        surviving_members=members.survivors,
+        unknown_groups=groups.unknown,
+        unknown_members=members.unknown,
     )
+
+
+def _describe(groups: tuple[ProcessGroup, ...], members: tuple[ProcessRow, ...]) -> str:
+    """One line naming *groups* and then *members*, either part left out when empty."""
+    parts = (process_tree.describe(groups), process_tree.describe_processes(members))
+    return "; ".join(part for part in parts if part)
 
 
 class OperatorSession:
@@ -1796,10 +1798,10 @@ class OperatorSession:
 
         The process table is read while the child is alive, and a failed read
         is retried while it is, for up to ``process_tree.READ_WAIT_S``. When it
-        still cannot be read, what the child started cannot be looked for: it
-        is left running, a warning names the child, and :attr:`tree_ending`
-        says ``read=False``. A process table that never answers therefore
-        costs about five seconds and no more.
+        still cannot be read, nothing is signalled: what the child started is
+        left running, a warning names the child, and :attr:`tree_ending` says
+        ``read=False``. What a later read could not re-identify is left
+        unsignalled and named in :attr:`tree_ending`.
 
         The runner keeps the child's process handle after it closes, so a
         caller that has to wait for the child to be *gone* — not merely asked

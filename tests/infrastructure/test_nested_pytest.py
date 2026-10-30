@@ -23,6 +23,8 @@ from pathlib import Path
 
 import pytest
 
+from osprey.deployment.subprocess_capture import StopOutcome, observe_exit, stop_child
+from tests import _nested_pytest
 from tests._nested_pytest import run_nested_pytest
 
 #: Says each argument after the first on its own line, records how many it has
@@ -161,3 +163,35 @@ def test_a_nested_run_leaves_the_shared_temporary_root_alone(tmp_path):
     assert "1 passed" in result.stdout
     assert sorted(p.name for p in numbered.iterdir()) == ["pytest-1", "pytest-2", "pytest-3"]
     assert (numbered / "pytest-1" / "left-by-a-finished-run").exists()
+
+
+def test_the_leftover_stop_runs_before_the_leader_is_reaped(monkeypatch):
+    seen: list[int] = []
+
+    def spy(process, **kwargs):
+        # The leader has exited but is still a zombie nobody has reaped.
+        assert observe_exit(process) == 0
+        assert process.returncode is None
+        outcome = stop_child(process, **kwargs)
+        assert process.returncode == 0, "the stop did not reap the leader"
+        seen.append(process.pid)
+        return outcome
+
+    monkeypatch.setattr(_nested_pytest, "stop_child", spy)
+    result = run_nested_pytest([sys.executable, "-c", "pass"], cwd=None, env=None)
+    assert result.returncode == 0
+    assert len(seen) == 1
+
+
+def test_a_nested_run_whose_table_could_not_be_read_fails_saying_so(monkeypatch):
+    def stop_that_could_not_look(process, **kwargs):
+        stop_child(process, **kwargs)
+        return StopOutcome(ended=(process.pid,), unknown=(process.pid,))
+
+    monkeypatch.setattr(_nested_pytest, "stop_child", stop_that_could_not_look)
+    with pytest.raises(
+        pytest.fail.Exception,
+        match="could not tell whether the nested run left processes behind: "
+        "process table unreadable: group",
+    ):
+        run_nested_pytest([sys.executable, "-c", "pass"], cwd=None, env=None)

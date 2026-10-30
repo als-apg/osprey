@@ -430,6 +430,4 @@ async def clear_bar_items(request: Request) -> dict:
         # make this reset answer the arrangement it just discarded. The whole
         # sequence stays inside the critical section the module docstring
         # claims for it.
-        restored = _effective(request)
-
-    return restored
+        return _effective(request)

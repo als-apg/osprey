@@ -202,17 +202,6 @@ every workspace failed to read, and when an export stopped part-way. A part-way
 export still parses: it holds what was read, and the summary says how much that
 was.
 
-Keeping the store bounded
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Session contexts are much larger than the reports they belong to, so the store
-has a ceiling (``web.feedback.max_store_bytes``, 256 MB by default). When it is
-exceeded, the oldest saved **contexts** are dropped; their submissions are
-never dropped. An export marks a submission whose context was dropped this way
-with ``context_pruned``, and one missing its context for any other reason with
-``context_missing`` — the submission itself is exported either way, so the
-history of what people reported stays complete.
-
 Point the channels at your facility
 -----------------------------------
 

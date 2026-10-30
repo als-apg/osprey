@@ -1,9 +1,10 @@
-"""The Web Terminal refuses to start without its telemetry gateway login.
+"""The Web Terminal's agents export to the agent record under the terminal's login.
 
-The lifespan resolves the provider spec — which resolves the telemetry block
-with it — so a terminal whose container carries no ``OSPREY_TELEMETRY_LOGIN``
-refuses at startup rather than serving agents whose telemetry the gateway
-would drop. With the login, the same config resolves and the terminal exports.
+The lifespan resolves the provider spec — which resolves the OTLP block with
+it — from the container's environment. With the record's address and a record
+login, the terminal's agents send their log events to the record's
+``/v1/logs``; without a login the terminal still starts and its agents export
+nothing. A profile ``claude_code.telemetry`` block chooses neither.
 
 Drives the real app factory through the TestClient lifespan; only
 ``inject_provider_env`` is stubbed, because it mutates this interpreter's own
@@ -19,17 +20,16 @@ import pytest
 from fastapi.testclient import TestClient
 
 from osprey.agent_runner import provider_env
-from osprey.build.claude_code_telemetry import ObservabilityCredentialError
 from osprey.cli.templates.manager import TemplateManager
 from osprey.interfaces.web_terminal import app as web_app
 
 
 @pytest.fixture(autouse=True)
 def _a_terminal_launch(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A host-networked terminal: no ambient login, the gateway on loopback."""
-    monkeypatch.delenv("OSPREY_TELEMETRY_LOGIN", raising=False)
-    monkeypatch.setenv("OSPREY_OTEL_GATEWAY_HOST", "127.0.0.1")
-    monkeypatch.setenv("OSPREY_OTEL_GATEWAY_PORT", "10051")
+    """A host-networked terminal: the record on loopback, no ambient login."""
+    monkeypatch.delenv("OSPREY_AGENT_RECORD_LOGIN", raising=False)
+    monkeypatch.delenv("OSPREY_AGENT_RECORD_OFF", raising=False)
+    monkeypatch.setenv("OSPREY_AGENT_RECORD_URL", "http://127.0.0.1:10061")
 
 
 @pytest.fixture
@@ -47,7 +47,7 @@ def injected(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
 
 
 def _project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A flat project whose telemetry block sends to the deployment's gateway.
+    """A flat project whose telemetry block names the deployment's gateway.
 
     Flat, so the render and the secrets zone coincide — the container shape.
     """
@@ -79,29 +79,34 @@ def _serve(project: Path) -> None:
         pass
 
 
-def test_a_missing_login_refuses_to_start(
+def test_a_missing_login_starts_and_exports_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, injected: list[Any]
 ) -> None:
-    """Serving without the login would hide a broken pipeline behind a healthy page."""
+    """Without a record login the terminal serves, and its agents send nowhere."""
     project = _project(tmp_path, monkeypatch)
 
-    with pytest.raises(ObservabilityCredentialError) as caught:
-        _serve(project)
+    _serve(project)
 
-    assert caught.value.unresolved_vars == ("OSPREY_TELEMETRY_LOGIN",)
-    assert injected == []
+    env = injected[0].env_block
+    assert env["CLAUDE_CODE_ENABLE_TELEMETRY"] == "0"
+    assert env["OTEL_LOGS_EXPORTER"] == "none"
+    assert env["OTEL_METRICS_EXPORTER"] == "none"
+    assert env["OTEL_TRACES_EXPORTER"] == "none"
+    assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in env
+    assert "OTEL_EXPORTER_OTLP_HEADERS" not in env
 
 
-def test_a_login_keeps_telemetry_on(
+def test_a_login_exports_to_the_record(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, injected: list[Any]
 ) -> None:
     """The login reaches the container by its own env_file; with it the terminal exports."""
     project = _project(tmp_path, monkeypatch)
-    monkeypatch.setenv("OSPREY_TELEMETRY_LOGIN", "alice:s3cret")
+    monkeypatch.setenv("OSPREY_AGENT_RECORD_LOGIN", "alice:s3cret")
 
     _serve(project)
 
     env = injected[0].env_block
     assert env["CLAUDE_CODE_ENABLE_TELEMETRY"] == "1"
-    assert env["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://127.0.0.1:10051"
+    assert env["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://127.0.0.1:10061"
+    assert env["OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"] == "http://127.0.0.1:10061/v1/logs"
     assert "Authorization=Basic " in env["OTEL_EXPORTER_OTLP_HEADERS"]

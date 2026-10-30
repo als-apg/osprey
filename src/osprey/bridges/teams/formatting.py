@@ -175,10 +175,8 @@ _TABLE_SEP_RE = re.compile(r"^\s*\|?[ \t:|-]*-[ \t:|-]*\|?\s*$")
 def _split_row(line: str) -> list[str]:
     """Split a table row on unescaped ``|``, dropping optional outer pipes."""
     s = line.strip()
-    if s.startswith("|"):
-        s = s[1:]
-    if s.endswith("|"):
-        s = s[:-1]
+    s = s.removeprefix("|")
+    s = s.removesuffix("|")
     return [c.strip() for c in s.split("|")]
 
 

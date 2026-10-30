@@ -55,7 +55,9 @@ def transcript_path(
 
 
 ASYNC_LAUNCH_MARKER = "Async agent launched"
-_NOTIFIED_TOOL_USE = re.compile(r"<task-notification>.*?<tool-use-id>([^<]+)</tool-use-id>", re.S)
+_NOTIFIED_TOOL_USE = re.compile(
+    r"<task-notification>.*?<tool-use-id>([^<]+)</tool-use-id>", re.DOTALL
+)
 
 
 def _block_text(content: object) -> str:

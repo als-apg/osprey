@@ -168,6 +168,59 @@ def test_service_is_constructed_despite_config_errors(tmp_path: Path, service_do
     _assert_no_banner(caplog, "DATABASE NOT AVAILABLE")
 
 
+@pytest.mark.parametrize(
+    "remedy",
+    ["Run `osprey ariel quickstart`", None],
+    ids=["refusal-names-its-fix", "refusal-names-no-fix"],
+)
+def test_missing_embedding_table_degrades_search_only(
+    tmp_path: Path, service_double, caplog, remedy
+):
+    """A missing embedding table makes the configuration invalid; browse still answers."""
+    from osprey.interfaces.ariel import create_app
+    from osprey.interfaces.ariel.app import REMEDY_NAMED_KEY
+    from osprey.services.ariel_search.exceptions import ConfigurationError
+
+    refusal = (
+        "search_modules.semantic.model: semantic search is enabled for model "
+        "'nomic-embed-text', but this database has no embedding table for it."
+    )
+    config_file = _write_config(
+        tmp_path,
+        {
+            "database": {"uri": DSN},
+            "search_modules": {
+                "keyword": {"enabled": True},
+                "semantic": {"enabled": True, "model": "nomic-embed-text"},
+            },
+        },
+    )
+    service_double.verify_search_model_table = AsyncMock(
+        side_effect=ConfigurationError(
+            refusal, config_key="search_modules.semantic.model", remedy=remedy
+        )
+    )
+    service_double.repository.search_by_time_range = AsyncMock(return_value=[])
+    create = AsyncMock(return_value=service_double)
+
+    caplog.set_level(logging.INFO, logger="ariel")
+    with patch("osprey.services.ariel_search.create_ariel_service", create):
+        app = create_app(config_file)
+        with TestClient(app) as client:
+            capabilities = client.get("/api/capabilities")
+            entries = client.get("/api/entries")
+
+    assert capabilities.status_code == 200
+    payload = capabilities.json()
+    assert payload["status"] == "configuration_invalid"
+    assert payload["config_errors"] == [refusal]
+    assert payload["remedy"] == (remedy or REMEDY_NAMED_KEY)
+    assert entries.status_code == 200
+    assert app.state.ariel_service is service_double
+    assert refusal in _banner(caplog, "CONFIGURATION INVALID")
+    _assert_no_banner(caplog, "DATABASE NOT AVAILABLE")
+
+
 def test_no_config_file_at_all(tmp_path: Path, monkeypatch, caplog):
     """No config.yml anywhere: the panel starts and names CONFIG_FILE."""
     monkeypatch.chdir(tmp_path)

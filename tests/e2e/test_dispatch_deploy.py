@@ -131,6 +131,7 @@ from tests.e2e._deploy_support import (
     run_command,
     wait_for_health,
 )
+from tests.e2e._facility_select import bounded_setpoint, facility_view, repo_view
 from tests.e2e._mcp_sse import any_answer_succeeded, sse_payloads, tool_result
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
@@ -354,16 +355,6 @@ DRAFT_CLIENT_ID = "dispatch-deploy-e2e"
 #: so a tool rename detaches the trigger's allowlist from the tool loudly.
 QUEUE_ADD_TOOL = bluesky_tool_names.matcher(bluesky_tool_names.QUEUE_ADD)
 
-#: A channel the preset's virtual accelerator publishes, and it must be a
-#: WRITABLE setpoint inside its limits. The limits check is a PreToolUse hook
-#: that runs before the tool, so a channel the limits database marks read-only
-#: (any ``:RB`` readback) is refused there with "CHANNEL LIMITS VIOLATION" and
-#: the call never reaches the connector where the store verdict is read; the
-#: refusal rows would then judge a fact about the address rather than the
-#: narrowing under test. A setpoint well inside its range clears that gate, so
-#: the only refusal a narrowed owner can meet is the store's.
-PROBE_CHANNEL = "SR:MAG:HCM:01:CURRENT:SP"
-
 #: The limits hook's refusal headline. Named so a row can say "this probe never
 #: reached the mechanism" rather than fail with a wall of text about an address.
 LIMITS_REFUSAL = "CHANNEL LIMITS VIOLATION"
@@ -414,15 +405,19 @@ _ENV_PROBE_ACTION = f"""    source: webhook
         - mcp__python__execute
 """
 
-_WRITE_PROBE_ACTION = f"""    source: webhook
+
+def _write_probe_action(channel: str, value: float) -> str:
+    """The write probe: one write of ``value`` to ``channel``."""
+    return f"""    source: webhook
     action:
       prompt: >-
         Call the control-system channel-write tool exactly once, writing the
-        value 1.0 to the channel {PROBE_CHANNEL}, and then report the tool's
+        value {value} to the channel {channel}, and then report the tool's
         response verbatim. Do not retry and do not call any other tool.
       allowed_tools:
         - mcp__controls__channel_write
 """
+
 
 #: The queue probe. Unlike the other two it needs a value the trigger file
 #: cannot know — which draft revision to queue — so the fire carries it in the
@@ -438,21 +433,25 @@ _QUEUE_PROBE_ACTION = f"""    source: webhook
         - {QUEUE_ADD_TOOL}
 """
 
-_OWNER_PROBE_TRIGGERS = (
-    "\n  # -- e2e owner probes (appended by tests/e2e/test_dispatch_deploy.py) --\n"
-    "  #\n"
-    "  # Each probe is declared twice, under one panel-fired and one webhook-fired\n"
-    "  # name, so the two doors a job can be fired through — the terminal's panel\n"
-    "  # proxy, which mints an owner, and the webhook, which is the cron-shaped\n"
-    "  # owner-less door — produce two SEPARATE runs in the dispatcher feed rather\n"
-    "  # than two readings of one latest-wins entry.\n"
-    f"  - name: {ENV_PROBE_PANEL_TRIGGER}\n{_ENV_PROBE_ACTION}"
-    f"  - name: {ENV_PROBE_CRON_TRIGGER}\n{_ENV_PROBE_ACTION}"
-    f"  - name: {WRITE_PROBE_PANEL_TRIGGER}\n{_WRITE_PROBE_ACTION}"
-    f"  - name: {WRITE_PROBE_CRON_TRIGGER}\n{_WRITE_PROBE_ACTION}"
-    f"  - name: {QUEUE_PROBE_PANEL_TRIGGER}\n{_QUEUE_PROBE_ACTION}"
-    f"  - name: {QUEUE_PROBE_CRON_TRIGGER}\n{_QUEUE_PROBE_ACTION}"
-)
+
+def _owner_probe_triggers(channel: str, value: float) -> str:
+    """The owner probes' trigger entries, the write probe writing ``value`` to ``channel``."""
+    write_probe = _write_probe_action(channel, value)
+    return (
+        "\n  # -- e2e owner probes (appended by tests/e2e/test_dispatch_deploy.py) --\n"
+        "  #\n"
+        "  # Each probe is declared twice, under one panel-fired and one webhook-fired\n"
+        "  # name, so the two doors a job can be fired through — the terminal's panel\n"
+        "  # proxy, which mints an owner, and the webhook, which is the cron-shaped\n"
+        "  # owner-less door — produce two SEPARATE runs in the dispatcher feed rather\n"
+        "  # than two readings of one latest-wins entry.\n"
+        f"  - name: {ENV_PROBE_PANEL_TRIGGER}\n{_ENV_PROBE_ACTION}"
+        f"  - name: {ENV_PROBE_CRON_TRIGGER}\n{_ENV_PROBE_ACTION}"
+        f"  - name: {WRITE_PROBE_PANEL_TRIGGER}\n{write_probe}"
+        f"  - name: {WRITE_PROBE_CRON_TRIGGER}\n{write_probe}"
+        f"  - name: {QUEUE_PROBE_PANEL_TRIGGER}\n{_QUEUE_PROBE_ACTION}"
+        f"  - name: {QUEUE_PROBE_CRON_TRIGGER}\n{_QUEUE_PROBE_ACTION}"
+    )
 
 
 def _repo_triggers_file(repo: Path) -> Path:
@@ -469,15 +468,44 @@ def _repo_triggers_file(repo: Path) -> Path:
     return found[0]
 
 
-def _append_owner_probe_triggers(repo: Path) -> None:
-    """Add the owner probes to the deployment's trigger set, before the build."""
+def _append_owner_probe_triggers(repo: Path, scratch: Path) -> tuple[str, float]:
+    """Add the owner probes to the deployment's trigger set, before the build.
+
+    The write probe's channel must be a WRITABLE setpoint inside its limits.
+    The limits check is a PreToolUse hook that runs before the tool, so a
+    channel the limits database marks read-only is refused there with "CHANNEL
+    LIMITS VIOLATION" and the call never reaches the connector where the store
+    verdict is read; the refusal rows would then judge a fact about the address
+    rather than the narrowing under test. A bounded setpoint at its band's
+    midpoint clears that gate, so the only refusal a narrowed owner can meet is
+    the store's. No build exists yet, so the pick is read from the repo's own
+    facility tree rendered into ``scratch``; returns ``(channel, value)``.
+    """
+    channel, value = bounded_setpoint(facility_view(repo / "data" / "facility", scratch))
     triggers_file = _repo_triggers_file(repo)
     text = triggers_file.read_text(encoding="utf-8")
     assert "hello-dispatch" in text, (
         f"{triggers_file} does not look like the preset's trigger set:\n{text[:500]}"
     )
     with triggers_file.open("a", encoding="utf-8") as handle:
-        handle.write(_OWNER_PROBE_TRIGGERS)
+        handle.write(_owner_probe_triggers(channel, value))
+    return channel, value
+
+
+def _assert_the_build_serves_the_write_probe(repo: Path, probe: tuple[str, float]) -> None:
+    """The built view answers the pick made before the build, writable and in range."""
+    channel, value = probe
+    view = repo_view(repo)
+    assert bounded_setpoint(view) == probe, (
+        f"the build picks {bounded_setpoint(view)} as the bounded setpoint, but the "
+        f"triggers were written for {probe} from the repo's facility tree"
+    )
+    served = view.channel(channel)
+    assert served.writable and served.value_range is not None, (
+        f"the build serves {channel} without a writable band"
+    )
+    low, high = served.value_range
+    assert low <= value <= high, f"{value} lies outside {channel}'s band {served.value_range}"
 
 
 def _narrow_on_the_host(repo: Path, identity: str) -> Path:
@@ -587,7 +615,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
 
     # Append the owner probes to the deployment's own trigger set BEFORE the
     # build, so the render the dispatcher loads carries them.
-    _append_owner_probe_triggers(repo)
+    probe = _append_owner_probe_triggers(repo, base / "probe_view")
 
     build = run_command(
         [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
@@ -596,6 +624,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     )
     if build.returncode != 0:
         pytest.fail(format_failure("osprey build", build))
+
+    _assert_the_build_serves_the_write_probe(repo, probe)
 
     # Before anything is deployed: the render must agree with this module about
     # which roster user holds which tier, and the read-write render must carry
@@ -647,15 +677,19 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     # invalidates the relevant build-cache layers on rebuild.
     project = resolve_project_name({"project_name": PROJECT_NAME})
     for image in (f"{project}-dispatch:local", f"{project}:local"):
-        subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
+        subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True, timeout=120)
 
     # The web-container names are host-global fixed identifiers, so a crashed
     # prior run could have left the exact-named containers behind. Remove them
     # by exact name before deploy so this run never adopts a stale container
     # (guardrail: exact-named only, never a prune or wildcard).
     for user in (READONLY_USER, READWRITE_USER):
-        subprocess.run(["docker", "rm", "-f", _web_container(user)], capture_output=True, text=True)
-    subprocess.run(["docker", "rm", "-f", NGINX_CONTAINER], capture_output=True, text=True)
+        subprocess.run(
+            ["docker", "rm", "-f", _web_container(user)], capture_output=True, text=True, timeout=60
+        )
+    subprocess.run(
+        ["docker", "rm", "-f", NGINX_CONTAINER], capture_output=True, text=True, timeout=60
+    )
 
     try:
         up = run_command(
@@ -689,12 +723,19 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             )
         for user in (READONLY_USER, READWRITE_USER):
             subprocess.run(
-                ["docker", "rm", "-f", _web_container(user)], capture_output=True, text=True
+                ["docker", "rm", "-f", _web_container(user)],
+                capture_output=True,
+                text=True,
+                timeout=60,
             )
         remove_project_volumes(resolve_project_name({"project_name": PROJECT_NAME}))
-        subprocess.run(["docker", "rm", "-f", NGINX_CONTAINER], capture_output=True, text=True)
+        subprocess.run(
+            ["docker", "rm", "-f", NGINX_CONTAINER], capture_output=True, text=True, timeout=60
+        )
         for image in (READONLY_IMAGE, READWRITE_IMAGE):
-            subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
+            subprocess.run(
+                ["docker", "rmi", "-f", image], capture_output=True, text=True, timeout=120
+            )
 
 
 def _dump_stack_diagnostics(context: str) -> str:
@@ -884,8 +925,7 @@ def _worker_run_evidence(run: dict | None) -> str:
     The ``.mcp.json`` probe above says whether the save tool *could* have
     existed; it cannot say whether the agent saw it or what the run did instead.
     Both are on the worker: the run feed carries the tool count and the agent's
-    final text, the persisted record at ``<agent_data>/dispatch/<run_id>.json``
-    carries every tool call, and the container log says which MCP servers were
+    final text, the run's timeline in the agent record carries every tool call, and the container log says which MCP servers were
     ready before the first turn. The stack is torn down before any CI diagnostics
     step runs, so a failure that does not carry these here loses them for good.
     """
@@ -904,15 +944,9 @@ def _worker_run_evidence(run: dict | None) -> str:
     run_id = run.get("run_id")
     if run_id:
         record = _docker_capture(
-            [
-                "docker",
-                "exec",
-                WORKER_CONTAINER,
-                "cat",
-                f"{WORKER_AGENT_DATA}/dispatch/{run_id}.json",
-            ]
+            ["docker", "exec", WORKER_CONTAINER, "python3", "-c", _RECORDED_RUN_CLIENT, run_id]
         )
-        lines.append(f"--- persisted run record ({run_id}.json) ---\n{record}")
+        lines.append(f"--- recorded run ({run_id}) ---\n{record}")
     listing = _docker_capture(
         ["docker", "exec", WORKER_CONTAINER, "ls", "-la", f"{WORKER_AGENT_DATA}/artifacts"]
     )
@@ -1435,26 +1469,71 @@ def _wait_for_terminal_run(trigger: str, timeout: float = RUN_TIMEOUT_SEC) -> di
     )
 
 
-def _persisted_run_record(run_id: str) -> dict:
-    """The worker's own record of a run — the one artifact carrying tool results.
+#: Run inside the worker container, under the worker's own record login: the
+#: run's timeline from the agent record, as ``{name, input, result}`` per tool
+#: call. Retries while the read is incomplete (the transcript still ingesting).
+_RECORDED_RUN_CLIENT = r"""
+import json, os, sys, time
+from osprey.agent_record.client import RecordClient
 
-    The dispatcher feed reports status and a tool COUNT; what a tool ANSWERED
-    lives only in ``<agent_data>/dispatch/<run_id>.json``, which the worker
-    writes with a ``{name, input, result}`` entry per call. These rows assert on
-    the tool's answer, so they read it there rather than trusting the agent's
-    prose summary of it.
+client = RecordClient.from_env(os.environ)
+deadline = time.monotonic() + 60
+while True:
+    answer = client.run_timeline(sys.argv[1])
+    if answer.complete or time.monotonic() > deadline:
+        break
+    time.sleep(2)
+
+
+def text(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(str(b.get("text", "")) for b in content if isinstance(b, dict))
+    return "" if content is None else json.dumps(content)
+
+
+calls = []
+for node in answer.data or []:
+    if node.get("kind") != "tool_call":
+        continue
+    body = node.get("body") or {}
+    result = (node.get("result") or {}).get("body") or {}
+    calls.append(
+        {"name": body.get("name"), "input": body.get("input"), "result": text(result.get("content"))}
+    )
+print(json.dumps({
+    "complete": answer.complete,
+    "unavailable": answer.unavailable,
+    "reason": answer.reason,
+    "tool_calls": calls,
+}))
+"""
+
+
+def _persisted_run_record(run_id: str) -> dict:
+    """The run as the agent record holds it — the one place carrying tool results.
+
+    The dispatcher feed reports status and a tool COUNT; what a tool ANSWERED is
+    in the run's timeline in the agent record, read here from inside the worker
+    under its own record login, as ``tool_calls`` of ``{name, input, result}``.
+    These rows assert on the tool's answer, so they read it there rather than
+    trusting the agent's prose summary of it.
     """
-    record = subprocess.run(
-        ["docker", "exec", WORKER_CONTAINER, "cat", f"{WORKER_AGENT_DATA}/dispatch/{run_id}.json"],
+    proc = subprocess.run(
+        ["docker", "exec", WORKER_CONTAINER, "python3", "-c", _RECORDED_RUN_CLIENT, run_id],
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=120,
     )
-    assert record.returncode == 0, (
-        f"could not read the persisted record for run {run_id}: "
-        f"{(record.stderr or record.stdout).strip()}"
+    assert proc.returncode == 0, (
+        f"could not read run {run_id} from the agent record: {(proc.stderr or proc.stdout).strip()}"
     )
-    return json.loads(record.stdout)
+    recorded = json.loads(proc.stdout)
+    assert recorded["complete"], (
+        f"the record's timeline of run {run_id} is not complete: {recorded}"
+    )
+    return recorded
 
 
 def _tool_answers(record: dict, tool_suffix: str) -> list[str]:
@@ -1475,7 +1554,7 @@ def _owner_run_evidence(trigger: str, run: dict, record: dict | None = None) -> 
         lines.append(f"agent text_output:\n{text[:_EVIDENCE_CAP]}")
     if record is not None:
         calls = json.dumps(record.get("tool_calls"), indent=2)
-        lines.append(f"persisted tool_calls:\n{calls[:_EVIDENCE_CAP]}")
+        lines.append(f"recorded tool_calls:\n{calls[:_EVIDENCE_CAP]}")
     lines.append(
         f"--- {WORKER_CONTAINER} (last 200 log lines) ---\n"
         + _docker_capture(["docker", "logs", "--tail", "200", WORKER_CONTAINER])
@@ -1560,8 +1639,15 @@ def test_dispatch_owner_absent_for_a_cron_shaped_fire() -> None:
     )
 
 
-@pytest.mark.usefixtures("deployed_stack")
-def test_manual_fire_owner_narrowing_refuses_the_jobs_first_write() -> None:
+@pytest.fixture(scope="module")
+def write_probe_channel(deployed_stack: Path) -> str:
+    """The channel the write probe writes, as the deployed build serves it."""
+    return bounded_setpoint(repo_view(deployed_stack))[0]
+
+
+def test_manual_fire_owner_narrowing_refuses_the_jobs_first_write(
+    write_probe_channel: str,
+) -> None:
     """O2: the firing user's chip gates every write the job they fired attempts.
 
     The point of carrying the owner at all. The firing user is narrowed to
@@ -1599,18 +1685,16 @@ def test_manual_fire_owner_narrowing_refuses_the_jobs_first_write() -> None:
     )
     joined = "\n".join(answers)
     assert LIMITS_REFUSAL not in joined, (
-        f"the write to {PROBE_CHANNEL} was refused by the limits hook before the tool "
-        "ran, so this row judged nothing about the narrowing. Pick a channel this "
-        "deployment's data/channel_limits.json marks writable and a value inside its "
-        f"range.\n{joined[:_EVIDENCE_CAP]}\n{evidence}"
+        f"the write to {write_probe_channel} was refused by the limits hook before the "
+        "tool ran, so this row judged nothing about the narrowing.\n"
+        f"{joined[:_EVIDENCE_CAP]}\n{evidence}"
     )
     assert any(expected in answer for answer in answers), (
         f"{why}. The channel-write tool answered:\n{joined[:_EVIDENCE_CAP]}\n{evidence}"
     )
 
 
-@pytest.mark.usefixtures("deployed_stack")
-def test_dispatch_owner_less_write_is_refused_as_unscheduled() -> None:
+def test_dispatch_owner_less_write_is_refused_as_unscheduled(write_probe_channel: str) -> None:
     """O3b: the control for O2 — an owner-less job's write is refused for its own reason.
 
     The firing user is narrowed; a cron-shaped fire of the same probe must not
@@ -1632,9 +1716,8 @@ def test_dispatch_owner_less_write_is_refused_as_unscheduled() -> None:
     # A probe refused before the tool ran — a limits violation — judged nothing
     # about the owner, so it must not read as the refusal this row expects.
     assert LIMITS_REFUSAL not in joined, (
-        f"the write to {PROBE_CHANNEL} was refused by the limits hook before the tool "
-        "ran, so this row judged nothing. Pick a channel this deployment's "
-        "data/channel_limits.json marks writable and a value inside its range.\n"
+        f"the write to {write_probe_channel} was refused by the limits hook before the "
+        "tool ran, so this row judged nothing.\n"
         f"{joined[:_EVIDENCE_CAP]}\n{evidence}"
     )
     for phrase in (SWITCH_OFF_REFUSAL, UNAVAILABLE_REFUSAL):
@@ -1644,7 +1727,7 @@ def test_dispatch_owner_less_write_is_refused_as_unscheduled() -> None:
             f"answered:\n{joined[:_EVIDENCE_CAP]}\n{evidence}"
         )
     assert not any_answer_succeeded(answers), (
-        f"the owner-less write to {PROBE_CHANNEL} succeeded. A cron-shaped fire runs "
+        f"the owner-less write to {write_probe_channel} succeeded. A cron-shaped fire runs "
         "for no login, so no switch covers it and the write must be refused.\n"
         f"{joined[:_EVIDENCE_CAP]}\n{evidence}"
     )

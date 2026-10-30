@@ -60,11 +60,11 @@ def view_examples(keywords: str | None = None) -> str:
         if keyword_matches:
             formatted = []
             for match in keyword_matches:
-                entry_lines = [f'**"{match["query"]}"** (score: {match["score"]})']
-                for s in match.get("successes", []):
-                    entry_lines.append(format_success(s))
-                for f in match.get("failures", []):
-                    entry_lines.append(format_failure(f))
+                entry_lines = [
+                    f'**"{match["query"]}"** (score: {match["score"]})',
+                    *(format_success(s) for s in match.get("successes", [])),
+                    *(format_failure(f) for f in match.get("failures", [])),
+                ]
                 formatted.append("\n".join(entry_lines))
             result["keyword_matches"] = formatted
 

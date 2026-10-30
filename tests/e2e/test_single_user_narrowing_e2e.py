@@ -79,7 +79,6 @@ from osprey.deployment.compose_generator import (
     control_target_identity_dir,
     resolve_project_name,
 )
-from osprey.deployment.web_terminals.render_naming import render_project
 from osprey.deployment.web_terminals.roster import dispatch_tier_name
 from osprey.dispatch import DISPATCHER_MCP_PATH
 from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
@@ -94,6 +93,7 @@ from tests.e2e._deploy_support import (
     run_command,
     wait_for_health,
 )
+from tests.e2e._facility_select import bounded_setpoint, facility_view, repo_view
 from tests.e2e._mcp_sse import any_answer_succeeded, sse_payloads, tool_result
 from tests.e2e._orm_stack import VA_PVA_PORT
 from tests.e2e._volumes import remove_project_volumes
@@ -131,8 +131,6 @@ WORKER_CONTAINER = f"{PROJECT_NAME}-dispatch-worker-1"
 #: that may write. A tiered worker runs that tier's image, rooted at
 #: ``/app/<project_name>-<tier>`` — with no web terminal beside it.
 WORKER_TIER = "readwrite"
-WORKER_PROJECT, _ = render_project(PROJECT_NAME, WORKER_TIER)
-WORKER_AGENT_DATA = f"/app/{WORKER_PROJECT}/var/agent_data"
 
 # The single-user shape, stated as one leaf: no roster, so no nginx, no
 # per-user container, and no identity but the build account's own. Dotted LEAF
@@ -178,22 +176,6 @@ RUN_TIMEOUT_SEC = 300.0
 WRITE_PROBE_OWNED_TRIGGER = "single-user-write-owned"
 WRITE_PROBE_UNOWNED_TRIGGER = "single-user-write-unowned"
 
-#: A WRITABLE setpoint the preset's virtual accelerator publishes, and the value
-#: written to it, comfortably inside the limits its database gives it
-#: (``SR:MAG:HCM:01:CURRENT:SP``: min -12.0, max 12.0, writable by the
-#: ``defaults`` block, in the deployment's own ``data/channel_limits.json``).
-#:
-#: Which channel is chosen decides whether these rows can see anything at all,
-#: and an earlier draft got it wrong: the limits database is enforced by a
-#: PreToolUse HOOK that runs BEFORE the tool, so a channel it marks read-only —
-#: any ``:RB`` readback — is refused there with "CHANNEL LIMITS VIOLATION" and
-#: the call never reaches the connector where the write verdict is read. The
-#: refusal rows would then pass or fail on a fact about the address rather than
-#: on the narrowing under test. A writable setpoint inside its limits clears
-#: that gate, so the only refusal a narrowed owner can meet is the verdict's.
-PROBE_CHANNEL = "SR:MAG:HCM:01:CURRENT:SP"
-PROBE_VALUE = "1.0"
-
 #: The limits hook's refusal headline. Named so the rows below can say "this
 #: probe never reached the mechanism" instead of failing with a wall of text
 #: about an address — the exact trap that cost a run.
@@ -226,25 +208,31 @@ def _docker_capture(cmd: list[str]) -> str:
     return ((proc.stdout or "") + (proc.stderr or "")).strip() or "(no output)"
 
 
-_WRITE_PROBE_ACTION = f"""    source: webhook
+def _write_probe_action(channel: str, value: float) -> str:
+    """The write probe: one write of ``value`` to ``channel``."""
+    return f"""    source: webhook
     action:
       prompt: >-
         Call the control-system channel-write tool exactly once, writing the
-        value {PROBE_VALUE} to the channel {PROBE_CHANNEL}, and then report the
+        value {value} to the channel {channel}, and then report the
         tool's response verbatim. Do not retry and do not call any other tool.
       allowed_tools:
         - mcp__controls__channel_write
 """
 
-_PROBE_TRIGGERS = (
-    "\n  # -- e2e single-user narrowing probes "
-    "(appended by tests/e2e/test_single_user_narrowing_e2e.py) --\n"
-    "  #\n"
-    "  # One action under two names: the owned fire and the owner-less control\n"
-    "  # must produce two separate runs in the dispatcher feed.\n"
-    f"  - name: {WRITE_PROBE_OWNED_TRIGGER}\n{_WRITE_PROBE_ACTION}"
-    f"  - name: {WRITE_PROBE_UNOWNED_TRIGGER}\n{_WRITE_PROBE_ACTION}"
-)
+
+def _probe_triggers(channel: str, value: float) -> str:
+    """The probe's trigger entries, writing ``value`` to ``channel``."""
+    action = _write_probe_action(channel, value)
+    return (
+        "\n  # -- e2e single-user narrowing probes "
+        "(appended by tests/e2e/test_single_user_narrowing_e2e.py) --\n"
+        "  #\n"
+        "  # One action under two names: the owned fire and the owner-less control\n"
+        "  # must produce two separate runs in the dispatcher feed.\n"
+        f"  - name: {WRITE_PROBE_OWNED_TRIGGER}\n{action}"
+        f"  - name: {WRITE_PROBE_UNOWNED_TRIGGER}\n{action}"
+    )
 
 
 def _repo_triggers_file(repo: Path) -> Path:
@@ -261,14 +249,51 @@ def _repo_triggers_file(repo: Path) -> Path:
     return found[0]
 
 
-def _append_probe_triggers(repo: Path) -> None:
+def _append_probe_triggers(repo: Path, scratch: Path) -> tuple[str, float]:
+    """Add the write probe to the deployment's trigger set, before the build.
+
+    Which channel is chosen decides whether these rows can see anything at
+    all: the limits database is enforced by a PreToolUse HOOK that runs BEFORE
+    the tool, so a channel it marks read-only is refused there with "CHANNEL
+    LIMITS VIOLATION" and the call never reaches the connector where the store
+    verdict is read. The refusal rows would then pass or fail on a fact about
+    the address rather than on the narrowing under test. A bounded setpoint at
+    its band's midpoint clears that gate, so the only refusal a narrowed owner
+    can meet is the store's. No build exists yet, so the pick is read from the
+    repo's own facility tree rendered into ``scratch``; returns
+    ``(channel, value)``.
+    """
+    channel, value = bounded_setpoint(facility_view(repo / "data" / "facility", scratch))
     triggers_file = _repo_triggers_file(repo)
     text = triggers_file.read_text(encoding="utf-8")
     assert "hello-dispatch" in text, (
         f"{triggers_file} does not look like the preset's trigger set:\n{text[:500]}"
     )
     with triggers_file.open("a", encoding="utf-8") as handle:
-        handle.write(_PROBE_TRIGGERS)
+        handle.write(_probe_triggers(channel, value))
+    return channel, value
+
+
+def _assert_the_build_serves_the_probe(repo: Path, probe: tuple[str, float]) -> None:
+    """The built view answers the pick made before the build, writable and in range."""
+    channel, value = probe
+    view = repo_view(repo)
+    assert bounded_setpoint(view) == probe, (
+        f"the build picks {bounded_setpoint(view)} as the bounded setpoint, but the "
+        f"triggers were written for {probe} from the repo's facility tree"
+    )
+    served = view.channel(channel)
+    assert served.writable and served.value_range is not None, (
+        f"the build serves {channel} without a writable band"
+    )
+    low, high = served.value_range
+    assert low <= value <= high, f"{value} lies outside {channel}'s band {served.value_range}"
+
+
+@pytest.fixture(scope="module")
+def probe_channel(single_user_stack: Path) -> str:
+    """The channel the write probe writes, as the deployed build serves it."""
+    return bounded_setpoint(repo_view(single_user_stack))[0]
 
 
 def _build_account() -> str:
@@ -346,7 +371,7 @@ def single_user_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path
         pytest.fail(format_failure("osprey init", init))
 
     # Before the build, so the render the dispatcher loads carries them.
-    _append_probe_triggers(repo)
+    probe = _append_probe_triggers(repo, base / "probe_view")
 
     build = run_command(
         [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
@@ -360,6 +385,7 @@ def single_user_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path
         f"the build runs the dispatch workers at {dispatch_tier_name(rendered)!r}, not "
         f"{WORKER_TIER!r}: every worker-side path below is rooted at the tier's project"
     )
+    _assert_the_build_serves_the_probe(repo, probe)
 
     # APPENDED, never rewritten: `osprey init` seeded this file and `osprey
     # build` appended the keys the virtual-accelerator containers boot from.
@@ -387,7 +413,7 @@ def single_user_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path
     # existing images and silently test stale code.
     project = resolve_project_name({"project_name": PROJECT_NAME})
     for image in (f"{project}-dispatch:local", f"{project}:local"):
-        subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
+        subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True, timeout=120)
 
     try:
         up = run_command(
@@ -681,25 +707,71 @@ def _wait_for_terminal_run(trigger: str, timeout: float = RUN_TIMEOUT_SEC) -> di
     )
 
 
-def _persisted_run_record(run_id: str) -> dict:
-    """The worker's own record of a run — the one artifact carrying tool results.
+#: Run inside the worker container, under the worker's own record login: the
+#: run's timeline from the agent record, as ``{name, input, result}`` per tool
+#: call. Retries while the read is incomplete (the transcript still ingesting).
+_RECORDED_RUN_CLIENT = r"""
+import json, os, sys, time
+from osprey.agent_record.client import RecordClient
 
-    The dispatcher feed reports status and a tool COUNT; what a tool ANSWERED
-    lives only in ``<agent_data>/dispatch/<run_id>.json``. These rows assert on
-    the tool's answer, so they read it there rather than trusting the agent's
-    prose summary of it.
+client = RecordClient.from_env(os.environ)
+deadline = time.monotonic() + 60
+while True:
+    answer = client.run_timeline(sys.argv[1])
+    if answer.complete or time.monotonic() > deadline:
+        break
+    time.sleep(2)
+
+
+def text(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(str(b.get("text", "")) for b in content if isinstance(b, dict))
+    return "" if content is None else json.dumps(content)
+
+
+calls = []
+for node in answer.data or []:
+    if node.get("kind") != "tool_call":
+        continue
+    body = node.get("body") or {}
+    result = (node.get("result") or {}).get("body") or {}
+    calls.append(
+        {"name": body.get("name"), "input": body.get("input"), "result": text(result.get("content"))}
+    )
+print(json.dumps({
+    "complete": answer.complete,
+    "unavailable": answer.unavailable,
+    "reason": answer.reason,
+    "tool_calls": calls,
+}))
+"""
+
+
+def _persisted_run_record(run_id: str) -> dict:
+    """The run as the agent record holds it — the one place carrying tool results.
+
+    The dispatcher feed reports status and a tool COUNT; what a tool ANSWERED is
+    in the run's timeline in the agent record, read here from inside the worker
+    under its own record login, as ``tool_calls`` of ``{name, input, result}``.
+    These rows assert on the tool's answer, so they read it there rather than
+    trusting the agent's prose summary of it.
     """
-    record = subprocess.run(
-        ["docker", "exec", WORKER_CONTAINER, "cat", f"{WORKER_AGENT_DATA}/dispatch/{run_id}.json"],
+    proc = subprocess.run(
+        ["docker", "exec", WORKER_CONTAINER, "python3", "-c", _RECORDED_RUN_CLIENT, run_id],
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=120,
     )
-    assert record.returncode == 0, (
-        f"could not read the persisted record for run {run_id}: "
-        f"{(record.stderr or record.stdout).strip()}"
+    assert proc.returncode == 0, (
+        f"could not read run {run_id} from the agent record: {(proc.stderr or proc.stdout).strip()}"
     )
-    return json.loads(record.stdout)
+    recorded = json.loads(proc.stdout)
+    assert recorded["complete"], (
+        f"the record's timeline of run {run_id} is not complete: {recorded}"
+    )
+    return recorded
 
 
 def _tool_answers(record: dict, tool_suffix: str) -> list[str]:
@@ -720,7 +792,7 @@ def _run_evidence(trigger: str, run: dict, record: dict | None = None) -> str:
         lines.append(f"agent text_output:\n{text[:_EVIDENCE_CAP]}")
     if record is not None:
         lines.append(
-            f"persisted tool_calls:\n{json.dumps(record.get('tool_calls'), indent=2)[:_EVIDENCE_CAP]}"
+            f"recorded tool_calls:\n{json.dumps(record.get('tool_calls'), indent=2)[:_EVIDENCE_CAP]}"
         )
     lines.append(
         f"--- {WORKER_CONTAINER} (last 200 log lines) ---\n"
@@ -792,8 +864,9 @@ def test_the_build_accounts_record_is_group_readable_on_a_deployed_stack(
     )
 
 
-@pytest.mark.usefixtures("single_user_stack")
-def test_an_owned_jobs_first_write_is_refused_by_the_build_accounts_narrowing() -> None:
+def test_an_owned_jobs_first_write_is_refused_by_the_build_accounts_narrowing(
+    probe_channel: str,
+) -> None:
     """S2: in a single-user deployment the chip gates a dispatch job's writes.
 
     The property this module exists for. The build account is narrowed to
@@ -821,11 +894,10 @@ def test_an_owned_jobs_first_write_is_refused_by_the_build_accounts_narrowing() 
     )
     joined_answers = "\n".join(answers)
     assert LIMITS_REFUSAL not in joined_answers, (
-        f"the write to {PROBE_CHANNEL} was refused by the LIMITS hook, which runs "
+        f"the write to {probe_channel} was refused by the LIMITS hook, which runs "
         "before the tool and therefore before the write verdict is ever read — so "
         "this row saw a fact about the address rather than the narrowing it exists "
-        "to prove. Pick a channel this deployment's data/channel_limits.json marks "
-        f"writable and a value inside its range.\n{joined_answers[:_EVIDENCE_CAP]}\n{evidence}"
+        f"to prove.\n{joined_answers[:_EVIDENCE_CAP]}\n{evidence}"
     )
     readable = _control_tree_is_readable_in_the_worker()
     expected = SWITCH_OFF_REFUSAL if readable else UNAVAILABLE_REFUSAL
@@ -842,8 +914,7 @@ def test_an_owned_jobs_first_write_is_refused_by_the_build_accounts_narrowing() 
     )
 
 
-@pytest.mark.usefixtures("single_user_stack")
-def test_an_owner_less_job_is_refused_as_unscheduled() -> None:
+def test_an_owner_less_job_is_refused_as_unscheduled(probe_channel: str) -> None:
     """S3: the control for S2 — an owner-less job's write is refused for its own reason.
 
     The build account is narrowed; a cron-shaped fire of the same probe must not
@@ -872,9 +943,8 @@ def test_an_owner_less_job_is_refused_as_unscheduled() -> None:
     # A probe refused before the tool ran — a limits violation — judged nothing
     # about the owner, so it must not read as the refusal this row expects.
     assert LIMITS_REFUSAL not in joined_answers, (
-        f"the write to {PROBE_CHANNEL} was refused by the limits hook before the "
-        "tool ran, so this row judged nothing. Pick a channel this deployment's "
-        "data/channel_limits.json marks writable and a value inside its range.\n"
+        f"the write to {probe_channel} was refused by the limits hook before the "
+        "tool ran, so this row judged nothing.\n"
         f"{joined_answers[:_EVIDENCE_CAP]}\n{evidence}"
     )
     for phrase in (SWITCH_OFF_REFUSAL, UNAVAILABLE_REFUSAL):
@@ -884,7 +954,7 @@ def test_an_owner_less_job_is_refused_as_unscheduled() -> None:
             f"answered:\n{joined_answers[:_EVIDENCE_CAP]}\n{evidence}"
         )
     assert not any_answer_succeeded(answers), (
-        f"the owner-less write to {PROBE_CHANNEL} succeeded. A cron-shaped fire runs "
+        f"the owner-less write to {probe_channel} succeeded. A cron-shaped fire runs "
         "for no login, so no switch covers it and the write must be refused.\n"
         f"{joined_answers[:_EVIDENCE_CAP]}\n{evidence}"
     )

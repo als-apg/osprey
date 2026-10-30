@@ -26,6 +26,7 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -76,20 +77,15 @@ def dispatcher_app():
     with no session to carry between calls. They change nothing about the auth
     stack, which is where the assertions live.
     """
-    saved_env = {key: os.environ.get(key) for key in ("TRIGGERS_YML", "DISPATCH_TARGET")}
     # No triggers.yml on purpose: the server starts empty, and an explicit
     # target keeps the factory off the deployment-config fallback.
-    os.environ["TRIGGERS_YML"] = "/nonexistent/test-triggers.yml"
-    os.environ["DISPATCH_TARGET"] = "http://worker.invalid:9000"
+    factory_env = {
+        "TRIGGERS_YML": "/nonexistent/test-triggers.yml",
+        "DISPATCH_TARGET": "http://worker.invalid:9000",
+    }
     with dispatcher_route_registry() as build:
-        try:
+        with patch.dict(os.environ, factory_env):
             server = build()
-        finally:
-            for key, value in saved_env.items():
-                if value is None:
-                    os.environ.pop(key, None)
-                else:
-                    os.environ[key] = value
 
         yield server.http_app(
             path=DISPATCHER_MCP_PATH,

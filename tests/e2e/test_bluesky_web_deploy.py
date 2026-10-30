@@ -74,7 +74,6 @@ shells out to an LLM).
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 import time
@@ -108,16 +107,13 @@ BLUESKY_WEB_URL = f"http://localhost:{BLUESKY_WEB_PORT}"
 
 VA_CA_PORT = _orm_stack.VA_CA_PORT
 
-# ariel-postgres, the telemetry gateway and the telemetry store are deployed
-# unconditionally by the control-assistant preset, and a locally-running
-# tutorial deploy routinely holds their ports. A bound-port collision aborts
-# `osprey up` before the containers this proof needs ever start, so all three
-# move to high, unassigned ports. Stated in this module's own `extra_config`
-# rather than added to _orm_stack: only this module needs them moved, and
-# _orm_stack's shape is shared with the render gate.
+# ariel-postgres is deployed unconditionally by the control-assistant preset,
+# and a locally-running deployment routinely holds its port. A bound-port
+# collision aborts `osprey up` before the containers this proof needs ever
+# start, so it moves to a high, unassigned port. Stated in this module's own
+# `extra_config` rather than added to _orm_stack: only this module needs it
+# moved, and _orm_stack's shape is shared with the render gate.
 POSTGRES_PORT = 25434
-TELEMETRY_GATEWAY_PORT = 24321
-TELEMETRY_STORE_PORT = 28126
 
 # The fixture builds/deploys under this project name; every compose template
 # renders its container_name and locally-built image as ``<project>-<service>``,
@@ -368,8 +364,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # _orm_stack.init_args()/build_project_subprocess() don't parameterize
     # the bluesky-web sidecar's port, so build the arg list directly (mirrors
     # what build_project_subprocess does internally) and append one extra
-    # --set for it. The two port moves this module needs go through
-    # `extra_config`, which lands them beside _orm_stack's own `config:` pins.
+    # --set for it. The port move this module needs goes through
+    # `extra_config`, which lands it beside _orm_stack's own `config:` pins.
     args = _orm_stack.init_args(
         PROJECT_NAME,
         output_dir=base,
@@ -382,8 +378,6 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         extra_config={
             "config": {
                 "services.postgresql.port_host": POSTGRES_PORT,
-                "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
-                "services.telemetry_store.port": TELEMETRY_STORE_PORT,
             }
         },
     )
@@ -415,12 +409,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
 
     # Force fresh --dev builds so the deployed containers run CURRENT source
     # (osprey up does not pass --build to compose, so it would otherwise
-    # reuse stale cached images). Exact-named images only.
-    # E2E_REUSE_IMAGES=1 skips this (dev-only fast local iteration); never
-    # set it in CI, where a source change must always rebuild.
-    if not os.environ.get("E2E_REUSE_IMAGES"):
-        for image in (BRIDGE_IMAGE, VA_IMAGE, BLUESKY_WEB_IMAGE):
-            subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
+    # reuse stale cached images).
+    _orm_stack.force_image_rebuild(BRIDGE_IMAGE, VA_IMAGE, BLUESKY_WEB_IMAGE)
 
     try:
         up = run_command(

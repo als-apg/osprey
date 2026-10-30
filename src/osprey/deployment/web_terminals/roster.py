@@ -3416,20 +3416,20 @@ def resolve_cards(
         )
         resolved.append(entry_resolved)
 
-    for app_entry in apps:
-        resolved.append(
-            _resolve_app_card(
-                app_entry,
-                project_name=project_name,
-                catalog_entry=_app_catalog_entry(app_entry["name"], renders_catalog),
-                tier_names=frozenset(tier_names),
-                app_names=app_names,
-                image_source=image_source,
-                registry_url=registry_url,
-                image_tag=image_tag,
-                strict=strict,
-            )
+    resolved.extend(
+        _resolve_app_card(
+            app_entry,
+            project_name=project_name,
+            catalog_entry=_app_catalog_entry(app_entry["name"], renders_catalog),
+            tier_names=frozenset(tier_names),
+            app_names=app_names,
+            image_source=image_source,
+            registry_url=registry_url,
+            image_tag=image_tag,
+            strict=strict,
         )
+        for app_entry in apps
+    )
 
     return resolved
 

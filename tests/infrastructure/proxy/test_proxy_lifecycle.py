@@ -1,7 +1,7 @@
 """Unit tests for the translation-proxy lifecycle (start/stop/port/detection).
 
 These cover the module-level singleton in ``proxy.lifecycle`` without starting a
-real uvicorn server or binding a long-lived port: ``create_proxy_app`` and the
+real uvicorn server: ``create_proxy_app`` and the
 ``uvicorn`` Config/Server pair are faked so ``start_proxy`` exercises its state
 machine (idempotent start, readiness wait, clean stop) deterministically. A
 fixture snapshots and restores the shared ``_state`` dict so the serial unit
@@ -30,25 +30,31 @@ from osprey.models.provider_registry import (
 def clean_proxy_state():
     """Isolate the module-global proxy state for a single test."""
     saved = dict(lifecycle._state)
-    lifecycle._state.update({"server": None, "thread": None, "port": None})
+    cleared = {"server": None, "thread": None, "sock": None, "port": None}
+    lifecycle._state.update(cleared)
     try:
         yield
     finally:
-        lifecycle._state.update({"server": None, "thread": None, "port": None})
+        sock = lifecycle._state["sock"]
+        if sock is not None:
+            sock.close()
+        lifecycle._state.update(cleared)
         lifecycle._state.update(saved)
 
 
 class _FakeServer:
-    """Stand-in for ``uvicorn.Server`` that never touches a socket."""
+    """Stand-in for ``uvicorn.Server`` that serves nothing on the socket it is handed."""
 
     def __init__(self, config):
         self.config = config
         self.started = True
         self.should_exit = False
         self.run_count = 0
+        self.sockets = None
 
-    def run(self):  # invoked in the daemon thread; must return promptly
+    def run(self, sockets=None):  # invoked in the daemon thread; must return promptly
         self.run_count += 1
+        self.sockets = sockets
 
 
 def _install_fake_uvicorn(monkeypatch, server_cls=_FakeServer):
@@ -186,27 +192,9 @@ loaded = [m for m in sys.modules if m == "litellm" or m.startswith("osprey.model
 print(loaded)
 """
     result = subprocess.run(
-        [sys.executable, "-c", script], capture_output=True, text=True, check=True
+        [sys.executable, "-c", script], capture_output=True, text=True, check=True, timeout=120
     )
     assert result.stdout.strip() == "[]", result.stdout + result.stderr
-
-
-# ---------------------------------------------------------------------------
-# find_free_port
-# ---------------------------------------------------------------------------
-
-
-class TestFindFreePort:
-    def test_returns_a_bindable_port(self):
-        import socket
-
-        port = lifecycle.find_free_port()
-        assert isinstance(port, int)
-        assert 1 <= port <= 65535
-
-        # The OS just handed it back as free, so we must be able to bind it.
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("127.0.0.1", port))
 
 
 # ---------------------------------------------------------------------------
@@ -348,6 +336,22 @@ class TestStartStop:
             )
 
     @pytest.mark.usefixtures("clean_proxy_state")
+    def test_the_recorded_port_is_the_socket_the_server_serves_on(self, monkeypatch):
+        import socket
+
+        _install_fake_uvicorn(monkeypatch)
+
+        port = lifecycle.start_proxy(
+            "https://up.example/v1", forward_headers=(), supports_images=None
+        )
+        lifecycle._state["thread"].join(timeout=5)
+
+        (sock,) = lifecycle._state["server"].sockets
+        assert sock.getsockname()[1] == port
+        with socket.create_connection(("127.0.0.1", port), timeout=2):
+            pass
+
+    @pytest.mark.usefixtures("clean_proxy_state")
     def test_start_is_idempotent(self, monkeypatch):
         app_factory = _install_fake_uvicorn(monkeypatch)
 
@@ -399,14 +403,17 @@ class TestStartStop:
         _install_fake_uvicorn(monkeypatch)
         lifecycle.start_proxy("https://up.example/v1", forward_headers=(), supports_images=None)
         server = lifecycle._state["server"]
+        sock = lifecycle._state["sock"]
 
         lifecycle.stop_proxy()
 
         assert server.should_exit is True
         assert lifecycle._state["server"] is None
         assert lifecycle._state["thread"] is None
+        assert lifecycle._state["sock"] is None
         assert lifecycle._state["port"] is None
         assert lifecycle.get_proxy_url() is None
+        assert sock.fileno() == -1
 
     @pytest.mark.usefixtures("clean_proxy_state")
     def test_stop_when_not_running_is_a_noop(self):

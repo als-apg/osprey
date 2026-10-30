@@ -27,7 +27,7 @@ its other tools, so the clamp is those tools by construction; this module
 reads the list and classifies nothing itself.
 
 The ``posture`` every record carries is :func:`osprey.audit.posture.posture` —
-the write verdict for the recorded control target, in the ledger's words —
+the write verdict for the recorded control target, in the record's words —
 computed once per call and reused for every record that call files.
 
 **Where it reads that from.** Exclusively from ``OSPREY_CONFIG``, which
@@ -96,13 +96,13 @@ this layer's refusal, ``tool_error`` and ``allowed`` lines, and an inner
 recorder's through :func:`~osprey.audit.writer.record` — carries the same
 ``tool_use_id``. A client that sends no id leaves the key off.
 
-**The full record.** With ``audit.tool_call.enabled`` on, every call — reads
-included — also files one record on the opt-in ``tool_call`` surface
-(:mod:`osprey.audit.tool_call`): the full arguments and result, the control
-target and generation at entry, the approval answer, the facts the tool noted,
-the words the default record got, and the call's duration. It goes to
-``tool_call.jsonl``, which the telemetry gateway reads into the store like every
-other ledger file. The default record is the same either way.
+**What the call ran against.** Every call — reads included — that has a
+control target or generation at entry, an approval answer, or facts the tool
+noted also files one entry on the ``tool_call`` surface
+(:mod:`osprey.audit.tool_call`): those, and the call's duration, joined to the
+default record by ``tool_use_id``. No arguments and no result: the agent's
+transcript holds both. There is no setting for it, and the default record is
+the same whether it is written or not.
 
 **Nothing here may cost the call it records.** Records go through
 :func:`~osprey.audit.writer.record`, which builds the envelope and appends it
@@ -263,15 +263,15 @@ _FLOOR_CLAMP: frozenset[str] = frozenset(_FALLBACK_WRITE_TOOLS) - frozenset(_FAL
 #: operator will look, next to the warning that says why it is unnamed.
 SURFACE_UNPREFIXED: str = "mcp"
 
-#: Reasons, in the ledger's short machine-ish vocabulary.
+#: Reasons, in the audit trail's short machine-ish vocabulary.
 #:
 #: :data:`REASON_POSTURE` is the one word three layers spell for a verdict
 #: refusal — this middleware's backstop, the executor's in-tool gate
 #: (``_execution_gates``), and the client-side ``osprey_writes_check.py`` hook.
-#: They must join on one spelling, or ``grep '"reason": "posture"'`` over an
-#: identity's ledgers answers "what did the write verdict refuse?" with only the
-#: layer that happened to be asked. The verdict's own reason rides the record's
-#: ``detail`` as ``reason=<r> target=<t>``.
+#: They must join on one spelling, or a search of an identity's ``audit``
+#: entries for ``"reason": "posture"`` answers "what did the write verdict
+#: refuse?" with only the layer that happened to be asked. The verdict's own
+#: reason rides the entry's ``detail`` as ``reason=<r> target=<t>``.
 #: A cross-layer test pins all three (the hook by AST, since it ships as a
 #: template file that imports nothing from ``osprey``).
 REASON_TOOL_CALL: str = "tool_call"
@@ -678,15 +678,6 @@ def _call_names(context: MiddlewareContext[Any]) -> tuple[str, str, str]:
     return tool, subject, prefix or SURFACE_UNPREFIXED
 
 
-def _tool_call_settings() -> tuple[bool, int]:
-    """Whether the full ``tool_call`` surface is on, and its inline bound. Never raises."""
-    try:
-        return tool_call.settings()
-    except Exception:
-        logger.debug("Could not read the tool_call settings", exc_info=True)
-        return False, tool_call.DEFAULT_MAX_INLINE_BYTES
-
-
 def _control_binding() -> tuple[str | None, int | None]:
     """``(target, generation)`` of the control context at call entry, or ``(None, None)``."""
     try:
@@ -697,30 +688,25 @@ def _control_binding() -> tuple[str | None, int | None]:
             return None, None
         return record.target, record.generation
     except Exception:
-        logger.debug("Could not read the control context for the full record", exc_info=True)
+        logger.debug("Could not read the control context for the tool_call record", exc_info=True)
         return None, None
 
 
 def _file_tool_call(
     context: MiddlewareContext[Any],
     *,
-    words: list[str],
     binding: tuple[str | None, int | None],
-    result: Any,
-    error: BaseException | None,
     started: float,
-    max_inline: int,
 ) -> None:
-    """File the full ``tool_call`` record for one call. Never raises.
+    """File the ``tool_call`` entry for one call, when it has facts. Never raises.
 
-    A failure here costs the record and never the call it describes.
+    A failure here costs the entry and never the call it describes.
     """
     try:
         duration_ms = round((time.monotonic() - started) * 1000.0, 3)
         _tool, subject, surface = _call_names(context)
         call = current_call()
         tool_use_id = call.tool_use_id if call is not None else None
-        decision, reason = (words[0], words[1]) if len(words) >= 2 else ("error", "exception")
         answered = _approval_answered(tool_use_id)
         approval = (
             None
@@ -732,61 +718,39 @@ def _file_tool_call(
                 "position": answered[2],
             }
         )
-        arguments, arguments_ref = tool_call.capped(
-            getattr(context.message, "arguments", None),
-            label="arguments",
-            subject=subject,
-            tool_use_id=tool_use_id,
-            max_inline=max_inline,
-        )
-        serialized = (
-            None
-            if error is not None
-            else tool_call.serialize_result(result, subject=subject, tool_use_id=tool_use_id)
-        )
-        result_value, result_ref = tool_call.capped(
-            serialized,
-            label="result",
-            subject=subject,
-            tool_use_id=tool_use_id,
-            max_inline=max_inline,
-        )
         target, generation = binding
-        full = tool_call.build_record(
+        facts = dict(call.facts) if call is not None else {}
+        if not tool_call.has_facts(
+            approval=approval, target=target, generation=generation, facts=facts
+        ):
+            return
+        entry = tool_call.build_record(
             ts=utc_timestamp(),
             actor=acting_identity(),
-            posture=_ledger_posture(),
+            posture=_entry_posture(),
             posture_source=posture.posture_source(),
             session=posture.posture_session(),
             session_id=call.session_id if call is not None else None,
             tool_use_id=tool_use_id,
             server=surface,
             subject=subject,
-            decision=decision,
-            reason=reason,
             approval=approval,
             target=target,
             generation=generation,
-            arguments=arguments,
-            arguments_ref=arguments_ref,
-            result=result_value,
-            result_ref=result_ref,
-            error=None if error is None else str(error),
-            is_error=error is not None or bool(getattr(result, "is_error", False)),
-            facts=dict(call.facts) if call is not None else {},
+            facts=facts,
             duration_ms=duration_ms,
         )
-        writer.append_record(tool_call.SURFACE_TOOL_CALL, full)
+        writer.append_record(tool_call.SURFACE_TOOL_CALL, entry)
     except Exception:
-        logger.warning("Could not file the full tool_call record", exc_info=True)
+        logger.warning("Could not file the tool_call record", exc_info=True)
 
 
-#: The ledger posture of the call in flight, computed once on entry so every
-#: record the call files carries the same answer (see :func:`_ledger_posture`).
+#: The record posture of the call in flight, computed once on entry so every
+#: record the call files carries the same answer (see :func:`_entry_posture`).
 _CALL_POSTURE: ContextVar[str | None] = ContextVar("osprey_audit_call_posture", default=None)
 
 
-def _ledger_posture() -> str:
+def _entry_posture() -> str:
     """The ``posture`` a record of the call in flight carries.
 
     :func:`osprey.audit.posture.posture` reads the write verdict, so it is asked
@@ -814,7 +778,7 @@ def _record(
     """
     record(
         surface=surface,
-        posture=_ledger_posture(),
+        posture=_entry_posture(),
         posture_source=posture.posture_source(),
         session=posture.posture_session(),
         subject=subject,
@@ -851,7 +815,7 @@ def _refusal_detail(clamp_source: str, verdict: WriteVerdict) -> str | None:
     """``clamp=<source> reason=<r> target=<t>`` for a backstop refusal.
 
     The target is :func:`osprey.audit.posture.recorded_control_target`'s, the
-    resolver for ledger lines outside the executor; it is left off when it
+    resolver for record entries outside the executor; it is left off when it
     cannot be named. Never raises.
     """
     try:
@@ -867,7 +831,7 @@ def _refusal_detail(clamp_source: str, verdict: WriteVerdict) -> str | None:
 
 @contextmanager
 def _posture_scope() -> Iterator[None]:
-    """Compute the call's ledger posture once on entry; drop it on the way out."""
+    """Compute the call's record posture once on entry; drop it on the way out."""
     token = _CALL_POSTURE.set(posture.posture())
     try:
         yield
@@ -903,51 +867,27 @@ class AuditMiddleware(Middleware):
 
         The whole call runs inside one :func:`~osprey.audit.call.call_scope`,
         so every record filed for it names the harness's tool-use id, and
-        carries the one ledger posture computed on entry.
+        carries the one record posture computed on entry.
         """
         meta = _request_meta(context)
         with (
             call_scope(valid_tool_use_id(meta.get(TOOL_USE_ID_META_KEY)), harness_session_id()),
             _posture_scope(),
         ):
-            enabled, max_inline = _tool_call_settings()
-            if not enabled:
-                return await self._audited_call(context, call_next, [])
-
-            # The full record: filed exactly once, whichever way the call ends.
-            words: list[str] = []
+            # The tool_call entry: filed at most once, whichever way the call ends.
             started = time.monotonic()
             binding = _control_binding()
-            result: ToolResult | None = None
-            error: BaseException | None = None
             try:
-                result = await self._audited_call(context, call_next, words)
-                return result
-            except BaseException as exc:
-                error = exc
-                raise
+                return await self._audited_call(context, call_next)
             finally:
-                _file_tool_call(
-                    context,
-                    words=words,
-                    binding=binding,
-                    result=result,
-                    error=error,
-                    started=started,
-                    max_inline=max_inline,
-                )
+                _file_tool_call(context, binding=binding, started=started)
 
     async def _audited_call(
         self,
         context: MiddlewareContext[mt.CallToolRequestParams],
         call_next: CallNext[mt.CallToolRequestParams, ToolResult],
-        words: list[str],
     ) -> ToolResult:
-        """The decision and its record, for one call already in scope.
-
-        *words* receives the ``(decision, reason)`` the default record got, or
-        the inner layer's when this layer deferred — the full record reuses them.
-        """
+        """The decision and its record, for one call already in scope."""
         tool, subject, surface = _call_names(context)
         prefix = _tool_prefix()
 
@@ -966,7 +906,6 @@ class AuditMiddleware(Middleware):
                 reason=REASON_POSTURE,
                 detail=_call_detail(_refusal_detail(clamp_source, backstop)),
             )
-            words[:] = [DECISION_REFUSED, REASON_POSTURE]
             # `make_error` raises: fastmcp turns a raised ToolError into a
             # CallToolResult with isError=True and the message verbatim, which
             # returning a result directly does not.
@@ -1053,7 +992,6 @@ class AuditMiddleware(Middleware):
             if outward is not None:
                 decision, reason, stored = outward
                 mark_recorded(decision, reason, stored=stored)
-                words[:] = [decision, reason]
 
         if inner is not None:
             # The call succeeded on the wire and an inner layer already
@@ -1095,5 +1033,4 @@ class AuditMiddleware(Middleware):
             reason=REASON_TOOL_CALL,
             detail=_call_detail(),
         )
-        words[:] = [DECISION_ALLOWED, REASON_TOOL_CALL]
         return result

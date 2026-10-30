@@ -413,9 +413,11 @@ def va_archiver_errors(
             f"{', '.join(repr(name) for name in COMPRESSORS)} (got {cfg.compression!r})"
         )
 
-    for key in ("database", "collection", "username", "auth_database"):
-        if not getattr(cfg, key).strip():
-            errors.append(f"va_archiver.{key} must be a non-empty string")
+    errors.extend(
+        f"va_archiver.{key} must be a non-empty string"
+        for key in ("database", "collection", "username", "auth_database")
+        if not getattr(cfg, key).strip()
+    )
     illegal = sorted(_ILLEGAL_DB_CHARS & set(cfg.database))
     if illegal:
         errors.append(

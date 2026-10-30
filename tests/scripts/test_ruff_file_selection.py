@@ -57,17 +57,22 @@ INVOCATION_SURFACES = (
 
 def _git(*args: str) -> str:
     return subprocess.run(
-        ["git", *args], cwd=REPO_ROOT, capture_output=True, text=True, check=True
+        ["git", *args], cwd=REPO_ROOT, capture_output=True, text=True, check=True, timeout=60
     ).stdout
 
 
 def _tracked_modes() -> dict[str, str]:
-    """Map every tracked path to its git file mode."""
+    """Map every tracked path present in the working tree to its git file mode.
+
+    A tracked path deleted from the working tree is linted by nothing, so it is
+    not part of either selection.
+    """
     modes: dict[str, str] = {}
     for line in _git("ls-files", "-s", "-z").split("\0"):
         if line:
             meta, path = line.split("\t", 1)
-            modes[path] = meta.split()[0]
+            if (REPO_ROOT / path).exists():
+                modes[path] = meta.split()[0]
     return modes
 
 
@@ -102,6 +107,7 @@ def _ruff_selection() -> set[str]:
         capture_output=True,
         text=True,
         check=True,
+        timeout=120,
     ).stdout
     return {Path(line).resolve().relative_to(REPO_ROOT).as_posix() for line in out.splitlines()}
 
@@ -127,14 +133,16 @@ def _paths_checked(text: str) -> list[tuple[int, list[str]]]:
 
 
 def _declared_command_lines(source: str) -> str:
-    """Every tuple of string literals in Python *source*, in order, each joined into a line."""
+    """Every tuple of string literals in Python *source*, in order, each joined into a line;
+    a starred prefix (``*UV_RUN``) is the command's launcher and is left out."""
     tuples = [
         node for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Tuple) and node.elts
     ]
     lines = []
     for node in sorted(tuples, key=lambda node: (node.lineno, node.col_offset)):
-        words = [e.value for e in node.elts if isinstance(e, ast.Constant)]
-        if len(words) == len(node.elts) and all(isinstance(w, str) for w in words):
+        elts = [e for e in node.elts if not isinstance(e, ast.Starred)]
+        words = [e.value for e in elts if isinstance(e, ast.Constant)]
+        if words and len(words) == len(elts) and all(isinstance(w, str) for w in words):
             lines.append(" ".join(words))
     return "\n".join(lines)
 
@@ -160,6 +168,7 @@ def test_ruff_discovers_no_file_git_ignores() -> None:
         input="\n".join(candidates),
         capture_output=True,
         text=True,
+        timeout=60,
     ).stdout.split()
     assert not ignored, f"ruff check . lints files git ignores: {ignored}"
 
@@ -253,6 +262,7 @@ def _reported(text: str, path: str) -> list[str]:
         input=text,
         capture_output=True,
         text=True,
+        timeout=120,
     ).stdout
     return sorted(diagnostic["code"] for diagnostic in json.loads(out))
 

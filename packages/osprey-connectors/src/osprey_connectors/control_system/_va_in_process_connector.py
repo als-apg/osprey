@@ -61,7 +61,12 @@ from osprey_connectors.control_system._base import (
     WriteOutcome,
     values_match,
 )
-from osprey_connectors.errors import NOT_A_CHANNEL, ChannelNotFoundError
+from osprey_connectors.errors import (
+    NOT_A_CHANNEL,
+    ChannelNotFoundError,
+    ConnectorUnavailableError,
+    RefusalReason,
+)
 from osprey_connectors.logger import get_logger
 from osprey_connectors.safety_file import atomic_replace
 from osprey_connectors.simulation import LABELLED_TYPES
@@ -106,7 +111,6 @@ UDF_SEVERITY = 3
 UDF_STATUS = "UDF"
 
 _RENDERED_CONFIG = "config.yml"
-_REFUSED_BY_SIMULATOR = "CONTROL_SYSTEM_REFUSED"
 
 #: The session-writes journal, under the simulation state directory.
 JOURNAL_DIR = "inprocess"
@@ -122,7 +126,8 @@ JOURNAL_REJECTED_EVENT = "journal-rejected"
 #: The line a write the journal could not record logs, before the error.
 JOURNAL_NOT_UPDATED = "writes journal not updated"
 
-#: Why an operation on a connector that is not connected is refused.
+#: Why an operation on a connector that is not connected is refused: the one
+#: case where the in-process simulator's connector itself is gone.
 NOT_CONNECTED = "the in-process simulator is not connected"
 
 
@@ -258,7 +263,7 @@ def _seq(document: Any) -> int | None:
 def _mark(document: Any, text: str) -> int | str:
     """What one look at the journal saw: its ``seq``, else its text, ``0`` when empty."""
     seq = _seq(document)
-    return (0 if not text else text) if seq is None else seq
+    return (text or 0) if seq is None else seq
 
 
 class VAInProcessConnector(ControlSystemConnector):
@@ -426,9 +431,9 @@ class VAInProcessConnector(ControlSystemConnector):
         if rejection is not None:
             self._reject(*rejection)
             return
-        replayed: dict[str, Any] = {}
-        for _seq_no, address, value in sorted(writes, key=lambda entry: entry[0]):
-            replayed[address] = value
+        replayed: dict[str, Any] = {
+            address: value for _seq_no, address, value in sorted(writes, key=lambda entry: entry[0])
+        }
         try:
             self._composite.set(replayed)
         except Exception as exc:
@@ -528,10 +533,10 @@ class VAInProcessConnector(ControlSystemConnector):
         """Return the simulator to its start state and empty the journal.
 
         Raises:
-            RuntimeError: The connector is not connected.
+            ConnectorUnavailableError: The connector is not connected.
         """
         if self._composite is None:
-            raise RuntimeError(NOT_CONNECTED)
+            raise ConnectorUnavailableError(NOT_CONNECTED)
         self._sync()
         self._composite.reset()
         self._holds_writes = False
@@ -544,10 +549,10 @@ class VAInProcessConnector(ControlSystemConnector):
 
         Raises:
             ChannelNotFoundError: ``address`` is not a channel of the facility.
-            RuntimeError: The connector is not connected.
+            ConnectorUnavailableError: The connector is not connected.
         """
         if self._composite is None:
-            raise RuntimeError(NOT_CONNECTED)
+            raise ConnectorUnavailableError(NOT_CONNECTED)
         if address not in self._served:
             raise ChannelNotFoundError(address)
         return self._composite
@@ -667,7 +672,7 @@ class VAInProcessConnector(ControlSystemConnector):
             channel_address=address,
             value_written=value,
             outcome=WriteOutcome.REFUSED,
-            refusal_reason=_REFUSED_BY_SIMULATOR,
+            refusal_reason=RefusalReason.CONTROL_SYSTEM_REFUSED,
             error_message=message,
         )
 
@@ -713,10 +718,10 @@ class VAInProcessConnector(ControlSystemConnector):
 
         Raises:
             ChannelLimitsViolationError: If limits validation fails (when enabled)
-            RuntimeError: The connector is not connected.
+            ConnectorUnavailableError: The connector is not connected.
         """
         if self._composite is None:
-            raise RuntimeError(NOT_CONNECTED)
+            raise ConnectorUnavailableError(NOT_CONNECTED)
         if channel_address not in self._served:
             unknown = ChannelNotFoundError(channel_address)
             logger.warning(f"In-process write refused: {channel_address}: {unknown}")
@@ -772,7 +777,11 @@ class VAInProcessConnector(ControlSystemConnector):
             from lume.exceptions import ReadOnlyError
 
             if isinstance(e, ValueError | ReadOnlyError):
-                return self._refused(channel_address, value, str(e))
+                return self._refused(
+                    channel_address,
+                    value,
+                    str(e) or f"Write to '{channel_address}' refused by the simulator",
+                )
             logger.warning(f"In-process write failed for {channel_address}: {e}")
             return ChannelWriteResult(
                 channel_address=channel_address,

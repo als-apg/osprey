@@ -279,6 +279,60 @@ def test_view_without_a_record_is_no_view(state_dir):
     assert reader.read_target_view() is None
 
 
+def _status(root, pid, tgid):
+    """Lay down ``<root>/<pid>/status`` as the kernel words the two lines read."""
+    directory = root / str(pid)
+    directory.mkdir()
+    (directory / "status").write_bytes(f"Name:\tosprey\nTgid:\t{tgid}\nPid:\t{pid}\n".encode())
+
+
+@pytest.fixture
+def signalled(tmp_path, monkeypatch):
+    """Every PID answers ``os.kill``; returns the ``/proc`` the reader now consults."""
+    monkeypatch.setattr(reader.os, "kill", lambda _pid, _sig: None)
+    monkeypatch.setattr(reader, "_PROC_ROOT", str(tmp_path))
+    return tmp_path
+
+
+def test_a_thread_of_a_process_is_not_a_process(signalled):
+    _status(signalled, 424, tgid=193)
+
+    assert reader._is_process_alive(424) is False
+
+
+def test_a_thread_group_leader_is_a_process(signalled):
+    _status(signalled, 193, tgid=193)
+
+    assert reader._is_process_alive(193) is True
+
+
+def test_a_thread_we_may_not_signal_is_not_a_process(signalled, monkeypatch):
+    def denied(pid, _sig):
+        raise PermissionError(pid)
+
+    monkeypatch.setattr(reader.os, "kill", denied)
+    _status(signalled, 424, tgid=193)
+
+    assert reader._is_process_alive(424) is False
+
+
+@pytest.mark.usefixtures("signalled")
+def test_without_proc_the_kernels_answer_stands():
+    assert reader._is_process_alive(424) is True
+
+
+@pytest.mark.parametrize(
+    "status",
+    [b"", b"Name:\tosprey\n", b"Tgid:\n", b"Tgid:\tnot-a-number\n", b"\xff\xfe\n"],
+    ids=["empty", "no-tgid-line", "no-value", "not-a-number", "not-text"],
+)
+def test_a_status_that_says_nothing_leaves_the_kernels_answer(signalled, status):
+    (signalled / "424").mkdir()
+    (signalled / "424" / "status").write_bytes(status)
+
+    assert reader._is_process_alive(424) is True
+
+
 def test_a_dead_servers_report_does_not_speak(state_dir, monkeypatch):
     write_record(state_dir)
     write_report(state_dir, 5151)

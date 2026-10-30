@@ -73,11 +73,16 @@ from osprey.mcp_server.control_system.server_context import MCPServerConfig
 from osprey.mcp_server.control_system.tools import control_target
 from osprey.mcp_server.control_system.tools.channel_read import channel_read
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.control_system import WriteOutcome
-from osprey_connectors.control_system._base import ChannelValue, raise_for_write_result
-from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
+from osprey_connectors.control_system import ChannelValue, WriteOutcome, raise_for_write_result
+from osprey_connectors.errors import (
+    ChannelLimitsViolationError,
+    ChannelUnreachableError,
+    ChannelWriteBlockedError,
+    RefusalReason,
+)
 from osprey_connectors.write_target import KIND_BANNERS
 from osprey_connectors_tests._harness import write_control_context
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests.fixtures import bench_ioc as bench
 from tests.fixtures.control_context import context_for, publish_reachability
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
@@ -89,7 +94,7 @@ REPO_PATHS = (str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-conne
 
 #: The virtual accelerator this module boots for its ``va`` target, and the
 #: simulation data it serves. Same image and same data directory as
-#: ``test_target_switch.py``; a container of its own, on an ephemeral port,
+#: ``test_target_switch.py``; a container of its own, on a reserved port,
 #: because writing setpoints into the directory's shared session container would
 #: move a lattice other modules read.
 VA_IMAGE = e2e_conftest.IMAGE
@@ -105,8 +110,8 @@ MIN_COLLECTED_TESTS = 15
 PROBE_CHANNEL = bench.PROBE_CHANNEL
 BENCH_PROBE_VALUE = bench.PROBE_VALUE
 #: Two more shared channels, so "the values differ" is not one measurement.
-SHARED_BPM_X = "SR:DIAG:BPM:01:POSITION:X"
-BENCH_BPM_X_VALUE = 0.412
+SHARED_BPM_X = bench.SHARED_BPM_X
+BENCH_BPM_X_VALUE = bench.SHARED_BPM_X_VALUE
 #: Read by anyone, written by no one: the bench IOC's ASG withholds WRITE.
 PROTECTED_SP = bench.PROTECTED_SP
 BENCH_PROTECTED_VALUE = bench.PROTECTED_VALUE
@@ -118,17 +123,20 @@ PROTECTED_BAND = (-12.0, 12.0)
 #: limits validator BEFORE any caput was issued, and the refusal this module
 #: is about -- the control system's own -- would never be reached.
 PROTECTED_WRITE_VALUE = -4.0
-#: Writable on both, and carrying a +-12 A record in the facility's limits --
-#: which is what lets a deliberately out-of-range write be refused by the
-#: reference monitor rather than by the machine.
+#: Writable on both, and carrying a band in the facility's limits -- which is
+#: what lets a deliberately out-of-range write be refused by the reference
+#: monitor rather than by the machine. ``LIMITS_MAX`` is the band's top, read
+#: from the example view.
 WRITABLE_SP = bench.WRITABLE_SP
-LIMITS_MAX = 12.0
+_WRITABLE_BAND = e2e_conftest.PRESET_VIEW.channel(WRITABLE_SP).value_range
+assert _WRITABLE_BAND is not None, f"{WRITABLE_SP} carries no band in the example view"
+LIMITS_MAX = float(_WRITABLE_BAND[1])
 OUT_OF_LIMITS_VALUE = 40.0
-VA_WRITE_VALUE = 1.25
+VA_WRITE_VALUE = bench.VA_WRITE_VALUE
 
 #: Bench-only: the virtual accelerator's manifest has no SR:DIAG:STRIPLINE.
-BENCH_ONLY_AMPLITUDE = "SR:DIAG:STRIPLINE:01:AMPLITUDE:RB"
-BENCH_ONLY_AMPLITUDE_VALUE = 12.75
+BENCH_ONLY_AMPLITUDE = bench.BENCH_ONLY_AMPLITUDE
+BENCH_ONLY_AMPLITUDE_VALUE = bench.BENCH_ONLY_AMPLITUDE_VALUE
 MODE_STATE = bench.MODE_STATE
 MODE_STATE_VALUE = bench.MODE_STATE_VALUE
 MODE_STATE_LABEL = bench.MODE_STATE_LABEL
@@ -137,17 +145,17 @@ SCALED_AMPLITUDE = bench.SCALED_AMPLITUDE
 SCALED_AMPLITUDE_VALUE = bench.SCALED_AMPLITUDE_VALUE
 
 #: Virtual-accelerator-only: the bench database deliberately omits the DCCT.
-VA_ONLY_CHANNEL = "SR:DIAG:DCCT:01:CURRENT:RB"
+VA_ONLY_CHANNEL = bench.VA_ONLY_CHANNEL
 
 #: The one bench record carrying alarm limits (``HIHI 11.0``, ``HHSV MAJOR``).
 #: The alarm texture has to be driven here rather than on a setpoint because no
-#: setpoint in ``bench.db`` sets any alarm field -- ``SR:MAG:HCM:01:CURRENT:SP``
+#: setpoint in ``bench.db`` sets any alarm field -- :data:`WRITABLE_SP`
 #: carries drive limits and nothing else, so it can never alarm. That this is a
 #: readback is also why :func:`limits_database` grants it a band: a readback is
 #: never writable in a deployment, correctly.
-ALARM_CHANNEL = "SR:MAG:VCM:02:CURRENT:RB"
-ALARM_SEEDED_VALUE = -3.5
-ALARM_HIHI_THRESHOLD = 11.0
+ALARM_CHANNEL = bench.ALARM_CHANNEL
+ALARM_SEEDED_VALUE = bench.ALARM_SEEDED_VALUE
+ALARM_HIHI_THRESHOLD = bench.ALARM_HIHI_THRESHOLD
 ALARM_DRIVE_VALUE = 11.5
 #: EPICS ``epicsSevMAJOR``. The record's ``HHSV`` names MAJOR, so a HIHI here is
 #: a severity-2 alarm and not merely a status string.
@@ -270,48 +278,48 @@ def va_endpoint() -> Iterator[int]:
     the container, which is what makes concurrent runs safe.
     """
     _require_va_image()
-    port = bench.free_port()
-    name = f"{VA_CONTAINER_PREFIX}-{port}"
-    # Stale cleanup only: the port is this run's alone, so this can name nothing
-    # a concurrent run is using.
-    bench.docker("rm", "-f", name, timeout=60)
+    with reserved_port() as port:
+        name = f"{VA_CONTAINER_PREFIX}-{port}"
+        # Stale cleanup only: the port is this run's alone, so this can name nothing
+        # a concurrent run is using.
+        bench.docker("rm", "-f", name, timeout=60)
 
-    started = bench.docker(
-        "run",
-        "-d",
-        "--name",
-        name,
-        "-e",
-        f"EPICS_CA_SERVER_PORT={port}",
-        "-p",
-        f"127.0.0.1:{port}:{port}/tcp",
-        *e2e_conftest.demo_data_run_args(),
-        # The namespace, named: the IOC refuses to boot without one rather
-        # than picking the framework's demo channels on its own.
-        *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
-        VA_IMAGE,
-    )
-    if started.returncode != 0:
-        with contextlib.suppress(subprocess.SubprocessError):
-            bench.docker("rm", "-f", name, timeout=60)
-        raise RuntimeError(f"docker run failed for {name}:\n{started.stdout}\n{started.stderr}")
+        started = bench.docker(
+            "run",
+            "-d",
+            "--name",
+            name,
+            "-e",
+            f"EPICS_CA_SERVER_PORT={port}",
+            "-p",
+            f"127.0.0.1:{port}:{port}/tcp",
+            *e2e_conftest.demo_data_run_args(),
+            # The namespace, named: the IOC refuses to boot without one rather
+            # than picking the framework's demo channels on its own.
+            *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
+            VA_IMAGE,
+        )
+        if started.returncode != 0:
+            with contextlib.suppress(subprocess.SubprocessError):
+                bench.docker("rm", "-f", name, timeout=60)
+            raise RuntimeError(f"docker run failed for {name}:\n{started.stdout}\n{started.stderr}")
 
-    try:
-        deadline = time.monotonic() + VA_BOOT_TIMEOUT_S
-        while time.monotonic() < deadline:
-            if _va_served(port):
-                break
-            time.sleep(1.0)
-        else:
-            logs = bench.docker("logs", "--tail", "40", name, timeout=60)
-            raise RuntimeError(
-                f"{name} never served {PROBE_CHANNEL} within {VA_BOOT_TIMEOUT_S}s.\n"
-                f"{logs.stdout}\n{logs.stderr}"
-            )
-        yield port
-    finally:
-        with contextlib.suppress(subprocess.SubprocessError):
-            bench.docker("rm", "-f", name, timeout=60)
+        try:
+            deadline = time.monotonic() + VA_BOOT_TIMEOUT_S
+            while time.monotonic() < deadline:
+                if _va_served(port):
+                    break
+                time.sleep(1.0)
+            else:
+                logs = bench.docker("logs", "--tail", "40", name, timeout=60)
+                raise RuntimeError(
+                    f"{name} never served {PROBE_CHANNEL} within {VA_BOOT_TIMEOUT_S}s.\n"
+                    f"{logs.stdout}\n{logs.stderr}"
+                )
+            yield port
+        finally:
+            with contextlib.suppress(subprocess.SubprocessError):
+                bench.docker("rm", "-f", name, timeout=60)
 
 
 # ---------------------------------------------------------------------------
@@ -364,7 +372,7 @@ def raw_config(
     IOC. Every switch to ``live`` is therefore a switch *toward* the real
     machine, which is the only direction FR-8's live gate applies to.
 
-    Both blocks name an explicit gateway port: the containers bind ephemeral
+    Both blocks name an explicit gateway port: the containers bind reserved
     ports and nothing may guess them. Both gateway roles name the same endpoint
     because there is one server at each end; the write-capable role is the one
     the child selects, so a refused write is refused by the IOC rather than by a
@@ -774,7 +782,7 @@ class TestTheControlSystemsOwnWriteRefusal:
         assert result.refusal_reason == "CONTROL_SYSTEM_REFUSED"
         # The vocabulary is the shared one, so a reason the error type would
         # reject can never reach an operator through this path.
-        assert result.refusal_reason in ChannelWriteBlockedError._VALID_REASONS
+        assert result.refusal_reason is RefusalReason.CONTROL_SYSTEM_REFUSED
         assert result.channel_address == PROTECTED_SP
         assert PROTECTED_SP in (result.error_message or "")
         assert "access security" in (result.error_message or "")
@@ -884,7 +892,7 @@ class TestTheTwoMachinesServeDifferentNamespaces:
 
         await manager.switch("va")
 
-        with pytest.raises(ConnectionError) as raised:
+        with pytest.raises(ChannelUnreachableError) as raised:
             await reading(manager, BENCH_ONLY_AMPLITUDE, timeout=ABSENT_TIMEOUT_S)
         assert BENCH_ONLY_AMPLITUDE in str(raised.value)
 
@@ -896,7 +904,7 @@ class TestTheTwoMachinesServeDifferentNamespaces:
 
         await manager.switch("live")
 
-        with pytest.raises(ConnectionError) as raised:
+        with pytest.raises(ChannelUnreachableError) as raised:
             await reading(manager, VA_ONLY_CHANNEL, timeout=ABSENT_TIMEOUT_S)
         assert VA_ONLY_CHANNEL in str(raised.value)
 
@@ -1030,19 +1038,20 @@ class TestWhenTheBenchMachineGoesAway:
             stopped = bench.docker("stop", ioc.container, timeout=60)
             assert stopped.returncode == 0, stopped.stderr
 
-            # The recovery seam is recorded rather than executed: a ConnectionError
-            # is what makes the tool handler respawn the child, and letting that
-            # run would race a spawn against a gateway nothing is listening on
-            # while these assertions are being made. That it was *asked* for is
-            # asserted below; the respawn itself is pinned in test_target_switch.py.
+            # One dead IOC is that channel's failure: the supervisor recovers
+            # nothing for it, so its recovery seam is recorded to prove it was
+            # never asked to.
             invalidated: list[str] = []
 
-            async def record(connector_name: str) -> None:
+            async def record(connector_name: str, **kwargs: object) -> bool:
                 invalidated.append(connector_name)
+                return True
 
-            monkeypatch.setattr(error_handling, "invalidate_active_connector", record)
+            monkeypatch.setattr(
+                server_context_mod.get_server_context(), "invalidate_connector", record
+            )
 
-            with assert_raises_error(error_type="connection_error") as captured:
+            with assert_raises_error(error_type="channel_unreachable") as captured:
                 await get_tool_fn(channel_read)(channels=[PROBE_CHANNEL], include_metadata=False)
 
             message = captured["envelope"]["error_message"]
@@ -1058,7 +1067,10 @@ class TestWhenTheBenchMachineGoesAway:
             assert identity["name"] == "live"
             assert identity["label"] == KIND_BANNERS["real"]
             assert identity["endpoint"].endswith(f":{ioc.port}")
-            assert invalidated == ["control_system"]
+            assert captured["envelope"]["details"]["channel"] == PROBE_CHANNEL
+            assert "recovery" not in captured["envelope"]["details"]
+            # One dead IOC restarts nothing.
+            assert invalidated == []
             # A dead machine is not a switch.
             assert manager.active_target() == "live"
             assert manager.active_generation() == generation

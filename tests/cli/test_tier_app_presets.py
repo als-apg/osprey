@@ -661,8 +661,7 @@ def _render_config_overrides(
         yaml.safe_dump(seed, fh)
     overrides = resolve_preset(preset).config if config is None else config
     config_update_fields(config_path, overrides)
-    with config_path.open("r", encoding="utf-8") as fh:
-        return yaml.safe_load(fh)
+    return yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
 
 def _render_deployable_config(
@@ -688,8 +687,7 @@ def _render_deployable_config(
         config_path,
         {"project_name": preset, **derived_renders(resolved.config, preset, repo)},
     )
-    with config_path.open("r", encoding="utf-8") as fh:
-        return yaml.safe_load(fh)
+    return yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
 
 def _errors(findings: list[Finding]) -> list[Finding]:
@@ -1489,7 +1487,6 @@ class TestControlAssistantTiersAndApps:
                 "username": host["services"]["postgresql"]["username"],
                 "database_name": host["services"]["postgresql"]["database_name"],
             },
-            "telemetry_gateway": {"port": host["services"]["telemetry_gateway"]["port"]},
             # The single lane declares no `target`: it is addressed by the
             # fallback, the simulator the baseline names.
             "bluesky": {"port": host["services"]["bluesky"]["port"]},

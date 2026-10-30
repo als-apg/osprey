@@ -1,18 +1,35 @@
-"""The OTLP contract between the pinned Claude Code CLI and the telemetry gateway, live.
+"""The OTLP contract between the pinned Claude Code CLI and agent-record's receiver, live.
 
-The gateway's stamping, the store's materialized columns and the "reconstruct
-a session" SQL all read names the CLI chooses: event names, attribute keys,
-resource keys. This module runs the real CLI — the one version the deployment
-pins, ``claude_code.cli_version`` — with the telemetry environment the real
-launch builder writes for ``backend: gateway`` and ``protocol: http/json``,
-pointed at an in-process OTLP sink, for one model turn that runs one tool.
+agent-record's OTLP receiver reads names the CLI chooses: event names,
+attribute keys, resource keys. This module runs the real CLI — the one version
+the deployment pins, ``claude_code.cli_version`` — with the OTLP block the real
+launch builder writes (:func:`osprey.build.claude_code_telemetry.record_telemetry_env`)
+for a launch handed a record address and a record login, pointed at an
+in-process receiver that captures what is posted to ``/v1/logs``, for one model
+turn that runs one tool.
 
-With ``OSPREY_CAPTURE_TELEMETRY_FIXTURE=1`` it writes what the sink received
-to ``tests/fixtures/telemetry/claude_cli_session.otlp.json``, with the CLI's
-version and the capture time. Otherwise it compares the live run with that
-fixture structurally: the set of event names, the attribute keys of each
-event, the resource keys and the shape of the Authorization header. Ids,
+With ``OSPREY_CAPTURE_TELEMETRY_FIXTURE=1`` it writes what the receiver got,
+decoded to OTLP/JSON, to ``tests/fixtures/telemetry/claude_cli_session.otlp.json``
+with the CLI's version and the capture time; ``tests/agent_record/test_otlp_receiver.py``
+posts that capture to the real receiver. Otherwise it compares the live run
+with that fixture structurally: the set of event names, the attribute keys of
+each event, the resource keys and the shape of the Authorization header. Ids,
 times and values differ on every run and are not compared.
+
+The same switch records the launches the agent record replays. A host launch
+(``osprey chat --print`` and ``osprey query``, the real commands) runs against
+the built project with its record address and login pointed at the receiver
+and its config directory in the test's temp tree, so it writes its session
+transcripts there; each turn starts a subagent and thinks, and the query's
+subagent reads a file large enough to give an oversized tool result. Each
+launch is written to ``tests/fixtures/agent_record/<launch>/``: ``capture.json``
+(the CLI version, the capture time, the command and what the session holds),
+``otlp.json`` (what the receiver got, scrubbed as the contract fixture is) and
+``transcripts/`` (the session's directory under ``projects/``, with the
+capturing host's paths and account name replaced). The launches that run in a
+container, the web terminal and dispatch, need a running stack and are not
+captured here. ``tests/build_pipeline/test_telemetry_fixture_cli_pin.py``
+holds every capture to the pinned version and the scrub.
 
 Reaches a model, so it carries no ``model_free`` marker and runs in the
 ``e2e-tests`` lane under ``full-ci``.
@@ -27,6 +44,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import threading
 import uuid
 from collections.abc import Iterator, Mapping
@@ -37,11 +55,19 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
+from google.protobuf import json_format
 
-from osprey.build.claude_code_telemetry import TELEMETRY_LOGIN_ENV, TERMINAL_SESSION_ENV
+from osprey.agent_record.ingest.otlp import PROTOBUF_CONTENT_TYPE, decode_logs
+from osprey.build.claude_code_telemetry import (
+    HOST_SESSION_PREFIX,
+    LOGS_PATH,
+    OTLP_PROTOCOL,
+    RECORD_LOGIN_ENV,
+    RECORD_OFF_ENV,
+    RECORD_URL_ENV,
+    TERMINAL_SESSION_ENV,
+)
 from osprey.cli.templates.scaffolding import _DEFAULT_CLAUDE_CLI_VERSION
-from osprey.deployment import telemetry_config as tc
 from tests.e2e._deploy_support import find_osprey_console_script
 from tests.e2e.profile_edits import set_pairs
 from tests.e2e.provider import build_model, build_provider, e2e_provider
@@ -55,7 +81,12 @@ pytestmark = [
 FIXTURE = (
     Path(__file__).resolve().parents[1] / "fixtures" / "telemetry" / "claude_cli_session.otlp.json"
 )
+#: Where each launch's capture is written, one directory per launch.
+CAPTURES = Path(__file__).resolve().parents[1] / "fixtures" / "agent_record"
 CAPTURE_ENV = "OSPREY_CAPTURE_TELEMETRY_FIXTURE"
+#: The project's ``deployment.host_identity``: a host launch records under it,
+#: and the capture carries it in place of the capturing account's name.
+HOST_IDENTITY = "e2e-builder"
 
 PROJECT_NAME = "osprey-e2e-telemetry-contract"
 CLI_PACKAGE = "@anthropic-ai/claude-code"
@@ -101,6 +132,12 @@ _TRANSIENT_EVENTS = frozenset({"api_error"})
 #: comparison holds them.
 _HOUSEKEEPING_EVENTS = frozenset({"retention_sweep", "mcp_server_connection"})
 _BASIC = re.compile(r"^Basic ([A-Za-z0-9+/]+=*)$")
+#: Log-record fields OTLP/JSON spells as lowercase hex, where the protobuf JSON
+#: printer writes base64.
+_HEX_ID_FIELDS = ("traceId", "spanId")
+#: Launch variables the host running the test may carry and the launch builder
+#: reads; none of them may reach the CLI except as the builder writes them.
+_LAUNCH_VARS = (RECORD_URL_ENV, RECORD_LOGIN_ENV, RECORD_OFF_ENV, TERMINAL_SESSION_ENV)
 
 
 # --------------------------------------------------------------------------- #
@@ -110,7 +147,13 @@ _BASIC = re.compile(r"^Basic ([A-Za-z0-9+/]+=*)$")
 
 @dataclass
 class Sink:
-    """An in-process OTLP/HTTP receiver that keeps every request it is sent."""
+    """An in-process OTLP/HTTP receiver that keeps every request it is sent.
+
+    A ``/v1/logs`` body is decoded the way agent-record decodes it
+    (:func:`~osprey.agent_record.ingest.otlp.decode_logs`) and kept as
+    OTLP/JSON; a request to any other path is kept with an empty body, so a
+    CLI that exports a signal the launch turned off is seen, not hidden.
+    """
 
     requests: list[dict[str, Any]] = field(default_factory=list)
     lock: threading.Lock = field(default_factory=threading.Lock)
@@ -129,24 +172,45 @@ class Sink:
 def _handler(sink: Sink) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
-            body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            path = self.path.split("?", 1)[0].rstrip("/")
+            content_type = self.headers.get("Content-Type", "")
+            body: dict[str, Any] = {}
+            if path == LOGS_PATH:
+                body = otlp_json(
+                    decode_logs(raw, content_type, self.headers.get("Content-Encoding"))
+                )
             record = {
-                "signal": self.path.rstrip("/").rsplit("/", 1)[-1],
-                "content_type": self.headers.get("Content-Type", ""),
+                "path": path,
+                "signal": path.rsplit("/", 1)[-1],
+                "content_type": content_type,
                 "authorization": self.headers.get("Authorization", ""),
-                "body": json.loads(body) if body else {},
+                "body": body,
             }
             with sink.lock:
                 sink.requests.append(record)
+            # An empty ExportLogsServiceResponse: full success, in protobuf.
             self.send_response(200)
-            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Type", PROTOBUF_CONTENT_TYPE)
+            self.send_header("Content-Length", "0")
             self.end_headers()
-            self.wfile.write(b"{}")
 
         def log_message(self, *args: Any) -> None:
             return
 
     return Handler
+
+
+def otlp_json(request: Any) -> dict[str, Any]:
+    """*request* (an ``ExportLogsServiceRequest``) as the OTLP/JSON body a CLI would post."""
+    data = json_format.MessageToDict(request)
+    for resource_logs in data.get("resourceLogs", []):
+        for scope_logs in resource_logs.get("scopeLogs", []):
+            for record in scope_logs.get("logRecords", []):
+                for name in _HEX_ID_FIELDS:
+                    if name in record:
+                        record[name] = base64.b64decode(record[name]).hex()
+    return data
 
 
 @pytest.fixture
@@ -172,8 +236,8 @@ def _clean_env() -> dict[str, str]:
         k: v
         for k, v in os.environ.items()
         if k != "CLAUDECODE"
-        and not k.startswith(("OTEL_", "CLAUDE_CODE_"))
-        and k not in (tc.GATEWAY_HOST_ENV, tc.GATEWAY_PORT_ENV, TELEMETRY_LOGIN_ENV)
+        and not k.startswith(("OTEL_", "CLAUDE_CODE_", "OSPREY_AGENT_RECORD_"))
+        and k not in _LAUNCH_VARS
     }
 
 
@@ -215,7 +279,7 @@ def pinned_cli(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, str]:
 
 @pytest.fixture(scope="module")
 def project(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A built hello-world repo whose telemetry block is ``backend: gateway``, ``http/json``."""
+    """A built hello-world repo: the provider and model the launch builder resolves."""
     osprey = find_osprey_console_script()
     base = tmp_path_factory.mktemp("telemetry_contract")
     repo = base / PROJECT_NAME
@@ -223,11 +287,7 @@ def project(tmp_path_factory: pytest.TempPathFactory) -> Path:
     edits = {
         "provider": provider,
         "model": build_model(None),
-        "config": {
-            "claude_code.telemetry.enabled": True,
-            "claude_code.telemetry.backend": "gateway",
-            "claude_code.telemetry.protocol": "http/json",
-        },
+        "config": {"deployment": {"host_identity": HOST_IDENTITY}},
     }
     for args, cwd in (
         (["init", str(repo), "--preset", "hello-world", "--no-git", *set_pairs(edits)], base),
@@ -244,23 +304,24 @@ def project(tmp_path_factory: pytest.TempPathFactory) -> Path:
         )
         if result.returncode != 0:
             pytest.fail(f"osprey {args[0]} failed:\n{result.stdout}\n{result.stderr}")
-    telemetry = yaml.safe_load((repo / "build" / "config.yml").read_text())["claude_code"][
-        "telemetry"
-    ]
-    assert telemetry["backend"] == "gateway" and telemetry["protocol"] == "http/json", telemetry
     return repo
 
 
 def _launch_env(
     project: Path, sink: Sink, login: str, terminal: str, monkeypatch: pytest.MonkeyPatch
 ) -> dict[str, str]:
-    """The CLI's environment as the real launch builder writes it, aimed at *sink*."""
+    """The CLI's environment as the real launch builder writes it, aimed at *sink*.
+
+    *sink* stands where agent-record stands: the launch is handed its address
+    and a record login, exactly the two variables a deployment hands it.
+    """
     from osprey.agent_runner.provider_env import load_provider_spec
 
+    url = f"http://127.0.0.1:{sink.port}"
+    monkeypatch.delenv(RECORD_OFF_ENV, raising=False)
     for key, value in {
-        tc.GATEWAY_HOST_ENV: "127.0.0.1",
-        tc.GATEWAY_PORT_ENV: str(sink.port),
-        TELEMETRY_LOGIN_ENV: login,
+        RECORD_URL_ENV: url,
+        RECORD_LOGIN_ENV: login,
         TERMINAL_SESSION_ENV: terminal,
     }.items():
         monkeypatch.setenv(key, value)
@@ -273,11 +334,9 @@ def _launch_env(
         secret = os.environ.get(spec.auth_secret_env)
         assert secret, f"{spec.auth_secret_env} is not set"
         env[spec.auth_env_var] = secret
-    assert env["OTEL_EXPORTER_OTLP_ENDPOINT"].rstrip("/") == f"http://127.0.0.1:{sink.port}"
-    assert env["OTEL_EXPORTER_OTLP_PROTOCOL"] == "http/json"
-    # Short export intervals: the shape is the same, the turn ends sooner.
-    env["OTEL_LOGS_EXPORT_INTERVAL"] = "1000"
-    env["OTEL_METRIC_EXPORT_INTERVAL"] = "1000"
+    assert env["OTEL_LOGS_EXPORTER"] == "otlp", env.get("OTEL_LOGS_EXPORTER")
+    assert env["OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"] == f"{url}{LOGS_PATH}"
+    assert env["OTEL_EXPORTER_OTLP_PROTOCOL"] == OTLP_PROTOCOL
     return env
 
 
@@ -389,9 +448,20 @@ def _redact(node: Any, replacements: Mapping[str, str]) -> Any:
     return node
 
 
-def _host_replacements() -> dict[str, str]:
-    """The capturing host's home directory and account name, longest first."""
+def _host_replacements(temp_roots: Mapping[str, str] | None = None) -> dict[str, str]:
+    """The capturing host's home directory and account name, longest first.
+
+    *temp_roots* maps further directories of the capturing host (the test's
+    temp tree, the system temp directory) to what stands in their place. Each
+    is replaced in both spellings a macOS host writes, the resolved one under
+    ``/private`` and the one the process was handed.
+    """
     pairs = {str(Path.home()): "~", getpass.getuser(): "<user>"}
+    for root, placeholder in (temp_roots or {}).items():
+        for spelling in {root, os.path.realpath(root)}:
+            pairs[spelling.rstrip("/")] = placeholder
+            if spelling.startswith("/private/"):
+                pairs[spelling[len("/private") :].rstrip("/")] = placeholder
     return dict(sorted(pairs.items(), key=lambda item: -len(item[0])))
 
 
@@ -440,9 +510,12 @@ def test_the_pinned_cli_speaks_the_otlp_shape_the_fixture_records(
     assert "osprey-contract" in turn.stdout, turn.stdout
 
     requests = list(sink.requests)
-    assert {"logs", "metrics"} <= {r["signal"] for r in requests}, sink.signals()
+    # Logs only, to the one path agent-record receives them on: traces and
+    # metrics are off in the launch, and agent-record answers 404 on both.
+    assert requests, "the CLI exported nothing"
+    assert {r["path"] for r in requests} == {LOGS_PATH}, sorted({r["path"] for r in requests})
     for request in requests:
-        assert request["content_type"].startswith("application/json"), request["content_type"]
+        assert request["content_type"].startswith(PROTOBUF_CONTENT_TYPE), request["content_type"]
     shapes = {header_shape(r["authorization"], login) for r in requests}
     assert shapes == {"Basic <identity>:<password>"}, shapes
 
@@ -473,7 +546,7 @@ def test_the_pinned_cli_speaks_the_otlp_shape_the_fixture_records(
         captured = {
             "cli_version": version,
             "captured_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-            "protocol": "http/json",
+            "protocol": OTLP_PROTOCOL,
             "authorization": "Basic <identity>:<password>",
             "requests": [
                 {"signal": r["signal"], "body": _redact(r["body"], _host_replacements())}
@@ -505,3 +578,249 @@ def test_the_pinned_cli_speaks_the_otlp_shape_the_fixture_records(
         sorted(set(live["resource_keys"]) ^ set(expected["resource_keys"])),
     )
     assert recorded["authorization"] == "Basic <identity>:<password>"
+
+
+# --------------------------------------------------------------------------- #
+# The launches the agent record replays
+# --------------------------------------------------------------------------- #
+
+#: A tool result at least this large, serialized, is oversized: the replay
+#: carries one result well past every other entry of a session.
+OVERSIZED_RESULT_BYTES = 64 * 1024
+#: Lines in the file the query's subagent reads; with the line prefix the
+#: Read tool adds, its result passes :data:`OVERSIZED_RESULT_BYTES`.
+_LARGE_FILE_LINES = 1200
+#: Environment variables whose values the capture must never hold: a launch's
+#: credentials, whatever provider holds them.
+_SECRET_SUFFIXES = ("_API_KEY", "_AUTH_TOKEN", "_SECRET", "_PASSWORD")
+
+
+@dataclass(frozen=True)
+class HostLaunch:
+    """One command that starts a session on the host, as an operator types it."""
+
+    name: str
+    command: tuple[str, ...]
+    #: The prompt; ``{file}`` is the file the subagent reads.
+    prompt: str
+    #: What the file holds on its last line, and so what the answer carries.
+    marker: str
+    oversized: bool
+
+
+HOST_LAUNCHES = (
+    HostLaunch(
+        name="host-chat",
+        command=("chat", "--print"),
+        prompt=(
+            "Think it through first. Then use the Agent tool to start one general-purpose "
+            "subagent that reads the file {file} with the Read tool and reports its last "
+            "line. Reply with exactly that line."
+        ),
+        marker="osprey-capture-host-chat",
+        oversized=False,
+    ),
+    HostLaunch(
+        name="host-query",
+        command=("query", "--json"),
+        prompt=(
+            "Think it through first. Then use the Agent tool to start one general-purpose "
+            "subagent that reads the whole file {file} with one Read call (no offset or "
+            "limit) and reports its first line. Reply with exactly that line."
+        ),
+        marker="osprey-capture-host-query",
+        oversized=True,
+    ),
+)
+
+
+def _write_read_file(project: Path, launch: HostLaunch) -> Path:
+    """The file *launch*'s subagent reads, in the uploads directory the agent may read."""
+    uploads = project / "var" / "agent_data" / "uploads"
+    uploads.mkdir(parents=True, exist_ok=True)
+    path = uploads / f"{launch.name}.txt"
+    if launch.oversized:
+        filler = "abcdefghij" * 5
+        lines = [launch.marker] + [
+            f"{i:05d} osprey-capture-line {filler}" for i in range(1, _LARGE_FILE_LINES)
+        ]
+    else:
+        lines = ["osprey capture", launch.marker]
+    path.write_text("\n".join(lines) + "\n")
+    return path
+
+
+def _entries(path: Path) -> list[dict[str, Any]]:
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def _blocks(entries: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
+    for entry in entries:
+        content = (entry.get("message") or {}).get("content")
+        if isinstance(content, list):
+            yield from (block for block in content if isinstance(block, dict))
+
+
+def _session_dir(config_dir: Path) -> Path:
+    """The one ``projects/<encoded build dir>/`` directory the launch wrote."""
+    projects = config_dir / "projects"
+    found = [d for d in projects.iterdir() if d.is_dir()] if projects.is_dir() else []
+    assert len(found) == 1, f"expected one project directory under {projects}: {found}"
+    return found[0]
+
+
+def _scrub(text: str, replacements: Mapping[str, str]) -> str:
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    return text
+
+
+def _secrets() -> list[str]:
+    return [
+        value
+        for name, value in os.environ.items()
+        if name.endswith(_SECRET_SUFFIXES) and len(value) >= 16
+    ]
+
+
+@pytest.mark.parametrize("launch", HOST_LAUNCHES, ids=[launch.name for launch in HOST_LAUNCHES])
+def test_a_host_launch_records_a_subagent_and_thinking(
+    launch: HostLaunch,
+    project: Path,
+    pinned_cli: tuple[Path, str],
+    sink: Sink,
+    tmp_path: Path,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    cli, version = pinned_cli
+    read_file = _write_read_file(project, launch)
+    config_dir = tmp_path / "claude-config"
+    home = tmp_path / "home"
+    config_dir.mkdir()
+    home.mkdir()
+    env = _clean_env()
+    # The launch's own config dir and home: its transcripts land in the
+    # test's temp tree, and no settings, memory or hooks of the host reach it.
+    env["CLAUDE_CONFIG_DIR"] = str(config_dir)
+    env.setdefault("npm_config_cache", str(Path.home() / ".npm"))
+    env["HOME"] = str(home)
+    # The pinned CLI first on PATH: a headless run executes the `claude` it
+    # finds there, and `osprey chat` runs the pin through npx.
+    env["PATH"] = f"{cli.parent}{os.pathsep}{env.get('PATH', '')}"
+    env[RECORD_URL_ENV] = f"http://127.0.0.1:{sink.port}"
+    env[RECORD_LOGIN_ENV] = f"{HOST_IDENTITY}:{uuid.uuid4().hex}"
+
+    run = subprocess.run(
+        [
+            str(find_osprey_console_script()),
+            *launch.command,
+            "--repo",
+            str(project),
+            launch.prompt.format(file=read_file),
+        ],
+        cwd=str(project),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=TURN_TIMEOUT_S,
+        check=False,
+    )
+    assert run.returncode == 0, f"osprey {launch.command[0]} failed:\n{run.stdout}\n{run.stderr}"
+    assert launch.marker in run.stdout, (
+        f"the answer does not carry {launch.marker!r}; the model did not run the subagent's "
+        f"read. Re-run the case:\n{run.stdout}"
+    )
+
+    session_dir = _session_dir(config_dir)
+    mains = sorted(session_dir.glob("*.jsonl"))
+    subagents = sorted(session_dir.glob("*/subagents/*.jsonl"))
+    assert len(mains) == 1, mains
+    assert subagents, f"the session started no subagent: {sorted(session_dir.rglob('*'))}"
+    main = _entries(mains[0])
+    kinds = {block.get("type") for block in _blocks(main)}
+    assert "thinking" in kinds, f"the session holds no thinking block: {sorted(map(str, kinds))}"
+    assert any(b.get("name") == "Agent" for b in _blocks(main) if b.get("type") == "tool_use")
+    if launch.oversized:
+        sizes = [
+            len(json.dumps(block.get("content")))
+            for path in subagents
+            for block in _blocks(_entries(path))
+            if block.get("type") == "tool_result"
+        ]
+        assert max(sizes, default=0) >= OVERSIZED_RESULT_BYTES, sizes
+
+    requests = list(sink.requests)
+    assert requests, "the launch exported nothing"
+    assert {r["path"] for r in requests} == {LOGS_PATH}, sorted({r["path"] for r in requests})
+    sessions = {
+        _attr_value((rl.get("resource") or {}).get("attributes"), "terminal.session")
+        for r in requests
+        for rl in r["body"].get("resourceLogs", [])
+    }
+    assert len(sessions) == 1, sessions
+    (terminal,) = sessions
+    assert terminal and terminal.startswith(HOST_SESSION_PREFIX), terminal
+
+    dest = CAPTURES / launch.name
+    if os.environ.get(CAPTURE_ENV) != "1":
+        recorded = json.loads((dest / "capture.json").read_text())
+        assert recorded["cli_version"] == version, (
+            f"the {launch.name} capture was made with CLI {recorded['cli_version']}, the pin "
+            f"is {version}; re-capture with {CAPTURE_ENV}=1 under a provider key"
+        )
+        return
+
+    replacements = _host_replacements(
+        {
+            str(tmp_path_factory.getbasetemp()): "<tmp>",
+            tempfile.gettempdir(): "<tmpdir>",
+            str(project): "<project>",
+        }
+    )
+    # The CLI names the session's directory after the build directory's path.
+    replacements = dict(
+        sorted(
+            {**replacements, session_dir.name: "<project-dir>"}.items(), key=lambda i: -len(i[0])
+        )
+    )
+    scrubbed = {
+        path.relative_to(session_dir): _scrub(path.read_text(), replacements)
+        for path in sorted(session_dir.rglob("*"))
+        if path.is_file()
+    }
+    otlp = {
+        "cli_version": version,
+        "captured_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "protocol": OTLP_PROTOCOL,
+        "authorization": "Basic <identity>:<password>",
+        "requests": [
+            {"signal": r["signal"], "body": _redact(r["body"], replacements)} for r in requests
+        ],
+    }
+    otlp_text = json.dumps(otlp, indent=1, sort_keys=True) + "\n"
+    for secret in _secrets():
+        assert all(secret not in text for text in [otlp_text, *scrubbed.values()]), (
+            "a credential of this environment reached the capture; nothing was written"
+        )
+    left = sorted(str(p) for p, text in scrubbed.items() if str(Path.home()) in text)
+    assert not left, f"the home directory survived the scrub in {left}"
+
+    if dest.exists():
+        shutil.rmtree(dest)
+    (dest / "transcripts").mkdir(parents=True)
+    for relpath, text in scrubbed.items():
+        target = dest / "transcripts" / relpath
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text)
+    (dest / "otlp.json").write_text(otlp_text)
+    holds = ["subagent", "thinking"] + (["oversized tool result"] if launch.oversized else [])
+    capture = {
+        "cli_version": version,
+        "captured_at": otlp["captured_at"],
+        "launch": launch.name,
+        "command": " ".join(("osprey", *launch.command)),
+        "identity": HOST_IDENTITY,
+        "terminal_session_prefix": HOST_SESSION_PREFIX,
+        "holds": holds,
+    }
+    (dest / "capture.json").write_text(json.dumps(capture, indent=1, sort_keys=True) + "\n")

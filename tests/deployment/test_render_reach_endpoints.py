@@ -3,13 +3,13 @@
 Web-terminal render projects (the ``control-assistant-{readonly,readwrite,
 ariel}`` presets) render as *attached* projects and run as per-user containers
 with ``network_mode: host``. Inside such a container ``localhost`` IS the
-deployment host, and compose service DNS names (``telemetry_gateway``) resolve to
+deployment host, and compose service DNS names (``agent_record``) resolve to
 nothing. Every URL a render container derives therefore has to target the
 loopback address and the HOST deployment's ports — and every host-side probe of
 a render sidecar has to knock on the port the sidecar actually binds.
 
 Each test here joins two subsystems that have thorough unit coverage in
-isolation — the telemetry endpoint resolver and the compose render; the ariel
+isolation — the OTLP block and the compose render; the ariel
 health category and the web-server address registry; the reach projection and
 the connectors' own endpoint resolvers — because the defects live exactly in
 the seam neither suite crosses.
@@ -26,12 +26,13 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from osprey.build.claude_code_telemetry import _resolve_telemetry_endpoint
+from osprey.agent_record.config import parse_agent_record_block
+from osprey.build.claude_code_telemetry import record_telemetry_env
 from osprey.deployment.reach import project_attached_overrides, reach_dials, reach_errors
-from osprey.deployment.telemetry_config import gateway_port, runtime_gateway_url
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.deployment.web_terminals.roster import resolve_cards
 from osprey.health.core.ariel import ariel
+from osprey.port_layout import resolve_port_base
 from osprey.registry.web import resolve_web_server_address
 
 #: The T4 fixture drives a real ``osprey init`` + ``osprey build`` — seconds,
@@ -94,18 +95,20 @@ def built_render_stack(tmp_path_factory) -> Path:
 
 def test_host_networked_render_telemetry_targets_loopback(built_render_stack: Path) -> None:
     """A host-networked render container's OTLP endpoint must target loopback
-    at the HOST deployment's ``services.telemetry_gateway.port`` — inside
-    ``network_mode: host`` the compose DNS name ``telemetry_gateway`` resolves
-    to nothing, so an endpoint carrying it drops every metric and log silently.
+    at the HOST deployment's agent-record port — inside ``network_mode: host``
+    a compose DNS name resolves to nothing, so an endpoint carrying it drops
+    every log event silently.
 
-    Joins the rendered per-user service's environment to the runtime resolver
-    (``telemetry_config.runtime_gateway_url``), exactly as the agent launcher
-    inside that container resolves it; neither the render tests nor the
-    resolver's unit tests cross that seam.
+    Joins the rendered per-user service's environment to the OTLP block
+    (``claude_code_telemetry.record_telemetry_env``), exactly as the agent
+    launcher inside that container builds it once its record login is in
+    place; neither the render tests nor the block's unit tests cross that seam.
     """
     repo = built_render_stack
     host_config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
-    host_gateway_port = gateway_port(host_config)
+    host_record_port = parse_agent_record_block(
+        host_config, base=resolve_port_base(host_config)
+    ).port
 
     compose = yaml.safe_load(render_web_terminals(host_config)["docker-compose.web.yml"])
     web_terminals = host_config["modules"]["web_terminals"]
@@ -122,35 +125,33 @@ def test_host_networked_render_telemetry_targets_loopback(built_render_stack: Pa
         tier = entry.get("render")
         if not tier or tier not in catalog:
             continue
-        render_config = yaml.safe_load(
-            (repo / catalog[tier]["project_path"] / "config.yml").read_text(encoding="utf-8")
-        )
-        telemetry = (render_config.get("claude_code") or {}).get("telemetry") or {}
-        if not telemetry.get("enabled") or telemetry.get("backend") != "gateway":
-            continue
-
         service = compose["services"][f"web-{entry['name']}"]
         if service.get("network_mode") != "host":
             continue
         env = {k: _interpolate(v) for k, v in _service_env(service).items() if v is not None}
+        # The login arrives by the service's own env_file; any usable one will do.
+        env["OSPREY_AGENT_RECORD_LOGIN"] = "probe:token"
 
-        endpoint = _resolve_telemetry_endpoint(
-            telemetry, gateway_url=runtime_gateway_url(render_config, env)
+        block = record_telemetry_env(env)
+        endpoints = (
+            block.get("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+            block.get("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", ""),
         )
-        parsed = urlsplit(endpoint)
         checked += 1
-        if parsed.hostname not in _LOOPBACK_HOSTS or parsed.port != host_gateway_port:
-            wrong.append(f"web-{entry['name']} (render {tier}): {endpoint}")
+        for endpoint in endpoints:
+            parsed = urlsplit(endpoint)
+            if parsed.hostname not in _LOOPBACK_HOSTS or parsed.port != host_record_port:
+                wrong.append(f"web-{entry['name']} (render {tier}): {endpoint!r}")
 
     assert checked, (
         "Precondition failed: the built control-assistant stack exposed no "
-        "host-networked render with an enabled gateway telemetry backend — "
-        "the defect surface this test exists for was never reached."
+        "host-networked render — the defect surface this test exists for was "
+        "never reached."
     )
     assert not wrong, (
         "Host-networked render containers derive an OTLP endpoint that is not "
-        f"loopback:{host_gateway_port} (the host deployment's "
-        "services.telemetry_gateway.port): " + "; ".join(wrong)
+        f"loopback:{host_record_port} (the host deployment's agent-record "
+        "port): " + "; ".join(wrong)
     )
 
 

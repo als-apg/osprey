@@ -1,6 +1,6 @@
 """Unit tests for the lock-guarded JSON file store in ``osprey.bridges.core.store``.
 
-:class:`JsonFileStore` is the persistence substrate under the dedup, history and
+:class:`JsonFileStore` is the persistence substrate under the dedup, offsets and
 retry-queue stores, and it has no direct test suite of its own upstream — it is
 covered there only transitively. These tests pin its contract directly:
 

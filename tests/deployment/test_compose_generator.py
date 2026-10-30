@@ -2,9 +2,8 @@
 
 An "attached" project (built with ``deploy_services: false``, connecting to
 another project's already-deployed services stack) is what declares no
-deployed_services — the hello-world preset's own default build deploys two
-services (telemetry_store, telemetry_gateway). Two failure modes have to stay fixed for the empty
-case:
+deployed_services; the hello-world preset's own default build declares none
+either. Two failure modes have to stay fixed for the empty case:
 
 1. ``osprey build`` must still copy the root ``services/docker-compose.yml.j2``
    into the project, because the renderer references it unconditionally.
@@ -155,7 +154,10 @@ def test_copy_service_templates_copies_root_when_no_services(tmp_path: Path) -> 
 
     result = _copy_service_templates(tmp_path)
 
-    assert result == 0, "no per-service templates should be copied"
+    # The agent record is derived and always deployed, so its template is the
+    # one service template a project with no deployed_services still gets.
+    assert result == 1, "only the agent-record template should be copied"
+    assert (tmp_path / "services" / "agent_record" / "docker-compose.yml.j2").is_file()
     root_template = tmp_path / "services" / "docker-compose.yml.j2"
     assert root_template.is_file(), (
         "root services/docker-compose.yml.j2 must be copied even when "
@@ -247,11 +249,16 @@ def test_prepare_compose_files_names_a_shared_template_once(
     assert compose_files == [
         str(build / "docker-compose.yml"),
         str(build / "virtual_accelerator" / "docker-compose.yml"),
+        str(build / "agent_record" / "docker-compose.yml"),
     ]
 
     bindings = host_ports.parse_host_port_bindings(compose_files)
-    # The one file still describes both containers.
-    assert {binding.service for binding in bindings} == {"virtual-accelerator", "live-standin"}
+    # The one file still describes both containers; agent-record publishes its own.
+    assert {binding.service for binding in bindings} == {
+        "virtual-accelerator",
+        "live-standin",
+        "agent-record",
+    }
 
     # And the preflight sees each published port once. Probes answer "free" so
     # only the intra-deploy check can speak.
@@ -486,12 +493,19 @@ def test_worker_template_declares_env_file_when_present() -> None:
     )
 
 
+_RECORD_LOGIN = ".env.agent-record.login.dispatch-worker-1"
+
+
 def test_worker_template_omits_env_file_when_absent() -> None:
+    """No chain file is listed when the project has no .env.
+
+    An ``env_file:`` entry pointing at a missing path errors ``compose up``.
+    The worker's agent-record login is the one entry left: ``osprey build``
+    writes it before the file is rendered.
+    """
     rendered = _render_worker_template(env_present=False)
-    assert "env_file:" not in rendered and _ENV_FILE_LINE not in rendered, (
-        "no env_file should be emitted when the project has no .env "
-        "(an env_file: pointing at a missing path errors compose up)"
-    )
+    assert _ENV_FILE_LINE not in rendered
+    assert _worker_service(rendered)["env_file"] == [_RECORD_LOGIN]
 
 
 def test_inject_project_metadata_flags_env_presence(
@@ -1046,9 +1060,9 @@ def test_the_control_tree_is_never_mounted_writable(rel_path: str, config: dict[
 
 
 def test_every_dispatch_worker_reads_the_same_whole_tree() -> None:
-    """The opposite shape to this worker's audit bind, for the opposite reason.
+    """The opposite shape to this worker's spool bind, for the opposite reason.
 
-    Audit isolation IS the mount — a worker holds a bind to its own identity's
+    Spool isolation IS the mount — a worker holds a bind to its own identity's
     subdirectory and can read no other. The tree is what a worker reads about
     OTHER people: the owner of a dispatch job arrives with the request, so a
     mount narrowed to one identity would answer for nobody, and every worker
@@ -1063,9 +1077,9 @@ def test_every_dispatch_worker_reads_the_same_whole_tree() -> None:
     for i in (1, 2):
         volumes = doc["services"][f"dispatch-worker-{i}"]["volumes"]
         assert f"{source}:{target}:ro" in volumes
-        audit = [v for v in volumes if "/var/audit" in v]
-        assert audit and all(f"dispatch-worker-{i}" in v for v in audit), (
-            "the audit bind stays per-identity; only the tree is mounted whole"
+        spool = [v for v in volumes if "/var/spool/" in v]
+        assert spool and all(f"dispatch-worker-{i}" in v for v in spool), (
+            "the spool bind stays per-identity; only the tree is mounted whole"
         )
 
 
@@ -1435,25 +1449,6 @@ def test_worker_port_defaults_hold_when_the_axis_keys_are_absent() -> None:
     assert f"http://localhost:{worker_one}/health" in service["healthcheck"]["test"][1]
 
 
-def test_worker_telemetry_host_follows_the_axis() -> None:
-    """The gateway is the compose service on the bridge, the dial address on the host.
-
-    Under host the service name resolves to nothing, so host mode has to name
-    the interface the gateway publishes on rather than its service key.
-    """
-    bridge = _render_worker_template(env_present=True, deployed_services=["telemetry_gateway"])
-    host = _render_worker_template(
-        env_present=True,
-        deployed_services=["telemetry_gateway"],
-        dispatch_worker={"network": "host"},
-    )
-
-    assert _worker_service(bridge)["environment"]["OSPREY_OTEL_GATEWAY_HOST"] == "telemetry_gateway"
-    host_value = _worker_service(host)["environment"]["OSPREY_OTEL_GATEWAY_HOST"]
-    assert host_value != "telemetry_gateway"
-    assert host_value in {"localhost", "127.0.0.1"}
-
-
 def test_worker_archiver_link_uses_the_published_port_on_the_host_namespace() -> None:
     """Host mode reaches the store where it PUBLISHES, not at its container port."""
     rendered = _render_worker_template(
@@ -1629,7 +1624,7 @@ def test_worker_env_file_lists_the_whole_chain_in_precedence_order() -> None:
     default overwrite the local secret it exists to be overridden by.
     """
     rendered = _render_worker_template(env_present=True, env_chain=_ENV_CHAIN_BOTH)
-    assert _worker_service(rendered)["env_file"] == _ENV_CHAIN_BOTH
+    assert _worker_service(rendered)["env_file"] == [*_ENV_CHAIN_BOTH, _RECORD_LOGIN]
     assert "env_file:\n      - ./.env.shared\n      - ./.env\n" in rendered
 
 
@@ -1640,12 +1635,12 @@ def test_worker_env_file_lists_only_the_chain_files_that_exist() -> None:
     whose path is missing errors ``compose up`` outright.
     """
     rendered = _render_worker_template(env_present=False, env_chain=["./.env.shared"])
-    assert _worker_service(rendered)["env_file"] == ["./.env.shared"]
+    assert _worker_service(rendered)["env_file"] == ["./.env.shared", _RECORD_LOGIN]
 
 
 def test_worker_env_file_block_is_absent_for_an_empty_chain() -> None:
     rendered = _render_worker_template(env_present=False, env_chain=[])
-    assert "env_file" not in _worker_service(rendered)
+    assert _worker_service(rendered)["env_file"] == [_RECORD_LOGIN]
 
 
 def test_dev_wheel_build_uses_sys_executable(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1881,7 +1876,8 @@ def test_bluesky_permissions_file_allows_only_preview_plan(tmp_path: Path) -> No
     checks for presence.
     """
     _write_config(tmp_path, deployed_services=["bluesky"])
-    assert _copy_service_templates(tmp_path) == 1
+    # bluesky, plus the always-bundled agent record.
+    assert _copy_service_templates(tmp_path) == 2
 
     permissions_path = tmp_path / "services" / "bluesky" / "user_group_permissions.yaml"
     assert permissions_path.is_file()
@@ -2235,16 +2231,15 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
 
     # -- execution_method: subprocess (the only backend OSPREY ships) --------
     yaml = YAML()
-    with open(project_dir / "config.yml") as fh:
-        config = yaml.load(fh)
+    config = yaml.load(project_dir / "config.yml")
     assert config["execution"]["execution_method"] == "subprocess", (
         "the rendered config must name the backend that actually runs agent "
         "Python; the deploy config overrides nothing here"
     )
     assert config["control_system"]["type"] == "virtual_accelerator"
-    assert container_lifecycle._project_image_build_target(dict(config), {}) is None, (
-        "the plan-stack lanes deploy no service on the project image, so `osprey up` "
-        f"builds none: {config.get('deployed_services')}"
+    assert container_lifecycle._deployed_project_image_services(dict(config)) == ["agent_record"], (
+        "the plan-stack lanes deploy no service on the project image; only the "
+        f"always-deployed agent record runs on it: {config.get('deployed_services')}"
     )
 
     # -- bluesky MCP server enabled in the rendered .mcp.json -------------------
@@ -3576,8 +3571,8 @@ def test_service_build_args_carry_the_prerelease_flag_only_for_a_prerelease_pin(
     suffix: str,  # noqa: ARG001 - a column of the shared _PREFIXED_IMAGE_SERVICES table,
 ) -> None:
     """A beta pin renders ``OSPREY_PIP_PRE: "1"`` beside ``OSPREY_VERSION`` so
-    the recipe's pip resolve admits the paired connectors beta; a stable pin
-    renders nothing, keeping the resolve strict. The context key comes from
+    the recipe's pip resolve admits a connectors pre-release for the
+    framework's floor; a stable pin renders nothing, keeping the resolve strict. The context key comes from
     ``_inject_project_metadata`` (see :class:`TestImagePinVersion`)."""
     beta = yaml.safe_load(
         _render_service_template(
@@ -3665,7 +3660,7 @@ def test_worker_template_fallback_matches_worker_image_target_python_fallback() 
 # `python -m build` takes tens of seconds, so it is memoized per process:
 # built at most once, copied per context. Staging is also scoped to build
 # contexts that actually contain a Dockerfile — pure-image services
-# (postgresql, telemetry_store) never install the wheel.
+# (postgresql, mongodb) never install the wheel.
 # ---------------------------------------------------------------------------
 
 
@@ -4512,10 +4507,10 @@ _NEXTCLOUD_BRIDGE = _ChatBridge(
 
 
 def test_nextcloud_bridge_state_volume_is_named_and_mounted_at_data() -> None:
-    """/data is a NAMED volume — it holds the dedup ledger, history, and offsets.
+    """/data is a NAMED volume — it holds the dedup ledger and the poll offsets.
 
-    All three state files default to paths under /data (``DEDUP_PATH``,
-    ``HISTORY_PATH``, ``OFFSETS_PATH``). Without a persisted volume a restart
+    Both state files default to paths under /data (``DEDUP_PATH``,
+    ``OFFSETS_PATH``); conversation history lives in the agent record. Without a persisted volume a restart
     loses the in-flight dedup ledger (re-answering or dropping questions) and
     resets the poll offsets (replaying or skipping room history), so this is a
     correctness requirement, not a convenience. Named rather than a bind mount so
@@ -4525,12 +4520,18 @@ def test_nextcloud_bridge_state_volume_is_named_and_mounted_at_data() -> None:
     parsed = yaml.safe_load(rendered)
     service = parsed["services"]["nextcloud-bridge"]
 
-    assert service["volumes"] == ["nextcloud_bridge_data:/data"]
+    # The state volume, then the bridge's own spool and state binds (its
+    # agent-record zones, not its bridge state).
+    assert service["volumes"][0] == "nextcloud_bridge_data:/data"
+    assert [str(v).rsplit(":", 1)[1] for v in service["volumes"][1:]] == [
+        "/nextcloud-bridge",
+        "/nextcloud-bridge",
+    ]
     assert "nextcloud_bridge_data" in parsed["volumes"], (
         "the /data mount names nextcloud_bridge_data, so the compose file must "
         "declare it as a top-level named volume or `compose up` errors"
     )
-    assert not any(str(v).startswith((".", "/", "$")) for v in service["volumes"]), (
+    assert not str(service["volumes"][0]).startswith((".", "/", "$")), (
         "bridge state must not be a host bind mount — a named volume is what "
         "keeps it project-namespaced and portable across runtimes"
     )
@@ -4593,7 +4594,7 @@ def test_nextcloud_bridge_neutral_tunables_keep_their_defaults_in_code() -> None
 def test_nextcloud_bridge_state_paths_match_their_code_defaults() -> None:
     """The state paths' compose defaults equal the config dataclasses' defaults.
 
-    These three are the only vars whose ``:-`` fallback restates a code default
+    These two are the only vars whose ``:-`` fallback restates a code default
     instead of passing through empty: their readers are plain
     ``e.get(NAME, default)`` calls, for which "" is an accepted value, so the
     empty-fallback trick the neutral tunables use would point the stores at the
@@ -4609,11 +4610,11 @@ def test_nextcloud_bridge_state_paths_match_their_code_defaults() -> None:
     nextcloud_defaults = NextcloudBridgeConfig.from_env({})
     code_defaults = {
         "DEDUP_PATH": core_defaults.dedup_path,
-        "HISTORY_PATH": core_defaults.history_path,
         "OFFSETS_PATH": nextcloud_defaults.offsets_path,
     }
 
     environment = _bridge_service(_NEXTCLOUD_BRIDGE)["environment"]
+    assert "HISTORY_PATH" not in environment
     for var, code_default in code_defaults.items():
         match = _COMPOSE_VAR_RE.match(str(environment[var]))
         assert match is not None and match.group("default") is not None, (
@@ -4641,11 +4642,10 @@ def test_nextcloud_bridge_state_paths_match_their_code_defaults() -> None:
         assert overridden[var] == f"/srv/state/{var.lower()}.json"
 
     # And the override reaches the config objects under the names they read —
-    # an empty value would NOT, which is why these three are not passed through
+    # an empty value would NOT, which is why these two are not passed through
     # with an empty fallback.
     cfg = NextcloudBridgeConfig.from_env(overridden)
     assert cfg.core.dedup_path == "/srv/state/dedup_path.json"
-    assert cfg.core.history_path == "/srv/state/history_path.json"
     assert cfg.offsets_path == "/srv/state/offsets_path.json"
 
 
@@ -4702,8 +4702,8 @@ def test_nextcloud_bridge_rendered_env_boots_with_host_secrets_supplied() -> Non
     assert cfg.core.trigger == "nextcloud-question"
     assert cfg.core.dispatcher_url == f"http://event-dispatcher:{default_port('dispatcher')}"
     assert cfg.core.worker_url == f"http://dispatch-worker-1:{default_port('worker', 1)}"
-    # The three state files must land on the mounted volume, not the image layer.
-    for path in (cfg.offsets_path, cfg.core.dedup_path, cfg.core.history_path):
+    # Both state files must land on the mounted volume, not the image layer.
+    for path in (cfg.offsets_path, cfg.core.dedup_path):
         assert path.startswith("/data/"), path
 
 
@@ -4717,7 +4717,8 @@ def test_nextcloud_bridge_template_is_bundled_into_a_declaring_project(tmp_path:
     """
     _write_config(tmp_path, deployed_services=["nextcloud_bridge"])
 
-    assert _copy_service_templates(tmp_path) == 1
+    # The bridge, plus the always-bundled agent record.
+    assert _copy_service_templates(tmp_path) == 2
 
     service_dir = tmp_path / "services" / "nextcloud_bridge"
     assert (service_dir / "docker-compose.yml.j2").is_file()
@@ -4794,10 +4795,10 @@ def _gchat_environment_text(rendered: str) -> str:
 
 
 def test_gchat_bridge_state_volume_is_named_and_mounted_at_data() -> None:
-    """/data is a NAMED volume — it holds the dedup ledger and the history store.
+    """/data is a NAMED volume — it holds the dedup ledger.
 
-    Both state files default to paths under /data (``DEDUP_PATH``,
-    ``HISTORY_PATH``). Without a persisted volume a restart loses the in-flight
+    The state file defaults to a path under /data (``DEDUP_PATH``); conversation
+    history lives in the agent record. Without a persisted volume a restart loses the in-flight
     dedup ledger and the bridge re-answers or drops questions that were mid-run,
     so this is a correctness requirement, not a convenience. Named rather than a
     bind mount so it is namespaced per compose project and survives
@@ -4964,8 +4965,8 @@ def test_gchat_bridge_neutral_tunables_keep_their_defaults_in_code() -> None:
 def test_gchat_bridge_state_paths_match_their_code_defaults() -> None:
     """The state paths' compose defaults equal the config dataclass's defaults.
 
-    These two are the only environment vars whose ``:-`` fallback restates a code
-    default instead of passing through empty: their reader is a plain
+    ``DEDUP_PATH`` is the only environment var whose ``:-`` fallback restates a
+    code default instead of passing through empty: its reader is a plain
     ``e.get(NAME, default)`` call, for which "" is a value the code accepts, so
     the empty-fallback trick the neutral tunables use would point the stores at
     the empty path. That duplication is the thing this test exists to bind — the
@@ -4978,10 +4979,10 @@ def test_gchat_bridge_state_paths_match_their_code_defaults() -> None:
     core_defaults = CoreConfig.from_env({})
     code_defaults = {
         "DEDUP_PATH": core_defaults.dedup_path,
-        "HISTORY_PATH": core_defaults.history_path,
     }
 
     environment = _bridge_service(_GCHAT_BRIDGE)["environment"]
+    assert "HISTORY_PATH" not in environment
     for var, code_default in code_defaults.items():
         match = _COMPOSE_VAR_RE.match(str(environment[var]))
         assert match is not None and match.group("default") is not None, (
@@ -5009,13 +5010,12 @@ def test_gchat_bridge_state_paths_match_their_code_defaults() -> None:
         assert overridden[var] == f"/srv/state/{var.lower()}.json"
 
     # And the override reaches the config object under the names it reads — an
-    # empty value would NOT, which is why these two are not passed through with
+    # empty value would NOT, which is why it is not passed through with
     # an empty fallback.
     from osprey.bridges.google_chat.config import GoogleChatBridgeConfig
 
     cfg = GoogleChatBridgeConfig.from_env(overridden)
     assert cfg.core.dedup_path == "/srv/state/dedup_path.json"
-    assert cfg.core.history_path == "/srv/state/history_path.json"
 
 
 def test_gchat_bridge_depends_on_dispatcher_only_when_co_deployed() -> None:
@@ -5071,9 +5071,8 @@ def test_gchat_bridge_rendered_env_boots_with_host_secrets_supplied() -> None:
     assert cfg.core.trigger == "gchat-question"
     assert cfg.core.dispatcher_url == f"http://event-dispatcher:{default_port('dispatcher')}"
     assert cfg.core.worker_url == f"http://dispatch-worker-1:{default_port('worker', 1)}"
-    # Both state files must land on the mounted volume, not the image layer.
-    for path in (cfg.core.dedup_path, cfg.core.history_path):
-        assert path.startswith("/data/"), path
+    # The state file must land on the mounted volume, not the image layer.
+    assert cfg.core.dedup_path.startswith("/data/"), cfg.core.dedup_path
 
 
 def test_gchat_bridge_template_is_bundled_into_a_declaring_project(tmp_path: Path) -> None:
@@ -5086,7 +5085,8 @@ def test_gchat_bridge_template_is_bundled_into_a_declaring_project(tmp_path: Pat
     """
     _write_config(tmp_path, deployed_services=["gchat_bridge"])
 
-    assert _copy_service_templates(tmp_path) == 1
+    # The bridge, plus the always-bundled agent record.
+    assert _copy_service_templates(tmp_path) == 2
 
     service_dir = tmp_path / "services" / "gchat_bridge"
     assert (service_dir / "docker-compose.yml.j2").is_file()
@@ -5175,10 +5175,10 @@ _TEAMS_SERVICEBUS_CONNECTION_STRING = (
 
 
 def test_teams_bridge_state_volume_is_named_and_mounted_at_data() -> None:
-    """/data is a NAMED volume — it holds the dedup ledger and the history store.
+    """/data is a NAMED volume — it holds the dedup ledger.
 
-    Both state files default to paths under /data (``DEDUP_PATH``,
-    ``HISTORY_PATH``). Without a persisted volume a restart loses the in-flight
+    The state file defaults to a path under /data (``DEDUP_PATH``); conversation
+    history lives in the agent record. Without a persisted volume a restart loses the in-flight
     dedup ledger and the bridge re-answers or drops questions that were mid-run,
     so this is a correctness requirement, not a convenience. There is no third
     state file: unlike the nextcloud poller the bridge keeps no read cursor of
@@ -5190,12 +5190,18 @@ def test_teams_bridge_state_volume_is_named_and_mounted_at_data() -> None:
     parsed = yaml.safe_load(rendered)
     service = parsed["services"]["teams-bridge"]
 
-    assert service["volumes"] == ["teams_bridge_data:/data"]
+    # The state volume, then the bridge's own spool and state binds (its
+    # agent-record zones, not its bridge state).
+    assert service["volumes"][0] == "teams_bridge_data:/data"
+    assert [str(v).rsplit(":", 1)[1] for v in service["volumes"][1:]] == [
+        "/teams-bridge",
+        "/teams-bridge",
+    ]
     assert "teams_bridge_data" in parsed["volumes"], (
         "the /data mount names teams_bridge_data, so the compose file must "
         "declare it as a top-level named volume or `compose up` errors"
     )
-    assert not any(str(v).startswith((".", "/", "$")) for v in service["volumes"]), (
+    assert not str(service["volumes"][0]).startswith((".", "/", "$")), (
         "bridge state must not be a host bind mount — a named volume is what "
         "keeps it project-namespaced and portable across runtimes"
     )
@@ -5320,8 +5326,8 @@ def test_teams_bridge_empty_cloud_resolves_to_the_commercial_default() -> None:
 def test_teams_bridge_state_paths_match_their_code_defaults() -> None:
     """The state paths' compose defaults equal the config dataclass's defaults.
 
-    These two are the only environment vars whose ``:-`` fallback restates a code
-    default instead of passing through empty: their reader is a plain
+    ``DEDUP_PATH`` is the only environment var whose ``:-`` fallback restates a
+    code default instead of passing through empty: its reader is a plain
     ``e.get(NAME, default)`` call, for which "" is a value the code accepts, so
     the empty-fallback trick the neutral tunables use would point the stores at
     the empty path. That duplication is the thing this test exists to bind — the
@@ -5334,10 +5340,10 @@ def test_teams_bridge_state_paths_match_their_code_defaults() -> None:
     core_defaults = CoreConfig.from_env({})
     code_defaults = {
         "DEDUP_PATH": core_defaults.dedup_path,
-        "HISTORY_PATH": core_defaults.history_path,
     }
 
     environment = _bridge_service(_TEAMS_BRIDGE)["environment"]
+    assert "HISTORY_PATH" not in environment
     for var, code_default in code_defaults.items():
         match = _COMPOSE_VAR_RE.match(str(environment[var]))
         assert match is not None and match.group("default") is not None, (
@@ -5365,13 +5371,12 @@ def test_teams_bridge_state_paths_match_their_code_defaults() -> None:
         assert overridden[var] == f"/srv/state/{var.lower()}.json"
 
     # And the override reaches the config object under the names it reads — an
-    # empty value would NOT, which is why these two are not passed through with
+    # empty value would NOT, which is why it is not passed through with
     # an empty fallback.
     from osprey.bridges.teams.config import TeamsBridgeConfig
 
     cfg = TeamsBridgeConfig.from_env(overridden)
     assert cfg.core.dedup_path == "/srv/state/dedup_path.json"
-    assert cfg.core.history_path == "/srv/state/history_path.json"
 
 
 def test_teams_bridge_depends_on_dispatcher_only_when_co_deployed() -> None:
@@ -5435,9 +5440,8 @@ def test_teams_bridge_rendered_env_boots_with_host_secrets_supplied() -> None:
     assert cfg.core.trigger == "teams-question"
     assert cfg.core.dispatcher_url == f"http://event-dispatcher:{default_port('dispatcher')}"
     assert cfg.core.worker_url == f"http://dispatch-worker-1:{default_port('worker', 1)}"
-    # Both state files must land on the mounted volume, not the image layer.
-    for path in (cfg.core.dedup_path, cfg.core.history_path):
-        assert path.startswith("/data/"), path
+    # The state file must land on the mounted volume, not the image layer.
+    assert cfg.core.dedup_path.startswith("/data/"), cfg.core.dedup_path
 
 
 def test_teams_bridge_template_is_bundled_into_a_declaring_project(tmp_path: Path) -> None:
@@ -5454,7 +5458,8 @@ def test_teams_bridge_template_is_bundled_into_a_declaring_project(tmp_path: Pat
     """
     _write_config(tmp_path, deployed_services=["teams_bridge"])
 
-    assert _copy_service_templates(tmp_path) == 1
+    # The bridge, plus the always-bundled agent record.
+    assert _copy_service_templates(tmp_path) == 2
 
     service_dir = tmp_path / "services" / "teams_bridge"
     assert (service_dir / "docker-compose.yml.j2").is_file()
@@ -6072,8 +6077,13 @@ def test_bridge_without_the_axis_renders_todays_network_blocks(
     """
     rendered = _render_bridge_with_axis(bridge)
 
-    # Service-level membership, in place directly after the state volume.
-    assert "_data:/data\n    networks:\n      - osprey-network\n\nvolumes:\n" in rendered
+    # Service-level membership, in place directly after the volumes: the
+    # state volume, then the bridge's own spool and state binds.
+    assert re.search(
+        r"_data:/data\n(?:      #.*\n)*(?:      - .*-bridge\n){2}"
+        r"    networks:\n      - osprey-network\n\nvolumes:\n",
+        rendered,
+    ), rendered
 
     # The file-level stanza still closes the file, still one blank line after
     # the volumes block, which ends at the bare volume name: a volume carries
@@ -6427,6 +6437,7 @@ def _head_dispatcher_render() -> str:
             capture_output=True,
             text=True,
             check=True,
+            timeout=60,
         ).stdout
     except (OSError, subprocess.CalledProcessError) as exc:  # pragma: no cover - env-dependent
         pytest.skip(f"cannot read the committed template: {exc}")
@@ -7832,6 +7843,11 @@ def test_an_armed_lane_that_checks_no_limits_builds_with_a_staged_device_set(
     # A render that is not refused goes on to the root compose file, which the
     # packaged templates supply at deploy time; a stand-in is enough here.
     (repo / "services" / "docker-compose.yml.j2").write_text(
+        "networks:\n  osprey-network:\n", encoding="utf-8"
+    )
+    # So does the always-rendered agent record.
+    (repo / "services" / "agent_record").mkdir()
+    (repo / "services" / "agent_record" / "docker-compose.yml.j2").write_text(
         "networks:\n  osprey-network:\n", encoding="utf-8"
     )
     _write_view(repo)
@@ -9253,8 +9269,8 @@ def test_dispatch_worker_mounts_the_staged_control_identity_directory_read_only(
 # ---------------------------------------------------------------------------
 
 
-def _write_store_config(tmp_path: Path, auth_method: str) -> Path:
-    """A deployment running the store and gateway, its web terminals signing in by *auth_method*."""
+def _write_signed_in_config(tmp_path: Path, auth_method: str) -> Path:
+    """A deployment whose web terminals sign in by *auth_method*."""
     config_path = tmp_path / "config.yml"
     with config_path.open("w", encoding="utf-8") as handle:
         YAML().dump(
@@ -9264,11 +9280,7 @@ def _write_store_config(tmp_path: Path, auth_method: str) -> Path:
                 "build_dir": str(tmp_path / "build"),
                 "system": {"timezone": "UTC"},
                 "deploy": {"host": "deploy-host", "fqdn": "deploy-host.example.org"},
-                "services": {
-                    "telemetry_store": {"path": "./services/telemetry_store"},
-                    "telemetry_gateway": {"path": "./services/telemetry_gateway"},
-                },
-                "deployed_services": ["telemetry_store", "telemetry_gateway"],
+                "deployed_services": [],
                 "modules": {
                     "web_terminals": {
                         "enabled": True,
@@ -9293,12 +9305,12 @@ def test_up_finds_exactly_the_compose_files_the_build_wrote(
     """Build and up agree on the stack, derived services included.
 
     The history page has no ``deployed_services`` entry: the build renders it
-    because the config deploys the store under sign-in. ``osprey up`` and
+    because the config's web terminals sign people in. ``osprey up`` and
     ``osprey down`` hand compose what :func:`find_existing_compose_files`
     reports, so a lookup that walked ``deployed_services`` alone left the
     container the build rendered out of every stack it started.
     """
-    config_path = _write_store_config(tmp_path, auth_method)
+    config_path = _write_signed_in_config(tmp_path, auth_method)
     _copy_service_templates(tmp_path)
     monkeypatch.chdir(tmp_path)
 

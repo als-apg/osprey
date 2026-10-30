@@ -1109,9 +1109,7 @@ def test_env_production_quotes_a_value_that_would_not_survive_a_re_read(tmp_path
 
 
 # ---------------------------------------------------------------------------
-# Telemetry-block references. A bare reference is a credential the env chain
-# must carry; `.env.users` never carries it, because one file is handed to
-# every render alike.
+# Config values that ARE an env-var reference
 # ---------------------------------------------------------------------------
 
 
@@ -1131,89 +1129,6 @@ def test_env_reference_tells_the_two_reference_forms_from_a_literal(value, expec
     """The whole point of the matcher: a bare reference and a defaulted one
     fail differently in a container, and neither looks like a plain value."""
     assert env_production._env_reference(value) == expected
-
-
-def _catalog_config(project_path, render="operator", deployed_services=()):
-    """A local-mode deploy config whose roster runs one catalogued render."""
-    return {
-        "deployed_services": list(deployed_services),
-        "facility": {},
-        "system": {"timezone": "UTC"},
-        "modules": {
-            "web_terminals": {
-                "enabled": True,
-                "image_source": "local",
-                "default_tier": render,
-                "renders": {
-                    render: {"kind": "tier", "project": project_path, "project_path": project_path}
-                },
-                "users": [{"name": "alice", "index": 0, "tier": render}],
-            },
-        },
-    }
-
-
-def _write_block_render(tmp_path, block, name="operator-proj"):
-    """Write a rendered render project whose ``claude_code.telemetry`` is ``block``."""
-    project_dir = tmp_path / name
-    project_dir.mkdir()
-    (project_dir / "config.yml").write_text(
-        yaml.safe_dump(
-            {
-                "project_name": name,
-                "claude_code": {"provider": "anthropic", "telemetry": block},
-            }
-        ),
-        encoding="utf-8",
-    )
-    return name
-
-
-def test_telemetry_switched_off_does_not_refuse_the_deploy(tmp_path):
-    """The master switch is read before the references under it.
-
-    `enabled: false` makes the builder export no OTLP env, so nothing ever
-    presents the credential; refusing would block a deploy over a block it
-    already declared inert.
-    """
-    _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
-    block = _collector_block(endpoint="${COLLECTOR_URL}", enabled=False)
-    config = _catalog_config(_write_block_render(tmp_path, block))
-
-    assert env_production.users_env_generation_problem(config, tmp_path) is None
-
-
-def test_telemetry_switched_off_still_refuses_an_ordinary_missing_secret(tmp_path):
-    """The switch silences the telemetry reference, not the whole gate."""
-    _write_dotenv(tmp_path / ".env", {"UNRELATED": "x"})
-    block = _collector_block(endpoint="${COLLECTOR_URL}", enabled=False)
-    config = _catalog_config(_write_block_render(tmp_path, block))
-
-    problem = env_production.users_env_generation_problem(config, tmp_path)
-
-    assert problem is not None
-    assert "ANTHROPIC_API_KEY" in problem
-    assert "COLLECTOR_URL" not in problem
-
-
-def test_an_absent_telemetry_switch_reads_as_off(tmp_path):
-    """Absent is OFF, matching `build_telemetry_env`'s own `get("enabled")`."""
-    block = {"backend": "generic", "endpoint": "${COLLECTOR_URL}"}
-    config = _catalog_config(_write_block_render(tmp_path, block))
-
-    assert env_production._telemetry_credential_requirements(config, tmp_path) == {}
-
-
-def test_a_users_file_never_draws_a_telemetry_advisory(tmp_path, caplog):
-    """An existing file is asked only about LLM credentials, never about telemetry."""
-    (tmp_path / ".env.users").write_text("ANTHROPIC_API_KEY=ok\n", encoding="utf-8")
-    block = _collector_block(resource_attributes={"tenant": "${TENANT_NAME:-site}"})
-    config = _catalog_config(_write_block_render(tmp_path, block))
-
-    with caplog.at_level("WARNING"):
-        env_production.ensure_env_production(config, tmp_path)
-
-    assert "TENANT_NAME" not in caplog.text
 
 
 # ---------------------------------------------------------------------------
@@ -1279,278 +1194,55 @@ def test_provisioning_refuses_an_undeclared_role(tmp_path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# A collector's references sit anywhere in its block
-#
-# Every reference is handled as a secret: required
-# when it carries no default of its own, never copied into `.env.users`.
+# The shared `.env.users` file carries no agent-record login
 # ---------------------------------------------------------------------------
 
 
-def _collector_block(**overrides):
-    """A generic-collector telemetry block, with ``overrides`` applied."""
+def _catalog_config(project_path, render="operator"):
+    """A local-mode deploy config whose roster runs one catalogued render."""
     return {
-        "enabled": True,
-        "backend": "generic",
-        "endpoint": "https://collector.example.org:4318",
-        **overrides,
+        "deployed_services": [],
+        "facility": {},
+        "system": {"timezone": "UTC"},
+        "modules": {
+            "web_terminals": {
+                "enabled": True,
+                "image_source": "local",
+                "default_tier": render,
+                "renders": {
+                    render: {"kind": "tier", "project": project_path, "project_path": project_path}
+                },
+                "users": [{"name": "alice", "index": 0, "tier": render}],
+            },
+        },
     }
 
 
-@pytest.mark.parametrize(
-    "attributes",
-    [
-        {"collector.key": "${OTLP_TOKEN}"},
-        {"collector.key": "key-${OTLP_TOKEN}"},
-        "collector.key=${OTLP_TOKEN},deployment.tier=site",
-    ],
-    ids=["whole-value", "embedded", "wire-string"],
-)
-def test_a_bare_reference_is_a_requirement(tmp_path, attributes):
-    """A bare reference is required whichever shape the value takes."""
-    block = _collector_block(resource_attributes=attributes)
-    config = _catalog_config(_write_block_render(tmp_path, block))
-
-    reported = env_production._telemetry_credential_requirements(config, tmp_path)
-
-    assert list(reported) == ["OTLP_TOKEN"]
-    assert reported["OTLP_TOKEN"].startswith("claude_code.telemetry.resource_attributes")
-    assert reported["OTLP_TOKEN"].endswith("(render 'operator')")
-
-
-def test_a_reference_with_its_own_default_asks_nothing(tmp_path):
-    """A reference that names its own fallback resolves on its own."""
-    block = _collector_block(endpoint="${COLLECTOR_URL:-https://collector.example.org:4318}")
-    config = _catalog_config(_write_block_render(tmp_path, block))
-
-    assert env_production._telemetry_credential_requirements(config, tmp_path) == {}
-
-
-def test_a_switched_off_collector_block_is_asked_for_nothing(tmp_path):
-    """The master switch gates the whole-block walk."""
-    block = _collector_block(endpoint="${COLLECTOR_URL}", enabled=False)
-    config = _catalog_config(_write_block_render(tmp_path, block))
-
-    assert env_production._telemetry_credential_requirements(config, tmp_path) == {}
-
-
-def test_a_reference_anywhere_in_the_block_is_read(tmp_path):
-    """The endpoint and list members are walked too, each named by its key path."""
-    block = _collector_block(
-        endpoint="${COLLECTOR_URL}", resource_attributes=["site=${SITE_LABEL}"]
+def _write_render(tmp_path, name="operator-proj"):
+    """Write a rendered render project with an anthropic Claude Code block."""
+    project_dir = tmp_path / name
+    project_dir.mkdir()
+    (project_dir / "config.yml").write_text(
+        yaml.safe_dump({"project_name": name, "claude_code": {"provider": "anthropic"}}),
+        encoding="utf-8",
     )
-    config = _catalog_config(_write_block_render(tmp_path, block))
-
-    assert env_production._telemetry_credential_requirements(config, tmp_path) == {
-        "COLLECTOR_URL": "claude_code.telemetry.endpoint (render 'operator')",
-        "SITE_LABEL": "claude_code.telemetry.resource_attributes[0] (render 'operator')",
-    }
+    return name
 
 
-def test_a_gateway_login_in_the_chain_never_reaches_the_users_file(tmp_path):
-    """A sender's gateway login rides its own ``env_file``, never the shared chain.
+def test_a_record_login_in_the_chain_never_reaches_the_users_file(tmp_path):
+    """An agent-record login in the deploy ``.env`` never reaches the shared file.
 
-    Even a deploy ``.env`` that happens to hold one: the shared file every
-    terminal reads must not carry a login, or every terminal would send as
-    whoever that login names.
+    The shared file every terminal reads must not carry a login, or every
+    terminal would act as whoever that login names.
     """
     _write_dotenv(
         tmp_path / ".env",
-        {"ANTHROPIC_API_KEY": "cc-secret", "OSPREY_TELEMETRY_LOGIN": "alice:l0gin-s3cret"},
+        {"ANTHROPIC_API_KEY": "cc-secret", "OSPREY_AGENT_RECORD_LOGIN": "alice:l0gin-s3cret"},
     )
-    block = {"enabled": True, "backend": "gateway"}
-    config = _catalog_config(
-        _write_block_render(tmp_path, block),
-        deployed_services=("telemetry_store", "telemetry_gateway"),
-    )
+    config = _catalog_config(_write_render(tmp_path))
 
-    assert env_production._telemetry_credential_requirements(config, tmp_path) == {}
     result = env_production.ensure_env_production(config, tmp_path)
 
     raw_text = result.read_text(encoding="utf-8")
-    assert "OSPREY_TELEMETRY_LOGIN" not in raw_text
+    assert "OSPREY_AGENT_RECORD_LOGIN" not in raw_text
     assert "l0gin-s3cret" not in raw_text
-
-
-def test_a_block_secret_in_the_chain_never_reaches_the_users_file(tmp_path):
-    """Required from the chain, and still never copied into the shared file."""
-    _write_dotenv(
-        tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret", "OTLP_TOKEN": "c0llect0r-t0ken"}
-    )
-    block = _collector_block(resource_attributes={"collector.key": "${OTLP_TOKEN}"})
-    config = _catalog_config(_write_block_render(tmp_path, block))
-
-    result = env_production.ensure_env_production(config, tmp_path)
-
-    raw_text = result.read_text(encoding="utf-8")
-    assert "OTLP_TOKEN" not in raw_text
-    assert "c0llect0r-t0ken" not in raw_text
-
-
-def test_an_unset_block_secret_refuses_the_deploy_by_name(tmp_path, monkeypatch):
-    """The refusal names the key and the variable, with the collector note."""
-    monkeypatch.delenv("OTLP_TOKEN", raising=False)
-    _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
-    block = _collector_block(resource_attributes={"collector.key": "${OTLP_TOKEN}"})
-    config = _catalog_config(_write_block_render(tmp_path, block))
-
-    with pytest.raises(RuntimeError, match="OTLP_TOKEN") as excinfo:
-        env_production.ensure_env_production(config, tmp_path)
-
-    message = str(excinfo.value)
-    assert (
-        "claude_code.telemetry.resource_attributes.collector.key (render 'operator') "
-        "needs OTLP_TOKEN"
-    ) in message
-    assert "handled as a credential" in message
-    assert not (tmp_path / env_production.USERS_ENV_FILENAME).exists()
-
-
-def test_the_deploy_config_block_is_walked_too(tmp_path):
-    """The deploy config's own telemetry block answers as a render's does."""
-    config = _catalog_config(_write_block_render(tmp_path, {"enabled": False}))
-    config["claude_code"] = {
-        "telemetry": _collector_block(resource_attributes={"collector.key": "${OTLP_TOKEN}"})
-    }
-
-    assert env_production._telemetry_credential_requirements(config, tmp_path) == {
-        "OTLP_TOKEN": "claude_code.telemetry.resource_attributes.collector.key (deploy config)"
-    }
-
-
-def test_a_block_secret_and_a_collector_token_each_get_their_own_note(tmp_path, monkeypatch):
-    """The block note names the block secret; the collector note the token."""
-    monkeypatch.delenv("OTLP_COLLECTOR_TOKEN", raising=False)
-    monkeypatch.delenv("RELAY_KEY", raising=False)
-    _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
-    block = _token_block(resource_attributes={"relay.key": "${RELAY_KEY}"})
-    config = _catalog_config(_write_block_render(tmp_path, block))
-
-    problem = env_production.users_env_generation_problem(config, tmp_path)
-
-    assert problem is not None
-    assert "Note: RELAY_KEY is referenced from the telemetry block" in problem
-    assert "Note: OTLP_COLLECTOR_TOKEN is the telemetry collector's bearer token" in problem
-
-
-# ---------------------------------------------------------------------------
-# The variables a terminal's telemetry block needs delivered to its container
-#
-# The collector's token first, then every referenced variable.
-# ---------------------------------------------------------------------------
-
-
-def _telemetry_config(block: dict) -> dict:
-    return {"claude_code": {"provider": "anthropic", "telemetry": block}}
-
-
-_COLLECTOR_TELEMETRY = {
-    "enabled": True,
-    "backend": "generic",
-    "endpoint": "${OTLP_ENDPOINT:-https://collector.example.org}",
-    "resource_attributes": {"site": "${SITE_NAME}"},
-    "auth": {"token_env": "OTLP_TOKEN"},
-}
-
-
-def test_telemetry_delivered_vars_is_the_token_then_every_reference():
-    """The token name leads; references follow in walk order."""
-    assert env_production.telemetry_delivered_vars(_telemetry_config(_COLLECTOR_TELEMETRY)) == (
-        "OTLP_TOKEN",
-        "OTLP_ENDPOINT",
-        "SITE_NAME",
-    )
-
-
-def test_telemetry_delivered_vars_is_empty_when_telemetry_is_off():
-    """A block the builder discards needs nothing delivered."""
-    block = {**_COLLECTOR_TELEMETRY, "enabled": False}
-    assert env_production.telemetry_delivered_vars(_telemetry_config(block)) == ()
-
-
-def test_telemetry_delivered_vars_refuses_a_value_in_place_of_a_name():
-    """A token value where the name belongs is refused, never echoed."""
-    block = {**_COLLECTOR_TELEMETRY, "auth": {"token_env": "abc.def-123"}}
-    with pytest.raises(ValueError, match="auth.token_env") as excinfo:
-        env_production.telemetry_delivered_vars(_telemetry_config(block))
-    assert "abc.def-123" not in str(excinfo.value)
-
-
-def test_renders_needing_telemetry_vars_maps_each_render_to_its_list(tmp_path):
-    """Each render answers with its own names; one exporting nothing is absent."""
-    config = _render_config(
-        tmp_path, {"ops": "anthropic", "physics": "anthropic", "viewer": "anthropic"}
-    )
-    blocks = {
-        "ops": {**_COLLECTOR_TELEMETRY},
-        "physics": {
-            "enabled": True,
-            "backend": "generic",
-            "endpoint": "https://collector.example.org",
-            "auth": {"token_env": "PHYSICS_COLLECTOR_TOKEN"},
-        },
-        "viewer": {**_COLLECTOR_TELEMETRY, "enabled": False},
-    }
-    for render, block in blocks.items():
-        config_yml = tmp_path / f"{render}-proj" / "config.yml"
-        config_yml.write_text(
-            yaml.safe_dump({"project_name": f"{render}-proj", **_telemetry_config(block)}),
-            encoding="utf-8",
-        )
-
-    assert env_production.renders_needing_telemetry_vars(config, tmp_path) == {
-        "ops": ("OTLP_TOKEN", "OTLP_ENDPOINT", "SITE_NAME"),
-        "physics": ("PHYSICS_COLLECTOR_TOKEN",),
-    }
-
-
-# ---------------------------------------------------------------------------
-# The collector's bearer token is required from the env chain
-#
-# Every exporting terminal receives it through its own compose environment, so
-# the chain must carry it; `.env.users` never does.
-# ---------------------------------------------------------------------------
-
-
-def _token_block(**overrides):
-    return _collector_block(auth={"token_env": "OTLP_COLLECTOR_TOKEN"}, **overrides)
-
-
-def test_a_collector_token_missing_from_the_chain_refuses_the_deploy(tmp_path, monkeypatch):
-    """The refusal names the variable and the key that names it."""
-    monkeypatch.delenv("OTLP_COLLECTOR_TOKEN", raising=False)
-    _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
-    config = _catalog_config(_write_block_render(tmp_path, _token_block()))
-
-    with pytest.raises(RuntimeError, match="OTLP_COLLECTOR_TOKEN") as excinfo:
-        env_production.ensure_env_production(config, tmp_path)
-
-    message = str(excinfo.value)
-    assert "claude_code.telemetry.auth.token_env (render 'operator')" in message
-    assert "telemetry collector's bearer token" in message
-    assert "never through .env.users" in message
-    assert not (tmp_path / env_production.USERS_ENV_FILENAME).exists()
-
-
-def test_a_collector_token_in_the_chain_is_not_copied_into_env_users(tmp_path):
-    """Required from the chain, delivered by compose, never written to the shared file."""
-    _write_dotenv(
-        tmp_path / ".env",
-        {"ANTHROPIC_API_KEY": "cc-secret", "OTLP_COLLECTOR_TOKEN": "c0llect0r-t0ken"},
-    )
-    config = _catalog_config(_write_block_render(tmp_path, _token_block()))
-
-    result = env_production.ensure_env_production(config, tmp_path)
-
-    raw_text = result.read_text(encoding="utf-8")
-    assert "OTLP_COLLECTOR_TOKEN" not in raw_text
-    assert "c0llect0r-t0ken" not in raw_text
-
-
-def test_a_render_with_telemetry_off_is_asked_for_no_collector_token(tmp_path):
-    """A block the builder discards presents no token."""
-    config = _catalog_config(_write_block_render(tmp_path, _token_block(enabled=False)))
-
-    gap = env_production._required_vars_missing_from_chain(config, tmp_path)
-
-    assert gap.collector_tokens == frozenset()
-    assert "OTLP_COLLECTOR_TOKEN" not in gap.missing

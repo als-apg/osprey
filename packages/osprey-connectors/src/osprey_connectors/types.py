@@ -1396,12 +1396,12 @@ def incomplete_limits_blocks(section: Any) -> list[str]:
                     f"both {LIMITS_LEAVES[0]} and {LIMITS_LEAVES[1]}"
                 )
         defined = LIMITS_LEAVES if whole else _LIMITS_BLOCK_LEAVES
-        for leaf in sorted(str(key) for key in block if key not in defined):
-            errors.append(
-                f"{posture.key(leaf)} is not a limits leaf; a limits block states "
-                f"{LIMITS_LEAVES[0]} and {LIMITS_CHECKING_LEAF}.{LIMITS_LEAVES[1]}: "
-                f"{' | '.join(LIMITS_MODES)}"
-            )
+        errors.extend(
+            f"{posture.key(leaf)} is not a limits leaf; a limits block states "
+            f"{LIMITS_LEAVES[0]} and {LIMITS_CHECKING_LEAF}.{LIMITS_LEAVES[1]}: "
+            f"{' | '.join(LIMITS_MODES)}"
+            for leaf in sorted(str(key) for key in block if key not in defined)
+        )
     return errors
 
 

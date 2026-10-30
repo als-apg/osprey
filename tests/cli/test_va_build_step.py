@@ -38,7 +38,6 @@ POSTURE_FLOOR = {
     # names none renders with, so the approval floor is stated here.
     "approval.enabled": False,
     "approval.default_policy": "always",
-    "claude_code.telemetry.enabled": False,
     "hooks.debug": False,
     "services.postgresql.path": "./services/postgresql",
     "deployed_services": ["postgresql"],

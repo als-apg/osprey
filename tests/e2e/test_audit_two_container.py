@@ -1,4 +1,8 @@
-"""E2E: the audit mount's MECHANISM, across two real containers on one host.
+"""E2E: the audit write's mount MECHANISM, across two real containers on one host.
+
+The audit writer files every record as an ``audit`` line in the acting
+identity's own spool directory, so the mount under test is the per-identity
+spool bind (``OSPREY_SPOOL_DIR``).
 
 Every other test of this feature can only reach the side effect — a record
 appears where the render said it would. This one is about *how* it got there,
@@ -18,7 +22,7 @@ in-process test can observe:
    run (one creates the group-only directory, one widens it back in the
    teardown) and the negative control, which must hold no membership at all.
    Nothing about the drop is observed in any of them.
-2. **setgid on the mount.** The host provisions ``var/audit/<identity>/`` at
+2. **setgid on the mount.** The host provisions ``var/spool/<identity>/`` at
    ``2770`` with the host's own group. Every record written inside the
    container therefore takes the DIRECTORY's group whichever uid wrote it,
    which is what keeps the operator's host-side purge working on files a
@@ -46,7 +50,7 @@ Two containers, because isolation and sharing are opposite halves of the same
 render and each needs the other to mean anything:
 
 * **alice** — the web-terminal topology: ``OSPREY_TERMINAL_USER`` set, its own
-  ``var/audit/alice/`` bound read-write, and the facility bundle mounted.
+  ``var/spool/alice/`` bound read-write, and the facility bundle mounted.
 * **dispatch-worker-0** — the framework-service topology, with
   ``OSPREY_TERMINAL_USER`` DELIBERATELY UNSET. Its records must still be filed
   under a real name (its service identity, via ``acting_identity()``'s second
@@ -138,14 +142,15 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
+from osprey.agent_record.contract import OPEN_SUFFIX, SEALED_SUFFIX
 from osprey.cli.main import cli
 from osprey.deployment.compose_generator import (
-    audit_identity_dir,
-    ensure_audit_dir,
     ensure_shared_corpus_dir,
+    ensure_spool_dir,
+    spool_identity_dir,
 )
 from osprey.deployment.wheel_build import _copy_local_framework_for_override
-from osprey.utils.workspace import AUDIT_DIR_RELPATH, container_image_context
+from osprey.utils.workspace import SPOOL_DIR_RELPATH, container_image_context
 from tests._container_support import docker_cli_unavailable_reason_once
 
 #: Escape hatch for local diagnosis on a non-Linux host. Deliberately named as
@@ -156,7 +161,7 @@ ALLOW_NON_LINUX_ENV = "OSPREY_E2E_AUDIT_MECHANISM_ANYWAY"
 #: ``test_bundle_mount.py``'s recorded reasoning, reused verbatim so the two
 #: places that decline to assert this on macOS give one answer.
 LINUX_ONLY_REASON = (
-    "the audit mount's mechanism is Linux behaviour that macOS does not "
+    "the spool mount's mechanism is Linux behaviour that macOS does not "
     "reproduce (setgid propagation, and bind-mount ownership that Docker "
     "Desktop remaps), so asserting it here would pin a platform rather than "
     f"the property — set {ALLOW_NON_LINUX_ENV}=1 to run it anyway as a "
@@ -195,8 +200,8 @@ TAG_PREFIX = "osprey-e2e-audit2c"
 IDENTITY_TERMINAL = "alice"
 IDENTITY_SERVICE = "dispatch-worker-0"
 
-#: The surface the probe records on, and therefore the ledger stem
-#: (``<identity>/<surface>.jsonl``) both containers write.
+#: The surface the probe records on. The audit writer files it as one ``audit``
+#: line in the identity's own spool segment (``var/spool/<identity>/``).
 PROBE_SURFACE = "e2e_audit_mechanism"
 
 #: Where the shared bundle mounts, mirroring the shipped
@@ -214,7 +219,7 @@ MIN_JOINABLE_GID = 100
 
 #: Gids used when the test process is root and its own group is in the system
 #: range. Two of them, because the bundle assertion is only worth making when
-#: the bundle's group is distinguishable from the audit mount's.
+#: the bundle's group is distinguishable from the spool mount's.
 ROOT_FALLBACK_GIDS = (60000, 60001)
 
 #: The uid the image pins for the agent's user (``OSPREY_RUNTIME_UID``), and so
@@ -277,29 +282,28 @@ out = {
     "uid": os.getuid(),
     "gid": os.getgid(),
     "groups": sorted(os.getgroups()),
-    # The entrypoint unsets this before the drop; anything else here means the
-    # maintenance phase's marker survived gosu and every app record would claim
-    # to have come from the root phase.
-    "writer_marker": os.environ.get("OSPREY_AUDIT_WRITER"),
 }
 
-from osprey.audit.writer import audit_dir, record
+from osprey.agent_record import writer as record_writer
+from osprey.agent_record.contract import OPEN_SUFFIX, SEALED_SUFFIX
+from osprey.audit.writer import record
 from osprey_connectors.identity import acting_identity
 
 out["identity"] = acting_identity()
-out["audit_dir"] = str(audit_dir())
+spool = record_writer.spool_dir()
+out["spool_dir"] = str(spool)
 
-mounted = os.environ.get("OSPREY_AUDIT_DIR", "")
-out["mounted_audit_dir"] = mounted
+mounted = os.environ.get("OSPREY_SPOOL_DIR", "")
+out["mounted_spool_dir"] = mounted
 if mounted and os.path.isdir(mounted):
     st = os.stat(mounted)
-    out["audit_dir_stat"] = {
+    out["spool_dir_stat"] = {
         "uid": st.st_uid,
         "gid": st.st_gid,
         "mode": oct(st.st_mode & 0o7777),
     }
 
-path = record(
+entry_id = record(
     surface=os.environ["OSPREY_E2E_SURFACE"],
     posture="sandbox",
     posture_source="process",
@@ -309,10 +313,20 @@ path = record(
     reason="e2e_mechanism_probe",
     detail=os.environ["OSPREY_E2E_MARKER"],
 )
-out["record_path"] = str(path) if path is not None else None
-if path is not None:
-    st = os.stat(path)
-    out["record_stat"] = {"uid": st.st_uid, "gid": st.st_gid}
+out["entry_id"] = entry_id
+# Seal now rather than at interpreter exit, so the segment this process wrote
+# is final before it is looked for.
+record_writer.seal_all()
+out["record_path"] = None
+if entry_id:
+    for segment in sorted(spool.iterdir()):
+        if not segment.name.endswith((OPEN_SUFFIX, SEALED_SUFFIX)):
+            continue
+        if entry_id in segment.read_text(encoding="utf-8"):
+            out["record_path"] = str(segment)
+            st = os.stat(segment)
+            out["record_stat"] = {"uid": st.st_uid, "gid": st.st_gid}
+            break
 
 bundle = os.environ.get("OSPREY_FACILITY_BUNDLE_DIR", "")
 out["bundle"] = {}
@@ -415,11 +429,11 @@ def _joinable_gids() -> tuple[int, int, bool, tuple[int, ...]]:
     floor. Root may name any gid; an unprivileged process may only chgrp to a
     group it is already in.
 
-    :return: ``(audit_gid, bundle_gid, distinct, offered)``. When the host
+    :return: ``(spool_gid, bundle_gid, distinct, offered)``. When the host
         offers only one usable group both gids are the same and *distinct* is
         ``False``, which the bundle-membership test reads to skip (or, on CI,
         fail via :func:`_degraded_host`) rather than assert something the
-        audit join already guarantees. *offered* is every gid this SESSION
+        spool join already guarantees. *offered* is every gid this SESSION
         carries, usable or not, and travels with the run so that a degraded
         lane reports what the host had rather than only what was missing.
     """
@@ -652,14 +666,18 @@ def _mount_source_usable(bundle_host: Path) -> tuple[bool, str]:
     return True, "ok"
 
 
-def _ledger(repo: Path, identity: str) -> Path:
-    """The host-side path a record on :data:`PROBE_SURFACE` must appear at.
+def _segments(repo: Path, identity: str) -> list[Path]:
+    """The spool segments on the host under *identity*'s own spool directory.
 
     Spelled through the same helper the deploy path provisions with, so this
     test cannot agree with itself about a path the framework would resolve
-    differently.
+    differently. Only segments count: the writer's ``.errors`` file is not a
+    record.
     """
-    return audit_identity_dir(repo, identity) / f"{PROBE_SURFACE}.jsonl"
+    directory = spool_identity_dir(repo, identity)
+    if not directory.is_dir():
+        return []
+    return sorted(p for p in directory.iterdir() if p.name.endswith((OPEN_SUFFIX, SEALED_SUFFIX)))
 
 
 # ── the image ────────────────────────────────────────────────────────────────
@@ -697,23 +715,23 @@ def host_zone(repo: Path):
     fixture below so the mount pre-flight can look at the real bundle
     directory BEFORE the image build spends its budget.
     """
-    audit_gid, bundle_gid, distinct, offered = _joinable_gids()
+    spool_gid, bundle_gid, distinct, offered = _joinable_gids()
 
-    ensure_audit_dir(repo, IDENTITY_TERMINAL)
-    ensure_audit_dir(repo, IDENTITY_SERVICE)
+    ensure_spool_dir(repo, IDENTITY_TERMINAL)
+    ensure_spool_dir(repo, IDENTITY_SERVICE)
     bundle_host = repo / BUNDLE_RELPATH
     ensure_shared_corpus_dir(bundle_host)
 
-    alice_host = audit_identity_dir(repo, IDENTITY_TERMINAL)
-    worker_host = audit_identity_dir(repo, IDENTITY_SERVICE)
-    _regroup(alice_host, audit_gid, SHARED_MODE)
-    _regroup(worker_host, audit_gid, SHARED_MODE)
+    alice_host = spool_identity_dir(repo, IDENTITY_TERMINAL)
+    worker_host = spool_identity_dir(repo, IDENTITY_SERVICE)
+    _regroup(alice_host, spool_gid, SHARED_MODE)
+    _regroup(worker_host, spool_gid, SHARED_MODE)
     # The mount source stays exactly as shipped. Only its `group-only/` child
     # goes 2070, and a root container makes it — see GROUP_ONLY_RELPATH.
     _regroup(bundle_host, bundle_gid, SHARED_MODE)
 
     return SimpleNamespace(
-        audit_gid=audit_gid,
+        spool_gid=spool_gid,
         bundle_gid=bundle_gid,
         distinct_gids=distinct,
         offered_gids=offered,
@@ -797,7 +815,7 @@ def two_containers(repo: Path, project: str, image: str, host_zone):
     that must be refused where the subjects are allowed, and the root teardown
     container that widens the directory back.
     """
-    audit_gid = host_zone.audit_gid
+    spool_gid = host_zone.spool_gid
     bundle_gid = host_zone.bundle_gid
     bundle_host = host_zone.bundle_host
 
@@ -811,10 +829,10 @@ def two_containers(repo: Path, project: str, image: str, host_zone):
 
     container_root = f"/app/{project}"
     bundle_container = f"{container_root}/{BUNDLE_RELPATH}"
-    alice_container = f"{container_root}/{AUDIT_DIR_RELPATH}/{IDENTITY_TERMINAL}"
-    worker_container = f"{container_root}/{AUDIT_DIR_RELPATH}/{IDENTITY_SERVICE}"
+    alice_container = f"{container_root}/{SPOOL_DIR_RELPATH}/{IDENTITY_TERMINAL}"
+    worker_container = f"{container_root}/{SPOOL_DIR_RELPATH}/{IDENTITY_SERVICE}"
 
-    audit_root = repo / AUDIT_DIR_RELPATH
+    spool_root = repo / SPOOL_DIR_RELPATH
     purge = {"error": None, "survived": True}
     group_only_made = False
     host_access_restored = False
@@ -846,10 +864,10 @@ def two_containers(repo: Path, project: str, image: str, host_zone):
             image,
             env={
                 # The web-terminal topology: a named user, its own audit
-                # identity, and the bundle it is entitled to.
+                # identity and spool, and the bundle it is entitled to.
                 "OSPREY_TERMINAL_USER": IDENTITY_TERMINAL,
                 "OSPREY_AUDIT_IDENTITY": IDENTITY_TERMINAL,
-                "OSPREY_AUDIT_DIR": alice_container,
+                "OSPREY_SPOOL_DIR": alice_container,
                 "OSPREY_FACILITY_BUNDLE_DIR": bundle_container,
                 "OSPREY_E2E_SURFACE": PROBE_SURFACE,
                 "OSPREY_E2E_MARKER": marker_alice,
@@ -863,7 +881,7 @@ def two_containers(repo: Path, project: str, image: str, host_zone):
                 # The framework-service topology: NO terminal user at all, so
                 # the identity has to come off the second rung of the ladder.
                 "OSPREY_AUDIT_IDENTITY": IDENTITY_SERVICE,
-                "OSPREY_AUDIT_DIR": worker_container,
+                "OSPREY_SPOOL_DIR": worker_container,
                 "OSPREY_FACILITY_BUNDLE_DIR": bundle_container,
                 "OSPREY_E2E_SURFACE": PROBE_SURFACE,
                 "OSPREY_E2E_MARKER": marker_worker,
@@ -888,17 +906,16 @@ def two_containers(repo: Path, project: str, image: str, host_zone):
         # directory back before the host is asked to read what they wrote.
         hand_the_directory_back()
 
-        ledgers = {
-            IDENTITY_TERMINAL: _ledger(repo, IDENTITY_TERMINAL),
-            IDENTITY_SERVICE: _ledger(repo, IDENTITY_SERVICE),
-        }
-        host_stat = {
-            identity: (path.stat() if path.exists() else None) for identity, path in ledgers.items()
-        }
+        markers = {IDENTITY_TERMINAL: marker_alice, IDENTITY_SERVICE: marker_worker}
+        segments = {identity: _segments(repo, identity) for identity in markers}
         host_text = {
-            identity: (path.read_text(encoding="utf-8") if path.exists() else "")
-            for identity, path in ledgers.items()
+            identity: "".join(p.read_text(encoding="utf-8") for p in paths)
+            for identity, paths in segments.items()
         }
+        host_stat = {}
+        for identity, paths in segments.items():
+            holding = [p for p in paths if markers[identity] in p.read_text(encoding="utf-8")]
+            host_stat[identity] = holding[0].stat() if holding else None
         bundle_files = {}
         bundle_stat_errors = {}
         for name in (alice_file, worker_file, control_file):
@@ -911,43 +928,43 @@ def two_containers(repo: Path, project: str, image: str, host_zone):
         # Detected by asking the container what it sees the mount's owner as:
         # equal means no map is in play and the host-side ownership assertions
         # mean what they say. Asserted present rather than defaulted: the
-        # audit mount is bound unconditionally, so a missing stat is a broken
+        # spool mount is bound unconditionally, so a missing stat is a broken
         # run, not a remapped one, and must not be reported as an id map.
-        seen = alice.get("audit_dir_stat")
+        seen = alice.get("spool_dir_stat")
         assert seen is not None, (
-            "the probe reported no audit_dir_stat, but OSPREY_AUDIT_DIR is "
+            "the probe reported no spool_dir_stat, but OSPREY_SPOOL_DIR is "
             "always bound — the mount is missing inside the container, or is "
             f"not a directory: {alice}"
         )
-        id_mapped = seen["uid"] != os.getuid() or seen["gid"] != audit_gid
+        id_mapped = seen["uid"] != os.getuid() or seen["gid"] != spool_gid
     finally:
         # Both halves of the cleanup, last and UNCONDITIONAL. The widening
         # first, because a failed probe above skipped its success-path call and
         # would otherwise strand a root-owned 2070 directory in the tmp tree.
         if group_only_made:
             hand_the_directory_back()
-        # Then the purge: it is the operator's host-side `osprey reset
-        # --purge-audit`, and it is also this module's cleanup. On the failure
+        # Then the purge: a host-side removal of the spool zone as the
+        # operator's account, and also this module's cleanup. On the failure
         # path the assertion below no longer runs, but the container-written
         # tree still has to go.
         try:
-            if audit_root.exists():
-                shutil.rmtree(audit_root)
+            if spool_root.exists():
+                shutil.rmtree(spool_root)
         except OSError as exc:  # pragma: no cover — the failure this catches
             purge["error"] = repr(exc)
-        purge["survived"] = audit_root.exists()
+        purge["survived"] = spool_root.exists()
 
     yield SimpleNamespace(
         alice=alice,
         worker=worker,
         control=control,
-        audit_gid=audit_gid,
+        spool_gid=spool_gid,
         bundle_gid=bundle_gid,
         distinct_gids=host_zone.distinct_gids,
         offered_gids=host_zone.offered_gids,
         id_mapped=id_mapped,
-        markers={IDENTITY_TERMINAL: marker_alice, IDENTITY_SERVICE: marker_worker},
-        ledgers=ledgers,
+        markers=markers,
+        segments=segments,
         host_stat=host_stat,
         host_text=host_text,
         bundle_host=bundle_host,
@@ -956,9 +973,9 @@ def two_containers(repo: Path, project: str, image: str, host_zone):
         alice_file=alice_file,
         worker_file=worker_file,
         control_file=control_file,
-        audit_root_after_purge=purge["survived"],
+        spool_root_after_purge=purge["survived"],
         purge_error=purge["error"],
-        container_audit_dirs={
+        container_spool_dirs={
             IDENTITY_TERMINAL: alice_container,
             IDENTITY_SERVICE: worker_container,
         },
@@ -970,8 +987,8 @@ def _require_direct_ids(snapshot) -> None:
     if snapshot.id_mapped:
         pytest.skip(
             "this container runtime remaps ids between container and host "
-            f"(the mount the host owns as {os.getuid()}:{snapshot.audit_gid} "
-            f"appears inside as {snapshot.alice.get('audit_dir_stat')}), so a "
+            f"(the mount the host owns as {os.getuid()}:{snapshot.spool_gid} "
+            f"appears inside as {snapshot.alice.get('spool_dir_stat')}), so a "
             "host-side uid assertion would be testing the id map rather than "
             "the privilege drop — the container-side half above still holds"
         )
@@ -993,10 +1010,10 @@ def _require_a_group_to_join(snapshot) -> None:
     foreign and the assertion still bites.
     """
     for probe in (snapshot.alice, snapshot.worker):
-        mounted_gid = probe["audit_dir_stat"]["gid"]
+        mounted_gid = probe["spool_dir_stat"]["gid"]
         if mounted_gid == probe["gid"]:
             pytest.skip(
-                "this runtime shows the audit mount as owned by the dropped "
+                "this runtime shows the spool mount as owned by the dropped "
                 f"process's own primary group (gid {mounted_gid}), so the "
                 "entrypoint had no group to join and its absence is a fact "
                 "about the runtime rather than about the /etc/group step"
@@ -1086,15 +1103,15 @@ class TestTheDroppedProcess:
         assert two_containers.alice["uid"] == RUNTIME_UID, two_containers.alice
         assert two_containers.worker["uid"] == RUNTIME_UID, two_containers.worker
 
-    def test_the_dropped_process_joined_the_audit_mounts_group(self, two_containers):
+    def test_the_dropped_process_joined_the_spool_mounts_group(self, two_containers):
         """The grant that survives ``gosu``. Asserted against the gid the
         container itself reports for the mount, so it is the same number the
         entrypoint stat'ed rather than one this test assumed."""
         _require_a_group_to_join(two_containers)
         for probe in (two_containers.alice, two_containers.worker):
-            mounted_gid = probe["audit_dir_stat"]["gid"]
+            mounted_gid = probe["spool_dir_stat"]["gid"]
             assert mounted_gid in probe["groups"], (
-                f"the dropped process is not in the audit mount's group: {probe}"
+                f"the dropped process is not in the spool mount's group: {probe}"
             )
 
     def test_the_entrypoint_says_which_groups_it_joined(self, two_containers):
@@ -1105,14 +1122,6 @@ class TestTheDroppedProcess:
             "_stderr"
         ][-3000:]
         assert "dropping privileges to the osprey user" in two_containers.alice["_stderr"]
-
-    def test_no_writer_marker_survives_the_drop(self, two_containers):
-        """``OSPREY_AUDIT_WRITER`` is a per-command prefix on the root
-        maintenance step and is unset before the drop. If it crossed, every
-        record the app wrote would be filed as the root phase's — one uid per
-        file inverted, in the shipped image rather than in a stub."""
-        assert two_containers.alice["writer_marker"] is None, two_containers.alice
-        assert two_containers.worker["writer_marker"] is None, two_containers.worker
 
 
 # ── the record, and where it landed ──────────────────────────────────────────
@@ -1126,7 +1135,7 @@ class TestTheRecordOnTheHost:
         render named for that identity, with that container's marker in it."""
         for identity in (IDENTITY_TERMINAL, IDENTITY_SERVICE):
             assert two_containers.host_stat[identity] is not None, (
-                f"no record at {two_containers.ledgers[identity]}; probe said "
+                f"no record among {two_containers.segments[identity]}; probe said "
                 f"{(two_containers.alice if identity == IDENTITY_TERMINAL else two_containers.worker)}"
             )
             assert two_containers.markers[identity] in two_containers.host_text[identity]
@@ -1145,15 +1154,18 @@ class TestTheRecordOnTheHost:
 
     def test_the_writer_resolved_the_path_the_render_mounted(self, two_containers):
         """The record's path is not this test's arithmetic: the writer resolved
-        it from the container's project root, and it has to equal the directory
-        compose bound there. A drift makes records accumulate in the
-        container's writable layer while the mount stays empty."""
+        its spool directory from the container's environment, and it has to
+        equal the directory compose bound there. A drift makes records
+        accumulate in the container's writable layer while the mount stays
+        empty."""
         for identity, probe in (
             (IDENTITY_TERMINAL, two_containers.alice),
             (IDENTITY_SERVICE, two_containers.worker),
         ):
-            expected = f"{two_containers.container_audit_dirs[identity]}/{PROBE_SURFACE}.jsonl"
-            assert probe["record_path"] == expected, probe
+            expected = two_containers.container_spool_dirs[identity]
+            assert probe["spool_dir"] == expected, probe
+            assert probe["record_path"] is not None, probe
+            assert probe["record_path"].rsplit("/", 1)[0] == expected, probe
 
     def test_the_unset_terminal_user_topology_files_under_the_service_identity(
         self, two_containers
@@ -1162,8 +1174,16 @@ class TestTheRecordOnTheHost:
         name somebody real — its own service identity, off the ladder's second
         rung — rather than the process account or ``unknown``."""
         assert two_containers.worker["identity"] == IDENTITY_SERVICE, two_containers.worker
-        stored = json.loads(two_containers.host_text[IDENTITY_SERVICE].splitlines()[-1])
-        assert stored["actor"] == IDENTITY_SERVICE, stored
+        marker = two_containers.markers[IDENTITY_SERVICE]
+        lines = [
+            json.loads(line)
+            for line in two_containers.host_text[IDENTITY_SERVICE].splitlines()
+            if marker in line
+        ]
+        assert len(lines) == 1, lines
+        stored = lines[0]
+        assert stored["kind"] == "audit", stored
+        assert stored["body"]["actor"] == IDENTITY_SERVICE, stored
 
     def test_the_record_is_written_by_the_dropped_process_into_the_mounts_group(
         self, two_containers
@@ -1174,7 +1194,7 @@ class TestTheRecordOnTheHost:
         included, because both numbers come from the same namespace."""
         for probe in (two_containers.alice, two_containers.worker):
             assert probe["record_stat"]["uid"] == RUNTIME_UID, probe
-            assert probe["record_stat"]["gid"] == probe["audit_dir_stat"]["gid"], probe
+            assert probe["record_stat"]["gid"] == probe["spool_dir_stat"]["gid"], probe
 
     def test_the_host_sees_that_same_ownership(self, two_containers):
         """And from outside: uid 1000 wrote it, the host's own group owns it.
@@ -1184,15 +1204,15 @@ class TestTheRecordOnTheHost:
         for identity in (IDENTITY_TERMINAL, IDENTITY_SERVICE):
             st = two_containers.host_stat[identity]
             assert st.st_uid == RUNTIME_UID, f"{identity}: {st}"
-            assert st.st_gid == two_containers.audit_gid, f"{identity}: {st}"
+            assert st.st_gid == two_containers.spool_gid, f"{identity}: {st}"
 
     def test_the_host_can_purge_the_zone_the_containers_wrote(self, two_containers):
-        """The operator's ``osprey reset --purge-audit`` runs as the host
-        account, over files a container's uid owns. It works because the
-        DIRECTORIES are the operator's and group-writable — remove that and the
-        purge starts failing on records nobody on the host can delete."""
+        """A host-side purge of the spool zone runs as the host account, over
+        files a container's uid owns. It works because the DIRECTORIES are the
+        operator's and group-writable — remove that and the purge starts
+        failing on segments nobody on the host can delete."""
         assert two_containers.purge_error is None, two_containers.purge_error
-        assert not two_containers.audit_root_after_purge
+        assert not two_containers.spool_root_after_purge
 
 
 # ── the shared bundle: two containers, one directory ─────────────────────────
@@ -1206,23 +1226,23 @@ class TestTheSharedBundle:
         entrypoint iterates both variables the render names, so a service with
         a bundle mounted carries that group too.
 
-        Only meaningful when the bundle's group differs from the audit mount's
-        — otherwise the audit join alone would satisfy it and the test would be
+        Only meaningful when the bundle's group differs from the spool mount's
+        — otherwise the spool join alone would satisfy it and the test would be
         a tautology dressed as a proof.
         """
         _require_the_group_is_the_only_door(two_containers)
         if not two_containers.distinct_gids:
             _degraded_host(
                 "this host offers only one joinable group (gid "
-                f"{two_containers.bundle_gid}, carried by both the audit and "
+                f"{two_containers.bundle_gid}, carried by both the spool and "
                 "the bundle mount), so the bundle membership is already "
-                "implied by the audit join — nothing distinguishable to "
+                "implied by the spool join — nothing distinguishable to "
                 f"assert (this host offered {list(two_containers.offered_gids)}, "
                 f"of which only one clears the gid {MIN_JOINABLE_GID} floor)"
             )
         bundle_gid = two_containers.alice["bundle"]["dir_stat"]["gid"]
         assert bundle_gid in two_containers.alice["groups"], two_containers.alice
-        assert bundle_gid != two_containers.alice["audit_dir_stat"]["gid"], two_containers.alice
+        assert bundle_gid != two_containers.alice["spool_dir_stat"]["gid"], two_containers.alice
 
     def test_the_second_container_writes_where_only_the_group_reaches(self, two_containers):
         """``group-only/`` is ``2070`` and owned by uid 0: no triad but the

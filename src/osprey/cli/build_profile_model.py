@@ -18,6 +18,10 @@ from typing import Any
 
 import yaml
 
+from osprey.agent_record.config import (
+    AgentRecordConfig,
+    agent_record_errors,
+)
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.deployment.graphdb_service import (
     GRAPHDB_SERVICE_NAME,
@@ -197,7 +201,7 @@ def _config_service_block(config: Any, service: str) -> Any:
     Args:
         config: A profile's ``config:`` block, whatever shape it parsed as.
         service: The service's key in the rendered ``services:`` section
-            (``telemetry_store``, ``graphdb``, …), not its compose name.
+            (``graphdb``, ``postgresql``, …), not its compose name.
 
     Returns:
         :data:`_MISSING` when no spelling addresses that service; ``None`` when
@@ -440,6 +444,14 @@ class BuildProfile:
     build derives the connector's connection keys from it (see
     :mod:`osprey.cli.build_profile_archiver`).
     """
+    agent_record: AgentRecordConfig = field(default_factory=AgentRecordConfig)
+    """Where the deployment's one agent record lives (``agent_record:``).
+
+    Never ``None``: every deployment keeps a record, and a profile that spells
+    no block gets the defaults — the embedded backend, with no store container.
+    The resolved block is written into the rendered ``config.yml`` under the
+    top-level key ``agent_record`` (see :mod:`osprey.agent_record.config`).
+    """
     provenance: ProfileProvenance | None = None
     """What ``osprey init`` materialized this profile from (``provenance:``).
 
@@ -551,11 +563,11 @@ class BuildProfile:
                     f"environment.{label} must be a list of strings (got {type(entries).__name__})"
                 )
                 continue
-            for entry in entries:
-                if not isinstance(entry, str) or not entry.strip():
-                    errors.append(
-                        f"environment.{label} entries must be non-empty strings (got {entry!r})"
-                    )
+            errors.extend(
+                f"environment.{label} entries must be non-empty strings (got {entry!r})"
+                for entry in entries
+                if not isinstance(entry, str) or not entry.strip()
+            )
 
         # inherit_exclude only means something when there is a venv base to
         # exclude distributions *from*. A bare interpreter carries no installed
@@ -662,20 +674,19 @@ class BuildProfile:
         Returns:
             Human-readable error messages; empty when every key is a string.
         """
-        errors: list[str] = []
-        for name in self.services:
-            if not isinstance(name, str):
-                errors.append(
-                    f"services keys must be strings (got {name!r}); a bare "
-                    "yes/no/on/off in YAML parses as a boolean — quote the service name"
-                )
+        errors: list[str] = [
+            f"services keys must be strings (got {name!r}); a bare "
+            "yes/no/on/off in YAML parses as a boolean — quote the service name"
+            for name in self.services
+            if not isinstance(name, str)
+        ]
         if isinstance(self.config, dict):
-            for key in self.config:
-                if not isinstance(key, str):
-                    errors.append(
-                        f"config keys must be strings (got {key!r}); a bare "
-                        "yes/no/on/off in YAML parses as a boolean — quote the key"
-                    )
+            errors.extend(
+                f"config keys must be strings (got {key!r}); a bare "
+                "yes/no/on/off in YAML parses as a boolean — quote the key"
+                for key in self.config
+                if not isinstance(key, str)
+            )
         return errors
 
     def _service_axis_declarations(self, axis: str) -> Iterator[tuple[str, Any, str]]:
@@ -803,11 +814,11 @@ class BuildProfile:
         for name, value, key in self._service_axis_declarations("bind_env"):
             errors.extend(bind_env_errors(value, key))
             bound.add(name)
-        for name in sorted(silent & bound):
-            errors.append(
-                f"services.{name} declares both `listens: false` and `bind_env:`; a "
-                "service that opens no socket has no bind address. Remove one."
-            )
+        errors.extend(
+            f"services.{name} declares both `listens: false` and `bind_env:`; a "
+            "service that opens no socket has no bind address. Remove one."
+            for name in sorted(silent & bound)
+        )
         return errors
 
     def _validate_env_axis(self) -> list[str]:
@@ -1049,6 +1060,11 @@ class BuildProfile:
         if self.va_archiver is not None:
             claimed["va_archiver.port_host"] = self.va_archiver.port_host
 
+        # The record service is always deployed by a deploying profile, and
+        # publishes its port on loopback.
+        if self.deploy_services:
+            claimed["agent_record.port"] = self.agent_record.port
+
         if isinstance(self.artifact_server, dict):
             port = self.artifact_server.get("port")
             if isinstance(port, int) and not isinstance(port, bool):
@@ -1126,7 +1142,7 @@ class BuildProfile:
 
         Args:
             service: The service's key in the rendered ``services:`` section
-                (``telemetry_store``, ``postgresql``, …), not its compose name.
+                (``graphdb``, ``postgresql``, …), not its compose name.
 
         Returns:
             Whether the rendered ``config.yml`` will carry that block.
@@ -1571,9 +1587,11 @@ class BuildProfile:
                     )
 
         # Validate env var names
-        for var in self.env.required:
-            if not ENV_NAME_RE.match(var):
-                errors.append(f"Invalid env var name: {var}")
+        errors.extend(
+            f"Invalid env var name: {var}"
+            for var in self.env.required
+            if not ENV_NAME_RE.match(var)
+        )
 
         # `pinned` names the same kind of thing as `required` and is held to the
         # same pattern. It is checked harder on shape because a deploy-side probe
@@ -1584,9 +1602,11 @@ class BuildProfile:
             spelled = type(self.env.pinned).__name__
             errors.append(f"env.pinned must be a list of env var names (got {spelled})")
         else:
-            for var in self.env.pinned:
-                if not isinstance(var, str) or not ENV_NAME_RE.match(var):
-                    errors.append(f"Invalid env.pinned var name: {var!r}")
+            errors.extend(
+                f"Invalid env.pinned var name: {var!r}"
+                for var in self.env.pinned
+                if not isinstance(var, str) or not ENV_NAME_RE.match(var)
+            )
 
         # Validate env file path
         if self.env.file:
@@ -1598,9 +1618,11 @@ class BuildProfile:
         errors.extend(self._validate_environment())
 
         # Validate dependencies
-        for dep in self.dependencies:
-            if not isinstance(dep, str) or not dep.strip():
-                errors.append(f"Dependency must be a non-empty string: {dep!r}")
+        errors.extend(
+            f"Dependency must be a non-empty string: {dep!r}"
+            for dep in self.dependencies
+            if not isinstance(dep, str) or not dep.strip()
+        )
 
         # Validate requires_osprey_version specifier
         if self.requires_osprey_version:
@@ -1660,6 +1682,14 @@ class BuildProfile:
         # two spellings of one fact disagreeing.
         errors.extend(panel_selection_errors(self.config, self.web_panels))
 
+        # `web.ui_mode: expert` beside `web.expert_view: false`: the second
+        # rules the Expert view out and the terminal resolves the mode to
+        # `simple`, so a stated `expert` is two spellings of one fact
+        # disagreeing — refused naming both, the rule `enabled` has above.
+        from .build_profile_ui_mode import expert_view_errors
+
+        errors.extend(expert_view_errors(self.config))
+
         # A `web.panels.<id>` the served terminal could never route: the id is
         # one URL path segment and a header value on every proxied hop, and the
         # terminal refuses to start on an id outside that class. The same
@@ -1693,13 +1723,13 @@ class BuildProfile:
                     f"(got {type(members).__name__})"
                 )
                 continue
-            for member in members:
-                if not self._is_known_panel_id(member):
-                    errors.append(
-                        f"Unknown panel_presets[{preset_name!r}] member {member!r}: not in "
-                        f"web_panels (the selection is what shows a tab) and not universal "
-                        f"({sorted(UNIVERSAL_PANELS)})"
-                    )
+            errors.extend(
+                f"Unknown panel_presets[{preset_name!r}] member {member!r}: not in "
+                f"web_panels (the selection is what shows a tab) and not universal "
+                f"({sorted(UNIVERSAL_PANELS)})"
+                for member in members
+                if not self._is_known_panel_id(member)
+            )
 
         # Validate the artifact_server override block (gallery server settings
         # + custom category definitions)
@@ -1712,11 +1742,11 @@ class BuildProfile:
             )
         else:
             _allowed = {"host", "port", "auto_launch", "categories"}
-            for unknown in sorted(set(self.artifact_server) - _allowed):
-                errors.append(
-                    f"artifact_server.{unknown} is not a supported key "
-                    f"(must be one of {sorted(_allowed)})"
-                )
+            errors.extend(
+                f"artifact_server.{unknown} is not a supported key "
+                f"(must be one of {sorted(_allowed)})"
+                for unknown in sorted(set(self.artifact_server) - _allowed)
+            )
             raw_categories = self.artifact_server.get("categories", {})
             if not isinstance(raw_categories, dict):
                 errors.append("artifact_server.categories must be a mapping of category ids")
@@ -1932,6 +1962,11 @@ class BuildProfile:
         # of the profile — see va_archiver_errors for why the rules live beside
         # the block but are reported from here.
         errors.extend(va_archiver_errors(self.va_archiver, self.config, bool(self.deploy_services)))
+
+        # The record's backend, retention, port and memory. The named readers
+        # are judged against the roster by the command surfaces' merged-config
+        # check, which holds the merged view the roster lives in.
+        errors.extend(agent_record_errors(self.agent_record, self.config))
 
         # The honesty rule's build-time site: a simulated machine may not be
         # paired with an archiver that invents its history. Checked against the

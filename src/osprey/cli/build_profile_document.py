@@ -890,10 +890,10 @@ def _declared_governed_tools(raw: dict[str, Any]) -> set[str]:
             tools.update(_declared_write_rule_tools(name, declared, perms))
         hooks = spec.get("hooks")
         presets = hooks.get("pre_tool_use") if isinstance(hooks, dict) else None
-        if isinstance(presets, list) and _BOTH_WRITE_PRESETS <= set(presets):
+        if isinstance(presets, list) and set(presets) >= _BOTH_WRITE_PRESETS:
             prefix = f"mcp__{name}__"
             for entry in (*perms.get("allow", []), *perms.get("ask", [])):
-                tool = entry[len(prefix) :] if entry.startswith(prefix) else entry
+                tool = entry.removeprefix(prefix)
                 if tool and not set("*.|()[]") & set(tool):
                     tools.add(tool)
     return tools
@@ -928,12 +928,13 @@ def governed_policy_spellings(
         if len(path) == depth + 1 and path[:depth] == APPROVAL_TOOLS_PATH:
             if path[depth] in governed:
                 hits.append((config, key, path[depth], ()))
-        elif len(path) <= depth and path == APPROVAL_TOOLS_PATH[: len(path)]:
-            if isinstance(value, dict):
-                for container, inner, tool, parents in governed_policy_spellings(
-                    value, governed, path
-                ):
-                    hits.append((container, inner, tool, ((config, key), *parents)))
+        elif (
+            len(path) <= depth
+            and path == APPROVAL_TOOLS_PATH[: len(path)]
+            and isinstance(value, dict)
+        ):
+            for container, inner, tool, parents in governed_policy_spellings(value, governed, path):
+                hits.append((container, inner, tool, ((config, key), *parents)))
     return hits
 
 

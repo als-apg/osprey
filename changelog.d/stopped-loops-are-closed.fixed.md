@@ -1,0 +1,1 @@
+Stopping the Channel Access loop or the runtime's connector loop now closes the loop once its thread has ended, and the runtime's connector loop refuses use from a forked child instead of waiting forever.

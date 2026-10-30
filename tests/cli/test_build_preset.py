@@ -61,7 +61,6 @@ _POSTURE_FLOOR = (
     "  archiver.type: mock_archiver\n"
     "  approval.enabled: true\n"
     "  approval.default_policy: always\n"
-    "  claude_code.telemetry.enabled: false\n"
     "  hooks.debug: false\n"
 )
 
@@ -173,32 +172,50 @@ def test_set_with_a_list_value_replaces_the_presets_list(runner: CliRunner, tmp_
     assert manifest["artifacts"]["hooks"] == ["memory-guard", "writes-check", "approval"]
 
 
-def test_preset_control_assistant_ships_live_gateway_telemetry(
+def test_preset_control_assistant_keeps_its_record_on_clickhouse_for_90_days(
     built_control_assistant: BuiltProject,
 ) -> None:
-    """control_assistant is the production-shaped reference facility: telemetry
-    is wired LIVE through the co-deployed gateway into the telemetry store. This
-    pins the full wiring so a regression in the preset template (dropped
-    service, disabled switch, hardcoded endpoint, or a credential key) fails
-    loudly.
+    """control_assistant is the production-shaped reference facility: its agent
+    record is kept in a ClickHouse store for 90 days, its admin may read every
+    session, and the history page it serves reaches back the same 90 days. The
+    record replaces the telemetry store, so neither the store, its gateway nor
+    a telemetry block is rendered.
     """
+    from osprey.deployment.compose_generator import _resolve_history_render_context
+
     cfg = _config_yaml(built_control_assistant.build_dir)
 
-    # The store and its gateway are deployed (not merely declared).
-    assert "telemetry_store" in cfg["deployed_services"]
-    assert "telemetry_gateway" in cfg["deployed_services"]
+    record = cfg["agent_record"]
+    assert record["backend"] == "clickhouse"
+    assert record["retention_days"] == 90
+    assert record["readers"] == [{"name": "carol"}]
 
-    tel = cfg["claude_code"]["telemetry"]
-    assert tel["enabled"] is True
-    assert tel["backend"] == "gateway"
-    # The gateway backend derives the endpoint per network context — a
-    # hardcoded localhost endpoint would make the in-container worker emit to its
-    # own loopback and silently drop everything, so it must be absent.
-    assert "endpoint" not in tel
-    # No credential in the config: each sender logs in with a login
-    # `osprey build` mints into a file of its own, outside the config and the
-    # .env chain.
-    assert "auth" not in tel
+    assert _resolve_history_render_context(cfg)["max_days"] == 90
+    history = yaml.safe_load(
+        (
+            built_control_assistant.build_dir / "services" / "history" / "docker-compose.yml"
+        ).read_text(encoding="utf-8")
+    )
+    environments = [
+        service.get("environment") or {} for service in (history.get("services") or {}).values()
+    ]
+    assert any(env.get("OSPREY_HISTORY_MAX_DAYS") == "90" for env in environments), environments
+
+    assert "telemetry" not in cfg.get("claude_code", {})
+    assert "tool_call" not in (cfg.get("audit") or {})
+
+
+def test_preset_hello_world_keeps_its_record_embedded_with_no_containers(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """hello-world keeps its record in the embedded backend and deploys nothing."""
+    result = _materialize(runner, str(tmp_path), "smoke", "hello-world")
+    assert result.exit_code == 0, result.output
+
+    cfg = _config_yaml(_project(tmp_path, "smoke"))
+    assert cfg["agent_record"]["backend"] == "embedded"
+    assert cfg["deployed_services"] == []
+    assert "telemetry" not in cfg.get("claude_code", {})
 
 
 def test_preset_control_assistant_dispatches_on_the_host_network(
@@ -959,7 +976,7 @@ class TestDeployServicesKnob:
     defaults true, so every existing (self-contained) build is unchanged.
     """
 
-    # A profile whose preset would normally scaffold postgresql + the telemetry store
+    # A profile whose preset would normally scaffold postgresql and the record's store
     # and whose ``bluesky:`` block would normally inject a bridge service — so
     # an attached build has real scaffolding to suppress. The inherited
     # ``va_archiver:`` block is dropped: a deployment that records its own

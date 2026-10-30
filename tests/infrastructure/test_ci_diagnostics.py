@@ -32,13 +32,14 @@ from osprey_connectors_tests._harness.ci_diagnostics import (
     recorder_from_env,
     register_container_snapshots,
     register_recorder,
+    snapshot_label_filters,
     worker_id,
     worker_index,
 )
 from osprey_connectors_tests._paths import TESTS_ROOT as _HARNESS_ROOT
 from tests._by_path import load_module
 from tests._live import wait_until
-from tests._nested_pytest import run_nested_pytest
+from tests._nested_pytest import outer_run_free_env, run_nested_pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SUMMARY = _REPO_ROOT / "scripts" / "ci" / "diag_summary.py"
@@ -393,11 +394,11 @@ esac
 #: The fake engine's ``logs`` answer: one line naming the container.
 _FAKE_LOGS = 'echo "2026-01-01T00:00:00Z log line from $3"'
 
-#: A ``logs`` call that outlives any per-call bound the tests set.
+#: A ``logs`` call that outlives any snapshot deadline the tests set.
 _SLOW_LOGS = "exec sleep 60"
 
-#: The per-call bound the in-process timeout tests set: well past what a fast
-#: engine call costs on a loaded host, well short of the slow call.
+#: The snapshot deadline the in-process timeout tests prove fires, well short
+#: of the slow call.
 _CALL_BOUND = 5.0
 
 
@@ -440,6 +441,28 @@ def slow_engine(tmp_path, monkeypatch) -> Path:
 def _engine_calls(tmp_path: Path) -> list[str]:
     calls = tmp_path / "calls.log"
     return calls.read_text().splitlines() if calls.exists() else []
+
+
+def _record_started_calls(monkeypatch) -> list[list[str]]:
+    """Every engine call the capture starts, in order, recorded as it is started.
+
+    Recorded in process before the call runs, so a call the deadline cuts before
+    the stand-in gets the CPU is recorded all the same.
+    """
+    started: list[list[str]] = []
+    real_run = ci_diagnostics.subprocess.run
+
+    def _run(argv, *args, **kwargs):
+        started.append(list(argv))
+        return real_run(argv, *args, **kwargs)
+
+    monkeypatch.setattr(ci_diagnostics.subprocess, "run", _run)
+    return started
+
+
+def _named(argv: list[str]) -> str:
+    """A call as the capture names it: engine, first argument, last argument."""
+    return " ".join([argv[0], argv[1], *argv[2:][-1:]])
 
 
 def test_container_snapshots_are_off_when_unset():
@@ -545,7 +568,21 @@ def test_snapshot_is_taken_once_per_module(fake_engine, tmp_path):
         "gw0--tests_test_a.py",
         "gw0--tests_test_b.py",
     ]
-    assert _engine_calls(tmp_path).count("ps -aq") == 2
+    id_listings = [call for call in _engine_calls(tmp_path) if call.startswith("ps -aq ")]
+    assert len(id_listings) == 2 * len(snapshot_label_filters())
+
+
+def test_snapshot_lists_only_labelled_containers(fake_engine, tmp_path):
+    """Every listing is scoped to the containers this run's tests started."""
+    snapshots = ContainerSnapshots(tmp_path / "diag", "gw0", fake_engine.name)
+
+    assert snapshots.capture("tests/test_a.py::test_one", "call") is not None
+
+    listings = [call for call in _engine_calls(tmp_path) if call.startswith("ps ")]
+    assert listings
+    assert all("--filter label=" in call for call in listings), listings
+    filters = {call.split("--filter ", 1)[1] for call in listings}
+    assert filters == set(snapshot_label_filters())
 
 
 def test_snapshot_writes_nothing_when_no_container_exists(fake_engine, tmp_path):
@@ -644,7 +681,19 @@ def test_snapshot_is_taken_before_the_module_fixture_tears_down(fake_engine, tmp
         FAKE_STACK_FLAG=str(flag),
     )
     done = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "test_stack.py"],
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            "-c",
+            os.devnull,
+            "--rootdir",
+            str(run_dir),
+            "test_stack.py",
+        ],
         cwd=run_dir,
         env=env,
         capture_output=True,
@@ -662,43 +711,65 @@ def test_snapshot_is_taken_before_the_module_fixture_tears_down(fake_engine, tmp
 
 def test_a_capture_that_times_out_is_marked_incomplete(slow_engine, tmp_path, monkeypatch):
     """A wedged engine costs one bounded call, and the snapshot says it stopped short."""
-    monkeypatch.setattr(ci_diagnostics, "SNAPSHOT_CALL_TIMEOUT", _CALL_BOUND)
+    monkeypatch.setattr(ci_diagnostics, "SNAPSHOT_DEADLINE", _CALL_BOUND)
     snapshots = ContainerSnapshots(tmp_path / "diag", "gw0", slow_engine.name)
+    started = _record_started_calls(monkeypatch)
 
     written = snapshots.capture("tests/test_a.py::test_one", "call")
 
     assert written is not None
     state = (written / "state.txt").read_text().splitlines()
     assert state[-1].startswith("capture incomplete: ")
-    assert f"slow-engine logs c1 exceeded {_CALL_BOUND:g} s" in state[-1]
-    calls = _engine_calls(tmp_path)
-    assert calls[-1].startswith("logs "), calls
+    assert started, state
+    cut = _named(started[-1])
+    assert state[-1] == (
+        f"capture incomplete: {cut} exceeded the {_CALL_BOUND:g} s snapshot deadline"
+    ), (state, started)
 
 
 def test_a_capture_whose_first_call_times_out_is_marked_incomplete(tmp_path, monkeypatch):
     """An engine that never answers the container listing still leaves a marked snapshot."""
-    monkeypatch.setattr(ci_diagnostics, "SNAPSHOT_CALL_TIMEOUT", _CALL_BOUND)
-    calls = shlex.quote(str(tmp_path / "calls.log"))
-    script = _write_engine(
-        tmp_path / "bin",
-        "mute-engine",
-        f"#!/bin/sh\nprintf '%s\\n' \"$*\" >> {calls}\nexec sleep 60\n",
-    )
+    monkeypatch.setattr(ci_diagnostics, "SNAPSHOT_DEADLINE", _CALL_BOUND)
+    script = _write_engine(tmp_path / "bin", "mute-engine", "#!/bin/sh\nexec sleep 60\n")
     monkeypatch.setenv("PATH", f"{script.parent}{os.pathsep}{os.environ.get('PATH', '')}")
     snapshots = ContainerSnapshots(tmp_path / "diag", "gw0", script.name)
+    started = _record_started_calls(monkeypatch)
 
     written = snapshots.capture("tests/test_a.py::test_one", "call")
 
     assert written is not None
     state = (written / "state.txt").read_text().splitlines()
-    assert state[-1] == f"capture incomplete: mute-engine ps -aq exceeded {_CALL_BOUND:g} s"
-    assert _engine_calls(tmp_path) == ["ps -aq"]
+    assert state[-1].startswith("capture incomplete: mute-engine ps "), state
+    assert state[-1].endswith(f"exceeded the {_CALL_BOUND:g} s snapshot deadline"), state
+    assert len(started) == 1 and started[0][1:3] == ["ps", "-aq"], started
 
 
+#: A ``logs`` call that marks the moment it began, then outlives the nested
+#: run's 1 s pytest-timeout alarm.
+_MARKED_SLOW_LOGS = ': > "$FAKE_SLOW_CALL"; exec sleep 3'
+
+# The listings answer at once under the shipped snapshot deadline; the first
+# per-container call marks itself and outlives the test's alarm; the run's
+# clock then reads past the snapshot deadline. So only a snapshot that leaves
+# the alarm and keeps one total deadline lets the failure be reported, with
+# failure.txt written before the slow call began.
 _TIMED_CONFTEST = """\
+import os
+import time
+import types
+from pathlib import Path
+
 from osprey_connectors_tests._harness import ci_diagnostics
 
-ci_diagnostics.SNAPSHOT_CALL_TIMEOUT = 2.0
+
+def _clock():
+    now = time.monotonic()
+    if Path(os.environ["FAKE_SLOW_CALL"]).exists():
+        return now + ci_diagnostics.SNAPSHOT_DEADLINE
+    return now
+
+
+ci_diagnostics.time = types.SimpleNamespace(monotonic=_clock, time=time.time)
 
 
 def pytest_configure(config):
@@ -711,28 +782,27 @@ def test_fails():
 """
 
 
-def test_a_capture_past_an_armed_timeout_leaves_the_worker_alive(slow_engine, tmp_path):
+def test_a_capture_past_an_armed_timeout_leaves_the_worker_alive(tmp_path, monkeypatch):
     """A capture that outlasts the per-test timeout runs outside it.
 
-    The 1 s alarm would otherwise fire inside the 2 s capture, and its
+    The 1 s alarm would otherwise fire inside the 3 s ``logs`` call, and its
     ``pytest.fail`` would escape the hook and take the xdist worker down.
     """
+    engine = _install_engine(tmp_path, monkeypatch, "slow-engine", _MARKED_SLOW_LOGS)
+    marker = tmp_path / "slow-call-began"
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     (run_dir / "conftest.py").write_text(_TIMED_CONFTEST)
     (run_dir / "test_timed.py").write_text(_TIMED_TEST)
     diag = tmp_path / "diag"
 
-    env = {
-        k: v
-        for k, v in os.environ.items()
-        if not k.startswith(("PYTEST_XDIST_", "PYTEST_ADDOPTS", ENV_DIR))
-    }
+    env = outer_run_free_env()
     env.update(
         PYTEST_DISABLE_PLUGIN_AUTOLOAD="1",
         PYTHONPATH=str(_HARNESS_ROOT),
         OSPREY_CI_DIAG_DIR=str(diag),
-        OSPREY_E2E_RUNTIME=slow_engine.name,
+        OSPREY_E2E_RUNTIME=engine.name,
+        FAKE_SLOW_CALL=str(marker),
     )
     done = run_nested_pytest(
         [
@@ -761,11 +831,17 @@ def test_a_capture_past_an_armed_timeout_leaves_the_worker_alive(slow_engine, tm
     )
 
     output = done.stdout + done.stderr
+    assert done.returncode == 1, output
     assert "1 failed" in done.stdout, output
-    for crash in ("node down", "Not properly terminated", "Timeout"):
+    for crash in ("INTERNALERROR", "node down", "Not properly terminated", "Timeout"):
         assert crash not in output, output
-    state = diag / CONTAINER_SNAPSHOT_SUBDIR / "gw0--test_timed.py" / "state.txt"
-    assert "capture incomplete" in state.read_text(), output
+    snapshot = diag / CONTAINER_SNAPSHOT_SUBDIR / "gw0--test_timed.py"
+    assert marker.exists(), output
+    assert (snapshot / "failure.txt").stat().st_mtime_ns <= marker.stat().st_mtime_ns
+    state = (snapshot / "state.txt").read_text().splitlines()
+    assert state[-1] == (
+        "capture incomplete: snapshot deadline reached before slow-engine inspect c1"
+    ), output
 
 
 # ===================================================================

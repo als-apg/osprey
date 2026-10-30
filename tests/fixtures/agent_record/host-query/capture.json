@@ -1,0 +1,13 @@
+{
+ "captured_at": "2026-10-27T02:06:18.082831Z",
+ "cli_version": "2.1.300",
+ "command": "osprey query --json",
+ "holds": [
+  "subagent",
+  "thinking",
+  "oversized tool result"
+ ],
+ "identity": "e2e-builder",
+ "launch": "host-query",
+ "terminal_session_prefix": "chat-"
+}

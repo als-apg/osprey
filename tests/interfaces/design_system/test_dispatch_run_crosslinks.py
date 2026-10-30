@@ -14,7 +14,10 @@ of that degradation table.
 
 The history link needs the history page (a deploy-time ``OSPREY_HISTORY_URL``,
 set only when the deployment serves the page) and a session id the link can
-carry; without either the run offers no link.
+carry; without either the run offers no link. Its label says who sees the
+run's thinking there: the person who asked and ``history: all`` viewers. What
+those viewers really see is proven against the page itself in
+``test_dispatch_run_thinking_browser.py``.
 
 Placement rationale: matches ``test_dispatch_dashboard_modes.py`` and
 ``test_visual.py``, which already stand the dispatch dashboard up from this
@@ -124,7 +127,10 @@ STATE = {
 }
 
 
-#: The history page's URL as the dispatcher is handed it: the readers' origin.
+#: The history link's label: who sees the run's thinking on the history page.
+HISTORY_LINK_LABEL = "history (thinking: the asker and history: all)"
+
+#: The history page's URL as the dispatcher is handed it: the history page's origin.
 HISTORY_URL = "https://readers.example.org:10002/history/"
 
 
@@ -264,7 +270,7 @@ def test_the_run_links_to_its_session_on_the_history_page(
         "href": f"{HISTORY_URL}session/{SESSION_ID}",
         "target": "_blank",
         "rel": "noopener noreferrer",
-        "label": "history (history: all and readers)",
+        "label": HISTORY_LINK_LABEL,
     }, link
     page.close()
 

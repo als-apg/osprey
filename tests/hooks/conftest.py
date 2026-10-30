@@ -13,7 +13,10 @@ They also run against a throwaway deployment repo rather than this checkout —
 see :func:`_hook_project_dir`. A hook resolves its own root with the standard
 library in its own process, so the seams in ``tests/conftest.py`` cannot reach
 it, and a run left to the last rung of that ladder files real records into
-``<repo>/var/audit``.
+``<repo>/var/spool``. The suite's own spool zone reaches a hook subprocess the
+way a deployment's reaches a real one: ``OSPREY_SPOOL_DIR`` is forwarded, so
+:func:`hook_audit_records` finds a hook's audit entries under the test's
+``tmp_path``.
 
 Unit tests that need a hook's *helpers* rather than its end-to-end behaviour
 import the module in-process through :func:`import_hook`, which contains the
@@ -113,6 +116,13 @@ _HOOK_VARS = (
     "OSPREY_WEB_PORT",
     "OSPREY_WEB_UX",
     "BLUESKY_BRIDGE_URL",
+    # The record: the acting identity's own spool directory, which every
+    # launcher names and every hook inherits, and the record off switch. The
+    # suite-wide spool zone sets the first per test, so forwarding it is what
+    # keeps a hook's audit entries in the test's own spool rather than the
+    # throwaway repo's ``var/spool``.
+    "OSPREY_SPOOL_DIR",
+    "OSPREY_AGENT_RECORD_OFF",
 )
 
 _hook_config_seq = count()
@@ -421,10 +431,9 @@ def _hook_root_never_the_checkout(_throwaway_repo, monkeypatch):
     the opposite reason. Clearing a variable does not stop a hook writing; it
     aims the write at the last rung of that ladder, which is the process working
     directory, which is this checkout. A hook that records there files real
-    audit lines into ``<repo>/var/audit`` that an operator cannot tell from
-    records of things that really happened, and
-    ``tests/conftest.py::no_audit_ledger_in_the_repo`` fails the session over
-    it. The seams in ``tests/conftest.py`` cannot reach this: the hook resolves
+    audit entries into ``<repo>/var/spool`` that an operator cannot tell from
+    records of things that really happened, and the repo guards in
+    ``tests/conftest.py`` fail the session over it. The seams in ``tests/conftest.py`` cannot reach this: the hook resolves
     its root with the standard library alone, in its own process.
 
     A test that pins the variable itself outranks this, because a test body runs
@@ -455,6 +464,62 @@ def _curated_env(config_path=None, hook_config_path=None, cwd=None, stamped_root
     return env
 
 
+def hook_audit_records(root, surface=None):
+    """Every hook audit entry body in a sealed spool segment under *root*.
+
+    A hook writes each decision as one ``audit`` line of its own sealed
+    segment, in whichever spool directory it resolved, so the search is
+    recursive. *surface* (``hook_approval``, ...) narrows to one hook. Bodies
+    come oldest first, by the start time each segment's name carries.
+    """
+    import re
+
+    def started(path):
+        match = re.search(r"-([0-9]+)\.sealed$", path.name)
+        return int(match[1]) if match else 0
+
+    bodies = []
+    for path in sorted(Path(root).rglob("*.sealed"), key=started):
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            if not raw.strip():
+                continue
+            line = json.loads(raw)
+            body = line.get("body") or {}
+            if line.get("kind") != "audit" or not str(body.get("surface", "")).startswith("hook_"):
+                continue
+            if surface is None or body.get("surface") == surface:
+                bodies.append(body)
+    return bodies
+
+
+def hook_debug_records(root, hook=None):
+    """Every hook debug entry body in a sealed spool segment under *root*.
+
+    With hook debug on, ``log_hook`` writes each line as one ``debug`` entry
+    whose body names ``source: "hook"``, in its own sealed segment. *hook*
+    (``control_context``, ...) narrows to one hook. Bodies come oldest first,
+    by the start time each segment's name carries.
+    """
+    import re
+
+    def started(path):
+        match = re.search(r"-([0-9]+)\.sealed$", path.name)
+        return int(match[1]) if match else 0
+
+    bodies = []
+    for path in sorted(Path(root).rglob("*.sealed"), key=started):
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            if not raw.strip():
+                continue
+            line = json.loads(raw)
+            body = line.get("body") or {}
+            if line.get("kind") != "debug" or body.get("source") != "hook":
+                continue
+            if hook is None or body.get("hook") == hook:
+                bodies.append(body)
+    return bodies
+
+
 def _write_hook_config(tmp_path, hook_config):
     """Serialise a hook_config dict into a per-test temp file."""
     path = tmp_path / f"hook_config_{next(_hook_config_seq)}.json"
@@ -465,7 +530,7 @@ def _write_hook_config(tmp_path, hook_config):
 def _hook_project_dir(throwaway_repo, cwd=None):
     """The project directory a hook subprocess resolves its repo root from.
 
-    A hook anchors its durable state — the audit ledger above all — on the root
+    A hook anchors its durable state — its spool above all — on the root
     ``osprey_hook_log.get_repo_root`` answers. With no config in play that root
     is the project dir, which is ``CLAUDE_PROJECT_DIR`` if set and otherwise the
     payload's own ``cwd`` field, and which is the process working directory when
@@ -490,6 +555,8 @@ def hook_runner(tmp_path, _throwaway_repo):
 
     Mirrors the real Claude Code hook execution: stdin receives JSON with
     tool_name and tool_input, stdout receives JSON output (or empty for allow).
+    The argv after the script is what the render puts there, e.g. the approval
+    hook's ``--budget``.
     """
 
     def run(

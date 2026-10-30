@@ -345,7 +345,7 @@ def resolve_protected_roots(
 ) -> tuple[Path, ...]:
     """Resolve the paths executed code may not write into, in any mode.
 
-    Three groups, all anchored on the deployment repo root:
+    Four groups, all anchored on the deployment repo root:
 
     * The **render zone** (``build/``). Every ``osprey build`` re-creates it
       wholesale, so a write there is either lost at the next build or, worse,
@@ -353,13 +353,18 @@ def resolve_protected_roots(
       that the next run reads its own permissions out of lives here.
     * The **profile source set** (:data:`PROFILE_SOURCE_ENTRIES`) — what the
       build reads to produce that render.
-    * The **audit ledger** (``var/audit``), the record of what was refused. Of
-      the two directories in ``STATE_ZONE_DIRS`` this is the one the agent does
-      not own: ``var/agent_data`` is its workspace and comes back as a
-      *permitted* root below, while the ledger is written only by the parent
-      process (``osprey.audit.writer``, called from the MCP tool layer) and
-      never by the child. A run that could rewrite it could
-      erase the evidence of its own refusal.
+    * The **pre-upgrade audit tree**
+      (:data:`~osprey.utils.workspace.PRE_UPGRADE_AUDIT_RELPATH`), the
+      ledger a deployment kept before the agent record. Nothing writes it, and
+      it stays protected: a run that could rewrite it could erase or forge the
+      evidence of what an earlier agent was refused.
+    * The **agent-record roots** (``var/spool``, ``var/agent_record``,
+      ``var/state`` and ``var/archive``): the spool the record is ingested
+      from, the embedded record itself, the per-container state that holds the
+      sidecar's revocations, and the archive — the lasting half of the audit
+      trail, holding the same facts as the record. Each is written by OSPREY
+      processes and never by executed code, which could otherwise forge or
+      erase entries.
 
     Entries that do not exist yet are included on purpose: a repo without a
     ``tiers/`` directory is one where creating it is exactly the write to
@@ -378,13 +383,26 @@ def resolve_protected_roots(
         Absolute, resolved paths — de-duplicated, order preserved. The child
         gets these as literals and never re-derives them.
     """
-    from osprey.utils.workspace import AUDIT_DIR_RELPATH
+    from osprey.utils.workspace import (
+        ARCHIVE_DIR_RELPATH,
+        PRE_UPGRADE_AUDIT_RELPATH,
+        RECORD_DIR_RELPATH,
+        SPOOL_DIR_RELPATH,
+        STATE_DIR_RELPATH,
+    )
     from osprey_connectors.workspace import BUILD_DIR_NAME
 
     root = Path(project_root) if project_root is not None else _resolve_project_root()
     root = root.resolve()
 
-    candidates = [root / BUILD_DIR_NAME, root / AUDIT_DIR_RELPATH]
+    candidates = [
+        root / BUILD_DIR_NAME,
+        root / PRE_UPGRADE_AUDIT_RELPATH,
+        root / SPOOL_DIR_RELPATH,
+        root / RECORD_DIR_RELPATH,
+        root / STATE_DIR_RELPATH,
+        root / ARCHIVE_DIR_RELPATH,
+    ]
     candidates += [root / entry for entry in PROFILE_SOURCE_ENTRIES]
     return tuple(dict.fromkeys(path.resolve() for path in candidates))
 
@@ -570,7 +588,7 @@ def switch_in_progress_message(pids: tuple[int, ...]) -> str:
     )
 
 
-def _deployment_record() -> "ControlContext | None":
+def _control_context_record() -> "ControlContext | None":
     """The deployment's control context, or ``None`` when there is none to read.
 
     One record per deployment instance, written by its owner and read by every
@@ -742,7 +760,7 @@ def _apply_target_stamp(sandbox_env: dict[str, str]) -> str:
     for name in _STAMP_ENV_NAMES:
         sandbox_env.pop(name, None)
 
-    record = _deployment_record()
+    record = _control_context_record()
     if record is not None and (blocking := _blocking_pids(record)):
         raise _SwitchInProgress(blocking)
 

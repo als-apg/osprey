@@ -2,14 +2,13 @@
 
 An audit record answers three questions no facility may answer for itself:
 *who* acted (the whole identity ladder — ``OSPREY_TERMINAL_USER`` and
-``OSPREY_AUDIT_IDENTITY`` — plus ``OSPREY_AUDIT_WRITER``), *which posture* the
+``OSPREY_AUDIT_IDENTITY``), *which posture* the
 process is under (``OSPREY_EXECUTION_MODE``, the value the middleware clamp
 and the executor gate both read) and *where the posture claim came from*
 (``OSPREY_POSTURE_SOURCE`` and the exported session key
 ``OSPREY_POSTURE_SESSION``). Each is assigned by a real site outside the MCP
 spec path — compose ``environment:`` for the identities, the three
-web-terminal spawn sites for the posture and its provenance pair, the root
-maintenance heredoc's per-command prefix for the writer. A spec's ``env:`` is
+web-terminal spawn sites for the posture and its provenance pair. A spec's ``env:`` is
 therefore never a legitimate source for any of them, and a spec that could set
 one could file its records under another service's name, present a writes
 posture inside a sandboxed session, or claim a posture provenance it was never
@@ -62,7 +61,6 @@ from osprey.interfaces.web_terminal.operator_session import (
 from osprey.registry.mcp import (
     _FRAMEWORK_OWNED_SPEC_ENV,
     AUDIT_IDENTITY_ENV,
-    AUDIT_WRITER_ENV,
     CONTROL_CONTEXT_DIR_ENV,
     CONTROL_CONTEXT_TREE_ENV,
     CONTROL_OWNER_ENV,
@@ -129,7 +127,6 @@ class TestMarkerSpellings:
             "OSPREY_TERMINAL_USER",
             "OSPREY_AUDIT_IDENTITY",
             "OSPREY_EXECUTION_MODE",
-            "OSPREY_AUDIT_WRITER",
             "OSPREY_POSTURE_SOURCE",
             "OSPREY_POSTURE_SESSION",
             "OSPREY_TERMINAL_SESSION",
@@ -245,15 +242,6 @@ class TestMarkerSpellings:
         marker it no longer matches.
         """
         assert registry_name == spawn_name
-
-    def test_writer_marker_is_reserved_before_its_assigner_exists(self):
-        """The writer marker is refused by the spec path already; the site that
-        legitimately assigns it (the root maintenance heredoc's per-command
-        prefix) lands later. Reserving early is the point: a marker that only
-        becomes non-pinnable once something assigns it is spoofable in the gap.
-        """
-        assert AUDIT_WRITER_ENV == "OSPREY_AUDIT_WRITER"
-        assert AUDIT_WRITER_ENV in NON_PINNABLE_AUDIT_MARKERS
 
 
 class TestRemovedOnEveryLaunchPath:

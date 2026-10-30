@@ -154,12 +154,12 @@ Runtime settings
           follow-up (default 3000). A longer one is sent as its opening, and the
           agent reads the rest only if it needs it. ``0`` always sends every
           answer in full.
-      * - ``DEDUP_PATH``, ``HISTORY_PATH``, ``OFFSETS_PATH``
+      * - ``DEDUP_PATH``, ``OFFSETS_PATH``
         - Where the bridge keeps what it remembers: the questions it has
-          answered, the recent exchanges, and how far it has read in each room.
-          All three default to files under ``/data``, its own volume; change
-          them only if you deliberately relocate that state, and move all three
-          together — losing ``OFFSETS_PATH`` alone replays or skips history.
+          answered and how far it has read in each room. Both default to files
+          under ``/data``, its own volume; change them only if you deliberately
+          relocate that state, and move both together: losing ``OFFSETS_PATH``
+          alone replays or skips history.
       * - ``TZ``
         - Timezone, taken from your project configuration so timestamps match
           the rest of the stack.

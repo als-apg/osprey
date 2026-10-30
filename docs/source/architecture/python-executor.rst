@@ -451,7 +451,7 @@ What executed code may not change
 
 Refusing control-system writes is one boundary; this is a different one. Whatever
 mode a run is submitted in, it may not rewrite the deployment that runs it.
-Three locations are protected:
+Four locations are protected:
 
 - **The render zone** (``build/``) --- rebuilt wholesale by every
   ``osprey build``, and the rendered ``config.yml`` inside it is where the next
@@ -464,8 +464,14 @@ Three locations are protected:
   directories (``rules/``, ``skills/``, ``agents/``, ``commands/``,
   ``output-styles/``, ``hooks/``, ``web-terminal-context/``, ``mcp_servers/``,
   ``services/``) and the ``project/`` mirror.
-- **The audit ledger** (``var/audit/``) --- the record of what was refused. A
-  run that could rewrite it could erase the evidence of its own refusal.
+- **The agent record's directories** (``var/spool/``, ``var/agent_record/``,
+  ``var/state/`` and ``var/archive/``) --- the spool the record is read from,
+  the record itself, the services' own state and the daily archive, which
+  together hold the record of what was refused. A run that could rewrite them
+  could erase or forge the evidence of its own refusal.
+- **The pre-upgrade audit files** --- the files a deployment kept before the
+  agent record. Nothing writes them, and they stay protected for the
+  same reason.
 
 A protected entry that does not exist yet is protected all the same: in a repo
 with no ``apps/`` directory, creating one is exactly the write to refuse.
@@ -597,15 +603,14 @@ Three things happen, at whichever layer catches it:
 1. The agent gets an error naming the mode and what to do instead.
 2. The operator is alerted --- the Web Terminal reports that a write was
    attempted and blocked, not merely that a script failed.
-3. The attempt is recorded in the audit trail, at
-   ``var/audit/<identity>/executor.jsonl`` --- one JSON object per line, with a
-   timestamp, who was acting, the write posture in force, the layer that refused
-   (the record's ``reason``), and the offending source kept verbatim. That
-   directory is durable: builds never touch it, and ``osprey reset`` keeps
-   it unless you pass ``--purge-audit``.
+3. The attempt is recorded in the audit trail, as one ``audit`` entry in the
+   agent record --- with a timestamp, who was acting, the write posture in
+   force, the layer that refused (the entry's ``reason``), and the offending
+   source kept verbatim. Builds never touch the record, and ``osprey reset``
+   keeps it unless you pass ``--purge-audit``.
 
-The record is filed under the identity that was acting, so on a multi-user
-deployment each person's refusals sit in their own file. The pre-run pass
+The entry is filed under the identity that was acting, so on a multi-user
+deployment each person's refusals are their own. The pre-run pass
 records in both execution modes --- the path policy refuses a write into the
 protected set whether the run asked for ``readonly`` or ``readwrite``, and the
 record's ``detail`` says which mode the run was submitted under, so a readwrite
@@ -620,12 +625,12 @@ and the operator alert are what is missing.
 
 .. note::
 
-   **This is the one ledger that holds a payload.** Everywhere else OSPREY
+   **This is the one audit surface that holds a payload.** Everywhere else OSPREY
    records identifiers and config keys only --- never a value, a prompt or an
    agent message. Here the refused code *is* what the record is about, so it is
    kept whole (up to 8000 characters, flagged as truncated beyond that). Give
-   ``executor.jsonl`` the same care you would give the code itself, and expect
-   it to be the file that grows. See :ref:`the audit trail <reference-audit-trail>`
+   the ``executor`` entries the same care you would give the code itself, and
+   expect them to be what grows. See :ref:`the audit trail <reference-audit-trail>`
    for what the rest of it contains.
 
 .. admonition:: Control system operations in user code

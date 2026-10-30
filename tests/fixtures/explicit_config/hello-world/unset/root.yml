@@ -1,5 +1,14 @@
 agent_data:
   base_dir: var/agent_data
+agent_record:
+  backend: embedded
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.8.18.2
+    memory: 2g
+  memory: 1g
+  port: 10053
+  readers: []
+  retention_days: 14
 api:
   providers:
   - als-apg
@@ -59,14 +68,6 @@ claude_code:
         allow:
         - example_status
         ask: []
-  telemetry:
-    backend: gateway
-    enabled: true
-    log_assistant_responses: true
-    log_raw_api_bodies: true
-    log_tool_details: true
-    log_user_prompts: true
-    protocol: http/protobuf
 container_runtime: docker
 control_system:
   channel_read_artifact_retention: 20
@@ -80,27 +81,14 @@ control_system:
   read_inline_max_elements: 2000
   type: virtual_accelerator
   writes: never
-deployed_services:
-- telemetry_store
-- telemetry_gateway
+deployed_services: []
 execution:
   execution_method: subprocess
 file_paths:
-  api_calls_dir: api_calls
   registry_exports_dir: registry_exports
 hooks:
   debug: false
 project_name: osprey-freeze
-services:
-  telemetry_gateway:
-    path: ./services/telemetry_gateway
-    port: 10051
-  telemetry_store:
-    path: ./services/telemetry_store
-    port: 10804
-    readers:
-    - name: operator
-    retention_days: 14
 simulation:
   models: null
   tick_s: 1.0

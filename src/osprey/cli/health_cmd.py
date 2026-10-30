@@ -248,7 +248,7 @@ def health(
     """Run health checks on this deployment.
 
     Runs a suite of diagnostics — configuration validity, file-system layout,
-    Python environment, container infrastructure, telemetry store, API
+    Python environment, container infrastructure, agent record, API
     providers, and the agent CLI — grouped into categories. Cheap poll-class
     categories run by default; costly on_demand categories (live model chat
     completions, pinned-CLI verification) run only with --full.

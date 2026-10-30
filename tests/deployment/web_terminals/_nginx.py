@@ -43,3 +43,18 @@ def nginx_location_body(conf: str, header: str) -> str:
     match = re.search(rf"{re.escape(header)} \{{(.*?)\n    \}}", conf, flags=re.DOTALL)
     assert match is not None, f"no `{header}` block in the rendered fragment"
     return match.group(1)
+
+
+#: The comment that opens the history page's origin, the server a signed-in
+#: deployment renders after the terminals' servers for its history page.
+HISTORY_ORIGIN_MARKER = "# The history page's origin.\n"
+
+
+def nginx_terminals_part(conf: str) -> str:
+    """The terminals' servers of *conf*: everything before the history page's origin.
+
+    The history page's origin gates its page with an ``auth_request``, an
+    ``internal`` verify target and a gate include of its own, which the
+    per-user counts are not about.
+    """
+    return conf.partition(HISTORY_ORIGIN_MARKER)[0]

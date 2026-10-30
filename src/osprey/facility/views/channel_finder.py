@@ -606,7 +606,7 @@ def _member_order(device: Mapping[str, Any]) -> tuple[bool, float, str]:
 
 def _short_name(group_id: str, system: str) -> str:
     prefix = f"{system}/"
-    return group_id[len(prefix) :] if group_id.startswith(prefix) else group_id
+    return group_id.removeprefix(prefix)
 
 
 def _family_names(system: str, group_ids: Sequence[str], taken: Iterable[str] = ()) -> list[str]:
@@ -771,8 +771,7 @@ def _place_indices(doc: Mapping[str, Any]) -> dict[str, int]:
                 _natural(place_id),
             ),
         )
-        for index, place_id in enumerate(ordered, start=1):
-            indices[place_id] = index
+        indices.update((place_id, index) for index, place_id in enumerate(ordered, start=1))
     return indices
 
 

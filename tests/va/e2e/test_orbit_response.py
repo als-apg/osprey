@@ -1,11 +1,13 @@
-"""A real SR corrector write moves a real downstream BPM, through the real
-connector, against the real container.
+"""A real lane-model corrector write moves a real downstream BPM, through the
+real connector, against the real container.
 
-Uses device 01 (``SR:MAG:HCM:01`` <-> ``SR:DIAG:BPM:01``) -- no other test in
-this suite touches device 01's correctors, so its lattice state is exclusively
-owned here for the life of the session container.
+Uses the lane's bounded corrector, the lane model's first monitor in the plane
+that corrector steers and its first monitor in the other plane
+(``conftest.LANE``) -- no other test in this suite writes that corrector,
+so its lattice state is exclusively owned here for the life of the session
+container.
 
-The container serves the demo facility's ``SR`` model through the pyat engine:
+The container serves the lane model through the pyat engine:
 a corrector write sets the element's kick and the served BPM reading is the
 closed-orbit solve at that monitor. Sextupoles sit at their deck strengths, so
 the response is linear to feed-down accuracy (relative deviation well inside
@@ -13,17 +15,18 @@ LINEAR_REL_TOL at these amplitudes) and antisymmetric about zero current, not
 merely "moves in the same direction as the raw local kick", which is wrong for
 a periodic lattice. This asserts the antisymmetric-linear shape directly: +I
 and -I give opposite shifts, 2x I doubles the shift, and the shift is nonzero
-at the paired BPM -- never same-sign or magnitude alone.
+at the steered-plane monitor -- never same-sign or magnitude alone.
 
 The shared container starts in the suite scenario
 (``conftest.SUITE_SCENARIOS``), which serves its monitors without their
 declared noise and drift, so a reading is the solved orbit and nothing else,
 and every cycle reproduces the first.
 
-Sweep currents stay inside the +/-12 A band ``limits.yaml`` gives this
-corrector: the view carries it as the setpoint's ``value_range`` and the runner
-clamps an out-of-band write into it, so a 20 A write would read back as 12 A
-and corrupt the linearity measurement rather than fail loudly.
+Sweep currents are fractions of the band ``limits.yaml`` gives this corrector
+(``conftest.LANE.band``), so they stay inside it on any facility: the view carries it as the setpoint's
+``value_range`` and the runner clamps an out-of-band write into it, so a write
+above the band would read back as its upper end and corrupt the linearity
+measurement rather than fail loudly.
 """
 
 from __future__ import annotations
@@ -36,9 +39,22 @@ import pytest
 from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 
-CORRECTOR_SP = "SR:MAG:HCM:01:CURRENT:SP"
-BPM_X = "SR:DIAG:BPM:01:POSITION:X"
-BPM_Y = "SR:DIAG:BPM:01:POSITION:Y"  # HCM steers x only; y should stay ~put (plane decoupling)
+LANE = e2e_conftest.LANE
+CORRECTOR_SP = e2e_conftest.BOUNDED_SETPOINT
+STEERED_PLANE = LANE.plane
+OTHER_PLANE = "y" if STEERED_PLANE == "x" else "x"
+STEERED_BPM = LANE.monitor_x if STEERED_PLANE == "x" else LANE.monitor_y
+OTHER_BPM = LANE.monitor_y if STEERED_PLANE == "x" else LANE.monitor_x
+
+#: Half the band's narrower side: every sweep point below lies inside the band.
+_HALF = min(abs(LANE.band[0]), abs(LANE.band[1]))
+#: The sweep, in order: zero, +I, -I and +2I with I a quarter of ``_HALF``.
+SWEEP = (
+    ("zero", 0.0),
+    ("plus", _HALF / 4),
+    ("minus", -_HALF / 4),
+    ("double", _HALF / 2),
+)
 
 SETTLE_BOUND_S = 1.0
 NONZERO_FLOOR_M = 1e-5  # 10 microns -- comfortably below the documented mm-scale shift
@@ -78,17 +94,18 @@ async def _read_bpm(connector, address: str, *, retries: int = 10, delay: float 
 
 
 async def _measure_one_cycle(connector) -> dict[str, float]:
-    """Write 0, +5, -5, +10 A in turn and return each state's BPM01 (x, y).
+    """Write each ``SWEEP`` current in turn and return each state's monitor
+    readings, (steered plane, other plane).
 
-    All amplitudes are inside the committed +/-12 A band -- see the module
+    All amplitudes are inside the corrector's committed band -- see the module
     docstring for why exceeding it silently clamps instead of failing.
     """
     readings: dict[str, tuple[float, float]] = {}
-    for label, current in (("zero", 0.0), ("plus5", 5.0), ("minus5", -5.0), ("plus10", 10.0)):
+    for label, current in SWEEP:
         await _write_current(connector, current)
-        x = await _read_bpm(connector, BPM_X, retries=3, delay=0.05)
-        y = await _read_bpm(connector, BPM_Y, retries=1, delay=0.0)
-        readings[label] = (x, y)
+        steered = await _read_bpm(connector, STEERED_BPM, retries=3, delay=0.05)
+        other = await _read_bpm(connector, OTHER_BPM, retries=1, delay=0.0)
+        readings[label] = (steered, other)
     return readings
 
 
@@ -112,40 +129,41 @@ class TestOrbitResponse:
             await _write_current(connector, 0.0)
 
         for i, readings in enumerate(cycles):
-            for label, (x, y) in readings.items():
-                first_x, first_y = cycles[0][label]
-                assert x == pytest.approx(first_x, abs=REPRODUCE_ABS_M), (
-                    f"cycle {i}: BPM01 x at {label} read {x}, cycle 0 read {first_x}"
+            for label, (steered, other) in readings.items():
+                first_steered, first_other = cycles[0][label]
+                assert steered == pytest.approx(first_steered, abs=REPRODUCE_ABS_M), (
+                    f"cycle {i}: {STEERED_PLANE} at {label} read {steered}, "
+                    f"cycle 0 read {first_steered}"
                 )
-                assert y == pytest.approx(first_y, abs=REPRODUCE_ABS_M), (
-                    f"cycle {i}: BPM01 y at {label} read {y}, cycle 0 read {first_y}"
+                assert other == pytest.approx(first_other, abs=REPRODUCE_ABS_M), (
+                    f"cycle {i}: {OTHER_PLANE} at {label} read {other}, cycle 0 read {first_other}"
                 )
-            x0, y0 = readings["zero"]
-            x_p5, y_p5 = readings["plus5"]
-            x_m5, _ = readings["minus5"]
-            x_p10, _ = readings["plus10"]
+            s0, o0 = readings["zero"]
+            s_plus, o_plus = readings["plus"]
+            s_minus, _ = readings["minus"]
+            s_double, _ = readings["double"]
 
-            delta_p5 = x_p5 - x0
-            delta_m5 = x_m5 - x0
-            delta_p10 = x_p10 - x0
+            delta_plus = s_plus - s0
+            delta_minus = s_minus - s0
+            delta_double = s_double - s0
 
-            assert abs(delta_p5) > NONZERO_FLOOR_M, (
-                f"cycle {i}: +5A produced a negligible BPM01 x shift ({delta_p5} m) -- "
+            assert abs(delta_plus) > NONZERO_FLOOR_M, (
+                f"cycle {i}: +I produced a negligible {STEERED_PLANE} shift ({delta_plus} m) -- "
                 "corrector write is not reaching the physics bridge"
             )
             # Antisymmetric: +I and -I give opposite shifts, not naive same-sign.
-            assert delta_p5 == pytest.approx(-delta_m5, rel=LINEAR_REL_TOL), (
-                f"cycle {i}: +5A shift ({delta_p5}) is not antisymmetric with "
-                f"-5A shift ({delta_m5})"
+            assert delta_plus == pytest.approx(-delta_minus, rel=LINEAR_REL_TOL), (
+                f"cycle {i}: +I shift ({delta_plus}) is not antisymmetric with "
+                f"-I shift ({delta_minus})"
             )
             # Linear: 2x the current doubles the shift.
-            assert delta_p10 == pytest.approx(2 * delta_p5, rel=LINEAR_REL_TOL), (
-                f"cycle {i}: +10A shift ({delta_p10}) is not double the +5A shift ({delta_p5})"
+            assert delta_double == pytest.approx(2 * delta_plus, rel=LINEAR_REL_TOL), (
+                f"cycle {i}: +2I shift ({delta_double}) is not double the +I shift ({delta_plus})"
             )
-            # Plane decoupling: HCM steers x only -- y stays put at BPM01.
-            assert y_p5 == pytest.approx(y0, abs=1e-6), (
-                f"cycle {i}: HCM write moved BPM01 y ({y0} -> {y_p5}); "
-                "expected x/y plane decoupling to hold"
+            # Plane decoupling: the steered plane moves, the other stays put.
+            assert o_plus == pytest.approx(o0, abs=1e-6), (
+                f"cycle {i}: a corrector steering {STEERED_PLANE} moved {OTHER_PLANE} "
+                f"({o0} -> {o_plus}); expected the planes to stay decoupled"
             )
 
         assert elapsed < 5 * SETTLE_BOUND_S * 4 + 30, (

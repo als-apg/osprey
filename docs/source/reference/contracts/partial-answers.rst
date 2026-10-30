@@ -47,10 +47,20 @@ Three arms
    * - Every item tried, none answered
      - An error whose ``details.missing`` holds the same map. When every item
        failed with the same error the controls server answers on its own --
-       ``not_found``, ``timeout_error``, ``connection_error`` -- that error is
-       returned, with its own message and remedy and ``details.missing``
-       added. Otherwise the error type is ``nothing_answered``.
-   * - The request refused as a whole
+       ``not_found``, ``channel_unreachable``, ``timeout_error``,
+       ``connection_error`` -- that error is returned, with its own message
+       and remedy and ``details.missing`` added. Otherwise the error type is
+       ``nothing_answered``. When the supervisor that owns the connector
+       dropped it, replaced its connector-host child, or kept a child that
+       still answers, because of one of those failures, the error lists each
+       action once under ``details.recovery``, as an ``action`` word and its
+       sentence, and repeats the sentence in the message. A
+       ``channel_unreachable`` failure is that channel's alone and carries no
+       ``details.recovery``. A write batch in which no value
+       reached any channel is refused the same way, with its rows under
+       ``details.results``: as ``write_refused`` when every write was
+       refused, and as ``nothing_answered`` when any was sent and not taken.
+   * - A request refused before any item was tried
      - The refusal's own error type (``validation_error``, ``write_refused``,
        ...), with no map: nothing was tried, so nothing is missing.
 
@@ -75,6 +85,12 @@ The tools
    * - ``entries_by_ids``
      - An entry id
      - ``null``: the logbook does not hold the id and gives no text
+   * - ``model_response_matrix``
+     - A corrector setpoint address
+     - The engine's text
+   * - ``pyaml_measure``
+     - A stepped setpoint address, or the measurement kind when none is left
+     - The first line of what stopped the run; ``null`` when nothing raised
 
 Two exceptions
 ==============
@@ -82,8 +98,9 @@ Two exceptions
 ``channel_write``
    A write answers with one row per channel, and each row's ``outcome`` word
    says what happened to that write (see :doc:`connectors`). A write's map is
-   its rows. It has no ``missing`` key: a written but unconfirmed channel was
-   answered, and a second map would state the refused and failed rows twice.
+   its rows, and a refusal carries them under ``details.results``. It has no
+   ``missing`` key: a written but unconfirmed channel was answered, and a
+   second map would state the refused and failed rows twice.
 
 ``archiver_read``
    A channel with no points in the requested window is answered, not missing:

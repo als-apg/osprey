@@ -290,6 +290,7 @@ async def run_dispatch(
     surface_tools: list[str] | None = None,
     owner: str | None = None,
     prior_answer_runs: list[str] | None = None,
+    session_id: str | None = None,
 ) -> dict[str, Any]:
     """Run a prompt headlessly through the agent runner.
 
@@ -326,6 +327,10 @@ async def run_dispatch(
             sentinel both leave the variable unset; with ``OSPREY_DISPATCH_RUN``
             set the ladder then resolves no owner, and every control-system
             write the run attempts is refused as ``owner_unscheduled``.
+        session_id: The session id the run was accepted under. It is forced
+            onto the agent's session, so the run's transcript is filed under
+            it and the run's accept entry names that same session. ``None``
+            mints a fresh one, for a caller that recorded no accept.
 
     Returns:
         dict with keys:
@@ -336,10 +341,12 @@ async def run_dispatch(
             duration_sec: wall-clock seconds
             cost_usd: the run's cost in USD as the agent reported it (None when it reported none)
             num_turns: agentic turn count (from the result record, if available)
-            session_id: the forced telemetry session UUID for this run — the
-                value the OTEL emitter tags records with as session.id, so a
-                consumer can locate this run's full provenance in the telemetry
-                store (None if the SDK was unavailable and no run started).
+            session_id: the session the agent ran under — the ``session_id``
+                argument, or the one minted for the run when none was given.
+                It is the transcript's ``sessionId`` and the value the OTEL
+                emitter tags records with as session.id. Every outcome carries
+                it, the error outcomes included; with the SDK absent it is the
+                argument as given.
             mcp_servers: the MCP readiness snapshot taken before the first
                 turn — one ``{name, status, tools, error}`` per declared server
                 (``tools`` is a count). Empty when the project declares no
@@ -361,7 +368,7 @@ async def run_dispatch(
                 "duration_sec": 0.0,
                 "cost_usd": None,
                 "num_turns": None,
-                "session_id": None,
+                "session_id": session_id,
             },
             failure_class.FAILURE_INFRASTRUCTURE,
             0,
@@ -404,7 +411,7 @@ async def run_dispatch(
     # Keep subagent delegation in the foreground. Since CLI 2.1.x the Agent tool
     # auto-backgrounds delegated subagents: it returns immediately, the turn
     # ends, and the results arrive on a *later* turn as a task notification.
-    # ``_drain_response`` stops at the first ResultMessage, so the worker would
+    # ``receive_response()`` stops at the first ResultMessage, so the worker would
     # answer "the agent is searching, I'll notify you when it completes" and
     # silently drop the delegated work. Set explicitly rather than inherited —
     # ``build_clean_env()`` strips every ``CLAUDE_CODE_*`` key by design.
@@ -532,15 +539,16 @@ async def run_dispatch(
     if owner is not NO_OWNER and owner is not None:
         sdk_env[CONTROL_OWNER_ENV_VAR] = owner
 
-    # Force a known session UUID for THIS run and hand it to the workspace
-    # provenance_locator tool via env, so a filed issue can point back to this
-    # run's telemetry. build_clean_env() strips CLAUDE_CODE_* (so the harness's
-    # own session id never reaches the MCP subprocess headless); instead OSPREY
+    # Force the run's session UUID — the one it was accepted under, else a fresh
+    # one — and hand it to the workspace provenance_locator tool via env, so a
+    # filed issue can point back to this run's telemetry. build_clean_env()
+    # strips CLAUDE_CODE_* (so the harness's own session id never reaches the
+    # MCP subprocess headless); instead OSPREY
     # owns the id: the same value is forced onto the SDK session below
     # (the ``session_id`` option) so the OTEL emitter tags records with it,
     # making the returned locator resolve. Race-free — fixed per run at spawn,
     # never a shared-directory mtime pick.
-    telemetry_session_id = str(uuid.uuid4())
+    telemetry_session_id = session_id or str(uuid.uuid4())
     sdk_env["OSPREY_TELEMETRY_SESSION_ID"] = telemetry_session_id
     sdk_env["OSPREY_TELEMETRY_SESSION_START"] = datetime.now(UTC).isoformat()
 
@@ -787,8 +795,9 @@ async def run_dispatch(
             elif isinstance(event, SystemEvent):
                 logger.debug("System event %s: %s", event.subtype, event.data)
             elif isinstance(event, ThinkingEvent | ApiErrorEvent):
-                # Neither is part of the run record: the result record carries
-                # the run's terminal error.
+                # Neither is part of the run's outcome: the result record
+                # carries the run's terminal error, and thinking is read from
+                # the run's transcript, never from its status body or record.
                 pass
 
         duration_sec = time.monotonic() - t0
@@ -826,6 +835,7 @@ async def run_dispatch(
                         "duration_sec": round(duration_sec, 2),
                         "cost_usd": cost_usd,
                         "num_turns": num_turns,
+                        "session_id": telemetry_session_id,
                         "mcp_servers": mcp_snapshot,
                     }
                 ),

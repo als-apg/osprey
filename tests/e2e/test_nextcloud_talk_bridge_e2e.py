@@ -84,7 +84,7 @@ modules pin (5064, 15064-15067, 15080, 18090-18110, 18191-18194, 19080-19085, 19
 20700-21699, 21781, 21791, 25080-25085, 25432-25436, 27117-27118) and clear of the
 thousand-port block a deployment claims from ``deployment.port_base``
 (10000-10999 at the default base). The
-dispatcher/worker pair deliberately takes **free** ports instead (:func:`free_port`):
+dispatcher/worker pair deliberately binds port 0 instead and reports the port it got:
 they are per-run subprocesses with no need to be predictable, and a pin would collide
 with a developer's own running stack.
 
@@ -118,6 +118,7 @@ import httpx
 import pytest
 import yaml
 
+from osprey.agent_record.identities import BRIDGE_IDENTITIES
 from osprey.bridges.core import PNG_MAGIC, TERMINAL_STATUSES
 from osprey.bridges.nextcloud_talk.__main__ import Wiring, build_wiring, config_from_env, run
 from osprey.bridges.nextcloud_talk.client import (
@@ -137,6 +138,7 @@ from tests.e2e._dispatch_harness import (
     build_repo,
     running_dispatch_stack,
 )
+from tests.e2e._worker_record import WorkerRecord, worker_record
 
 pytestmark = [
     pytest.mark.e2e,
@@ -734,9 +736,30 @@ def _write_triggers(dst: Path, worker_port: int) -> None:
     dst.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
 
 
+RECORD_BRIDGE = BRIDGE_IDENTITIES["nextcloud_bridge"]
+
+
 @pytest.fixture(scope="module")
-def dispatch_stack(built_repo: Path, tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict]:
-    """A real worker + dispatcher pair as subprocesses on free ports.
+def agent_record(
+    built_repo: Path, tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[WorkerRecord]:
+    """A real agent-record service the worker records its runs in and the bridge reads.
+
+    The worker reads a run back from the record once it is no longer in flight, and the
+    bridge reads its conversation history from it (:mod:`tests.e2e._worker_record`).
+    Module-scoped, like the dispatch pair whose runs it records.
+    """
+    with worker_record(
+        tmp_path_factory.mktemp("agent_record"), built_repo, bridges=("nextcloud_bridge",)
+    ) as record:
+        yield record
+
+
+@pytest.fixture(scope="module")
+def dispatch_stack(
+    built_repo: Path, agent_record: WorkerRecord, tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[dict]:
+    """A real worker + dispatcher pair as subprocesses, each on the port it bound.
 
     Module-scoped: the bridge is what these tests exercise, and the pair carries no state
     any assertion reads (every observation is made through the bridge's own dedup/offset
@@ -749,8 +772,11 @@ def dispatch_stack(built_repo: Path, tmp_path_factory: pytest.TempPathFactory) -
         token=DISPATCH_TOKEN,
         health_timeout=HEALTH_TIMEOUT_SEC,
         run_cap_sec=WORKER_RUN_CAP_SEC,
+        # The worker records its runs in the record and reads them back under its
+        # own login.
+        worker_env=agent_record.worker_env(),
     ) as stack:
-        yield stack
+        yield {**stack, "record": agent_record}
 
 
 # ---------------------------------------------------------------------------
@@ -838,7 +864,7 @@ def _set_bridge_env(
         "WORKER_URL": dispatch["worker_url"],
         "OFFSETS_PATH": str(state_dir / "offsets.json"),
         "DEDUP_PATH": str(state_dir / "dedup.json"),
-        "HISTORY_PATH": str(state_dir / "history.json"),
+        **dispatch["record"].env_for(RECORD_BRIDGE),
         # poll_budget must stay >= worker_timeout or CoreConfig refuses to build.
         "POLL_BUDGET": str(WORKER_RUN_CAP_SEC),
         "DISPATCH_TIMEOUT_SEC": str(WORKER_RUN_CAP_SEC),

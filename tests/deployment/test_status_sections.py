@@ -44,7 +44,12 @@ from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.cli.styles import osprey_theme
 from osprey.deployment import status_display
 from osprey.deployment.compose_generator import REPO_ID_LABEL, repo_identity
-from osprey.port_layout import default_port
+from osprey.deployment.deployment_record import (
+    DEPLOYMENT_RECORD_RELPATH,
+    NOTHING_DEPLOYED,
+    DeploymentRecord,
+    write_deployment_record,
+)
 from tests.deployment.test_up_as_built import _RENDERED_CONFIG, render_build
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
@@ -53,8 +58,14 @@ PROJECT = "als-exemplar"
 
 @pytest.fixture
 def lifecycle_repo(tmp_path: Path) -> Path:
-    """The gold-standard three-zone deployment repo, with no ``.env`` in it."""
-    return build_exemplar_repo(tmp_path / EXEMPLAR_DIRNAME)
+    """The gold-standard three-zone deployment repo, with no ``.env`` in it.
+
+    It holds the record a start of :data:`PROJECT` on docker wrote, which is
+    what both verbs report on.
+    """
+    repo = build_exemplar_repo(tmp_path / EXEMPLAR_DIRNAME)
+    write_deployment_record(repo, DeploymentRecord("docker", PROJECT))
+    return repo
 
 
 def container(
@@ -93,9 +104,14 @@ def runtime(monkeypatch):
     monkeypatch.setattr(
         status_display,
         "get_ps_command",
-        lambda config, all_containers=False: ["docker", "ps", "-a", "--format", "json"],
+        lambda config, all_containers=False, runtime=None: [
+            runtime,
+            "ps",
+            "-a",
+            "--format",
+            "json",
+        ],
     )
-    monkeypatch.setattr(status_display, "get_runtime_command", lambda config=None: ["docker"])
 
     def _fake_run(
         cmd,
@@ -200,8 +216,8 @@ def test_a_repo_with_no_build_says_so_and_still_shows_its_containers(lifecycle_r
     # computed rather than not appearing: two silently absent sections read as a
     # deployment with no endpoints and no agent.
     assert "read from build/config.yml" in text
-    # And the project name in the header is labelled as the derivation it is.
-    assert "from the directory name" in text
+    # The project in the header is the one the last start recorded.
+    assert PROJECT in text.split("Containers", 1)[1]
 
 
 @pytest.mark.usefixtures("runtime")
@@ -498,85 +514,41 @@ def test_an_unset_provider_names_the_key_the_operator_sets(lifecycle_repo, monke
     assert "claude_code.provider" not in text
 
 
-def _config_with_telemetry(block: str) -> str:
-    """The rendered config, plus a ``claude_code.telemetry`` block under it.
+#: The record's address the launch is handed.
+_RECORD_URL = "http://127.0.0.1:10061"
 
-    Resolving the provider also resolves telemetry, so what a broken telemetry
-    block does to the *provider* line is a property of the status report and
-    testable from the config alone — no stub in front of the resolver, which is
-    the piece whose behaviour is under test.
-    """
-    return _RENDERED_CONFIG + block
-
-
-@pytest.mark.usefixtures("runtime")
-def test_a_missing_observability_credential_is_not_blamed_on_the_provider(
-    lifecycle_repo,
-    monkeypatch,
-):
-    """The provider is fine; the telemetry gateway has no login for this launch.
-
-    Telemetry resolves as part of the provider spec, so a missing observability
-    credential surfaces as a failure to read the provider. Reported that way, an
-    operator goes and audits a provider configuration that was never wrong.
-    """
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("OSPREY_TELEMETRY_LOGIN", raising=False)
-    render_build(
-        lifecycle_repo,
-        config=_config_with_telemetry("  telemetry:\n    enabled: true\n    backend: gateway\n"),
-    )
-
-    text = report(lifecycle_repo)
-
-    assert "telemetry" in text
-    assert "credentials are missing or unresolved" in text
-    assert ".env" in text
-    # A provider framing would send the operator to the wrong subsystem.
-    assert "could not be read from the build" not in text
-
-
-@pytest.mark.usefixtures("runtime")
-def test_a_telemetry_endpoint_failure_still_reads_as_a_provider_problem(
-    lifecycle_repo,
-    monkeypatch,
-):
-    """Only the credential case is re-framed.
-
-    An enabled telemetry block with no reachable endpoint is not a secret-store
-    problem, and the credential remedy would be the wrong advice. It stays on
-    the general handler, which names the provider and quotes the resolver.
-    """
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    render_build(
-        lifecycle_repo,
-        config=_config_with_telemetry("  telemetry:\n    enabled: true\n    backend: nowhere\n"),
-    )
-
-    text = report(lifecycle_repo)
-
-    assert "could not be read from the build" in text
-    assert "credentials are missing or unresolved" not in text
-
-
-#: A gateway telemetry block. With :data:`_WORKING_LOGIN` in the repo ``.env``
-#: the provider spec comes back with a populated env block — including the OTLP
-#: headers, which is where the gateway's authorization header ends up.
-_WORKING_TELEMETRY = "  telemetry:\n    enabled: true\n    backend: gateway\n"
-
-#: The sender login the gateway authenticates, as ``<identity>:<password>``.
+#: The record login the exporter authenticates with, as ``<login>:<token>``.
 _WORKING_LOGIN = "observability-user:not-a-real-password"
 
 
+@pytest.mark.usefixtures("runtime")
+def test_a_missing_record_login_is_not_a_provider_failure(lifecycle_repo, monkeypatch):
+    """Without a record login the launch exports nothing; the provider still reads."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OSPREY_AGENT_RECORD_LOGIN", raising=False)
+    render_build(lifecycle_repo, config=_RENDERED_CONFIG)
+
+    text = report(lifecycle_repo)
+
+    assert "could not be read from the build" not in text
+    assert "credentials are missing or unresolved" not in text
+
+
 def _telemetry_report(repo: Path, monkeypatch) -> str:
-    """``osprey status`` for a repo whose agent has working telemetry configured."""
+    """``osprey status`` for a repo whose launch exports to the agent record."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("OSPREY_IN_CONTAINER", raising=False)
-    monkeypatch.delenv("OSPREY_TELEMETRY_LOGIN", raising=False)
+    monkeypatch.delenv("OSPREY_AGENT_RECORD_LOGIN", raising=False)
+    monkeypatch.delenv("OSPREY_AGENT_RECORD_URL", raising=False)
+    monkeypatch.delenv("OSPREY_AGENT_RECORD_OFF", raising=False)
     env_file = repo / ".env"
     existing = env_file.read_text(encoding="utf-8") if env_file.exists() else ""
-    env_file.write_text(existing + f"OSPREY_TELEMETRY_LOGIN={_WORKING_LOGIN}\n")
-    render_build(repo, config=_config_with_telemetry(_WORKING_TELEMETRY))
+    env_file.write_text(
+        existing
+        + f"OSPREY_AGENT_RECORD_URL={_RECORD_URL}\n"
+        + f"OSPREY_AGENT_RECORD_LOGIN={_WORKING_LOGIN}\n"
+    )
+    render_build(repo, config=_RENDERED_CONFIG)
     return report(repo)
 
 
@@ -584,8 +556,8 @@ def _telemetry_report(repo: Path, monkeypatch) -> str:
 def test_the_observability_authorization_header_is_never_printed(lifecycle_repo, monkeypatch):
     """The env block is printed key AND value, and one of those values is a credential.
 
-    ``OTEL_EXPORTER_OTLP_HEADERS`` carries HTTP Basic auth for the telemetry
-    gateway — base64 of ``user:password``, decodable by anyone who reads the
+    ``OTEL_EXPORTER_OTLP_HEADERS`` carries HTTP Basic auth for the agent
+    record — base64 of ``login:token``, decodable by anyone who reads the
     terminal. Neither the credentials nor the encoding of them may appear.
     """
     text = _telemetry_report(lifecycle_repo, monkeypatch)
@@ -594,34 +566,6 @@ def test_the_observability_authorization_header_is_never_printed(lifecycle_repo,
     assert token not in text
     assert "not-a-real-password" not in text
     assert "Basic " not in text
-
-
-@pytest.mark.usefixtures("runtime")
-def test_the_collector_bearer_token_is_never_printed(lifecycle_repo, monkeypatch):
-    """A collector's bearer token is read from the repo ``.env`` and never shown."""
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("OSPREY_IN_CONTAINER", raising=False)
-    monkeypatch.delenv("OTLP_COLLECTOR_TOKEN", raising=False)
-    env_file = lifecycle_repo / ".env"
-    existing = env_file.read_text(encoding="utf-8") if env_file.exists() else ""
-    env_file.write_text(existing + "OTLP_COLLECTOR_TOKEN=not-a-real-bearer-token\n")
-    render_build(
-        lifecycle_repo,
-        config=_config_with_telemetry(
-            "  telemetry:\n"
-            "    enabled: true\n"
-            "    backend: generic\n"
-            "    endpoint: https://collector.example.org:4318\n"
-            "    auth:\n"
-            "      token_env: OTLP_COLLECTOR_TOKEN\n"
-        ),
-    )
-
-    text = report(lifecycle_repo)
-
-    assert "OTEL_EXPORTER_OTLP_HEADERS" in text
-    assert "not-a-real-bearer-token" not in text
-    assert "Bearer " not in text
 
 
 @pytest.mark.usefixtures("runtime")
@@ -641,16 +585,15 @@ def test_the_headers_variable_is_still_reported_as_configured(lifecycle_repo, mo
 def test_the_rest_of_the_telemetry_block_still_shows_its_values(lifecycle_repo, monkeypatch):
     """Only the credential-bearing variable is masked, not the block around it.
 
-    Ten of the eleven telemetry variables are ordinary configuration, and a mask
-    broad enough to cover them would leave the section unable to answer where
-    the agent ships its metrics — which is what the section is for.
+    The other telemetry variables are ordinary configuration, and a mask broad
+    enough to cover them would leave the section unable to answer where the
+    agent ships its events — which is what the section is for.
     """
     text = _telemetry_report(lifecycle_repo, monkeypatch)
 
-    # The config names no ``services.telemetry_gateway.port``, so the endpoint
-    # carries the layout's gateway slot at the default base.
-    assert f":{default_port('telemetry_gateway')}" in text
-    assert "value not shown" not in text.split("OTEL_EXPORTER_OTLP_ENDPOINT")[1].splitlines()[0]
+    endpoint_row = text.split("OTEL_EXPORTER_OTLP_ENDPOINT")[1].splitlines()[0]
+    assert _RECORD_URL in endpoint_row
+    assert "value not shown" not in endpoint_row
 
 
 @pytest.mark.parametrize(
@@ -967,6 +910,78 @@ def test_status_only_ever_asks_the_runtime_to_list(lifecycle_repo, runtime):
         assert argv[1] in ("ps", "volume"), argv
 
 
+def _corrupt_the_record(repo: Path) -> None:
+    (repo / DEPLOYMENT_RECORD_RELPATH).write_text("{not json", encoding="utf-8")
+
+
+def test_status_owns_the_containers_of_the_recorded_project(lifecycle_repo, runtime):
+    """A rebuild renamed the project; the running stack is still the recorded one's."""
+    render_build(lifecycle_repo)
+    write_deployment_record(lifecycle_repo, DeploymentRecord("docker", "earlier-name"))
+    runtime["containers"] = [container("dispatch", project="earlier-name")]
+
+    text = report(lifecycle_repo)
+
+    containers = text.split("Containers", 1)[1]
+    assert "earlier-name" in containers
+    assert "dispatch" in containers
+    assert "Other OSPREY containers" not in text
+
+
+def test_status_asks_the_recorded_runtime(lifecycle_repo, monkeypatch):
+    """ps, volume ls and inspect all go to the runtime the last start drove."""
+    from osprey.cli.web_cmd import PREFLIGHT_REFUSED_MARKER
+    from osprey.deployment.compose_generator import state_identity_dir
+    from osprey.deployment.web_terminals.naming import web_container_name
+
+    monkeypatch.setenv("CONTAINER_RUNTIME", "docker")
+    render_build(
+        lifecycle_repo,
+        config=_RENDERED_CONFIG + "modules:\n  web_terminals:\n    enabled: true\n"
+        "    users:\n      - alice\n",
+    )
+    write_deployment_record(lifecycle_repo, DeploymentRecord("podman", PROJECT))
+    marker = state_identity_dir(lifecycle_repo, "alice") / PREFLIGHT_REFUSED_MARKER
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text("2099-01-01T00:00:00+00:00\n- refused\n", encoding="utf-8")
+    rows = [container(web_container_name(PROJECT, "alice"), repo_id=repo_identity(lifecycle_repo))]
+    asked: list[list[str]] = []
+
+    def _run(cmd, **kwargs):
+        argv = list(cmd)
+        asked.append(argv)
+        stdout = json.dumps(rows) if argv[1] == "ps" else ""
+        return subprocess.CompletedProcess(argv, 0, stdout, "")
+
+    monkeypatch.setattr(status_display.subprocess, "run", _run)
+
+    report(lifecycle_repo)
+
+    assert {argv[1] for argv in asked} == {"ps", "volume", "inspect"}
+    assert {argv[0] for argv in asked} == {"podman"}
+
+
+def test_status_with_no_record_says_nothing_is_deployed_and_asks_nothing(lifecycle_repo, runtime):
+    render_build(lifecycle_repo)
+    (lifecycle_repo / DEPLOYMENT_RECORD_RELPATH).unlink()
+
+    text = report(lifecycle_repo)
+
+    assert NOTHING_DEPLOYED in text
+    assert runtime["cmds"] == []
+
+
+def test_status_names_an_unreadable_record_and_asks_nothing(lifecycle_repo, runtime):
+    render_build(lifecycle_repo)
+    _corrupt_the_record(lifecycle_repo)
+
+    text = report(lifecycle_repo)
+
+    assert "unreadable" in text
+    assert str(DEPLOYMENT_RECORD_RELPATH) in text
+    assert runtime["cmds"] == []
+
+
 # ---------------------------------------------------------------------------
 # logs: the invocation it hands to the runtime
 # ---------------------------------------------------------------------------
@@ -1065,6 +1080,42 @@ def test_logs_pins_the_compose_project_name(lifecycle_repo):
     _cmd, env = status_display.logs_command(lifecycle_repo)
 
     assert env["COMPOSE_PROJECT_NAME"] == PROJECT
+
+
+@pytest.mark.usefixtures("runtime")
+def test_logs_follows_the_recorded_project_with_the_recorded_runtime(lifecycle_repo, monkeypatch):
+    from osprey.deployment.compose_generator import resolve_project_name
+
+    monkeypatch.setenv("CONTAINER_RUNTIME", "docker")
+    render_build(lifecycle_repo)
+    recorded = DeploymentRecord("podman", "earlier-name")
+    assert resolve_project_name({"project_name": PROJECT}) != recorded.compose_project
+    write_deployment_record(lifecycle_repo, recorded)
+
+    cmd, env = status_display.logs_command(lifecycle_repo)
+
+    assert cmd[0] == recorded.runtime
+    assert env["COMPOSE_PROJECT_NAME"] == recorded.compose_project
+
+
+def test_logs_with_no_record_says_nothing_is_deployed(lifecycle_repo):
+    render_build(lifecycle_repo)
+    (lifecycle_repo / DEPLOYMENT_RECORD_RELPATH).unlink()
+
+    result = CliRunner().invoke(logs_verb, ["--repo", str(lifecycle_repo)])
+
+    assert result.exit_code != 0
+    assert NOTHING_DEPLOYED in result.output
+
+
+def test_logs_names_an_unreadable_record(lifecycle_repo):
+    from osprey.deployment.errors import DeploymentRecordError
+
+    render_build(lifecycle_repo)
+    _corrupt_the_record(lifecycle_repo)
+
+    with pytest.raises(DeploymentRecordError, match=str(DEPLOYMENT_RECORD_RELPATH)):
+        status_display.logs_command(lifecycle_repo)
 
 
 def test_logs_without_a_build_refuses_and_names_the_remedy(lifecycle_repo):

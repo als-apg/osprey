@@ -99,7 +99,6 @@ import ipaddress  # noqa: E402
 import re  # noqa: E402
 import shlex  # noqa: E402
 import shutil  # noqa: E402
-import socket  # noqa: E402
 import subprocess  # noqa: E402
 import time  # noqa: E402
 import uuid  # noqa: E402
@@ -110,6 +109,8 @@ from pathlib import Path  # noqa: E402
 import pytest  # noqa: E402
 import yaml  # noqa: E402
 from click.testing import CliRunner, Result  # noqa: E402
+
+from osprey_connectors_tests._harness._ports import reserved_port  # noqa: E402
 
 #: The facility's profiles checkout.
 ALS_PROFILES_ENV = "OSPREY_ALS_PROFILES"
@@ -516,12 +517,6 @@ def imported_probe(repo: Path) -> str:
     )
 
 
-def _reserve_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind((LOOPBACK_HOST, 0))
-        return int(sock.getsockname()[1])
-
-
 def install(lane: Lane, repo: Path, port: int) -> Install:
     """Install *lane* into *repo* through ``facility import mml`` and build it."""
     runner = CliRunner()
@@ -738,7 +733,8 @@ def installed(lane: Lane, tmp_path_factory: pytest.TempPathFactory) -> Iterator[
         patch.setenv("EPICS_PVA_AUTO_ADDR_LIST", "NO")
         patch.setenv("EPICS_PVA_ADDR_LIST", LOOPBACK_HOST)
         repo = tmp_path_factory.mktemp("als-lane") / "deployment"
-        yield install(lane, repo, _reserve_port())
+        with reserved_port() as port:
+            yield install(lane, repo, port)
 
 
 @pytest.fixture(scope="module")

@@ -618,9 +618,13 @@ class TestCopyEntryNativeRows:
         """The fetch fake fails the test on any call; none is expected here."""
 
     @pytest.fixture
-    async def no_worker_left(self):
+    async def no_worker_left(self, monkeypatch):
         from osprey.imaging import render
 
+        # The rendition comes from a cold render worker; on a loaded host its
+        # start-up can outlast the default ready bound, which would copy the
+        # picture without one. The handshake bound has its own tests.
+        monkeypatch.setattr(render, "RENDER_READY_TIMEOUT_S", 30.0)
         await render.close_render_worker()
         yield
         await render.close_render_worker()

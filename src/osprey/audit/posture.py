@@ -1,4 +1,4 @@
-"""The posture as the ledger records it — one reader for every surface.
+"""The posture as the agent record records it — one reader for every surface.
 
 Three in-process recorders — the MCP audit middleware, the executor's gates and
 the protected-set funnel — file records that carry the same three facts about
@@ -13,8 +13,8 @@ The posture *value* is the write verdict's, read for the control target this
 process's writes are about: :func:`verdict` asks
 :func:`osprey_connectors.posture_store.write_verdict` about
 :func:`recorded_control_target`, and :func:`posture` spells its answer the way
-the ledger does — ``writes`` when the verdict allows, ``sandbox`` when it
-refuses. So the ledger reads ``sandbox`` whenever a write to that target would
+the record does — ``writes`` when the verdict allows, ``sandbox`` when it
+refuses. So the record reads ``sandbox`` whenever a write to that target would
 be refused: a read-only run, a tier that allows no writes, an unknown target or
 owner, an unreadable record, a switch that is off. The connector package is
 imported lazily so that the leaf stays a leaf.
@@ -23,7 +23,7 @@ The verdict belongs to the DEPLOYMENT's record rather than to a process tree
 inside it, so :data:`POSTURE_SESSION_ENV_VAR` does not index it and does not
 gate it: a dispatch worker, an ``agent_runner`` child and a CLI run are answered
 from the same record as a Web Terminal session's child. That variable is the
-audit session id, which is what the ledger joins records on.
+audit session id, which is what the record joins entries on.
 
 :func:`verdict` and :func:`posture` never raise. Every recorder calls
 :func:`posture` on every record it files, and an exception would cost the call
@@ -109,7 +109,7 @@ OSPREY_AGENT_DATA_ROOT = "OSPREY_AGENT_DATA_ROOT"
 #: has no target to name.
 CONTROL_TARGET_ENV_VAR = "OSPREY_CONTROL_TARGET"
 
-#: How the ledger spells the two postures — the Web Terminal's vocabulary, not
+#: How the record spells the two postures — the Web Terminal's vocabulary, not
 #: the environment variable's. Records from surfaces that never see
 #: ``OSPREY_EXECUTION_MODE`` join on these.
 POSTURE_SANDBOX = "sandbox"
@@ -117,9 +117,9 @@ POSTURE_WRITES = "writes"
 
 
 def posture() -> str:
-    """This process's posture, spelled the way the ledger spells it.
+    """This process's posture, spelled the way the record spells it.
 
-    :func:`verdict` mapped to the ledger's two words: ``writes`` when it allows
+    :func:`verdict` mapped to the record's two words: ``writes`` when it allows
     a write to this process's control target, ``sandbox`` when it refuses one,
     for whichever reason. The state at decision time, not the reason for any
     decision — the reason is the refusing surface's to record.
@@ -205,7 +205,7 @@ def posture_source(declared: str | None = None) -> str:
 def posture_session() -> str | None:
     """The audit session id this process's records belong to, if it was stamped.
 
-    An identifier the ledger joins on, and since the narrowing moved into the
+    An identifier the record joins on, and since the narrowing moved into the
     control-context record it is nothing more: no reader indexes a posture by
     it, and a process without one is narrowed exactly like a process with one.
     """

@@ -107,7 +107,7 @@ def test_project_name_is_renamed_in_place(runner, lifecycle_repo):
     result = _invoke(runner, lifecycle_repo, "project_name=als-renamed")
 
     assert result.exit_code == 0, result.output
-    assert "unknown" not in result.output.lower()
+    assert "Not a profile key" not in result.output
     after = _profile_text(lifecycle_repo)
     assert "\nproject_name: als-renamed\n" in after
     assert "\nproject_name: als-exemplar\n" not in after
@@ -584,7 +584,6 @@ def _honesty_repo(tmp_path: Path, name: str = "honesty") -> Path:
         "  archiver.type: mock_archiver\n"
         "  approval.enabled: false\n"
         "  approval.default_policy: always\n"
-        "  claude_code.telemetry.enabled: false\n"
         "  hooks.debug: false\n"
         "  system.timezone: UTC\n"
         # The ARIEL server is on by framework default and dials this store.

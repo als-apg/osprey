@@ -206,6 +206,10 @@ dependencies = [
     # through dependabot so the adapter's contract tests gate them.
     "bluesky-queueserver-api==0.0.13",
     "duckdb>=1.5.4",
+    # agent-record decodes OTLP logs itself (http/protobuf and http/json). The
+    # range is the 1.x line of the locked opentelemetry-api/sdk, so the proto
+    # messages and the SDK stay one release.
+    "opentelemetry-proto>=1.44.0,<2",
     "tenacity>=9.1.4",
     # Cross-version TypedDict/NotRequired — pydantic v2.12 rejects typing.TypedDict on py<3.12.
     "typing_extensions>=4.16.0",
@@ -655,10 +659,9 @@ python_files = [
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 asyncio_mode = "auto"
-# A passing test's tmp_path is deleted at its teardown, and a passing session deletes its base
-# directory, so a run leaves only what failed. pytest deletes older runs' directories in the shared
-# temporary root when the next process exits, and a whole suite's tree left there would cost that
-# process minutes of silent exit.
+# A passing test's tmp_path is deleted at its teardown, and a green run removes the root it claimed
+# (the harness's _run_temp.py), so a run leaves only what failed: a red run keeps its root and names it in
+# the summary.
 tmp_path_retention_policy = "failed"
 # WARNING: E2E tests MUST be run with 'pytest tests/e2e/' NOT 'pytest -m e2e'
 # See tests/e2e/README.md for details
@@ -667,7 +670,7 @@ markers = [
     "e2e_smoke: Quick smoke tests for critical workflows",
     "channel_finder_benchmark: Channel finder benchmark validation tests. Run on demand, in the benchmark job (`gh workflow run ci.yml -f run_benchmarks=true`), never on a PR: the LLM scoring lane is too expensive to gate on, and the search-index scale guard measures wall-clock latency, which four xdist workers sharing a runner distort past any budget worth keeping. Tests carrying it must be kept out of the unit lane — the LLM ones by living under tests/e2e/, the scale guard by an --ignore on the lane's own line",
     "e2e_tutorial: Tutorial workflow validation tests",
-    "model_free: tests/e2e test that reaches no model, so it runs when the session names no provider (OSPREY_E2E_PROVIDER); the set equals the e2e-no-model CI lane's selection",
+    "model_free: tests/e2e test that reaches no model, so it runs when the session names no provider (OSPREY_E2E_PROVIDER); the set equals the e2e-no-model and agent-record-e2e CI lanes' selection",
     "agentic_benchmark: Model-capability lane of the benchmark matrix — genuine agentic tasks (multi-tool reasoning, judged answers) where the model-under-test can fail",
     "harness_benchmark: Harness-integrity lane of the benchmark matrix — an agent runs but the assertion is model-independent OSPREY behavior (safety hooks, approval flow, plumbing)",
     "slow: Tests that take significant time",
@@ -777,6 +780,7 @@ layers = [
     "osprey_connectors.control_system",
     "osprey_connectors.simulation",
     "osprey_connectors.settle",
+    "osprey_connectors.recovery",
     "osprey_connectors.errors | osprey_connectors.write_target",
     "osprey_connectors.control_context : osprey_connectors.posture_store",
     "osprey_connectors.logger",
@@ -792,9 +796,10 @@ ignore_imports = [
     # this is a real upward edge and the cycle archiver -> control_system ->
     # simulation -> archiver is still there.
     "osprey_connectors.simulation.archive -> osprey_connectors.archiver._field_names",
-    # A type-checking import, for an annotation: the exception taxonomy names the
-    # write outcome the control-system contract defines.
-    "osprey_connectors.errors -> osprey_connectors.control_system._base",
+    # The exception taxonomy names the write outcome the control-system contract
+    # defines: a type-checking import for the annotation, and one function-local
+    # import that coerces the outcome a write error carries.
+    "osprey_connectors.errors -> osprey_connectors.control_system",
     # Two function-local imports from the type vocabulary up into the posture
     # readers that import it at module scope: the published machine kind is
     # read from the controls server's report beside the control-context record.
@@ -846,11 +851,15 @@ select = [
     "B",  # flake8-bugbear
     "C4", # flake8-comprehensions
     "UP", # pyupgrade
+    "SIM",  # flake8-simplify
+    "PERF",  # perflint
+    "RET",  # flake8-return
+    "PIE",  # flake8-pie
+    "FURB",  # refurb: a hand-written idiom the standard library already provides
     "ARG001",  # unused function argument
     "ARG002",  # unused method argument
     "RUF100",  # unused noqa: a suppression names an enabled rule that fires on its line
     "TID251",  # banned-api: the agent SDK is imported only inside the harness adapter
-    "SIM105",  # suppressible-exception: a swallowed exception is named in one `with contextlib.suppress(...)`
     "T20",  # print and pprint: shipped code reports through its own output channel
     "T100",  # debugger calls
     "ERA001",  # commented-out code
@@ -885,6 +894,17 @@ ignore-variadic-names = true
 # fixtures carry fake credentials by design; gitleaks scans every path for real ones.
 "tests/*" = ["B011", "B017", "B018", "S105", "S106", "S107"]
 "packages/*/tests/**" = ["S105", "S106", "S107", "T20"]  # T20: tests print, as below
+# The simplification families are adopted in the shipped trees first; the test
+# trees are brought under them separately. Each code that fires there is named,
+# so the rest of each family, SIM105 among it, holds in tests as it did before.
+"{tests,packages/*/tests}/**" = [
+    "FURB110", "FURB116", "FURB167", "FURB171", "FURB188", "FURB192",
+    "PERF102", "PERF401", "PERF402", "PERF403",
+    "PIE790", "PIE800", "PIE804", "PIE807", "PIE808", "PIE810",
+    "RET501", "RET503", "RET504", "RET505", "RET506",
+    "SIM102", "SIM103", "SIM108", "SIM112", "SIM114", "SIM115", "SIM116", "SIM117",
+    "SIM300", "SIM905",
+]
 "tests/e2e/conftest.py" = ["F811"]  # Allow pytest hook redefinition
 "tests/documentation/test_workflow_autodoc.py" = ["E402"]  # Late imports after path manipulation
 "tests/services/channel_finder/test_registration.py" = ["E402"]  # Late imports after path manipulation

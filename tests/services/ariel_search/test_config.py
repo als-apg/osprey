@@ -433,6 +433,71 @@ class TestARIELConfig:
         errors = config.validate()
         assert any("semantic.model" in e for e in errors)
 
+    @staticmethod
+    def _semantic_and_embedding(
+        minimal_config_dict: dict, *, search_model: str, models: list[str], embedding_on: bool
+    ) -> ARIELConfig:
+        minimal_config_dict["search_modules"] = {
+            "semantic": {"enabled": True, "model": search_model}
+        }
+        minimal_config_dict["enhancement_modules"] = {
+            "text_embedding": {
+                "enabled": embedding_on,
+                "models": [{"name": name, "dimension": 768} for name in models],
+            }
+        }
+        return ARIELConfig.from_dict(minimal_config_dict)
+
+    def test_validate_search_model_not_among_embedding_models(
+        self, minimal_config_dict: dict
+    ) -> None:
+        """Searching with a model this deployment does not embed with is one error."""
+        config = self._semantic_and_embedding(
+            minimal_config_dict,
+            search_model="other",
+            models=["nomic-embed-text"],
+            embedding_on=True,
+        )
+        errors = [e for e in config.validate() if e.startswith("search_modules.semantic.model")]
+        assert len(errors) == 1
+        assert "'other'" in errors[0]
+        assert "nomic-embed-text" in errors[0]
+        assert "enhancement_modules.text_embedding.models" in errors[0]
+
+    def test_validate_search_model_among_embedding_models(self, minimal_config_dict: dict) -> None:
+        """A search model the deployment embeds with raises nothing."""
+        config = self._semantic_and_embedding(
+            minimal_config_dict,
+            search_model="nomic-embed-text",
+            models=["mxbai-embed-large", "nomic-embed-text"],
+            embedding_on=True,
+        )
+        assert config.validate() == []
+
+    def test_validate_search_model_with_embedding_off_is_not_checked(
+        self, minimal_config_dict: dict
+    ) -> None:
+        """A deployment that searches a store another deployment ingests is not refused."""
+        config = self._semantic_and_embedding(
+            minimal_config_dict,
+            search_model="other",
+            models=["nomic-embed-text"],
+            embedding_on=False,
+        )
+        assert config.validate() == []
+
+    def test_validate_search_model_with_empty_embedding_models(
+        self, minimal_config_dict: dict
+    ) -> None:
+        """An empty models list reports only the existing models-required error."""
+        config = self._semantic_and_embedding(
+            minimal_config_dict, search_model="other", models=[], embedding_on=True
+        )
+        assert config.validate() == [
+            "enhancement_modules.text_embedding.models is required "
+            "when text_embedding enhancement is enabled"
+        ]
+
     def test_default_search_mode_unset_prefers_hybrid(self, minimal_config_dict: dict) -> None:
         """With no configured default, an enabled hybrid module is preferred."""
         minimal_config_dict["search_modules"] = {

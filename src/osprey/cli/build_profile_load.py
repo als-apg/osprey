@@ -5,8 +5,10 @@ per-server and per-section shapes that only the parser can see (MCP
 command/url/port exclusivity, mapping-vs-scalar sections) and rejecting keys
 the schema does not define, both at the top level and inside the closed
 ``environment:`` and ``bluesky:`` blocks, and inside the closed blocks of the
-otherwise open ``config:`` block (``claude_code.telemetry`` and the telemetry
-services). :func:`load_profile` is the
+otherwise open ``config:`` block (the bundled services). A ``config:`` key the
+agent record replaced is refused with its replacement named
+(:func:`~osprey.agent_record.config.refuse_retired_config_keys`).
+:func:`load_profile` is the
 plain single-file entry point; the preset/override/``--set`` layering path in
 :mod:`osprey.cli.build_profile_resolve` reuses :func:`_parse_profile` after it has
 assembled its own raw dict.
@@ -23,8 +25,8 @@ from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from osprey.agent_record.config import parse_agent_record_block, refuse_retired_config_keys
 from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS
-from osprey.build.claude_code_telemetry import TELEMETRY_AUTH_KEYS, TELEMETRY_KEYS
 from osprey.config_guards import is_positive_int
 from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
 from osprey.facility.errors import FacilityBuildError
@@ -264,6 +266,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "gchat_bridge",
         "teams_bridge",
         "va_archiver",
+        "agent_record",
         "provenance",
     }
 )
@@ -286,6 +289,9 @@ ROOT_ONLY_KEYS = frozenset(
         "environment",
         "dependencies",
         "exclude",
+        # Where the deployment's one agent record lives: a fact about the whole
+        # deployment, never about one access level of its agent.
+        "agent_record",
     }
 )
 
@@ -706,15 +712,10 @@ def reject_unknown_closed_config_keys(config: Any) -> None:
 
     The ``config:`` block is open — it addresses the rendered config, whose key
     space belongs to every reader in the tree — except for the blocks whose
-    readers are known exactly:
-
-    * ``claude_code.telemetry``, closed to
-      :data:`~osprey.build.claude_code_telemetry.TELEMETRY_KEYS`, its ``auth``
-      member to ``TELEMETRY_AUTH_KEYS``; ``resource_attributes`` stays open;
-    * ``services.<name>`` for every bundled service
-      (:func:`bundled_service_names`), closed to the manifest's rows under its
-      family (:func:`service_family`) plus the generic service axes. A custom
-      service's block stays open: its template is the facility's own.
+    readers are known exactly: ``services.<name>`` for every bundled service
+    (:func:`bundled_service_names`), closed to the manifest's rows under its
+    family (:func:`service_family`) plus the generic service axes. A custom
+    service's block stays open: its template is the facility's own.
 
     Read over every spelling at once — a nested mapping, a partly nested one
     and dotted keys address the same tree
@@ -730,21 +731,6 @@ def reject_unknown_closed_config_keys(config: Any) -> None:
             naming every unknown key in it.
     """
     tree = _expand_dotted(config)
-    claude_code = tree.get("claude_code")
-    telemetry = claude_code.get("telemetry") if isinstance(claude_code, Mapping) else None
-    if isinstance(telemetry, Mapping):
-        _reject_unknown_block_keys(
-            (key for key in telemetry if isinstance(key, str)),
-            TELEMETRY_KEYS,
-            "claude_code.telemetry",
-        )
-        auth = telemetry.get("auth")
-        if isinstance(auth, Mapping):
-            _reject_unknown_block_keys(
-                (key for key in auth if isinstance(key, str)),
-                TELEMETRY_AUTH_KEYS,
-                "claude_code.telemetry.auth",
-            )
     services = tree.get("services")
     if isinstance(services, Mapping):
         bundled = bundled_service_names()
@@ -1039,9 +1025,11 @@ def _permission_lists(config: dict[str, Any]) -> list[tuple[str, Any]]:
     for permissions, spelling in sources:
         if not isinstance(permissions, dict):
             continue
-        for key in _PERMISSION_LIST_KEYS:
-            if key in permissions:
-                found.append((f"{_PERMISSIONS_CONFIG_PATH}.{key} ({spelling})", permissions[key]))
+        found.extend(
+            (f"{_PERMISSIONS_CONFIG_PATH}.{key} ({spelling})", permissions[key])
+            for key in _PERMISSION_LIST_KEYS
+            if key in permissions
+        )
     return found
 
 
@@ -1870,6 +1858,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     # no single permissions list to check the shape of.
     _reject_mixed_claude_code_spellings(config)
     _reject_permission_list_shapes(config)
+    refuse_retired_config_keys(config)
     reject_unknown_closed_config_keys(config)
     if isinstance(config, dict):
         try:
@@ -1914,5 +1903,6 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         gchat_bridge=gchat_bridge,
         teams_bridge=teams_bridge,
         va_archiver=parse_va_archiver_block(raw, base=port_base),
+        agent_record=parse_agent_record_block(raw, base=port_base),
         provenance=provenance,
     )

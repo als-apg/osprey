@@ -12,6 +12,7 @@ import importlib
 import json
 import os
 import shlex
+import sys
 from collections import deque
 from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
@@ -46,7 +47,6 @@ from osprey.interfaces.web_terminal.bar_items_store import (
 from osprey.interfaces.web_terminal.control_context_owner import start_control_context_owner
 from osprey.interfaces.web_terminal.feedback_destination import (
     DEFAULT_DOCS_URL,
-    DEFAULT_FEEDBACK_MAX_STORE_BYTES,
     osprey_version,
     resolve_deployment_identity,
     resolve_feedback_destination,
@@ -85,6 +85,7 @@ from osprey.utils.seconds import positive_seconds
 from osprey_connectors.config import get_facility_timezone
 
 if TYPE_CHECKING:
+    import socket
     from collections.abc import AsyncIterator
 
     from jinja2.runtime import Context
@@ -471,12 +472,18 @@ UI_MODES = ("expert", "simple")
 DEFAULT_UI_MODE = "expert"
 
 
-def resolve_ui_mode(configured: str) -> str:
+def resolve_ui_mode(configured: str, *, expert_view: bool = True) -> str:
     """Resolve the ``web.ui_mode`` config value into a concrete UI mode.
 
     ``configured`` must be one of :data:`UI_MODES` (``"expert"`` or
     ``"simple"``). Anything else — a typo, ``None``, an empty string — is
     logged as a warning and resolved to :data:`DEFAULT_UI_MODE`.
+
+    With ``expert_view`` false (``web.expert_view: false``, resolved by
+    :func:`resolve_expert_view`) the answer is ``simple`` whatever
+    ``configured`` says: a deployment that rules the Expert view out cannot
+    open in it. The build refuses a profile that states both, so a stated
+    ``expert`` here is a hand-edited render and is reported.
 
     Mirrors the warn+fallback shape of the ``web.theme`` resolver
     (:func:`~osprey.interfaces.design_system.theme_config.resolve_theme_id`): it never
@@ -485,12 +492,19 @@ def resolve_ui_mode(configured: str) -> str:
 
     Args:
         configured: The raw ``web.ui_mode`` config value.
+        expert_view: Whether this deployment offers the Expert view at all.
 
     Returns:
         A concrete mode string in :data:`UI_MODES` — the value stamped onto
         ``<html data-ui-mode>`` for the pre-paint mode-boot rung, which only
         honors a real mode.
     """
+    if not expert_view:
+        if configured == "expert":
+            logger.warning(
+                "web.ui_mode is 'expert' but web.expert_view is false; opening in 'simple'."
+            )
+        return "simple"
     if configured in UI_MODES:
         return configured
 
@@ -1229,6 +1243,51 @@ def resolve_privilege_gates(config_path: str | Path | None) -> PrivilegeGates:
         coerce_config_flag("web.config_panel.enabled", panel_raw, True),
         coerce_config_flag("web.scaffold_gallery.write_enabled", scaffold_raw, True),
     )
+
+
+#: The refusal every Expert-surface route gives when ``web.expert_view`` is
+#: false. One sentence, so the websocket's error frame and the log say the same.
+EXPERT_VIEW_REFUSAL = (
+    "The Expert view is not offered on this deployment (web.expert_view: false); "
+    "use the Simple view."
+)
+
+
+def resolve_expert_view(config_path: str | Path | None) -> bool:
+    """Whether this deployment offers the Expert view (``web.expert_view``).
+
+    Default ``True``: a deployment that never mentions the key keeps the
+    Expert view, exactly as before the key existed. ``false`` takes the whole
+    Expert surface away — the resolved UI mode is ``simple``
+    (:func:`resolve_ui_mode`), the browser drops every way to flip to Expert,
+    and ``/ws/terminal`` refuses to open a PTY session.
+
+    Read the way :func:`resolve_privilege_gates` reads its gates, because it
+    is one in kind — the server refuses a route on it, not only the page: no
+    file resolved means the default, a resolved file that cannot be read means
+    no Expert view, and a value nobody can interpret takes the default through
+    :func:`coerce_config_flag`.
+
+    Args:
+        config_path: The config file this surface resolved, or ``None``.
+
+    Returns:
+        False when the config says ``false`` or cannot be read.
+    """
+    if config_path is None:
+        return True
+    from osprey_connectors.config import get_config_value
+
+    try:
+        raw = get_config_value("web.expert_view", True, str(config_path))
+    except Exception:
+        logger.error(
+            "Could not read the config file %s; the Expert view is closed until it reads cleanly",
+            config_path,
+            exc_info=True,
+        )
+        return False
+    return coerce_config_flag("web.expert_view", raw, True)
 
 
 def unreadable_config_refusal(path: str | Path) -> str:
@@ -2210,19 +2269,29 @@ def _create_lifespan(
         # authoritative first-paint rung. Read via load_osprey_config (the same
         # top-level `web` section the panel loaders in this file use). Fails open
         # to the default mode on any config-read error.
+        #
+        # `web.expert_view: false` is resolved first because it bounds the
+        # mode: with the Expert view ruled out the mode is `simple` whatever
+        # `web.ui_mode` says, and /ws/terminal refuses to open a PTY session
+        # (routes/websocket.py). Read like the privilege gates below — the
+        # server refuses a route on it — so an unreadable config closes it.
+        app.state.web_expert_view = resolve_expert_view(resolved_config_path)
         try:
             from osprey_connectors.workspace import load_osprey_config
 
             configured_ui_mode = load_osprey_config().get("web", {}).get("ui_mode", DEFAULT_UI_MODE)
-            app.state.web_ui_mode = resolve_ui_mode(configured_ui_mode)
+            app.state.web_ui_mode = resolve_ui_mode(
+                configured_ui_mode, expert_view=app.state.web_expert_view
+            )
         except Exception:  # never let config load block startup
+            fallback_ui_mode = DEFAULT_UI_MODE if app.state.web_expert_view else "simple"
             logger.warning(
                 "Could not resolve web.ui_mode (config load failed); "
                 "server-rendering fallback mode %r",
-                DEFAULT_UI_MODE,
+                fallback_ui_mode,
                 exc_info=True,
             )
-            app.state.web_ui_mode = DEFAULT_UI_MODE
+            app.state.web_ui_mode = fallback_ui_mode
 
         # ── Onboarding-tour invite policy ──
         # OSPREY_WEB_TOUR (the per-user roster path) outranks web.tour, the
@@ -2470,16 +2539,13 @@ def _create_lifespan(
             raw_email = get_config_value("web.feedback.email", None)
             raw_trackers = get_config_value("web.feedback.trackers", None)
             raw_owner = get_config_value("web.feedback.owner", None)
-            raw_max_store_bytes = get_config_value(
-                "web.feedback.max_store_bytes", DEFAULT_FEEDBACK_MAX_STORE_BYTES
-            )
         except Exception:  # never let config load block startup
             logger.warning(
                 "Could not read web.docs_url / web.feedback.* config keys; using defaults",
                 exc_info=True,
             )
             raw_docs_url = raw_github_repo = raw_email = raw_trackers = None
-            raw_owner = raw_max_store_bytes = None
+            raw_owner = None
         # One resolver, so this block and the `GET /api/panels` fallback cannot
         # disagree: `trackers` is derived from `github_repo` and the owner
         # block, and two copies of that derivation are two chances to drift.
@@ -2488,7 +2554,6 @@ def _create_lifespan(
             email=raw_email,
             github_repo=raw_github_repo,
             trackers=raw_trackers,
-            max_store_bytes=raw_max_store_bytes,
             owner=raw_owner,
         )
         app.state.docs_url = destination.docs_url
@@ -2496,7 +2561,6 @@ def _create_lifespan(
         app.state.feedback_trackers = destination.trackers
         app.state.feedback_email = destination.email
         app.state.feedback_owner_name = destination.owner_name
-        app.state.feedback_max_store_bytes = destination.max_store_bytes
 
         # ── Deployment identity + the escalation link ──
         # A user files to whoever owns this deployment, because a user cannot
@@ -2533,10 +2597,11 @@ def _create_lifespan(
         # and deliberately NOT on workspace_dir: with web_terminal.watch_dir
         # set, the watched tree is somewhere else entirely and anything written
         # there would land outside the {user}-agent-data volume, where
-        # `osprey feedback` on the host cannot reach it. Never
-        # resolve_agent_data_root() either — that appends sessions/<id>, and
-        # every store spans sessions. They are siblings under one root: feedback
-        # records, the per-user bar arrangement, and the sidecars' start records.
+        # the host cannot reach it. Never resolve_agent_data_root() either — that
+        # appends sessions/<id>, and every store spans sessions. They are
+        # siblings under one root: the per-user bar arrangement and the
+        # sidecars' start records. Feedback is not a store here: a submission is
+        # an entry in the agent record.
         try:
             from osprey_connectors.workspace import resolve_shared_data_root
 
@@ -2548,9 +2613,7 @@ def _create_lifespan(
                 shared_data_root,
                 exc_info=True,
             )
-        feedback_dir = shared_data_root / "feedback"
         bar_items_dir = shared_data_root / "bar_items"
-        app.state.feedback_dir = feedback_dir
         app.state.bar_items_dir = bar_items_dir
         # What the terminal recorded about each sidecar's start, read back by
         # `osprey health` from this same root.
@@ -2576,21 +2639,18 @@ def _create_lifespan(
         # the authority on a genuine failure here.
         with suppress(OSError):
             workspace_dir.mkdir(parents=True, exist_ok=True)
-        app.state.feedback_rel = resolve_store_rel(feedback_dir, workspace_dir)
         app.state.bar_items_rel = resolve_store_rel(bar_items_dir, workspace_dir)
         app.state.panel_status_rel = resolve_store_rel(app.state.panel_status_dir, workspace_dir)
-        # One collection of the three stores, in the order they are resolved
-        # above. Saving a bar arrangement or recording a sidecar's start must be
-        # as silent as filing feedback: each writes one file, and an unconcealed
-        # store would push an SSE change frame to every connected browser the
-        # moment anyone rearranged a bar or a sidecar changed state. This seam
-        # silences the watcher and only that; the file panel's listing and
-        # content reads hide all three stores through routes/files.py's own
-        # predicate.
+        # One collection of the stores, in the order they are resolved above.
+        # Saving a bar arrangement or recording a sidecar's start must be
+        # silent: each writes one file, and an unconcealed store would push an
+        # SSE change frame to every connected browser the moment anyone
+        # rearranged a bar or a sidecar changed state. This seam silences the
+        # watcher and only that; the file panel's listing and content reads
+        # hide the stores through routes/files.py's own predicate.
         app.state.concealed_store_rels = tuple(
             rel
             for rel in (
-                app.state.feedback_rel,
                 app.state.bar_items_rel,
                 app.state.panel_status_rel,
             )
@@ -2919,6 +2979,7 @@ def create_app(
         web_theme_id = getattr(request.app.state, "web_theme_id", "dark")
         web_theme_mode = getattr(request.app.state, "web_theme_mode", None)
         web_ui_mode = getattr(request.app.state, "web_ui_mode", DEFAULT_UI_MODE)
+        web_expert_view = bool(getattr(request.app.state, "web_expert_view", True))
         web_rail_position = getattr(request.app.state, "web_rail_position", DEFAULT_RAIL_POSITION)
         terminal_user = getattr(request.app.state, "terminal_user", "")
         landing_url = getattr(request.app.state, "landing_url", "")
@@ -2958,6 +3019,10 @@ def create_app(
                 "web_theme_id": web_theme_id,
                 "web_theme_mode": web_theme_mode or "",
                 "web_ui_mode": web_ui_mode,
+                # Stamped as data-expert-view="off" only when false: the
+                # pre-paint mode-boot rung and frame-params.js read it to keep
+                # the page out of Expert, whatever ?mode= or storage say.
+                "web_expert_view": web_expert_view,
                 "web_rail_position": web_rail_position,
                 "terminal_user": terminal_user,
                 # Namespace for everything this page keeps in localStorage.
@@ -3074,6 +3139,7 @@ def run_web(
     project_dir: str | None = None,
     *,
     browser_url: str | None = None,
+    sock: socket.socket | None = None,
 ) -> None:
     """Run the web terminal server.
 
@@ -3094,10 +3160,28 @@ def run_web(
             login-required page, whereas the token URL exchanges for a cookie and
             redirects to the clean URL. Keyword-only and defaulted so every other
             caller keeps the bare-URL behavior unchanged.
+        sock: The listening socket to serve on, already bound to *host* and
+            *port*; the caller that passes one owns its close. Omitted, the
+            server binds *host*:*port* itself.
     """
     import uvicorn
+    from uvicorn.main import STARTUP_FAILURE
 
-    _open_browser_when_ready(browser_url or f"http://{host}:{port}")
+    from osprey.interfaces._serving import listening_socket
 
-    app = create_app(config_path=config_path, shell_command=shell_command, project_dir=project_dir)
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    owned = sock is None
+    if sock is None:
+        sock = listening_socket(host, port)
+    try:
+        _open_browser_when_ready(browser_url or f"http://{host}:{port}")
+
+        app = create_app(
+            config_path=config_path, shell_command=shell_command, project_dir=project_dir
+        )
+        server = uvicorn.Server(uvicorn.Config(app, host=host, port=port, log_level="info"))
+        server.run(sockets=[sock])
+    finally:
+        if owned:
+            sock.close()
+    if not server.started:
+        sys.exit(STARTUP_FAILURE)

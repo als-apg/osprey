@@ -1267,8 +1267,7 @@ class TestGenericJSONAdapterWrite:
         # Verify file contents
         import json
 
-        with open(json_file) as f:
-            data = json.load(f)
+        data = json.loads(json_file.read_text())
 
         assert len(data["entries"]) == 1
         assert data["entries"][0]["id"] == entry_id
@@ -1315,8 +1314,7 @@ class TestGenericJSONAdapterWrite:
 
         import json
 
-        with open(json_file) as f:
-            data = json.load(f)
+        data = json.loads(json_file.read_text())
 
         assert len(data["entries"]) == 1
         assert data["entries"][0]["id"] == entry_id
@@ -1342,8 +1340,7 @@ class TestGenericJSONAdapterWrite:
 
         import json
 
-        with open(json_file) as f:
-            data = json.load(f)
+        data = json.loads(json_file.read_text())
 
         assert data["entries"][0]["books"] == ["Operations"]
 

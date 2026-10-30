@@ -1095,6 +1095,7 @@ def test_every_remedy_names_the_one_migration_verb() -> None:
         capture_output=True,
         text=True,
         check=True,
+        timeout=60,
     ).stdout.splitlines()
     this_file = Path(__file__).resolve().relative_to(REPO_ROOT).as_posix()
     offenders = []

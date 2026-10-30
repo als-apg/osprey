@@ -100,7 +100,7 @@ class TestScriptShape:
     def test_posix_syntax(self, script: Path):
         """The gate that catches a typo before an image is built around it."""
         result = subprocess.run(
-            ["/bin/sh", "-n", str(script)], capture_output=True, text=True, check=False
+            ["/bin/sh", "-n", str(script)], capture_output=True, text=True, check=False, timeout=60
         )
         assert result.returncode == 0, result.stderr
 
@@ -286,6 +286,7 @@ def _run(
             "PY_PROGRAM": str(py_program),
             **(extra_env or {}),
         },
+        timeout=60,
     )
     return result, order_log.read_text().split(), py_program
 
@@ -389,16 +390,9 @@ class TestBehaviour:
 class TestStateZoneHandBack:
     """Root writes into ``var/`` on the way through, and must not keep it.
 
-    Both maintenance steps write there: the scaffold restore appends its
-    reserved-path refusals to the audit ledger — ``var/audit/<identity>/
-    maintenance.jsonl``, where the per-command ``OSPREY_AUDIT_WRITER`` marker
-    routes everything this phase records — and on a fresh deployment root is the
-    FIRST writer, so the file is created root-owned 0644. The server then runs
-    as ``osprey`` and records under the surface that decided; the marker is what
-    keeps the two out of one file, since the app user could not append to a
-    root-owned one and the refusal recorder never raises, so every refusal after
-    that would be dropped in silence. An audit log only root can write is worse
-    than no audit log, because it looks like one.
+    Both maintenance steps write there, and on a fresh deployment root is the
+    FIRST writer, so anything it creates is root-owned. The server then runs as
+    ``osprey`` and must be able to write the same tree, so root hands it back.
     """
 
     def _cmd(self, tmp_path: Path) -> list[str]:

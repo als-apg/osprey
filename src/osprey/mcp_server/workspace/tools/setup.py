@@ -336,11 +336,7 @@ async def setup_inspect() -> str:
         skills = _list_dirs_in(skills_dir)
 
         # Environment (OSPREY-related vars only, masked)
-        osprey_env = {
-            k: v
-            for k, v in os.environ.items()
-            if k.startswith("OSPREY_") or k.startswith("CLAUDE_")
-        }
+        osprey_env = {k: v for k, v in os.environ.items() if k.startswith(("OSPREY_", "CLAUDE_"))}
         masked_env = _mask_env(osprey_env)
 
         # Workspace. The agent-data root is durable state and lives under the
@@ -386,7 +382,7 @@ def _validate_key_path(key_path: str) -> str | None:
         return "key_path must not be empty"
     if ".." in key_path:
         return "key_path must not contain '..'"
-    if key_path.startswith("/") or key_path.startswith("~"):
+    if key_path.startswith(("/", "~")):
         return "key_path must not be an absolute path"
     # Only allow alphanumeric, dots, underscores, hyphens
     if not re.match(r"^[a-zA-Z0-9_.][a-zA-Z0-9_.\-]*$", key_path):

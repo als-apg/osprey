@@ -28,29 +28,35 @@ function.
 
 ### Prerequisites
 
-- Stable beam: `PS:DCCT:Current > 50 mA` (minimum for BPM signal quality)
-- All BPMs: `Quality = OK`
+- Stable beam: the beam current
+  ([SR:DIAG:DCCT:01:CURRENT:RB](facility:SR:DIAG:DCCT:01:CURRENT:RB)) above
+  50 mA, the minimum for BPM signal quality
+- All BPMs used: valid and connected (see [BPM status flags](/devices/bpm.md))
 - No orbit feedback running during the scan
 
 ### Channels Varied
 
-Scan over the quadrupole current setpoint in small steps:
+Scan over the quadrupole current setpoint in small steps, for example the
+first booster-to-storage focusing quadrupole
+[BTS/QF01](facility:BTS/QF01):
 
-```
-TD:QF:QF01:CURRENT:SP   # Focusing quadrupole (varied)
-```
+- [BTS:MAG:QF:01:CURRENT:SP](facility:BTS:MAG:QF:01:CURRENT:SP) — current setpoint (varied)
+- [BTS:MAG:QF:01:CURRENT:RB](facility:BTS:MAG:QF:01:CURRENT:RB) — current readback
 
 Typical scan range: ±5% around nominal current, in 1% steps.
 
 ### Channels Read
 
-At each step, record:
+At each step, record a monitor downstream of the quadrupole, for example
+[BTS/BPM02](facility:BTS/BPM02):
 
-```
-TD:BPM:H02:X   # Horizontal position at downstream BPM
-TD:BPM:H02:Y   # Vertical position at downstream BPM
-TD:BPM:H02:Sum # Sum signal (proportional to beam intensity at BPM)
-```
+- [BTS:DIAG:BPM:02:POSITION:X](facility:BTS:DIAG:BPM:02:POSITION:X) — horizontal position
+- [BTS:DIAG:BPM:02:POSITION:Y](facility:BTS:DIAG:BPM:02:POSITION:Y) — vertical position
+- [BTS:DIAG:BPM:02:SUM:RB](facility:BTS:DIAG:BPM:02:SUM:RB) — sum signal, proportional to beam intensity at the monitor
+
+The same scan works in SR with a quadrupole such as
+[SR:MAG:QF:01:CURRENT:SP](facility:SR:MAG:QF:01:CURRENT:SP) and its readback
+[SR:MAG:QF:01:CURRENT:RB](facility:SR:MAG:QF:01:CURRENT:RB).
 
 ### Fitting
 
@@ -66,7 +72,7 @@ resulting Twiss parameters allow computation of:
 | Parameter | Typical value |
 |-----------|--------------|
 | εₓ (geometric) | 10–50 nm·rad |
-| βₓ at TD BPMs | 5–15 m |
+| βₓ at transfer-line BPMs | 5–15 m |
 | αₓ | -1 to +1 |
 
 ## Notes

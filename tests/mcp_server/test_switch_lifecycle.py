@@ -43,6 +43,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
     REASON_TARGET_UNRESOLVABLE,
 )
 from osprey_connectors.control_system._base import ChannelValue, WriteOutcome
+from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.ipc._launch import host_env
 from osprey_connectors.ipc._pool import DEFAULT_CALL_DEADLINE_S
@@ -55,6 +56,7 @@ from osprey_connectors.ipc._verification import (
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.types import VIRTUAL_ACCELERATOR
 from osprey_connectors_tests._harness import isolated_connector_registries, state_dir_under
+from tests._live import async_wait_until
 from tests.facility.served_tree import in_process_config
 from tests.fixtures.control_context import context_for
 from tests.mcp_server._switch_harness import (
@@ -128,13 +130,15 @@ class _FakeArchiver:
         return None
 
 
-async def wait_for(predicate, timeout=SETTLE_TIMEOUT_S):
-    """Poll *predicate* on the event loop until it holds, or fail the test."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if predicate():
-            return True
-        await asyncio.sleep(0.05)
+async def wait_for(predicate):
+    """Whether *predicate* comes to hold within the settle timeout.
+
+    A bool rather than a raise, so each caller's assertion message is built
+    when it fails and can report the state it found.
+    """
+    with contextlib.suppress(AssertionError):
+        await async_wait_until(predicate, timeout=SETTLE_TIMEOUT_S)
+        return True
     return False
 
 
@@ -207,7 +211,7 @@ class TestSuccessfulSwitch:
         assert isinstance(value, ChannelValue)
         # The refusing channel is the fixture connector's, so this really is the
         # VA child answering and not the mock the live target left behind.
-        with pytest.raises(ConnectionError):
+        with pytest.raises(ChannelUnreachableError):
             await manager.active_proxy().read_channel(REFUSE_CHANNEL, timeout=10.0)
 
     async def test_the_result_names_the_type_and_the_probe_channel_it_proved(self, make_manager):
@@ -2036,8 +2040,8 @@ class TestServingFromTheChild:
 
         connector = await context.control_system()
 
-        assert isinstance(connector, ConnectorHostProxy)
-        assert connector is manager.active_proxy()
+        assert isinstance(connector.connector, ConnectorHostProxy)
+        assert connector.connector is manager.active_proxy()
         assert manager.is_started() is True
         assert manager.active_target() == manager.baseline == "live"
         # Bringing the first child up is not a switch: nothing moved.
@@ -2069,23 +2073,42 @@ class TestServingFromTheChild:
             ConnectorFactory.register_control_system("virtual_accelerator", _NeverBuilt)
 
             before = await context.control_system()
-            assert isinstance(before, ConnectorHostProxy)
+            served_before = before.connector
+            assert isinstance(served_before, ConnectorHostProxy)
             assert isinstance(await before.read_channel(LIVE_PROBE, timeout=10.0), ChannelValue)
 
             result = await manager.switch("va")
 
             after = await context.control_system()
-            assert after is manager.active_proxy()
-            assert after is not before
+            assert after.connector is manager.active_proxy()
+            assert after.connector is not served_before
             # The VA child is the fixture connector, which refuses this channel:
             # the read is being served by the process the switch just adopted.
-            with pytest.raises(ConnectionError):
+            with pytest.raises(ChannelUnreachableError):
                 await after.read_channel(REFUSE_CHANNEL, timeout=10.0)
             assert isinstance(await after.read_channel(VA_PROBE, timeout=10.0), ChannelValue)
             assert result["child_pid"] == manager.status()["child_pid"]
 
         # Nothing was ever cached in the in-process entry.
         assert context._connectors["control_system"].instance is None
+
+    async def test_a_handle_from_before_a_switch_sends_nothing_after_it(self, make_manager):
+        """A call bound to one target never reaches the child of another."""
+        manager = await started_on(make_manager, "live")
+        context = context_for(manager)
+        before = await context.control_system()
+
+        await manager.switch("va")
+        spawned = len(manager.spawned)
+
+        with pytest.raises(ConnectorUnavailableError, match="nothing was sent") as raised:
+            await before.write_channel("SR:CORR:1:SP", 0.5, timeout=10.0)
+
+        assert "'live'" in str(raised.value) and "'va'" in str(raised.value)
+        assert raised.value.recovery == ()
+        assert len(manager.spawned) == spawned
+        after = await context.control_system()
+        assert isinstance(await after.read_channel(VA_PROBE, timeout=10.0), ChannelValue)
 
     async def test_a_write_is_answered_by_the_child_that_serves_the_target(self, make_manager):
         """A write crosses the boundary and comes back with the child's verdict.
@@ -2114,7 +2137,7 @@ class TestServingFromTheChild:
 
             archiver = await context.archiver()
 
-            assert isinstance(archiver, _FakeArchiver)
+            assert isinstance(archiver.connector, _FakeArchiver)
             assert await context.archiver() is archiver
 
     async def test_the_baseline_starts_unprobed_and_is_returned_to_unprobed(self, make_manager):
@@ -2131,7 +2154,7 @@ class TestServingFromTheChild:
         context = context_for(manager)
 
         connector = await context.control_system()
-        assert isinstance(connector, ConnectorHostProxy)
+        assert isinstance(connector.connector, ConnectorHostProxy)
         assert manager.active_target() == "live"
 
         await manager.switch("va")
@@ -2169,50 +2192,53 @@ class TestServingFromTheChild:
 
 
 class TestNoChildRefusal:
-    async def test_the_accessor_refuses_with_the_reason_when_the_child_is_dead(self, make_manager):
+    async def test_the_call_that_finds_the_child_dead_is_refused_and_names_the_restart(
+        self, make_manager
+    ):
         manager = await started_on(make_manager, "va")
         context = context_for(manager)
-        await context.control_system()
+        connector = await context.control_system()
 
         os.kill(manager.status()["child_pid"], signal.SIGKILL)
         assert await wait_for(lambda: not manager.has_child())
 
         with pytest.raises(NoConnectorHostError) as raised:
-            await context.control_system()
+            await connector.read_channel(VA_PROBE, timeout=10.0)
 
         refusal = raised.value
-        assert isinstance(refusal, ConnectionError)  # the tools' handler knows this one
+        assert isinstance(refusal, ConnectorUnavailableError)
         assert refusal.target == "va"
         assert refusal.generation == manager.active_generation()
         assert refusal.as_dict()["reason"] == "no_connector_host"
         assert "va" in str(refusal)
-        # A dead child is never quietly restarted on the way to a read.
-        assert manager.has_child() is False
-        assert len(manager.spawned) == 1
+        # A dead child is never quietly restarted on the way to a read: the read
+        # is refused, and the restart is named in its record.
+        assert [record["action"] for record in refusal.recovery] == ["child_replaced"]
+        assert manager.has_child() is True
+        assert len(manager.spawned) == 2
 
-    async def test_invalidating_the_connector_is_what_brings_it_back(self, make_manager):
-        """The recovery route: refuse, invalidate, respawn, serve.
-
-        This is the path the tools' shared error handler already takes on a
-        ConnectionError, which is why the refusal is one.
-        """
+    async def test_the_next_call_is_served_by_the_restarted_child(self, make_manager):
+        """The recovery route: refuse the call that found it, restart once, serve the next."""
         manager = await started_on(make_manager, "va")
         context = context_for(manager)
-        await context.control_system()
+        connector = await context.control_system()
         generation = manager.active_generation()
 
         os.kill(manager.status()["child_pid"], signal.SIGKILL)
         assert await wait_for(lambda: not manager.has_child())
-        with pytest.raises(NoConnectorHostError):
-            await context.control_system()
+        refusals = await asyncio.gather(
+            *(connector.read_channel(VA_PROBE, timeout=10.0) for _ in range(3)),
+            return_exceptions=True,
+        )
 
-        await context.invalidate_connector("control_system")
-
-        assert manager.has_child() is True
+        # The calls that resolved the dead child before the restart are
+        # refused or served by the one fresh child; none starts a second.
+        assert any(isinstance(refusal, NoConnectorHostError) for refusal in refusals)
+        assert len(manager.spawned) == 2
         assert manager.active_target() == "va"
         assert manager.active_generation() == generation
-        connector = await context.control_system()
         assert isinstance(await connector.read_channel(VA_PROBE, timeout=10.0), ChannelValue)
+        assert len(manager.spawned) == 2
 
 
 class TestNonCapableDeploymentIsUntouched:
@@ -2246,21 +2272,21 @@ class TestNonCapableDeploymentIsUntouched:
 
         from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 
-        assert isinstance(connector, VAInProcessConnector)
+        assert isinstance(connector.connector, VAInProcessConnector)
         assert await context.control_system() is connector
-        assert context._connectors["control_system"].instance is connector
+        assert context._connectors["control_system"].instance is connector.connector
         # No supervisor is created, so nothing can spawn a child.
         assert context._connector_hosts is None
 
     async def test_invalidating_drops_the_instance_and_the_next_call_rebuilds(self):
         context = self._mock_context()
-        first = await context.control_system()
+        first = (await context.control_system()).connector
 
         await context.invalidate_connector("control_system")
 
         assert context._connectors["control_system"].instance is None
         assert context._connector_hosts is None
-        assert await context.control_system() is not first
+        assert (await context.control_system()).connector is not first
 
     async def test_an_unknown_connector_name_still_raises_value_error(self):
         context = self._mock_context()

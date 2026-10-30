@@ -216,7 +216,6 @@ def _profile_edits() -> dict[str, Any]:
             "modules.web_terminals.enabled": False,
             "deployed_services": ["postgresql", "qmd"],
             "services.postgresql.port_host": POSTGRES_PORT_HOST,
-            "claude_code.telemetry.enabled": False,
             "claude_code.servers.bluesky.enabled": False,
         },
         "channel_finder_mode": "hierarchical",

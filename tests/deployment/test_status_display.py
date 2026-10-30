@@ -8,6 +8,7 @@ output for the second, so these tests never touch a real container runtime.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 from rich.console import Console
@@ -16,6 +17,8 @@ from osprey.cli import styles
 from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.cli.styles import osprey_theme
 from osprey.deployment import status_display
+from osprey.deployment.compose_generator import resolve_project_name
+from osprey.deployment.deployment_record import DeploymentRecord, write_deployment_record
 
 _CONFIGS: dict[str, dict] = {}
 
@@ -26,7 +29,12 @@ def _fake_load_project_config(config_path, **kwargs):
 
 
 def _register_config(config_path, config):
+    """Serve *config* at *config_path*, with the record a start of it on docker wrote."""
     _CONFIGS[config_path] = config
+    write_deployment_record(
+        Path(config_path).resolve().parent,
+        DeploymentRecord("docker", resolve_project_name(config)),
+    )
 
 
 def _base_config(*, enabled=True, users=None):
@@ -65,7 +73,10 @@ def _ps_stdout(*containers):
 
 
 @pytest.fixture(autouse=True)
-def _patch_config_loader(monkeypatch):
+def _patch_config_loader(monkeypatch, tmp_path):
+    # The legacy verb's repo root is the directory holding its config, which
+    # the bare "cfg.yml" these tests pass puts in the working directory.
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(status_display, "load_project_config", _fake_load_project_config)
     yield
     _CONFIGS.clear()
@@ -108,9 +119,14 @@ def runtime_calls(monkeypatch):
     monkeypatch.setattr(
         status_display,
         "get_ps_command",
-        lambda config, all_containers=False: ["docker", "ps", "-a", "--format", "json"],
+        lambda config, all_containers=False, runtime=None: [
+            runtime,
+            "ps",
+            "-a",
+            "--format",
+            "json",
+        ],
     )
-    monkeypatch.setattr(status_display, "get_runtime_command", lambda config=None: ["docker"])
 
     class _Result:
         def __init__(self, stdout, returncode=0):
@@ -393,9 +409,9 @@ def test_the_endpoints_section_is_the_deploys_own_block(tmp_path, rendered):
     compose.write_text(
         f"""
 services:
-  telemetry_gateway:
+  qmd:
     ports:
-      - "127.0.0.1:{ports["telemetry_gateway"]}:4318"
+      - "127.0.0.1:{ports["qmd"]}:8000"
   postgresql:
     ports:
       - "127.0.0.1:{ports["postgres"]}:5432"
@@ -408,9 +424,9 @@ services:
     output = rendered.export_text()
 
     assert deploy_summary.summary_title(config) in output
-    assert output.index("services") < output.index("telemetry_gateway")
+    assert output.index("services") < output.index("qmd")
     assert output.index("stores") < output.index("postgresql")
-    assert f"127.0.0.1:{ports['telemetry_gateway']}" in output
+    assert f"127.0.0.1:{ports['qmd']}" in output
     assert f"127.0.0.1:{ports['postgres']}" in output
 
 
@@ -458,7 +474,7 @@ class TestNoRuntimeInstalled:
             "osprey.deployment.runtime_helper.no_container_runtime_installed",
             lambda: not installed,
         )
-        return status_display._query_containers(config)
+        return status_display._query_containers(config, "docker")
 
     def test_nothing_installed_and_nothing_declared_is_a_note(self, monkeypatch, rendered) -> None:
         assert self._query(monkeypatch, {"deployed_services": []}, installed=False) is None

@@ -324,6 +324,7 @@ def _run_stub(argv: list[str], stub: StubRuntime, cwd: Path) -> subprocess.Compl
         text=True,
         check=False,
         stdin=subprocess.DEVNULL,
+        timeout=60,
     )
 
 
@@ -524,7 +525,7 @@ class TestStubAnswersPlausibly:
         records = [json.loads(line) for line in listing.stdout.splitlines() if line.strip()]
         assert records, "ps saw nothing after a compose up"
         assert all(record["Project"] == "ptyproj" for record in records)
-        assert {record["Service"] for record in records} == {"telemetry_store", "telemetry_gateway"}
+        assert {record["Service"] for record in records} == {"agent-record"}
 
         down = _run_stub([*argv, "-p", "ptyproj", "down"], stub, tmp_path)
         assert down.returncode == 0
@@ -562,6 +563,7 @@ class TestStubAnswersPlausibly:
             capture_output=True,
             text=True,
             check=False,
+            timeout=60,
         )
         record = stub.invocations()[-1]
         assert record["args"][:2] == ["exec", "-i"]

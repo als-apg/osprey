@@ -281,6 +281,9 @@ class _StubService:
     async def health_check(self) -> tuple[bool, str]:
         return True, "OK"
 
+    async def verify_search_model_table(self) -> None:
+        return None
+
     async def search(self, **kwargs: Any) -> Any:
         return self._search_result
 
@@ -510,12 +513,16 @@ def test_audit_verbose_keeps_the_reviewer_transcript_off_the_document(
     with (
         patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True),
         patch("osprey.cli.audit_cmd.stream_query", new=_stream),
-        # The real provider check refuses this fixture, which names no
-        # provider; that wiring is TestReviewerProvider's, this test pins the
-        # streams.
+        # The real provider check and the runner's routing both refuse this
+        # fixture, which names no provider; that wiring is test_audit_cmd's,
+        # this test pins the streams.
         patch(
             "osprey.cli.audit_cmd._check_reviewer_provider",
             new=lambda project_dir: None,
+        ),
+        patch(
+            "osprey.cli.audit_cmd.build_agent_options",
+            new=lambda project_dir, **kwargs: SimpleNamespace(env={}),
         ),
     ):
         result = runner.invoke(audit, [str(project), "--json", "-v"])

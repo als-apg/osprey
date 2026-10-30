@@ -11,13 +11,14 @@ from __future__ import annotations
 import logging
 import subprocess
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from osprey.deployment import container_lifecycle, telemetry_config
+from osprey.agent_record.config import HISTORY_SERVICE
+from osprey.deployment import container_lifecycle
 from osprey.deployment.errors import (
     ArchiverClientMissingError,
     DeploymentPreconditionError,
@@ -98,6 +99,9 @@ def captured_argv(monkeypatch, tmp_path):
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
+    # Every deployment builds the project image, which agent-record runs on;
+    # that build has its own tests, and these are about the compose argv.
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
 
     def _fake_run(cmd, env=None, check=False, **kwargs):  # noqa: ARG001 - subprocess.run's keywords
         captured["cmd"] = cmd
@@ -246,6 +250,9 @@ def test_non_dispatch_deploy_generates_no_tokens(monkeypatch, _clean_token_env, 
         lambda *a, **k: ({"deployed_services": ["mock"]}, ["docker-compose.yml"]),
     )
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    # Every deployment builds the project image, which agent-record runs on;
+    # that build has its own tests, and this one is about the compose argv.
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
@@ -328,6 +335,9 @@ def captured_web_runs(monkeypatch, tmp_path):
         return []
 
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", _fake_write_artifacts)
+    # Every deployment builds the project image, which agent-record runs on;
+    # that build has its own tests, and these are about the compose argv.
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
 
     def _fake_run(cmd, env=None, check=False, **kwargs):  # noqa: ARG001 - subprocess.run's keywords
         calls.append({"cmd": list(cmd), "env": env})
@@ -439,8 +449,17 @@ def test_web_terminals_enabled_true_when_set():
 
 
 def test_deploy_up_does_not_crash_on_null_web_terminals_stanza(monkeypatch, tmp_path):
-    """A null modules.web_terminals stanza + empty deployed_services must hit
-    the ordinary "nothing to deploy" early return, not crash."""
+    """A null modules.web_terminals stanza + empty deployed_services is no
+    empty stack: agent-record is always started, so the start goes on to the
+    runtime check rather than returning early, and the null stanza does not
+    crash it on the way."""
+
+    class _ReachedTheRuntimeCheck(Exception):
+        pass
+
+    def _runtime_check(_config):
+        raise _ReachedTheRuntimeCheck
+
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
         container_lifecycle,
@@ -450,14 +469,10 @@ def test_deploy_up_does_not_crash_on_null_web_terminals_stanza(monkeypatch, tmp_
             [],
         ),
     )
-    # No collaborator should even be reached past the early return.
-    monkeypatch.setattr(
-        container_lifecycle,
-        "verify_runtime_is_running",
-        lambda config: pytest.fail("should have early-returned"),
-    )
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", _runtime_check)
 
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    with pytest.raises(_ReachedTheRuntimeCheck):
+        container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
 
 # ---------------------------------------------------------------------------
@@ -531,8 +546,8 @@ def captured_combined_runs(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest_dir=".": [])
 
-    def _fake_build(config, dev_mode, _env, _build_context=None):
-        build_calls.append({"config": config, "dev_mode": dev_mode})
+    def _fake_build(config, dev_mode, _env, _build_context=None, compose_files=None):
+        build_calls.append({"config": config, "dev_mode": dev_mode, "compose_files": compose_files})
 
     monkeypatch.setattr(container_lifecycle, "_build_project_image", _fake_build)
 
@@ -674,6 +689,9 @@ def test_web_deploy_callsenable_linger_in_post_up_hook(monkeypatch, tmp_path):
         container_lifecycle, "get_runtime_command", lambda config: ["podman", "compose"]
     )
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest_dir=".": [])
+    # Every deployment builds the project image, which agent-record runs on;
+    # that build has its own tests, and this one is about the compose argv.
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
     monkeypatch.setattr(
         container_lifecycle.subprocess,
         "run",
@@ -753,6 +771,9 @@ def _mode_wiring_collab(monkeypatch, tmp_path):
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest_dir=".": [])
+    # Every deployment builds the project image, which agent-record runs on;
+    # that build has its own tests, and these are about the compose argv.
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
     # The host-port preflight ahead of the mode branch has its own tests and
     # would probe this roster's real index ports on the machine running the
     # suite. Inert here so the mode-wiring tests exercise only the
@@ -1739,6 +1760,9 @@ def test_rebuild_deployment_reconciles_web_terminals_stack(monkeypatch, tmp_path
     """A web-terminals project's rebuild must reach the web reconcile — the
     pre-delegation rebuild ran only the plain services path, so nginx and the
     render containers never came back up after clean."""
+    # Every deployment builds the project image, which agent-record runs on;
+    # that build has its own tests, and this one is about the compose argv.
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".env.users").write_text("", encoding="utf-8")
     monkeypatch.setattr(
@@ -2335,7 +2359,9 @@ def test_a_second_deploy_restages_the_ca_the_first_one_cleared(tmp_path, monkeyp
     )
     monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda config, files: None)
     monkeypatch.setattr(
-        container_lifecycle, "_build_project_image", lambda config, dev, env, ctx=None: None
+        container_lifecycle,
+        "_build_project_image",
+        lambda config, dev, env, ctx=None, compose_files=None: None,
     )
     monkeypatch.setattr(
         container_lifecycle.subprocess,
@@ -2393,7 +2419,9 @@ def test_a_deploy_clears_the_service_contexts_it_staged(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda config, files: None)
     monkeypatch.setattr(
-        container_lifecycle, "_build_project_image", lambda config, dev, env, ctx=None: None
+        container_lifecycle,
+        "_build_project_image",
+        lambda config, dev, env, ctx=None, compose_files=None: None,
     )
     monkeypatch.setattr(
         container_lifecycle.subprocess,
@@ -2436,7 +2464,9 @@ def _attached_start(monkeypatch, repo, staged, **kwargs):
     )
     monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda config, files: None)
     monkeypatch.setattr(
-        container_lifecycle, "_build_project_image", lambda config, dev, env, ctx=None: None
+        container_lifecycle,
+        "_build_project_image",
+        lambda config, dev, env, ctx=None, compose_files=None: None,
     )
     monkeypatch.setattr(
         container_lifecycle.subprocess,
@@ -2734,6 +2764,9 @@ def _wiring_calls(monkeypatch, tmp_path):
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
     monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda *a, **k: completed())
+    # Every deployment builds the project image, which agent-record runs on;
+    # that build has its own tests, and these are about the compose argv.
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
     monkeypatch.setattr(
         container_lifecycle,
         "warn_if_project_stale",
@@ -2807,6 +2840,9 @@ def test_deploy_up_runs_web_terminal_preflight_before_image_build(monkeypatch, t
         lambda *a, **k: (web_config, ["docker-compose.yml"]),
     )
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"]
+    )
     monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda *a, **k: None)
     monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
     # The collect-all pass sits ahead of the preflight and probes the same
@@ -3331,11 +3367,21 @@ def test_a_dev_run_on_a_prebuilt_host_builds_no_project_image_either(monkeypatch
 def test_the_skip_line_is_only_reported_where_a_build_was_actually_taken_away(
     monkeypatch, tmp_path
 ):
-    """A deployment without the worker had no project image build to skip."""
+    """A deployment with nothing on the project image had no build to skip.
+
+    agent-record runs on the project image in every deployment, so only its
+    pin to another image leaves nothing there.
+    """
     monkeypatch.setenv("OSPREY_PREBUILT_IMAGES", "1")
 
     cmds, steps = _project_image_build_calls(
-        monkeypatch, tmp_path, {"project_name": "myfacility", "deployed_services": ["mongodb"]}
+        monkeypatch,
+        tmp_path,
+        {
+            "project_name": "myfacility",
+            "deployed_services": ["mongodb"],
+            "services": {"agent_record": {"image": "registry.example.org/record:1"}},
+        },
     )
 
     assert cmds == []
@@ -3381,11 +3427,18 @@ def test_a_dev_run_builds_the_project_image_for_an_archive_without_the_worker(
 
 
 def test_a_pinned_archive_image_builds_nothing(monkeypatch, tmp_path):
-    """An archive pinned to another image, or an env override, needs no project build."""
+    """An archive pinned to another image, or an env override, needs no project build.
+
+    Pinned beside the always-deployed agent-record, which would otherwise build
+    the project image for itself.
+    """
     pinned = {
         "project_name": "myfacility",
         "deployed_services": ["archive"],
-        "services": {"archive": {"image": "registry.example.org/x:1"}},
+        "services": {
+            "archive": {"image": "registry.example.org/x:1"},
+            "agent_record": {"image": "registry.example.org/record:1"},
+        },
     }
 
     cmds, _steps = _project_image_build_calls(monkeypatch, tmp_path, pinned)
@@ -3435,10 +3488,12 @@ def test_every_template_on_the_project_image_is_a_project_image_service():
     }
 
     # The history page is derived from the config rather than deployed by name,
-    # so it joins the gate through its predicate (test_history_service.py).
+    # so it joins the gate through its predicate (test_history_service.py);
+    # agent-record is derived and always deployed, so it joins unconditionally.
     assert on_project_image == {
         *container_lifecycle._PROJECT_IMAGE_SERVICES,
-        telemetry_config.HISTORY_SERVICE,
+        HISTORY_SERVICE,
+        container_lifecycle.AGENT_RECORD_TEMPLATE_DIR,
     }
 
 
@@ -3585,7 +3640,7 @@ def staged_archiver(monkeypatch, tmp_path):
     monkeypatch.setattr(
         container_lifecycle,
         "_archiver_seed_inputs",
-        lambda config, project_dir: SimpleNamespace(addresses=["SR:BPM1:X"]),
+        lambda config, project_dir: nullcontext(SimpleNamespace(addresses=["SR:BPM1:X"])),
     )
     monkeypatch.setattr(
         container_lifecycle,
@@ -3842,6 +3897,9 @@ def test_pymongo_preflight_aborts_before_any_container_work(monkeypatch, tmp_pat
         lambda *a, **k: (dict(ARCHIVER_CONFIG), ["docker-compose.yml"]),
     )
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
     monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
     monkeypatch.setattr(
         container_lifecycle, "_build_project_image", lambda *a, **k: ran.append("build")
@@ -3988,10 +4046,9 @@ def test_seed_inputs_are_the_archive_composite_of_the_render_s_simulator_view(tm
     write_texture_view(tmp_path / "build", {"SR:BPM1:X": {"nominal": 0.5}})
     (tmp_path / "build" / "config.yml").write_text("{}\n")
 
-    archive = container_lifecycle._archiver_seed_inputs({}, tmp_path)
-
-    assert archive.addresses == ["SR:BPM1:X"]
-    assert archive.series("SR:BPM1:X", [1_760_000_000.0]) == [0.5]
+    with container_lifecycle._archiver_seed_inputs({}, tmp_path) as archive:
+        assert archive.addresses == ["SR:BPM1:X"]
+        assert archive.series("SR:BPM1:X", [1_760_000_000.0]) == [0.5]
 
 
 def test_seed_inputs_refuse_a_render_without_a_simulator_view(tmp_path):
@@ -4567,6 +4624,8 @@ def test_a_pinned_worker_image_builds_nothing_under_either_axis(monkeypatch, axe
     _set_image_axes(monkeypatch, axes)
 
     pinned = _parity_config({"image": _PINNED_WORKER_IMAGE})
+    # The always-deployed agent-record is pinned too, or it alone builds.
+    pinned["services"]["agent_record"] = {"image": _PINNED_WORKER_IMAGE}
     assert container_lifecycle._project_image_build_target(pinned, env={}) is None
 
     override = _parity_config({})
@@ -4742,7 +4801,11 @@ def test_a_repo_with_no_chain_files_is_silent(tmp_path):
 
 
 def _record_web_deploy(monkeypatch, tmp_path, order, web_terminals):
-    """Wire deploy_up for a web-terminal config, recording the two steps under test."""
+    """Wire deploy_up for a web-terminal config, recording the two steps under test.
+
+    The host is answered on both questions a start asks it: the runtime is up,
+    and it is the one the deployment record names.
+    """
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
         container_lifecycle,
@@ -4753,6 +4816,9 @@ def _record_web_deploy(monkeypatch, tmp_path, order, web_terminals):
         ),
     )
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"]
+    )
     monkeypatch.setattr(
         container_lifecycle, "_preflight_host_ports", lambda *a, **k: order.append("ports")
     )
@@ -4835,7 +4901,9 @@ def test_a_failed_start_still_clears_the_ca_it_staged(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda config, files: None)
     monkeypatch.setattr(
-        container_lifecycle, "_build_project_image", lambda config, dev, env, ctx=None: None
+        container_lifecycle,
+        "_build_project_image",
+        lambda config, dev, env, ctx=None, compose_files=None: None,
     )
     monkeypatch.setattr(
         container_lifecycle.subprocess,
@@ -4899,9 +4967,16 @@ def _ownership_probe_with(monkeypatch, containers=(), *, fails: bool = False):
 
 
 def _start_until_the_host(monkeypatch, tmp_path, *, web_terminals: bool = True):
-    """Drive ``_start_stack`` up to its first container-touching step, recording the steps."""
+    """Drive ``_start_stack`` up to its first container-touching step, recording the steps.
+
+    The host is answered on both questions a start asks it: the runtime is up,
+    and it is the one the deployment record names.
+    """
     touched: list[str] = []
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"]
+    )
     monkeypatch.setattr(
         container_lifecycle, "_preflight_bluesky_network_backend", lambda config: None
     )
@@ -5053,3 +5128,138 @@ def test_restart_refuses_another_copys_containers_before_its_down(monkeypatch, t
         container_lifecycle.restart_deployment(tmp_path)
 
     assert steps == []
+
+
+# ---------------------------------------------------------------------------
+# down acts on what the last start drove: the deployment record's runtime and
+# compose project, whatever the setting or a later rebuild says now.
+# ---------------------------------------------------------------------------
+
+
+def _recorded_web_repo(tmp_path, record):
+    """A started web-terminal repo whose record holds ``record``."""
+    import yaml
+
+    from osprey.deployment.deployment_record import write_deployment_record
+    from osprey.deployment.web_terminals.artifacts import write_web_terminal_artifacts
+    from tests.deployment.test_compose_invocation import _WEB_STACK_CONFIG, _started_repo
+
+    repo = _started_repo(tmp_path, config=_WEB_STACK_CONFIG)
+    config = yaml.safe_load(
+        container_lifecycle.as_built_config_path(repo).read_text(encoding="utf-8")
+    )
+    write_web_terminal_artifacts(config, repo)
+    if record is not None:
+        write_deployment_record(repo, record)
+    return repo
+
+
+def _host_whose_setting_says_docker(monkeypatch):
+    """Every runtime call recorded; the setting, asked, answers docker."""
+    from osprey.deployment.runtime_helper import ComposeProvider
+
+    runs: list[dict] = []
+    probed: list[str | None] = []
+    monkeypatch.delenv("CONTAINER_RUNTIME", raising=False)
+    monkeypatch.setattr(
+        container_lifecycle, "verify_runtime_is_running", lambda config=None, **_: (True, "")
+    )
+    for module in (container_lifecycle, provision):
+        monkeypatch.setattr(
+            module, "get_runtime_command", lambda config=None: ["docker", "compose"]
+        )
+    monkeypatch.setattr(
+        container_lifecycle,
+        "_compose_provider",
+        lambda config=None, runtime=None: probed.append(runtime) or ComposeProvider.DOCKER_V2,
+    )
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda cmd, env=None, **kwargs: (
+            runs.append({"cmd": list(cmd), "env": dict(env or {})})
+            or subprocess.CompletedProcess(list(cmd), 0, "", "")
+        ),
+    )
+    return runs, probed
+
+
+def test_down_targets_the_recorded_project_after_a_rename(monkeypatch, tmp_path):
+    from osprey.deployment.compose_generator import resolve_project_name
+    from osprey.deployment.deployment_record import DeploymentRecord
+
+    repo = _recorded_web_repo(tmp_path, DeploymentRecord("docker", "project-a"))
+    built = container_lifecycle.load_project_config(
+        str(container_lifecycle.as_built_config_path(repo))
+    )
+    assert resolve_project_name(built) != "project-a"
+    runs, _ = _host_whose_setting_says_docker(monkeypatch)
+
+    container_lifecycle.down_deployment(repo)
+
+    downs = [run for run in runs if run["cmd"][-1] == "down"]
+    assert len(downs) == 2, runs
+    assert [run["env"]["COMPOSE_PROJECT_NAME"] for run in downs] == ["project-a", "project-a"]
+
+
+def test_down_uses_the_recorded_runtime_in_a_fresh_shell(monkeypatch, tmp_path):
+    from osprey.deployment.deployment_record import DeploymentRecord
+
+    repo = _recorded_web_repo(tmp_path, DeploymentRecord("podman", "project-a"))
+    runs, probed = _host_whose_setting_says_docker(monkeypatch)
+
+    container_lifecycle.down_deployment(repo)
+
+    downs = [run for run in runs if run["cmd"][-1] == "down"]
+    assert len(downs) == 2, runs
+    assert [run["cmd"][0] for run in downs] == ["podman", "podman"]
+    assert probed and set(probed) == {"podman"}
+
+
+def test_down_with_no_record_sweeps_by_label_only(monkeypatch, tmp_path):
+    repo = _recorded_web_repo(tmp_path, None)
+    runs, _ = _host_whose_setting_says_docker(monkeypatch)
+    swept: list = []
+    monkeypatch.setattr(
+        container_lifecycle,
+        "_down_by_label",
+        lambda config, root, **kwargs: swept.append((Path(root), kwargs)),
+    )
+
+    container_lifecycle.down_deployment(repo)
+
+    assert runs == []
+    assert swept == [(repo, {"missing": "deployment record"})]
+
+
+def test_down_refuses_an_unreadable_record_and_stops_nothing(monkeypatch, tmp_path):
+    from osprey.deployment.deployment_record import DEPLOYMENT_RECORD_RELPATH
+    from osprey.deployment.errors import DeploymentRecordError
+
+    repo = _recorded_web_repo(tmp_path, None)
+    (repo / DEPLOYMENT_RECORD_RELPATH).parent.mkdir(parents=True, exist_ok=True)
+    (repo / DEPLOYMENT_RECORD_RELPATH).write_text("{not json", encoding="utf-8")
+    runs, _ = _host_whose_setting_says_docker(monkeypatch)
+
+    with pytest.raises(DeploymentRecordError, match=str(DEPLOYMENT_RECORD_RELPATH)) as refused:
+        container_lifecycle.down_deployment(repo)
+
+    assert "osprey reset" in str(refused.value)
+    assert runs == []
+
+
+def test_down_given_the_pair_stops_it_without_reading_the_record(monkeypatch, tmp_path):
+    from osprey.deployment.deployment_record import DEPLOYMENT_RECORD_RELPATH
+
+    repo = _recorded_web_repo(tmp_path, None)
+    (repo / DEPLOYMENT_RECORD_RELPATH).parent.mkdir(parents=True, exist_ok=True)
+    (repo / DEPLOYMENT_RECORD_RELPATH).write_text("{not json", encoding="utf-8")
+    runs, probed = _host_whose_setting_says_docker(monkeypatch)
+
+    container_lifecycle.down_deployment(repo, runtime="podman", project="planned-name")
+
+    downs = [run for run in runs if run["cmd"][-1] == "down"]
+    assert len(downs) == 2, runs
+    assert [run["cmd"][0] for run in downs] == ["podman", "podman"]
+    assert [run["env"]["COMPOSE_PROJECT_NAME"] for run in downs] == ["planned-name"] * 2
+    assert set(probed) == {"podman"}

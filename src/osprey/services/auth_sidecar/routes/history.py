@@ -1,11 +1,12 @@
-"""The history page's ``auth_request`` target: which person, as which view user.
+"""The history page's ``auth_request`` target: which person, as which record viewer.
 
 nginx asks ``/verify-history`` once per request under ``/history/`` on the
-readers' origin. Where ``/verify`` answers "may this browser reach this card",
+history page's origin. Where ``/verify`` answers "may this browser reach this card",
 this route answers "whose sessions may this browser see, right now": it resolves
-**one person** out of the session cookie and maps them to exactly one store view
-user and that user's tables. The page runs every query as that view user, so the
-answer here is the scope; the database enforces it.
+**one person** out of the session cookie and maps them to exactly one agent-record
+viewer: ``all``, ``own:<person>`` or ``reader:<name>``. The page names that
+viewer on every read it makes with the record's ``history`` login, so the
+answer here is the scope; the record enforces it.
 
 **Every entry is re-validated against the current settings.** A card entry is
 asked :func:`~osprey.services.auth_sidecar.routes.verify.check_entry`, the very
@@ -19,7 +20,7 @@ can assert it, so it is read from the session and lapses with it.
 
 **The answer.** 401 when no entry is a valid sign-in, or the request selects one
 it may not (an unknown or a repeated ``as``); 403 when valid sign-ins exist but
-none maps to a view user — a stranger admitted to a card by a ``domain:`` rule,
+none maps to a viewer — a stranger admitted to a card by a ``domain:`` rule,
 a sign-in as a shared card without ``history: all``; otherwise 200 with the
 ``X-Osprey-History-*`` headers below. Like ``/verify`` it never redirects and
 never says why; the reason goes to the log at debug level by category.
@@ -60,7 +61,6 @@ PERSON_HEADER = "X-Osprey-History-Person"
 SCOPE_HEADER = "X-Osprey-History-Scope"
 VIEW_HEADER = "X-Osprey-History-View"
 ROLE_HEADER = "X-Osprey-History-Role"
-TABLES_HEADER = "X-Osprey-History-Tables"
 ENTRY_HEADER = "X-Osprey-History-Entry"
 CHOICES_HEADER = "X-Osprey-History-Choices"
 
@@ -68,17 +68,14 @@ SCOPE_OWN = "own"
 SCOPE_ALL = "all"
 SCOPE_READER = "reader"
 
-VIEW_ALL = "view__all"
-"""The view user that sees every person's sessions."""
+VIEW_ALL = "all"
+"""The record viewer that sees every person's sessions."""
 
-VIEW_USER_PREFIX = "view_"
-"""A roster person's own view user is ``view_<person>``."""
+VIEW_OWN_PREFIX = "own:"
+"""A roster person's own viewer is ``own:<person>``."""
 
-VIEW_READER_PREFIX = "view__reader_"
-"""A reader's view user is ``view__reader_<name>``."""
-
-VIEW_TABLES = ("otel_logs", "otel_traces", "audit_ledger")
-"""The tables a ``view_<person>`` and ``view__all`` read: every store table."""
+VIEW_READER_PREFIX = "reader:"
+"""A reader's viewer is ``reader:<name>``: the scope the record configures for it."""
 
 # Default-selection precedence among entries sharing the greatest expiry. One
 # card-less login mints all its admissions with one expiry, so ties are the
@@ -93,15 +90,14 @@ TIER_RULE_ADMITTED = 4
 
 @dataclass(frozen=True)
 class HistoryView:
-    """One valid sign-in, mapped to the view user it reads as.
+    """One valid sign-in, mapped to the record viewer it reads as.
 
     Attributes:
         key: The session entry's key — a roster card or ``reader:<name>``.
         person: Who the page is viewing as: a roster person, a reader name, or a
             shared card's name under ``history: all``.
-        view_user: The store account the page impersonates.
+        viewer: The record viewer the page names on every read.
         scope: ``own``, ``all`` or ``reader``.
-        tables: The tables that view user may read.
         role: The roster or claim role behind the scope, or ``""``.
         tier: Default-selection precedence; lower wins a tie.
         expires_at: The entry's expiry; the newest valid sign-in is the default.
@@ -109,9 +105,8 @@ class HistoryView:
 
     key: str
     person: str
-    view_user: str
+    viewer: str
     scope: str
-    tables: tuple[str, ...]
     role: str
     tier: int
     expires_at: float
@@ -122,9 +117,8 @@ class _Row:
     """A mapping-table row before it is attached to an entry."""
 
     person: str
-    view_user: str
+    viewer: str
     scope: str
-    tables: tuple[str, ...]
     role: str = ""
 
 
@@ -166,16 +160,16 @@ def check_reader_entry(entry: UnlockedUser, settings: AuthSettings) -> str | Non
 
 
 def _shared_card_row(settings: AuthSettings, roles: RosterRoles, card: str) -> _Row | None:
-    """A sign-in AS a shared card: ``view__all`` under ``history: all``, else nothing.
+    """A sign-in AS a shared card: ``all`` under ``history: all``, else nothing.
 
-    Read from the card's own roster entry and its roster-bound role. Never a
-    ``view_<card>``: a shared card is not a person.
+    Read from the card's own roster entry and its roster-bound role. Never an
+    ``own:<card>``: a shared card is not a person.
     """
     role = roles.role_for(card)
     if settings.user_history_all(card):
-        return _Row(card, VIEW_ALL, SCOPE_ALL, VIEW_TABLES, role)
+        return _Row(card, VIEW_ALL, SCOPE_ALL, role)
     if settings.role_history_all(role):
-        return _Row(card, VIEW_ALL, SCOPE_ALL, VIEW_TABLES, role)
+        return _Row(card, VIEW_ALL, SCOPE_ALL, role)
     return None
 
 
@@ -195,20 +189,14 @@ def _person_row(
         return _shared_card_row(settings, roles, person)
     role = roles.role_for(person)
     if settings.knows_reader(person):
-        return _Row(
-            person,
-            f"{VIEW_READER_PREFIX}{person}",
-            SCOPE_READER,
-            settings.tables_for_reader(person),
-            role,
-        )
+        return _Row(person, f"{VIEW_READER_PREFIX}{person}", SCOPE_READER, role)
     if settings.user_history_all(person):
-        return _Row(person, VIEW_ALL, SCOPE_ALL, VIEW_TABLES, role)
+        return _Row(person, VIEW_ALL, SCOPE_ALL, role)
     if settings.role_history_all(role):
-        return _Row(person, VIEW_ALL, SCOPE_ALL, VIEW_TABLES, role)
+        return _Row(person, VIEW_ALL, SCOPE_ALL, role)
     if settings.role_history_all(claim_role):
-        return _Row(person, VIEW_ALL, SCOPE_ALL, VIEW_TABLES, claim_role)
-    return _Row(person, f"{VIEW_USER_PREFIX}{person}", SCOPE_OWN, VIEW_TABLES, role or claim_role)
+        return _Row(person, VIEW_ALL, SCOPE_ALL, claim_role)
+    return _Row(person, f"{VIEW_OWN_PREFIX}{person}", SCOPE_OWN, role or claim_role)
 
 
 def _rule_admitted_person(settings: AuthSettings, identity: str) -> str | None:
@@ -249,7 +237,7 @@ class Mappable:
     """What a session cookie offers the history page.
 
     Attributes:
-        views: The valid sign-ins that map to a view user, best default first.
+        views: The valid sign-ins that map to a viewer, best default first.
         valid: How many entries were valid sign-ins at all, mapped or not.
     """
 
@@ -258,7 +246,7 @@ class Mappable:
 
 
 def mappable_entries(state: SessionState, settings: AuthSettings, roles: RosterRoles) -> Mappable:
-    """Every valid sign-in in ``state`` that maps to a view user.
+    """Every valid sign-in in ``state`` that maps to a record viewer.
 
     Card entries are re-validated with ``/verify``'s own
     :func:`~osprey.services.auth_sidecar.routes.verify.check_entry`, reader
@@ -285,12 +273,7 @@ def mappable_entries(state: SessionState, settings: AuthSettings, roles: RosterR
                 continue
             valid += 1
             name = key[len(READER_ENTRY_PREFIX) :]
-            row: _Row | None = _Row(
-                name,
-                f"{VIEW_READER_PREFIX}{name}",
-                SCOPE_READER,
-                settings.tables_for_reader(name),
-            )
+            row: _Row | None = _Row(name, f"{VIEW_READER_PREFIX}{name}", SCOPE_READER)
             tier = TIER_READER
         else:
             if not settings.knows_user(key):
@@ -303,9 +286,9 @@ def mappable_entries(state: SessionState, settings: AuthSettings, roles: RosterR
             valid += 1
             row, tier = _map_card_entry(settings, roles, entry)
         if row is None:
-            logger.debug("history: entry %r maps to no view user", key)
+            logger.debug("history: entry %r maps to no viewer", key)
             continue
-        carried = (key, row.person, row.view_user, row.role, *row.tables)
+        carried = (key, row.person, row.viewer, row.role)
         if not all(is_header_safe(value) for value in carried if value):
             logger.debug("history: entry %r cannot be carried in a header", key)
             continue
@@ -313,9 +296,8 @@ def mappable_entries(state: SessionState, settings: AuthSettings, roles: RosterR
             HistoryView(
                 key=key,
                 person=row.person,
-                view_user=row.view_user,
+                viewer=row.viewer,
                 scope=row.scope,
-                tables=row.tables,
                 role=row.role,
                 tier=tier,
                 expires_at=entry.expires_at,
@@ -355,7 +337,7 @@ async def verify_history(
     original_uri: Annotated[str | None, Header(alias="X-Original-URI")] = None,
     session_cookie: Annotated[str | None, Cookie(alias=SESSION_COOKIE_NAME)] = None,
 ) -> Response:
-    """Resolve one person and their view user for a history-page request.
+    """Resolve one person and their record viewer for a history-page request.
 
     Args:
         request: The subrequest, for the app's roster role table.
@@ -384,7 +366,7 @@ async def verify_history(
     if not mappable.valid:
         return _deny(401, "no valid sign-in in this session")
     if not mappable.views:
-        return _deny(403, "no sign-in in this session maps to a view user")
+        return _deny(403, "no sign-in in this session maps to a viewer")
 
     if selected is None:
         chosen = mappable.views[0]
@@ -397,8 +379,7 @@ async def verify_history(
     headers = {
         PERSON_HEADER: chosen.person,
         SCOPE_HEADER: chosen.scope,
-        VIEW_HEADER: chosen.view_user,
-        TABLES_HEADER: ",".join(chosen.tables),
+        VIEW_HEADER: chosen.viewer,
         ENTRY_HEADER: chosen.key,
         CHOICES_HEADER: ",".join(f"{view.key}={view.person}" for view in mappable.views),
     }

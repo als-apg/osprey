@@ -2422,6 +2422,9 @@ class TestOperatorChatLaunchParity:
             cli_path=STUB_AGENT_CLI,
             include_partial_messages=True,
             can_use_tool=session._can_use_tool,
+            # The stub CLI takes --thinking-display, so the launch passes the
+            # default display.
+            extra_args={"thinking-display": "summarized"},
             **identity,
         )
         assert options.env["PATH"] == "/usr/bin"

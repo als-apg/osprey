@@ -17,10 +17,10 @@ record without it would be an alert rather than an audit trail; that field is
 therefore refused on every other surface (:data:`SURFACE_EXECUTOR`).
 
 The audit trail has two kinds of surface. The default surfaces are built from
-this envelope and are value-free by the rule above. The opt-in ``tool_call``
+this envelope and are value-free by the rule above. The ``tool_call``
 surface (:mod:`osprey.audit.tool_call`) is the one place values are recorded —
-the full arguments and result of each tool call — and it does not use this
-envelope; the ``tool_use_id`` both carry is what joins them.
+what each tool call ran against and the facts it noted — and it does not use
+this envelope; the ``tool_use_id`` both carry is what joins them.
 
 **Provenance is stated, never inferred.** :attr:`~AuditEnvelope.posture_source`
 is a closed set (:data:`POSTURE_SOURCES`) that says *how* the posture in the
@@ -37,8 +37,8 @@ flagged via :attr:`~AuditEnvelope.source_truncated`, because a truncated script
 that did not say so would read like the whole script.
 
 This module is **schema only** — it writes nothing. The writer that turns an
-envelope into a line of ``var/audit/<identity>/<surface>.jsonl`` lives beside
-it in ``osprey.audit.writer``. Like ``osprey.utils.sensitive_env``, it stays a
+envelope into an ``audit`` entry of the agent record lives beside it in
+``osprey.audit.writer``. Like ``osprey.utils.sensitive_env``, it stays a
 stdlib-only leaf: the writer, the MCP middleware, the HTTP layer and the hooks
 all import it, and none of them may inherit an import cycle by doing so.
 """
@@ -149,7 +149,7 @@ def terminal_session() -> str | None:
     """The terminal session this process was launched under, or ``None``.
 
     What a record's ``session`` falls back to when its emitter had no posture
-    session to give. Both record shapes — :class:`AuditEnvelope` and the full
+    session to give. Both record shapes — :class:`AuditEnvelope` and the
     ``tool_call`` record — resolve the fallback here, so no emitter does.
     Read per call: a launcher sets the variable on the child it spawns, and a
     value captured at import would be the parent's. Bounded like every other
@@ -221,8 +221,8 @@ class AuditEnvelope:
         config value, a prompt, or an agent message.
     :param role: The role the actor held, where the decision was identity-bound.
     :param tool_use_id: The agent harness's id for the tool call this decision
-        is about — an identifier that joins this record to the full
-        ``tool_call`` record and to the harness's own telemetry. Omitted where
+        is about — an identifier that joins this record to the
+        ``tool_call`` record and to the harness's own transcript. Omitted where
         no tool call exists (HTTP, login, restore).
     :param source: The offending code, on :data:`SURFACE_EXECUTOR` only.
         Bounded to :data:`MAX_SOURCE_CHARS`; a :class:`ValueError` on any other

@@ -154,12 +154,12 @@ def test_multiple_service_entries_are_all_parsed() -> None:
         "name": "x",
         "services": {
             "postgresql": {"template": "services/postgresql"},
-            "telemetry_store": {"template": "services/telemetry_store", "config": {"port": 18904}},
+            "qmd": {"template": "services/qmd", "config": {"port": 18960}},
         },
     }
     profile = _parse_profile(raw)
-    assert sorted(profile.services) == ["postgresql", "telemetry_store"]
-    assert profile.services["telemetry_store"].config == {"port": 18904}
+    assert sorted(profile.services) == ["postgresql", "qmd"]
+    assert profile.services["qmd"].config == {"port": 18960}
 
 
 def test_no_services_block_parses_to_empty_dict() -> None:

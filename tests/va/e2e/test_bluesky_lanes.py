@@ -84,7 +84,6 @@ from osprey.deployment.compose_generator import (
     BLUESKY_DEVICES_FILENAME,
     ensure_control_target_dir,
 )
-from osprey.interfaces._serving import free_port
 from osprey.mcp_server.bluesky import lanes as lanes_module
 from osprey.mcp_server.bluesky.server_context import (
     initialize_server_context,
@@ -97,6 +96,7 @@ from osprey_connectors import control_context, posture_store
 from osprey_connectors.types import TARGET_VA
 from osprey_connectors.workspace import reset_config_cache
 from osprey_connectors_tests._harness import write_control_context
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests._approval_stamp_fixture import ApprovalStamps
 from tests.e2e._deploy_support import find_osprey_console_script
 from tests.e2e._orm_stack import VA_PVA_PORT, seed_repo_env
@@ -137,8 +137,6 @@ TILED_PORT = 18492
 PANELS_PORT = 18496
 VA_CA_PORT = 15264
 POSTGRES_PORT = 25932
-TELEMETRY_GATEWAY_PORT = 25218
-TELEMETRY_STORE_PORT = 29023
 QMD_PORT = 28180
 MONGODB_PORT = 47917
 
@@ -153,7 +151,7 @@ BRIDGE_URLS = {
 LANE_ENV_PREFIX = {LANE_VA: "BLUESKY", LANE_LIVE: "BLUESKY_LIVE"}
 
 #: Container-name prefix of the live lane's Channel Access endpoint. The run's
-#: own ephemeral port is appended: a fixed name would be mutually destructive
+#: own reserved port is appended: a fixed name would be mutually destructive
 #: between two concurrent runs (each force-removes its name as stale cleanup),
 #: which is the convention the rest of this directory already follows.
 LIVE_ENDPOINT_PREFIX = "osprey-va-e2e-lane-live"
@@ -305,7 +303,7 @@ def _env_values(repo: Path) -> dict[str, str]:
 def live_endpoint():
     """A second Channel Access endpoint: the machine the LIVE lane addresses.
 
-    Served on a free port that is both the published and the server's own
+    Served on a reserved port that is both the published and the server's own
     port (see ``serving_container``), and that also names the container.
     """
     if not e2e_conftest.E2E_ENABLED:  # pragma: no cover - collection-time skip path
@@ -314,17 +312,17 @@ def live_endpoint():
     if inspected.returncode != 0:
         pytest.skip(f"{e2e_conftest.IMAGE} is not built on this host. {e2e_conftest.IMAGE_REMEDY}")
 
-    port = free_port()
-    with e2e_conftest.serving_container(
-        f"{LIVE_ENDPOINT_PREFIX}-{port}",
-        port,
-        *e2e_conftest.demo_data_run_args(),
-        # The namespace, named: the IOC refuses to boot without one rather
-        # than picking the framework's demo channels on its own.
-        *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
-        boot_timeout=LIVE_ENDPOINT_BOOT_TIMEOUT_S,
-    ):
-        yield port
+    with reserved_port() as port:
+        with e2e_conftest.serving_container(
+            f"{LIVE_ENDPOINT_PREFIX}-{port}",
+            port,
+            *e2e_conftest.demo_data_run_args(),
+            # The namespace, named: the IOC refuses to boot without one rather
+            # than picking the framework's demo channels on its own.
+            *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
+            boot_timeout=LIVE_ENDPOINT_BOOT_TIMEOUT_S,
+        ):
+            yield port
 
 
 # ---------------------------------------------------------------------------
@@ -360,8 +358,6 @@ def _profile_edits() -> dict[str, Any]:
             "claude_code.servers.bluesky.enabled": True,
             "modules.web_terminals.enabled": False,
             "services.postgresql.port_host": POSTGRES_PORT,
-            "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
-            "services.telemetry_store.port": TELEMETRY_STORE_PORT,
             "services.qmd.port": QMD_PORT,
         },
         "dispatch": None,
@@ -477,7 +473,7 @@ def _remove_stale_deployment() -> None:
     The deployment's project name is FIXED (``PROJECT_NAME``) rather than
     per-run, because every container and locally-built image the compose
     templates render is named from it -- so unlike ``live_endpoint``, whose
-    ephemeral port makes its container name unique to this run, this name is
+    reserved port makes its container name unique to this run, this name is
     shared by every run of this module.
 
     That is safe here for a reason worth stating rather than assuming: two

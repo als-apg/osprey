@@ -45,8 +45,12 @@ the parallel invocation, so you normally just run a tier:
 `scripts/check.py list` prints every check and the tiers that run it.
 
 The check bounds its pytest runs with `scripts/run_bounded.py`, which exits
-124 when a run passes its bound. A run stopped by its bound prints every
-process's Python stacks before it is killed. Every pytest process the suite
+124 when a run passes its bound, after naming any process of its group that
+SIGKILL did not end, or saying the process table could not be read. A run stopped by its bound prints every
+process's Python stacks before it is killed. `Popen.wait()` and `poll()` report
+exit status 0 for a child something else reaped, so a child OSPREY owns is
+reaped only by its stop (`stop_child`); every liveness question asks
+`observe_exit`. Every pytest process the suite
 starts carries an exit report (the harness's `_live_threads.py`): after its last test it
 names the non-daemon threads and child processes keeping it alive, and a slow
 final garbage collection (`SLOW_CLEANUP_SECONDS`). A serial run or the xdist
@@ -57,12 +61,16 @@ holding it, and the exit callbacks registered with `atexit`.
 `tests/integration/test_suite_exit_bound.py` (`wallclock`) holds a facility
 test module under `-n 2` to that bound.
 
-A run keeps only failing tests' `tmp_path` directories
-(`tmp_path_retention_policy = "failed"` in `pyproject.toml`): a passing test's
-files are gone after the run, and a failing test's files stay under
-`{temproot}/pytest-of-<user>/pytest-N/`. A run that exits in silence after its
-summary while that root holds other runs' trees is pytest pruning them at exit;
-the exit report names it (`cleanup_numbered_dir`).
+Each run creates its own temporary root, `{temproot}/osprey-tests-*`
+(`PYTEST_DEBUG_TEMPROOT` or the system temp dir), in `tests/conftest.py`;
+an xdist run's workers live under it. A green run removes it. A red run keeps
+it, with only its failing tests' `tmp_path` directories
+(`tmp_path_retention_policy = "failed"` in `pyproject.toml`), and names it in
+the summary (`temporary files kept at …`). Nothing else on the host numbers or
+prunes it. Pass `--basetemp` to choose the place yourself; it is then never
+removed. Never add `--basetemp` to a launcher.
+
+A run owns its ports the same way; section 6 says how a test takes one.
 
 **E2E tests are separate.** Run them with `pytest tests/e2e/`, never with
 `-m e2e`.
@@ -489,7 +497,10 @@ with run_app_server(app) as url:   # the app listens on a socket it owns
 
 Where the number must be known before the server binds (a config file, a
 subprocess argument), hold a `reserved_port()` from
-`osprey_connectors_tests._harness._ports` for as long as the server needs it.
+`osprey_connectors_tests._harness._ports` for as long as the server needs it;
+in a test, the `reserve_port` fixture hands out such ports, held until the test
+ends. Where a port must be busy (a bind-conflict test), hold a `bound_socket()`
+from the same module.
 
 Never hardcode a port number, and never pick one by binding port 0 and
 releasing it (`free_port()`, `find_free_port()`, or an inline

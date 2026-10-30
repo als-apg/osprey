@@ -1178,8 +1178,9 @@ def _bluesky_repo(
 
     yaml_rt = YAML()
     root.mkdir(parents=True, exist_ok=True)
-    with (root / "config.yml").open("w", encoding="utf-8") as handle:
-        yaml_rt.dump(_lane_config(root, writes_enabled=writes_enabled, tier_word=tier_word), handle)
+    yaml_rt.dump(
+        _lane_config(root, writes_enabled=writes_enabled, tier_word=tier_word), root / "config.yml"
+    )
 
     # Reads the repo-root config to decide which service template directories
     # the repo needs, so it runs after that file exists.
@@ -1188,11 +1189,10 @@ def _bluesky_repo(
     config_dir.mkdir(parents=True, exist_ok=True)
     config_path = config_dir / "config.yml"
     if config_dir != root:
-        with config_path.open("w", encoding="utf-8") as handle:
-            yaml_rt.dump(
-                _lane_config(config_dir, writes_enabled=writes_enabled, tier_word=tier_word),
-                handle,
-            )
+        yaml_rt.dump(
+            _lane_config(config_dir, writes_enabled=writes_enabled, tier_word=tier_word),
+            config_path,
+        )
 
     for relative, contents in ((_LIMITS_RELPATH, "{}"), (_DEVICES_RELPATH, _DEVICES_DOCUMENT)):
         staged = config_dir / relative

@@ -30,15 +30,13 @@ def _write_config(project_path: Path, *, facility: dict | None = None) -> None:
     }
     if facility is not None:
         config["facility"] = facility
-    with open(project_path / "config.yml", "w") as fh:
-        yaml.dump(config, fh)
+    yaml.dump(config, project_path / "config.yml")
 
 
 def _read_config(project_path: Path) -> dict:
     """Reload config.yml as a plain dict."""
     yaml = YAML()
-    with open(project_path / "config.yml") as fh:
-        return yaml.load(fh)
+    return yaml.load(project_path / "config.yml")
 
 
 def _dispatch(**overrides: object) -> DispatchConfig:
@@ -198,8 +196,7 @@ def test_inject_dispatch_propagates_pool_limits(tmp_path: Path) -> None:
     )
 
     yaml = YAML()
-    with open(project_path / "triggers.yml") as fh:
-        triggers_doc = yaml.load(fh)
+    triggers_doc = yaml.load(project_path / "triggers.yml")
 
     assert triggers_doc["dispatcher"]["max_concurrent_runs"] == 7
     assert triggers_doc["dispatcher"]["max_queue_depth"] == 33
@@ -234,8 +231,7 @@ def test_inject_dispatch_records_the_profiles_worker_port_stride(tmp_path: Path)
     assert dw["worker_port_base"] == 9190
 
     yaml = YAML()
-    with open(project_path / "triggers.yml") as fh:
-        triggers_doc = yaml.load(fh)
+    triggers_doc = yaml.load(project_path / "triggers.yml")
     assert triggers_doc["dispatcher"]["dispatch_target"] == "http://localhost:9190"
 
 

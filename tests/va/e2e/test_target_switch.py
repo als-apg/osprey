@@ -11,7 +11,7 @@ soft-IOCs, and asserts on what came back over Channel Access.
 Two endpoints, and why they are two containers
 ----------------------------------------------
 A switch is only a switch if the two ends are different machines. This module
-therefore boots **two** ``osprey-va-full`` containers on two ephemeral ports and
+therefore boots **two** ``osprey-va-full`` containers on two reserved ports and
 gives the deployment one target each:
 
 * ``va``  -> the ``virtual_accelerator`` connector block, pointed at container V;
@@ -35,7 +35,7 @@ at both ends would be a switch that moved nothing.
 
 Ports, names and 5064
 ---------------------
-Each container binds an ephemeral port and publishes it unchanged: a Channel
+Each container binds a reserved port and publishes it unchanged: a Channel
 Access search reply carries the server's own port, so a remap would hand every
 client an address nothing answers on. That port also *names* the container: a
 fixed name is mutually destructive between concurrent runs, since each boot
@@ -69,7 +69,6 @@ import pytest
 import yaml
 
 from osprey.audit.posture import posture_session
-from osprey.interfaces._serving import free_port
 from osprey.mcp_server.control_system import server_context as server_context_mod
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.connector_host_manager import (
@@ -86,8 +85,10 @@ from osprey.mcp_server.control_system.tools import control_target
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system._base import ChannelValue
+from osprey_connectors.errors import ConnectorUnavailableError
 from osprey_connectors.workspace import reset_config_cache
 from osprey_connectors_tests._harness import write_control_context
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests._approval_stamp_fixture import ApprovalStamps
 from tests._live import async_wait_until
 from tests.fixtures.control_context import (
@@ -117,7 +118,7 @@ except Exception as exc:  # pragma: no cover - depends on the installed extras
 REPO_ROOT = Path(__file__).resolve().parents[3]
 REPO_PATHS = (str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src"))
 
-#: Container-name prefixes; ``_serving`` appends the run's own ephemeral port.
+#: Container-name prefixes; ``_serving`` appends the run's own reserved port.
 CONTAINER_VA = "osprey-va-e2e-switch-va"
 CONTAINER_LIVE = "osprey-va-e2e-switch-live"
 
@@ -151,8 +152,9 @@ SEEDED_ACTIVE_SCENARIOS = "\n".join(
 
 #: The one setpoint this module ever writes -- in the executor scenario, and
 #: restored to zero by that test before it returns. Listed in the shipped
-#: ``channel_limits.json`` with a +-12 A band, so the values below pass limits.
-CORRECTOR_SP = "SR:MAG:HCM:01:CURRENT:SP"
+#: ``channel_limits.json`` with a band at both ends (``conftest.LANE.band``),
+#: and the values below lie inside it, so they pass limits.
+CORRECTOR_SP = e2e_conftest.BOUNDED_SETPOINT
 PINNED_WRITE_VALUE = 1.0
 REFUSED_WRITE_VALUE = 2.0
 
@@ -199,30 +201,30 @@ def _serving(prefix: str, *, state_dir: Path | None):
     container boots with; ``None`` serves the suite set
     (``e2e_conftest.SUITE_SCENARIOS``).
     """
-    port = free_port()
-    data = (
-        e2e_conftest.demo_data_run_args()
-        if state_dir is None
-        else (
-            *e2e_conftest.data_root_run_args(e2e_conftest.demo_data_dir()),
-            "-v",
-            f"{state_dir}:/state/simulation:ro",
-            "-e",
-            "VA_STATE_DIR=/state/simulation",
+    with reserved_port() as port:
+        data = (
+            e2e_conftest.demo_data_run_args()
+            if state_dir is None
+            else (
+                *e2e_conftest.data_root_run_args(e2e_conftest.demo_data_dir()),
+                "-v",
+                f"{state_dir}:/state/simulation:ro",
+                "-e",
+                "VA_STATE_DIR=/state/simulation",
+            )
         )
-    )
-    # The port is this run's alone, so the name can be nothing a concurrent run
-    # is using -- which is the point of the suffix.
-    with e2e_conftest.serving_container(
-        f"{prefix}-{port}",
-        port,
-        *data,
-        # The namespace, named: the IOC refuses to boot without one rather
-        # than picking the framework's demo channels on its own.
-        *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
-        boot_timeout=BOOT_TIMEOUT_S,
-    ):
-        yield port
+        # The port is this run's alone, so the name can be nothing a concurrent run
+        # is using -- which is the point of the suffix.
+        with e2e_conftest.serving_container(
+            f"{prefix}-{port}",
+            port,
+            *data,
+            # The namespace, named: the IOC refuses to boot without one rather
+            # than picking the framework's demo channels on its own.
+            *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
+            boot_timeout=BOOT_TIMEOUT_S,
+        ):
+            yield port
 
 
 @dataclass(frozen=True)
@@ -273,7 +275,7 @@ def raw_config(
     resolves to the ``epics`` block; ``va`` always resolves to the
     ``virtual_accelerator`` block. Both blocks name an explicit gateway port,
     which wins over ``services.virtual_accelerator.port`` — the containers bind
-    ephemeral ports and nothing may guess them.
+    reserved ports and nothing may guess them.
 
     The FR-8 posture is set (the operator acknowledgment naming this harness's
     own live endpoint) so that a switch toward ``live`` is judged on the same terms a
@@ -630,9 +632,9 @@ class TestAFailedSwitchLeavesThePreviousTargetActive:
     """
 
     @pytest.fixture
-    def wrong_port_deployment(self, endpoints):
-        """The ``va`` block pointed at a port no server holds."""
-        return raw_config(va_port=free_port(), live_port=endpoints.live)
+    def wrong_port_deployment(self, endpoints, reserve_port):
+        """The ``va`` block pointed at a port no server holds, reserved for the test."""
+        return raw_config(va_port=reserve_port(), live_port=endpoints.live)
 
     async def test_the_switch_fails_at_the_probe(self, make_manager, wrong_port_deployment):
         manager = await started_on(make_manager, "live", raw=wrong_port_deployment)
@@ -760,12 +762,13 @@ class TestAFailedSwitchLeavesThePreviousTargetActive:
 
 
 class TestFailClosedWhenTheChildIsKilledExternally:
-    """FR-1: a session whose connector host died refuses, and says why.
+    """FR-1: a session whose connector host died refuses the call that finds it, and says why.
 
     The child is killed with ``SIGKILL`` from outside — not through a switch,
     which by construction never produces this state. What the session owes its
-    operator then is a refusal naming the missing host, not a silent respawn
-    onto a target nobody re-selected and not a read answered from somewhere else.
+    operator then is a refusal naming the missing host and the fresh child the
+    supervisor started on the same target, not a silent respawn and not a read
+    answered from somewhere else; the next call is served.
 
     **The archiver.** FR-1 also says archiver reads keep serving while the
     control system refuses, because the archiver is never routed through the
@@ -784,8 +787,10 @@ class TestFailClosedWhenTheChildIsKilledExternally:
     ):
         manager = await started_on(make_manager, "va")
         context = context_for(manager)
-        proxy = await context.control_system()
-        assert isinstance(await proxy.read_channel(VA_PROBE, timeout=READ_TIMEOUT_S), ChannelValue)
+        connector = await context.control_system()
+        assert isinstance(
+            await connector.read_channel(VA_PROBE, timeout=READ_TIMEOUT_S), ChannelValue
+        )
 
         os.kill(manager.status()["child_pid"], signal.SIGKILL)
         await async_wait_until(
@@ -795,13 +800,14 @@ class TestFailClosedWhenTheChildIsKilledExternally:
         )
 
         with pytest.raises(NoConnectorHostError) as raised:
-            await context.control_system()
+            await connector.read_channel(VA_PROBE, timeout=READ_TIMEOUT_S)
 
         refusal = raised.value
-        assert isinstance(refusal, ConnectionError)  # the tools' handler knows this one
+        assert isinstance(refusal, ConnectorUnavailableError)
         assert refusal.as_dict()["reason"] == "no_connector_host"
         assert refusal.target == "va"
         assert refusal.generation == manager.active_generation()
+        assert [record["action"] for record in refusal.recovery] == ["child_replaced"]
 
     async def test_the_session_still_names_the_target_it_was_on(self, make_manager):
         """A dead child is not a switch, and claiming one would invent it."""
@@ -819,19 +825,19 @@ class TestFailClosedWhenTheChildIsKilledExternally:
         assert manager.active_generation() == generation
         assert manager.active_proxy() is None
         assert manager.status()["child_alive"] is False
-        # Nothing is quietly restarted on the way to a read.
+        # Nothing is quietly restarted while no call asks for the child.
         assert len(manager.spawned) == 1
 
-    async def test_invalidating_brings_a_child_back_on_the_same_target(self, make_manager):
-        """Fail-closed, not fail-permanent: the documented recovery really works.
+    async def test_the_refusal_restarts_a_child_on_the_same_target(self, make_manager):
+        """Fail-closed, not fail-permanent: the call that finds it restarts it once.
 
-        The refusal is a ``ConnectionError``, which is what the tools' shared
-        handler already turns into an invalidation — so this is the path a
-        deployment actually takes, driven here against real processes.
+        The refusal names the restart, and the next call is served by the
+        fresh child on the target the session was on, driven here against
+        real processes.
         """
         manager = await started_on(make_manager, "va")
         context = context_for(manager)
-        await context.control_system()
+        connector = await context.control_system()
         generation = manager.active_generation()
 
         os.kill(manager.status()["child_pid"], signal.SIGKILL)
@@ -841,10 +847,9 @@ class TestFailClosedWhenTheChildIsKilledExternally:
             what="the manager dropping its child",
         )
         with pytest.raises(NoConnectorHostError):
-            await context.control_system()
+            await connector.read_channel(VA_PROBE, timeout=READ_TIMEOUT_S)
 
-        await context.invalidate_connector("control_system")
-
+        assert len(manager.spawned) == 2
         assert manager.has_child() is True
         assert manager.active_target() == "va"
         assert manager.active_generation() == generation

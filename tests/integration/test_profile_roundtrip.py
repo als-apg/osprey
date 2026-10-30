@@ -736,7 +736,6 @@ config:
   archiver.type: mock_archiver
   approval.enabled: false
   approval.default_policy: always
-  claude_code.telemetry.enabled: false
   hooks.debug: false
 """
 

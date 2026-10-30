@@ -129,21 +129,19 @@ def resolve_env_vars(data: Any, *, environ: "Mapping[str, str] | None" = None) -
             if env_value is None or (not env_value and default_value is not None):
                 if default_value is not None:
                     return default_value
-                else:
-                    # DEBUG, not INFO: this resolver is generic over the whole
-                    # config tree and knows nothing about which of the values it
-                    # walks actually matter to the caller. Reported at INFO it
-                    # rendered every build as a wall of misses for providers the
-                    # project never uses, while saying nothing about the keys
-                    # that *did* resolve. User-facing credential reporting lives
-                    # in osprey.cli.build_environment.report_provider_credentials,
-                    # which knows the selected provider.
-                    if not os.environ.get("OSPREY_QUIET"):
-                        logger.debug(
-                            f"Environment variable '{var_name}' not found, "
-                            f"keeping placeholder verbatim"
-                        )
-                    return match.group(0)
+                # DEBUG, not INFO: this resolver is generic over the whole
+                # config tree and knows nothing about which of the values it
+                # walks actually matter to the caller. Reported at INFO it
+                # rendered every build as a wall of misses for providers the
+                # project never uses, while saying nothing about the keys
+                # that *did* resolve. User-facing credential reporting lives
+                # in osprey.cli.build_environment.report_provider_credentials,
+                # which knows the selected provider.
+                if not os.environ.get("OSPREY_QUIET"):
+                    logger.debug(
+                        f"Environment variable '{var_name}' not found, keeping placeholder verbatim"
+                    )
+                return match.group(0)
             return env_value
 
         pattern = r"\$\{([^}:]+)(?::-(.*?))?\}|\$([A-Za-z_][A-Za-z0-9_]*)"
@@ -454,10 +452,9 @@ class ConfigBuilder:
                     f"projects, set it under `config:` in profile.yml and run "
                     f"`osprey build`; otherwise add it to your config file."
                 )
-            else:
-                # Default provided - use it but warn for visibility
-                logger.warning(f"Using default value for '{path}' = {default}. ")
-                return default
+            # Default provided - use it but warn for visibility
+            logger.warning(f"Using default value for '{path}' = {default}. ")
+            return default
         return value
 
     def __init__(self, config_path: str | Path | None = None, *, load_env: bool = True):
@@ -687,7 +684,7 @@ class ConfigBuilder:
 
     def _build_configurable(self) -> dict[str, Any]:
         """Build the configurable dictionary with pre-computed nested structures."""
-        configurable = {
+        return {
             "model_configs": self._build_model_configs(),
             "provider_configs": self._build_provider_configs(),
             "service_configs": self._build_service_configs(),
@@ -699,8 +696,6 @@ class ConfigBuilder:
             "registry_path": self.get("registry_path"),
             "facility_timezone": self.get("system.timezone", "UTC"),
         }
-
-        return configurable
 
     def _build_model_configs(self) -> dict[str, Any]:
         """Get model configs from flat structure."""
@@ -824,10 +819,7 @@ def _get_config(config_path: str | None = None, set_as_default: bool = False) ->
     if config_path is None:
         if _default_config is None:
             config_file = os.environ.get("CONFIG_FILE")
-            if config_file:
-                _default_config = ConfigBuilder(config_file)
-            else:
-                _default_config = ConfigBuilder()
+            _default_config = ConfigBuilder(config_file) if config_file else ConfigBuilder()
 
             _default_configurable = _default_config.configurable.copy()
 
@@ -1021,7 +1013,7 @@ def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:
     subdirectory key absent from ``file_paths`` falls back to its own name.
 
     Args:
-        sub_dir: Subdirectory name (e.g., 'api_calls_dir', 'registry_exports_dir')
+        sub_dir: Subdirectory name (e.g., 'registry_exports_dir')
         host_path: If True, force return of host filesystem path even when running in container
 
     Returns:

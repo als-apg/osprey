@@ -42,13 +42,13 @@ from typing import Any
 
 import pytest
 
-from osprey.interfaces._serving import free_port
 from osprey_connectors.simulation.values import DEFAULT_BOOL_OPTIONS, LABELLED_TYPES
 from osprey_connectors.simulation.view import TEXTURE, VIEW_RELPATH, Channel, SimulatorView
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 
-#: Container-name prefix; ``_serving`` appends the run's own ephemeral port.
+#: Container-name prefix; ``_serving`` appends the run's own reserved port.
 CONTAINER_PREFIX = "osprey-va-e2e-journal"
 
 #: The instance each container serves as.
@@ -73,14 +73,6 @@ REPORT_MARK = "REPORT "
 
 #: Bound on one Channel Access subprocess reading every wired setpoint.
 CA_CHILD_TIMEOUT_S = 120.0
-
-#: The planted writes: wired setpoints and one texture setpoint, each at a value
-#: inside its band and away from its start value.
-PLANTED: dict[str, float] = {
-    "SR:MAG:HCM:01:CURRENT:SP": 3.0,
-    "SR:MAG:HCM:02:CURRENT:SP": 2.5,
-    "SR:VAC:ION-PUMP:02:VOLTAGE:SP": 4000.0,
-}
 
 #: The mock connector's journal, under the state directory.
 JOURNAL = ("inprocess", "writes.json")
@@ -127,7 +119,7 @@ def _writable_setpoint(channel: Channel) -> bool:
     return channel.role == "setpoint" and channel.writable
 
 
-def _plant_journal(state_dir: Path) -> Path:
+def _plant_journal(state_dir: Path, planted: dict[str, float]) -> Path:
     """Write the journal the mock connector would have written; return its path."""
     from osprey_connectors.control_system._va_in_process_connector import active_set_sha256
     from osprey_connectors.simulation.state import read_active_state, resolve_active_scenarios
@@ -135,7 +127,7 @@ def _plant_journal(state_dir: Path) -> Path:
     active = resolve_active_scenarios(read_active_state(state_dir)[0])
     path = state_dir.joinpath(*JOURNAL)
     path.parent.mkdir(parents=True, exist_ok=True)
-    writes = [[seq, address, value] for seq, (address, value) in enumerate(PLANTED.items(), 1)]
+    writes = [[seq, address, value] for seq, (address, value) in enumerate(planted.items(), 1)]
     document = {
         "active_set_sha256": active_set_sha256(active),
         "seq": len(writes),
@@ -154,24 +146,41 @@ def _readable_by_anyone(root: Path) -> None:
 
 
 @pytest.fixture(scope="module")
-def project(tmp_path_factory: pytest.TempPathFactory) -> e2e_conftest.VaProject:
+def planted() -> dict[str, float]:
+    """The planted writes: wired setpoints and one texture setpoint, each at a
+    value inside its band and away from its start value.
+
+    The wired setpoints are the correctors of slots 0 and 1; the texture
+    setpoint is the scenario world's echo setpoint, at its planted value.
+    """
+    return {
+        e2e_conftest.corrector_at_slot(0).setpoint_address: 3.0,
+        e2e_conftest.corrector_at_slot(1).setpoint_address: 2.5,
+        e2e_conftest.TEXTURE_ECHO_SETPOINT: e2e_conftest.TEXTURE_PLANTED_VALUE,
+    }
+
+
+@pytest.fixture(scope="module")
+def project(
+    tmp_path_factory: pytest.TempPathFactory, planted: dict[str, float]
+) -> e2e_conftest.VaProject:
     """A scratch deployment whose state directory holds the planted journal."""
     staged = e2e_conftest.stage_va_project(tmp_path_factory.mktemp("va_planted_journal"))
-    _plant_journal(staged.state_dir)
+    _plant_journal(staged.state_dir, planted)
     _readable_by_anyone(staged.state_dir)
     _readable_by_anyone(staged.data_dir)
     return staged
 
 
 @pytest.fixture(scope="module")
-def defaults(project: e2e_conftest.VaProject) -> dict[str, float]:
+def defaults(project: e2e_conftest.VaProject, planted: dict[str, float]) -> dict[str, float]:
     """The start value of every writable setpoint the containers serve with one."""
     view = SimulatorView.open(project.data_dir / VIEW_RELPATH.name)
     wired = _wiring_defaults(view)
     textured = _seed_nominals(view)
     assert not wired.keys() & textured.keys(), "a setpoint is both wired and texture-owned"
     found = {**wired, **textured}
-    for address, value in PLANTED.items():
+    for address, value in planted.items():
         assert address in found, f"{address} has no start value in the served view"
         assert value != found[address], f"{address} is planted at its own start value"
     return found
@@ -221,23 +230,23 @@ def _served(port: int) -> bool:
 @contextlib.contextmanager
 def _serving(project: e2e_conftest.VaProject, *, instance: str) -> Iterator[int]:
     """Boot one container as *instance* over the project's view and state; yield its port."""
-    port = free_port()
-    with e2e_conftest.serving_container(
-        f"{CONTAINER_PREFIX}-{port}",
-        port,
-        "-e",
-        f"VA_INSTANCE={instance}",
-        "-e",
-        f"VA_POLL_INTERVAL_S={TICK_S}",
-        "-e",
-        "VA_STATE_DIR=/state/simulation",
-        *e2e_conftest.data_root_run_args(project.data_dir),
-        "-v",
-        f"{project.state_dir}:/state/simulation:ro",
-        boot_timeout=BOOT_TIMEOUT_S,
-        served=_served,
-    ):
-        yield port
+    with reserved_port() as port:
+        with e2e_conftest.serving_container(
+            f"{CONTAINER_PREFIX}-{port}",
+            port,
+            "-e",
+            f"VA_INSTANCE={instance}",
+            "-e",
+            f"VA_POLL_INTERVAL_S={TICK_S}",
+            "-e",
+            "VA_STATE_DIR=/state/simulation",
+            *e2e_conftest.data_root_run_args(project.data_dir),
+            "-v",
+            f"{project.state_dir}:/state/simulation:ro",
+            boot_timeout=BOOT_TIMEOUT_S,
+            served=_served,
+        ):
+            yield port
 
 
 @pytest.fixture(scope="module")
@@ -275,7 +284,7 @@ def test_every_setpoint_holds_its_wiring_default_after_three_ticks(
 
 @pytest.mark.asyncio
 async def test_the_in_process_connector_replays_the_planted_journal(
-    project: e2e_conftest.VaProject, ports: dict[str, int]
+    project: e2e_conftest.VaProject, ports: dict[str, int], planted: dict[str, float]
 ) -> None:
     from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 
@@ -290,12 +299,12 @@ async def test_the_in_process_connector_replays_the_planted_journal(
         )
         try:
             replayed = {
-                address: (await connector.read_channel(address)).value for address in PLANTED
+                address: (await connector.read_channel(address)).value for address in planted
             }
         finally:
             await connector.disconnect()
 
-    assert replayed == pytest.approx(PLANTED)
+    assert replayed == pytest.approx(planted)
 
 
 # ---------------------------------------------------------------------------

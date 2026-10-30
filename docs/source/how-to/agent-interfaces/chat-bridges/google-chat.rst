@@ -179,10 +179,10 @@ These are the ones you create and set yourself.
       * - ``APP_VERSION_DISPLAY``
         - A release label shown with each acknowledgement, so a conversation
           shows which version answered. Omitted when unset.
-      * - ``DEDUP_PATH``, ``HISTORY_PATH``
-        - Where the bridge keeps what it remembers. Both default to files under
-          ``/data``, its own volume; change them only if you deliberately
-          relocate that state.
+      * - ``DEDUP_PATH``
+        - Where the bridge keeps the questions it has answered. It defaults to
+          a file under ``/data``, its own volume; change it only if you
+          deliberately relocate that state.
       * - ``TZ``
         - Timezone, taken from your project configuration so timestamps match
           the rest of the stack.

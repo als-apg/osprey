@@ -188,13 +188,13 @@ def test_config_knob_a_facility_turns_is_a_note_not_a_refusal(repo: Path) -> Non
     profile = repo / PROFILE
     _edit(
         profile,
-        "  web.feedback.max_store_bytes: 268435456",
-        "  web.feedback.max_store_bytes: 536870912",
+        "  web.channel_suggestions.max_channels: 50000",
+        "  web.channel_suggestions.max_channels: 100000",
     )
 
     report = _report(profile)
 
-    assert [f.subject for f in report.notes] == ["config.web.feedback.max_store_bytes"]
+    assert [f.subject for f in report.notes] == ["config.web.channel_suggestions.max_channels"]
     assert report.refusals == []
 
 

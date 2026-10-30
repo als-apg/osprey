@@ -1,4 +1,4 @@
-"""The pre-flight refusal marker ``osprey web`` leaves in the per-user audit dir.
+"""The pre-flight refusal marker ``osprey web`` leaves in the per-user state dir.
 
 Under container supervision (``restart: unless-stopped``) a pre-flight refusal
 is invisible: the container exits 1, the runtime restarts it, it refuses again,
@@ -6,9 +6,9 @@ and from the outside all anyone sees is a service flapping. The marker is the
 only surface that says *why* — ``osprey status`` reads it to render a
 "restarting (pre-flight: ...)" row instead of a bare restart count.
 
-The marker is deliberately advisory: an absent or unwritable audit directory
+The marker is deliberately advisory: an absent or unwritable state directory
 must never turn a pre-flight refusal into a second, different failure, and a
-bare laptop launch (no ``OSPREY_AUDIT_DIR``, no supervisor) writes nothing at
+bare laptop launch (no ``OSPREY_STATE_DIR``, no supervisor) writes nothing at
 all.
 """
 
@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 import pytest
 
-from osprey.cli.web_cmd import AUDIT_DIR_ENV, PREFLIGHT_REFUSED_MARKER, web
+from osprey.cli.web_cmd import PREFLIGHT_REFUSED_MARKER, STATE_DIR_ENV, web
 from tests.cli._lifecycle_build import stub_build
 
 #: One refusal finding, in the shape ``_preflight`` actually returns them.
@@ -37,20 +37,17 @@ def deployment(lifecycle_repo: Path) -> Path:
 
 @pytest.fixture(autouse=True)
 def _isolate_launch_env(monkeypatch):
-    """Roll back every env key a launch writes directly into ``os.environ``.
+    """Start without any env key a launch writes directly into ``os.environ``.
 
     ``web()`` writes ``OSPREY_CONFIG``, ``OSPREY_WEB_PORT`` and the operator
-    secret itself, not through monkeypatch, so a plain ``delenv`` on an
-    already-absent key would record no undo entry and let those writes leak
-    into later tests. setenv-then-delenv forces the undo entry (same trick as
-    ``test_web_cmd.py``); ``AUDIT_DIR_ENV`` joins the list so no ambient
+    secret itself, not through monkeypatch; the root ``restore_environ`` guard
+    rolls those writes back. ``STATE_DIR_ENV`` joins the list so no ambient
     export from the developer's shell decides where a marker lands.
     """
     from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, reset_web_credentials
 
-    for key in ("OSPREY_CONFIG", "OSPREY_WEB_PORT", OPERATOR_SECRET_ENV, AUDIT_DIR_ENV):
-        monkeypatch.setenv(key, "__unset_by_test_fixture__")
-        monkeypatch.delenv(key)
+    for key in ("OSPREY_CONFIG", "OSPREY_WEB_PORT", OPERATOR_SECRET_ENV, STATE_DIR_ENV):
+        monkeypatch.delenv(key, raising=False)
     reset_web_credentials()
     yield
     reset_web_credentials()
@@ -70,9 +67,9 @@ def _invoke(runner, deployment, *extra):
     )
 
 
-def _seed_marker(audit_dir: Path) -> Path:
+def _seed_marker(state_dir: Path) -> Path:
     """Leave a marker from a previous, already-answered refusal."""
-    marker = audit_dir / PREFLIGHT_REFUSED_MARKER
+    marker = state_dir / PREFLIGHT_REFUSED_MARKER
     marker.write_text("2000-01-01T00:00:00+00:00\n- a stale finding\n", encoding="utf-8")
     return marker
 
@@ -81,7 +78,7 @@ def test_the_marker_is_world_readable_whatever_the_umask(monkeypatch, tmp_path):
     """The marker's mode is fixed, never the umask's."""
     from osprey.cli.web_cmd import _write_preflight_marker
 
-    monkeypatch.setenv(AUDIT_DIR_ENV, str(tmp_path))
+    monkeypatch.setenv(STATE_DIR_ENV, str(tmp_path))
     previous = os.umask(0o077)
     try:
         _write_preflight_marker(FINDING)
@@ -100,16 +97,16 @@ class TestPreflightRefusalWritesTheMarker:
     def test_marker_carries_a_utc_timestamp_then_the_refusal_findings(
         self, _mock_preflight, runner, monkeypatch, deployment, tmp_path
     ):
-        audit_dir = tmp_path / "audit"
-        audit_dir.mkdir()
-        monkeypatch.setenv(AUDIT_DIR_ENV, str(audit_dir))
+        state_dir = tmp_path / "state"
+        state_dir.mkdir()
+        monkeypatch.setenv(STATE_DIR_ENV, str(state_dir))
 
         result = _invoke(runner, deployment)
 
         assert result.exit_code == 1
         assert "Pre-flight checks failed" in result.output
 
-        marker = audit_dir / PREFLIGHT_REFUSED_MARKER
+        marker = state_dir / PREFLIGHT_REFUSED_MARKER
         first_line, _, body = marker.read_text(encoding="utf-8").partition("\n")
         stamp = datetime.fromisoformat(first_line)
         assert stamp.tzinfo is not None and stamp.utcoffset().total_seconds() == 0
@@ -121,10 +118,10 @@ class TestPreflightRefusalWritesTheMarker:
     ):
         """Each supervised restart re-runs pre-flight, so the marker must read
         as *this* attempt, not as a growing pile of every attempt."""
-        audit_dir = tmp_path / "audit"
-        audit_dir.mkdir()
-        monkeypatch.setenv(AUDIT_DIR_ENV, str(audit_dir))
-        stale = _seed_marker(audit_dir)
+        state_dir = tmp_path / "state"
+        state_dir.mkdir()
+        monkeypatch.setenv(STATE_DIR_ENV, str(state_dir))
+        stale = _seed_marker(state_dir)
 
         assert _invoke(runner, deployment).exit_code == 1
 
@@ -140,10 +137,10 @@ class TestPreflightMarkerLifecycle:
     def test_a_passing_preflight_clears_a_stale_marker(
         self, _mock_preflight, runner, monkeypatch, deployment, tmp_path
     ):
-        audit_dir = tmp_path / "audit"
-        audit_dir.mkdir()
-        monkeypatch.setenv(AUDIT_DIR_ENV, str(audit_dir))
-        stale = _seed_marker(audit_dir)
+        state_dir = tmp_path / "state"
+        state_dir.mkdir()
+        monkeypatch.setenv(STATE_DIR_ENV, str(state_dir))
+        stale = _seed_marker(state_dir)
         _stub_launch(monkeypatch)
 
         assert _invoke(runner, deployment).exit_code == 0
@@ -156,10 +153,10 @@ class TestPreflightMarkerLifecycle:
         the marker there would erase the evidence of the very refusal the
         operator is overriding, so the record stands until a real pre-flight
         passes."""
-        audit_dir = tmp_path / "audit"
-        audit_dir.mkdir()
-        monkeypatch.setenv(AUDIT_DIR_ENV, str(audit_dir))
-        stale = _seed_marker(audit_dir)
+        state_dir = tmp_path / "state"
+        state_dir.mkdir()
+        monkeypatch.setenv(STATE_DIR_ENV, str(state_dir))
+        stale = _seed_marker(state_dir)
         before = stale.read_text(encoding="utf-8")
         _stub_launch(monkeypatch)
 
@@ -171,14 +168,14 @@ class TestPreflightMarkerNeverBecomesASecondFailure:
     """The marker is advisory: it may be skipped, never escalated."""
 
     @patch("osprey.cli.web_cmd._preflight", return_value=([FINDING], []))
-    def test_unwritable_audit_dir_still_reports_the_refusal_and_exits_one(
+    def test_unwritable_state_dir_still_reports_the_refusal_and_exits_one(
         self, _mock_preflight, runner, monkeypatch, deployment, tmp_path
     ):
-        """A regular file where the audit directory should be — the cheapest
+        """A regular file where the state directory should be — the cheapest
         deterministic stand-in for a root-owned or read-only mount."""
         blocked = tmp_path / "not-a-directory"
         blocked.write_text("", encoding="utf-8")
-        monkeypatch.setenv(AUDIT_DIR_ENV, str(blocked / "alice"))
+        monkeypatch.setenv(STATE_DIR_ENV, str(blocked / "alice"))
 
         result = _invoke(runner, deployment)
 
@@ -187,11 +184,11 @@ class TestPreflightMarkerNeverBecomesASecondFailure:
         assert FINDING in result.output
 
     @patch("osprey.cli.web_cmd._preflight", return_value=([FINDING], []))
-    def test_no_audit_dir_env_writes_no_marker_anywhere(
+    def test_no_state_dir_env_writes_no_marker_anywhere(
         self, _mock_preflight, runner, monkeypatch, deployment, tmp_path
     ):
         """A bare ``osprey web`` on a laptop has no supervisor to explain the
-        refusal to, and no per-user audit directory to explain it in."""
+        refusal to, and no per-user state directory to explain it in."""
         monkeypatch.chdir(tmp_path)
 
         result = _invoke(runner, deployment)

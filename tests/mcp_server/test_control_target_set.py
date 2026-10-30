@@ -54,6 +54,7 @@ from osprey_connectors import control_context
 from osprey_connectors.standin import ARCHIVER_RECORDER_SERVICE
 from osprey_connectors.types import LIVE_STANDIN
 from osprey_connectors_tests._harness import owner, write_control_context, write_server_report
+from tests._live import async_wait_until
 from tests.mcp_server._switch_harness import SETTLE_TIMEOUT_S, raw_config
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
@@ -332,13 +333,16 @@ def dead_pid() -> int:
 
 async def await_request(request_id: str | None = None) -> dict:
     """Wait for this process to have filed a switch request, and return it."""
-    deadline = asyncio.get_running_loop().time() + OWNER_PATIENCE_S
-    while asyncio.get_running_loop().time() < deadline:
+
+    def filed() -> dict | None:
         body = target_state.read_file(target_state.request_file_path())
         if isinstance(body, dict) and (request_id is None or body.get("request_id") == request_id):
             return body
-        await asyncio.sleep(TICK_S / 2)
-    raise AssertionError("no switch request was filed")
+        return None
+
+    return await async_wait_until(
+        filed, timeout=OWNER_PATIENCE_S, interval=TICK_S / 2, what="a filed switch request"
+    )
 
 
 async def owner_answers(

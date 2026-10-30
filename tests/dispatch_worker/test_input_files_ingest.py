@@ -226,7 +226,6 @@ async def test_input_files_input_artifacts_on_status_body(tmp_path, monkeypatch)
     monkeypatch.setattr(dispatch_api, "_queues", {})
     monkeypatch.setattr(dispatch_api, "_tasks", {})
     monkeypatch.setattr(dispatch_api, "_run_input_seam", {})
-    monkeypatch.setattr(dispatch_api, "_persist_run", lambda rid, r: None)
 
     async def _fake_run(**kw):
         return {

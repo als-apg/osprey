@@ -166,7 +166,7 @@ def test_the_interrupt_notice_off_a_terminal_is_still_on_stderr(
     accident.
     """
 
-    def interrupt_during_teardown(_root: Path) -> None:
+    def interrupt_during_teardown(_root: Path, **_: object) -> None:
         raise KeyboardInterrupt
 
     monkeypatch.setattr(reset_mod, "down_deployment", interrupt_during_teardown)
@@ -255,7 +255,7 @@ def test_the_interrupt_notice_goes_through_the_console_while_a_region_is_up(
         styles, "err_console", Console(file=err_buffer, width=_WIDTH, theme=osprey_theme)
     )
 
-    def interrupt_during_teardown(_root: Path) -> None:
+    def interrupt_during_teardown(_root: Path, **_: object) -> None:
         raise KeyboardInterrupt
 
     monkeypatch.setattr(reset_mod, "down_deployment", interrupt_during_teardown)
@@ -266,3 +266,54 @@ def test_the_interrupt_notice_goes_through_the_console_while_a_region_is_up(
     assert result.exit_code == 3
     assert INTERRUPT_NOTICE in rendered(buffer)
     assert err_buffer.getvalue() == ""
+
+
+# ---------------------------------------------------------------------------
+# What the verb says about the record
+# ---------------------------------------------------------------------------
+
+
+def test_the_purge_audit_help_names_exactly_what_it_removes() -> None:
+    """The help text is the operator's only warning before a scripted purge."""
+    from osprey.deployment.compose_generator import AGENT_RECORD_CLICKHOUSE_VOLUME
+
+    result = CliRunner().invoke(reset_command, ["--help"], terminal_width=400)
+    assert result.exit_code == 0, result.output
+    flowed = " ".join(result.output.split())
+    assert (
+        "--purge-audit Also destroy the agent record and the pre-upgrade audit files: var/audit/, "
+        "var/agent_record/, var/spool/, the record's ClickHouse volume "
+        f"(<project>_{AGENT_RECORD_CLICKHOUSE_VOLUME}) and the record's exports in the "
+        "archive (var/archive/<day>/agent_record/), marking each purged day in its "
+        "manifest. All are kept by default; var/state/ and the rest of var/archive/ are "
+        "kept either way."
+    ) in flowed
+
+
+def test_a_running_host_record_is_refused_on_stderr_with_exit_1(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, no_down
+) -> None:
+    """Exit 1 is the code that says nothing was touched; the refusal names the session."""
+    import json
+    import os
+
+    from osprey.agent_record import host
+
+    lease_dir = repo / "var" / "state" / "operator" / host.LEASE_DIR_NAME
+    lease_dir.mkdir(parents=True)
+    (lease_dir / f"{os.getpid()}-cli.lease").write_text(
+        json.dumps({"pid": os.getpid(), "start": host._process_start(os.getpid())}),
+        encoding="utf-8",
+    )
+    fake = FakeRuntime(volumes={"mine-vol": ours(repo)})
+    probe_for(fake, monkeypatch)
+
+    result = CliRunner().invoke(reset_command, ["--repo", str(repo), "-y"])
+
+    assert result.exit_code == 1, result.output
+    assert result.stderr.startswith("✗ Reset refused: the host-local agent record is running\n")
+    assert f"pid {os.getpid()}" in result.stderr
+    assert "osprey web stop" in result.stderr
+    assert "WILL BE REMOVED" not in result.stdout
+    assert no_down == []
+    assert fake.removed_names() == []

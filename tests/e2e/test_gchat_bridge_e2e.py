@@ -114,10 +114,10 @@ e2e modules pin (5064, 15064-15067, 15080, 18090-18110, 18191-18194, 19080-19085
 20700-21699, 21781, 21791, 25080-25085, 25432-25436, 27117-27118), nor to the
 thousand-port block a deployment claims from ``deployment.port_base``
 (10000-10999 at the default base).
-Every listener it needs is per-run and picked free: the emulator's published port comes
-from the fixture's own free-port pick, the dispatcher and worker take :func:`free_port`
-(they are per-run subprocesses with no need to be predictable, and a pin would collide
-with a developer's own running stack), and the Chat and GCS fakes bind ``127.0.0.1:0``.
+Every listener it needs is per-run: the emulator publishes a port the fixture holds as a
+reservation, the dispatcher and worker bind port 0 and report the port they got (they
+are per-run subprocesses with no need to be predictable, and a pin would collide with a
+developer's own running stack), and the Chat and GCS fakes bind ``127.0.0.1:0``.
 
 Gating, and the three ways this lane can skip. It needs a container runtime whose daemon
 is actually running (not just the CLI installed), the emulator image, and the ``gchat``
@@ -135,6 +135,7 @@ import contextlib
 import importlib.util
 import itertools
 import json
+import os
 import re
 import shutil
 import struct
@@ -150,6 +151,9 @@ import httpx
 import pytest
 import yaml
 
+from osprey.agent_record import identities as record_ids
+from osprey.agent_record.client import RecordClient
+from osprey.agent_record.contract import Drain
 from osprey.bridges.core import PNG_MAGIC
 from osprey.bridges.google_chat.__main__ import Wiring, build_wiring, config_from_env, run
 from osprey.bridges.google_chat.client import MAX_CHARS, REPLY_OPTION
@@ -174,6 +178,7 @@ from tests.e2e._dispatch_harness import (
     drain_thread_alive,
     running_dispatch_stack,
 )
+from tests.e2e._worker_record import WorkerRecord, worker_record
 from tests.e2e.fixtures.gchat_chat_fake import FakeChatServer, PostedMessage
 from tests.e2e.fixtures.gchat_gcs_fake import PUBLIC_HOST, FakeGcsServer
 
@@ -667,9 +672,31 @@ def _write_triggers(dst: Path, worker_port: int) -> None:
     dst.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
 
 
+RECORD_BRIDGE = record_ids.BRIDGE_IDENTITIES["gchat_bridge"]
+
+
 @pytest.fixture(scope="module")
-def dispatch_stack(built_repo: Path, tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict]:
-    """A real worker + dispatcher pair as subprocesses on free ports.
+def agent_record(
+    built_repo: Path, tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[WorkerRecord]:
+    """A real agent-record service over an embedded backend, in a thread.
+
+    The bridge's conversation history lives in the record: its turns are appended to the
+    bridge's own spool directory and read back with a drain. A turn's answer is its run's,
+    so the worker records into the same record (:mod:`tests.e2e._worker_record`).
+    Module-scoped, like the dispatch pair whose runs it records.
+    """
+    with worker_record(
+        tmp_path_factory.mktemp("agent_record"), built_repo, bridges=("gchat_bridge",)
+    ) as record:
+        yield record
+
+
+@pytest.fixture(scope="module")
+def dispatch_stack(
+    built_repo: Path, agent_record: WorkerRecord, tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[dict]:
+    """A real worker + dispatcher pair as subprocesses, each on the port it bound.
 
     Module-scoped: the bridge is what these tests exercise, and the pair carries no state
     any assertion reads (every observation is made through the bridge's own dedup store),
@@ -682,8 +709,11 @@ def dispatch_stack(built_repo: Path, tmp_path_factory: pytest.TempPathFactory) -
         token=DISPATCH_TOKEN,
         health_timeout=HEALTH_TIMEOUT_SEC,
         run_cap_sec=WORKER_RUN_CAP_SEC,
+        # The worker records its runs in the record the bridge reads its history
+        # from, and reads them back under its own login.
+        worker_env=agent_record.worker_env(),
     ) as stack:
-        yield stack
+        yield {**stack, "record": agent_record}
 
 
 # ---------------------------------------------------------------------------
@@ -693,7 +723,7 @@ def dispatch_stack(built_repo: Path, tmp_path_factory: pytest.TempPathFactory) -
 
 @pytest.fixture
 def bridge_state(tmp_path: Path) -> Path:
-    """Per-test directory for the bridge's dedup/history stores.
+    """Per-test directory for the bridge's dedup store.
 
     Function-scoped so one test's stores are not another's noise — and the restart proof
     relies on the SAME directory surviving two bridge lifetimes within one test, which is
@@ -721,9 +751,10 @@ def _set_bridge_env(
 
     ``GCHAT_SA_KEY`` names a file that does not exist, on purpose: all four Google seams
     are injected, so nothing may ever read it, and a regression that started reading it
-    would fail loudly here instead of quietly reaching for ambient credentials. The two
-    store paths MUST be overridden — they default to ``/data/*.json``, which exists only
-    inside the bridge container. ``APP_VERSION_DISPLAY`` is pinned empty so the ack is
+    would fail loudly here instead of quietly reaching for ambient credentials. The dedup
+    store path MUST be overridden — it defaults to ``/data/dedup.json``, which exists only
+    inside the bridge container. The record variables are the bridge container's: the
+    record's URL, the bridge's login and its own spool directory. ``APP_VERSION_DISPLAY`` is pinned empty so the ack is
     exactly ``ACK_TEXT`` whatever the ambient environment carries.
     """
     env = {
@@ -741,7 +772,7 @@ def _set_bridge_env(
         "DISPATCHER_URL": dispatch["dispatcher_url"],
         "WORKER_URL": dispatch["worker_url"],
         "DEDUP_PATH": str(state_dir / "dedup.json"),
-        "HISTORY_PATH": str(state_dir / "history.json"),
+        **dispatch["record"].env_for(RECORD_BRIDGE),
         # poll_budget must stay >= worker_timeout or CoreConfig refuses to build.
         "POLL_BUDGET": str(WORKER_RUN_CAP_SEC),
         "DISPATCH_TIMEOUT_SEC": str(WORKER_RUN_CAP_SEC),
@@ -1407,18 +1438,19 @@ def _answers(chat: FakeChatServer) -> list[PostedMessage]:
     return [message for message in chat.posted if message.text not in _NOTICE_TEXTS]
 
 
-def _history(bridge: RunningBridge) -> dict[str, Any]:
-    """The persisted conversation history, or ``{}`` before it exists.
+def _history() -> dict[str, list[dict[str, Any]]]:
+    """The bridge's recorded turn bodies per conversation, oldest first; ``{}`` when the
+    record does not answer.
 
-    Read off the store file for the same reason :attr:`RunningBridge.dedup` is: every
-    write is a tmp-file-plus-rename, so a partial read is not observable, and reading the
-    file is reading what a RESTARTED bridge would see rather than an in-memory copy.
+    Read from the record with the bridge's own login and a drain — what a RESTARTED
+    bridge would see, never an in-memory copy.
     """
-    try:
-        data = json.loads((bridge.state_dir / "history.json").read_text(encoding="utf-8"))
-    except (FileNotFoundError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    answer = RecordClient.from_env(os.environ).bridge_history(wait=Drain())
+    history: dict[str, list[dict[str, Any]]] = {}
+    for row in reversed(answer.data or []):
+        body = (row.get("turn") or {}).get("body") or {}
+        history.setdefault(str(body.get("conversation")), []).append(dict(body))
+    return history
 
 
 def _image_urls(message: PostedMessage) -> list[str]:
@@ -1440,7 +1472,7 @@ def _image_urls(message: PostedMessage) -> list[str]:
 
 
 def _output_artifacts(turn: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """The OUTPUT artifact descriptors recorded on one history turn."""
+    """The OUTPUT artifact descriptors recorded on one turn."""
     return [
         dict(desc)
         for desc in turn.get("artifacts") or []
@@ -1642,10 +1674,9 @@ def test_agentic_prior_artifact_is_refetched_for_the_next_turn(
 
         # The history stamp: what a LATER turn reads, and the only reason deliver_files
         # returns anything at all.
-        turns = _history(bridge).get(space) or []
+        turns = _history().get(space) or []
         assert len(turns) == 1, (
-            f"the first turn was not recorded under the DM's history key {space!r}: "
-            f"{_history(bridge)!r}"
+            f"the first turn was not recorded under the DM's history key {space!r}: {_history()!r}"
         )
         descriptors = _output_artifacts(turns[0])
         assert len(descriptors) == 1, (
@@ -1726,8 +1757,8 @@ def test_agentic_prior_artifact_is_refetched_for_the_next_turn(
         f"the follow-up produced no answer of its own: "
         f"{[message.text[:120] for message in chat.posted]!r}"
     )
-    assert len(_history(bridge).get(space) or []) == 2, (
-        f"the DM's history does not hold both turns: {_history(bridge)!r}"
+    assert len(_history().get(space) or []) == 2, (
+        f"the DM's history does not hold both turns: {_history()!r}"
     )
     # Two objects in the bucket, not one: turn 2 ran the same trigger and published its
     # own. Pinned because it is what keeps the route above unambiguous — a run that

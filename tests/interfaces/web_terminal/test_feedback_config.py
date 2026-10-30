@@ -1,9 +1,7 @@
 """Startup resolution of the docs/feedback config keys.
 
 Covers the ``_create_lifespan`` block that reads ``web.docs_url`` and the
-``web.feedback.*`` keys onto ``app.state``, the derivation of the feedback
-store location (deliberately independent of ``web_terminal.watch_dir``), and
-the three UI-facing keys echoed by ``GET /api/panels``.
+``web.feedback.*`` keys onto ``app.state``, and the three UI-facing keys echoed by ``GET /api/panels``.
 
 Two client shapes are used, matching the conventions of this directory:
 a *full lifespan* client (``_lifespan_client``) for the config plumbing, and a
@@ -26,10 +24,8 @@ from osprey.interfaces.web_terminal.feedback_destination import (
     DEFAULT_DOCS_URL,
     DEFAULT_FEEDBACK_EMAIL,
     DEFAULT_FEEDBACK_GITHUB_REPO,
-    DEFAULT_FEEDBACK_MAX_STORE_BYTES,
     coerce_config_str,
     coerce_feedback_trackers,
-    coerce_store_ceiling,
     resolve_deployment_identity,
     resolve_feedback_destination,
     resolve_feedback_trackers,
@@ -105,115 +101,8 @@ def project_dir(tmp_path):
     return proj
 
 
-class TestFeedbackConfigDefaults:
-    def test_absent_keys_resolve_to_the_shipped_defaults(self, project_dir, shared_root):
-        """A config naming none of the keys still leaves every attribute set."""
-        with _lifespan_client(project_dir, shared_root) as (_client, app):
-            assert app.state.docs_url == DEFAULT_DOCS_URL
-            assert app.state.feedback_github_repo == DEFAULT_FEEDBACK_GITHUB_REPO
-            assert app.state.feedback_email == DEFAULT_FEEDBACK_EMAIL
-            assert app.state.feedback_max_store_bytes == DEFAULT_FEEDBACK_MAX_STORE_BYTES
-            # The bare deployment still reaches the maintainers: the shipped
-            # `github_repo` default is the one tracker on offer.
-            assert app.state.feedback_trackers == [
-                {"kind": "github", "label": "GitHub", "repo": DEFAULT_FEEDBACK_GITHUB_REPO}
-            ]
-            # Spelled out, not read from the constants: nothing ships a mailbox
-            # (a prefilled draft can carry scrollback, so its recipient is the
-            # deployment owner's call), the ceiling is the documented 256 MB,
-            # and a deployment the project owns has no upstream link to offer.
-            assert app.state.feedback_email == ""
-            assert app.state.feedback_max_store_bytes == 268435456
-            assert app.state.feedback_escalation_url == ""
-
-    def test_configured_values_win(self, project_dir, shared_root):
-        """Each key is read from its own dotted path."""
-        overrides = {
-            "web.docs_url": "https://docs.example.org/osprey",
-            "web.feedback.github_repo": "facility/osprey-fork",
-            "web.feedback.email": "controls@example.org",
-            "web.feedback.max_store_bytes": 1048576,
-        }
-        with _lifespan_client(project_dir, shared_root, overrides=overrides) as (_client, app):
-            assert app.state.docs_url == "https://docs.example.org/osprey"
-            assert app.state.feedback_github_repo == "facility/osprey-fork"
-            assert app.state.feedback_email == "controls@example.org"
-            assert app.state.feedback_max_store_bytes == 1048576
-
-    def test_config_read_failure_falls_open_to_defaults(self, project_dir, shared_root):
-        """A broken config must never keep the server from starting."""
-
-        def _explode(_path: str, _default=None, _config_path=None):
-            raise RuntimeError("config.yml is unreadable")
-
-        with _lifespan_client(project_dir, shared_root, config_reader=_explode) as (_client, app):
-            assert app.state.docs_url == DEFAULT_DOCS_URL
-            assert app.state.feedback_github_repo == DEFAULT_FEEDBACK_GITHUB_REPO
-            assert app.state.feedback_email == DEFAULT_FEEDBACK_EMAIL
-            assert app.state.feedback_max_store_bytes == DEFAULT_FEEDBACK_MAX_STORE_BYTES
-
-
 class TestBadValuesAreContained:
-    """One unusable key must never take the other three down with it."""
-
-    @pytest.mark.parametrize(
-        ("overrides", "expected"),
-        [
-            pytest.param(
-                {
-                    "web.docs_url": "https://docs.example.org/osprey",
-                    "web.feedback.github_repo": "facility/osprey-fork",
-                    "web.feedback.email": "controls@example.org",
-                    "web.feedback.max_store_bytes": "256MB",
-                },
-                {
-                    "docs_url": "https://docs.example.org/osprey",
-                    "feedback_github_repo": "facility/osprey-fork",
-                    "feedback_email": "controls@example.org",
-                    "feedback_max_store_bytes": DEFAULT_FEEDBACK_MAX_STORE_BYTES,
-                },
-                id="garbage-ceiling",
-            ),
-            pytest.param(
-                {
-                    "web.docs_url": {"nested": "by a mis-indented config.yml"},
-                    "web.feedback.max_store_bytes": 4096,
-                },
-                {"docs_url": DEFAULT_DOCS_URL, "feedback_max_store_bytes": 4096},
-                id="garbage-url",
-            ),
-        ],
-    )
-    def test_one_garbage_key_leaves_the_others_alone(
-        self, project_dir, shared_root, overrides, expected
-    ):
-        """A garbage ceiling must not redirect a facility's feedback upstream,
-        and a garbage URL must not reset the ceiling."""
-        with _lifespan_client(project_dir, shared_root, overrides=overrides) as (_client, app):
-            for attribute, value in expected.items():
-                assert getattr(app.state, attribute) == value
-
-    @pytest.mark.parametrize(
-        "bad", [0, -1, True, "256MB", "", [], None, 1.5e-3, float("inf"), float("-inf")]
-    )
-    def test_unusable_ceilings_fall_back_to_the_default(self, bad):
-        """A non-positive ceiling would make the pruner empty the whole store.
-
-        ``True`` is called out because ``int(True)`` is ``1``: a ceiling of one
-        byte deletes every stored context on the next submission while looking
-        like ordinary pruning. The infinities are the YAML spellings ``.inf``
-        and ``1.0e+400``, on which ``int()`` raises ``OverflowError`` — this
-        helper is called outside the lifespan's try, so an escape would abort
-        startup rather than fail open.
-        """
-        assert coerce_store_ceiling(bad) == DEFAULT_FEEDBACK_MAX_STORE_BYTES
-
-    @pytest.mark.parametrize(
-        ("value", "expected"), [(4096, 4096), ("4096", 4096), (4096.9, 4096), (1, 1)]
-    )
-    def test_usable_ceilings_survive(self, value, expected):
-        """Any positive byte count, however spelled in YAML, is honored."""
-        assert coerce_store_ceiling(value) == expected
+    """One unusable key must never take the others down with it."""
 
     @pytest.mark.parametrize("bad", [None, {"a": 1}, [], 42, False])
     def test_unusable_values_fall_back_to_the_default(self, bad):
@@ -251,42 +140,6 @@ class TestBadValuesAreContained:
             assert app.state.feedback_github_repo == ""
             assert app.state.feedback_email == ""
             assert app.state.feedback_trackers == []
-
-
-class TestFeedbackStoreLocation:
-    def test_store_sits_under_the_shared_data_root(self, project_dir, shared_root):
-        """``feedback_dir`` is ``<agent-data root>/feedback``."""
-        with _lifespan_client(project_dir, shared_root) as (_client, app):
-            assert app.state.feedback_dir == (shared_root / "feedback").resolve()
-
-    def test_watch_dir_does_not_move_the_store(self, project_dir, shared_root, tmp_path):
-        """``web_terminal.watch_dir`` moves the watcher, never the records.
-
-        With ``watch_dir`` set, ``workspace_dir`` points outside the agent-data
-        volume; records written there would be invisible to ``osprey feedback``.
-        """
-        watched = tmp_path / "watched_tree"
-        watched.mkdir()
-        with _lifespan_client(project_dir, shared_root, watch_dir=watched) as (_client, app):
-            assert app.state.workspace_dir == watched.resolve()
-            assert app.state.feedback_dir == (shared_root / "feedback").resolve()
-
-    def test_relative_path_is_none_when_the_store_is_outside_the_watched_tree(
-        self, project_dir, shared_root, tmp_path
-    ):
-        """A bare ``relative_to`` would raise here — the guard must return None."""
-        watched = tmp_path / "watched_tree"
-        watched.mkdir()
-        with _lifespan_client(project_dir, shared_root, watch_dir=watched) as (_client, app):
-            assert app.state.feedback_rel is None
-
-    def test_relative_path_is_set_when_the_store_is_inside_the_watched_tree(
-        self, project_dir, shared_root
-    ):
-        """Without ``watch_dir`` the two roots coincide, so concealment applies."""
-        with _lifespan_client(project_dir, shared_root) as (_client, app):
-            assert app.state.workspace_dir == shared_root.resolve()
-            assert app.state.feedback_rel == Path("feedback")
 
 
 class TestPanelsPayload:
@@ -414,7 +267,6 @@ class TestResolveFeedbackDestination:
         assert destination.docs_url == DEFAULT_DOCS_URL
         assert destination.email == DEFAULT_FEEDBACK_EMAIL
         assert destination.github_repo == DEFAULT_FEEDBACK_GITHUB_REPO
-        assert destination.max_store_bytes == DEFAULT_FEEDBACK_MAX_STORE_BYTES
         assert destination.trackers == [
             {"kind": "github", "label": "GitHub", "repo": DEFAULT_FEEDBACK_GITHUB_REPO}
         ]
@@ -450,14 +302,11 @@ class TestResolveFeedbackDestination:
         """Each field is coerced separately — the fail-open posture app.py states."""
         destination = resolve_feedback_destination(
             email="controls@example.org",
-            max_store_bytes="256MB",
+            trackers="https://git.example.org/x",
         )
         assert destination.email == "controls@example.org"
-        assert destination.max_store_bytes == DEFAULT_FEEDBACK_MAX_STORE_BYTES
         # A tracker list that is not a list leaves the sugar tracker standing.
-        assert resolve_feedback_destination(trackers="https://git.example.org/x").trackers == [
-            UPSTREAM_TRACKER
-        ]
+        assert destination.trackers == [UPSTREAM_TRACKER]
 
     def test_every_field_is_returned_fresh(self):
         """No caller can mutate the next caller's trackers."""
@@ -483,26 +332,6 @@ class TestResolveFeedbackDestination:
         # The identity and escalation fallbacks: no lifespan, nothing to print.
         assert payload["feedback_deployment"] == {}
         assert payload["feedback_escalation_url"] == ""
-
-    def test_the_lifespan_resolves_the_same_way_the_fallback_does(self, project_dir, shared_root):
-        """A configured lifespan and a direct resolve agree on every field."""
-        overrides = {
-            "web.docs_url": "https://docs.example.org",
-            "web.feedback.email": "controls@example.org",
-            "web.feedback.github_repo": "facility/ops",
-        }
-        with _lifespan_client(project_dir, shared_root, overrides=overrides) as (client, app):
-            payload = client.get("/api/panels").json()
-
-        expected = resolve_feedback_destination(
-            docs_url="https://docs.example.org",
-            email="controls@example.org",
-            github_repo="facility/ops",
-        )
-        assert payload["docs_url"] == expected.docs_url
-        assert payload["feedback_email"] == expected.email
-        assert payload["feedback_trackers"] == expected.trackers
-        assert app.state.feedback_max_store_bytes == expected.max_store_bytes
 
 
 OWNER_GITLAB = {"kind": "gitlab", "target": GITLAB_URL}

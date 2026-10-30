@@ -5,7 +5,8 @@ status on its status channel, ``<code>:SIM:<model>:STATUS``, and ``sim status``
 reads it through the target's connector. This module boots two real
 ``osprey-va-full`` containers over one simulator view, the sandbox (the ``va``
 target) and the stand-in (the ``standin`` target), points a scratch deployment
-at them, and runs ``sim status --target`` for each: both print ``SR: ok``.
+at them, and runs ``sim status --target`` for each: both print the lane
+model's ``<model>: ok``.
 
 Every Channel Access operation happens in another process: the readiness probe
 and each ``sim status`` run are subprocesses, which leave through ``os._exit``
@@ -29,15 +30,15 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.interfaces._serving import free_port
 from osprey_connectors.types import TARGET_STANDIN, TARGET_VA
+from osprey_connectors_tests._harness._ports import reserved_ports
 from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 REPO_PATHS = (str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src"))
 
-#: Container-name prefixes; ``_serving`` appends the run's own ephemeral port.
+#: Container-name prefixes; ``_serving`` appends the run's own reserved port.
 CONTAINER_SANDBOX = "osprey-va-e2e-status-va"
 CONTAINER_STANDIN = "osprey-va-e2e-status-standin"
 
@@ -57,8 +58,8 @@ CONNECTOR_TIMEOUT_S = 120.0
 #: Bound on one ``sim status`` run.
 STATUS_TIMEOUT_S = 120.0
 
-#: The demo's physics model.
-DEMO_PHYSICS_MODEL = "SR"
+#: The lane model, whose status line each run must print as ``ok``.
+DEMO_PHYSICS_MODEL = e2e_conftest.LANE_MODEL
 
 #: Floor for this module's own test count -- a guard against a refactor that
 #: leaves the file importable but empty, which would otherwise pass silently.
@@ -68,21 +69,20 @@ MIN_COLLECTED_TESTS = 2
 @contextlib.contextmanager
 def _serving(prefix: str, *, instance: str):
     """Boot one virtual accelerator container as *instance*; yield its CA port."""
-    port = free_port()
-    pva_port = free_port()
-    with e2e_conftest.serving_container(
-        f"{prefix}-{port}",
-        port,
-        "-e",
-        f"EPICS_PVAS_SERVER_PORT={pva_port}",
-        "-e",
-        f"VA_INSTANCE={instance}",
-        "-p",
-        f"127.0.0.1:{pva_port}:{pva_port}/tcp",
-        *e2e_conftest.demo_data_run_args(),
-        boot_timeout=BOOT_TIMEOUT_S,
-    ):
-        yield port
+    with reserved_ports(2) as (port, pva_port):
+        with e2e_conftest.serving_container(
+            f"{prefix}-{port}",
+            port,
+            "-e",
+            f"EPICS_PVAS_SERVER_PORT={pva_port}",
+            "-e",
+            f"VA_INSTANCE={instance}",
+            "-p",
+            f"127.0.0.1:{pva_port}:{pva_port}/tcp",
+            *e2e_conftest.demo_data_run_args(),
+            boot_timeout=BOOT_TIMEOUT_S,
+        ):
+            yield port
 
 
 @dataclass(frozen=True)

@@ -350,7 +350,6 @@ class TestManifestPresetStamp:
                         "archiver.type": "mock",
                         "approval.enabled": False,
                         "approval.default_policy": "always",
-                        "claude_code.telemetry.enabled": False,
                         "hooks.debug": False,
                     },
                 }

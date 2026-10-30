@@ -265,7 +265,7 @@ BUILD_OUTPUT_DIR = BUILD_DIR_NAME
 # constant so the copy target and the emitted key cannot drift apart.
 PROFILE_TRIGGERS_FILENAME = "triggers.yml"
 
-#: The durable state zone (``var/agent_data``, ``var/audit``) — git-ignored,
+#: The durable state zone (``var/agent_data`` and the record's directories) — git-ignored,
 #: never rendered, and never wiped by a build. Aliased for the same reason.
 STATE_DIR = STATE_DIR_NAME
 
@@ -835,7 +835,7 @@ def is_reserved_write(project_rel: str) -> str | None:
         boolean, so a refusal can tell an operator the way in.
     """
     normalized = posixpath.normpath(PurePosixPath(project_rel).as_posix())
-    if normalized.startswith("/") or normalized == ".." or normalized.startswith("../"):
+    if normalized.startswith(("/", "../")) or normalized == "..":
         return NOT_PROJECT_RELATIVE_CHANNEL
     folded = normalized.casefold()
 
@@ -1267,7 +1267,7 @@ def ownership_name(dest_rel: str, *, is_directory: bool) -> str:
         The ownership name. Whether that destination's *class* is ownable at
         all is a separate question, answered by ``ownership_canonical``.
     """
-    name = dest_rel[len(".claude/") :] if dest_rel.startswith(".claude/") else dest_rel
+    name = dest_rel.removeprefix(".claude/")
     if not is_directory and name.endswith(".md"):
         name = name[: -len(".md")]
     return name
@@ -1828,9 +1828,12 @@ def declared_hooks(config: Mapping[str, Any]) -> dict[str, list[Any]]:
             if len(path) == 3 and path[:2] == _CLAUDE_CODE_HOOKS:
                 if isinstance(value, list):
                     found.setdefault(path[2], []).extend(value)
-            elif len(path) < 3 and path == _CLAUDE_CODE_HOOKS[: len(path)]:
-                if isinstance(value, Mapping):
-                    walk(value, path)
+            elif (
+                len(path) < 3
+                and path == _CLAUDE_CODE_HOOKS[: len(path)]
+                and isinstance(value, Mapping)
+            ):
+                walk(value, path)
 
     if isinstance(config, Mapping):
         walk(config, ())

@@ -222,10 +222,7 @@ def _workspace_state(data):
         Every field is defended against a payload of the wrong shape.
     """
     tiles = data.get("open_tiles")
-    if _occupancy_is_known(data):
-        tiles = [t for t in tiles if isinstance(t, str)]
-    else:
-        tiles = None
+    tiles = [t for t in tiles if isinstance(t, str)] if _occupancy_is_known(data) else None
 
     visible = data.get("visible")
     visible = [v for v in visible if isinstance(v, str)] if isinstance(visible, list) else []

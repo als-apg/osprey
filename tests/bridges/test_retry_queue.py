@@ -1,7 +1,7 @@
 """Retry-queue write-side specification: park, supersede-at-enqueue, give-up notice.
 
 Every test drives a REAL :class:`~osprey.bridges.core.dedup.DedupStore` (and, where
-history is involved, a real :class:`~osprey.bridges.core.history.HistoryStore`) on
+history is involved, a real :class:`~osprey.bridges.core.history.ConversationHistory` over an in-memory record) on
 ``tmp_path`` — the CAS being tested IS the store's, so mocking it would test nothing —
 against the shared ``RecordingChannelOps`` double for the channel side.
 
@@ -20,7 +20,7 @@ import pytest
 
 from osprey.bridges.core.config import TERMINAL_STATUSES
 from osprey.bridges.core.dedup import DedupStore
-from osprey.bridges.core.history import HistoryStore
+from osprey.bridges.core.history import FAILED_TURN_ANSWER, TURN_FAILED
 from osprey.bridges.core.retry import is_retryable
 from osprey.bridges.core.retry_queue import (
     SUPERSEDED_STATUS,
@@ -31,6 +31,7 @@ from osprey.bridges.core.retry_queue import (
     supersede_note,
 )
 from tests.bridges.conftest import FakeClock, RecordingChannelOps
+from tests.bridges.record_double import RecordHistory
 
 CHAT_KEY = ["space/1", "users/alice"]
 
@@ -172,10 +173,10 @@ def test_park_of_a_pre_first_queued_at_entry_anchors_on_queued_at(dedup):
     assert dedup.get("m1")["first_queued_at"] == 500.0
 
 
-def test_park_writes_no_history(dedup, tmp_path):
+def test_park_writes_no_history(dedup):
     """The exchange is unfinished — history is appended by the drain when the queued
     run finally completes, never at park time."""
-    history = HistoryStore(str(tmp_path / "history.json"))
+    history = RecordHistory()
     entry = _claim(dedup, "m1")
 
     park(_ops(), dedup, "m1", entry, RETRYABLE)
@@ -566,8 +567,8 @@ def test_give_up_raises_when_the_notice_fails(dedup):
     assert dedup.get("m1")["status"] == "pending"
 
 
-def test_give_up_records_the_failed_turn_in_history(dedup, tmp_path):
-    history = HistoryStore(str(tmp_path / "history.json"))
+def test_give_up_records_the_failed_turn_in_history(dedup):
+    history = RecordHistory()
     ops = _ops()
     entry = _claim(dedup, "m1")
 
@@ -576,10 +577,12 @@ def test_give_up_records_the_failed_turn_in_history(dedup, tmp_path):
     turns = history.recent("space/1")
     assert len(turns) == 1
     assert turns[0]["question"] == "why is the beam down?"
+    assert turns[0]["answer"] == FAILED_TURN_ANSWER
+    assert [body["status"] for body in history.record.bodies()] == [TURN_FAILED]
 
 
-def test_give_up_records_who_asked_on_the_failed_turn(dedup, tmp_path):
-    history = HistoryStore(str(tmp_path / "history.json"))
+def test_give_up_records_who_asked_on_the_failed_turn(dedup):
+    history = RecordHistory()
     ops = _ops()
     entry = _claim(dedup, "m1", sender_id="users/111", sender_display="Alice")
 
@@ -589,10 +592,10 @@ def test_give_up_records_who_asked_on_the_failed_turn(dedup, tmp_path):
     assert turn["asked_by"] == {"id": "users/111", "name": "Alice"}
 
 
-def test_give_up_skips_history_when_the_notice_failed(dedup, tmp_path):
+def test_give_up_skips_history_when_the_notice_failed(dedup):
     """No notice landed, so the drain will retry the whole give-up next cycle — a
     history turn written now would be duplicated."""
-    history = HistoryStore(str(tmp_path / "history.json"))
+    history = RecordHistory()
     ops = _ops()
     ops.fail_next("post_giveup", RuntimeError("chat 503"))
     entry = _claim(dedup, "m1")
@@ -619,8 +622,8 @@ def test_give_up_survives_a_failing_history_write(dedup):
     assert ops.count("post_giveup") == 1
 
 
-def test_give_up_without_a_history_key_posts_only(dedup, tmp_path):
-    history = HistoryStore(str(tmp_path / "history.json"))
+def test_give_up_without_a_history_key_posts_only(dedup):
+    history = RecordHistory()
     ops = _ops()
     dedup.claim("m1", text="hi", history_key="")
 

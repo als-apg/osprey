@@ -546,6 +546,7 @@ def test_the_module_imports_and_decides_without_site_packages(tmp_path):
         text=True,
         check=True,
         env=env,
+        timeout=120,
     )
 
     foreign, reason = json.loads(result.stdout)

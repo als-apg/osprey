@@ -28,7 +28,10 @@ def test_a_build_installs_osprey_with_no_route_to_an_index(offline_build_env, tm
     installed = install_osprey_into(venv, {**os.environ, **offline_build_env, **NO_ROUTE})
     assert installed.returncode == 0, installed.stdout + installed.stderr
     probe = subprocess.run(
-        [str(venv / "bin" / "python"), "-c", "import osprey"], capture_output=True, text=True
+        [str(venv / "bin" / "python"), "-c", "import osprey"],
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
     assert probe.returncode == 0, probe.stderr
 

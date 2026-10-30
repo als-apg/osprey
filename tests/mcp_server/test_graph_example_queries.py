@@ -180,6 +180,7 @@ class TestExampleQueriesWorksStoreDown:
             [sys.executable, "-c", code],
             capture_output=True,
             text=True,
+            timeout=120,
         )
 
         assert result.returncode == 0, (

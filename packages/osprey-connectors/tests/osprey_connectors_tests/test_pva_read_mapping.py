@@ -25,6 +25,7 @@ import numpy as np
 import pytest
 
 from osprey_connectors.control_system._epics_connector import EPICSConnector
+from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors_tests._epics_fakes import (
     FakeDisconnected,
     FakeRemoteError,
@@ -442,11 +443,11 @@ class TestReadChannelDispatch:
 
 class TestPvaErrorTranslation:
     @pytest.mark.asyncio
-    async def test_disconnected_becomes_a_connection_error(self):
-        """p4p's Disconnected is a RuntimeError — without this it escapes unclassified.
+    async def test_a_pva_channel_that_disconnects_is_unreachable(self):
+        """p4p's Disconnected is a RuntimeError — without the funnel it escapes unclassified.
 
-        ConnectionError is what the MCP error envelope and the connector
-        invalidation logic key on.
+        It is that one channel's failure: the PVA client context keeps serving
+        every other channel, so nothing about the connector is replaced.
         """
 
         def get(name, timeout=None):  # noqa: ARG001 - stands in for the p4p context's get, whose caller names timeout
@@ -454,43 +455,45 @@ class TestPvaErrorTranslation:
 
         connector = _pva_connector(get=get)
 
-        with pytest.raises(ConnectionError) as excinfo:
+        with pytest.raises(ChannelUnreachableError) as excinfo:
             await connector.read_channel(PVA_ADDRESS)
 
+        assert excinfo.value.channel_address == PVA_ADDRESS
         assert PVA_ADDRESS in str(excinfo.value)
         assert "channel disconnected" in str(excinfo.value)
 
     @pytest.mark.asyncio
-    async def test_remote_error_becomes_a_connection_error(self):
+    async def test_a_remote_error_is_an_unreachable_channel(self):
         def get(name, timeout=None):  # noqa: ARG001 - stands in for the p4p context's get, whose caller names timeout
             raise FakeRemoteError("server said no")
 
         connector = _pva_connector(get=get)
 
-        with pytest.raises(ConnectionError):
+        with pytest.raises(ChannelUnreachableError):
             await connector.read_channel(PVA_ADDRESS)
 
     @pytest.mark.asyncio
-    async def test_timeout_is_reported_as_timeout_error_with_the_budget(self):
+    async def test_a_timeout_is_an_unreachable_channel_with_the_budget(self):
         def get(name, timeout=None):  # noqa: ARG001 - stands in for the p4p context's get, whose caller names timeout
             raise TimeoutError()
 
         connector = _pva_connector(get=get)
 
-        with pytest.raises(TimeoutError) as excinfo:
+        with pytest.raises(ChannelUnreachableError) as excinfo:
             await connector.read_channel(PVA_ADDRESS, timeout=2.0)
 
         message = str(excinfo.value)
         assert PVA_ADDRESS in message
         assert "2.0" in message
-        assert not isinstance(excinfo.value, ConnectionError)
+        assert "timed out" in message
+        assert not isinstance(excinfo.value, (ConnectionError, TimeoutError))
 
     @pytest.mark.asyncio
-    async def test_read_without_a_context_is_a_connection_error(self):
+    async def test_a_read_with_no_pva_context_is_connector_unavailable(self):
         """A PVA-routed address on a connector that never built a context."""
         connector = _pva_connector(context=False)
 
-        with pytest.raises(ConnectionError) as excinfo:
+        with pytest.raises(ConnectorUnavailableError) as excinfo:
             await connector.read_channel(PVA_ADDRESS)
 
         assert PVA_ADDRESS in str(excinfo.value)

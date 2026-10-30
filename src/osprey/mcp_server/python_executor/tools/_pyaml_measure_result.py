@@ -20,9 +20,9 @@ one kind:
   ``data_file``;
 * a completed ``chromaticity_monitor``: ``chromaticity`` ``[xi_x, xi_y]`` and
   ``data_file``;
-* a stopped run: the steps used, ``remainder``, the variables not measured
-  (the kind itself when no column is partial), and ``error``, the first line
-  of what stopped it, when an exception did;
+* ``missing``: ``{}`` for a completed run; for a stopped run each variable
+  not measured (the kind itself when none is left) mapped to the first line
+  of what stopped the run, or ``null`` when no exception did;
 * a refusal: ``{"kind", "refused"}``.
 
 :func:`label_result` then names every row and column by the address and device
@@ -38,6 +38,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from osprey.mcp_server.errors import MISSING_KEY
 
 __all__ = [
     "RESULT_TAG",
@@ -178,6 +180,27 @@ def _steps(line: Mapping[str, Any]) -> dict[str, Any]:
     return {key: _number(step, f"deltas.{key}") for key, step in value.items()}
 
 
+def _missing(line: Mapping[str, Any], completed: bool) -> dict[str, str | None]:
+    """What the run did not measure, each mapped to its text or ``None``.
+
+    A completed run's map is empty; a stopped run's names at least one thing.
+    """
+    value = _require(line, MISSING_KEY)
+    if completed:
+        if value != {}:
+            raise MeasureResultError(f"{MISSING_KEY!r} of a completed run is not empty: {value!r}")
+        return {}
+    if (
+        not isinstance(value, dict)
+        or not value
+        or not all(isinstance(text, str | None) for text in value.values())
+    ):
+        raise MeasureResultError(
+            f"{MISSING_KEY!r} is not a mapping of names to a text or null: {value!r}"
+        )
+    return dict(value)
+
+
 def parse_measure_result(stdout: str | bytes, kind: str) -> dict[str, Any]:
     """The ``pyaml_measure`` result for ``kind`` from the script's output.
 
@@ -247,12 +270,7 @@ def parse_measure_result(stdout: str | bytes, kind: str) -> dict[str, Any]:
                 raise MeasureResultError(f"'chromaticity' is not [xi_x, xi_y]: {value!r}")
             result["chromaticity"] = [_number(item, "chromaticity") for item in value]
         result["data_file"] = _string(line, "data_file")
-        return result
-
-    if "error" in line:
-        result["error"] = _string(line, "error")
-    remainder = line.get("remainder")
-    result["remainder"] = _names(line, "remainder") if isinstance(remainder, list) else kind
+    result[MISSING_KEY] = _missing(line, completed)
     return result
 
 
@@ -369,8 +387,8 @@ def label_result(result: Mapping[str, Any], labels: MeasureLabels) -> dict[str, 
     and its device, a tune row's readback, or no address for a chromaticity
     row. A column is ``{name, address, device}`` for a magnet or the RF plant,
     ``{name, groups}`` for a role's array stepped as one knob, ``groups`` the
-    group ids the role names. ``deltas`` and ``remainder`` are keyed and listed
-    by the same address where one exists, else by the array name. Each
+    group ids the role names. ``deltas`` and ``missing`` are keyed by the
+    same address where one exists, else by the array name or the kind. Each
     ``moved`` entry is ``{address, device, before}``.
 
     Args:
@@ -394,8 +412,10 @@ def label_result(result: Mapping[str, Any], labels: MeasureLabels) -> dict[str, 
             {"address": address, "device": labels.devices.get(address), "before": before}
             for address, before in result["moved"]
         ]
-    if isinstance(result.get("remainder"), list):
-        labelled["remainder"] = [_key(labels, name) for name in result["remainder"]]
+    if MISSING_KEY in result:
+        labelled[MISSING_KEY] = {
+            _key(labels, name): text for name, text in result[MISSING_KEY].items()
+        }
     return labelled
 
 

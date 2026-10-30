@@ -59,7 +59,6 @@ safety/acceptance proof is never swept into lenient reruns).
 
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 import time
@@ -99,14 +98,11 @@ TILED_PORT = 18192
 # services.virtual_accelerator.port -- moving the deployed soft-IOC's port is a
 # one-place edit, and the connector follows it.
 VA_CA_PORT = 15065
-# ariel-postgres, the telemetry gateway and the telemetry store are deployed
-# unconditionally by the control-assistant preset, and a locally-running
-# tutorial stack routinely holds their ports. A bound-port collision aborts
-# `osprey up` before the bridge/Tiled containers it creates alongside them ever
-# start, so all three are moved to high, unassigned ports.
+# ariel-postgres is deployed unconditionally by the control-assistant preset,
+# and a locally-running deployment routinely holds its port. A bound-port
+# collision aborts `osprey up` before the bridge/Tiled containers it creates
+# alongside it ever start, so it is moved to a high, unassigned port.
 POSTGRES_PORT = 25433
-TELEMETRY_GATEWAY_PORT = 24320
-TELEMETRY_STORE_PORT = 28125
 
 # The deployment repo's directory name IS the deployment's name; the compose
 # template renders each container_name AND the bridge's locally-built image as
@@ -201,8 +197,6 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         "services": {},
         "config": {
             "services.postgresql.port_host": POSTGRES_PORT,
-            "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
-            "services.telemetry_store.port": TELEMETRY_STORE_PORT,
             "modules.web_terminals.enabled": False,
         },
     }
@@ -259,12 +253,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
 
     # Force a fresh --dev build so the deployed bridge container runs CURRENT
     # source (osprey up does not pass --build to compose, so it would
-    # otherwise reuse a stale cached image). Exact-named images only.
-    # E2E_REUSE_IMAGES=1 skips this (dev-only fast local iteration on the
-    # test itself when the osprey source is unchanged; never set in CI).
-    if not os.environ.get("E2E_REUSE_IMAGES"):
-        for image in (BRIDGE_IMAGE, VA_IMAGE):
-            subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
+    # otherwise reuse a stale cached image).
+    _orm_stack.force_image_rebuild(BRIDGE_IMAGE, VA_IMAGE)
 
     try:
         up = run_command(

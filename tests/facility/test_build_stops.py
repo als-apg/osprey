@@ -2764,21 +2764,24 @@ def initialised(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 def _clear_facility_records(facility: Path) -> None:
-    """Remove every entry of ``facility`` except its ``knowledge`` pages."""
+    """Remove the bundled machine from ``facility``, its knowledge pages included.
+
+    A knowledge page links records of the machine it ships with, so it leaves
+    with that machine; a case that tests a page link writes its own page. The
+    ``knowledge`` directory stays, empty: the profile binds it.
+    """
     for entry in facility.iterdir():
-        if entry.name == "knowledge":
-            continue
         if entry.is_dir() and not entry.is_symlink():
             shutil.rmtree(entry)
         else:
             entry.unlink()
+    (facility / "knowledge").mkdir()
 
 
 def _repo(initialised: Path, tmp_path: Path, case: str) -> Path:
-    """A copy of the initialised repo whose facility records are the case's tree.
+    """A copy of the initialised repo whose facility description is the case's tree.
 
-    The ``data/facility/knowledge`` pages are kept. The case's ``project/`` mirror
-    files and profile edit are applied beside it.
+    The case's ``project/`` mirror files and profile edit are applied beside it.
     """
     repo = tmp_path / PROJECT
     shutil.copytree(initialised, repo, symlinks=True)

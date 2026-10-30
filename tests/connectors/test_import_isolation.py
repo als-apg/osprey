@@ -216,6 +216,7 @@ def test_mock_archiver_serves_a_built_view_without_osprey(tmp_path):
         capture_output=True,
         text=True,
         cwd=tmp_path,
+        timeout=120,
     )
     assert result.returncode == 0, result.stderr
     assert "CLEAN" in result.stdout

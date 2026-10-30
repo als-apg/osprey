@@ -92,7 +92,6 @@ def _graph_repo(
         # names none renders with, so the approval floor is stated here.
         "  approval.enabled: false\n"
         "  approval.default_policy: always\n"
-        "  claude_code.telemetry.enabled: false\n"
         "  hooks.debug: false\n"
         f"  services.graphdb.ttl_path: {_CORPUS_RELATIVE}\n"
     )

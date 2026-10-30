@@ -327,6 +327,7 @@ print(json.dumps(sorted(k for k in sys.modules if k == "osprey" or k.startswith(
             capture_output=True,
             text=True,
             check=True,
+            timeout=120,
         )
 
         assert completed.stdout.strip().endswith("[]"), completed.stdout

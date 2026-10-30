@@ -25,13 +25,13 @@ tests, and starting it buys nothing but a 30-second window of foreign events.
 Opt back in with ``@pytest.mark.real_workspace_watcher`` when a test genuinely
 needs live file watching through the app factory.
 
-The **audit zone** every test here records into is redirected by
-``tests/conftest.py::_isolate_audit_zone``, suite-wide rather than per
-directory. Any test that drives ``create_app`` files real records —
-``HttpAuditMiddleware`` records one ``http_mutation`` line per state-changing
+The **record spool** every test here writes into is redirected by
+``tests/conftest.py::_isolate_spool_zone``, suite-wide rather than per
+directory. Any test that drives ``create_app`` records real audit entries —
+``HttpAuditMiddleware`` records one ``http_mutation`` entry per state-changing
 request — and those would otherwise land in the developer's or the runner's own
-``var/audit/<identity>/`` ledger, indistinguishable from records of things that
-really happened.
+``var/spool/<identity>/``, indistinguishable from records of things that really
+happened. A test reads what it recorded through ``recorded_entries("audit")``.
 
 The **feedback and bar-items stores** are sited under
 ``resolve_shared_data_root()``, which reads ``agent_data.base_dir`` anchored on
@@ -321,14 +321,14 @@ def readable_process_table(monkeypatch):
 
     A real table that is momentarily unreadable, or does not yet hold a
     just-spawned pid, makes the test wait, never decide: every
-    ``process_tree.snapshot`` call goes through
+    ``process_table.snapshot`` call goes through
     :func:`tests.interfaces.web_terminal._pty_child.readable_rows`. A test that
     injects an unknown table patches ``snapshot`` after it.
     """
-    from osprey.interfaces.web_terminal import process_tree
+    from osprey.deployment import process_table
     from tests.interfaces.web_terminal._pty_child import readable_rows
 
-    monkeypatch.setattr(process_tree, "snapshot", readable_rows)
+    monkeypatch.setattr(process_table, "snapshot", readable_rows)
 
 
 @pytest.fixture

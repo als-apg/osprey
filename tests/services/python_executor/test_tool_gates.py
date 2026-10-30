@@ -4,7 +4,7 @@ The unit suite (``test_path_policy.py``) pins what the walker *sees*. This one
 pins that both MCP tools actually consult it, that they do so in **every**
 execution mode rather than under the readonly branch, and that a refusal leaves
 the same audit record the other pre-execution layers leave — only with
-``reason: "path_policy"``, on the unified ledger's ``executor`` surface.
+``reason: "path_policy"``, as an ``executor`` audit entry in the agent record.
 
 The refusals here all fire before the subprocess is launched, so nothing is
 mocked for them: reaching an assertion at all proves the gate ran ahead of
@@ -20,7 +20,6 @@ from osprey.audit import posture
 from osprey_connectors.refusals import refusal_phrase, refusal_text
 from osprey_connectors_tests._harness import REFUSAL_BAN_LIST, write_control_context
 from osprey_connectors_tests._write_fakes import ARMED_SECTION, ARMED_TARGET, arm_switch
-from tests._audit_ledger import ledger_records
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 #: A literal write into the render zone — the canonical thing the policy exists
@@ -46,22 +45,6 @@ def _execute_file():
 
 
 @pytest.fixture(autouse=True)
-def audit_zone(tmp_path, monkeypatch):
-    """Redirect the audit zone; ``writer.audit_dir`` is the one seam it documents.
-
-    Autouse, so a test that records without asking for the zone cannot append
-    to the deployment's real ledger: the posture-clamp cases below refuse
-    *before* they read any code, and a refusal an operator finds in
-    ``var/audit/`` that no operator caused is worse than no record at all.
-    """
-    from osprey.audit import writer
-
-    zone = tmp_path / "audit"
-    monkeypatch.setattr(writer, "audit_dir", lambda: zone)
-    return zone
-
-
-@pytest.fixture(autouse=True)
 def _no_ambient_deployment(control_context_root, monkeypatch):
     """Answer every gate here from a scratch deployment, never from the machine's.
 
@@ -70,8 +53,8 @@ def _no_ambient_deployment(control_context_root, monkeypatch):
     ``OSPREY_AGENT_DATA_ROOT`` falls back to ``<repo>/var/agent_data``, which on
     a developer box holds whatever their own running stack put there — so a
     narrowing an operator made by hand would refuse the tool calls below and
-    read as a regression in the path policy. Autouse for the same reason
-    ``audit_zone`` is: a case added here later must not have to rediscover it.
+    read as a regression in the path policy. Autouse so a case added here later
+    does not have to rediscover it.
 
     ``OSPREY_CONTROL_TARGET`` is cleared beside it because an inherited stamp
     names a target no test here wrote.
@@ -128,11 +111,12 @@ def _refusal_prose(envelope) -> str:
     return " ".join(word for word in text.split() if not _ABSOLUTE_PATH_TOKEN.match(word)).lower()
 
 
-def _refusal_records(audit_zone):
-    """Every executor record this identity filed — the ledger is per-identity."""
+def _refusal_records(recorded_entries):
+    """Every ``executor`` audit entry in the record, oldest first."""
     from osprey.audit.envelope import SURFACE_EXECUTOR
 
-    return ledger_records(audit_zone, SURFACE_EXECUTOR)
+    entries = sorted(recorded_entries("audit"), key=lambda e: e.ts)
+    return [dict(e.body) for e in entries if e.body["surface"] == SURFACE_EXECUTOR]
 
 
 # ---------------------------------------------------------------------------
@@ -239,7 +223,7 @@ async def test_execute_file_matches_execute(execution_mode, script_root):
 
 
 @BOTH_MODES
-async def test_refusal_is_recorded_with_the_path_policy_layer(execution_mode, audit_zone):
+async def test_refusal_is_recorded_with_the_path_policy_layer(execution_mode, recorded_entries):
     from osprey.mcp_server.python_executor.tools._execution_gates import LAYER_PATH_POLICY
 
     with assert_raises_error(error_type="safety_error"):
@@ -249,7 +233,7 @@ async def test_refusal_is_recorded_with_the_path_policy_layer(execution_mode, au
             execution_mode=execution_mode,
         )
 
-    records = _refusal_records(audit_zone)
+    records = _refusal_records(recorded_entries)
     assert len(records) == 1
     assert records[0]["reason"] == LAYER_PATH_POLICY == "path_policy"
     assert records[0]["subject"] == "execute"
@@ -260,7 +244,7 @@ async def test_refusal_is_recorded_with_the_path_policy_layer(execution_mode, au
     assert "build/config.yml" in records[0]["detail"]
 
 
-async def test_execute_file_refusal_is_recorded(script_root, audit_zone):
+async def test_execute_file_refusal_is_recorded(script_root, recorded_entries):
     script = _script(script_root, RENDER_ZONE_WRITE + "\n")
     with assert_raises_error(error_type="safety_error"):
         await _execute_file()(
@@ -269,7 +253,7 @@ async def test_execute_file_refusal_is_recorded(script_root, audit_zone):
             execution_mode="readonly",
         )
 
-    records = _refusal_records(audit_zone)
+    records = _refusal_records(recorded_entries)
     assert len(records) == 1
     assert records[0]["reason"] == "path_policy"
     assert records[0]["subject"] == "execute_file"
@@ -281,7 +265,7 @@ async def test_execute_file_refusal_is_recorded(script_root, audit_zone):
 
 
 @BOTH_MODES
-async def test_guard_tamper_is_refused_at_the_tool_layer(execution_mode, audit_zone):
+async def test_guard_tamper_is_refused_at_the_tool_layer(execution_mode, recorded_entries):
     with assert_raises_error(error_type="safety_error") as ctx:
         await _execute()(
             code=GUARD_TAMPER,
@@ -290,7 +274,7 @@ async def test_guard_tamper_is_refused_at_the_tool_layer(execution_mode, audit_z
         )
 
     assert any("_restore_patched_targets" in s for s in ctx["envelope"]["suggestions"])
-    assert _refusal_records(audit_zone)[0]["reason"] == "path_policy"
+    assert _refusal_records(recorded_entries)[0]["reason"] == "path_policy"
 
 
 # ---------------------------------------------------------------------------
@@ -298,7 +282,7 @@ async def test_guard_tamper_is_refused_at_the_tool_layer(execution_mode, audit_z
 # ---------------------------------------------------------------------------
 
 
-async def test_clean_read_still_executes(tmp_path, monkeypatch, audit_zone):
+async def test_clean_read_still_executes(tmp_path, monkeypatch, recorded_entries):
     """A read is not a write — the gate must not intercept ordinary analysis."""
     monkeypatch.chdir(tmp_path)
 
@@ -332,7 +316,7 @@ async def test_clean_read_still_executes(tmp_path, monkeypatch, audit_zone):
     assert data.get("error") is not True
     assert data["has_errors"] is False
     assert "read ok" in data["stdout"]
-    assert _refusal_records(audit_zone) == []
+    assert _refusal_records(recorded_entries) == []
 
 
 # ---------------------------------------------------------------------------
@@ -364,8 +348,8 @@ def switched_off(control_context_root, monkeypatch):
     """The other source: the operator's switch is off for the run's machine.
 
     No ``OSPREY_EXECUTION_MODE`` anywhere — turning one machine off must not
-    make the process read-only. The session key is still stamped because the
-    ledger joins on it.
+    make the process read-only. The session key is still stamped because audit
+    entries join on it.
     """
     from osprey_connectors import control_context, posture_store
 

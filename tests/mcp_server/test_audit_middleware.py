@@ -23,7 +23,7 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware.middleware import Middleware, MiddlewareContext
 from mcp.types import CallToolRequestParams, RequestParams
 
-from osprey.audit import writer
+from osprey.agent_record import writer as record_writer
 from osprey.audit.dedup import mark_recorded
 from osprey.audit.envelope import (
     DECISION_ALLOWED,
@@ -86,16 +86,16 @@ def _hook_config(
 
 
 @pytest.fixture
-def project(tmp_path, monkeypatch):
+def project(tmp_path, monkeypatch, recorded_entries):
     """A render zone with ``build/config.yml`` and a hook config beside it.
 
     Returns a small handle: ``.write(**kwargs)`` re-renders the hook config,
-    ``.remove()`` deletes it, ``.corrupt()`` leaves unparseable bytes.
+    ``.remove()`` deletes it, ``.corrupt()`` leaves unparseable bytes, and
+    ``.entries()`` reads the audit entries recorded so far.
     """
     for marker in (
         TERMINAL_USER_ENV,
         AUDIT_IDENTITY_ENV,
-        writer.AUDIT_WRITER_ENV,
         am.POSTURE_ENV,
         am.POSTURE_SOURCE_ENV,
         am.POSTURE_SESSION_ENV,
@@ -109,8 +109,6 @@ def project(tmp_path, monkeypatch):
     monkeypatch.setenv(am.CONFIG_ENV, str(config))
     monkeypatch.setenv(am.TOOL_PREFIX_ENV, "controls")
 
-    audit_root = tmp_path / "var" / "audit"
-    monkeypatch.setattr(writer, "audit_dir", lambda: audit_root)
     am.reset_audit_state()
 
     # The backstop's section, through the audit package's one reader. The
@@ -123,10 +121,14 @@ def project(tmp_path, monkeypatch):
     class _Project:
         hook_config = build / ".claude" / "hooks" / "hook_config.json"
         root = tmp_path
-        audit = audit_root
+
         #: A tier that allows writes, on a deployment whose live machine is
         #: real — the state in which only a read-only run is refused here.
         section: object = dict(TIER_ALLOWED_SECTION)
+
+        @staticmethod
+        def entries() -> list:
+            return recorded_entries("audit")
 
         @staticmethod
         def write(**kwargs) -> None:
@@ -216,18 +218,10 @@ async def _refused(mw, tool: str, *, meta: dict | None = None) -> ToolError:
     return excinfo.value
 
 
-def _records(project, surface: str = "controls", identity: str | None = None) -> list[dict]:
-    who = identity or _identity()
-    path = project.audit / who / f"{surface}.jsonl"
-    if not path.exists():
-        return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-
-
-def _identity() -> str:
-    from osprey_connectors.identity import acting_identity
-
-    return acting_identity()
+def _records(project, surface: str = "controls") -> list[dict]:
+    """The bodies of the audit entries recorded on *surface*, oldest first."""
+    entries = sorted(project.entries(), key=lambda entry: entry.ts)
+    return [dict(entry.body) for entry in entries if entry.body.get("surface") == surface]
 
 
 def _sandbox(monkeypatch) -> None:
@@ -914,9 +908,9 @@ class TestAuditRecord:
         assert _records(project, surface="sitectl")[-1]["surface"] == "sitectl"
 
     async def test_the_actor_comes_from_the_identity_ladder(self, project, monkeypatch):
-        monkeypatch.setenv(TERMINAL_USER_ENV, "alice")
+        monkeypatch.setenv(TERMINAL_USER_ENV, "carol")
         await _call(am.AuditMiddleware(), "channel_read")
-        assert _records(project, identity="alice")[-1]["actor"] == "alice"
+        assert _records(project)[-1]["actor"] == "carol"
 
     async def test_the_posture_is_spelled_sandbox_not_readonly(self, project, monkeypatch):
         _sandbox(monkeypatch)
@@ -1093,14 +1087,14 @@ class TestApprovalOutcome:
     async def test_a_stamped_call_records_approval_in_detail(self, project, ask_stamps):
         ask_stamps("toolu_01abc")
         await _call(am.AuditMiddleware(), "channel_write", meta=_TOOL_USE_META)
-        record = _records(project, identity=_identity())[-1]
+        record = _records(project)[-1]
         assert record["decision"] == DECISION_ALLOWED
         assert record["detail"] == "approval=approved approver=human"
 
     async def test_an_unstamped_call_has_no_approval_detail(self, project, ask_stamps):
         ask_stamps("toolu_someone_else")
         await _call(am.AuditMiddleware(), "channel_write", meta=_TOOL_USE_META)
-        assert "detail" not in _records(project, identity=_identity())[-1]
+        assert "detail" not in _records(project)[-1]
 
     @pytest.mark.usefixtures("project")
     async def test_the_stamp_is_not_consumed_here(self, ask_stamps):
@@ -1114,7 +1108,7 @@ class TestApprovalOutcome:
             await _call(
                 am.AuditMiddleware(), "channel_write", raises=ToolError("x"), meta=_TOOL_USE_META
             )
-        record = _records(project, identity=_identity())[-1]
+        record = _records(project)[-1]
         assert record["reason"] == am.REASON_TOOL_ERROR
         assert record["detail"] == "approval=approved approver=human"
 
@@ -1124,7 +1118,7 @@ class TestApprovalOutcome:
         ask_stamps("toolu_01abc")
         _sandbox(monkeypatch)
         await _refused(am.AuditMiddleware(), "channel_write", meta=_TOOL_USE_META)
-        record = _records(project, identity=_identity())[-1]
+        record = _records(project)[-1]
         assert record["detail"] == (
             f"{am.CLAMP_SOURCE_LOADED} reason=readonly_run approval=approved approver=human"
         )
@@ -1148,7 +1142,7 @@ class TestToolErrors:
         assert record["decision"] == DECISION_REFUSED
         assert record["reason"] == am.REASON_TOOL_ERROR
 
-    async def test_the_tool_error_message_never_reaches_the_ledger(self, project):
+    async def test_the_tool_error_message_never_reaches_the_record(self, project):
         secret = "PV=SR:BEND:SETPOINT value=hunter2"
         with pytest.raises(ToolError):
             await _call(am.AuditMiddleware(), "channel_write", raises=ToolError(secret))
@@ -1184,7 +1178,7 @@ class TestAnUnstoredInnerRecordIsNotSubstituted:
     decision this layer did not take; and copying the inner marker's decision
     and reason would file another layer's finding under THIS surface, without
     the ``source`` the executor surface carries. An operator grepping the
-    executor ledger would still find nothing and would now also find a lookalike
+    executor surface would still find nothing and would now also find a lookalike
     filed where the refusal never happened.
     """
 
@@ -1260,32 +1254,33 @@ class TestTheClampDecisionFailsClosed:
 
 
 class TestAuditNeverCostsTheOperation:
-    """The failure is injected at the writer's append, below the never-raises
-    boundary the middleware relies on, so what is pinned is the real path an
-    unwritable zone takes and not a seam the middleware happens to call."""
+    """The failure is injected at the record writer's spool append, below the
+    never-raises boundary the middleware relies on, so what is pinned is the
+    real path an unwritable spool takes and not a seam the middleware happens
+    to call."""
 
     @pytest.mark.usefixtures("project")
-    async def test_an_unwritable_ledger_does_not_break_an_allowed_call(self, monkeypatch):
+    async def test_an_unwritable_spool_does_not_break_an_allowed_call(self, monkeypatch):
         reached: list[Path] = []
 
-        def explode(path, _line):
-            reached.append(path)
+        def explode(directory, _data):
+            reached.append(directory)
             raise OSError("read-only file system")
 
-        monkeypatch.setattr(writer, "_append", explode)
+        monkeypatch.setattr(record_writer, "_append", explode)
         _, seen = await _call(am.AuditMiddleware(), "channel_read")
         assert seen == ["channel_read"]
         assert reached, "the writer's append boundary was never reached"
 
     @pytest.mark.usefixtures("project")
-    async def test_an_unwritable_ledger_does_not_lift_the_clamp(self, monkeypatch):
+    async def test_an_unwritable_spool_does_not_lift_the_clamp(self, monkeypatch):
         reached: list[Path] = []
 
-        def explode(path, _line):
-            reached.append(path)
+        def explode(directory, _data):
+            reached.append(directory)
             raise OSError("read-only file system")
 
-        monkeypatch.setattr(writer, "_append", explode)
+        monkeypatch.setattr(record_writer, "_append", explode)
         _sandbox(monkeypatch)
         await _refused(am.AuditMiddleware(), "channel_write")
         assert reached, "the writer's append boundary was never reached"
@@ -1410,6 +1405,7 @@ def test_importing_the_module_does_not_pull_in_the_registry():
         capture_output=True,
         text=True,
         cwd=str(Path(__file__).resolve().parents[2]),
+        timeout=120,
     )
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout.strip() == "False", completed.stderr
@@ -1434,6 +1430,7 @@ def test_importing_the_module_reads_nothing(project):
         text=True,
         cwd=str(Path(__file__).resolve().parents[2]),
         env={**os.environ, am.CONFIG_ENV: str(project.root / "build" / "config.yml")},
+        timeout=120,
     )
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout.strip() == "None 0 0", completed.stderr
@@ -1452,7 +1449,7 @@ def session(project, monkeypatch):
     """This server as a child of a session whose record carries a switch.
 
     The person turns writes on or off for one machine from the chip; nothing
-    respawns this server and nothing sets ``OSPREY_EXECUTION_MODE``. The ledger
+    respawns this server and nothing sets ``OSPREY_EXECUTION_MODE``. The entry
     posture reads that record through :func:`osprey.audit.posture.posture`, so
     the fixture stamps the session key and the agent-data root, clears every
     variable that moves a verdict behind a test's back, and writes the record.
@@ -1665,7 +1662,7 @@ class TestTheSwitchIsNeverABackstopReason:
 
     @pytest.mark.usefixtures("project")
     async def test_a_turn_off_lands_without_a_respawn_and_still_never_clamps(self, session):
-        """One process: the ledger posture moves, the backstop's answer does not."""
+        """One process: the entry posture moves, the backstop's answer does not."""
         session.on("live")
         session.switch("live")
         middleware = am.AuditMiddleware()
@@ -1687,12 +1684,11 @@ class TestTheSwitchIsNeverABackstopReason:
         assert seen == ["channel_write"]
 
 
-class TestTheLedgerPostureIsComputedOncePerCall:
-    @pytest.mark.usefixtures("full_record")
-    async def test_both_records_of_one_call_share_one_posture_read(
+class TestTheEntryPostureIsComputedOncePerCall:
+    async def test_both_entries_of_one_call_share_one_posture_read(
         self, project, session, monkeypatch
     ):
-        """The verdict is read once on entry and reused for both ledger writes."""
+        """The verdict is read once on entry and reused for both audit entries."""
         from osprey.audit import posture as posture_module
 
         session.on("live")
@@ -1706,181 +1702,180 @@ class TestTheLedgerPostureIsComputedOncePerCall:
 
         monkeypatch.setattr(posture_module, "posture", _counted)
 
-        await _call(am.AuditMiddleware(), "channel_write")
+        await am.AuditMiddleware().on_call_tool(_context("channel_write"), _a_write())
 
         assert reads == ["posture"]
         assert _records(project)[-1]["posture"] == am.POSTURE_WRITES
-        assert _full(project)[-1]["posture"] == am.POSTURE_WRITES
+        assert _tool_calls(project)[-1]["posture"] == am.POSTURE_WRITES
 
     @pytest.mark.usefixtures("project")
     async def test_outside_a_call_it_is_asked_afresh(self, monkeypatch):
         from osprey.audit import posture as posture_module
 
         monkeypatch.setattr(posture_module, "posture", lambda: "writes")
-        assert am._ledger_posture() == "writes"
+        assert am._entry_posture() == "writes"
 
 
 # --------------------------------------------------------------------------
-# The opt-in full tool_call record
+# The tool_call record: what a call ran against
 # --------------------------------------------------------------------------
 
 
 @pytest.fixture
-def full_record(monkeypatch):
-    """Turn the full ``tool_call`` surface on."""
-    monkeypatch.setattr(am.tool_call, "settings", lambda: (True, 4096))
+def bound(monkeypatch):
+    """Put the deployment on control target ``va`` at generation 7."""
+    from osprey_connectors import control_context
+
+    monkeypatch.setattr(
+        control_context, "read_record", lambda: SimpleNamespace(target="va", generation=7)
+    )
 
 
-def _full(project) -> list[dict]:
+def _tool_calls(project) -> list[dict]:
     return _records(project, surface="tool_call")
 
 
-class TestToolCallRecord:
-    async def test_disabled_writes_no_tool_call_file(self, project, monkeypatch):
-        monkeypatch.setattr(am.tool_call, "settings", lambda: (False, 4096))
-        await _call(am.AuditMiddleware(), "channel_read", meta=_TOOL_USE_META)
-        assert _full(project) == []
-        assert _records(project)[-1]["decision"] == DECISION_ALLOWED
+def _a_write(result: object = None):
+    """A ``call_next`` that notes what channel_write notes, then returns."""
+    from osprey.audit.call import note
 
-    @pytest.mark.usefixtures("full_record")
-    async def test_every_allowed_call_is_recorded_with_arguments_and_result(
-        self, project, monkeypatch
-    ):
-        monkeypatch.setenv("OSPREY_TELEMETRY_SESSION_ID", "conv-9")
+    async def call_next(_ctx):
+        note(ca_user="op", ca_host="ioc-host")
+        note(limits={"verdict": "passed"})
+        note(old_values={"A:1": {"value": 1.0, "timestamp": None}})
+        return {"written": True} if result is None else result
+
+    return call_next
+
+
+class TestToolCallRecord:
+    @pytest.mark.usefixtures("bound")
+    async def test_with_the_key_absent_a_write_files_one_trimmed_entry(self, project):
+        """No ``audit.tool_call`` setting, one channel_write: one entry, no payload."""
+        assert "audit" not in Path(os.environ[am.CONFIG_ENV]).read_text()
         context = _context("channel_write", _TOOL_USE_META)
         context.message.arguments = {"operations": [{"channel": "A:1", "value": 2}]}
 
-        async def call_next(_ctx):
-            return {"written": True}
+        await am.AuditMiddleware().on_call_tool(context, _a_write())
 
-        await am.AuditMiddleware().on_call_tool(context, call_next)
-
-        (record,) = _full(project)
+        (record,) = _tool_calls(project)
         assert record["surface"] == "tool_call"
         assert record["subject"] == "mcp__controls__channel_write"
         assert record["server"] == "controls"
-        assert record["decision"] == DECISION_ALLOWED
-        assert record["reason"] == am.REASON_TOOL_CALL
         assert record["tool_use_id"] == "toolu_01abc"
-        assert record["session_id"] == "conv-9"
-        assert record["arguments"] == {"operations": [{"channel": "A:1", "value": 2}]}
-        assert record["result"] == {"written": True}
-        assert record["error"] is None
-        assert record["is_error"] is False
+        assert (record["target"], record["generation"]) == ("va", 7)
+        assert record["facts"]["limits"] == {"verdict": "passed"}
+        assert record["facts"]["old_values"] == {"A:1": {"value": 1.0, "timestamp": None}}
         assert record["duration_ms"] >= 0
+        for dropped in (
+            "arguments",
+            "arguments_ref",
+            "result",
+            "result_ref",
+            "decision",
+            "reason",
+            "error",
+            "is_error",
+        ):
+            assert dropped not in record, dropped
+        assert "written" not in json.dumps(record)
+        assert '"A:1", "value": 2' not in json.dumps(record)
 
-    @pytest.mark.usefixtures("full_record")
-    async def test_a_read_is_recorded_too(self, project):
+    async def test_the_entry_joins_the_default_record_by_tool_use_id(self, project, monkeypatch):
+        monkeypatch.setenv("OSPREY_TELEMETRY_SESSION_ID", "conv-9")
+        await am.AuditMiddleware().on_call_tool(
+            _context("channel_write", _TOOL_USE_META), _a_write()
+        )
+        (record,) = _tool_calls(project)
+        default = _records(project)[-1]
+        assert record["tool_use_id"] == default["tool_use_id"] == "toolu_01abc"
+        assert record["session_id"] == "conv-9"
+        assert default["decision"] == DECISION_ALLOWED
+
+    async def test_a_call_with_no_facts_files_no_entry(self, project):
+        await _call(am.AuditMiddleware(), "channel_read", meta=_TOOL_USE_META)
+        assert _tool_calls(project) == []
+        assert _records(project)[-1]["decision"] == DECISION_ALLOWED
+
+    @pytest.mark.usefixtures("bound")
+    async def test_a_read_on_a_target_is_recorded_too(self, project):
         await _call(am.AuditMiddleware(), "channel_read", result={"value": 1.5})
-        (record,) = _full(project)
+        (record,) = _tool_calls(project)
         assert record["subject"] == "mcp__controls__channel_read"
-        assert record["result"] == {"value": 1.5}
+        assert (record["target"], record["generation"]) == ("va", 7)
+        assert "result" not in record
 
-    @pytest.mark.usefixtures("full_record")
-    async def test_a_posture_refusal_is_recorded(self, project, monkeypatch):
+    async def test_an_approval_alone_is_enough(self, project, ask_stamps):
+        ask_stamps("toolu_01abc", approver="human", mode="default")
+        await _call(am.AuditMiddleware(), "channel_write", meta=_TOOL_USE_META)
+        (record,) = _tool_calls(project)
+        assert record["approval"] == {
+            "outcome": "approved",
+            "approver": "human",
+            "permission_mode": "default",
+            "position": None,
+        }
+        assert record["target"] is None
+
+    @pytest.mark.usefixtures("bound")
+    async def test_a_posture_refusal_files_the_entry_once(self, project, monkeypatch):
         _sandbox(monkeypatch)
         await _refused(am.AuditMiddleware(), "channel_write")
-        (record,) = _full(project)
-        assert record["decision"] == DECISION_REFUSED
-        assert record["reason"] == am.REASON_POSTURE
-        assert record["is_error"] is True
-        assert "refused" in record["error"]
+        (record,) = _tool_calls(project)
+        assert (record["target"], record["generation"]) == ("va", 7)
+        assert _records(project)[-1]["decision"] == DECISION_REFUSED
 
-    @pytest.mark.usefixtures("full_record")
-    async def test_a_tool_error_records_its_message(self, project):
+    @pytest.mark.usefixtures("bound")
+    async def test_a_tool_error_keeps_its_message_out_of_the_entry(self, project):
         with pytest.raises(ToolError):
             await _call(am.AuditMiddleware(), "channel_write", raises=ToolError("limit hit"))
-        (record,) = _full(project)
-        assert record["reason"] == am.REASON_TOOL_ERROR
-        assert record["error"] == "limit hit"
-        # The default record still carries no payload.
-        assert "limit hit" not in json.dumps(_records(project)[-1])
+        (record,) = _tool_calls(project)
+        assert "limit hit" not in json.dumps(record)
+        assert _records(project)[-1]["reason"] == am.REASON_TOOL_ERROR
 
-    @pytest.mark.usefixtures("full_record")
-    async def test_an_inner_refusal_is_recorded_with_the_inner_words(self, project):
-        async def call_next(_ctx):
-            mark_recorded(DECISION_REFUSED, "runtime_guard")
-            return "partial output"
+    @pytest.mark.usefixtures("bound")
+    async def test_a_failing_tool_call_write_never_costs_the_call(self, project, monkeypatch):
+        def broken(*_args, **_kwargs):
+            raise RuntimeError("record gone")
 
-        await am.AuditMiddleware().on_call_tool(_context("execute"), call_next)
-        (record,) = _full(project)
-        assert (record["decision"], record["reason"]) == (DECISION_REFUSED, "runtime_guard")
-        assert record["result"] == "partial output"
+        monkeypatch.setattr(am.tool_call, "build_record", broken)
+        result, _ = await _call(am.AuditMiddleware(), "channel_read")
+        assert result == "channel_read-result"
+        assert _tool_calls(project) == []
+        assert _records(project)[-1]["decision"] == DECISION_ALLOWED
 
-    @pytest.mark.usefixtures("full_record")
-    async def test_the_target_and_generation_are_recorded(self, project, monkeypatch):
+    async def test_the_default_record_is_the_same_with_or_without_the_entry(
+        self, project, monkeypatch
+    ):
+        await _call(am.AuditMiddleware(), "channel_read", meta=_TOOL_USE_META)
+        without = _records(project)[-1]
+        assert _tool_calls(project) == []
+
         from osprey_connectors import control_context
 
         monkeypatch.setattr(
             control_context, "read_record", lambda: SimpleNamespace(target="va", generation=7)
         )
-        await _call(am.AuditMiddleware(), "channel_read")
-        (record,) = _full(project)
-        assert (record["target"], record["generation"]) == ("va", 7)
-
-    @pytest.mark.usefixtures("full_record")
-    async def test_noted_facts_ride_the_record(self, project):
-        from osprey.audit.call import note
-
-        async def call_next(_ctx):
-            note(limits={"verdict": "passed"}, old_values={"A:1": {"value": 1}})
-            return "ok"
-
-        await am.AuditMiddleware().on_call_tool(_context("channel_write"), call_next)
-        (record,) = _full(project)
-        assert record["facts"] == {
-            "limits": {"verdict": "passed"},
-            "old_values": {"A:1": {"value": 1}},
-        }
-
-    @pytest.mark.usefixtures("full_record")
-    async def test_a_failing_tool_call_write_never_costs_the_call(self, project, monkeypatch):
-        def broken(*_args, **_kwargs):
-            raise RuntimeError("ledger gone")
-
-        monkeypatch.setattr(am.tool_call, "build_record", broken)
-        result, _ = await _call(am.AuditMiddleware(), "channel_read")
-        assert result == "channel_read-result"
-        assert _full(project) == []
-        assert _records(project)[-1]["decision"] == DECISION_ALLOWED
-
-    async def test_the_default_record_is_unchanged_with_the_surface_on(self, project, monkeypatch):
-        monkeypatch.setattr(am.tool_call, "settings", lambda: (False, 4096))
         await _call(am.AuditMiddleware(), "channel_read", meta=_TOOL_USE_META)
-        off = _records(project)[-1]
+        with_entry = _records(project)[-1]
+        assert len(_tool_calls(project)) == 1
 
-        monkeypatch.setattr(am.tool_call, "settings", lambda: (True, 4096))
-        await _call(am.AuditMiddleware(), "channel_read", meta=_TOOL_USE_META)
-        on = _records(project)[-1]
+        without.pop("ts")
+        with_entry.pop("ts")
+        assert with_entry == without
 
-        off.pop("ts")
-        on.pop("ts")
-        assert on == off
-
-    @pytest.mark.usefixtures("full_record")
-    async def test_an_oversize_result_is_a_reference(self, project, monkeypatch):
-        from osprey.audit import tool_call as tool_call_module
-
-        monkeypatch.setattr(
-            "osprey.stores.artifact_store.get_artifact_store",
-            lambda: SimpleNamespace(save_file=lambda **_kw: SimpleNamespace(id="art-1")),
-        )
-        await _call(am.AuditMiddleware(), "channel_read", result="v" * 10000)
-        (record,) = _full(project)
-        assert "result" not in record
-        assert record["result_ref"]["artifact_id"] == "art-1"
-        assert record["result_ref"]["size"] > 4096
-        assert tool_call_module.SURFACE_TOOL_CALL == "tool_call"
+    def test_the_settings_reader_is_gone(self):
+        assert not hasattr(am, "_tool_call_settings")
+        assert not hasattr(am.tool_call, "settings")
 
 
 class TestToolCallApproval:
     """``tool_call.approval`` names who answered and the switch position it ran under."""
 
-    @pytest.mark.usefixtures("full_record")
     async def test_a_switch_approved_call_names_write_switch_at_allowed(self, project, ask_stamps):
         ask_stamps("toolu_01abc", approver="write_switch", position="allowed")
         await _call(am.AuditMiddleware(), "channel_write", meta=_TOOL_USE_META)
-        (record,) = _full(project)
+        (record,) = _tool_calls(project)
         assert record["approval"] == {
             "outcome": "approved",
             "approver": "write_switch",
@@ -1888,49 +1883,39 @@ class TestToolCallApproval:
             "position": "allowed",
         }
         # The position never rides in the decision: the envelope keeps its words.
-        assert record["decision"] == DECISION_ALLOWED
-        assert _records(project, identity=_identity())[-1]["decision"] == DECISION_ALLOWED
+        assert _records(project)[-1]["decision"] == DECISION_ALLOWED
 
-    @pytest.mark.usefixtures("full_record")
     async def test_a_human_approved_call_carries_asked(self, project, ask_stamps):
         ask_stamps("toolu_01abc", approver="human", mode="acceptEdits", position="asked")
         await _call(am.AuditMiddleware(), "channel_write", meta=_TOOL_USE_META)
-        (record,) = _full(project)
+        (record,) = _tool_calls(project)
         assert record["approval"] == {
             "outcome": "approved",
             "approver": "human",
             "permission_mode": "acceptEdits",
             "position": "asked",
         }
-        assert record["decision"] == DECISION_ALLOWED
+        assert _records(project)[-1]["decision"] == DECISION_ALLOWED
 
-    @pytest.mark.usefixtures("full_record")
     async def test_a_dispatch_run_stays_dispatch_policy_at_allowed(self, project, ask_stamps):
         ask_stamps("toolu_01abc", approver="dispatch_policy", position="allowed")
         await _call(am.AuditMiddleware(), "channel_write", meta=_TOOL_USE_META)
-        (record,) = _full(project)
+        (record,) = _tool_calls(project)
         assert record["approval"]["approver"] == "dispatch_policy"
         assert record["approval"]["position"] == "allowed"
-        assert record["decision"] == DECISION_ALLOWED
+        assert _records(project)[-1]["decision"] == DECISION_ALLOWED
 
-    @pytest.mark.usefixtures("full_record")
     async def test_a_non_governed_ask_has_no_position(self, project, ask_stamps):
         ask_stamps("toolu_01abc")
         await _call(am.AuditMiddleware(), "channel_write", meta=_TOOL_USE_META)
-        (record,) = _full(project)
+        (record,) = _tool_calls(project)
         assert record["approval"]["position"] is None
         assert record["approval"]["approver"] == "human"
-
-    @pytest.mark.usefixtures("full_record", "ask_stamps")
-    async def test_an_unstamped_call_has_no_approval(self, project):
-        await _call(am.AuditMiddleware(), "channel_write", meta=_TOOL_USE_META)
-        (record,) = _full(project)
-        assert record["approval"] is None
 
     async def test_the_detail_names_the_switch_approver(self, project, ask_stamps):
         ask_stamps("toolu_01abc", approver="write_switch", position="allowed")
         await _call(am.AuditMiddleware(), "channel_write", meta=_TOOL_USE_META)
-        record = _records(project, identity=_identity())[-1]
+        record = _records(project)[-1]
         assert record["detail"] == "approval=approved approver=write_switch"
         assert record["decision"] == DECISION_ALLOWED
 
@@ -1945,67 +1930,3 @@ class TestToolCallApproval:
         path = ask_stamps("toolu_01abc")
         path.write_text(json.dumps({"approver": "human", "position": 3}))
         assert am._approval_answered("toolu_01abc") == ("human", None, None)
-
-
-class TestToolCallImageSpill:
-    @staticmethod
-    def _image_result(raw: bytes):
-        import base64
-
-        from fastmcp.tools.base import ToolResult
-        from mcp.types import ImageContent, TextContent
-
-        return ToolResult(
-            content=[
-                TextContent(type="text", text="shot"),
-                ImageContent(
-                    type="image", data=base64.b64encode(raw).decode(), mimeType="image/png"
-                ),
-            ],
-            structured_content=None,
-        )
-
-    @pytest.mark.usefixtures("full_record")
-    async def test_the_call_site_names_the_spill(self, project, monkeypatch):
-        seen: list[dict] = []
-
-        def save_or_touch(sha256, *, origin, save_kwargs):
-            assert len(sha256) == 64
-            assert origin == "tool_call"
-            seen.append(save_kwargs)
-            return SimpleNamespace(id="art-img")
-
-        monkeypatch.setattr(
-            "osprey.stores.artifact_store.get_artifact_store",
-            lambda: SimpleNamespace(save_or_touch_by_sha256=save_or_touch),
-        )
-        await _call(
-            am.AuditMiddleware(),
-            "channel_read",
-            meta=_TOOL_USE_META,
-            result=self._image_result(b"p" * 9000),
-        )
-        (record,) = _full(project)
-        image = record["result"]["content"][1]
-        assert image["artifact_id"] == "art-img"
-        assert "data" not in image
-        (kwargs,) = seen
-        assert kwargs["filename"].startswith("toolu_01abc-")
-        assert "mcp__controls__channel_read" in kwargs["title"]
-
-    @pytest.mark.usefixtures("full_record")
-    async def test_a_raising_store_still_files_the_record(self, project, monkeypatch):
-        def broken():
-            raise RuntimeError("store gone")
-
-        monkeypatch.setattr("osprey.stores.artifact_store.get_artifact_store", broken)
-        returned, _ = await _call(
-            am.AuditMiddleware(), "channel_read", result=self._image_result(b"p" * 9000)
-        )
-
-        assert returned.content[1].data  # the caller's result is untouched
-        (record,) = _full(project)
-        image = record["result"]["content"][1]
-        assert image["artifact_id"] is None
-        assert image["artifact_error"] == "RuntimeError"
-        assert "data" not in image

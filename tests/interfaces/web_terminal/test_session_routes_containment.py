@@ -102,14 +102,14 @@ def test_a_traversal_id_reads_as_a_missing_transcript(client, transcripts, tmp_p
             "/api/session-agent-timeline",
             params={"agent_id": agent_id, "session_id": "parent"},
         )
-        expected = {"agent_id": agent_id, "timeline": [], "count": 0}
+        expected = {"agent_id": agent_id, "timeline": [], "count": 0, "record": "complete"}
     else:
         session_id = _plant_outside(tmp_path, claude_dir)
         resp = client.get(f"/api/{route}", params={"session_id": session_id})
         expected = (
-            {"turns": [], "count": 0}
+            {"turns": [], "count": 0, "record": "complete"}
             if route == "session-chat"
-            else {"events": [], "total_events": 0, "showing": 0}
+            else {"events": [], "total_events": 0, "showing": 0, "record": "complete"}
         )
 
     assert resp.status_code == 200

@@ -150,7 +150,7 @@ def use_process_web_credentials(app: Any) -> None:
 # ``MagicMock`` answered every later config read in the worker — which is how
 # an unrelated store suite ended up resolving its repo root one directory short.
 #
-# The suite-wide ``_isolate_audit_zone`` (``tests/conftest.py``) does request
+# The suite-wide ``_isolate_ahead_of_monkeypatch`` (``tests/conftest.py``) does request
 # ``monkeypatch``, so that early creation is the normal order everywhere. What
 # keeps it harmless is the invariant on the other side: a fixture and a test
 # body that repoint the SAME seam must both go through ``monkeypatch`` (see

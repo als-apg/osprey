@@ -35,14 +35,14 @@ CHAIN = {
 
 
 @pytest.fixture(autouse=True)
-def _restore_environ():
-    saved = os.environ.copy()
-    os.environ.pop("OSPREY_CONFIG", None)
+def _clear_chain_keys(monkeypatch):
+    """Start every test with none of the chain's keys in the environment.
+
+    The root conftest's ``restore_environ`` puts the environment back afterwards.
+    """
+    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
     for key in CHAIN:
-        os.environ.pop(key, None)
-    yield
-    os.environ.clear()
-    os.environ.update(saved)
+        monkeypatch.delenv(key, raising=False)
 
 
 def _single_user_repo(root: Path) -> Path:

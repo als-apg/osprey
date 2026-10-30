@@ -2,28 +2,32 @@
 
 A port taken from ``bind(0)`` and closed again lies in the kernel's ephemeral
 range and is free for any ``connect()`` or ``bind(0)`` on the host until the
-server it was picked for binds it. A server binds port 0 itself and reports
-the port it was given instead (``run_app_server`` yields the URL of an app on
-a socket it owns); where the number must be known before the bind, a held
-``reserved_port()`` from ``osprey_connectors_tests._harness._ports`` supplies
-it.
+server it was picked for binds it. A port is one of three things instead. A
+server binds port 0 itself and reports the port it was given
+(``listening_socket`` in ``osprey.interfaces._serving`` binds it, and
+``run_app_server`` yields the URL of an app on such a socket). A number needed
+before the bind is a held ``reserved_port()`` / ``reserved_ports()`` (the
+``reserve_port`` fixture in a test). A port that must be occupied is a
+``bound_socket()``. The last two live in
+``osprey_connectors_tests._harness._ports``.
 
 A site is either a use of ``free_port`` or ``find_free_port``, or a
-``.bind((<host>, 0))`` on a socket whose ``getsockname()`` the same scope reads
-and which that scope never ``listen()``s on. A socket that listens is a server
-holding the port it reports, which is the remedy, not a site.
+``.bind((<host>, 0))``, whatever expression the host is, on a socket whose
+``getsockname()`` the same scope reads and which that scope never
+``listen()``s on. A socket that listens is a server holding the port it
+reports, which is the remedy, not a site.
 
-The walk covers ``src/`` and ``tests/``. ``REMAINING_SITES`` maps each file
-that still holds sites, relative to the repository root, to its count. A file
-outside it fails the ratchet, and so does a file with more sites than listed or
-with fewer, so the counts only shrink.
+The walk covers every Python tree of the repository: ``src/``, ``tests/``,
+``packages/`` (the connectors suite among them), ``docs/`` and ``scripts/``.
+``REMAINING_SITES`` maps each file that still holds sites, relative to the
+repository root, to its count. A file outside it fails the ratchet, and so does
+a file with more sites than listed or with fewer, so the counts only shrink.
 """
 
 from __future__ import annotations
 
 import ast
 import re
-import shutil
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -32,82 +36,14 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 #: The trees walked, relative to the repository root.
-TREES = ("src", "tests")
+TREES = ("docs", "packages", "scripts", "src", "tests")
 
 #: Helpers that return a port number after releasing it.
 RELEASING_HELPERS = frozenset({"free_port", "find_free_port"})
 
 #: Files that still pick a released port, relative to the repository root,
 #: sorted, each with its number of sites.
-REMAINING_SITES: dict[str, int] = {
-    "src/osprey/cli/theme_lab_cmd.py": 1,
-    "src/osprey/cli/web_cmd.py": 1,
-    "src/osprey/infrastructure/proxy/lifecycle.py": 2,
-    "src/osprey/interfaces/_serving.py": 1,
-    "tests/cli/test_als_lane.py": 1,
-    "tests/cli/test_web_bind.py": 1,
-    "tests/cli/test_web_cmd.py": 43,
-    "tests/cli/test_web_session_lifetime.py": 9,
-    "tests/connectors/test_epics_ca_softioc.py": 1,
-    "tests/deployment/test_qmd_entrypoint_loopback_probe.py": 1,
-    "tests/deployment/web_terminals/test_auth_serving.py": 2,
-    "tests/e2e/_dispatch_harness.py": 2,
-    "tests/e2e/_orm_stack.py": 1,
-    "tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py": 1,
-    "tests/e2e/fixtures/gchat_pubsub_emulator.py": 1,
-    "tests/e2e/test_dispatch_allowlist_parity.py": 1,
-    "tests/e2e/test_target_switch_agentic.py": 1,
-    "tests/e2e/test_va_substrate_equivalence.py": 1,
-    "tests/e2e/web_terminals/test_loopback_chokepoint.py": 1,
-    "tests/e2e/web_terminals/test_session_restart_e2e.py": 1,
-    "tests/e2e/web_terminals/test_terminal_auth_e2e.py": 1,
-    "tests/fixtures/bench_ioc.py": 1,
-    "tests/health/core/test_ariel.py": 1,
-    "tests/hooks/test_approval_queue_enrichment.py": 3,
-    "tests/hooks/test_notebook_update_hook.py": 1,
-    "tests/hooks/test_osprey_panels_context.py": 1,
-    "tests/hooks/test_panels_context_hook.py": 3,
-    "tests/infrastructure/proxy/test_proxy_lifecycle.py": 1,
-    "tests/infrastructure/test_server_launcher.py": 6,
-    "tests/integration/test_tiled_export.py": 1,
-    "tests/interfaces/_panel_launch.py": 1,
-    "tests/interfaces/channel_finder/test_server_launcher.py": 11,
-    "tests/interfaces/web_terminal/test_jupyter_sidecar.py": 1,
-    "tests/interfaces/web_terminal/test_opaque_panel_browser.py": 1,
-    "tests/interfaces/web_terminal/test_panels_browser.py": 5,
-    "tests/interfaces/web_terminal/test_panels_collab_browser.py": 1,
-    "tests/mcp_server/bluesky/test_draft_tools_emit.py": 1,
-    "tests/mcp_server/test_artifact_store.py": 2,
-    "tests/mcp_server/test_backend_emit_sites.py": 2,
-    "tests/mcp_server/test_endpoint_prober.py": 1,
-    "tests/pty/conftest.py": 1,
-    "tests/services/ariel_search/integration/test_default_deployment_degrades.py": 1,
-    "tests/services/ariel_search/integration/test_enhance_image_modules.py": 1,
-    "tests/services/ariel_search/test_attachment_fetch.py": 1,
-    "tests/services/ariel_search/test_hybrid_search.py": 1,
-    "tests/services/ariel_search/test_image_caption.py": 4,
-    "tests/services/ariel_search/test_image_embedding.py": 1,
-    "tests/services/ariel_search/test_image_lane.py": 1,
-    "tests/services/ariel_search/test_llama_stub.py": 1,
-    "tests/services/ariel_search/test_provider_resolver.py": 8,
-    "tests/services/ariel_search/test_semantic_search.py": 1,
-    "tests/services/ariel_search/test_vision_errors.py": 1,
-    "tests/services/bluesky_bridge/test_data_route.py": 1,
-    "tests/stores/test_gallery_launch_on_save.py": 1,
-    "tests/test_graphdb_container.py": 1,
-    "tests/va/e2e/conftest.py": 2,
-    "tests/va/e2e/test_bench_ioc_live.py": 1,
-    "tests/va/e2e/test_bluesky_lanes.py": 1,
-    "tests/va/e2e/test_live_standin.py": 2,
-    "tests/va/e2e/test_model_status_va.py": 2,
-    "tests/va/e2e/test_per_target_posture.py": 1,
-    "tests/va/e2e/test_planted_journal.py": 1,
-    "tests/va/e2e/test_substrate_parity.py": 1,
-    "tests/va/e2e/test_target_switch.py": 2,
-    "tests/va/e2e/test_va_put_surface.py": 2,
-    "tests/va/test_apply_fault.py": 4,
-    "tests/va/test_lume_pva_seam.py": 4,
-}
+REMAINING_SITES: dict[str, int] = {}
 
 _TOKEN = re.compile(r"\.bind\b|free_port\b")
 
@@ -196,8 +132,10 @@ def ratchet_failures(found: dict[str, int], remaining: dict[str, int]) -> list[s
     """What the found sites break of the ratchet: new or grown sites, and stale counts."""
     remedy = (
         "bind port 0 in the server and read the bound port back from its socket "
-        "(run_app_server does this for an app); where the number is needed before "
-        "the bind, hold a reserved_port() from osprey_connectors_tests._harness._ports"
+        "(listening_socket binds it, run_app_server serves an app on it); where the "
+        "number is needed before the bind, hold a reserved_port() (the reserve_port "
+        "fixture in a test); where the port must be busy, hold a bound_socket(); "
+        "both from osprey_connectors_tests._harness._ports"
     )
     failures = []
     for path in sorted(found.keys() | remaining.keys()):
@@ -228,6 +166,8 @@ def test_no_new_released_port_sites():
         "    port = s.getsockname()[1]\n",
         "def pick(sock, host):\n    sock.bind((host, 0))\n    return sock.getsockname()[1]\n",
         "def pick(self):\n    self.sock.bind((self.host, 0))\n    return self.sock.getsockname()\n",
+        "def pick(sock, hosts):\n    sock.bind((hosts[0], 0))\n    return sock.getsockname()[1]\n",
+        "def pick(sock, host):\n    sock.bind((host(), 0))\n    return sock.getsockname()[1]\n",
         "from osprey.interfaces._serving import free_port\nport = free_port()\n",
         "from osprey.interfaces import _serving\nport = _serving.free_port()\n",
         "def start(factory):\n    return factory(port_factory=find_free_port)\n",
@@ -236,6 +176,8 @@ def test_no_new_released_port_sites():
         "with-block",
         "name-host",
         "attribute-socket",
+        "subscript-host",
+        "call-host",
         "free-port-call",
         "free-port-attribute",
         "find-free-port-reference",
@@ -261,43 +203,59 @@ def test_a_held_or_explicit_port_is_no_site(source):
     assert released_port_count(source) == 0
 
 
-def _copy_tree(tmp_path: Path) -> Path:
+#: A listed file of the synthetic trees below, with the one site it holds.
+_LISTED = {"tests/listed/test_listed.py": 1}
+
+_ONE_SITE = "from osprey.interfaces._serving import free_port\nPORT = free_port()\n"
+
+
+def _tree(tmp_path: Path) -> Path:
+    """A repository with the walked trees and one listed file holding its site."""
     root = tmp_path / "repo"
     for tree in TREES:
         (root / tree).mkdir(parents=True)
-    for relative in REMAINING_SITES:
-        target = root / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(REPO_ROOT / relative, target)
+    for relative in _LISTED:
+        (root / relative).parent.mkdir(parents=True)
+        (root / relative).write_text(_ONE_SITE)
     return root
 
 
-def test_a_planted_site_fails_the_ratchet(tmp_path):
-    root = _copy_tree(tmp_path)
-    planted = root / "tests/planted/test_planted.py"
-    planted.parent.mkdir()
-    planted.write_text("from osprey.interfaces._serving import free_port\nPORT = free_port()\n")
-    failures = ratchet_failures(released_port_sites(root), REMAINING_SITES)
+def test_the_synthetic_tree_passes_the_ratchet(tmp_path):
+    assert ratchet_failures(released_port_sites(_tree(tmp_path)), _LISTED) == []
+
+
+@pytest.mark.parametrize(
+    "planted_path",
+    ["tests/planted/test_planted.py", "packages/osprey-connectors/tests/planted/test_planted.py"],
+    ids=["framework-suite", "connectors-suite"],
+)
+def test_a_planted_site_fails_the_ratchet(tmp_path, planted_path):
+    root = _tree(tmp_path)
+    planted = root / planted_path
+    planted.parent.mkdir(parents=True)
+    planted.write_text(_ONE_SITE)
+    failures = ratchet_failures(released_port_sites(root), _LISTED)
     assert len(failures) == 1
-    assert failures[0].startswith("tests/planted/test_planted.py: 1 pick-and-release")
+    assert failures[0].startswith(f"{planted_path}: 1 pick-and-release")
     assert "bind port 0 in the server" in failures[0]
+    assert "bound_socket()" in failures[0]
 
 
 def test_a_grown_listed_file_fails_the_ratchet(tmp_path):
-    root = _copy_tree(tmp_path)
-    grown = next(iter(REMAINING_SITES))
+    root = _tree(tmp_path)
+    (grown,) = _LISTED
     with (root / grown).open("a", encoding="utf-8") as handle:
         handle.write("\n\ndef _planted():\n    return free_port()\n")
-    failures = ratchet_failures(released_port_sites(root), REMAINING_SITES)
+    failures = ratchet_failures(released_port_sites(root), _LISTED)
     assert len(failures) == 1
-    assert failures[0].startswith(f"{grown}: {REMAINING_SITES[grown] + 1} pick-and-release")
+    assert failures[0].startswith(f"{grown}: 2 pick-and-release")
 
 
 def test_a_converted_file_fails_the_ratchet_until_it_is_delisted(tmp_path):
-    root = _copy_tree(tmp_path)
-    converted = next(iter(REMAINING_SITES))
+    root = _tree(tmp_path)
+    (converted,) = _LISTED
     (root / converted).write_text('"""Converted."""\n')
-    failures = ratchet_failures(released_port_sites(root), REMAINING_SITES)
+    failures = ratchet_failures(released_port_sites(root), _LISTED)
     assert failures == [f"{converted}: no released port left; delete it from REMAINING_SITES"]
 
 

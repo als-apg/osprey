@@ -85,7 +85,7 @@ import textwrap
 import time
 import uuid
 from collections.abc import Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from importlib.metadata import requires as distribution_requires
 from pathlib import Path
@@ -96,6 +96,7 @@ import pytest
 import yaml
 from packaging.requirements import Requirement
 
+from osprey.agent_record.credentials import ensure_agent_record_credentials
 from osprey.deployment.web_terminals.artifacts import (
     proxy_env_names_with_a_value,
     web_artifacts_dir,
@@ -113,7 +114,6 @@ from osprey.deployment.web_terminals.render import (
     TERMINAL_SECRET_HEADER,
     render_web_terminals,
 )
-from osprey.interfaces._serving import free_port
 from osprey.interfaces.common_middleware import PANEL_CAP_SEGMENT
 from osprey.services.auth_sidecar.app import (
     DEFAULT_OIDC_CLIENT_ID_ENV,
@@ -128,8 +128,10 @@ from osprey_connectors.dotenv import (
     merge_chain,
     parse_dotenv_file,
 )
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests._container_support import docker_cli_unavailable_reason_once
 from tests._renders import tier_render
+from tests.deployment.web_terminals._sidecar_http import wait_for_http
 from tests.services.auth_sidecar.mock_idp import DEFAULT_CLIENT_ID, DEFAULT_CLIENT_SECRET
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -266,7 +268,12 @@ def _build_harness_image(tmp_path: Path) -> str:
     dockerfile = _harness_dockerfile()
     tag = f"osprey-auth-serving-harness:{hashlib.sha256(dockerfile.encode()).hexdigest()[:12]}"
 
-    if subprocess.run(["docker", "image", "inspect", tag], capture_output=True).returncode == 0:
+    if (
+        subprocess.run(
+            ["docker", "image", "inspect", tag], capture_output=True, timeout=60
+        ).returncode
+        == 0
+    ):
         return tag
 
     context = tmp_path / "harness"
@@ -297,7 +304,9 @@ def _ensure_image(reference: str) -> None:
     Pulling up front with a bounded retry keeps a registry hiccup from being
     reported as a failure of the perimeter.
     """
-    present = subprocess.run(["docker", "image", "inspect", reference], capture_output=True)
+    present = subprocess.run(
+        ["docker", "image", "inspect", reference], capture_output=True, timeout=60
+    )
     if present.returncode == 0:
         return
     pulled = None
@@ -449,9 +458,10 @@ class Stack:
         subprocess.run(["docker", "rm", "-f", self.auth_container], capture_output=True, timeout=60)
         started = subprocess.run(self.auth_run_argv, capture_output=True, text=True, timeout=180)
         assert started.returncode == 0, started.stderr
-        _wait_for(
+        wait_for_http(
             f"{self.base_url}/auth/login?user=alice",
-            names=[self.auth_container],
+            containers=[self.auth_container],
+            timeout=_READY_TIMEOUT,
             what="the recreated auth sidecar",
             ok=_login_page_status(self.auth_method),
         )
@@ -548,44 +558,13 @@ def _rendered_upstream_ports(nginx_conf: str) -> dict[str, int]:
     return {m.group("user"): int(m.group("port")) for m in _UPSTREAM_RE.finditer(nginx_conf)}
 
 
-def _docker_logs(name: str) -> str:
-    result = subprocess.run(
-        ["docker", "logs", "--tail", "40", name], capture_output=True, text=True
-    )
-    return f"--- {name} ---\n{result.stdout}\n{result.stderr}"
-
-
-def _wait_for(
-    url: str,
-    *,
-    names: list[str],
-    what: str,
-    timeout: float = 240.0,
-    ok: tuple[int, ...] = (200,),
-) -> None:
-    """Poll ``url`` until it answers with an ``ok`` status, else fail with the logs.
-
-    The default deadline is sized for a saturated host, not an idle one: the
-    sidecar's ``docker run`` returns long before uvicorn is listening, and with
-    an image build running alongside that gap has been observed past a minute
-    (#822). A generous deadline costs nothing on a healthy start — the poll
-    returns on the first good answer — and on a dead one the logs, not the
-    deadline, are the diagnosis.
-    """
-    deadline = time.monotonic() + timeout
-    last = "no attempt made"
-    while time.monotonic() < deadline:
-        try:
-            response = httpx.get(url, timeout=5)
-        except httpx.HTTPError as exc:  # not up yet
-            last = repr(exc)
-        else:
-            if response.status_code in ok:
-                return
-            last = f"HTTP {response.status_code}"
-        time.sleep(0.5)
-    logs = "\n".join(_docker_logs(name) for name in names)
-    raise AssertionError(f"{what} never became ready ({last})\n{logs}")
+#: How long a ``docker run`` sidecar gets to answer. Sized for a saturated host,
+#: not an idle one: the sidecar's ``docker run`` returns long before uvicorn is
+#: listening, and with an image build running alongside that gap has been
+#: observed past a minute (#822). A generous deadline costs nothing on a healthy
+#: start — the poll returns on the first good answer — and on a dead one the
+#: logs, not the deadline, are the diagnosis.
+_READY_TIMEOUT = 240.0
 
 
 _COMPOSE_INTERPOLATION = re.compile(
@@ -706,6 +685,15 @@ def serving_stack(tmp_path: Path, *, oidc: bool = False) -> Iterator[Stack]:
     # treats a missing include as a hard startup failure, so the container never
     # becomes ready until these exist and are handed to it (below).
     ensure_terminal_secrets(deployment_root, _USERS)
+    # The history page's gate secret, which a signed-in deployment serves and
+    # nginx reads from its own env file: minted by the preflight function too.
+    # Every config this module renders signs people in, so one call covers all.
+    # The grants follow the roster and the sign-in method; the config only
+    # needs some nginx port, reserved for the call and never bound.
+    with reserved_port() as unbound_port:
+        ensure_agent_record_credentials(
+            deployment_root, _config(unbound_port, oidc_issuer=None), reader_keys=False
+        )
     env_local = parse_dotenv_file(deployment_root / ENV_LOCAL_FILENAME)
     terminal_secrets = {user: env_local[terminal_secret_var(user)] for user in _USERS}
 
@@ -747,15 +735,16 @@ def serving_stack(tmp_path: Path, *, oidc: bool = False) -> Iterator[Stack]:
     idp_port: int | None = None
     idp_issuer: str | None = None
 
+    held = ExitStack()
     try:
-        # A port free a moment ago can be taken before docker binds it (the
-        # window is real: rendering and three container starts sit inside it),
-        # and the daemon reports that as an opaque failure. Re-render on a
-        # fresh port rather than turning a lost race into a red test.
+        # Docker binds each published port itself, so each port is reserved and
+        # held until the containers are gone. A service outside the test suite
+        # can still hold a port in the reserved band, which the daemon reports
+        # as an opaque failure, so a failed start re-renders on fresh ports.
         for attempt in range(3):
-            nginx_port = free_port()
+            nginx_port = held.enter_context(reserved_port())
             if oidc:
-                idp_port = free_port()
+                idp_port = held.enter_context(reserved_port())
                 idp_issuer = f"http://127.0.0.1:{idp_port}"
             artifacts = render_web_terminals(
                 _config(nginx_port, oidc_issuer=idp_issuer),
@@ -898,6 +887,10 @@ def serving_stack(tmp_path: Path, *, oidc: bool = False) -> Iterator[Stack]:
         # does it here (the minted secrets are in that chain), so the
         # entrypoint envsubsts each snippet with the real secret.
         nginx_env = _resolved_env_flags(nginx_service, chain_env)
+        # And its `env_file:` entries, read from the deployment root they are
+        # relative to, as compose reads them: the history page's gate secret.
+        for env_file in nginx_service.get("env_file") or []:
+            nginx_env += ["--env-file", str(deployment_root / env_file)]
 
         # The envsubst output directory (NGINX_ENVSUBST_OUTPUT_DIR=/etc/nginx/osprey)
         # must exist and be writable before the base image's entrypoint runs, or
@@ -931,11 +924,12 @@ def serving_stack(tmp_path: Path, *, oidc: bool = False) -> Iterator[Stack]:
         base_url = f"http://127.0.0.1:{nginx_port}"
         # The landing page is nginx's own healthcheck target and needs no
         # session; the login page is the first thing that requires the sidecar.
-        _wait_for(f"{base_url}/", names=names, what="nginx")
-        _wait_for(
+        wait_for_http(f"{base_url}/", containers=names, what="nginx", timeout=_READY_TIMEOUT)
+        wait_for_http(
             f"{base_url}/auth/login?user=alice",
-            names=names,
+            containers=names,
             what="the auth sidecar",
+            timeout=_READY_TIMEOUT,
             ok=_login_page_status(auth_method),
         )
         if idp_issuer is not None:
@@ -943,10 +937,11 @@ def serving_stack(tmp_path: Path, *, oidc: bool = False) -> Iterator[Stack]:
             # the published port. The sidecar fetches discovery at the first
             # login, so a provider that is not up yet would surface there as a
             # 502 with nothing to say about why.
-            _wait_for(
+            wait_for_http(
                 f"{idp_issuer}/.well-known/openid-configuration",
-                names=names,
+                containers=names,
                 what="the stub OpenID provider",
+                timeout=_READY_TIMEOUT,
             )
 
         yield Stack(
@@ -967,6 +962,7 @@ def serving_stack(tmp_path: Path, *, oidc: bool = False) -> Iterator[Stack]:
         # would collide with its name.
         for name in names:
             subprocess.run(["docker", "rm", "-f", name], capture_output=True, timeout=60)
+        held.close()
 
 
 @pytest.fixture(scope="module")

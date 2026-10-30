@@ -111,7 +111,7 @@ def site(tmp_path: Path):
                  "-i", "testsrc=size=64x36:rate=25:duration=2",
                  "-pix_fmt", "yuv420p", "-c:v", "libx264",
                  str(demo / f"osprey-demo-{theme}.mp4")],
-                check=True,
+                check=True, timeout=120,
             )  # fmt: skip
 
     page.add_videos = add_videos

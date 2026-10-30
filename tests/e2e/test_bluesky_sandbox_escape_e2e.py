@@ -451,18 +451,10 @@ def deployed_sandbox_stack(
 
     # Force fresh --dev builds so the deployed containers run CURRENT source
     # (osprey up does not pass --build to compose, so it would otherwise
-    # reuse a stale cached image). Exact-named images only.
-    if not os.environ.get("E2E_REUSE_IMAGES"):
-        subprocess.run(
-            ["docker", "rmi", "-f", _orm_stack.va_image("sandbox-escape")],
-            capture_output=True,
-            text=True,
-        )
-        subprocess.run(
-            ["docker", "rmi", "-f", _orm_stack.bridge_image("sandbox-escape")],
-            capture_output=True,
-            text=True,
-        )
+    # reuse a stale cached image).
+    _orm_stack.force_image_rebuild(
+        _orm_stack.va_image("sandbox-escape"), _orm_stack.bridge_image("sandbox-escape")
+    )
 
     try:
         up = subprocess.run(

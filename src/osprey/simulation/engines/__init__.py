@@ -30,26 +30,32 @@ class EnginePlugin(Protocol):
 
     A plug-in may state these names too, each looked up on the module by name:
 
-    ======================================================  ==============================================  ==========================================
-    name                                                    what it gives                                   a module without it
-    ======================================================  ==============================================  ==========================================
-    ``error_text(exc)``                                     the one line a failed build reports             the exception's own text
-    ``fault_variables(wiring)``                             every fault a model built from the wiring       the model declares no faults
-                                                            declares
-    ``polynomial_kicks(deck, elements)``                    a deck copy carrying named kicks as dipole      the pyAML view stops ``engine-invalid``
-                                                            polynomials; stand-in until pyAML reads a       when design correctors need it
-                                                            dipole kick held in ``KickAngle``
-    ``response_matrix(deck, wiring, settings,               the orbit response of the wired monitors:       ``model_response_matrix`` ends without a
-    correctors, step)``                                     ``rows``, ``columns``, ``matrix`` and the       result; the response check stops
-                                                            ``unsolved`` correctors with their texts. The
-                                                            plug-in raising one of the refusal exceptions
-                                                            refuses the whole request with its text; a
-                                                            return with no column is refused with the
-                                                            ``unsolved`` map
-    ``SOLVE_ERRORS``                                        the exceptions meaning "this request has no     every exception is a failure, never a
-                                                            solve"; stand-in until lume-base states         refusal
-                                                            ``SolveError``
-    ======================================================  ==============================================  ==========================================
+    ======================================  ============================================  ==========================================
+    name                                    what it gives                                 a module without it
+    ======================================  ============================================  ==========================================
+    ``error_text(exc)``                     the one line a failed build reports           the exception's own text
+    ``fault_variables(wiring)``             every fault a model built from the wiring     the model declares no faults
+                                            declares
+    ``polynomial_kicks(deck, elements)``    a deck copy carrying named kicks as dipole    the pyAML view stops ``engine-invalid``
+                                            polynomials; stand-in until pyAML reads a     when design correctors need it
+                                            dipole kick held in ``KickAngle``
+    ``response_matrix(...)``                called with ``(deck, wiring, settings,        ``model_response_matrix`` ends without a
+                                            correctors, step)``: the orbit response of    result; the response check stops
+                                            the wired monitors, ``rows``, ``columns``,
+                                            ``matrix`` and the ``unsolved`` correctors
+                                            with their texts. Raising one of
+                                            ``REFUSAL_ERRORS`` refuses the request with
+                                            its text; a ``FacilityBuildError`` refuses
+                                            it as a facility-file defect; a return with
+                                            no column is refused with the ``unsolved``
+                                            map
+    ``REFUSAL_ERRORS``                      the exceptions meaning "the request is not    no exception is a request refusal
+                                            one this engine answers"; stand-in until
+                                            lume-base states it
+    ``SOLVE_ERRORS``                        the exceptions meaning "this request has no   every exception is a failure, never a
+                                            solve"; stand-in until lume-base states       refusal
+                                            ``SolveError``
+    ======================================  ============================================  ==========================================
     """
 
     def locate(self, deck: Any, element: str, *, model: str | None = None) -> tuple[float, float]:

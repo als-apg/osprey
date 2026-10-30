@@ -23,8 +23,8 @@ hollow/degraded worker could not satisfy:
   * a custom ``overlay-visibility`` trigger that routes to the worker, invokes
     the overlay skill, and carries a ``surface_prompt`` fragment.
 
-Firing the trigger and reading the worker's persisted per-run record (its
-``tool_calls``, with the tool-call *results* the agent actually loaded
+Firing the trigger and reading the run's timeline from the agent record (its
+tool calls, with the tool-call *results* the agent actually loaded
 in-container) then proves, deterministically:
 
   (a) the OVERLAY SKILL was invoked AND present -> a ``Skill`` tool-call
@@ -115,8 +115,6 @@ WORKER_RENDER_DIR = f"{WORKER_PROJECT_DIR}/build"
 # root, which the compose generator renders the mount source from.
 WORKER_AGENT_DATA = f"{WORKER_PROJECT_DIR}/var/agent_data"
 WORKER_ARTIFACT_DIR = f"{WORKER_AGENT_DATA}/artifacts"
-# The worker persists each completed run (full result incl. tool_calls) here.
-WORKER_DISPATCH_DIR = f"{WORKER_AGENT_DATA}/dispatch"
 
 # Custom trigger + the observable tokens the overlay skill is instructed to emit.
 OVERLAY_TRIGGER = "overlay-visibility"
@@ -395,18 +393,26 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     # images first guarantees the worker bakes the mutation above. Ignore failure
     # if an image is absent.
     project = resolve_project_name({"project_name": PROJECT_NAME})
-    subprocess.run(["docker", "rmi", "-f", f"{project}:local"], capture_output=True, text=True)
     subprocess.run(
-        ["docker", "rmi", "-f", f"{project}-dispatch:local"], capture_output=True, text=True
+        ["docker", "rmi", "-f", f"{project}:local"], capture_output=True, text=True, timeout=120
     )
     subprocess.run(
-        ["docker", "rmi", "-f", f"{WORKER_TIER_PROJECT}:local"], capture_output=True, text=True
+        ["docker", "rmi", "-f", f"{project}-dispatch:local"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    subprocess.run(
+        ["docker", "rmi", "-f", f"{WORKER_TIER_PROJECT}:local"],
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
 
     # Drop any stale project volumes so the fresh deploy repopulates the worker
     # workspace from the image (osprey-owned agent-data tree). Without this, a
     # volume left root-owned by an older deployment makes the non-root worker
-    # unable to persist run records (see _drop_project_volumes).
+    # unable to write its agent data (see _drop_project_volumes).
     _drop_project_volumes()
 
     try:
@@ -562,30 +568,70 @@ def _clear_worker_artifacts() -> None:
     )
 
 
-def _worker_run_record(run_id: str) -> dict:
-    """Read the worker's persisted run JSON (full result incl. ``tool_calls``).
+#: Run inside the worker container, under the worker's own record login: the
+#: run's timeline from the agent record, as ``{name, input, result}`` per tool
+#: call. Retries while the read is incomplete (the transcript still ingesting).
+_RECORDED_RUN_CLIENT = r"""
+import json, os, sys, time
+from osprey.agent_record.client import RecordClient
 
-    The dispatcher feed only exposes a ``tool_count`` summary, but the worker
-    persists the whole result dict — ``tool_calls`` as ``{name, input, result}``
-    — to ``<project>/var/agent_data/dispatch/<run_id>.json``. That file is the
-    deterministic observable this test asserts on: tool-call *results* carry the
-    file/skill content the agent actually loaded in-container, independent of
-    how the agent formats any report.
+client = RecordClient.from_env(os.environ)
+deadline = time.monotonic() + 60
+while True:
+    answer = client.run_timeline(sys.argv[1])
+    if answer.complete or time.monotonic() > deadline:
+        break
+    time.sleep(2)
+
+
+def text(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(str(b.get("text", "")) for b in content if isinstance(b, dict))
+    return "" if content is None else json.dumps(content)
+
+
+calls = []
+for node in answer.data or []:
+    if node.get("kind") != "tool_call":
+        continue
+    body = node.get("body") or {}
+    result = (node.get("result") or {}).get("body") or {}
+    calls.append(
+        {"name": body.get("name"), "input": body.get("input"), "result": text(result.get("content"))}
+    )
+print(json.dumps({
+    "complete": answer.complete,
+    "unavailable": answer.unavailable,
+    "reason": answer.reason,
+    "tool_calls": calls,
+}))
+"""
+
+
+def _worker_run_record(run_id: str) -> dict:
+    """The run as the agent record holds it — the one place carrying tool results.
+
+    The dispatcher feed reports status and a tool COUNT; what a tool ANSWERED is
+    in the run's timeline in the agent record, read here from inside the worker
+    under its own record login, as ``tool_calls`` of ``{name, input, result}``.
+    Tool-call *results* carry the file/skill content the agent actually loaded
+    in-container, independent of how the agent formats any report. ``{}`` when
+    the read fails, so the caller reports it with its diagnostics.
     """
-    for _ in range(5):  # tiny retry for the persist-after-status window
-        proc = subprocess.run(
-            ["docker", "exec", WORKER_CONTAINER, "cat", f"{WORKER_DISPATCH_DIR}/{run_id}.json"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if proc.returncode == 0:
-            try:
-                return json.loads(proc.stdout)
-            except json.JSONDecodeError:
-                pass
-        time.sleep(1.0)
-    return {}
+    proc = subprocess.run(
+        ["docker", "exec", WORKER_CONTAINER, "python3", "-c", _RECORDED_RUN_CLIENT, run_id],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if proc.returncode != 0:
+        return {}
+    try:
+        return json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return {}
 
 
 def _tool_calls_referencing(tool_calls: list[dict], name: str, needle: str) -> list[dict]:
@@ -674,12 +720,14 @@ def _diagnostics(dispatch_id: str, run: dict, record: dict, artifact_body: str) 
         ["docker", "exec", WORKER_CONTAINER, "ls", "-la", f"{WORKER_RENDER_DIR}/.claude/skills"],
         capture_output=True,
         text=True,
+        timeout=60,
     )
     lines.append(f"skills dir:\n{skills.stdout or skills.stderr}")
     md = subprocess.run(
         ["docker", "exec", WORKER_CONTAINER, "sh", "-c", f"find {WORKER_ARTIFACT_DIR} -type f"],
         capture_output=True,
         text=True,
+        timeout=60,
     )
     lines.append(f"artifact files:\n{md.stdout or md.stderr}")
     lines.append(f"worker logs for run:\n{_worker_logs_for(run_id)}")
@@ -741,24 +789,21 @@ def test_overlay_skill_and_data_visible_in_worker() -> None:
     )
 
     tool_calls = record.get("tool_calls") or []
-    # Distinguish a persist failure from a genuinely empty run: if the dispatcher
-    # feed saw tool activity but the persisted record is empty, the agent DID act
-    # and only the on-disk record is missing — almost always a PermissionError
-    # writing WORKER_DISPATCH_DIR on a stale root-owned volume. Call that out
-    # explicitly so it is never again mistaken for "the agent took no actions".
+    # Distinguish a record that could not be read from a genuinely empty run: if
+    # the dispatcher feed saw tool activity but the record's timeline has none,
+    # the agent DID act and only the read is missing. Call that out explicitly so
+    # it is never mistaken for "the agent took no actions".
     if not tool_calls and run.get("tool_count"):
         pytest.fail(
             f"run {run_id!r} completed with tool_count={run.get('tool_count')!r} in "
-            f"the dispatcher feed, but its persisted record at {WORKER_DISPATCH_DIR} "
-            "has no tool_calls: the worker failed to PERSIST the run (typically a "
-            f"PermissionError writing {WORKER_DISPATCH_DIR} because the worker "
-            "workspace volume was left root-owned by a prior deployment). The "
-            "agent acted; the record is the problem — check the "
-            f"worker logs for 'Failed to persist run'.\n{diag}"
+            "the dispatcher feed, but the agent record's timeline of the run has no "
+            f"tool calls (record read: complete={record.get('complete')!r}, "
+            f"unavailable={record.get('unavailable')!r}, reason={record.get('reason')!r}). "
+            f"The agent acted; the record read is the problem.\n{diag}"
         )
     assert tool_calls, (
-        f"run completed but no tool_calls were persisted for run {run_id!r} at "
-        f"{WORKER_DISPATCH_DIR} — the agent took no actions in-container.\n{diag}"
+        f"run completed but the agent record holds no tool calls for run {run_id!r} "
+        f"— the agent took no actions in-container.\n{diag}"
     )
 
     haystack = _run_haystack(record, artifact_body)

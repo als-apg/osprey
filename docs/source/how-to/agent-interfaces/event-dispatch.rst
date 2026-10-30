@@ -249,7 +249,7 @@ else's behalf.
 
 The control system sees the job's writes under the worker's own service name,
 ``osprey-dispatch-<i>`` for worker *i*, not under yours: one worker runs jobs
-for everyone. Your name goes into the audit ledger instead, as ``owner=`` on
+for everyone. Your name goes into the audit trail instead, as ``owner=`` on
 the job's write records beside the worker name, which is how a line in the
 gateway's put-log is joined back to you. See :ref:`audit-trail-attribution`.
 

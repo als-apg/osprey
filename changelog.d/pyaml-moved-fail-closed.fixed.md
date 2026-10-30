@@ -1,0 +1,1 @@
+`pyaml_measure`'s `moved` now lists every setpoint whose write may have gone out: a refusal raised partway through a batch, an interrupt while the record is filed, or an exception that refuses attributes no longer drops a channel that was written.

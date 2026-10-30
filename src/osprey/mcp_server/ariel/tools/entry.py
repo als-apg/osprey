@@ -101,13 +101,9 @@ async def _resolve_artifacts(artifact_ids: list[str]) -> list[str]:
     from osprey.stores.artifact_store import get_artifact_store
 
     store = get_artifact_store()
-    resolved: list[str] = []
     output_dir = Path(tempfile.mkdtemp(prefix="ariel_convert_"))
 
-    for aid in artifact_ids:
-        resolved.append(await resolve_artifact_path(store, aid, output_dir))
-
-    return resolved
+    return [await resolve_artifact_path(store, aid, output_dir) for aid in artifact_ids]
 
 
 @mcp.tool()

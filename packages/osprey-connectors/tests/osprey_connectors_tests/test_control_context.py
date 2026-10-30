@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+import threading
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -23,6 +24,14 @@ from osprey_connectors.types import CONTROL_TARGETS
 from osprey_connectors_tests._paths import REPO_ROOT
 
 # --- fixtures --------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def proc_root(tmp_path_factory, monkeypatch):
+    """An empty ``/proc``, so a PID faked through ``os.kill`` never meets a real thread."""
+    root = tmp_path_factory.mktemp("proc")
+    monkeypatch.setattr(control_context, "_PROC_ROOT", str(root))
+    return root
 
 
 @pytest.fixture
@@ -645,6 +654,90 @@ def test_nothing_but_a_positive_int_names_a_process(monkeypatch, value):
 
     monkeypatch.setattr(os, "kill", explode)
     assert control_context.is_process_alive(value) is False
+
+
+def _status(root, pid, tgid):
+    """Lay down ``<root>/<pid>/status`` as the kernel words the two lines read."""
+    directory = root / str(pid)
+    directory.mkdir()
+    (directory / "status").write_bytes(
+        f"Name:\tosprey\nUmask:\t0022\nTgid:\t{tgid}\nNgid:\t0\nPid:\t{pid}\n".encode()
+    )
+
+
+def test_a_thread_of_a_process_is_not_a_process(proc_root, monkeypatch):
+    """``os.kill`` answers for any thread id; the deployment's record named one."""
+    monkeypatch.setattr(os, "kill", _kill_with_dead(set()))
+    _status(proc_root, 424, tgid=193)
+
+    assert control_context.is_process_alive(424) is False
+
+
+def test_a_thread_group_leader_is_a_process(proc_root, monkeypatch):
+    monkeypatch.setattr(os, "kill", _kill_with_dead(set()))
+    _status(proc_root, 193, tgid=193)
+
+    assert control_context.is_process_alive(193) is True
+
+
+def test_a_thread_we_may_not_signal_is_not_a_process(proc_root, monkeypatch):
+    def denied(pid, _sig):
+        raise PermissionError(pid)
+
+    monkeypatch.setattr(os, "kill", denied)
+    _status(proc_root, 424, tgid=193)
+
+    assert control_context.is_process_alive(424) is False
+
+
+@pytest.mark.parametrize(
+    "status",
+    [b"", b"Name:\tosprey\n", b"Tgid:\n", b"Tgid:\tnot-a-number\n", b"\xff\xfe\n"],
+    ids=["empty", "no-tgid-line", "no-value", "not-a-number", "not-text"],
+)
+def test_a_status_that_says_nothing_leaves_the_kernels_answer(proc_root, monkeypatch, status):
+    monkeypatch.setattr(os, "kill", _kill_with_dead(set()))
+    (proc_root / "424").mkdir()
+    (proc_root / "424" / "status").write_bytes(status)
+
+    assert control_context.is_process_alive(424) is True
+
+
+def test_a_record_naming_a_thread_has_no_live_owner(proc_root, monkeypatch):
+    """The nine terminals of the report: each followed a thread of itself."""
+    monkeypatch.setattr(os, "kill", _kill_with_dead(set()))
+    _status(proc_root, 424, tgid=193)
+    owner = {"kind": "web_terminal", "pid": 424, "port": 19101}
+    record = control_context.parse_record(json.dumps(_payload(owner=owner)))
+
+    assert record is not None
+    assert record.owner is not None and record.owner.pid == 424
+    assert control_context.live_owner(record) is None
+
+
+@pytest.mark.skipif(not Path("/proc/self/status").exists(), reason="needs a Linux /proc")
+def test_a_real_thread_id_passes_the_kernel_check_and_is_no_process(monkeypatch):
+    monkeypatch.setattr(control_context, "_PROC_ROOT", "/proc")
+    named = threading.Event()
+    release = threading.Event()
+    tids = []
+
+    def run():
+        tids.append(threading.get_native_id())
+        named.set()
+        release.wait(30)
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    try:
+        assert named.wait(30)
+        os.kill(tids[0], 0)  # the kernel's answer, which is what misled the owner check
+        assert tids[0] != os.getpid()
+        assert control_context.is_process_alive(tids[0]) is False
+        assert control_context.is_process_alive(os.getpid()) is True
+    finally:
+        release.set()
+        thread.join(30)
 
 
 # --- the claim rule --------------------------------------------------------

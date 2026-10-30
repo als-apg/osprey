@@ -313,6 +313,7 @@ def _tracked_js_sources() -> dict[str, str]:
         capture_output=True,
         text=True,
         check=True,
+        timeout=60,
     ).stdout.split()
     return {path: (REPO_ROOT / path).read_text(encoding="utf-8") for path in sorted(listed)}
 

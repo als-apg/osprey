@@ -12,8 +12,9 @@ These tests pin both halves of the fix:
   ``config["container_runtime"]``), so no call can poison another — while calls
   with *identical* inputs are still served from cache;
 * both health call sites thread the loaded config through — the ``containers``
-  category into ``get_runtime_command``, and the ``container`` probe into
-  ``get_ps_command`` via ``ProbeContext.config``.
+  category hands it to the probe, and the ``container`` probe into
+  ``get_ps_command`` via ``ProbeContext.config``, asking the runtime the
+  deployment record names.
 
 No test here touches a real docker/podman: ``shutil.which`` and
 ``subprocess.run`` are faked, and the health tests patch the runtime helpers out
@@ -24,13 +25,14 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
+from pathlib import Path
 from typing import Any
 
 import pytest
 
-import osprey.health.core.containers as containers_mod
 import osprey.health.probes.container as container_probe_mod
 from osprey.deployment import runtime_helper
+from osprey.deployment.deployment_record import DeploymentRecord, write_deployment_record
 from osprey.deployment.runtime_helper import get_runtime_command, reset_runtime_cache
 from osprey.health.core.containers import containers
 from osprey.health.models import CheckResult, Status
@@ -151,47 +153,10 @@ class _FakeProc:
 
 
 class TestHealthThreadsConfigThrough:
-    """Both health call sites must measure the runtime the config selects."""
-
-    async def test_category_passes_config_to_runtime_detection(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        seen: list[Any] = []
-
-        def _record(config: Any = None) -> list[str]:
-            seen.append(config)
-            raise RuntimeError("no container runtime")  # short-circuits to a skip row
-
-        monkeypatch.setattr(containers_mod, "get_runtime_command", _record)
-        config = {"container_runtime": "podman", "deployed_services": ["web"]}
-
-        rows = await containers(config)()
-
-        assert seen == [config]
-        assert [r.status for r in rows] == [Status.SKIP]
-
-    async def test_category_reports_the_configured_runtime(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """With config threaded, a podman project gets a ``podman_available`` row."""
-
-        def _detect(config: Any = None) -> list[str]:
-            runtime = (config or {}).get("container_runtime", "docker")
-            return [runtime, "compose"]
-
-        async def _fake_exec(*_a: object, **_k: object) -> _FakeProc:
-            return _FakeProc()
-
-        monkeypatch.setattr(containers_mod, "get_runtime_command", _detect)
-        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
-
-        rows = await containers({"container_runtime": "podman", "deployed_services": []})()
-
-        assert [r.name for r in rows] == ["podman_available"]
-        assert rows[0].status is Status.OK
+    """Both health call sites read the config through to the runtime they measure."""
 
     async def test_category_hands_the_config_to_the_probe(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         seen: list[Any] = []
 
@@ -202,31 +167,37 @@ class TestHealthThreadsConfigThrough:
         async def _fake_exec(*_a: object, **_k: object) -> _FakeProc:
             return _FakeProc()
 
-        monkeypatch.setattr(containers_mod, "get_runtime_command", lambda *_a, **_k: ["podman"])
+        write_deployment_record(tmp_path, DeploymentRecord("podman", "web-demo"))
         monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
-        config = {"container_runtime": "podman", "deployed_services": ["web"]}
+        config = {"project_root": str(tmp_path), "deployed_services": ["web"]}
 
         await containers(config, probe=_capturing_probe)()
 
         assert seen == [config]
 
-    async def test_probe_passes_ctx_config_to_ps_command(
-        self, monkeypatch: pytest.MonkeyPatch
+    async def test_probe_asks_ps_of_the_runtime_the_record_names(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         seen: list[Any] = []
 
         def _record(
             config: Any = None,
             all_containers: bool = False,  # noqa: ARG001 - get_ps_command's keyword argument
+            runtime: str | None = None,
         ) -> list[str]:
-            seen.append(config)
-            raise RuntimeError("no container runtime")  # short-circuits to a skip row
+            seen.append((config, runtime))
+            return [str(runtime), "ps"]
 
+        async def _absent(*_a: object, **_k: object) -> None:
+            raise FileNotFoundError("podman")  # short-circuits to a skip row
+
+        write_deployment_record(tmp_path, DeploymentRecord("podman", "web-demo"))
         monkeypatch.setattr(container_probe_mod, "get_ps_command", _record)
-        config = {"container_runtime": "podman"}
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _absent)
+        config = {"container_runtime": "docker", "project_root": str(tmp_path)}
         ctx = ProbeContext(runtime=HealthRuntime({}), config=config)
 
         result = await container_probe_mod.run({"container": "web"}, ctx)
 
-        assert seen == [config]
+        assert seen == [(config, "podman")]
         assert result.status is Status.SKIP

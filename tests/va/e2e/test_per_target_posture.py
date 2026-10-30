@@ -110,7 +110,6 @@ from fastapi.testclient import TestClient
 
 from osprey.audit import posture as audit_posture
 from osprey.audit import writer as audit_writer
-from osprey.interfaces._serving import free_port
 from osprey.interfaces.web_terminal.app import create_app
 from osprey.mcp_server.control_system import server_context as server_context_mod
 from osprey.mcp_server.control_system import session_control, target_state
@@ -126,6 +125,7 @@ from osprey_connectors.control_system._base import ChannelValue
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.types import TARGET_LIVE, TARGET_STANDIN, TARGET_VA
 from osprey_connectors_tests._harness import write_control_context
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests._approval_stamp_fixture import ApprovalStamps
 from tests.fixtures.control_context import context_for, publish_reachability
 from tests.mcp_server.conftest import get_tool_fn
@@ -135,7 +135,7 @@ from tests.va.e2e import conftest as e2e_conftest
 REPO_ROOT = Path(__file__).resolve().parents[3]
 REPO_PATHS = (str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src"))
 
-#: Container-name prefixes; ``_serving`` appends the run's own ephemeral port.
+#: Container-name prefixes; ``_serving`` appends the run's own reserved port.
 #: Named for the *target* each instance backs, since that is what the deployment
 #: below calls them and what every assertion is phrased in.
 CONTAINER_VA = "osprey-va-e2e-posture-va"
@@ -157,11 +157,11 @@ MIN_COLLECTED_TESTS = 28
 PROBE_CHANNEL = e2e_conftest.READINESS_ADDRESS
 
 #: The setpoint every write leg in this module attempts. Listed in the shipped
-#: limits database (``[-12, 12]``), which is what lets this module run the
-#: exclusive limits mode and still have a
-#: write that reaches the machine: an unlisted channel would be refused by the
+#: limits database with a band at both ends (``conftest.LANE.band``), which is
+#: what lets this module run the exclusive limits mode and still have a write
+#: that reaches the machine: an unlisted channel would be refused by the
 #: limits validator, which is a different gate from the one under test.
-CORRECTOR_SP = "SR:MAG:HCM:01:CURRENT:SP"
+CORRECTOR_SP = e2e_conftest.BOUNDED_SETPOINT
 
 #: The gateway port the facility's own machine is described on. Nothing serves
 #: it and nothing in this module dials it — see :func:`raw_config` for why the
@@ -221,17 +221,17 @@ def _serving(prefix: str):
     instances that were not identical would leave a reader wondering whether
     something else told them apart.
     """
-    port = free_port()
-    with e2e_conftest.serving_container(
-        f"{prefix}-{port}",
-        port,
-        *e2e_conftest.demo_data_run_args(),
-        # The namespace, named: the IOC refuses to boot without one rather
-        # than picking the framework's demo channels on its own.
-        *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
-        boot_timeout=BOOT_TIMEOUT_S,
-    ):
-        yield port
+    with reserved_port() as port:
+        with e2e_conftest.serving_container(
+            f"{prefix}-{port}",
+            port,
+            *e2e_conftest.demo_data_run_args(),
+            # The namespace, named: the IOC refuses to boot without one rather
+            # than picking the framework's demo channels on its own.
+            *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
+            boot_timeout=BOOT_TIMEOUT_S,
+        ):
+            yield port
 
 
 @pytest.fixture(scope="module")

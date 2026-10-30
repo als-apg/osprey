@@ -24,7 +24,6 @@ PR-3 and PR-9 require them to name the key and the command.
 from __future__ import annotations
 
 import ast
-import asyncio
 import importlib
 import os
 import re
@@ -38,7 +37,11 @@ import pytest
 from osprey.agent_runner import tool_names
 from osprey_connectors import refusals, write_target
 from osprey_connectors.control_system import _base as connector_base
-from osprey_connectors.errors import ChannelNotFoundError, ChannelWriteBlockedError
+from osprey_connectors.errors import (
+    ChannelNotFoundError,
+    ChannelWriteBlockedError,
+    RefusalReason,
+)
 
 REPO = Path(__file__).resolve().parents[2]
 SRC = REPO / "src" / "osprey"
@@ -122,7 +125,7 @@ WORDS_TABLE: dict[str, dict[str, Any]] = {
     },
     "WRITES_DISABLED": {
         "class": "contract",
-        "source": "osprey_connectors.errors.ChannelWriteBlockedError reasons",
+        "source": "osprey_connectors.errors.RefusalReason",
         "copies": ("control_system._base._verdict_refusal refusal_reason",),
     },
     "shell set": {
@@ -292,7 +295,7 @@ def _refused(reason: str | None, kind: str | None = None, allowed: bool = False)
 
 
 def test_writes_disabled_is_the_refusal_contract():
-    assert "WRITES_DISABLED" in ChannelWriteBlockedError._REFUSERS
+    assert RefusalReason("WRITES_DISABLED") is RefusalReason.WRITES_DISABLED
     for reason in refusals.REASONS:
         result = _refused(reason, "real")
         assert result.refusal_reason == "WRITES_DISABLED"
@@ -433,8 +436,8 @@ def _tool_error_surface(monkeypatch) -> list[str]:
         identity = {"name": "live", "label": banner, "endpoint": "gw:5064"} if banner else None
         monkeypatch.setattr(error_handling, "describe_active_target", lambda i=identity: i)
         for exc in errors:
-            _type, message, suggestions, _details = asyncio.run(
-                error_handling._envelope(exc, "channel_write", "control_system")
+            _type, message, suggestions, _details = error_handling._envelope(
+                exc, "channel_write", "control_system"
             )
             texts += [message, *suggestions]
     return texts

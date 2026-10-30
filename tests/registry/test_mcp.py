@@ -43,6 +43,9 @@ def _base_ctx(**overrides):
         "current_python_env": "/usr/bin/python3",
         "agent_data_root": DEFAULT_AGENT_DATA_BASE_DIR,
         "phoebus_agent_access": "read_write",
+        # The render funnel derives it from agent_record.retention_days;
+        # settings.json.j2 renders it unconditionally.
+        "cleanup_period_days": 30,
     }
     ctx.update(overrides)
     return ctx

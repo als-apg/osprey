@@ -205,11 +205,10 @@ def _safe_relative(output_path: str) -> PurePosixPath | None:
     return candidate
 
 
-#: Surface name the restore records its refusals under, and therefore the
-#: ledger they land in (``var/audit/<identity>/scaffold_restore.jsonl``), so an
-#: operator can tell a body refused at container start from one refused in the
-#: gallery. They arrive by different routes and at different privilege levels,
-#: and the restore's are the ones worth waking up for.
+#: Surface name the restore records its refusals under, so an operator can
+#: tell a body refused at container start from one refused in the gallery.
+#: They arrive by different routes and at different privilege levels, and the
+#: restore's are the ones worth waking up for.
 RESTORE_REFUSAL_SURFACE = SURFACE_SCAFFOLD_RESTORE
 
 

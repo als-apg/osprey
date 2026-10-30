@@ -18,7 +18,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from osprey.interfaces._serving import free_port
 from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 HOOK_NAME = "osprey_notebook_update.py"
@@ -346,13 +345,15 @@ def test_notebook_outside_agent_data_posts_nothing(
     assert received == []
 
 
-def test_badge_survives_down_web_terminal(tmp_path, monkeypatch, run_notebook_update_hook):
+def test_badge_survives_down_web_terminal(
+    reserve_port, tmp_path, monkeypatch, run_notebook_update_hook
+):
     """No web terminal costs a badge, not the tool call — and not the cache.
 
     The invalidation runs before the emit, so the one observable effect the
     hook owns unconditionally still happens with nothing listening.
     """
-    monkeypatch.setenv("OSPREY_WEB_PORT", str(free_port()))
+    monkeypatch.setenv("OSPREY_WEB_PORT", str(reserve_port()))
     nb_path = make_notebook(tmp_path, "scan.ipynb")
     cached_html = nb_path.parent / "_notebook_cache" / "scan_rendered.html"
     cached_html.parent.mkdir()

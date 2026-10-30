@@ -34,7 +34,7 @@ from tests._guarded_run import (
     lock_path,
     plant_kind,
 )
-from tests.hooks.conftest import pending_review_items
+from tests.hooks.conftest import hook_audit_records, pending_review_items
 
 # Default hook_config matching the original hard-coded OSPREY_PREFIXES
 DEFAULT_APPROVAL_CONFIG = {
@@ -219,7 +219,6 @@ def test_a_non_bool_switch_deny_files_a_refused_record(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
     """The deny is a refusal on the audit trail — `refused`, reason `approval_config_invalid`."""
-    from pathlib import Path
 
     from osprey_connectors_tests._harness import pin_identity, state_dir_under
 
@@ -238,12 +237,9 @@ def test_a_non_bool_switch_deny_files_a_refused_record(
     )
 
     assert _deny_reason(result) == _switch_sentence("false")
-    records = [
-        json.loads(line)
-        for path in Path(tmp_path).rglob("hook_approval.jsonl")
-        for line in path.read_text().splitlines()
-        if line.strip()
-    ]
+    from tests.hooks.conftest import hook_audit_records
+
+    records = hook_audit_records(tmp_path, "hook_approval")
     assert len(records) == 1
     assert records[0]["decision"] == "refused"
     assert records[0]["reason"] == "approval_config_invalid"
@@ -1987,8 +1983,6 @@ def test_raw_client_write_deny_files_a_refused_record(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
     """The deny is a refusal on the audit trail — `refused`, reason `raw_client_write`."""
-    import json
-    from pathlib import Path
 
     from osprey_connectors_tests._harness import pin_identity, state_dir_under
 
@@ -2000,12 +1994,9 @@ def test_raw_client_write_deny_files_a_refused_record(
     result = _run_execute(hook_runner, make_config, tmp_path, "open_door()\n")
 
     assert _decision(result) == "deny"
-    records = [
-        json.loads(line)
-        for path in Path(tmp_path).rglob("hook_approval.jsonl")
-        for line in path.read_text().splitlines()
-        if line.strip()
-    ]
+    from tests.hooks.conftest import hook_audit_records
+
+    records = hook_audit_records(tmp_path, "hook_approval")
     assert len(records) == 1
     assert records[0]["decision"] == "refused"
     assert records[0]["reason"] == "raw_client_write"
@@ -2876,11 +2867,8 @@ class _Governed:
     def window_stamps(self):
         return sorted(self.state.glob("write_approval_*.json"))
 
-    def ledger(self):
-        records = []
-        for path in Path(self.tmp_path).rglob("hook_approval.jsonl"):
-            records.extend(json.loads(line) for line in path.read_text().splitlines() if line)
-        return records
+    def audit_entries(self):
+        return hook_audit_records(self.tmp_path, "hook_approval")
 
 
 @pytest.fixture
@@ -2926,7 +2914,7 @@ def test_a_read_only_execute_runs_unprompted_in_every_position(governed, positio
 
     assert _decision(result) == "allow"
     assert governed.stamp() is None
-    assert governed.ledger() == []
+    assert governed.audit_entries() == []
 
 
 def test_a_read_only_execute_spelling_a_write_is_still_put_to_a_person(governed):
@@ -2944,7 +2932,7 @@ def test_allowed_channel_write_runs_with_the_records_an_ask_leaves(governed):
     assert stamp["position"] == "allowed"
     assert isinstance(stamp["answered_at"], float)
     assert len(governed.window_stamps()) == 1
-    [record] = governed.ledger()
+    [record] = governed.audit_entries()
     assert (record["decision"], record["reason"]) == ("approved", "switch")
     assert record["detail"] == "approver=write_switch position=allowed"
     assert record["subject"] == CHANNEL_WRITE
@@ -3049,7 +3037,7 @@ def test_a_dispatch_run_at_allowed_sends_an_ask_carrying_the_binding(dispatch_ru
     assert stamp["approver"] == "dispatch_policy"
     assert stamp["position"] == "allowed"
     assert stamp["approved_target"] == "va"
-    [record] = dispatch_run.ledger()
+    [record] = dispatch_run.audit_entries()
     assert (record["decision"], record["reason"]) == ("approved", "switch")
     assert record["detail"] == "approver=dispatch_policy position=allowed"
 

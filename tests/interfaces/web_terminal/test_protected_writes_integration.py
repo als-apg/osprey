@@ -10,9 +10,9 @@ look and one query to run.
 Three things are asserted across the whole set, and each is a proposal
 requirement rather than an implementation detail:
 
-* **FR2 -- the refusal is durable and singular.** One line per refused attempt
-  on that writer's ledger (``var/audit/<identity>/<surface>.jsonl``), carrying
-  the same envelope fields on every surface. Not two lines (a retry counted
+* **FR2 -- the refusal is durable and singular.** One ``audit`` entry per
+  refused attempt in the agent record, under that writer's surface, carrying
+  the same envelope fields on every surface. Not two entries (a retry counted
   twice would misreport how hard something pushed), and not zero (a refusal
   nobody can find afterwards is an error message, not an audit trail).
 * **FR3 -- the refusal is visible while it happens.** The attempt reaches
@@ -56,7 +56,6 @@ import yaml
 from fastapi.testclient import TestClient
 
 from osprey.agent_runner.build_artifacts.ownership import update_config_add_user_owned
-from osprey.audit import writer
 from osprey.audit.envelope import (
     POSTURE_SOURCE_APP,
     POSTURE_SOURCE_SPAWN,
@@ -66,7 +65,6 @@ from osprey.audit.protected import POSTURE_SOURCE_ENV_VAR, PROTECTED_SURFACES
 from osprey.cli.profile_conventions import RESERVED_PATH_CHANNELS, is_reserved_write
 from osprey.cli.templates.manager import TemplateManager
 from osprey.interfaces.web_auth import PANEL_TOKEN_ENV
-from osprey_connectors.identity import acting_identity
 from tests._preset_data import create_project_as_built
 from tests.interfaces.web_terminal._started_app import terminal_client
 
@@ -189,24 +187,19 @@ def client(project_dir, tmp_path):
 # ── Readers ──────────────────────────────────────────────────────────
 
 
-def audit_records(zone: Path, surface: str | None = None) -> list[dict]:
-    """Protected-write records currently on disk, oldest first *within a surface*.
+def audit_records(recorded_entries, surface: str | None = None) -> list[dict]:
+    """Protected-write audit bodies the test recorded, oldest first *within a surface*.
 
-    Each writer files into its own ledger now, so "every record" means reading
-    the five of them. Ordering holds inside one file, which is where the
-    append-per-attempt assertions live; across files the records are grouped by
-    surface, because a second-resolution timestamp cannot order two refusals
-    filed in the same second by different writers.
+    Every protected surface counts, so "every record" spans the five of them.
+    Ordering holds inside one surface, which is where the append-per-attempt
+    assertions live; across surfaces the records are grouped by surface, because
+    a second-resolution timestamp cannot order two refusals filed in the same
+    second by different writers.
     """
-    identity = zone / acting_identity()
     wanted = (surface,) if surface is not None else PROTECTED_SURFACES
-    records: list[dict] = []
-    for name in wanted:
-        path = identity / f"{name}.jsonl"
-        if not path.is_file():
-            continue
-        records += [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-    return records
+    entries = sorted(recorded_entries("audit"), key=lambda entry: entry.ts)
+    bodies = [dict(e.body) for e in entries if e.body["surface"] in wanted]
+    return sorted(bodies, key=lambda body: wanted.index(body["surface"]))
 
 
 def recent_activity(client: TestClient) -> list[dict]:
@@ -496,7 +489,7 @@ class TestEveryHttpSurfaceRefusesAudibly:
     """FR2 and FR3, asserted once per writer the browser can reach.
 
     One app per case, and every after-effect of that case is read off the same
-    refused attempt: the response, the ledger, the feed and the target. A real
+    refused attempt: the response, the record, the feed and the target. A real
     app over a real render is what makes each case expensive, and none of the
     after-effects needs an app of its own -- each is a distinct read of the one
     attempt. The retry comes last because it changes the counts every earlier
@@ -505,7 +498,7 @@ class TestEveryHttpSurfaceRefusesAudibly:
 
     @pytest.mark.parametrize("case", REFUSALS)
     def test_a_refusal_answers_records_publishes_and_moves_nothing(
-        self, client, audit_zone_path, project_dir, monkeypatch, case
+        self, client, recorded_entries, project_dir, monkeypatch, case
     ):
         target = project_dir / case.target_file
         if case.planted:
@@ -513,7 +506,7 @@ class TestEveryHttpSurfaceRefusesAudibly:
             target.write_text("# planted before the refused request\n", encoding="utf-8")
         before = target.read_bytes() if target.is_file() else None
 
-        assert audit_records(audit_zone_path) == []
+        assert audit_records(recorded_entries) == []
         assert recent_activity(client) == []
 
         # A web request belongs to no session, whatever the server inherited.
@@ -543,7 +536,7 @@ class TestEveryHttpSurfaceRefusesAudibly:
         )
 
         # One line per attempt -- the log counts attempts, so neither zero nor two.
-        records = audit_records(audit_zone_path)
+        records = audit_records(recorded_entries)
         assert len(records) == 1, f"{case.surface}/{case.tool} wrote {len(records)} records"
         record = records[0]
         assert record["surface"] == case.surface
@@ -614,7 +607,7 @@ class TestEveryHttpSurfaceRefusesAudibly:
         with no_panel_token():
             assert case.drive(client).status_code == 403
 
-        records = audit_records(audit_zone_path)
+        records = audit_records(recorded_entries)
         assert len(records) == 2, f"{case.surface}/{case.tool} collapsed a retry"
         assert records[0]["subject"] == records[1]["subject"] == case.key_or_path
 
@@ -630,7 +623,7 @@ class TestTheGateIsDiscriminating:
     operator's feed.
     """
 
-    def test_an_exempt_config_key_still_patches(self, client, audit_zone_path, project_dir):
+    def test_an_exempt_config_key_still_patches(self, client, recorded_entries, project_dir):
         """``hooks.debug`` is the one member of the ``hooks`` family left writable.
 
         It turns on hook tracing and gates nothing, so it fails the inclusion
@@ -643,10 +636,10 @@ class TestTheGateIsDiscriminating:
         assert resp.status_code == 200, resp.text
         config = yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))
         assert config["hooks"]["debug"] is True
-        assert audit_records(audit_zone_path) == [], "a permitted write is not an incident"
+        assert audit_records(recorded_entries) == [], "a permitted write is not an incident"
         assert recent_activity(client) == [], "a permitted write is not an incident"
 
-    def test_an_unreserved_artifact_is_still_creatable(self, client, audit_zone_path, project_dir):
+    def test_an_unreserved_artifact_is_still_creatable(self, client, recorded_entries, project_dir):
         """``.claude/agents/`` is authorable material; the gallery still writes it."""
         resp = client.post(
             "/api/scaffold/create",
@@ -655,10 +648,10 @@ class TestTheGateIsDiscriminating:
 
         assert resp.status_code == 200, resp.text
         assert (project_dir / ".claude/agents/operator-authored.md").is_file()
-        assert audit_records(audit_zone_path) == []
+        assert audit_records(recorded_entries) == []
         assert recent_activity(client) == []
 
-    def test_an_unreserved_claude_setup_file_is_still_writable(self, client, audit_zone_path):
+    def test_an_unreserved_claude_setup_file_is_still_writable(self, client, recorded_entries):
         """The panel keeps its job: only the protected subset comes back 403."""
         created = client.post(
             "/api/claude-setup",
@@ -671,7 +664,7 @@ class TestTheGateIsDiscriminating:
             json={"path": ".claude/commands/operator-note.md", "content": "# edited\n"},
         )
         assert saved.status_code == 200, saved.text
-        assert audit_records(audit_zone_path) == []
+        assert audit_records(recorded_entries) == []
         assert recent_activity(client) == []
 
     def test_a_knowledge_page_is_still_writable(self, project_dir):
@@ -710,8 +703,8 @@ class TestTheGateIsDiscriminating:
 
 
 @pytest.fixture
-def mcp_render(tmp_path, monkeypatch):
-    """A minimal render carrying both patchable files, audit zone redirected.
+def mcp_render(tmp_path):
+    """A minimal render carrying both patchable files.
 
     Mirrors ``tests/mcp_server/test_setup_patch_protected.py``: the tool
     resolves its project root as the config file's parent, so pinning
@@ -731,7 +724,6 @@ def mcp_render(tmp_path, monkeypatch):
     (tmp_path / ".mcp.json").write_text(
         json.dumps({"mcpServers": {"demo": {"command": "python"}}}, indent=2) + "\n"
     )
-    monkeypatch.setattr(writer, "audit_dir", lambda: tmp_path / "var" / "audit")
     with patch(f"{SETUP_MOD}.resolve_config_path", return_value=tmp_path / "config.yml"):
         yield tmp_path
 
@@ -745,7 +737,8 @@ class TestSetupPatchSurface:
     it there -- which its own suite already pins end to end.
     """
 
-    async def test_refusal_records_and_notifies_with_the_shared_phrase(self, mcp_render):
+    @pytest.mark.usefixtures("mcp_render")
+    async def test_refusal_records_and_notifies_with_the_shared_phrase(self, recorded_entries):
         from osprey.mcp_server.workspace.tools.setup import setup_patch
         from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 
@@ -756,7 +749,7 @@ class TestSetupPatchSurface:
         ):
             await fn(file="config.yml", key_path="control_system.writes_enabled", value=True)
 
-        (record,) = audit_records(mcp_render / "var" / "audit")
+        (record,) = audit_records(recorded_entries)
         assert set(record) == AUDIT_RECORD_FIELDS
         assert record["surface"] == "setup_patch"
         assert record["subject"] == "control_system.writes_enabled"
@@ -770,7 +763,8 @@ class TestSetupPatchSurface:
         assert detail.startswith(CONFIG_FEED_PHRASE), detail
         assert "config.yml: control_system.writes_enabled" in detail
 
-    async def test_the_mcp_surface_keeps_the_posture_ladder(self, mcp_render, monkeypatch):
+    @pytest.mark.usefixtures("mcp_render")
+    async def test_the_mcp_surface_keeps_the_posture_ladder(self, monkeypatch, recorded_entries):
         """The counterpart to the HTTP surfaces: this tool *is* a session child.
 
         ``setup_patch`` runs in the MCP child a Web Terminal session spawned,
@@ -790,5 +784,5 @@ class TestSetupPatchSurface:
         ):
             await fn(file="config.yml", key_path="control_system.writes_enabled", value=True)
 
-        (record,) = audit_records(mcp_render / "var" / "audit")
+        (record,) = audit_records(recorded_entries)
         assert record["posture_source"] == POSTURE_SOURCE_SPAWN

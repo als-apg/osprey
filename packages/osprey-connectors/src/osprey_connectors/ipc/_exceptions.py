@@ -24,36 +24,53 @@ Three keys, and no more::
 ``fields`` holds the structured attributes enumerated below. Decoding maps each
 field back onto a constructor keyword and calls the real class.
 
-The field lists are the protocol spec
--------------------------------------
-:data:`CHANNEL_LIMITS_VIOLATION_FIELDS`, :data:`CHANNEL_WRITE_BLOCKED_FIELDS`
-and :data:`CHANNEL_NOT_FOUND_FIELDS` enumerate, by *attribute* name, exactly
-what crosses the boundary for the three osprey-defined classes. They are
-attribute names rather than constructor keywords because the attribute is what
-the parent's envelope rendering reads: ``ChannelLimitsViolationError`` is
-constructed with ``value=`` but stores it as ``.attempted_value``, so the spec
-spells it ``attempted_value`` and this module maps that name onto the ``value``
-keyword at reconstruction time (see :data:`EXCEPTION_SPECS`). Fields are read
-off a live exception with :func:`getattr` per spec name — never a ``__dict__``
-dump — so an attribute the class happens to grow is ignored rather than
-silently becoming part of the wire format, and an attribute that is absent
-encodes as ``None`` instead of raising.
+The registry is derived from the vocabulary
+-------------------------------------------
+:data:`EXCEPTION_SPECS` holds the two builtins ``ConnectionError`` and
+``TimeoutError``, rebuilt from their message, and one spec per class in
+``osprey_connectors.errors.__all__`` under a contract root
+(:class:`~osprey_connectors.errors.ChannelError`,
+:class:`~osprey_connectors.errors.ConnectorUnavailableError`,
+:class:`~osprey_connectors.errors.ConnectorInternalError`). It is computed at
+import, never listed by hand, so every public failure crosses as itself with
+no entry here to keep in step. A :class:`~osprey_connectors.errors.ChannelError` spec
+carries ``channel_address`` first, by construction; what else a class carries
+is its wire detail, held here and nowhere in the class itself, because the
+vocabulary says what a failure is and this module says what of it crosses.
+
+Fields are *attribute* names, because the attribute is what the parent's
+envelope rendering reads: ``ChannelLimitsViolationError`` is constructed with
+``value=`` but stores it as ``.attempted_value``, so the spec spells it
+``attempted_value`` and maps that name onto the ``value`` keyword at
+reconstruction time. A :class:`~osprey_connectors.errors.ConnectorUnavailableError`
+carries its text alone: its ``recovery`` is not a wire field, because recovery
+is decided by the parent's supervisor, never by the child. Fields are read off
+a live exception with :func:`getattr` per spec name, never a ``__dict__`` dump,
+so an attribute the class happens to grow is ignored rather than silently
+becoming part of the wire format, and an attribute that is absent encodes as
+``None`` instead of raising.
 
 Failing closed
 --------------
 Two unknowns are possible and neither may end in a silent drop. An exception
-class outside the registry encodes as a :class:`ConnectionError` carrying the
-original ``repr`` in its message; a ``class_tag`` outside the registry decodes
-as a :class:`ConnectionError` naming the tag and the original message. The
-parent always raises something, and that something always says what the child
-actually reported.
+whose class is a subclass of a registered class crosses as the nearest such
+class in its MRO, with that class's fields: a connector's own subclass of a
+vocabulary class crosses as that vocabulary class, with its channel. Any other
+class encodes as a
+:class:`~osprey_connectors.errors.ConnectorInternalError` carrying the original
+``repr`` in its message and the original class name as its ``class_tag``; a
+``class_tag`` outside the registry, or a field set the real constructor
+refuses, decodes as the same class naming the tag and the original message. It
+is never a :class:`ConnectionError`: an exception outside the contract is a
+connector bug, not a reachability answer. The parent always raises something,
+and that something always says what the child actually reported.
 
 Both sides read this file
 -------------------------
 The connector-host child and the proxy connector in the parent are the two
 consumers of this spec. Neither may widen or reshape it unilaterally: adding a
 class, a field, or a name mapping is a change to both halves of the boundary at
-once, and to the tests that pin the field lists.
+once, and to the parity tests that read the registry.
 """
 
 from __future__ import annotations
@@ -61,16 +78,19 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from osprey_connectors import errors
 from osprey_connectors.errors import (
+    ChannelError,
     ChannelLimitsViolationError,
     ChannelNotFoundError,
+    ChannelUnreachableError,
     ChannelWriteBlockedError,
+    ChannelWriteFailedError,
+    ConnectorInternalError,
+    ConnectorUnavailableError,
 )
 
 __all__ = [
-    "CHANNEL_LIMITS_VIOLATION_FIELDS",
-    "CHANNEL_NOT_FOUND_FIELDS",
-    "CHANNEL_WRITE_BLOCKED_FIELDS",
     "EXCEPTION_SPECS",
     "ExceptionSpec",
     "decode_exception",
@@ -79,29 +99,12 @@ __all__ = [
     "reconstruct_exception",
 ]
 
-#: Everything ``ChannelLimitsViolationError`` carries across the boundary, by
-#: attribute name. ``attempted_value`` is the attribute; the constructor spells
-#: the same thing ``value``, and :data:`EXCEPTION_SPECS` holds that mapping.
-CHANNEL_LIMITS_VIOLATION_FIELDS: tuple[str, ...] = (
-    "channel_address",
-    "attempted_value",
-    "violation_type",
-    "violation_reason",
-    "min_value",
-    "max_value",
-    "max_step",
-    "current_value",
+#: The roots of the failure vocabulary; every public class under one crosses typed.
+_CONTRACT_ROOTS: tuple[type[BaseException], ...] = (
+    ChannelError,
+    ConnectorUnavailableError,
+    ConnectorInternalError,
 )
-
-#: Everything ``ChannelWriteBlockedError`` carries across the boundary. Its text
-#: is not listed here: the frame's own ``message`` feeds the constructor's
-#: ``message`` keyword, so a custom refusal message survives verbatim rather
-#: than being re-rendered from the reason code.
-CHANNEL_WRITE_BLOCKED_FIELDS: tuple[str, ...] = ("channel_address", "reason")
-
-#: Everything ``ChannelNotFoundError`` carries across the boundary. Its text is
-#: rendered from the address, so the frame's ``message`` feeds no keyword.
-CHANNEL_NOT_FOUND_FIELDS: tuple[str, ...] = ("channel_address",)
 
 
 @dataclass(frozen=True)
@@ -113,7 +116,7 @@ class ExceptionSpec:
     actually accepts it, for the one class where the two differ.
     ``message_kwarg`` names a constructor keyword fed from the frame's
     ``message``, for a class whose text is not derivable from its fields. An
-    empty ``fields`` marks a builtin rebuilt from its message alone.
+    empty ``fields`` marks a class rebuilt from its message alone.
     """
 
     cls: type[BaseException]
@@ -122,26 +125,75 @@ class ExceptionSpec:
     message_kwarg: str | None = None
 
 
-#: The registry. Exactly five classes cross this boundary typed; everything else
-#: fails closed to :class:`ConnectionError`.
+@dataclass(frozen=True)
+class _Detail:
+    """What of one vocabulary class crosses beyond its channel."""
+
+    fields: tuple[str, ...] = ()
+    ctor_kwargs: dict[str, str] = field(default_factory=dict)
+    message_kwarg: str | None = None
+
+
+#: The wire detail of each vocabulary class. A ``ChannelError`` subclass's
+#: ``channel_address`` is not listed: the registry puts it first for every one.
+_WIRE_DETAIL: dict[type[BaseException], _Detail] = {
+    ChannelError: _Detail(message_kwarg="message"),
+    ChannelLimitsViolationError: _Detail(
+        fields=(
+            "attempted_value",
+            "violation_type",
+            "violation_reason",
+            "min_value",
+            "max_value",
+            "max_step",
+            "current_value",
+        ),
+        ctor_kwargs={"attempted_value": "value"},
+    ),
+    ChannelWriteBlockedError: _Detail(fields=("reason",), message_kwarg="message"),
+    ChannelWriteFailedError: _Detail(
+        fields=("reason", "outcome", "value_written", "observed_value"),
+        message_kwarg="message",
+    ),
+    ChannelNotFoundError: _Detail(),
+    ChannelUnreachableError: _Detail(message_kwarg="message"),
+    ConnectorUnavailableError: _Detail(),
+    ConnectorInternalError: _Detail(fields=("class_tag",), message_kwarg="message"),
+}
+
+
+def _vocabulary() -> list[type[BaseException]]:
+    """Every class ``osprey_connectors.errors`` publishes under a contract root."""
+    published = (getattr(errors, name) for name in errors.__all__)
+    return [
+        item for item in published if isinstance(item, type) and issubclass(item, _CONTRACT_ROOTS)
+    ]
+
+
+def _spec(cls: type[BaseException], detail: _Detail) -> ExceptionSpec:
+    channel = ("channel_address",) if issubclass(cls, ChannelError) else ()
+    return ExceptionSpec(
+        cls,
+        fields=(*channel, *detail.fields),
+        ctor_kwargs=dict(detail.ctor_kwargs),
+        message_kwarg=detail.message_kwarg,
+    )
+
+
+#: The registry: the two builtins and the vocabulary. Everything else fails
+#: closed to :class:`~osprey_connectors.errors.ConnectorInternalError`; a
+#: vocabulary class with no wire detail is left out, and the parity test names it.
 EXCEPTION_SPECS: dict[str, ExceptionSpec] = {
     "ConnectionError": ExceptionSpec(ConnectionError),
     "TimeoutError": ExceptionSpec(TimeoutError),
-    "ChannelWriteBlockedError": ExceptionSpec(
-        ChannelWriteBlockedError,
-        fields=CHANNEL_WRITE_BLOCKED_FIELDS,
-        message_kwarg="message",
-    ),
-    "ChannelLimitsViolationError": ExceptionSpec(
-        ChannelLimitsViolationError,
-        fields=CHANNEL_LIMITS_VIOLATION_FIELDS,
-        ctor_kwargs={"attempted_value": "value"},
-    ),
-    "ChannelNotFoundError": ExceptionSpec(
-        ChannelNotFoundError,
-        fields=CHANNEL_NOT_FOUND_FIELDS,
-    ),
+    **{cls.__name__: _spec(cls, _WIRE_DETAIL[cls]) for cls in _vocabulary() if cls in _WIRE_DETAIL},
 }
+
+
+def _registered_tag(exc: BaseException) -> str | None:
+    """The registry tag of ``exc``'s nearest registered class, or ``None``."""
+    by_class = {spec.cls: tag for tag, spec in EXCEPTION_SPECS.items()}
+    return next((by_class[cls] for cls in type(exc).__mro__ if cls in by_class), None)
 
 
 def exception_fields(exc: BaseException) -> dict[str, Any]:
@@ -149,16 +201,17 @@ def exception_fields(exc: BaseException) -> dict[str, Any]:
 
     Only the enumerated names are read, and a name the instance does not carry
     yields ``None``, so an exception raised by an older or newer build of the
-    child still encodes. An exception outside the registry has no fields.
+    child still encodes. The spec is that of the nearest registered class in
+    ``exc``'s MRO; an exception with none has no fields.
     """
-    spec = EXCEPTION_SPECS.get(type(exc).__name__)
-    if spec is None:
+    tag = _registered_tag(exc)
+    if tag is None:
         return {}
-    return {name: getattr(exc, name, None) for name in spec.fields}
+    return {name: getattr(exc, name, None) for name in EXCEPTION_SPECS[tag].fields}
 
 
 def reconstruct_exception(class_tag: str, message: str, fields: dict[str, Any]) -> BaseException:
-    """Rebuild the real exception, failing closed to :class:`ConnectionError`.
+    """Rebuild the real exception, failing closed to ``ConnectorInternalError``.
 
     A tag outside the registry, or a field set the real constructor refuses,
     still produces an exception the parent can raise — one that names the tag
@@ -166,8 +219,9 @@ def reconstruct_exception(class_tag: str, message: str, fields: dict[str, Any]) 
     """
     spec = EXCEPTION_SPECS.get(class_tag)
     if spec is None:
-        return ConnectionError(
-            f"connector host reported an unrecognised error type {class_tag!r}: {message}"
+        return ConnectorInternalError(
+            f"connector host reported an unrecognised error type {class_tag!r}: {message}",
+            class_tag=class_tag,
         )
     if not spec.fields:
         return spec.cls(message)
@@ -177,9 +231,10 @@ def reconstruct_exception(class_tag: str, message: str, fields: dict[str, Any]) 
         kwargs[spec.message_kwarg] = message
     try:
         return spec.cls(**kwargs)
-    except TypeError as exc:  # malformed field set — still never dropped
-        return ConnectionError(
-            f"connector host reported {class_tag!r} with unusable fields ({exc}): {message}"
+    except (TypeError, ValueError) as exc:  # malformed field set — still never dropped
+        return ConnectorInternalError(
+            f"connector host reported {class_tag!r} with unusable fields ({exc}): {message}",
+            class_tag=class_tag,
         )
 
 
@@ -187,16 +242,18 @@ def encode_exception(exc: BaseException) -> dict[str, Any]:
     """Render ``exc`` as an exception frame body.
 
     An exception class outside the registry is normalised here, at the child's
-    edge: it encodes as a :class:`ConnectionError` whose message carries the
-    original ``repr`` — the parent learns what actually happened without this
-    module claiming to reconstruct a class it does not know.
+    edge. A subclass of a registered class encodes as that class. Anything
+    else encodes as a ``ConnectorInternalError`` whose message carries the
+    original ``repr`` and whose ``class_tag`` field names the original class —
+    the parent learns what actually happened without this module claiming to
+    reconstruct a class it does not know.
     """
-    class_tag = type(exc).__name__
-    if class_tag not in EXCEPTION_SPECS:
+    class_tag = _registered_tag(exc)
+    if class_tag is None:
         return {
-            "class_tag": "ConnectionError",
+            "class_tag": ConnectorInternalError.__name__,
             "message": f"connector host reported an unrecognised error: {exc!r}",
-            "fields": {},
+            "fields": {"class_tag": type(exc).__name__},
         }
     return {"class_tag": class_tag, "message": str(exc), "fields": exception_fields(exc)}
 

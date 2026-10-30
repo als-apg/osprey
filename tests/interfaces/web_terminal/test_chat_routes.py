@@ -87,6 +87,12 @@ _STRIP_CASES = [
         {"type": "thinking", "content": "internal reasoning"},
     ),
     (
+        # An omitted block reaches the chat as written; the renderer draws nothing for it.
+        "omitted_thinking_passes_through_empty",
+        {"type": "thinking", "content": "", "parent_tool_use_id": None},
+        {"type": "thinking", "content": "", "parent_tool_use_id": None},
+    ),
+    (
         "tool_use_keeps_its_input",
         {
             "type": "tool_use",
@@ -1048,23 +1054,19 @@ class TestChatStatusMapIntegration:
             waiting = asyncio.ensure_future(
                 chat_module.chat(req, chat_module.ChatRequest(prompt="second", chat_id="c"))
             )
-            # Wait for the second request to hold the slot. The route reads the
-            # command files off the loop first, so no count of loop passes is
-            # enough: a third request that looks before the slot is taken takes
-            # it itself and waits, with no bound, for a turn that never ends.
+            # The second request takes the key's pending slot once it reaches the
+            # hand-off's wait; the third must arrive only after that, whatever the
+            # second ran through on its way there.
             pending = handoff_module.get_state(req.app).pending
-            for _ in range(200):
-                if "c" in pending or waiting.done():
+            for _ in range(500):
+                if pending or waiting.done():
                     break
                 await asyncio.sleep(0.01)
-            assert "c" in pending, "the second request never registered its slot"
+            assert pending, "the second prompt never took the key's pending slot"
             assert not waiting.done()
 
             with pytest.raises(HTTPException) as ei:
-                await asyncio.wait_for(
-                    chat_module.chat(req, chat_module.ChatRequest(prompt="third", chat_id="c")),
-                    timeout=5.0,
-                )
+                await chat_module.chat(req, chat_module.ChatRequest(prompt="third", chat_id="c"))
 
             assert ei.value.status_code == 409
             assert ei.value.detail["error"] == "session_attached_elsewhere"

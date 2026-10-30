@@ -1,7 +1,7 @@
 """``osprey status`` reads the pre-flight refusal marker ``osprey web`` writes.
 
 The container half of this contract lives in :mod:`osprey.cli.web_cmd`: on a
-pre-flight refusal the web entrypoint writes ``$OSPREY_AUDIT_DIR/preflight-refused``
+pre-flight refusal the web entrypoint writes ``$OSPREY_STATE_DIR/preflight-refused``
 — line 1 an ISO-8601 UTC timestamp, the rest the findings, each prefixed ``- ``.
 Under ``restart: unless-stopped`` the container is then restarted forever, and
 the reason is invisible to anyone reading the status table. These tests pin the
@@ -26,6 +26,8 @@ from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.cli.styles import osprey_theme
 from osprey.cli.web_cmd import PREFLIGHT_REFUSED_MARKER
 from osprey.deployment import status_display
+from osprey.deployment.compose_generator import resolve_project_name
+from osprey.deployment.deployment_record import DeploymentRecord, write_deployment_record
 
 _CONFIGS: dict[str, dict] = {}
 
@@ -65,10 +67,10 @@ def _ps_container(name, state, *, started_at=_STARTED_AT):
 
 def _write_marker(repo_root, user, written, findings):
     """Write a pre-flight refusal marker the way ``osprey web`` writes one."""
-    audit_dir = repo_root / "var" / "audit" / user
-    audit_dir.mkdir(parents=True, exist_ok=True)
+    state_dir = repo_root / "var" / "state" / user
+    state_dir.mkdir(parents=True, exist_ok=True)
     body = "\n".join([written, *(f"- {finding}" for finding in findings)]) + "\n"
-    (audit_dir / PREFLIGHT_REFUSED_MARKER).write_text(body, encoding="utf-8")
+    (state_dir / PREFLIGHT_REFUSED_MARKER).write_text(body, encoding="utf-8")
 
 
 @pytest.fixture(autouse=True)
@@ -81,7 +83,7 @@ def _patch_config_loader(monkeypatch):
 @pytest.fixture(autouse=True)
 def rendered(monkeypatch):
     """Capture both renderer streams into one wide recording console."""
-    console = Console(record=True, width=200, theme=osprey_theme)
+    console = Console(record=True, width=260, theme=osprey_theme)
 
     class _Recording(PhaseReporter):
         # Untyped on purpose: rich's ``Console`` is Any to this repo's mypy
@@ -108,9 +110,14 @@ def runtime_calls(monkeypatch):
     monkeypatch.setattr(
         status_display,
         "get_ps_command",
-        lambda config, all_containers=False: ["docker", "ps", "-a", "--format", "json"],
+        lambda config, all_containers=False, runtime=None: [
+            runtime,
+            "ps",
+            "-a",
+            "--format",
+            "json",
+        ],
     )
-    monkeypatch.setattr(status_display, "get_runtime_command", lambda config=None: ["docker"])
 
     class _Result:
         def __init__(self, stdout, returncode=0):
@@ -141,11 +148,14 @@ def _run_status(tmp_path, runtime_calls, containers, users=("alice",)):
     """Render ``show_status`` against a repo rooted at *tmp_path*.
 
     The legacy verb derives its repo root from the directory holding the config
-    it was handed, which is what puts the audit zone at ``tmp_path/var/audit``.
+    it was handed, which is what puts the state zone at ``tmp_path/var/state``.
     Output is read off the ``rendered`` console fixture.
     """
     config_path = str(tmp_path / "config.yml")
     _CONFIGS[config_path] = _base_config(list(users))
+    write_deployment_record(
+        tmp_path, DeploymentRecord("docker", resolve_project_name(_CONFIGS[config_path]))
+    )
     runtime_calls["ps_stdout"] = json.dumps(list(containers))
     status_display.show_status(config_path)
 
@@ -306,9 +316,9 @@ def test_status_survives_an_unreadable_preflight_marker_directory(
     """The marker path must never be able to take ``osprey status`` down."""
 
     def _boom(*args, **kwargs):
-        raise OSError("audit zone is not readable")
+        raise OSError("state zone is not readable")
 
-    monkeypatch.setattr(status_display, "audit_identity_dir", _boom)
+    monkeypatch.setattr(status_display, "state_identity_dir", _boom)
 
     _run_status(tmp_path, runtime_calls, [_ps_container("demo-project-web-alice", "running")])
     output = rendered.export_text()

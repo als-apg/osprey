@@ -41,7 +41,7 @@ WEB_TERMINALS: dict[str, Any] = {
     "enabled": True,
     "nginx_port": 20000,
     "web_base_port": 20100,
-    "users": ["operator"],
+    "users": ["console"],
 }
 
 # The same stack, deployable in LOCAL mode. `image_source: local` builds each
@@ -241,7 +241,7 @@ def test_the_propagated_leaf_does_not_displace_the_rest_of_the_module(tmp_path: 
 
     assert web_terminals["nginx_port"] == 20000
     assert web_terminals["web_base_port"] == 20100
-    assert web_terminals["users"] == ["operator"]
+    assert web_terminals["users"] == ["console"]
 
 
 def test_a_project_with_no_web_stack_gains_no_web_terminals_module(tmp_path: Path) -> None:

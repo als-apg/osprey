@@ -2,24 +2,24 @@
 
 Two endpoints, one composer:
 
-* ``POST /api/feedback`` writes one record on this deployment and returns the
-  finished clipboard payload. Every channel writes a record — a GitHub or email
-  submission leaves the same paper trail a Local one does, which is what makes
-  ``osprey feedback list`` the complete submission history.
+* ``POST /api/feedback`` writes one ``feedback`` entry to the agent record and
+  returns the finished clipboard payload. Every channel writes an entry — a
+  GitHub or email submission leaves the same paper trail a Local one does,
+  which is what makes ``osprey feedback list`` the complete submission history.
+  The entry carries the header, the text, the context and scrollback the user
+  chose, and the keys of the session's entries in place of excerpts of them.
 * ``POST /api/feedback/bundle`` renders the session context alone for the
   standalone Copy button and writes nothing.
 
 Three things about these handlers are deliberate and easy to undo by accident:
 
 * **They are sync ``def``, not ``async def``.** FastAPI runs a sync handler in
-  the threadpool. Composing reads the session transcript, which fans out into
-  every subagent file (``1 + N`` reads), and the event loop these routes share
-  is the same one that pumps the PTY WebSocket — a blocking read on it stalls
+  the threadpool. Composing reads the session's timeline from the record,
+  waiting on a drain of the session, and the event loop these routes share is
+  the same one that pumps the PTY WebSocket — a blocking read on it stalls
   everyone's terminal.
-* **The session id is validated before any transcript path is built.** It is
-  client-supplied, so a non-UUID is refused with 422 up front rather than
-  reaching the transcript reader, whose own refusal would read as a dead
-  session.
+* **The session id is validated before the record is asked.** It is
+  client-supplied, so a non-UUID is refused with 422 up front.
 * **Identity is taken from the server, never from the request body.** A report
   says who filed it because the deployment knows, not because the browser
   claimed it.
@@ -29,13 +29,17 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
+import uuid
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from osprey.agent_record import writer as record_writer
+from osprey.agent_record.client import RecordClient
+from osprey.agent_record.contract import KIND_FEEDBACK
 from osprey.interfaces.web_terminal import transcript_map
 from osprey.interfaces.web_terminal.feedback_composer import (
     assemble_payload,
@@ -45,34 +49,20 @@ from osprey.interfaces.web_terminal.feedback_composer import (
     render_bundle,
     validate_session_id,
 )
-from osprey.interfaces.web_terminal.feedback_destination import (
-    DEFAULT_FEEDBACK_MAX_STORE_BYTES,
-    osprey_version,
-)
-from osprey.interfaces.web_terminal.feedback_store import (
-    new_record_id,
-    prune_store,
-    write_record,
-)
+from osprey.interfaces.web_terminal.feedback_destination import osprey_version
 from osprey_connectors.identity import acting_identity
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-RECORD_CONTEXT_BUDGET_BYTES = 5 * 1024 * 1024
-"""Byte budget for the context kept in the record — far larger than the
-clipboard payload's, because the record is the copy that keeps everything the
-truncated report had to leave out."""
+RECORD_CONTEXT_BUDGET_BYTES = 256 * 1024
+"""Byte budget for the context kept in the entry: the deployment tier and the
+artifact inventory. The session's steps are not in it — the entry references
+them by key — so this bounds a list of titles, not a transcript."""
 
 EXCERPT_CHARS = 200
-"""How much of the report the header carries, for the ``osprey feedback list``
-table. The full text lives in the paired context document."""
-
-DEFAULT_MAX_STORE_BYTES = DEFAULT_FEEDBACK_MAX_STORE_BYTES
-"""The shipped store ceiling (256 MB), under the name this module's fallback
-path reads it by. Not a second spelling: it is bound to the one definition in
-:mod:`~osprey.interfaces.web_terminal.feedback_destination`, which a route may
-import because that module imports neither the app nor any route."""
+"""How much of the report the ``excerpt`` field carries, for the ``osprey
+feedback list`` table. The full text is the entry's ``text``."""
 
 MAX_REQUEST_BYTES = 4 * 1024 * 1024
 """Largest report + scrollback one submission may carry, in UTF-8 bytes.
@@ -172,11 +162,10 @@ def _encodable(text: str | None) -> str:
     pydantic will hand it over as a ``str`` — and every later step disagrees
     about it: the composer encodes with ``surrogatepass``, ``json.dump`` writes
     it happily, and Starlette's response renderer raises ``UnicodeEncodeError``
-    *after* the handler returns, i.e. after the record is on disk and the store
-    has been pruned.
+    *after* the handler returns, i.e. after the entry is in the spool.
 
     This covers the **request** half only: the report and the scrollback the
-    browser sent. The other half arrives from disk — chat turns, tool and agent
+    browser sent. The other half arrives from the record — chat turns, tool and agent
     names, artifact titles — and is substituted inside
     ``feedback_composer._BundleWriter.result()``, which is the one place that
     can do it without invalidating the byte budget its sections were trimmed
@@ -248,49 +237,31 @@ def _version() -> str:
     return osprey_version()
 
 
-def _feedback_dir(request: Request) -> Path:
-    """Where records are written.
+def record_client() -> RecordClient:
+    """The record client this process reads with, configured from its environment.
 
-    Set by the lifespan to ``resolve_shared_data_root() / "feedback"``, which is
-    deliberately *not* derived from ``workspace_dir`` (that follows
-    ``web_terminal.watch_dir`` and would land records outside the agent-data
-    volume the CLI reads). ``workspace_dir / "feedback"`` is the fallback.
-
-    Both attributes are read the way every other route reads app.state — with
-    a ``getattr`` default — so an app.state carrying neither gets a 5xx naming
-    the missing configuration rather than an ``AttributeError`` from inside the
-    handler.
-
-    Raises:
-        HTTPException: 500 when neither ``feedback_dir`` nor ``workspace_dir``
-            is set, because then there is nowhere on this host to put a record.
+    Resolved per request and reached through the module, so a test replaces it
+    with ``monkeypatch.setattr(feedback, "record_client", ...)``. Never raises:
+    an unconfigured client answers every read unavailable, and the report then
+    says the record did not answer.
     """
-    configured = getattr(request.app.state, "feedback_dir", None)
-    if configured:
-        return Path(configured)
-    workspace_dir = getattr(request.app.state, "workspace_dir", None)
-    if workspace_dir:
-        return Path(workspace_dir) / "feedback"
-    raise HTTPException(
-        status_code=500, detail="no feedback store is configured on this deployment"
-    )
+    return RecordClient.from_env(os.environ)
 
 
 def _sources(request: Request) -> tuple[Any, Any]:
-    """Build the transcript reader and artifact store for this request.
+    """The record client and the artifact store for this request.
 
-    Both are per-request and imported lazily, the convention every
-    web-terminal route follows. The reader must be rooted at
-    ``project_cwd``: one built on any other directory reports every session as
-    missing, silently.
+    Both are per-request; the store is imported lazily, the convention every
+    web-terminal route follows.
     """
-    from osprey.mcp_server.workspace.transcript_reader import TranscriptReader
     from osprey.stores.artifact_store import ArtifactStore
 
-    return (
-        TranscriptReader(request.app.state.project_cwd),
-        ArtifactStore(getattr(request.app.state, "workspace_dir", None)),
-    )
+    return record_client(), ArtifactStore(getattr(request.app.state, "workspace_dir", None))
+
+
+def _new_entry_id() -> str:
+    """A fresh entry id, allocated before composing: the payload names it."""
+    return uuid.uuid4().hex
 
 
 def _metadata(
@@ -366,9 +337,10 @@ def submit_feedback(request: Request, body: FeedbackRequest) -> dict[str, Any]:
     The response is ``{id, payload, context_status}``: ``payload`` is the
     finished clipboard string — report text, separator, composed context —
     already capped at 60,000 UTF-8 bytes server-side, so the browser writes it
-    verbatim and does no size arithmetic of its own.
+    verbatim and does no size arithmetic of its own. ``id`` is the entry id of
+    the ``feedback`` entry.
 
-    Every channel writes a record. Local *is* the delivery for an air-gapped
+    Every channel writes an entry. Local *is* the delivery for an air-gapped
     deployment; GitHub and email additionally carry the byte count and SHA-256
     of the payload, so a maintainer can tell whether the issue they are reading
     is the whole of what was composed.
@@ -376,40 +348,38 @@ def submit_feedback(request: Request, body: FeedbackRequest) -> dict[str, Any]:
     Raises:
         HTTPException: 413 when the report and scrollback together exceed
             :data:`MAX_REQUEST_BYTES`, 422 for a malformed ``session_id``, 500
-            when the record cannot be written — the record is the deliverable,
+            when the entry cannot be written — the entry is the deliverable,
             so a failed write is never reported as success.
     """
     text = _encodable(body.text)
     scrollback = _encodable(body.scrollback) if body.include_context else ""
     _enforce_request_size(text, scrollback)
 
-    # Resolved up front with the other refusals: a deployment with nowhere to
-    # put records fails every submission, and it should not read the whole
-    # transcript (1 + N files, once per subagent) before saying so.
-    feedback_dir = _feedback_dir(request)
-
     session_id = _validated_session(body.session_id) if body.include_context else None
     identity = _identity(request)
     now = _utc_now()
+    transcript_id = _transcript_of(request, session_id)
 
-    reader, store = _sources(request)
+    client, store = _sources(request)
     material = collect_material(
-        reader,
+        client,
         store,
         session_id,
         scrollback,
         _metadata(
             request, identity, now, include_metadata=body.include_metadata, session_id=session_id
         ),
-        transcript_id=_transcript_of(request, session_id),
+        transcript_id=transcript_id,
     )
 
-    record_context, context_truncated = render_bundle(material, RECORD_CONTEXT_BUDGET_BYTES)
-    record_id = new_record_id()
-    payload, _bundle, text_truncated = assemble_payload(text, material, record_id=record_id)
+    record_context, context_truncated = render_bundle(
+        material, RECORD_CONTEXT_BUDGET_BYTES, excerpts=False
+    )
+    entry_id = _new_entry_id()
+    payload, _bundle, text_truncated = assemble_payload(text, material, record_id=entry_id)
 
-    header: dict[str, Any] = {
-        "id": record_id,
+    entry: dict[str, Any] = {
+        "id": entry_id,
         "identity": identity,
         "created_at": now.isoformat(),
         "channel": body.channel,
@@ -424,33 +394,32 @@ def submit_feedback(request: Request, body: FeedbackRequest) -> dict[str, Any]:
         "context_truncated": context_truncated,
     }
     if body.channel in TRACKER_CHANNELS and body.tracker:
-        header["tracker"] = _encodable(body.tracker)
+        entry["tracker"] = _encodable(body.tracker)
     if body.channel in OUTBOUND_CHANNELS:
         encoded = payload.encode("utf-8", "surrogatepass")
-        header["bundle_bytes"] = len(encoded)
-        header["bundle_sha256"] = hashlib.sha256(encoded).hexdigest()
+        entry["bundle_bytes"] = len(encoded)
+        entry["bundle_sha256"] = hashlib.sha256(encoded).hexdigest()
+    entry["text"] = text
+    entry["context"] = record_context
+    entry["scrollback"] = scrollback
+    entry["refs"] = list(material.refs)
 
-    try:
-        # The id is allocated here, not by the store: a truncated payload names
-        # it, and `bundle_sha256` above digests those exact bytes.
-        write_record(
-            feedback_dir,
-            header,
-            {"text": text, "context": record_context, "scrollback": scrollback},
-            record_id=record_id,
-        )
-    except Exception as exc:  # surfaced as a 5xx, never swallowed
-        logger.warning("feedback: could not write a record to %s", feedback_dir, exc_info=True)
+    # Filed under the session its context was read from, so the entry sits in
+    # that session's timeline beside the steps it references.
+    ids: dict[str, Any] = {"entry_id": entry_id, "ts": now}
+    if session_id:
+        ids["session_id"] = transcript_id or session_id
+    # The id is allocated here, not by the writer: a truncated payload names
+    # it, and `bundle_sha256` above digests those exact bytes.
+    if record_writer.write(KIND_FEEDBACK, entry, **ids) is None:
+        logger.warning("feedback: the feedback entry %s was not written to the spool", entry_id)
         raise HTTPException(
-            status_code=500, detail=f"could not record the feedback submission: {exc}"
-        ) from exc
+            status_code=500,
+            detail="could not record the feedback submission: the agent record's spool "
+            "did not take the entry (see the record's health)",
+        )
 
-    try:
-        prune_store(feedback_dir, _max_store_bytes(request))
-    except Exception:  # the record is written; a full store is not this user's problem
-        logger.warning("feedback: could not prune %s", feedback_dir, exc_info=True)
-
-    return {"id": record_id, "payload": payload, "context_status": material.context_status}
+    return {"id": entry_id, "payload": payload, "context_status": material.context_status}
 
 
 @router.post("/api/feedback/bundle")
@@ -473,9 +442,9 @@ def feedback_bundle(request: Request, body: BundleRequest) -> dict[str, str]:
     session_id = _validated_session(body.session_id)
     identity = _identity(request)
 
-    reader, store = _sources(request)
+    client, store = _sources(request)
     material = collect_material(
-        reader,
+        client,
         store,
         session_id,
         scrollback,
@@ -489,16 +458,3 @@ def feedback_bundle(request: Request, body: BundleRequest) -> dict[str, str]:
         transcript_id=_transcript_of(request, session_id),
     )
     return {"bundle": bundle_for_copy(material, body.text_len)}
-
-
-def _max_store_bytes(request: Request) -> int:
-    """The store ceiling from ``web.feedback.max_store_bytes``.
-
-    ``bool`` is rejected along with every other unusable value, matching
-    ``app.coerce_store_ceiling``: ``True`` is an ``int`` in Python, and a
-    1-byte ceiling would quietly prune every context document in the store.
-    """
-    ceiling = getattr(request.app.state, "feedback_max_store_bytes", DEFAULT_MAX_STORE_BYTES)
-    if isinstance(ceiling, int) and not isinstance(ceiling, bool) and ceiling > 0:
-        return ceiling
-    return DEFAULT_MAX_STORE_BYTES

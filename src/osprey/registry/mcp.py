@@ -1227,13 +1227,6 @@ TERMINAL_SESSION_ENV = "OSPREY_TERMINAL_SESSION"
 #: and its reader.
 LAUNCH_POSTURE_ENV = LAUNCH_POSTURE_ENV_VAR
 
-#: Names the maintenance writer for records made by the root maintenance
-#: heredoc. Assigned ONLY as a per-command env prefix on that invocation, and
-#: must stay absent everywhere else — an inherited value would misroute every
-#: app-side record. Reserved here so the spec path already refuses it before
-#: the writer that assigns it exists.
-AUDIT_WRITER_ENV = "OSPREY_AUDIT_WRITER"
-
 #: The stamped owner of the work a process is doing — the rung
 #: :func:`~osprey_connectors.posture_store.current_owner` reads from the
 #: environment, and therefore the name whose narrowing an owned write is judged
@@ -1304,7 +1297,6 @@ DISPATCH_RUN_ENV = DISPATCH_RUN_ENV_VAR
 NON_PINNABLE_AUDIT_MARKERS: tuple[str, ...] = (
     *IDENTITY_ENV_LADDER,
     POSTURE_ENV_VAR,
-    AUDIT_WRITER_ENV,
     POSTURE_SOURCE_ENV,
     POSTURE_SESSION_ENV,
     TERMINAL_SESSION_ENV,
@@ -2059,7 +2051,7 @@ def write_window_tools(name: str, writes: tuple[str, ...], perms: dict) -> list[
     for entry in [*perms.get("ask", []), *perms.get("allow", [])]:
         if not isinstance(entry, str):
             continue
-        tool = entry[len(prefix) :] if entry.startswith(prefix) else entry
+        tool = entry.removeprefix(prefix)
         if not tool or tool in seen or _TOOL_PATTERN_CHARS & set(tool):
             continue
         asked = entry in perms.get("ask", [])

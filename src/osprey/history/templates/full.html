@@ -1,17 +1,13 @@
 {% extends "base.html" %}
-{% block title %}Record{% endblock %}
+{% block title %}Entry{% endblock %}
 {% block main %}
-{% if not_in_tables %}
-<p class="notice not-in-tables"><code>{{ not_in_tables }}</code> is not in your tables.</p>
-{% elif not rows %}
-<p class="notice">No such record in what you may see.</p>
+{% if not entry %}
+<p class="notice">No such entry in what you may see.</p>
 {% else %}
-{% for r in rows %}
 <section class="record">
-  <h2>{{ r.User }} <span class="ts">{{ r.Timestamp }}</span></h2>
-  <pre class="body">{{ r.Body }}</pre>
+  <h2>{{ entry.person or entry.identity }} <span class="kind">{{ entry.kind }}</span> <span class="ts">{{ entry.ts | clock }}</span></h2>
+  <pre class="body">{{ entry.body | full_text }}</pre>
 </section>
-{% endfor %}
 {% endif %}
 {% if back %}<nav class="paging"><a class="back" href="{{ back }}">back</a></nav>{% endif %}
 {% endblock %}

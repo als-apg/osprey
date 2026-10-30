@@ -48,6 +48,18 @@ class WorkerUnavailableError(WorkerRequestError):
     retryable = True
 
 
+class WorkerRecordUnavailableError(WorkerUnavailableError):
+    """The worker was reached but could not read the agent record (HTTP 503).
+
+    The worker's run history lives in the record, so while the record is
+    unavailable the worker cannot list runs; the message carries the worker's
+    reason. Transient, like any other 5xx.
+    """
+
+    reason = "worker_record_unavailable"
+    retryable = True
+
+
 class WorkerAuthRejectedError(WorkerRequestError):
     """The worker rejected the dispatcher's bearer token with HTTP 401.
 
@@ -93,13 +105,7 @@ def _extract_rejection_code(response: httpx.Response) -> str | None:
     other, absent, or unparseable ``detail`` yields ``None`` (generic). Never
     returns arbitrary body text — a 4xx body may still carry internal detail.
     """
-    try:
-        body = response.json()
-    except ValueError:
-        return None
-    if not isinstance(body, dict):
-        return None
-    detail = body.get("detail")
+    detail = _worker_detail(response)
     return detail if detail in KNOWN_REJECTION_CODES else None
 
 
@@ -219,7 +225,14 @@ async def dispatch_to_worker(
     return cast(dict[str, Any], response.json())
 
 
-async def fetch_worker_runs(url: str, token: str, timeout: float = 10.0) -> list[dict[str, Any]]:
+#: Seconds the dispatcher waits on a worker call that reads the agent record:
+#: the worker's own record client may wait out a drain before it reads.
+RECORD_READ_TIMEOUT = 30.0
+
+
+async def fetch_worker_runs(
+    url: str, token: str, timeout: float = RECORD_READ_TIMEOUT
+) -> list[dict[str, Any]]:
     """Fetch recent runs from a worker's /dashboard/runs endpoint.
 
     The /dashboard/runs endpoint is bearer-gated like the other worker endpoints,
@@ -237,6 +250,10 @@ async def fetch_worker_runs(url: str, token: str, timeout: float = 10.0) -> list
 
     Raises:
         WorkerUnreachableError: On connection errors or timeout.
+        WorkerAuthRejectedError: If the worker returns HTTP 401.
+        WorkerRecordUnavailableError: If the worker answers 503 because it
+            cannot read the agent record.
+        WorkerUnavailableError: On any other non-2xx answer.
     """
     runs_url = url.rstrip("/") + "/dashboard/runs"
     headers = {"Authorization": f"Bearer {token}"}
@@ -252,12 +269,27 @@ async def fetch_worker_runs(url: str, token: str, timeout: float = 10.0) -> list
     except httpx.RequestError as exc:
         raise WorkerUnreachableError(f"Request error fetching runs from {runs_url}: {exc}") from exc
 
-    response.raise_for_status()
+    if response.status_code == 401:
+        raise WorkerAuthRejectedError(f"Unauthorized (401) from {runs_url}")
+    if response.status_code == 503:
+        raise WorkerRecordUnavailableError(_worker_detail(response) or "record unavailable")
+    if not response.is_success:
+        raise WorkerUnavailableError(f"HTTP {response.status_code} from {runs_url}")
     return cast(list[dict[str, Any]], response.json())
 
 
+def _worker_detail(response: httpx.Response) -> str | None:
+    """The ``detail`` string of a worker's JSON error body, or ``None``."""
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    detail = body.get("detail") if isinstance(body, dict) else None
+    return detail if isinstance(detail, str) and detail else None
+
+
 async def cancel_worker_run(
-    url: str, token: str, run_id: str, timeout: float = 10.0
+    url: str, token: str, run_id: str, timeout: float = RECORD_READ_TIMEOUT
 ) -> dict[str, Any]:
     """DELETE /dispatch/{run_id} on the worker to request cancellation.
 
@@ -297,56 +329,6 @@ async def cancel_worker_run(
     return cast(dict[str, Any], response.json())
 
 
-async def clear_worker_history(
-    url: str, token: str, older_than_days: int = 0, timeout: float = 30.0
-) -> dict[str, Any]:
-    """DELETE /dispatch/runs on the worker to drop finished run records.
-
-    Args:
-        url: Base URL of the worker service (e.g.
-            ``http://dispatch-worker-1:10011`` — worker 1's slot at the default
-            port base).
-        token: Bearer token for authentication.
-        older_than_days: Age floor in days. ``0`` (the default) clears every
-            finished run; a positive value clears only those older than it,
-            which is the retention sweep's horizon applied on demand.
-        timeout: Request timeout in seconds. Longer than the cancel path's: this
-            unlinks up to a full history's worth of records in one call.
-
-    Returns:
-        Worker's response dict (``{"cleared": int, "records_deleted": int,
-        "older_than_days": int}``).
-
-    Raises:
-        WorkerAuthRejectedError: If the worker returns HTTP 401.
-        WorkerUnreachableError: On connection errors or timeouts.
-    """
-    clear_url = url.rstrip("/") + "/dispatch/runs"
-    headers = {"Authorization": f"Bearer {token}"}
-    payload = {"older_than_days": older_than_days}
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            # ``client.delete`` takes no body, so go through ``request``: the age
-            # floor rides in the body rather than the URL, keeping it out of
-            # access logs alongside the rest of the worker's write surface.
-            response = await client.request("DELETE", clear_url, headers=headers, json=payload)
-    except httpx.TimeoutException as exc:
-        raise WorkerUnreachableError(f"Timeout clearing history at {clear_url}: {exc}") from exc
-    except httpx.ConnectError as exc:
-        raise WorkerUnreachableError(
-            f"Connection error clearing history at {clear_url}: {exc}"
-        ) from exc
-    except httpx.RequestError as exc:
-        raise WorkerUnreachableError(
-            f"Request error clearing history at {clear_url}: {exc}"
-        ) from exc
-
-    if response.status_code == 401:
-        raise WorkerAuthRejectedError(f"Unauthorized (401) from {clear_url}")
-    response.raise_for_status()
-    return cast(dict[str, Any], response.json())
-
-
 async def proxy_worker_stream(url: str, token: str, run_id: str) -> AsyncIterator[bytes]:
     """Proxy an SSE stream from a worker's /dispatch/{run_id}/stream endpoint.
 
@@ -369,14 +351,16 @@ async def proxy_worker_stream(url: str, token: str, run_id: str) -> AsyncIterato
     stream_url = url.rstrip("/") + f"/dispatch/{run_id}/stream"
     headers = {"Authorization": f"Bearer {token}"}
     try:
-        async with httpx.AsyncClient(timeout=None) as client:
-            async with client.stream("GET", stream_url, headers=headers) as response:
-                if response.status_code == 401:
-                    raise WorkerAuthRejectedError(f"Unauthorized (401) from {stream_url}")
-                if response.status_code != 200:
-                    raise WorkerUnavailableError(f"HTTP {response.status_code} from {stream_url}")
-                async for chunk in response.aiter_bytes():
-                    yield chunk
+        async with (
+            httpx.AsyncClient(timeout=None) as client,
+            client.stream("GET", stream_url, headers=headers) as response,
+        ):
+            if response.status_code == 401:
+                raise WorkerAuthRejectedError(f"Unauthorized (401) from {stream_url}")
+            if response.status_code != 200:
+                raise WorkerUnavailableError(f"HTTP {response.status_code} from {stream_url}")
+            async for chunk in response.aiter_bytes():
+                yield chunk
     except httpx.ConnectError as exc:
         raise WorkerUnreachableError(
             f"Connection error streaming from {stream_url}: {exc}"

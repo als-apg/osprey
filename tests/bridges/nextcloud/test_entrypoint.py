@@ -70,7 +70,6 @@ NEUTRAL_ENV = (
     "GITLAB_PROJECT",
     "GITLAB_ISSUES_TOKEN",
     "DEDUP_PATH",
-    "HISTORY_PATH",
     "HISTORY_ANSWER_LIMIT",
 )
 """Every name ``CoreConfig.from_env`` reads. Cleared before each env-driven test: the
@@ -102,7 +101,6 @@ def _core(tmp_path, **overrides):
         "dispatch_worker_token": "worker-token",
         "trigger": TRIGGER,
         "dedup_path": str(tmp_path / "dedup.json"),
-        "history_path": str(tmp_path / "history.json"),
     }
     settings.update(overrides)
     return CoreConfig(**settings)
@@ -139,7 +137,6 @@ def _env(monkeypatch, tmp_path, **overrides):
         "NEXTCLOUD_ROOMS": ROOM,
         "OFFSETS_PATH": str(tmp_path / "offsets.json"),
         "DEDUP_PATH": str(tmp_path / "dedup.json"),
-        "HISTORY_PATH": str(tmp_path / "history.json"),
         "DISPATCHER_URL": DISPATCHER,
         "WORKER_URL": WORKER,
         "EVENT_DISPATCHER_TOKEN": "dispatcher-token",

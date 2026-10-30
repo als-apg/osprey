@@ -180,7 +180,9 @@ class Lane:
     is here rather than in module constants, so a helper cannot silently act on
     the wrong deployment: the project name decides every container name, the
     compose project and its volumes, and the port band
-    decides what nginx and each terminal bind.
+    decides what nginx and each terminal bind. ``port_base`` moves every port
+    the render derives rather than pins — the agent record's among them — into
+    a block of the lane's own.
 
     ``users`` holds roster entries as they are authored in the profile. Every
     entry runs a tier, its own or the default, so the open-mode
@@ -189,6 +191,7 @@ class Lane:
 
     posture: str
     project_name: str
+    port_base: int
     nginx_port: int
     base_ports: dict[str, int]
     users: tuple[dict[str, Any] | str, ...]
@@ -249,6 +252,7 @@ class Lane:
 TOKEN_LANE = Lane(
     posture="token",
     project_name="osprey-e2e-token-multiuser",
+    port_base=29000,
     nginx_port=19680,
     base_ports={
         "web": 19671,
@@ -268,6 +272,7 @@ TOKEN_LANE = Lane(
 OPEN_LANE = Lane(
     posture="none",
     project_name="osprey-e2e-open-multiuser",
+    port_base=30000,
     nginx_port=19690,
     base_ports={
         "web": 19691,
@@ -398,9 +403,8 @@ def _profile_edits(lane: Lane) -> dict[str, Any]:
 
     ``deployed_services: []`` drops everything the preset would otherwise deploy:
     these lanes deploy the web tier and nothing else, and a backend service would
-    only add containers and bound ports to a proof about nginx. Telemetry goes
-    off with them, and for the same reason the perimeter lane disables it — the
-    preset ships it aimed at a store this deploy no longer runs.
+    only add containers and bound ports to a proof about nginx. The agent
+    record is the one service every deployment still runs.
     """
     return {
         "config": {
@@ -408,7 +412,7 @@ def _profile_edits(lane: Lane) -> dict[str, Any]:
             "system.timezone": "UTC",
             "deploy.fqdn": "127.0.0.1",
             "deployed_services": [],
-            "claude_code.telemetry.enabled": False,
+            "deployment.port_base": lane.port_base,
             "modules.web_terminals": {
                 "enabled": True,
                 "image_source": "local",

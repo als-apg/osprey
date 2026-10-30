@@ -63,15 +63,13 @@ def _write_config(project_path: Path, *, deployed: list[str] | None = None) -> N
         "services": {"postgresql": {}},
         "system": {"timezone": "UTC"},
     }
-    with open(project_path / "config.yml", "w") as fh:
-        yaml_rt.dump(config, fh)
+    yaml_rt.dump(config, project_path / "config.yml")
 
 
 def _read_config(project_path: Path) -> dict:
     """Reload config.yml as a plain dict."""
     yaml_rt = YAML()
-    with open(project_path / "config.yml") as fh:
-        return yaml_rt.load(fh)
+    return yaml_rt.load(project_path / "config.yml")
 
 
 def _render_bridge_compose(project_path: Path) -> str:
@@ -367,7 +365,13 @@ def test_full_build_compose_renders_with_no_unrendered_jinja(tmp_path: Path) -> 
     ):
         assert env[var] == f"${{{var}}}"
     assert env["TZ"] == "UTC"
-    assert svc["volumes"] == ["nextcloud_bridge_data:/data"]
+    # Beside it, the bridge's own spool (its agent-record entries) and its own
+    # per-container state directory, both bind-mounted under its identity.
+    assert svc["volumes"] == [
+        "nextcloud_bridge_data:/data",
+        "./var/spool/nextcloud-bridge:/app/var/spool/nextcloud-bridge",
+        "./var/state/nextcloud-bridge:/app/var/state/nextcloud-bridge",
+    ]
 
 
 def test_full_build_custom_trigger_reaches_rendered_compose(tmp_path: Path) -> None:

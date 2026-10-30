@@ -100,8 +100,8 @@ For a governed tool (`governed_tools` in hook_config.json) the switch decides, a
   posture store;
 - a write the verdict refuses defers, as above;
 - at `asked` the call is put to a person, and its stamp says `position: "asked"`;
-- at `allowed` the call is bound and stamped as an ask would be, and filed in the
-  ledger as `approved`/`switch`. Outside a dispatch run it is allowed; in a dispatch
+- at `allowed` the call is bound and stamped as an ask would be, and filed on the
+  agent record as `approved`/`switch`. Outside a dispatch run it is allowed; in a dispatch
   run it is sent as an ask, because the ask is what carries `updatedInput` past the
   worker's backstop;
 - code naming the posture store is put to a person in every position, and denied
@@ -335,7 +335,7 @@ def build_approval_output(
 
 
 def _ask_envelope(reason_detail, hook_input, record, updated_input=None) -> dict:
-    """The ask envelope alone: no stamp, no ledger record."""
+    """The ask envelope alone: no stamp, no audit entry."""
     specific: dict = {
         "hookEventName": "PreToolUse",
         "permissionDecision": "ask",
@@ -1044,9 +1044,11 @@ def _stamp_ask(hook_input, approved=None, review_id=None, position=None) -> None
             payload["position"] = position
         if position == _POSITION_ALLOWED:
             payload["answered_at"] = payload["asked_at"]
-        for key, value in (approved or {}).items():
-            if key.startswith(APPROVED_FIELD_PREFIX):
-                payload[key] = value
+        payload.update(
+            (key, value)
+            for key, value in (approved or {}).items()
+            if key.startswith(APPROVED_FIELD_PREFIX)
+        )
         if review_id:
             payload[REVIEW_ARTIFACT_KEY] = review_id
         _write_stamp(os.path.join(directory, approval_ask_filename(tool_use_id)), payload)
@@ -1081,7 +1083,7 @@ APPROVED_CALL_NOTE = "The operator approved this call at the approval prompt bef
 _PROMPTED_PERMISSION_MODES = frozenset({"default"})
 
 
-#: The ledger detail of a call the switch approved.
+#: The audit ``detail`` of a call the switch approved.
 _SWITCH_APPROVED_DETAIL = f"approver={APPROVER_WRITE_SWITCH} position={_POSITION_ALLOWED}"
 
 

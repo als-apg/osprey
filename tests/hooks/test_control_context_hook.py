@@ -21,6 +21,7 @@ from osprey_connectors_tests._harness import (
     write_control_context,
     write_server_report,
 )
+from tests.hooks.conftest import hook_debug_records
 
 SESSION_ID = "4f1c2a7e-0000-4000-8000-0000000000aa"
 
@@ -402,30 +403,26 @@ def test_the_envelope_names_the_event_it_was_emitted_for(tmp_path, envelope):
 # ---------------------------------------------------------------------------
 
 
-def _debug_records(project_dir):
-    """Every ``control_context`` record in the run's ``hook_debug.jsonl``."""
-    log_path = project_dir / ".claude" / "hooks" / "hook_debug.jsonl"
-    records = [json.loads(line) for line in log_path.read_text().splitlines() if line.strip()]
-    return [record for record in records if record["hook"] == "control_context"]
+def _debug_records(spool_root):
+    """Every ``control_context`` hook debug entry the run put on the record's spool."""
+    return hook_debug_records(spool_root, hook="control_context")
 
 
 def test_every_way_the_hook_ends_leaves_one_debug_record(
-    tmp_path, hook_runner_raw, make_config, monkeypatch
+    tmp_path, hook_runner_raw, make_config, monkeypatch, spool_zone
 ):
     """Silence has five meanings; the JSONL channel is what tells them apart.
 
     The hook is registered with ``2>/dev/null`` and its memo lives in ``TMPDIR``,
     so a run that said nothing is indistinguishable from a run that never
     happened — which is exactly the state the envelope bug shipped in. Drive all
-    seven exits and assert the file, not stderr: the file is what the web
-    terminal's hook-activity feed reads and what survives the shell redirect.
+    seven exits and assert the record's debug entries, not stderr: they are what
+    the web terminal's hook-activity feed reads and what survives the redirect.
     """
     monkeypatch.setenv("TMPDIR", str(tmp_path / "tmp"))
     (tmp_path / "tmp").mkdir()
     monkeypatch.setenv("OSPREY_HOOK_DEBUG", "1")
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
-    # log_hook appends; it does not create the directory it appends into.
-    (tmp_path / ".claude" / "hooks").mkdir(parents=True)
     config_path = make_config(ARMED_BOTH)
 
     session = SESSION_ID
@@ -461,7 +458,7 @@ def test_every_way_the_hook_ends_leaves_one_debug_record(
     )
     _run("UserPromptSubmit", session_id=corrupt)  # error
 
-    statuses = [record["status"] for record in _debug_records(tmp_path)]
+    statuses = [record["status"] for record in _debug_records(spool_zone.root)]
 
     assert statuses == [
         "skip:no-record",
@@ -476,14 +473,13 @@ def test_every_way_the_hook_ends_leaves_one_debug_record(
 
 
 def test_the_error_record_names_what_went_wrong(
-    tmp_path, hook_runner_raw, make_config, monkeypatch
+    tmp_path, hook_runner_raw, make_config, monkeypatch, spool_zone
 ):
     """An ``error`` with no exception in it is a dead end for whoever reads it."""
     monkeypatch.setenv("TMPDIR", str(tmp_path / "tmp"))
     (tmp_path / "tmp").mkdir()
     monkeypatch.setenv("OSPREY_HOOK_DEBUG", "1")
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
-    (tmp_path / ".claude" / "hooks").mkdir(parents=True)
     _record(tmp_path, "va", 2)
     (tmp_path / "tmp" / f"osprey-control-context-{SESSION_ID}.json").write_text(
         json.dumps({"target": "live", "generation": 1, "writes": 0})
@@ -498,20 +494,19 @@ def test_the_error_record_names_what_went_wrong(
         hook_input_extra={"hook_event_name": "UserPromptSubmit", "session_id": SESSION_ID},
     )
 
-    (record,) = _debug_records(tmp_path)
+    (record,) = _debug_records(spool_zone.root)
     assert record["status"] == "error"
     assert record["detail"] == "exception=TypeError"
 
 
 def test_the_trace_stays_off_until_it_is_asked_for(
-    tmp_path, hook_runner_raw, make_config, monkeypatch
+    tmp_path, hook_runner_raw, make_config, monkeypatch, spool_zone
 ):
     """A debug facility that files on every deployment is not a debug facility."""
     monkeypatch.setenv("TMPDIR", str(tmp_path / "tmp"))
     (tmp_path / "tmp").mkdir()
     monkeypatch.delenv("OSPREY_HOOK_DEBUG", raising=False)
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
-    (tmp_path / ".claude" / "hooks").mkdir(parents=True)
     _record(tmp_path, "va", 2)
 
     hook_runner_raw(
@@ -523,4 +518,4 @@ def test_the_trace_stays_off_until_it_is_asked_for(
         hook_input_extra={"hook_event_name": "SessionStart", "session_id": SESSION_ID},
     )
 
-    assert not (tmp_path / ".claude" / "hooks" / "hook_debug.jsonl").exists()
+    assert _debug_records(spool_zone.root) == []

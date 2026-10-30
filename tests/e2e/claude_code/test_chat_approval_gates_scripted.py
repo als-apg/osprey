@@ -22,7 +22,7 @@ making the calls, and prove six things:
     no such rule for a hook ask in the first place.
 (h) the write switch's position decides a governed call: at ``asked`` a write is carded on
     a human's record; at ``allowed`` it runs with no card on a ``write_switch`` record the
-    server accepts, with a ledger line naming the switch and the position; moving back to
+    server accepts, with an audit entry naming the switch and the position; moving back to
     ``asked`` makes the very next write prompt; code naming the posture store is carded at
     ``allowed`` too; and a readonly run still refuses the write at ``allowed``.
 
@@ -36,8 +36,8 @@ that the operator approved it (APPROVAL_NOTE). That note reaches the request aft
 Each execute that (c), (d) and (e) add also settles the review notebook its approval left:
 it reads "ran" in (c), "not run" in (d), and "failed" in (e).
 
-Each gate's own decision for each call is read from the render's hook log, which
-records every decision a hook makes, denials included. The transcript is not the
+Each gate's own decision for each call is read from the agent record's hook debug
+lines, which record every decision a hook makes, denials included. The transcript is not the
 witness: it keeps a hook's output when the hook asks or allows, and nothing when
 the hook denies.
 """
@@ -635,7 +635,7 @@ async def test_an_interrupted_approved_execute_is_settled_not_run_at_the_next_st
 # (h) the switch's position decides: `asked` prompts, `allowed` runs on a write_switch record
 # ---------------------------------------------------------------------------
 
-#: The hook ledger's surface (``hook_`` plus the approval hook's own name).
+#: The approval hook's audit surface (``hook_`` plus the hook's own name).
 APPROVAL_SURFACE = "hook_approval"
 
 
@@ -678,7 +678,7 @@ async def test_at_asked_a_write_prompts_and_its_human_record_is_accepted(
         stamps.append(sdk_helpers.approval_trail(safety_project, card["tool_use_id"]).stamp)
         return Answer(allow=True)
 
-    started = sdk_helpers.ledger_now()
+    started = sdk_helpers.record_now()
     with switch_at(safety_project, "asked"):
         _model, run = await drive_chat(
             safety_project,
@@ -689,7 +689,7 @@ async def test_at_asked_a_write_prompts_and_its_human_record_is_accepted(
     call = run.only_call(WRITE)
     facts = run.describe(call)
     trail = sdk_helpers.approval_trail(safety_project, call["tool_use_id"], since=started)
-    print(f"chat-gates (h1) {facts} stamp={stamps} ledger={trail.ledger}")
+    print(f"chat-gates (h1) {facts} stamp={stamps} entries={trail.entries}")
 
     assert run.was_carded(call), f"a write at asked was not put to the operator: {facts}"
     (gate,) = [g for g in _approval_gates(run, call) if g == ("approval", "ask")]
@@ -700,18 +700,18 @@ async def test_at_asked_a_write_prompts_and_its_human_record_is_accepted(
     assert not run.results[call["tool_use_id"]]["is_error"], f"the server refused it: {facts}"
     assert any(
         "approver=human" in str(line.get("detail"))
-        for line in trail.ledger
+        for line in trail.entries
         if not str(line.get("surface")).startswith("hook_")
-    ), f"no server ledger line accepted the human record: {trail.ledger}"
+    ), f"no server audit entry accepted the human record: {trail.entries}"
 
 
 async def test_at_allowed_a_write_runs_unprompted_on_a_write_switch_record(
     safety_project, scripted_model
 ):
     """(h2): at ``allowed`` the same write runs with no prompt and no card. The hook files a
-    ``write_switch`` record, the server accepts it, and the hook's ledger line names the
+    ``write_switch`` record, the server accepts it, and the hook's audit entry names the
     switch and the position."""
-    started = sdk_helpers.ledger_now()
+    started = sdk_helpers.record_now()
     with switch_at(safety_project, "allowed"):
         _model, run = await drive_chat(
             safety_project,
@@ -722,7 +722,7 @@ async def test_at_allowed_a_write_runs_unprompted_on_a_write_switch_record(
     call = run.only_call(WRITE)
     facts = run.describe(call)
     trail = sdk_helpers.approval_trail(safety_project, call["tool_use_id"], since=started)
-    print(f"chat-gates (h2) {facts} ledger={trail.ledger}")
+    print(f"chat-gates (h2) {facts} entries={trail.entries}")
 
     assert not run.cards, f"a write at allowed reached the operator: {facts}"
     assert ("approval", "ask") not in run.statuses(call), facts
@@ -735,13 +735,13 @@ async def test_at_allowed_a_write_runs_unprompted_on_a_write_switch_record(
         for line in trail.lines(APPROVAL_SURFACE)
         if line.get("decision") == "approved" and line.get("reason") == "switch"
     ]
-    assert len(switch_lines) == 1, f"no single switch approval in the ledger: {trail.ledger}"
+    assert len(switch_lines) == 1, f"no single switch approval on the record: {trail.entries}"
     assert switch_lines[0].get("detail") == "approver=write_switch position=allowed", switch_lines
     assert any(
         "approver=write_switch" in str(line.get("detail"))
-        for line in trail.ledger
+        for line in trail.entries
         if not str(line.get("surface")).startswith("hook_")
-    ), f"no server ledger line accepted the write_switch record: {trail.ledger}"
+    ), f"no server audit entry accepted the write_switch record: {trail.entries}"
 
 
 async def test_moving_back_to_asked_makes_the_very_next_write_prompt(

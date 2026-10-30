@@ -42,6 +42,12 @@ from osprey.deployment.compose_generator import (
     LABELS_OVERRIDE_FILENAME,
     REPO_ID_LABEL,
     repo_identity,
+    resolve_project_name,
+)
+from osprey.deployment.deployment_record import (
+    DeploymentRecord,
+    read_deployment_record,
+    write_deployment_record,
 )
 from osprey.deployment.web_terminals import provision
 from osprey.utils.workspace import container_image_context
@@ -179,7 +185,7 @@ def started(monkeypatch):
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
 
-    def _fake_image_build(_config, _dev_mode, _env, build_context=None):
+    def _fake_image_build(_config, _dev_mode, _env, build_context=None, **_kwargs):
         record["build_context"] = build_context
 
     monkeypatch.setattr(container_lifecycle, "_build_project_image", _fake_image_build)
@@ -231,6 +237,66 @@ def test_up_starts_the_compose_files_the_build_left(lifecycle_repo, started):
     ]
     env_files = [argv[i + 1] for i, flag in enumerate(argv) if flag == "--env-file"]
     assert env_files[-1] == str(lifecycle_repo / ".env")
+
+
+def _built_project(repo: Path) -> str:
+    """The compose project the build in *repo* names, read the way a start reads it."""
+    from osprey_connectors.config import load_project_config
+
+    return resolve_project_name(
+        load_project_config(str(container_lifecycle.as_built_config_path(repo)))
+    )
+
+
+def test_a_start_records_the_runtime_and_project_it_drove(lifecycle_repo, started):
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    render_build(lifecycle_repo)
+
+    result = run_up(lifecycle_repo, "-d")
+
+    assert result.exit_code == 0, result.output
+    assert read_deployment_record(lifecycle_repo) == DeploymentRecord(
+        up_argv(started)[0], _built_project(lifecycle_repo)
+    )
+
+
+def test_a_start_refused_before_any_container_step_leaves_the_previous_record(
+    lifecycle_repo, started, monkeypatch
+):
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    render_build(lifecycle_repo)
+    previous = DeploymentRecord("podman", "an-earlier-project")
+    write_deployment_record(lifecycle_repo, previous)
+    monkeypatch.setattr(
+        container_lifecycle, "verify_runtime_is_running", lambda config: (False, "x")
+    )
+
+    result = run_up(lifecycle_repo, "-d")
+
+    assert result.exit_code != 0
+    assert not started
+    assert read_deployment_record(lifecycle_repo) == previous
+
+
+@pytest.mark.usefixtures("started")
+def test_a_start_refused_by_a_later_preflight_has_recorded_what_it_would_drive(
+    lifecycle_repo, monkeypatch
+):
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    render_build(lifecycle_repo)
+    write_deployment_record(lifecycle_repo, DeploymentRecord("podman", "an-earlier-project"))
+
+    def _port_held(*_):
+        raise RuntimeError("port held")
+
+    monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", _port_held)
+
+    result = run_up(lifecycle_repo, "-d")
+
+    assert result.exit_code != 0
+    assert read_deployment_record(lifecycle_repo) == DeploymentRecord(
+        "docker", _built_project(lifecycle_repo)
+    )
 
 
 def test_up_is_correct_from_a_subdirectory(lifecycle_repo, started, monkeypatch):
@@ -318,7 +384,7 @@ def test_host_side_work_during_a_start_reads_the_render_not_the_working_director
 
     seen: dict = {}
 
-    def _probe(_config, _dev_mode, _env, _build_context=None):
+    def _probe(_config, _dev_mode, _env, _build_context=None, **_kwargs):
         seen["tz"] = str(get_facility_timezone())
 
     monkeypatch.setattr(container_lifecycle, "_build_project_image", _probe)
@@ -1238,6 +1304,8 @@ def test_the_legacy_deploy_up_still_renders(tmp_path, monkeypatch):
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
     monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda config, files: None)
+    # Every start builds the project image agent-record runs on; no build here.
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
     monkeypatch.setattr(
         container_lifecycle.subprocess,
         "run",
@@ -1443,7 +1511,6 @@ def test_a_real_build_leaves_no_runtime_state_in_the_output_zone(built_repo):
     assert not (build / "var").exists()
     # The durable location is untouched and still there.
     assert (built_repo / "var" / "agent_data").is_dir()
-    assert (built_repo / "var" / "audit").is_dir()
 
 
 def test_a_real_build_bakes_the_repo_identity_into_every_stack(built_repo):

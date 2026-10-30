@@ -46,9 +46,7 @@ Advisory CI lane (see ci.yml's ``bluesky-catalog-e2e`` job); run locally with
 
 from __future__ import annotations
 
-import os
 import shutil
-import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -77,7 +75,6 @@ from osprey.services.bluesky_bridge.queue_backend import (
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_support import format_failure, run_command, wait_for_health
 from tests.e2e._volumes import remove_project_volumes
-from tests.e2e.profile_edits import set_pairs
 
 # Every word the pre-flight is allowed to answer with. Imported rather than
 # spelled, because the approval prompt branches on these exact literals.
@@ -119,15 +116,11 @@ pytestmark = [
 BRIDGE_PORT = 18103
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 
-# The preset deploys the telemetry store and its gateway on their slots in the
-# port block -- which a locally running tutorial stack holds. `osprey up`'s
+# A locally running deployment holds the default port block. `osprey up`'s
 # host port preflight aborts the WHOLE deploy on one such clash, so leaving
-# them on the defaults takes every test in this module down at fixture setup.
-# Both are moved to their container port + 20000, offset past the sibling
-# modules' pins so the modules can deploy side by side, and PORT_BASE moves the
-# block itself, which carries the gateway's own metrics port that no key moves.
-TELEMETRY_GATEWAY_PORT = 24324
-TELEMETRY_STORE_PORT = 28129
+# this deployment on the defaults takes every test in this module down at
+# fixture setup. PORT_BASE moves the whole block, offset past the sibling
+# modules' blocks so the modules can deploy side by side.
 PORT_BASE = 22300
 
 # The repo directory name IS the deployment name, and the bridge compose
@@ -282,11 +275,6 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
     # image tag derived below (``<project>-bluesky-bridge:local``) still holds.
     repo = base / PROJECT_NAME
 
-    # Host hygiene only, stated as a flat dotted key under `config:` (the
-    # preset's own convention): everything after `config.` is one key naming
-    # one leaf of the rendered config, so the rest of the `services:` block
-    # stays as the preset wrote it.
-
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset plus these edits, `build` renders build/ from it.
     init = run_command(
@@ -297,14 +285,6 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
             "--preset",
             "hello-world",
             "--no-git",
-            *set_pairs(
-                {
-                    "config": {
-                        "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
-                        "services.telemetry_store.port": TELEMETRY_STORE_PORT,
-                    }
-                }
-            ),
             "--set",
             f"port_base={PORT_BASE}",
             "--set",
@@ -330,15 +310,8 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
 
     # Force a fresh --dev build so the deployed bridge runs CURRENT source
     # (osprey up does not pass --build to compose, so it would otherwise
-    # reuse a stale cached image). Exact-named image only.
-    # E2E_REUSE_IMAGES=1 skips this for fast local iteration once the image
-    # cache is warm; never set it in CI.
-    if not os.environ.get("E2E_REUSE_IMAGES"):
-        subprocess.run(
-            ["docker", "rmi", "-f", _orm_stack.bridge_image(PROJECT_NAME)],
-            capture_output=True,
-            text=True,
-        )
+    # reuse a stale cached image).
+    _orm_stack.force_image_rebuild(_orm_stack.bridge_image(PROJECT_NAME))
 
     try:
         up = run_command(

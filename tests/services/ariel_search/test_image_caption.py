@@ -26,7 +26,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from osprey.interfaces._serving import free_port
 from osprey.models.providers import _local_server
 from osprey.models.providers.health import HealthResult
 from osprey.models.providers.ollama import OllamaProviderAdapter, OllamaUnreachableError
@@ -1003,8 +1002,7 @@ class TestThroughTheDriver:
 
         ticker = asyncio.create_task(_ticker())
         task = asyncio.create_task(drive_image_module(module, repo, budget=None, stop_event=None))
-        while not started.is_set():
-            await asyncio.sleep(0.01)
+        assert await asyncio.to_thread(started.wait, 5)
         ticks_at_start = ticks
         await asyncio.sleep(0.3)
         assert ticks > ticks_at_start
@@ -1150,8 +1148,8 @@ class TestOllama:
         result = await _ollama_module(provider_configs, stub.url).health_check()
         assert (result.reachable, result.reason) == (False, "model")
 
-    async def test_nothing_answering_is_unreachable(self, provider_configs):
-        module = _ollama_module(provider_configs, f"http://localhost:{free_port()}")
+    async def test_nothing_answering_is_unreachable(self, reserve_port, provider_configs):
+        module = _ollama_module(provider_configs, f"http://localhost:{reserve_port()}")
         result = await module.health_check()
         assert (result.reachable, result.reason) == (False, "unreachable")
 
@@ -1170,11 +1168,11 @@ class TestOllama:
         assert stub.chats == []
 
     async def test_container_fallback_serves_health_and_the_call(
-        self, provider_configs, stubs, fallbacks
+        self, reserve_port, provider_configs, stubs, fallbacks
     ):
         stub = stubs({MODEL: ["completion", "vision"]})
         fallbacks.append(stub.url)
-        module = _ollama_module(provider_configs, f"http://localhost:{free_port()}")
+        module = _ollama_module(provider_configs, f"http://localhost:{reserve_port()}")
 
         result = await module.health_check()
         assert result.reachable is True
@@ -1213,8 +1211,10 @@ class TestOllama:
         assert repo.entries["e2"] == e2_before
         assert repo.failed == {}
 
-    async def test_the_adapter_failed_connect_classifies_unreachable(self, provider_configs):
-        module = _ollama_module(provider_configs, f"http://localhost:{free_port()}")
+    async def test_the_adapter_failed_connect_classifies_unreachable(
+        self, reserve_port, provider_configs
+    ):
+        module = _ollama_module(provider_configs, f"http://localhost:{reserve_port()}")
         repo = FakeRepo()
         repo.add_entry("e1", 1)
 
@@ -1223,10 +1223,10 @@ class TestOllama:
         assert outcome == ImageEntryOutcome.unavailable("unreachable")
 
     async def test_fallback_gone_and_configured_back_recovers(
-        self, provider_configs, stubs, fallbacks, caplog
+        self, reserve_port, provider_configs, stubs, fallbacks, caplog
     ):
         caplog.set_level(logging.DEBUG)
-        configured_port = free_port()
+        configured_port = reserve_port()
         fallback = stubs({MODEL: ["vision"]})
         fallbacks.append(fallback.url)
         module = _ollama_module(provider_configs, f"http://localhost:{configured_port}")

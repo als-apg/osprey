@@ -6,7 +6,7 @@ This module provides shared fixtures and utilities for all Osprey tests.
 
 import os
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,7 +21,6 @@ from osprey_connectors_tests._harness import _repo_cleanliness
 # fixtures take their usual places in this conftest's alphabetical order. See
 # osprey_connectors_tests._harness._guards for why they are not a registered plugin.
 from osprey_connectors_tests._harness._guards import (  # noqa: F401 - fixtures and hooks, used by name
-    _AUDIT_RESOLVER_LANE,
     _GUARD_KNOWN_LIMIT,
     _clear_dotenv_timezone,
     _first_seen_clause,
@@ -30,7 +29,7 @@ from osprey_connectors_tests._harness._guards import (  # noqa: F401 - fixtures 
     agent_data_never_the_checkout,
     control_context_root,
     no_agent_data_in_the_repo,
-    no_audit_ledger_in_the_repo,
+    no_spool_in_the_repo,
     pytest_collection_finish,
     pytest_runtest_setup,
     pytest_xdist_make_scheduler,
@@ -43,6 +42,7 @@ from osprey_connectors_tests._harness._guards import (  # noqa: F401 - fixtures 
     write_control_context,
     write_server_report,
 )
+from osprey_connectors_tests._harness._ports import port_reserver
 from tests import _scoped_temp
 from tests._agent_cli import STUB_AGENT_CLI
 from tests._builds import (  # noqa: F401 - the session's shared builds
@@ -78,14 +78,21 @@ def agent_cli_resolved_per_test():
     """
     from osprey.agent_runner import launcher
 
-    launcher._project_agent_cli_path.cache_clear()
+    launcher._project_agent_cli.cache_clear()
     yield
-    launcher._project_agent_cli_path.cache_clear()
+    launcher._project_agent_cli.cache_clear()
 
 
 @pytest.fixture
 def real_agent_cli():
     """Opt a test out of :func:`stub_agent_cli`: it resolves the real Claude Code."""
+
+
+@pytest.fixture
+def reserve_port() -> Iterator[Callable[[], int]]:
+    """A harness ``_ports.port_reserver`` call, its reservations held until the test ends."""
+    with port_reserver() as reserve:
+        yield reserve
 
 
 @pytest.fixture(autouse=True, scope="function")
@@ -103,6 +110,12 @@ def stub_agent_cli(request, monkeypatch):
     from osprey.agent_runner import launcher
 
     monkeypatch.setattr(launcher, "project_agent_cli_path", lambda _project_dir: STUB_AGENT_CLI)
+    # What production resolves on the default pin, so a stubbed run never probes.
+    monkeypatch.setattr(
+        launcher,
+        "project_thinking_display",
+        lambda _project_dir: launcher.ThinkingDisplay("summarized", True),
+    )
 
 
 @pytest.fixture(autouse=True, scope="function")
@@ -112,7 +125,7 @@ def writable_plan_dir_per_test(tmp_path):
     Every test that reaches the bridge's plan loader or session-plan routes
     resolves ``BLUESKY_SESSION_PLAN_DIR`` to a path under its own ``tmp_path``,
     which is created only if something resolves it. ``tmp_path`` is already
-    requested for every test by :func:`_isolate_audit_zone`, so this adds no
+    requested for every test by :func:`_isolate_spool_zone`, so this adds no
     directory. Without it, resolution falls back to the in-package default and
     the run leaves a ``plans_session/`` directory inside the checkout, which
     :func:`no_authored_plans_in_the_package` fails.
@@ -128,7 +141,7 @@ def writable_plan_dir_per_test(tmp_path):
     in-package default.
 
     It is set up before the shared ``monkeypatch`` and torn down after it:
-    :func:`_isolate_audit_zone`, the first function-scoped fixture to request
+    :func:`_isolate_ahead_of_monkeypatch`, the first function-scoped fixture to request
     ``monkeypatch``, requests this one ahead of it. A test that sets the
     variable on ``monkeypatch`` records the value set here as the one to put
     back, so that undo has to run while this patch is still in place; run
@@ -214,7 +227,7 @@ def no_authored_plans_in_the_package():
     """Fail the session if the suite created the bridge's in-package ``plans_session/``.
 
     The twin of :func:`no_agent_data_in_the_repo` and
-    :func:`no_audit_ledger_in_the_repo`, watching the directory
+    :func:`no_spool_in_the_repo`, watching the directory
     ``resolve_session_plan_dir()`` falls back to when
     ``BLUESKY_SESSION_PLAN_DIR`` is unset. That directory sits inside the
     package tree of this checkout, so a run that resolves to it leaves an
@@ -260,104 +273,219 @@ def render_worker_ends_with_its_test():
 
 
 @pytest.fixture(autouse=True)
-def _isolate_audit_zone(
-    request,
-    tmp_path,
-    writable_plan_dir_per_test,  # noqa: ARG001 - requested for its place ahead of monkeypatch
+def _isolate_ahead_of_monkeypatch(
+    writable_plan_dir_per_test,
+    _isolate_spool_zone,
     monkeypatch,
 ):
-    """Keep every record a test fires out of the live ledger.
+    """Set the plan-dir and spool isolation up before the shared ``monkeypatch``.
 
-    ``writer.audit_dir`` is the ledger's one seam — the HTTP middleware, the
-    protected-set funnel, the MCP middleware and the hook emitters all resolve
-    the zone through it — so redirecting it here contains a whole app test.
-    Suite-wide because the modules that need it are exactly the ones whose
-    authors would not think to ask: any test that drives an app files real
-    ``web_auth`` and ``http_mutation`` records, and the interfaces, dispatch,
-    MCP and integration trees all hold app fixtures of that shape. A test that
-    fires no recorder pays nothing.
-
-    Returned so a test that wants to *read* what it filed can, without knowing
-    where the zone was put.
-
-    Its module-scoped twin, :func:`_isolate_module_audit_zone`, holds the seam
-    for what a module-scoped fixture builds; the zone set here sits on top of it
-    for the test body and unwinds to it.
-
-    Named privately so the ``audit_zone`` and ``_audit_zone`` fixtures several
-    modules define still win: a fixture declared closer to the test is set up
-    after this one and re-points the same seam.
-
-    Two exemptions, and both are about tests whose subject IS the resolver.
-    The real-deployment lanes record against this checkout on purpose. So does
-    ``tests/audit/``, which asserts what ``audit_dir()`` resolves to under a
-    rendered project and pins its own zone wherever it writes — patching the
-    seam from out here would be answering the question under test.
-
-    It requests :func:`writable_plan_dir_per_test` before ``monkeypatch`` so
-    that fixture wraps the shared ``monkeypatch`` on both sides; its
-    docstring gives the reason.
+    The first function-scoped autouse fixture to request ``monkeypatch``, so
+    :func:`writable_plan_dir_per_test` and :func:`_isolate_spool_zone` wrap it
+    on both sides; the plan-dir fixture's docstring gives the reason.
     """
-    from osprey.audit import writer
 
-    zone = tmp_path / "audit-zone" / "var" / "audit"
-    if _is_real_deployment_item(request.node) or request.node.nodeid.startswith(
-        _AUDIT_RESOLVER_LANE
-    ):
-        return zone
-    monkeypatch.setattr(writer, "audit_dir", lambda: zone)
-    return zone
+
+# ===================================================================
+# The record spool
+# ===================================================================
+
+#: The identity a test writes as unless it asks for another: a roster terminal.
+SPOOL_TERMINAL_IDENTITY = "alice"
+#: A dispatch worker, the one source class that may record a ``run``.
+SPOOL_DISPATCH_IDENTITY = "dispatch-worker-1"
+#: A bridge, the one source class that may record a ``bridge_turn``.
+SPOOL_BRIDGE_IDENTITY = "teams-bridge"
+
+
+class SpoolZone:
+    """A spool root of a test's (or a module's) own, and the record it feeds.
+
+    ``OSPREY_SPOOL_DIR`` names the writing identity's own directory under
+    :attr:`root`; :meth:`spool_for` moves it to another identity's.
+    :meth:`recorded_entries` consumes the whole root into an embedded backend
+    kept for the zone's lifetime, so a line is reported once however often it
+    is called, and fails the test on any line the consumer refused.
+    """
+
+    terminal = SPOOL_TERMINAL_IDENTITY
+    dispatch = SPOOL_DISPATCH_IDENTITY
+    bridge = SPOOL_BRIDGE_IDENTITY
+
+    def __init__(self, root: Path, record_dir: Path, patched: pytest.MonkeyPatch | None):
+        self.root = root
+        self._record_dir = record_dir
+        self._patched = patched
+        self._identities: list[str] = [self.terminal, self.dispatch, self.bridge]
+        self._backend = None
+        self._refused: list[str] = []
+        self.spool_for()
+
+    def spool_for(self, identity: str | None = None) -> Path:
+        """Write as *identity* (the terminal by default); its own directory."""
+        identity = identity or self.terminal
+        if identity not in self._identities:
+            self._identities.append(identity)
+        directory = self.root / identity
+        if self._patched is not None:
+            from osprey.agent_record.contract import SPOOL_DIR_ENV
+
+            self._patched.setenv(SPOOL_DIR_ENV, str(directory))
+        return directory
+
+    def config(self) -> dict:
+        """A deployment config that declares every identity this zone has written as.
+
+        Dispatch workers and bridges are declared as deployed services; every
+        other identity is a roster terminal.
+        """
+        from osprey.agent_record import identities
+
+        workers = 0
+        terminals: list[str] = []
+        for identity in self._identities:
+            match = identities._DISPATCH_WORKER_RE.match(identity)
+            if match:
+                workers = max(workers, int(match[1]))
+            elif identity not in identities.BRIDGE_IDENTITIES.values():
+                terminals.append(identity)
+        return {
+            "project_name": "spool-zone",
+            "modules": {"web_terminals": {"enabled": True, "users": terminals}},
+            "deployed_services": ["dispatch_worker", *identities.BRIDGE_IDENTITIES],
+            "services": {"dispatch_worker": {"worker_count": max(workers, 1)}},
+        }
+
+    def recorded_entries(self, kind: str | None = None) -> list:
+        """Every entry the root has produced so far, optionally of one *kind*.
+
+        Fails the test on a refused line (now or in any earlier call) and on a
+        backend error.
+        """
+        from osprey.agent_record import contract, writer
+        from osprey.agent_record.backends.embedded import EmbeddedBackend
+        from osprey.agent_record.ingest.spool import SpoolConsumer
+
+        writer.seal_all()
+        self.root.mkdir(parents=True, exist_ok=True)
+        if self._backend is None:
+            self._backend = EmbeddedBackend(self._record_dir / "record.duckdb")
+        consumer = SpoolConsumer(self._backend, self.root, config=self.config())
+        report = consumer.consume()
+        if report.backend_error:
+            pytest.fail(f"the spool could not be consumed: {report.backend_error}")
+        for source in consumer.health().sources.values():
+            self._refused.extend(
+                f"{source.identity}/{line.segment}: {line.kind or '?'} line "
+                f"{line.entry_id or '?'}: {line.reason}"
+                for line in source.refused
+            )
+        if self._refused:
+            pytest.fail("the spool consumer refused lines:\n  " + "\n  ".join(self._refused))
+        kinds = frozenset({kind}) if kind else None
+        return self._backend.select(contract.ScopeFilter(kinds=kinds), contract.Query())
+
+    def close(self) -> None:
+        """Seal what the writer holds open and release the record file."""
+        writer = sys.modules.get("osprey.agent_record.writer")
+        if writer is not None:
+            writer.seal_all()
+        if self._backend is not None:
+            self._backend.close()
+            self._backend = None
+
+
+@contextmanager
+def _spool_zone(node, root: Path, record_dir: Path):
+    """A :class:`SpoolZone` held for the ``with`` body; real deployments are left alone."""
+    if _is_real_deployment_item(node):
+        zone = SpoolZone(root, record_dir, None)
+        try:
+            yield zone
+        finally:
+            zone.close()
+        return
+    with pytest.MonkeyPatch.context() as patched:
+        zone = SpoolZone(root, record_dir, patched)
+        try:
+            yield zone
+        finally:
+            zone.close()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_spool_zone(request, tmp_path):
+    """Give every test a spool root of its own and point the writer into it.
+
+    The record writer resolves ``OSPREY_SPOOL_DIR`` on every call and, when it
+    is unset, falls back to ``<project root>/var/spool/<identity>`` — the
+    checkout, which :func:`no_spool_in_the_repo` refuses. Suite-wide because
+    the modules that need it are exactly the ones whose authors would not think
+    to ask: any app a test drives writes audit entries and other record lines,
+    and the interfaces, dispatch, MCP and integration trees all hold app
+    fixtures of that shape. Set as an environment
+    variable, so a subprocess the test starts writes into the same root.
+
+    Its own ``MonkeyPatch.context()``, and requested by
+    :func:`_isolate_ahead_of_monkeypatch` ahead of ``monkeypatch``, for the reasons
+    :func:`writable_plan_dir_per_test` gives: a test's ``monkeypatch.undo()``
+    cannot lift it, and a test that unsets the variable gets it back at
+    teardown. The real-deployment lanes are left alone: they record against
+    this checkout on purpose.
+
+    Its module-scoped twin, :func:`_isolate_module_spool_zone`, holds a root
+    for what a module-scoped fixture builds; this one sits on top of it for
+    the test body.
+    """
+    base = tmp_path / "spool-zone"
+    with _spool_zone(request.node, base / "spool", base / "record") as zone:
+        yield zone
 
 
 @pytest.fixture
-def audit_zone_path(_isolate_audit_zone: Path) -> Path:
-    """The zone :func:`_isolate_audit_zone` redirected the ledger to, by a public name.
+def spool_zone(_isolate_spool_zone: SpoolZone) -> SpoolZone:
+    """The test's :class:`SpoolZone`, by a public name."""
+    return _isolate_spool_zone
 
-    A test that reads what it filed requests this rather than redirecting the
-    seam again in a local fixture of its own. It is the zone records land in
-    only while nothing closer re-points ``writer.audit_dir``: a module's own
-    ``audit_zone`` fixture wins over the suite-wide one, and this still names
-    the suite-wide zone.
+
+@pytest.fixture
+def spool_for(_isolate_spool_zone: SpoolZone):
+    """``spool_for(identity=None) -> Path``: write as *identity* from now on.
+
+    Defaults to :data:`SPOOL_TERMINAL_IDENTITY`; ``spool_zone.dispatch`` and
+    ``spool_zone.bridge`` name identities whose ``run`` and ``bridge_turn``
+    lines the consumer accepts.
     """
-    return _isolate_audit_zone
+    return _isolate_spool_zone.spool_for
+
+
+@pytest.fixture
+def recorded_entries(_isolate_spool_zone: SpoolZone):
+    """``recorded_entries(kind=None) -> list[Entry]`` over the test's spool root."""
+    return _isolate_spool_zone.recorded_entries
 
 
 @pytest.fixture(autouse=True, scope="module")
-def _isolate_module_audit_zone(request, tmp_path_factory):
-    """Hold the ledger's seam redirected for a whole test module.
+def _isolate_module_spool_zone(request, tmp_path_factory):
+    """Hold a spool root for a whole test module.
 
-    :func:`_isolate_audit_zone` does this per test, which covers every app built
-    in a test body. It cannot cover an app built by a MODULE-scoped fixture:
-    pytest sets every higher-scoped fixture up first, so such an app enters its
-    lifespan, serves requests and is torn down while the per-test redirection
-    has not been made. Suite-wide for the per-test twin's reason: the modules
-    that build an app at module scope are spread across the interfaces,
-    dispatch, MCP and integration trees, and a directory-local copy covers only
-    the directory it sits in.
-
-    Module-scoped rather than session-scoped on purpose. A session-scoped
-    redirection would still be installed for every module that runs after the
-    one that needed it in the same worker, including the suites in
-    ``tests/audit`` that call the real ``writer.audit_dir()`` and assert what
-    it resolves to. A module-scoped one is torn down with its module.
-
-    Exempt exactly where the per-test twin is, by the same predicate, so a
-    lane cannot be redirected at one scope and left alone at the other.
-
-    ``pytest.MonkeyPatch.context()`` rather than the ``monkeypatch`` fixture,
-    which is function-scoped and cannot be requested here.
+    The twin of :func:`_isolate_spool_zone` for an app built by a
+    module-scoped fixture, which pytest sets up before any per-test fixture:
+    such an app enters its lifespan and serves requests before the per-test
+    root exists. Module-scoped rather than session-scoped so a root is never
+    shared past the module that needed it. Lines written
+    while such a fixture is set up or torn down land here; lines written
+    during a test body land in that test's own root.
     """
-    from osprey.audit import writer
+    base = tmp_path_factory.mktemp("module-spool-zone")
+    with _spool_zone(request.node, base / "spool", base / "record") as zone:
+        yield zone
 
-    zone = tmp_path_factory.mktemp("module-audit-zone") / "var" / "audit"
-    if _is_real_deployment_item(request.node) or request.node.nodeid.startswith(
-        _AUDIT_RESOLVER_LANE
-    ):
-        yield zone
-        return
-    with pytest.MonkeyPatch.context() as patched:
-        patched.setattr(writer, "audit_dir", lambda: zone)
-        yield zone
+
+@pytest.fixture(scope="module")
+def module_spool_zone(_isolate_module_spool_zone: SpoolZone) -> SpoolZone:
+    """The module's :class:`SpoolZone`, by a public name."""
+    return _isolate_module_spool_zone
 
 
 # ===================================================================
@@ -664,8 +792,8 @@ def _no_companion_server_launches(request, monkeypatch):
     that finds that port held probes it with the unauthenticated-then-
     credentialed ``GET /`` pair of ``_adopt_or_refuse``, and the leaked server
     files both refusals through ``osprey.audit.writer.record`` — resolved at
-    call time, so they land in whichever test currently holds that attribute
-    patched to its own ledger. That test then fails on a record it never made.
+    call time, so they land in whichever test's spool is current. That test
+    then fails on a record it never made.
 
     Only the thread start is replaced. Everything ``ensure_running`` decides
     before it — the auto-launch gate, the bind check, the held-port grace
@@ -912,8 +1040,13 @@ def pytest_collection_modifyitems(items):
                 item.add_marker(pytest.mark.skip(reason=resolved[1]))
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_configure(config):
-    """Register the harness's plugins and the markers whose seams live in this file."""
+    """Claim the run's temporary root, then register the harness's plugins and this file's markers.
+
+    The harness claims the root first, ahead of pytest's own temporary-path
+    setup, which reads it. See the harness's _run_temp.py.
+    """
     _harness.pytest_configure(config)
 
     # A shared fixture's temporary directories go when its scope ends, not when
@@ -939,6 +1072,17 @@ def pytest_configure(config):
         "facility's profiles checkout, a named export and mapping, or a "
         "stand-in tree, and skips naming the unset variables anywhere else.",
     )
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionfinish(session):
+    """Relay a worker's e2e refusal, ending the session as a usage error.
+
+    The harness's _run_temp releases the run's temporary root after this hook,
+    reading the exit status it settles: the ``failed`` retention policy keeps
+    the root of a run that did not pass.
+    """
+    _relay_e2e_refusal(session)
 
 
 # ===================================================================
@@ -982,11 +1126,27 @@ def pytest_testnodedown(node):
 
 
 @pytest.hookimpl(trylast=True)
-def pytest_sessionfinish(session):
+def pytest_sessionstart(session):
+    """Stop git's repository discovery at the run's base temp.
+
+    A base temp inside a checkout would otherwise make every ``tmp_path`` look
+    like part of that checkout to any git a test or its subprocess runs: a
+    branch appears where none should, a ``git status`` reports the host's
+    changes. A repository a test creates at or below ``tmp_path`` is still
+    found, because the ceiling sits above it. Set before any test starts, so
+    the per-test environment snapshots take it as their baseline.
+    """
+    base = str(session.config._tmp_path_factory.getbasetemp().resolve())
+    ceilings = os.environ.get("GIT_CEILING_DIRECTORIES")
+    os.environ["GIT_CEILING_DIRECTORIES"] = os.pathsep.join((base, ceilings)) if ceilings else base
+
+
+def _relay_e2e_refusal(session) -> None:
     """Print a relayed refusal and end the session as a usage error.
 
-    Every worker collects the same selection, so every refusal is identical and
-    the first one is printed.
+    Called from ``pytest_sessionfinish`` above, before the run's temporary root
+    is released. Every worker collects the same selection, so every refusal is
+    identical and the first one is printed.
     """
     refusals = session.config.stash.get(_E2E_REFUSALS, [])
     if not refusals:
@@ -1015,24 +1175,22 @@ def test_config(tmp_path):
     Examples:
         Basic usage::
 
-            def test_something(test_config):
+            def test_something(test_config, monkeypatch):
                 # Config file exists at test_config
                 assert test_config.exists()
                 # Set environment to use it
-                os.environ['CONFIG_FILE'] = str(test_config)
+                monkeypatch.setenv("CONFIG_FILE", str(test_config))
 
         With custom modifications::
 
             def test_custom(test_config):
                 # Read existing config
                 import yaml
-                with open(test_config) as f:
-                    config = yaml.safe_load(f)
+                config = yaml.safe_load(test_config.read_text())
                 # Modify
-                config['execution']['execution_method'] = 'subprocess'
+                config["execution"]["execution_method"] = "subprocess"
                 # Write back
-                with open(test_config, 'w') as f:
-                    yaml.dump(config, f)
+                test_config.write_text(yaml.dump(config))
     """
     import yaml
 
@@ -1077,8 +1235,7 @@ class TestRegistryProvider(RegistryConfigProvider):
         },
     }
 
-    with open(config_file, "w") as f:
-        yaml.dump(config, f)
+    config_file.write_text(yaml.dump(config))
 
     # Do NOT initialize registry here - let each test handle registry initialization
     # to avoid state pollution between tests

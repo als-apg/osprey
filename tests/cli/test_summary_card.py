@@ -292,7 +292,7 @@ class TestCardContent:
             lambda root: [
                 ("gateway", "web terminal", "http://127.0.0.1:10000  (landing page)"),
                 ("dispatch", "event-dispatcher", "http://127.0.0.1:10010"),
-                ("services", "telemetry-gateway", "http://127.0.0.1:10051"),
+                ("services", "agent-record", "http://127.0.0.1:10053"),
             ],
         )
 
@@ -301,7 +301,7 @@ class TestCardContent:
         assert [line.split()[0] for line in card.splitlines() if "http://" in line] == [
             "web",
             "event-dispatcher",
-            "telemetry-gateway",
+            "agent-record",
         ]
 
     @pytest.mark.parametrize("state", ["created", "built", "stopped"])

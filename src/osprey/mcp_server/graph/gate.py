@@ -147,10 +147,14 @@ def vet_query(query: str) -> None:
         if text == "LOAD" and clause_position and tokens[i + 1 : i + 2] == [(_ID, "CSV")]:
             raise GateRefusal("Refused: LOAD CSV is not permitted. " + _NOT_AVAILABLE)
         name, after = _dotted_name(tokens, i)
-        if previous != (_PUNCT, ".") and tokens[after : after + 1] == [(_PUNCT, "(")]:
-            if name.split(".")[0] in DENIED_NAMESPACES and name not in READ_PROCEDURE_ALLOWLIST:
-                raise GateRefusal(
-                    f"Refused: invocation of '{name}' is not allowlisted. " + _NOT_AVAILABLE
-                )
+        if (
+            previous != (_PUNCT, ".")
+            and tokens[after : after + 1] == [(_PUNCT, "(")]
+            and name.split(".")[0] in DENIED_NAMESPACES
+            and name not in READ_PROCEDURE_ALLOWLIST
+        ):
+            raise GateRefusal(
+                f"Refused: invocation of '{name}' is not allowlisted. " + _NOT_AVAILABLE
+            )
         i = after
-    return None
+    return

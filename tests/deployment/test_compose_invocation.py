@@ -39,12 +39,18 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.deployment import compose_generator, container_lifecycle, status_display
+from osprey.agent_record import credentials as agent_record_credentials
+from osprey.deployment import (
+    compose_generator,
+    container_lifecycle,
+    status_display,
+)
 from osprey.deployment.compose_generator import (
     COMPOSE_ENV_FILENAME,
     compose_base_cmd,
     compose_env_file_args,
     compose_provider_env,
+    resolve_project_name,
     resolve_repo_root,
 )
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
@@ -54,6 +60,7 @@ from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
 # every other test off the host probe.
 from osprey.deployment.container_lifecycle import ENV_MERGED_RELPATH
 from osprey.deployment.container_lifecycle import _compose_provider as _real_compose_provider
+from osprey.deployment.deployment_record import DeploymentRecord, write_deployment_record
 from osprey.deployment.runtime_helper import (
     ComposeProvider,
     ComposeProviderInfo,
@@ -443,12 +450,16 @@ def _podman_host(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     """
     runs: list[dict] = []
 
-    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(
+        container_lifecycle, "verify_runtime_is_running", lambda config, **_: (True, "")
+    )
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config=None: ["podman", "compose"]
     )
     monkeypatch.setattr(
-        container_lifecycle, "_compose_provider", lambda config=None: ComposeProvider.PODMAN_COMPOSE
+        container_lifecycle,
+        "_compose_provider",
+        lambda config=None, **_: ComposeProvider.PODMAN_COMPOSE,
     )
     # Probes real listeners on this machine; which ports are free here is not
     # what any of these tests are about.
@@ -492,6 +503,14 @@ def _started_repo(tmp_path: Path, config: str | None = None, **kwargs) -> Path:
     return repo
 
 
+def _record_a_podman_start(repo: Path) -> None:
+    """Write the record a start of *repo*'s build on podman leaves behind."""
+    config = yaml.safe_load(
+        container_lifecycle.as_built_config_path(repo).read_text(encoding="utf-8")
+    )
+    write_deployment_record(repo, DeploymentRecord("podman", resolve_project_name(config)))
+
+
 def _outside(tmp_path: Path) -> Path:
     """A directory that is not the deployment — where an operator may be standing.
 
@@ -512,6 +531,7 @@ def test_down_emits_the_whole_podman_shape(tmp_path: Path, monkeypatch: pytest.M
     site.
     """
     repo = _started_repo(tmp_path)
+    _record_a_podman_start(repo)
     runs = _podman_host(monkeypatch)
 
     container_lifecycle.down_deployment(repo)
@@ -654,14 +674,22 @@ def test_a_refused_provider_still_reaches_the_label_sweep(
     which is precisely the host that needs it.
     """
     repo = _started_repo(tmp_path, config=_WEB_CONFIG, with_compose=False)
+    _record_a_podman_start(repo)
+    monkeypatch.setattr(
+        container_lifecycle, "verify_runtime_is_running", lambda config, **_: (True, "")
+    )
     swept: list[Path] = []
     monkeypatch.setattr(
         container_lifecycle,
         "_compose_provider",
-        lambda config=None: (_ for _ in ()).throw(UnsupportedComposeProviderError("no provider")),
+        lambda config=None, **_: (_ for _ in ()).throw(
+            UnsupportedComposeProviderError("no provider")
+        ),
     )
     monkeypatch.setattr(
-        container_lifecycle, "_down_by_label", lambda config, root: swept.append(Path(root))
+        container_lifecycle,
+        "_down_by_label",
+        lambda config, root, **_: swept.append(Path(root)),
     )
 
     container_lifecycle.down_deployment(repo)
@@ -688,7 +716,9 @@ def test_clean_emits_the_podman_shape_on_both_of_its_invocations(
     # `down --volumes` there is aimed at nothing.
     monkeypatch.chdir(_outside(tmp_path))
     monkeypatch.setattr(
-        container_lifecycle, "_compose_provider", lambda config=None: ComposeProvider.PODMAN_COMPOSE
+        container_lifecycle,
+        "_compose_provider",
+        lambda config=None, **_: ComposeProvider.PODMAN_COMPOSE,
     )
     monkeypatch.setattr(
         compose_generator, "get_runtime_command", lambda config=None: ["podman", "compose"]
@@ -724,11 +754,11 @@ def test_logs_emits_the_podman_shape(tmp_path: Path, monkeypatch: pytest.MonkeyP
     nothing at all and reads as a deployment whose services log nothing.
     """
     repo = _started_repo(tmp_path)
+    _record_a_podman_start(repo)
     monkeypatch.setattr(
-        container_lifecycle, "_compose_provider", lambda config=None: ComposeProvider.PODMAN_COMPOSE
-    )
-    monkeypatch.setattr(
-        status_display, "get_runtime_command", lambda config=None: ["podman", "compose"]
+        container_lifecycle,
+        "_compose_provider",
+        lambda config=None, **_: ComposeProvider.PODMAN_COMPOSE,
     )
 
     cmd, env = status_display.logs_command(repo)
@@ -788,6 +818,9 @@ def test_the_web_stack_start_emits_the_podman_shape_in_argv_and_environment(
 
     container_lifecycle.up_as_built(repo, detached=True)
 
+    # The start also asks the runtime itself about volumes (the one-time
+    # transcript copy); only the compose invocations carry the compose shape.
+    runs = [run for run in runs if run["cmd"][1:2] == ["compose"]]
     assert runs, "the web path never reached a compose invocation"
     for run in runs:
         _assert_podman_shaped(run, repo)
@@ -803,6 +836,7 @@ def test_the_web_stack_teardown_emits_the_podman_shape(
         container_lifecycle.as_built_config_path(repo).read_text(encoding="utf-8")
     )
     write_web_terminal_artifacts(config, repo)
+    _record_a_podman_start(repo)
     runs = _podman_web_host(monkeypatch)
     monkeypatch.chdir(_outside(tmp_path))
 
@@ -1118,10 +1152,14 @@ def test_no_compose_or_nginx_artifact_lands_in_the_repo_root(
     monkeypatch.chdir(tmp_path)
     before = set(tmp_path.iterdir())
 
-    write_web_terminal_artifacts(_web_config(["alice"]))
+    config = _web_config(["alice"])
+    write_web_terminal_artifacts(config)
 
     new_at_root = set(tmp_path.iterdir()) - before
-    assert new_at_root == {tmp_path / BUILD_DIR_NAME}
+    # Credential files are secrets kept beside ``.env``, not renders: the agent
+    # record's, which every deployment mints.
+    credentials = {p for p in new_at_root if agent_record_credentials.is_credential_file(p.name)}
+    assert new_at_root - credentials == {tmp_path / BUILD_DIR_NAME}
     assert (web_artifacts_dir(tmp_path) / WEB_COMPOSE_FILENAME).is_file()
     assert (web_artifacts_dir(tmp_path) / "nginx" / "nginx.conf").is_file()
 

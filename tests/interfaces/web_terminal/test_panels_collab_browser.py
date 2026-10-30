@@ -41,8 +41,9 @@ from contextlib import contextmanager
 import pytest
 import requests
 
-from osprey.interfaces._serving import free_port, run_app_server
+from osprey.interfaces._serving import run_app_server
 from tests.interfaces._hub import hub_app
+from tests.interfaces._panel_launch import unserved_url
 
 # ---------------------------------------------------------------------------
 # Playwright availability guard
@@ -97,7 +98,7 @@ def _unhealthy_panel(panel_id: str = "beam-cam") -> dict:
     return {
         "id": panel_id,
         "label": panel_id.upper(),
-        "url": f"http://127.0.0.1:{free_port()}",
+        "url": unserved_url(),
         "healthEndpoint": "/health",
         "path": "/",
     }

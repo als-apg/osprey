@@ -45,6 +45,8 @@ from pathlib import Path
 
 import pytest
 
+from osprey.agent_record import credentials as record_credentials
+from osprey.agent_record.config import history_page_deployed
 from osprey.deployment.web_terminals.render import (
     NGINX_TEMPLATES_OUTPUT_DIR,
     TERMINAL_SECRET_HEADER,
@@ -55,7 +57,10 @@ from osprey.deployment.web_terminals.render import (
 from osprey.port_layout import default_port
 from tests._container_support import docker_cli_unavailable_reason_once
 from tests._renders import tier_render
-from tests.deployment.web_terminals._nginx import nginx_directives
+from tests.deployment.web_terminals._nginx import (
+    nginx_directives,
+    nginx_terminals_part,
+)
 
 #: The per-user family bases these renders run on. Nothing in the configs below
 #: moves them, so they are the layout's own — derived here so a cookie name or a
@@ -160,7 +165,7 @@ def _assert_auth_surface_present(nginx_conf: str, users: list[str]) -> None:
     produce a fragment `nginx -t` accepts, and these tests would report a green
     that validated nothing about authentication.
     """
-    directives = nginx_directives(nginx_conf)
+    directives = nginx_directives(nginx_terminals_part(nginx_conf))
     assert directives.count("auth_request ") == len(users)
     for user in users:
         assert f"auth_request /_osprey_auth/{user};" in directives
@@ -173,6 +178,12 @@ def _assert_auth_surface_present(nginx_conf: str, users: list[str]) -> None:
     assert "location @osprey_auth_401 {" in directives
     assert "location /auth/ {" in directives
     assert "return 200;" not in nginx_conf
+
+
+#: The history page's gate snippet, by the name its ``include`` and its
+#: template share, and the value the harness substitutes into it.
+_HISTORY_GATE_SNIPPET = "history-gate"
+_HISTORY_GATE_TEST_SECRET = "history-gate-secret-for-tests"
 
 
 def _terminal_secrets(users: list[str]) -> dict[str, str]:
@@ -248,7 +259,12 @@ def _run_nginx_t(
             "-e",
             f"NGINX_ENVSUBST_FILTER={_NGINX_ENVSUBST_FILTER}",
         ]
-        for var, value in (secret_env or {}).items():
+        env = dict(secret_env or {})
+        # A render that serves the history page writes its gate snippet too, and
+        # a deployment hands nginx that secret from the page's gate file.
+        if (templates_dir / f"{_HISTORY_GATE_SNIPPET}.conf.template").is_file():
+            env.setdefault(record_credentials.HISTORY_GATE_ENV, _HISTORY_GATE_TEST_SECRET)
+        for var, value in env.items():
             extra += ["-e", f"{var}={value}"]
     if entrypoint is not None:
         extra += ["--entrypoint", entrypoint]
@@ -705,10 +721,8 @@ def test_secret_include_is_scoped_per_user_with_no_cross_leak() -> None:
     """
     users = ["alice", "bob"]
     secrets = _terminal_secrets(users)
-    artifacts = render_web_terminals(
-        _config(users=users, auth={"method": "password", "allow_insecure_http": True}),
-        terminal_secrets=secrets,
-    )
+    config = _config(users=users, auth={"method": "password", "allow_insecure_http": True})
+    artifacts = render_web_terminals(config, terminal_secrets=secrets)
     nginx_conf = artifacts["nginx/nginx.conf"]
     _assert_auth_surface_present(nginx_conf, users)
 
@@ -737,12 +751,19 @@ def test_secret_include_is_scoped_per_user_with_no_cross_leak() -> None:
     assert result.returncode == 0, result.stderr
     dump = result.stdout
 
-    # One header per user and no more: a copy at http/server scope (the default
-    # envsubst output directory's failure mode) would push this above the roster.
-    assert dump.count(TERMINAL_SECRET_HEADER) == len(users)
+    # One header per user, plus the history page's gate when a sign-in serves
+    # that page, and no more: a copy at http/server scope (the default envsubst
+    # output directory's failure mode) would push this above that count.
+    assert history_page_deployed(config)
+    assert dump.count(TERMINAL_SECRET_HEADER) == len(users) + 1
 
     sections = _config_file_sections(dump)
     default_conf = sections[_DEFAULT_CONF_PATH]
+
+    # The gate's one header lives in its own snippet, and carries no user's secret.
+    gate_snippet = sections[f"{_NGINX_ENVSUBST_OUTPUT_DIR}/{_HISTORY_GATE_SNIPPET}.conf"]
+    assert gate_snippet.count(TERMINAL_SECRET_HEADER) == 1
+    assert not any(secret in gate_snippet for secret in secrets.values())
 
     for user in users:
         others = [other for other in users if other != user]
@@ -763,6 +784,7 @@ def test_secret_include_is_scoped_per_user_with_no_cross_leak() -> None:
         assert f"include {snippet_path};" in location_body
         for other in others:
             assert f"secret-{other}.conf" not in location_body
+        assert f"{_HISTORY_GATE_SNIPPET}.conf" not in location_body
 
     # Each user's secret appears exactly once in the whole resolved config —
     # a value showing up twice would mean a snippet or location leaked it.
@@ -800,10 +822,8 @@ def test_access_log_never_carries_the_query_string() -> None:
     """
     users = ["alice", "bob"]
     secrets = _terminal_secrets(users)
-    artifacts = render_web_terminals(
-        _config(users=users, auth={"method": "password", "allow_insecure_http": True}),
-        terminal_secrets=secrets,
-    )
+    config = _config(users=users, auth={"method": "password", "allow_insecure_http": True})
+    artifacts = render_web_terminals(config, terminal_secrets=secrets)
     nginx_conf = artifacts["nginx/nginx.conf"]
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -835,10 +855,11 @@ def test_access_log_never_carries_the_query_string() -> None:
     selected = re.findall(r"(?m)^\s*access_log\s+(\S+)\s+(\S+?);", dump)
     server_level = [fmt for path, fmt in selected if path == "/dev/stdout"]
     assert server_level, f"no sanitized access_log in the dump: {selected}"
-    assert set(server_level) == {"osprey_sanitized"}
     # One per server block: the content server and the redirect for every other
-    # name. The TLS redirect-only server is not rendered in this (no-TLS) shape.
-    assert len(server_level) == 2
+    # name, in the sanitized format, and the history page's origin in its own
+    # path-only one. The TLS redirect-only server is not rendered in this
+    # (no-TLS) shape.
+    assert sorted(server_level) == ["osprey_history", "osprey_sanitized", "osprey_sanitized"]
 
     # SERVER level, not http. nginx inherits access_log from the level above
     # only when the current level defines none, and every access_log on ONE
@@ -849,11 +870,12 @@ def test_access_log_never_carries_the_query_string() -> None:
     assert "access_log" not in fragment[:server_start], fragment[:server_start]
     assert "access_log /dev/stdout osprey_sanitized;" in fragment[server_start:]
 
-    # And the format itself carries nothing that can hold a query string.
-    sanitized = [fmt for fmt in _log_formats(dump) if "osprey_sanitized" in fmt]
-    assert len(sanitized) == 1, _log_formats(dump)
-    for forbidden in ("$request ", "$args", "$query_string", "$request_uri", "$http_referer"):
-        assert forbidden not in sanitized[0], sanitized[0]
+    # And neither format carries anything that can hold a query string.
+    for name in ("osprey_sanitized", "osprey_history"):
+        formats = [fmt for fmt in _log_formats(dump) if name in fmt]
+        assert len(formats) == 1, _log_formats(dump)
+        for forbidden in ("$request ", "$args", "$query_string", "$request_uri", "$http_referer"):
+            assert forbidden not in formats[0], formats[0]
 
 
 def test_no_location_forwards_the_browsers_whole_cookie_jar() -> None:
@@ -976,9 +998,13 @@ def test_the_secret_directory_holds_exactly_the_users_with_a_gated_location() ->
             flags=re.MULTILINE,
         )
     }
-    # alice is gated and reads her snippet; kiosk is served ungated with the
-    # header cleared, so nothing would ever open a file for it.
-    assert materialized == included == {"secret-alice.conf", "secret-kiosk.conf"}
+    # alice and kiosk are gated and read their own snippets, and the history
+    # page reads its gate snippet.
+    assert (
+        materialized
+        == included
+        == {"secret-alice.conf", "secret-kiosk.conf", f"{_HISTORY_GATE_SNIPPET}.conf"}
+    )
 
 
 def test_every_terminal_location_clears_credentials_nginx_did_not_set() -> None:
@@ -1130,45 +1156,6 @@ def _status(response: str) -> str:
 
 
 @pytest.mark.parametrize("tls", [False, True], ids=["plain", "tls"])
-def test_the_readers_server_passes_nginx_t(tls: bool) -> None:
-    """The readers' origin is a config nginx accepts, in both listener shapes.
-
-    Its constructs are ones a string match cannot vouch for: two `map`s at http
-    level whose values hold variables, a `proxy_pass` to a target built from
-    one, a named location reached only through `error_page`, and `if` blocks
-    that stand beside a proxy in the same location.
-    """
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_path = Path(tmp)
-        conf_dir = tmp_path / "conf"
-        certs_dir = tmp_path / "certs"
-        conf_dir.mkdir()
-        certs_dir.mkdir()
-        tls_stanza = None
-        if tls:
-            cert_path, key_path = _generate_self_signed_cert(certs_dir)
-            tls_stanza = {
-                "enabled": True,
-                "port": _UNPRIVILEGED_TLS_PORT,
-                "cert": f"/etc/nginx/certs/{cert_path.name}",
-                "key": f"/etc/nginx/certs/{key_path.name}",
-            }
-        config = _config(tls=tls_stanza)
-        config["deployed_services"] = ["telemetry_store"]
-        nginx_conf = render_web_terminals(config)["nginx/nginx.conf"]
-        # Guard against a vacuous green: the server under test is in the file.
-        assert "map $args $osprey_reader_query {" in nginx_conf
-        assert "location @osprey_reader_401 {" in nginx_conf
-        reader_port = default_port("reader")
-        assert f"listen {reader_port}{' ssl' if tls else ''};" in nginx_conf
-        (conf_dir / "default.conf").write_text(nginx_conf)
-
-        result = _run_nginx_t(conf_dir, certs_dir=certs_dir if tls else None)
-
-    assert result.returncode == 0, result.stderr
-
-
-@pytest.mark.parametrize("tls", [False, True], ids=["plain", "tls"])
 def test_the_history_page_passes_nginx_t_with_its_gate_snippet_substituted(tls: bool) -> None:
     """The readers' history locations are a config nginx accepts, snippet and all.
 
@@ -1198,7 +1185,6 @@ def test_the_history_page_passes_nginx_t_with_its_gate_snippet_substituted(tls: 
             {"method": "password"} if tls else {"method": "password", "allow_insecure_http": True}
         )
         config = _config(tls=tls_stanza, auth=auth, users=users)
-        config["deployed_services"] = ["telemetry_store"]
         secrets = _terminal_secrets(users)
         artifacts = render_web_terminals(config, terminal_secrets=secrets)
         nginx_conf = artifacts["nginx/nginx.conf"]

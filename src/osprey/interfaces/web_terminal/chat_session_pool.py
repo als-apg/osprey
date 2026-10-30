@@ -450,8 +450,8 @@ class ChatSessionPool:
         see: while the table stays unreadable that is the agent alone. An
         unreadable table therefore never keeps a chat open for good.
 
-        The look is one read of the process table per non-busy chat per sweep,
-        in worker threads, with the lock released. Reaping ends the agent's
+        The look is one process-table read per non-busy chat per sweep, in
+        worker threads, with the lock released. Reaping ends the agent's
         process; the next message to that chat resumes its transcript in a new
         child.
         """

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import chdir, contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -57,16 +57,6 @@ def _pinned_env() -> Iterator[None]:
         yield
 
 
-@contextmanager
-def _cwd(path: Path) -> Iterator[None]:
-    previous = Path.cwd()
-    os.chdir(path)
-    try:
-        yield
-    finally:
-        os.chdir(previous)
-
-
 def _ask_in(path: Path) -> None:
     """*path* authors ``asked``, the one write line it has.
 
@@ -100,7 +90,7 @@ def _build(base: Path, *, tiered: bool = True, asked: bool = False) -> Path:
         if asked:
             _ask_in(repo / "profile.yml")
             _ask_in(repo / "tiers" / "readwrite.yml")
-        with _cwd(repo):
+        with chdir(repo):
             result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
     assert result.exit_code == 0, result.output
     return repo
@@ -111,7 +101,7 @@ def _redeploy(repo: Path, **kwargs: Any) -> None:
     from osprey.deployment.compose_generator import prepare_compose_files
 
     build = repo / "build"
-    with _pinned_env(), _cwd(build):
+    with _pinned_env(), chdir(build):
         prepare_compose_files(str(build / "config.yml"), **kwargs)
 
 

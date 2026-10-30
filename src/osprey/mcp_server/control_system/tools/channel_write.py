@@ -132,7 +132,7 @@ from osprey.mcp_server.approval_record import APPROVAL_MISSING, require_approval
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.error_handling import connector_error_handler
 from osprey.mcp_server.control_system.server import mcp
-from osprey.mcp_server.errors import make_error
+from osprey.mcp_server.errors import NothingAnsweredError, make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey_connectors import control_context
 from osprey_connectors.errors import (
@@ -283,18 +283,8 @@ def _binding_from_record(record: object) -> tuple[str, int] | None:
         return None
 
 
-#: How long the old-value read for the full tool-call record may take, seconds.
+#: How long the old-value read for the ``tool_call`` record may take, seconds.
 OLD_VALUE_READ_TIMEOUT_S = 2.0
-
-
-def _full_record_enabled() -> bool:
-    """Whether the opt-in full ``tool_call`` record is on for this server."""
-    try:
-        from osprey.audit import tool_call
-
-        return tool_call.settings()[0]
-    except Exception:  # pragma: no cover - defensive: settings never raises
-        return False
 
 
 def _note_attribution() -> None:
@@ -315,7 +305,7 @@ def _note_attribution() -> None:
 
 
 async def _note_old_values(connector: Any, channels: list[str]) -> None:
-    """Note each channel's value before the write, for the full record. Never raises.
+    """Note each channel's value before the write, for the ``tool_call`` record. Never raises.
 
     Bounded by :data:`OLD_VALUE_READ_TIMEOUT_S`; a channel that could not be
     read is noted with the error type, and nothing here blocks the write.
@@ -861,11 +851,13 @@ async def channel_write(
     Leave `confirm` unset unless the operator asks for it: the deployment
     resolves it per channel from the limits database, which confirms by default.
     This tool does not raise on a write that was not confirmed — it reports the
-    word. (`osprey.runtime.write_channel`, on the Python path, raises.) It
-    raises only when every write in the call came back `refused` or `failed`,
-    which is the one case where no value reached any channel at all. A call
-    mixing those with any other word returns normally, and the per-channel
-    `outcome` is where you read what happened to each one.
+    word. (`osprey.runtime.write_channel`, on the Python path, raises.) A
+    call where no value reached any channel raises, carrying the same rows
+    under `details.results`: `write_refused` when every write was refused,
+    `nothing_answered` when any was sent and not taken. A call mixing those
+    words with any other returns normally, and the per-channel `outcome` is
+    where you read what happened to each one. The shape is the partial-answer
+    contract (docs: Reference → Contracts → Partial Answers).
 
     Args:
         operations: List of write operations, each with "channel", "value", and optional "notes".
@@ -924,10 +916,6 @@ async def channel_write(
     # carries them too.
     _note_attribution()
 
-    # The full tool-call record wants the limits verdict and the old values;
-    # nothing extra is done for them when that record is off.
-    full_record = _full_record_enabled()
-
     # Limits validation (additional safety layer inside the tool)
     try:
         from osprey_connectors.control_system import LimitsValidator
@@ -985,13 +973,13 @@ async def channel_write(
                         violation["current_value"] = exc.current_value
                 violations.append(violation)
 
-    if full_record:
-        if validator is None:
-            note(limits={"verdict": "not_checked"})
-        elif violations:
-            note(limits={"verdict": "violated", "violations": violations})
-        else:
-            note(limits={"verdict": "passed"})
+    # The limits verdict, for the ``tool_call`` record.
+    if validator is None:
+        note(limits={"verdict": "not_checked"})
+    elif violations:
+        note(limits={"verdict": "violated", "violations": violations})
+    else:
+        note(limits={"verdict": "passed"})
 
     if violations:
         # Build a clear message with limits info for each violation
@@ -1022,11 +1010,10 @@ async def channel_write(
         registry = get_server_context()
         connector = await registry.control_system()
 
-        # The old values, for the full tool-call record only. When on, this
-        # read is the final await, so the execution-window check below still
-        # follows the last await before the write.
-        if full_record:
-            await _note_old_values(connector, [op["channel"] for op in operations])
+        # The old values, for the ``tool_call`` record. This read is the final
+        # await, so the execution-window check below still follows the last
+        # await before the write.
+        await _note_old_values(connector, [op["channel"] for op in operations])
 
         # The last thing before a value goes out: this read is as close to the
         # write as the server can get. A switch completing after it is refused
@@ -1058,7 +1045,8 @@ async def channel_write(
         # connector, instead of shipping a plausible envelope.
         if len(connector_results) != len(operations):
             raise RuntimeError(
-                f"{type(connector).__name__} returned {len(connector_results)} write result(s) "
+                f"{type(connector.connector).__name__} returned {len(connector_results)} "
+                "write result(s) "
                 f"for {len(operations)} operation(s): the fate of at least one write is "
                 f"unreported, so no outcome from this call can be trusted."
             )
@@ -1100,11 +1088,15 @@ async def channel_write(
             # without being confirmed, or one that came back different — is
             # reported rather than raised: the agent needs it to tell the
             # operator what the machine now holds.
+            # Either way the raised envelope carries the rows under
+            # details.results: it replaces the result the agent would have
+            # read, and the rows are the only place each write's own fate and
+            # text are stated.
             failed = [entry for entry in results if entry[OUTCOME_KEY] == "failed"]
             if not failed:
-                # Every op was a refusal that put no value on a channel: surface
-                # a typed write-refusal envelope, not internal_error. Each row is
-                # attributed to the refuser its own reason names, so a mixed
+                # Every op was a refusal that put no value on a channel: the
+                # cause is a typed write refusal, not internal_error. Each row
+                # is attributed to the refuser its own reason names, so a mixed
                 # batch never lets one row's refuser speak for another's.
                 headline = _all_refused_headline(results)
                 # The envelope's reason and channel come from the first row
@@ -1121,20 +1113,21 @@ async def channel_write(
                 # The per-result `error` is the only place the refusal says
                 # WHICH posture refused and where to lift it — the session's
                 # read-only setting for this control target and the header chip
-                # that set it, or the config key for a deployment refusal. A
-                # raised envelope replaces the results the agent would have
-                # read, so the headline alone would drop that sentence on the
-                # floor for exactly the common case: one channel, one refusal.
+                # that set it, or the config key for a deployment refusal. The
+                # headline carries it so the message alone names the remedy in
+                # the common case: one channel, one refusal.
                 detail = first["error"]
-                raise ChannelWriteBlockedError(
-                    first["channel"],
-                    first["refusal_reason"],
-                    message=f"{headline} — {detail}" if detail else headline,
+                raise NothingAnsweredError(
+                    ChannelWriteBlockedError(
+                        first["channel"],
+                        first["refusal_reason"],
+                        message=f"{headline} — {detail}" if detail else headline,
+                    ),
+                    results=results,
                 )
-            # At least one write was attempted and failed (an I/O failure, not a
-            # policy refusal): preserve the internal_error classification.
-            errors = sorted({entry["error"] for entry in results if entry["error"]})
-            raise RuntimeError(f"All {len(results)} write(s) rejected: {'; '.join(errors)}")
+            # At least one write was sent and not taken (an I/O failure, not a
+            # policy refusal): no one cause speaks for every row.
+            raise NothingAnsweredError(None, results=results)
 
         # Agent-activity highlight (purely additive, after the fact): name only
         # the channels a value actually reached. Every refusal path — limits

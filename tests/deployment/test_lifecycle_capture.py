@@ -36,7 +36,7 @@ import logging
 import re
 import subprocess
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -250,10 +250,14 @@ def test_the_image_step_is_reported_after_the_build(reporter, monkeypatch):
     assert marks[1].lstrip().startswith("· project image proj:local")
 
 
-def test_the_image_build_is_skipped_without_a_dispatch_worker(captured, reporter):
-    """No worker, no image, no step line claiming one was built."""
+def test_the_image_build_is_skipped_on_a_prebuilt_image(captured, reporter):
+    """A prebuilt image for the project-image services (agent-record runs in
+    every deployment): no build, no step line claiming one was built."""
     container_lifecycle._build_project_image(
-        {"project_name": "proj", "deployed_services": ["postgresql"]}, False, {}, None
+        {"project_name": "proj", "deployed_services": ["postgresql"]},
+        False,
+        {"OSPREY_WORKER_IMAGE": "registry.example.org/prebuilt:1"},
+        None,
     )
 
     assert captured.calls == []
@@ -296,7 +300,7 @@ def archiver_stubs(monkeypatch):
     monkeypatch.setattr(
         container_lifecycle,
         "_archiver_seed_inputs",
-        lambda config, project_dir: SimpleNamespace(addresses=[]),
+        lambda config, project_dir: nullcontext(SimpleNamespace(addresses=[])),
     )
     monkeypatch.setattr(container_lifecycle, "_wait_for_archiver_store", lambda *a, **k: None)
     monkeypatch.setattr(container_lifecycle, "_reapply_active_scenarios", lambda *a, **k: None)
@@ -441,7 +445,9 @@ def start_stack_stubs(monkeypatch):
     )
     monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda config, files: None)
     monkeypatch.setattr(
-        container_lifecycle, "_build_project_image", lambda config, dev, env, ctx=None: None
+        container_lifecycle,
+        "_build_project_image",
+        lambda config, dev, env, ctx=None, compose_files=None: None,
     )
 
 

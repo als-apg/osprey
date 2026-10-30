@@ -42,8 +42,10 @@ deployment, which is why none of them is a config key.
    * - Variable
      - What it does
    * - ``CONTAINER_RUNTIME``
-     - ``docker`` or ``podman``, overriding the runtime recorded for this
-       deployment for one invocation. See
+     - ``docker`` or ``podman``: the runtime ``osprey up``, ``osprey restart``
+       and the repository's virtual-accelerator developer scripts start with.
+       ``osprey down``, ``status``, ``logs``, ``reset`` and the health checks
+       use the runtime ``var/deployment.json`` recorded. See
        :doc:`/how-to/deploy-project/index`.
    * - ``OSPREY_IMAGE_REGISTRY``, ``OSPREY_IMAGE_TAG``
      - The two image axes for one build, outranking ``images.registry`` /
@@ -211,8 +213,7 @@ arrive under (:ref:`containerize-control-identity`):
        without root could not apply an ``osprey-*`` service identity. The
        ``/health`` endpoint reports it and ``osprey health`` warns on it
 
-Four more tie a container's telemetry to the deployment's telemetry gateway and
-to the audit record:
+Three more tie a container's launches to the agent record:
 
 .. list-table::
    :header-rows: 1
@@ -220,22 +221,18 @@ to the audit record:
 
    * - Variable
      - What it carries
-   * - ``OSPREY_OTEL_GATEWAY_HOST``, ``OSPREY_OTEL_GATEWAY_PORT``
-     - Where this container reaches the gateway: its service name and the
-       port it listens on from a container on the compose network, an address
-       and the published port from one in the host's network namespace. The
-       ``telemetry_store`` and ``telemetry_gateway`` health categories read
-       them to tell where they run
-   * - ``OSPREY_TELEMETRY_LOGIN``
-     - The sender's own ``<identity>:<password>`` login to the gateway, from
-       that sender's ``.env.telemetry-sender.<identity>`` file. The gateway
-       stamps every record with the identity it authenticated, never one a
-       sender reports
+   * - ``OSPREY_AGENT_RECORD_URL``
+     - The agent-record service's base URL, as this container reaches it. A
+       launch sends its log events to ``/v1/logs`` there
+   * - ``OSPREY_AGENT_RECORD_LOGIN``
+     - The container's own ``<login>:<token>`` record login, from its
+       ``.env.agent-record.login.<login>`` file. The record files every entry
+       under the identity that login stands for, never one a sender reports
    * - ``OSPREY_TERMINAL_SESSION``
      - The terminal session a launch belongs to, written into its audit
-       records and sent as the ``terminal.session`` attribute, so a record in
-       the store joins the ledger line the same launch wrote. Read by exact
-       name: other variables start with the same words
+       records and sent as the ``terminal.session`` attribute of its events,
+       so both carry the same session. Read by exact name: other variables
+       start with the same words
 
 .. seealso::
 

@@ -87,9 +87,9 @@ KERNEL_WS_PROTOCOL_V1 = "v1.kernel.websocket.jupyter.org"
 def notebook_env(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     """The environment a sidecar launch reads, and a root to keep it all under.
 
-    This module's own records land in the zone ``_isolate_module_audit_zone``
-    (tests/conftest.py) holds open for the whole module. It is
-    module-scoped, so the ledger's seam is already redirected before this
+    This module's own records land in the spool root
+    ``_isolate_module_spool_zone`` (tests/conftest.py) holds open for the whole
+    module. It is module-scoped, so the record writer is already redirected before this
     fixture is built — which is the window that matters here, the one in which
     ``proxied`` enters the app's lifespan and ``started_session`` posts a
     session through it, both of them module-scoped and so both set up before
@@ -581,8 +581,8 @@ def test_a_cell_sees_no_server_token_and_no_terminal_family(
     empty and the launcher pops the name outright, so a cell holds neither. The
     ``OSPREY_TERMINAL_`` family is dropped by ``scrub_sandbox_child_env``, which
     is only visible because the terminal's environment set one — all but the
-    launch's terminal session, kept by exact name so the ledger lines a cell
-    writes file under the same session as its OTLP resource.
+    launch's terminal session, kept by exact name so the audit entries a cell
+    records file under the same session as its OTLP resource.
     """
     session_id = uuid.uuid4().hex
 
