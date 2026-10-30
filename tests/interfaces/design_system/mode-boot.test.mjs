@@ -43,7 +43,29 @@ describe('mode-boot.js resolution ladder', () => {
   beforeEach(() => {
     window.localStorage.clear();
     document.documentElement.removeAttribute('data-ui-mode');
+    document.documentElement.removeAttribute('data-expert-view');
     setSearch('');
+  });
+
+  describe('data-expert-view="off" — the deployment offers no Expert view', () => {
+    test('outranks ?mode=expert, a stored expert and an expert server attribute', () => {
+      document.documentElement.setAttribute('data-expert-view', 'off');
+      document.documentElement.setAttribute('data-ui-mode', 'expert');
+      window.localStorage.setItem('osprey-ui-mode', 'expert');
+      setSearch('?mode=expert');
+
+      runBoot();
+
+      expect(currentMode()).toBe('simple');
+    });
+
+    test('with nothing else set, the mode is simple rather than the expert default', () => {
+      document.documentElement.setAttribute('data-expert-view', 'off');
+
+      runBoot();
+
+      expect(currentMode()).toBe('simple');
+    });
   });
 
   describe('rung 1 — ?mode= query param', () => {

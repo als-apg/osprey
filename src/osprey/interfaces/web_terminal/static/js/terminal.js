@@ -4,7 +4,7 @@ import { WS_CLOSE_STARTED_COMMANDS, createWebSocket, wsUrl, withPrefix } from '.
 import { clearPointer, getPointer, setPointer } from './session-pointer.js';
 import { askAboutStartedCommands } from './started-commands.js';
 import { hideHandoffOverlay, showHandoffPending, showHandoffRefused } from './terminal-handoff.js';
-import { pickUiMode } from '/design-system/js/frame-params.js';
+import { expertViewOffered, pickUiMode } from '/design-system/js/frame-params.js';
 import { monoFontStack, subscribe, xtermPalette } from '/design-system/js/theme-manager.js';
 
 /** @type {any} */
@@ -321,6 +321,10 @@ export function startTerminal(
 ) {
   if (wsConnection) return Promise.resolve();
   if (!term) return Promise.resolve();
+  // No Expert view on this deployment (web.expert_view: false): the server
+  // refuses the PTY socket, so no caller — a session pick, a settings apply,
+  // a restart — opens one.
+  if (!expertViewOffered()) return Promise.resolve();
   freshStartArmed = false;
 
   // Resolved by whichever answer arrives first. Resolving is idempotent, so

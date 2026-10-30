@@ -312,6 +312,7 @@ async def get_panels(request: Request):
             "allow_runtime_panels": bool,  # whether the human "+" may add a URL panel
             "presets":  [...],          # config-defined layouts: [{"name", "panels": [id,...]}]
             "ui_mode":  str,            # resolved web.ui_mode ("expert" | "simple")
+            "expert_view": bool,        # web.expert_view: whether Expert is offered at all
             "project_key": str,         # stable 16-hex per-project key (layout persistence)
             "workspace_has_artifacts": bool,  # any non-hidden file under the agent workspace
             "open_tiles": [...]|None,   # last-reported service tiles, reading order
@@ -444,6 +445,10 @@ async def get_panels(request: Request):
     # "expert" default mirrors app.DEFAULT_UI_MODE — kept as a literal here to
     # avoid a routes->app import cycle.
     ui_mode = getattr(request.app.state, "web_ui_mode", "expert")
+    # Whether the deployment offers the Expert view at all (web.expert_view);
+    # false is stamped as <html data-expert-view="off"> for first paint, and
+    # echoed here the way ui_mode is.
+    expert_view = bool(getattr(request.app.state, "web_expert_view", True))
     # Echo the resolved rail position (server-rendered onto
     # <html data-rail-position>). "left" default mirrors
     # app.DEFAULT_RAIL_POSITION — a literal for the same import-cycle reason.
@@ -506,6 +511,7 @@ async def get_panels(request: Request):
         "allow_runtime_panels": allow_runtime,
         "presets": presets,
         "ui_mode": ui_mode,
+        "expert_view": expert_view,
         "rail_position": rail_position,
         "rail_position_configured": rail_position_configured,
         "family_rail_defaults": dict(FAMILY_RAIL_DEFAULTS),
