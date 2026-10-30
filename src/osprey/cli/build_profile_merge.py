@@ -1905,8 +1905,8 @@ class ProfileInputRole(StrEnum):
 
     #: ``profile.yml`` and every non-preset file its ``extends`` chain reads.
     DOCUMENT = "document"
-    #: The ``data:`` tree, the convention directories, the trigger file and the
-    #: layer files.
+    #: The ``data:`` tree, the convention directories, the trigger file, the
+    #: layer files and the profile-relative service templates.
     MATERIAL = "material"
     #: The selected host-variant profile.
     OVERLAY = "overlay"
@@ -1967,7 +1967,9 @@ def profile_inputs(
        directory (``convention:<name>``, sorted by name), the trigger file that
        lives with the profile (``triggers``) and each layer file
        (:func:`layer_fold_label`, in :func:`~osprey.cli.profile_root.layer_files`
-       order);
+       order), then each profile-relative service template
+       (``services.<name>.template``, sorted by name; a bundled ``osprey.<name>``
+       template is package content and has none);
     3. the overlay ``.env.variant`` beside *profile_path* selects (``variant``).
 
     Material and document entries anchor at ``document.root_dir``; the overlay
@@ -2035,6 +2037,24 @@ def profile_inputs(
             )
         )
 
+    services = document.raw.get("services")
+    if isinstance(services, dict):
+        for name in sorted(services):
+            service = services[name]
+            template = service.get("template") if isinstance(service, dict) else None
+            if not isinstance(template, str) or not template:
+                continue
+            if bundled_service_template(template) is not None:
+                continue
+            entries.append(
+                ProfileInput(
+                    f"{PurePosixPath(template).as_posix()}/",
+                    f"services.{name}.template",
+                    root / template,
+                    ProfileInputRole.MATERIAL,
+                )
+            )
+
     overlay = active_variant_overlay(Path(profile_path).parent)
     if overlay is not None:
         entries.append(
@@ -2056,6 +2076,11 @@ def _document_key(path: Path, root: Path) -> str:
         return path.resolve().relative_to(root.resolve()).as_posix()
     except ValueError:
         return path.as_posix()
+
+
+def _is_service_template_label(label: str) -> bool:
+    """Whether *label* is a service template's fold label, ``services.<name>.template``."""
+    return label.startswith("services.") and label.endswith(".template")
 
 
 #: The remedy every repository-boundary refusal line ends with.
@@ -2117,6 +2142,9 @@ def refuse_inputs_outside_repository(profile_path: Path, document: ResolvedProfi
             key = f"data: {document.raw['data']}"
         elif entry.label == "triggers":
             key = f"dispatch.triggers: {entry.key}"
+        elif entry.label is not None and _is_service_template_label(entry.label):
+            name = entry.label.removeprefix("services.").removesuffix(".template")
+            key = f"{entry.label}: {document.raw['services'][name]['template']}"
         else:
             key = entry.key
         lines.append(f"{key} resolves to {resolved}, outside the repository. {_MOVE_INSIDE}")

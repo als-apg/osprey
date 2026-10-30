@@ -54,6 +54,17 @@ def _set_data(repo: Path, spelling: str) -> None:
     profile.write_text(text.replace("\ndata: data\n", f"\ndata: {spelling}\n"), encoding="utf-8")
 
 
+def _set_template(repo: Path, spelling: str) -> None:
+    """Declare one service, ``svc``, whose template is *spelling*."""
+    profile = repo / PROFILE_FILENAME
+    text = profile.read_text(encoding="utf-8")
+    assert "\nservices: {}\n" in text
+    profile.write_text(
+        text.replace("\nservices: {}\n", f"\nservices:\n  svc:\n    template: {spelling}\n"),
+        encoding="utf-8",
+    )
+
+
 def _extends_outside(repo: Path) -> Path:
     """Make the repo's profile extend a base beside the repository; return the base."""
     base = repo.parent / "site-base.yml"
@@ -68,6 +79,15 @@ def _data_outside(repo: Path) -> Path:
     (repo / "data").rename(outside)
     _set_data(repo, "../data")
     return outside
+
+
+def _template_outside(repo: Path) -> Path:
+    """Put a service template beside the repository and name it ``../svc``; return it."""
+    template = repo.parent / "svc"
+    template.mkdir()
+    (template / "docker-compose.yml.j2").write_text("services: {}\n", encoding="utf-8")
+    _set_template(repo, "../svc")
+    return template
 
 
 def _outside(repo: Path) -> tuple[Any, ...]:
@@ -134,6 +154,18 @@ def test_validate_refuses_an_outside_data_tree(repo: Path) -> None:
     ) in result.output
 
 
+def test_validate_refuses_an_outside_service_template(repo: Path) -> None:
+    template = _template_outside(repo)
+
+    result = CliRunner().invoke(cli, ["validate", "--repo", str(repo)])
+
+    assert result.exit_code != 0, result.output
+    assert (
+        f"services.svc.template: ../svc resolves to {template.resolve().as_posix()}, "
+        f"outside the repository. {REMEDY}"
+    ) in result.output
+
+
 def test_facility_validate_refuses_an_outside_extends(repo: Path) -> None:
     base = _extends_outside(repo)
 
@@ -143,7 +175,7 @@ def test_facility_validate_refuses_an_outside_extends(repo: Path) -> None:
     assert base.resolve().as_posix() in result.output
 
 
-@pytest.mark.parametrize("make_outside", [_extends_outside, _data_outside])
+@pytest.mark.parametrize("make_outside", [_extends_outside, _data_outside, _template_outside])
 def test_build_refuses_an_outside_input_before_the_venv(
     repo: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -185,3 +217,18 @@ def test_a_repository_built_from_a_clone_images_every_input_its_stamp_folds(
 
     assert folded
     assert folded <= imaged
+
+
+def test_an_in_repo_service_template_builds_and_is_imaged(repo: Path) -> None:
+    from osprey.cli.build_cmd import _image_build_inputs
+
+    template = repo / "svc"
+    template.mkdir()
+    (template / "docker-compose.yml.j2").write_text("services: {}\n", encoding="utf-8")
+    _set_template(repo, "svc")
+
+    result = run_build(repo)
+
+    assert result.exit_code == 0, result.output
+    imaged = {(repo.resolve() / path) for path in _image_build_inputs(repo)}
+    assert template.resolve() in imaged

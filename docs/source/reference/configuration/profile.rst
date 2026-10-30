@@ -722,9 +722,11 @@ alongside OSPREY's built-in ones.
          port: 8108
          api_key: "${TYPESENSE_API_KEY}"
 
-The ``template`` directory must contain at least ``docker-compose.yml.j2``. It is
-copied into the project's ``services/`` tree, and the service is registered in
-``config.yml``. Optional ``config`` values land under ``services.<name>``.
+The ``template`` directory must contain at least ``docker-compose.yml.j2``. A
+profile-relative template must resolve inside the repository (one outside is
+refused, see :ref:`profile-self-contained`), and its contents are folded into the
+profile hash. It is copied into the project's ``services/`` tree, and the
+service is registered in ``config.yml``. Optional ``config`` values land under ``services.<name>``.
 
 A service directory placed in the profile's ``services/`` convention directory is
 carried across the same way and marked as yours — that is what

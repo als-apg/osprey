@@ -277,3 +277,45 @@ def test_the_documents_are_the_root_profile_and_its_extends_files(tmp_path):
         *document.extends_files,
     ]
     assert [entry.key for entry in documents] == ["profile.yml", "site-base.yml"]
+
+
+def _service_profile(root: Path, template: str) -> Path:
+    _write(root / "svc" / "docker-compose.yml.j2", "services: {}\n")
+    return _write(
+        root / "profile.yml", f"name: Facility\nservices:\n  svc:\n    template: {template}\n"
+    )
+
+
+def test_a_profile_service_template_is_a_material_input(tmp_path):
+    """A profile-relative template is material; a bundled ``osprey.<name>`` one is not."""
+    from osprey.cli.build_profile_document import _read_profile_document
+    from osprey.cli.build_profile_merge import (
+        ProfileInputRole,
+        profile_inputs,
+        resolve_profile_document,
+    )
+
+    def service_entries(profile: Path) -> list:
+        document = resolve_profile_document(_read_profile_document(profile), profile, warn=False)
+        return [
+            entry
+            for entry in profile_inputs(profile, document)
+            if entry.label is not None and entry.label.startswith("services.")
+        ]
+
+    root = tmp_path / "facility"
+    entries = service_entries(_service_profile(root, "svc"))
+
+    assert [(entry.key, entry.label, entry.path, entry.role) for entry in entries] == [
+        ("svc/", "services.svc.template", root / "svc", ProfileInputRole.MATERIAL)
+    ]
+    assert service_entries(_service_profile(tmp_path / "bundled", "osprey.postgresql")) == []
+
+
+def test_editing_an_in_repo_service_template_moves_the_hash(tmp_path):
+    profile = _service_profile(tmp_path / "facility", "svc")
+    before = compute_profile_hash(profile)
+
+    _write(profile.parent / "svc" / "docker-compose.yml.j2", "services:\n  svc: {}\n")
+
+    assert compute_profile_hash(profile) != before
