@@ -150,6 +150,17 @@ UNCOVERED_FRACTION = 0.05
 _SEED_REPORT_RE = re.compile(r"seeded ([\d,]+) documents x ([\d,]+) channels .* in ([\d.]+)s")
 _SEED_PROGRESS_RE = re.compile(r"seeding archive: [\d,]+ documents written")
 
+# Every step line the seed reports, announcement to report, with the lap the phase
+# reporter stamps on the end of each: the time since the step before it. Bounded
+# on both sides because normalized output is one long line, so nothing here may
+# run on into whatever the deploy said next.
+_SEED_STEP_RE = re.compile(
+    r"(?:seeding the archive base: [\d,]+ channels over \d+ days \([^()]*\)"
+    r"|seeding archive: [\d,]+ documents written across [\d,]+ channels"
+    r"|archive base: seeded [\d,]+ documents x [\d,]+ channels \([^()]*\) in [\d.]+s)"
+    r"(?: \([^()]*\))?"
+)
+
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 
 # The recorder announces each enablement transition with exactly one line, and
@@ -168,6 +179,11 @@ _RECORDER_RECORDING_RE = re.compile(r"Recording \d+ channels every \d+s")
 def _normalize(text: str) -> str:
     """Strip ANSI and fold every run of whitespace, so wrapped log lines rejoin."""
     return re.sub(r"\s+", " ", _ANSI_RE.sub("", text))
+
+
+def _seed_steps(output: str) -> str:
+    """The seed's step lines out of NORMALIZED deploy output, one per line."""
+    return "\n".join(_SEED_STEP_RE.findall(output)) or "(no seed step lines)"
 
 
 def _profile_edits() -> dict[str, Any]:
@@ -598,14 +614,19 @@ def test_base_seed_completes_within_budget_and_reports_progress(archiver_world):
     assert elapsed_s <= SEED_BUDGET_SEC, (
         f"base seed took {elapsed_s:.1f}s at default knobs, over the "
         f"{SEED_BUDGET_SEC:.0f}s budget this lane owns "
-        f"({documents:,} documents x {channels:,} channels)"
+        f"({documents:,} documents x {channels:,} channels)\n"
+        # The laps are what tell the two failures apart: one long lap is a stall
+        # and names where it sits, even laps are a seed that is simply this slow.
+        f"--- seed steps, each with the lap since the one before ---\n{_seed_steps(output)}"
     )
     assert _SEED_PROGRESS_RE.search(output), (
         "seed emitted no progress lines; a silent multi-minute step reads as a hang"
     )
+    # The steps on a green run too, so a failure has a normal run to be read against.
     print(
         f"\nMEASURED base seed: {elapsed_s:.1f}s of the {SEED_BUDGET_SEC:.0f}s budget "
-        f"({documents:,} documents x {channels:,} channels)"
+        f"({documents:,} documents x {channels:,} channels)\n"
+        f"--- seed steps, each with the lap since the one before ---\n{_seed_steps(output)}"
     )
 
 
