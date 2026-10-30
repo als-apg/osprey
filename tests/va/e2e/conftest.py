@@ -150,7 +150,9 @@ def _render_limits_view() -> Path:
 
 # import-time required because lanes read the bands at import
 # (``LIMITS_OVERRIDES`` in test_limits_enforcement), before any fixture runs.
-LIMITS_DB_PATH = _render_limits_view()
+# Unset, every lane skips and nothing reads the file, so collection does not
+# pay for a facility build in every worker.
+LIMITS_DB_PATH = _render_limits_view() if E2E_ENABLED else Path("unrendered-limits-view.json")
 OSPREY_CLI = REPO_ROOT / ".venv" / "bin" / "osprey"
 
 #: The instance every container of this suite serves as, and the ``docker
