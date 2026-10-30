@@ -1475,15 +1475,23 @@ class ConfigKeyGuard:
         green light wired to nothing. Four of the manifest's first 22 were
         exactly that. Both sides are measured with this module's own matcher so
         the comparison cannot drift on engine semantics.
+
+        The verdict needs only whether each side matches, which the engine
+        answers at the first hit; the counts the failure prints are taken only
+        for a regex that fails.
         """
         for key, sites in self.manifest["orphan_sites"].items():
             for site in sites:
                 pattern = site["regex"]
                 roots = self.site_roots(site)
-                base_hits = sum(
-                    self.count_matches(pattern, self._base_text(commit, root)) for root in roots
-                )
-                branch_hits = sum(self.count_matches(pattern, self.joined(root)) for root in roots)
+                base_texts = [self._base_text(commit, root) for root in roots]
+                branch_texts = [self.joined(root) for root in roots]
+                if any(self.has_match(pattern, text) for text in base_texts) and not any(
+                    self.has_match(pattern, text) for text in branch_texts
+                ):
+                    continue
+                base_hits = sum(self.count_matches(pattern, text) for text in base_texts)
+                branch_hits = sum(self.count_matches(pattern, text) for text in branch_texts)
                 if base_hits < 1 or branch_hits != 0:
                     self.fail(
                         "back-test",
